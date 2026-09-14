@@ -1,0 +1,84 @@
+@* Enrollment tokens of a site: status and revoke. New tokens are created with Add endpoint. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Enrollment tokens · @SiteName</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_tokens.Count == 0)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.Key" Title="No enrollment tokens"
+                        Text="Use Add endpoint to create a token and get a one-line install command for this site." />
+        }
+        else
+        {
+            <MudTable Items="_tokens" Dense="true" Elevation="0">
+                <HeaderContent>
+                    <MudTh>Name</MudTh>
+                    <MudTh>Created</MudTh>
+                    <MudTh>Expires</MudTh>
+                    <MudTh>Uses</MudTh>
+                    <MudTh>Status</MudTh>
+                    @if (CanManage)
+                    {
+                        <MudTh></MudTh>
+                    }
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd>@context.Name</MudTd>
+                    <MudTd><TimeText Value="context.CreatedAt" /></MudTd>
+                    <MudTd><TimeText Value="context.ExpiresAt" /></MudTd>
+                    <MudTd>@context.UseCount of @(context.MaxUses?.ToString() ?? "unlimited")</MudTd>
+                    <MudTd><StatusChip Text="@context.Status" Kind="@(context.Status == "Active" ? StatusKind.Ok : StatusKind.Neutral)" /></MudTd>
+                    @if (CanManage)
+                    {
+                        <MudTd>
+                            @if (context.Status == "Active")
+                            {
+                                <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" Disabled="_busy"
+                                           OnClick="@(() => RevokeAsync(context))">Revoke</MudButton>
+                            }
+                        </MudTd>
+                    }
+                </RowTemplate>
+            </MudTable>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public string SiteName { get; set; } = string.Empty;
+    [Parameter] public bool CanManage { get; set; }
+    [Parameter] public IReadOnlyList<EnrollmentTokenListItem> Tokens { get; set; } = [];
+
+    /// <summary>Revokes a token after confirmation and returns the refreshed list, or null when nothing changed.</summary>
+    [Parameter] public Func<EnrollmentTokenListItem, Task<IReadOnlyList<EnrollmentTokenListItem>?>> OnRevoke { get; set; } = _ => Task.FromResult<IReadOnlyList<EnrollmentTokenListItem>?>(null);
+
+    private IReadOnlyList<EnrollmentTokenListItem> _tokens = [];
+    private bool _busy;
+
+    protected override void OnInitialized() => _tokens = Tokens;
+
+    private async Task RevokeAsync(EnrollmentTokenListItem token)
+    {
+        _busy = true;
+        try
+        {
+            if (await OnRevoke(token) is { } refreshed)
+            {
+                _tokens = refreshed;
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void Close() => MudDialog.Close(DialogResult.Ok(true));
+}

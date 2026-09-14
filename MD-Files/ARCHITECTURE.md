@@ -2,8 +2,9 @@
 
 > Technical reference for Fleeto (internal: Fleetify). Rules and priorities live in
 > `CLAUDE.md` in the repository root; this file describes how the system is put together.
-> Status: design, nothing built yet. Sections marked *decision pending* point to the open
-> decisions in `CLAUDE.md`.
+> Status: 0.0.x and 0.1.0 implemented (agent enrollment, gateway, signer, workers, web UI,
+> licensing, backups); later sections (jobs, scripts, remote control, public API, integrations)
+> are design. Sections marked *decision pending* point to the open decisions in `CLAUDE.md`.
 
 ## 1. Deployment topology
 
@@ -25,7 +26,6 @@ Instances share nothing else: separate Docker networks, volumes and secret files
                      │  │ fleetify-signer            │   │ fleetify-signer            │     │
                      │  │ fleetify-workers           │   │ fleetify-workers           │     │
                      │  │ postgres + TimescaleDB     │   │ postgres + TimescaleDB     │     │
-                     │  │ valkey                     │   │ valkey                     │     │
                      │  └────────────────────────────┘   └────────────────────────────┘     │
                      └──────────────────────────────────────────────────────────────────────┘
                                          │ encrypted backups (write-only)
@@ -38,13 +38,13 @@ Inside one instance:
 ```
 [agents] --mTLS WebSocket (SNI passthrough)--> [fleetify-gateway] --batch write, then ack--> [postgres + TimescaleDB]
                                                   │        │                                        ^      ^   ^
-                                                  │        └─ notify ─> [valkey] ─> [fleetify-workers] ─┘      │   │
+                                                  │        └─ NOTIFY (postgres) ─> [fleetify-workers] ─┘       │   │
                                                   └── remote control relay (ciphertext only)                   │   │
 [integrations: Action1, Sophos, Veeam, Proxmox, vCenter] --> [poller workers] ─────────────────────────────────┘   │
                                                                                                                    │
 [browser, API clients] --HTTPS--> [caddy] --> [fleetify-web: Blazor Server UI + public REST API] <─────────────────┤
                                                      ^                                                             │
-                                                     +-- pub/sub (valkey) for live status                          │
+                                                     +-- LISTEN/NOTIFY (postgres) for live status                  │
                                                                                                                    │
                                               [fleetify-signer] ── LISTEN/NOTIFY, no listening port ───────────────┘
 ```
@@ -53,11 +53,10 @@ Inside one instance:
 |---|---|---|---|
 | **caddy** | VPS | Reverse proxy, automatic TLS | One per VPS, built with the layer4 module. Terminates TLS for the UI and API of every instance, so it holds the TLS private keys and ACME account for every FQDN on the VPS (see §5). Agent traffic to `agents.<fqdn>` is passed through by SNI to the instance gateway and never decrypted, so mTLS stays end to end between agent and gateway. |
 | **fleetify-web** | instance | Blazor Server UI and public REST API (.NET, MudBlazor) | Follows the Migrify project layout and conventions. Cannot sign anything an agent executes. |
-| **fleetify-gateway** | instance | Agent connection endpoint and remote control relay | Persistent WebSocket over mTLS for online state, command push and check results. Checks certificate revocation on every connection. Acks agent data only after it is written to Postgres. Target: 10,000 concurrent connections on modest hardware. Language: *decision pending* (.NET vs Go). |
+| **fleetify-gateway** | instance | Agent connection endpoint and remote control relay | Persistent WebSocket over mTLS for online state, command push and check results. Checks certificate revocation on every connection. Acks agent data only after it is written to Postgres. Target: 10,000 concurrent connections on modest hardware. Language: .NET (decided in 0.1.0). |
 | **fleetify-signer** | instance | Signs everything that establishes trust with agents | Holds the instance signing key and the internal CA key, decrypted with its own signer key that no other container mounts. No listening port: it picks up signing requests from the database. Re-checks role, tier, script approval and validity window before signing. See §5. |
 | **fleetify-workers** | instance | Background jobs | Check evaluation, alerting, integration pollers, Action1 patch orchestration, retention cleanup, backups, license checks. |
-| **postgres** | instance | PostgreSQL 16 + TimescaleDB | The only durable store. Relational data plus hypertables for check results and metrics plus log storage with full-text search. One database role per container with only the grants that container needs. |
-| **valkey** | instance | Queues, pub/sub, short-lived caches | Never the only copy of anything. Losing valkey delays alerts and live updates; it never loses data. |
+| **postgres** | instance | PostgreSQL 17 + TimescaleDB | The only durable store. Relational data plus hypertables for check results and metrics plus log storage with full-text search. One database role per container with only the grants that container needs. LISTEN/NOTIFY carries cross-container notifications (ids only); every subscriber also catches up from the tables, so a lost notification delays work and never loses it. No Valkey: the signer may only talk to the database, so database notifications are needed anyway. |
 
 Rationale for one database engine: operational simplicity on a single VPS beats a
 polyglot stack. TimescaleDB compression and continuous aggregates cover metrics;
@@ -92,7 +91,7 @@ AuditEntry (append-only)
 | Entity | Key fields | Notes |
 |---|---|---|
 | **Client** | `Id`, `Code` (unique, uppercase), `Name`, `CreatedAt` | Tenant boundary inside the instance. Every client-owned table carries its own `ClientId`, denormalized on purpose (see the rule below the table), and every query filters on it. |
-| **Site** | `Id`, `ClientId`, `Name`, `Description` | Groups endpoints. Holds the links to policies and monitoring templates. Enrollment tokens belong to a site. |
+| **Site** | `Id`, `ClientId`, `Name`, `Description` | Groups endpoints. Holds the link to at most one policy (without one the instance default policy applies) and to any number of monitoring templates. Enrollment tokens belong to a site. |
 | **Endpoint** | `Id`, `ClientId`, `SiteId`, `Hostname`, `Class` (`workstation`/`server`), `ClassOverride`, `Tier` (`agent_only`/`managed`), `Os`, `AgentVersion`, `LastSeenAt`, `Source` (`agent`/`integration`) | Endpoints without an agent exist only for hypervisor inventory (ESXi hosts and VMs from vCenter or Proxmox). `Tier` gates every feature server-side. |
 | **AgentCertificate** | `Id`, `ClientId`, `EndpointId`, `Fingerprint`, `IssuedAt`, `ExpiresAt`, `RevokedAt?`, `RevokedBy?`, `RevokedReason?` | One row per issued certificate, renewals included. The gateway refuses every certificate with `RevokedAt` set. |
 | **Policy** | `Id`, `ClientId?`, `Name`, settings | Agent behaviour: intervals, patch behaviour, update ring, script permissions and **script approval required**, remote control rules (consent, recording), maintenance windows. `ClientId` null = global. |
@@ -128,7 +127,10 @@ Three kinds of tables:
 
 - **Client-owned** (`ClientId` required): Site, Endpoint, AgentCertificate, Job,
   JobOutputChunk, Alert, Note, InventorySnapshot, RemoteSession, CheckResult,
-  IntegrationMapping. Consistency by composite foreign key, as above.
+  IntegrationMapping. Consistency by composite foreign key, as above. One documented
+  exception: CheckResult (the hypertable) has no foreign keys, for ingest speed and because
+  compressed chunks and cascading deletes do not mix well. The gateway takes its ClientId from
+  the endpoint row, and the workers purge results of deleted endpoints.
 - **Global or client-specific** (`ClientId` nullable, null = global): Policy,
   MonitoringTemplate, CheckDefinition, Script, ScriptVersion. A child always carries the
   same `ClientId` as its parent (a CheckDefinition that of its MonitoringTemplate, a
@@ -174,8 +176,9 @@ Three kinds of tables:
   only after the gateway acknowledges its sequence number. Every interval gets per-agent
   random jitter so 10,000 agents never fire in the same second.
 - Reconnect with exponential backoff plus jitter.
-- Wire format: length-prefixed protobuf over the WebSocket, batched. Never one HTTP request
-  per check result.
+- Wire format: protobuf over the WebSocket, one message per binary WebSocket frame (the frame is
+  the length prefix), results batched. Never one HTTP request per check result. Contract:
+  `src/Fleetify.Protocol/Protos/agent.proto`.
 - Endpoint class detection: Windows Server / Linux without a desktop session / ESXi guests
   flagged as servers → `server`; everything else → `workstation`. The technician can override.
 
@@ -184,8 +187,11 @@ Three kinds of tables:
 **Enrollment.** Technician creates an enrollment token for a site (expiring, revocable,
 optionally single-use, stored hashed). The UI produces a one-line install command that
 embeds the instance FQDN, the token and the SHA-256 fingerprint of the instance CA
-certificate. The agent installs, generates its key pair, connects to `agents.<fqdn>` and
-refuses to continue unless the gateway's certificate chains to a CA with that fingerprint
+certificate. The agent installs and generates its key pair → fetches `GET /v1/ca` from
+`agents.<fqdn>` without sending anything secret and keeps only the CA certificate whose SHA-256
+equals the install fingerprint (TLS stacks leave a self-signed root out of the handshake, so the
+CA cannot come from the chain) → opens a new connection verified normally against that CA as
+the only root and for the agent host name, and refuses to continue otherwise
 → sends a certificate signing request with the token → gateway checks the token hash and
 writes a `SigningRequest` → signer checks the token again, issues a 90-day certificate from
 the internal CA and records an `AgentCertificate` → the gateway returns the certificate, the
@@ -204,10 +210,12 @@ one is not revoked → the old one expires on its own.
 **Endpoint removal and agent revocation.** Technician deletes an endpoint or clicks Revoke
 agent (for a stolen laptop, a decommissioned machine, a suspected clone) → `RevokedAt` is
 set on all of its certificates and an audit entry is written → the revocation is published
-over pub/sub and the gateway closes the live connection at once → every new TLS handshake
-checks the revocation set. The gateway keeps that set in memory, loaded from the database
-at start, updated over pub/sub and fully reloaded every minute; a gateway that has not
-loaded it accepts no agent connections. A revoked agent cannot renew and has to enroll
+as a database notification and the gateway closes the live connection at once → every new TLS
+handshake checks the allow list: a certificate is accepted only when it was issued, is not
+revoked and has not expired, so a deleted endpoint (whose certificate rows cascade away) can
+never reconnect. The gateway keeps the allow list in memory, loaded from the database at start,
+updated on notification and fully reloaded every minute; a gateway that has not loaded it
+accepts no agent connections. A revoked agent cannot renew and has to enroll
 again with a new token.
 
 **Duplicate agent identity.** A second connection with a certificate that already has a
@@ -220,8 +228,8 @@ bulk → web checks the license pool (`ManagedEndpointCount` minus endpoints alr
 → refuses with a clear message when the pool is empty → otherwise sets `Tier = managed`,
 requests signatures for the site policy and check definitions, pushes them to the agent,
 writes an audit entry. License allocation is serialized: the pool check and the tier change
-run in one transaction that first locks the instance's `License` row (`SELECT ... FOR
-UPDATE`), so two concurrent requests can never both take the last free license. A bulk
+run in one transaction that first takes a transaction-scoped advisory lock
+(`pg_advisory_xact_lock`), so two concurrent requests can never both take the last free license. A bulk
 switch is all or nothing: when the pool is too small, nothing changes and the message says
 how many licenses are missing. A concurrency test proves it. Switching back to agent-only removes policy and checks from the
 agent, closes its open alerts as "endpoint no longer managed" and frees the license.
@@ -230,10 +238,11 @@ agent, closes its open alerts as "endpoint no longer managed" and frees the lice
 sequence number → gateway validates the client certificate (revocation included) and stamps
 ingest time → writes the batch to the hypertable in one transaction, deduplicated on
 endpoint and sequence number → acknowledges the sequence number → agent removes the batch
-from disk → gateway publishes a notification on valkey → worker evaluates thresholds,
-opens/updates/closes alerts → publishes the status change over pub/sub → the UI updates
-without polling. When valkey is down, workers catch up from the database from their last
-watermark: alerts are late, nothing is lost. When Postgres is down, the gateway does not
+from disk → gateway raises a database notification with the endpoint id → worker evaluates
+thresholds, opens/updates/closes alerts → notifies the status change → the UI updates without
+polling. Workers keep a cursor per endpoint (result ids are monotonic per endpoint because an
+agent sends one batch at a time, but not globally in commit order) and sweep for endpoints with
+newer results, so a lost notification makes alerts late and loses nothing. When Postgres is down, the gateway does not
 acknowledge and agents keep buffering on disk.
 
 **Job.** Technician starts a script or patch action, picks the targets and a validity window
@@ -352,8 +361,11 @@ Per instance, on the VPS
   signing key rotates by announcing the new public key to agents in a message signed by
   the old key. All rotations are audited.
 - Decided: the root key and the signer key live in Docker secret files on the VPS,
-  generated by `install.sh`, root-owned, mode 0600, each with an offline backup made during
-  the key ceremony.
+  generated by `install.sh`, each with an offline backup made during the key ceremony. Compose
+  mounts file secrets as bind mounts that keep the host owner and mode, so the files are
+  `0440 root:10001` (10001 is the container user) inside a `secrets/` directory with mode
+  `0700 root`: no other account on the VPS can reach them, and each file is mounted only into the
+  containers that need it.
 
 ### Signing: release key versus instance key
 
@@ -392,9 +404,13 @@ container:
 ### Agent identity and revocation
 
 - Per-agent certificates, 90 days, automatic renewal, TPM-backed keys where available (§3).
-- Revocation is a deny list in the database (`AgentCertificate.RevokedAt`), checked by the
-  gateway on every handshake and pushed to live connections at once. No CRL or OCSP
-  infrastructure. Deleting an endpoint revokes its certificates.
+- Revocation uses an allow list in the database (`AgentCertificates`: issued, `RevokedAt` null,
+  not expired), checked by the gateway on every handshake and pushed to live connections at
+  once. No CRL or OCSP infrastructure. Deleting an endpoint removes its certificates, so it can
+  never reconnect.
+- Certificates (internal CA, agents, gateway) use ECDSA P-256: Windows SChannel and the Windows
+  platform key store do not support ed25519 certificates in TLS. Every application signature
+  (configurations, licenses, releases) is ed25519.
 - A certificate connecting twice at the same time is refused and raises an alert (§4).
 - The gateway has no persistent private key: at start it generates one in memory and gets a
   24-hour server certificate for `agents.<fqdn>` from the signer, renewed well before expiry.
@@ -501,7 +517,8 @@ container:
   encrypted secrets and does not mount the root key.
 - Every privileged action writes an `AuditEntry`; the table has no update or delete path.
 - Per-endpoint rate limiting, strict input validation, parameterized queries only, CSP
-  without unsafe-inline, TOTP 2FA for every user, API keys hashed and scoped.
+  with a per-request nonce and without unsafe-inline for scripts (styles allow inline because
+  MudBlazor renders style attributes), TOTP 2FA for every user, API keys hashed and scoped.
 - Cross-client isolation is enforced in the data layer (global query filters on the
   `ClientId` that every client-owned table carries, composite foreign keys that keep it
   consistent, see §2) and proven by tests that attempt cross-client reads.
@@ -556,11 +573,15 @@ layer4 module, admin API on a local socket) with an empty routing table → crea
 New instance: ask for or take the FQDN → check that both the FQDN and `agents.<fqdn>`
 resolve to this VPS (fail early with the DNS records to create) → derive the instance name
 from the FQDN → create `/opt/fleetify/<instance>/` with Compose files → generate the root
-key, signer key and DB passwords into `/opt/fleetify/<instance>/secrets/` (root, 0600,
-never part of a backup) → verify the release manifest and pull images by digest → run
-migrations → start the stack → the signer creates the instance signing key and internal CA
-→ add the HTTPS route for the FQDN and the SNI passthrough route for `agents.<fqdn>` to
-Caddy → print the URL, the one-time first-admin setup link and a reminder to run the key
+key, signer key and DB passwords into `/opt/fleetify/<instance>/secrets/` (see Keys for
+ownership and modes; never part of a backup) → verify the release manifest and pull images by
+digest → run migrations → start the stack → the signer creates the instance signing key and
+internal CA → regenerate the host Caddyfile from all instances: the layer4 module runs as a
+listener wrapper on Caddy's own :443 server, sends `tls sni agents.<fqdn>` untouched to the
+gateway's loopback port and lets everything else fall through to Caddy's TLS, which serves the
+FQDN with HSTS and proxies to the web's loopback port (no second internal hop, no PROXY
+protocol; real client IPs reach the web) → print the URL, the one-time first-admin setup link
+and a reminder to run the key
 ceremony (offline copies of root key and signer key, backup key pair). First-admin setup
 asks for the backup destination and the backup public key.
 
@@ -568,7 +589,14 @@ Update run for an instance: verify the new release manifest → detect installed
 back up the database (kept locally, 0600, until the next successful update; the nightly
 off-VPS backup is separate) → pull the requested images by digest → run migrations →
 restart the stack → health check → on failure roll back to the previous images.
-`install.sh --all` updates every instance on the VPS in turn.
+`install.sh --all` updates every instance on the VPS in turn. Operational details (VPS
+requirements, DNS, networks, restore outline, per-instance footprint) are in `deploy/README.md`;
+release signing steps in `deploy/RELEASING.md`.
+
+**Local development** needs no Docker: `tools/dev/setup-dev.ps1` creates the roles, database,
+secrets and development keys against a local PostgreSQL 17, and `tools/dev/start-dev.ps1` runs
+signer, gateway, workers and web as plain processes. Without TimescaleDB the check results
+table stays a plain table and the workers enforce retention with deletes.
 
 **Migration compatibility policy.** Image rollback only works if the previous release still
 runs on the migrated schema, so migrations follow **expand/contract**:
@@ -588,22 +616,31 @@ Agents self-update from their instance, staged by update ring from the site poli
 instance only distributes the binaries; the agent installs one only when its signature
 verifies against a Steaan release public key compiled into the agent.
 
-## 8. Repository layout (planned)
+## 8. Repository layout
 
 ```
-/CLAUDE.md                 rules, priorities, conventions, product model
-/MD-Files/                 the rest of the documentation set (this folder)
-/src/Fleetify.Web/         Blazor Server UI + public REST API
-/src/Fleetify.Core/        domain model, services, interfaces, license and tier checks
-/src/Fleetify.Infrastructure/  EF Core, TimescaleDB, valkey, integrations
-/src/Fleetify.Workers/     background jobs
-/src/Fleetify.Signer/      signing service: instance signing key, internal CA, signing rules
-/src/Fleetify.Gateway/     agent endpoint and remote control relay (language decision pending)
-/agent/                    Go agent (one module, per-platform builds, remote control per platform)
-/tests/                    unit, integration, cross-client, tier enforcement, signer rules, load test (Fleetify.LoadTest)
-/deploy/                   Compose templates, host Caddyfile, install.sh
-/.github/workflows/        CI: build, test, vulnerability scan, secret scan, branding grep
+/CLAUDE.md                     rules, priorities, conventions, product model
+/MD-Files/                     the rest of the documentation set (this folder)
+/Fleetify.slnx                 solution; Directory.Build.props and Directory.Packages.props hold shared settings
+/src/Fleetify.Core/            domain model, enums, pure domain rules (tiers, licensing, check evaluation), interfaces
+/src/Fleetify.Protocol/        agent protocol v1 (agent.proto) and generated C#
+/src/Fleetify.Infrastructure/  EF Core model and migrations, grants, crypto, CA, licensing, notifications, shared services
+/src/Fleetify.Web/             Blazor Server UI (public REST API from 0.2.0)
+/src/Fleetify.Gateway/         agent endpoint (.NET): enrollment, mTLS WebSocket sessions, ingest; remote control relay later
+/src/Fleetify.Signer/          signing service: instance signing key, internal CA, signing rules
+/src/Fleetify.Workers/         background jobs: config fan-out, check evaluation, alerts, email, license, backups, retention
+/src/Fleetify.Tools/           fleetify-tool: migrate, license, release and backup key utilities
+/agent/                        Go agent (one module, per-platform builds)
+/tests/Fleetify.Testing/       shared test fixture: a real PostgreSQL database per test project
+/tests/Fleetify.*.Tests/       unit and integration tests per component, cross-client and tier enforcement tests
+/tests/Fleetify.LoadTest/      simulator for 10,000 agents
+/tools/dev/                    local development without Docker: setup-dev.ps1, start-dev.ps1, build-agent.ps1
+/deploy/                       Compose stack, host Caddy, install.sh (Dockerfiles live next to each project)
+/.github/workflows/            CI: build, test, vulnerability scan, secret scan, branding grep
 ```
+
+The gateway is .NET (decided for 0.1.0): it shares the domain model, EF Core and tier
+enforcement with the rest of the server. `Fleetify.LoadTest` provides the 10,000-connection evidence.
 
 ## 9. Integrations
 

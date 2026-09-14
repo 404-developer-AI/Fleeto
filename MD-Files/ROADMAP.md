@@ -3,56 +3,79 @@
 > Planned versions and what each one delivers. Version rules are in `CLAUDE.md`
 > (Versioning and changelog). Scope per version is a target, not a promise: a version
 > ships when its items are done and tested, and items may move between versions. Dates
-> are added only once a version is in progress. This is a first draft, still to be
-> confirmed by the developer.
+> are added only once a version is in progress.
 
 ## Current
 
-**0.0.0** — documentation only. No code.
+**0.1.0** — implemented and tested on a development PC, waiting for the developer's local test.
+Not tagged yet. What is still open before the tag is listed under "Open before tagging 0.1.0".
 
-## 0.0.x — Foundation (patch releases towards 0.1.0)
+Markers: [done] built and tested, [open] still to do.
 
-Each item below is a patch release on its own, or a few of them together.
+## 0.0.x — Foundation
 
-- Private GitHub repository, `.gitignore`, secret scanning, CI skeleton (build, test).
-- Solution skeleton following the Migrify layout: Web, Core, Infrastructure, Workers.
-- PostgreSQL + TimescaleDB schema and first migrations; Compose stack that starts locally.
-- Root key, envelope encryption, encrypted secrets table, audit log, one database role per
-  container.
-- `Fleetify.Signer`: signer key, instance signing key, internal CA, signing requests over
-  LISTEN/NOTIFY, signing rules with tests.
-- Release signing: Steaan release key on a hardware token, signed release manifest with image
-  digests, signed `install.sh`.
-- Users, roles, login, TOTP 2FA, first-admin setup flow (including backup destination and
-  backup public key).
-- Clients (code + name), sites, endpoints: CRUD, list views, tabs Workstations / Servers / Mixed.
-- Client templates, monitoring templates, policies: CRUD, linking to sites, copy of a template.
-- Endpoint tier (agent-only / managed) in the model with server-side enforcement; license
-  document format, signing tool for Steaan, license page in Settings, pool counting, 14-day
-  grace period after expiry.
-- `install.sh` first version: signature and manifest verification, host prerequisites,
-  instance creation with FQDN prompt and DNS check (FQDN and `agents.<fqdn>`), host Caddy
-  with HTTPS routing and SNI passthrough for agents, update, `--version`, `--check`, `--list`.
-- Load-test simulator scaffold (`Fleetify.LoadTest`).
+Built together with 0.1.0 in one piece of work, without separate patch releases.
+
+- [done] Private GitHub repository, `.gitignore`, CI (build, tests against PostgreSQL + TimescaleDB,
+  vulnerability scans, gitleaks secret scan, branding check, shellcheck, image builds).
+- [done] Solution following the Migrify conventions: Core, Protocol, Infrastructure, Web, Gateway,
+  Signer, Workers, Tools, shared test fixture.
+- [done] PostgreSQL 17 schema and migrations; TimescaleDB hypertable when the extension is installed.
+  Local development without Docker (`tools/dev`); the Compose stack is for the VPS.
+- [done] Root key, envelope encryption, encrypted settings, append-only audit log, one database role
+  per container with least-privilege grants.
+- [done] `Fleetify.Signer`: signer key, instance signing key, internal CA, signing requests over
+  LISTEN/NOTIFY, signing rules with tests, role check on who may request which signature.
+- [done] Release signing tooling: release key, signed release manifest with image digests, signed
+  `install.sh` (verifiable with openssl). [open] Production key on a hardware token.
+- [done] Users, roles, login, mandatory TOTP 2FA, first-admin setup flow with backup step.
+- [done] Clients, sites, endpoints: CRUD, clients workspace (clients panel, endpoint list with tabs Servers / Workstations / Mixed, endpoint detail below the list), collapsible navigation.
+- [done] Client templates, monitoring templates, policies: CRUD, linking to sites, copy.
+- [done] Endpoint tier with server-side enforcement in four layers; license format, signing tool,
+  license page, pool counting with serialized allocation, 14-day grace period.
+- [done] `install.sh` first version (signature and manifest verification, Docker, DNS check, host
+  Caddy with SNI passthrough, update with rollback, `--version`, `--check`, `--list`, `--all`).
+  [open] Never run on a real VPS yet.
+- [done] Load-test simulator (`Fleetify.LoadTest`).
 
 ## 0.1.0 — First usable release
 
-- Go agent for Windows: enrollment with per-site token, CA fingerprint pinning and mTLS
-  certificate (TPM-backed key where available), certificate renewal, heartbeat,
-  online/offline state, inventory (hardware, OS, software). Agent-only tier complete.
-- Certificate revocation: deny list checked on every connection, live disconnect, revoke on
+- [done] Go agent for Windows: enrollment with per-site token and CA fingerprint pinning, mTLS
+  certificate with TPM-backed key where available, renewal, heartbeat, online/offline state,
+  inventory (hardware, OS, software), Windows service install. Agent-only tier complete.
+- [done] Certificate revocation: allow list checked on every connection, live disconnect, revoke on
   endpoint deletion, duplicate identity detection.
-- Gateway at production quality for the chosen language; benchmark at 10,000 connections.
-- Managed tier: basic checks from the monitoring template (CPU, memory, disk, service
-  state, uptime) with per-check intervals and jitter, offline buffering, acknowledgement only
-  after the batch is written to Postgres.
-- Alerting: open, acknowledge, close, deduplicate; email notifications.
-- Dashboard with tiles (including license usage) and open alerts, live updates via pub/sub.
-- Two instances on one VPS running side by side, each on its own FQDN.
-- Key ceremony documented and rehearsed (release and license keys, root key, signer key,
+- [done] Gateway in .NET. [open] Benchmark at 10,000 connections (tested with 200 simulated agents).
+- [done] Managed tier: CPU, memory, disk, service and uptime checks with per-check intervals and
+  jitter, offline buffering, acknowledgement only after the batch is written to Postgres.
+- [done] Alerting: open, escalate, acknowledge, resolve, deduplicate; email notifications with retry.
+- [done] Dashboard with tiles (including license usage and backups) and open alerts, live updates.
+- [open] Two instances on one VPS running side by side, each on its own FQDN.
+- [open] Key ceremony written out and rehearsed (release and license keys, root key, signer key,
   backup key pair).
-- Encrypted off-VPS backups per instance (backup public key, write-only destination), restore
-  onto a fresh VPS tested.
+- [done] Encrypted off-VPS backups per instance (S3-compatible or directory, WAL shipping).
+  [open] Restore onto a fresh VPS tested.
+
+### Open before tagging 0.1.0
+
+1. Local test by the developer (web UI click-through, agent install as a Windows service).
+2. First CI run on GitHub (Docker image builds, tests with TimescaleDB, gitleaks over the history).
+3. First install on a VPS with two instances; restore of a backup onto a fresh VPS.
+4. Load test at 10,000 simulated agents.
+5. Key ceremony document and production keys (release, license) on hardware tokens; repository
+   variables `FLEETIFY_LICENSE_PUBLIC_KEYS` and `FLEETIFY_RELEASE_PUBLIC_KEYS` set.
+
+### Known limitations of 0.1.0
+
+- Behind Caddy's SNI passthrough the gateway sees Caddy's address, so the per-IP enrollment rate
+  limit is shared by all agents (PROXY protocol towards the gateway is future work).
+- Linux and macOS agents are stubs (0.2.0).
+- An agent offline past its certificate expiry (90 days, renewal from day 60) cannot reconnect and
+  must be enrolled again as a new endpoint; recovery is planned for 0.2.0.
+- The web data protection key ring is stored unencrypted on its volume.
+- No email throttling or digest during a mass outage; duplicate identity alerts do not resolve on
+  their own.
+- S3 uploads are single-part (5 GB per backup file).
 
 ## 0.2.0 — Full monitoring, jobs and API
 
@@ -61,6 +84,16 @@ Each item below is a patch release on its own, or a few of them together.
 - Script library with versions and optional four-eyes approval per policy; signed remote
   execution with `ValidUntil`, output capture, job history including expired and refused jobs.
 - Agent self-update with update rings, installed only with a valid Steaan release signature.
+- Recovery for agents that were offline past their certificate expiry (for example a laptop
+  that stayed in a drawer for months):
+  - Renewal with an expired certificate: the gateway accepts an expired but not revoked agent
+    certificate for a limited period after expiry (for example 12 months), only for the renewal
+    request and never for a normal session. The key must stay the same; the TLS handshake proves
+    the agent holds it. The signer re-checks revocation and the grace window. Revoking the agent
+    still stops a lost or stolen endpoint.
+  - Re-enrollment onto the same endpoint: an agent that enrolls again with a new token can be
+    linked to its existing endpoint (chosen by the technician, or matched by the agent's key or
+    state), so checks, alerts, notes and audit history are kept instead of creating a new endpoint.
 - Notes on endpoints and sites.
 - Public REST API `/api/v1`: API keys with scopes, read access to all core resources,
   OpenAPI document with drift test, rate limiting, audit.

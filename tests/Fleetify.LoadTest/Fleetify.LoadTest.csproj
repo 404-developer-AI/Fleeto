@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Agent simulator for load-testing fleetify-gateway (CLAUDE.md, Performance requirements). Not run in CI.
+    References only the protocol, like a real agent.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>false</IsTestProject>
+    <RootNamespace>Fleetify.LoadTest</RootNamespace>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Fleetify.Protocol\Fleetify.Protocol.csproj" />
+  </ItemGroup>
+</Project>

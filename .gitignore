@@ -47,3 +47,6 @@ node_modules/
 # OS
 .DS_Store
 Thumbs.db
+
+# Development public keys written by tools/dev/setup-dev.ps1
+Directory.Build.local.props

@@ -1,0 +1,47 @@
+@page "/settings/instance"
+@attribute [Authorize(Policy = FleetifyPolicies.Admin)]
+@inherits FleetoPageBase
+@inject SettingsService SettingsSvc
+
+<PageTitle>Instance - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Instance</MudText>
+        <MudText Typo="Typo.body2" Class="muted">The identity of this Fleeto installation. These values are set by install.sh.</MudText>
+    </div>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_instance is { } i)
+    {
+        <div class="fl-panel pa-4" style="max-width:820px">
+            <MudSimpleTable Dense="true" Elevation="0">
+                <tbody>
+                    <tr><td class="muted">FQDN</td><td>@i.Fqdn</td></tr>
+                    <tr><td class="muted">Web address</td><td>@i.WebBaseUrl</td></tr>
+                    <tr><td class="muted">Agent address</td><td>@i.AgentHostName:@i.AgentPort</td></tr>
+                    <tr><td class="muted">Instance id</td><td class="mono">@i.InstanceId</td></tr>
+                    <tr>
+                        <td class="muted">CA fingerprint (SHA-256)</td>
+                        <td class="mono">@(i.CaFingerprint ?? "Not created yet: fleetify-signer has not started.")</td>
+                    </tr>
+                    <tr><td class="muted">CA valid until</td><td><TimeText Value="i.CaExpiresAt" Absolute="true" Never="-" /></td></tr>
+                    <tr><td class="muted">Signing key id</td><td class="mono">@(i.SigningKeyId ?? "Not created yet")</td></tr>
+                    <tr><td class="muted">Version</td><td>Fleeto @i.Version</td></tr>
+                    <tr><td class="muted">Installed</td><td><TimeText Value="i.CreatedAt" Absolute="true" /></td></tr>
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    }
+    else
+    {
+        <EmptyState Icon="@Icons.Material.Outlined.Dns" Title="Instance settings are missing" Text="Run install.sh (or fleetify-tool migrate) for this instance." />
+    }
+</LoadState>
+
+@code {
+    private InstanceView? _instance;
+
+    protected override Task OnInitializedAsync() => LoadAsync(async caller => _instance = await SettingsSvc.GetInstanceAsync(caller));
+}

@@ -1,0 +1,24 @@
+<div class="empty-state fl-panel">
+    <MudIcon Icon="@Icon" Class="empty-icon" />
+    <MudText Typo="Typo.subtitle1" Class="mt-2">@Title</MudText>
+    <MudText Typo="Typo.body2" Class="muted mt-1">@Text</MudText>
+    @if (ChildContent is not null)
+    {
+        <div class="mt-4">@ChildContent</div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string Icon { get; set; } = Icons.Material.Outlined.Inbox;
+
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>What to do next (branding: empty states tell the next step).</summary>
+    [Parameter]
+    public string? Text { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

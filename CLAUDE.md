@@ -8,7 +8,11 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 
 - **Language**: conversation with the developer is always in Dutch. Documentation, code,
   comments, commit messages, log messages and UI text are always in English.
-- **Current phase**: documentation only. Do not write code until the developer says so.
+- **Current phase**: 0.0.x (foundation) and 0.1.0 (first usable release) are implemented and wait for the
+  developer's local test. Do not start work on 0.2.0 or later until the developer says so. Local development runs
+  without Docker (see `README.md`); Docker is for the VPS and CI only.
+- **Git**: always ask before committing, pushing or tagging. No intermediate commits while a version is being built.
+  Tag a version only after its commits are pushed and CI is green.
 - **Source control**: git, default branch `main`, private GitHub repository
   `404-developer-AI/Fleeto` as `origin`. Conventional commits. Secrets never enter the repository, not even in example
   files with real values; `.gitignore` blocks the usual suspects.
@@ -82,7 +86,8 @@ the API and the database follows it.
   `server`, derived from the OS edition and overridable by hand, and a **license tier**
   (see Licensing). Hypervisor hosts and VMs discovered through Proxmox or vCenter appear as
   endpoints without an agent.
-- **Policy**: agent behaviour pushed to every endpoint of a site: check intervals, patch
+- **Policy**: agent behaviour pushed to every endpoint of a site (a site links at most one policy;
+  without one the instance default policy applies): check intervals, patch
   behaviour, update ring, script permissions, remote control rules, maintenance windows.
 - **Monitoring template**: a named set of checks with thresholds and alert rules. Linked to a
   site, applied to all of its endpoints (class-specific checks apply to matching endpoints only).
@@ -99,10 +104,17 @@ UI structure:
 - **Dashboard**: summary tiles (endpoints online/offline, open alerts by severity, patch
   compliance, integration health, agents out of date, license usage), the open alert list,
   recent jobs.
-- **Clients**: list of clients → sites of a client → endpoints of a site. The endpoint list has
-  tabs **Workstations**, **Servers** and **Mixed** (all endpoints of the site together).
-  Endpoints open in a detail page (overview, checks, alerts, jobs, patches, remote control,
-  notes, audit).
+- **Clients**: one workspace. Left, a clients panel with search: All clients, and every client
+  expandable to its sites. Right, the endpoints of the selection (all clients, a client or a
+  site) with tabs **Servers**, **Workstations** and **Mixed** (all endpoints together), search
+  and filters. Selecting an endpoint shows its detail below the list (resizable split); the
+  same detail opens as a full page with its own URL. Detail tabs grow with the features that
+  exist: Summary, Checks, Software, Assets, History today; jobs, patches, remote control and
+  notes arrive with their versions.
+- **Navigation**: a persistent sidebar that collapses to icons; the choice is remembered per
+  browser.
+- **No placeholder UI**: a feature that is not built has no button, tab or menu item, not even
+  a disabled or hidden one.
 - **Templates**: client templates, monitoring templates, policies.
 - **Settings**: users and roles, licensing, API keys, integrations, notification channels,
   retention, audit log.
@@ -218,15 +230,17 @@ SNI, never terminated). Per instance: **fleetify-web** (Blazor Server UI + publi
 .NET, MudBlazor, Migrify conventions), **fleetify-gateway** (mTLS WebSocket endpoint for
 agents, remote control relay), **fleetify-signer** (the only holder of the instance signing
 key and internal CA, no listening port), **fleetify-workers** (checks, alerting, integration
-pollers, patch orchestration, retention, backups), **postgres** (PostgreSQL 16 +
-TimescaleDB, the only durable store) and **valkey** (queues, pub/sub, caches, never the only
-copy of anything). Agents are one Go codebase, one static binary per platform.
+pollers, patch orchestration, retention, backups) and **postgres** (PostgreSQL 17 +
+TimescaleDB, the only durable store; its LISTEN/NOTIFY carries cross-container notifications, never
+the only copy of anything). Agents are one Go codebase, one static binary per platform.
+No Valkey: the signer may only talk to the database, so database notifications are needed anyway, and one
+mechanism is simpler on a single VPS. Valkey can return behind `INotificationBus` if scale demands it.
 Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
 
 ## Security requirements (non-negotiable)
 
 - **Enrollment**: one-time enrollment token (per site, expiring, revocable, stored hashed) exchanged for a unique per-agent certificate (90 days, auto-renewed, TPM-backed key where available). All agent traffic is mTLS. No shared API keys across agents.
-- **Revocation**: the gateway checks a certificate deny list in the database on every connection and drops live connections the moment a certificate is revoked. Deleting an endpoint revokes its certificates. A certificate connecting twice at once is refused and raises an alert (cloned VM).
+- **Revocation**: the gateway accepts a client certificate only when it is on the allow list in the database (issued, not revoked, not expired) and drops live connections the moment a certificate is revoked. Deleting an endpoint revokes its certificates. A certificate connecting twice at once is refused and raises an alert (cloned VM).
 - **Two signing keys, never mixed** (ed25519):
   - the **Steaan release key** signs agent binaries, `install.sh` and the release manifest. It lives offline on a hardware token, never on a VPS or in CI secrets; its public keys are compiled into the agent and `install.sh`. A compromised instance cannot push an agent update.
   - the **instance signing key** signs jobs, policies, check definitions and remote control session tokens for one instance. It is held only by **fleetify-signer**, which re-checks role, tier, script approval and validity before signing. Agents pin its public key at enrollment.
@@ -236,7 +250,7 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
 - **Accepted risk**: full control of fleetify-web still lets an attacker get jobs signed within the signer's rules. The signer keeps the key out of web, enforces the rules and rate limits, and is the single audited choke point. Documented in `MD-Files/ARCHITECTURE.md` §5.
 - **Command authorization**: every job records who initiated it, when, on which endpoints, with what payload. Immutable audit log for all privileged actions (script run, script approval, patch, remote control session, credential change, API key change, license change, login, permission change, certificate revocation, client or site deletion).
 - **Remote control** is the highest-risk feature: per-session tokens, end-to-end encryption, visible on the endpoint, policy-controlled consent, audited, managed endpoints only.
-- **Web/API**: 2FA (TOTP) for all users, session hardening, per-endpoint rate limiting, strict input validation, parameterized queries only, CSP without unsafe-inline. API keys hashed at rest, scoped, revocable.
+- **Web/API**: 2FA (TOTP) for all users, session hardening, per-endpoint rate limiting, strict input validation, parameterized queries only, CSP with a nonce and without unsafe-inline for scripts (styles need `'unsafe-inline'` because MudBlazor renders inline style attributes). API keys hashed at rest, scoped, revocable.
 - **Least privilege**: containers run as non-root, read-only filesystems where possible, no Docker socket exposure to app containers, one database role per container. Instances on the same VPS share nothing but the host proxy: separate networks, volumes and secrets. The host proxy is not secret-free: it holds the TLS keys of every instance FQDN on the VPS, so it is pinned, minimally configured and its admin API is local only.
 - **Multi-tenancy discipline**: every query is scoped by client; every client-owned table carries its own `ClientId` (denormalized on purpose, kept consistent by composite foreign keys to the parent); write tests that prove cross-client reads fail. Instances are separate stacks, so cross-instance access is impossible by construction, not by a filter.
 - Dependency policy: minimal, well-maintained packages; `dotnet list package --vulnerable` and `govulncheck` in CI; fail the build on known CVEs.
@@ -255,7 +269,8 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
   the DEKs.
 - **The root key and the signer key are the only keys that cannot live in the database**
   (they would encrypt themselves). `install.sh` generates both per instance and stores them
-  as Docker secrets: root-owned files with mode 0600 outside the repository, never in
+  as Docker secrets: root-owned files readable only by the container user (`0440 root:10001` in a
+  `0700` directory) outside the repository, never in
   `.env`, never in a Compose file, each mounted only in the containers that need it (root
   key: web and workers; signer key: signer). Database passwords are handled the same way.
   Offline backups of both keys are part of the key ceremony.
@@ -278,7 +293,7 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
 ## Robustness requirements
 
 - Idempotent job execution: re-delivered commands must not run twice (job IDs + agent-side dedupe).
-- **Acknowledge only after a durable write**: the gateway writes agent batches (check results) and job output chunks to Postgres and only then acks; the agent deletes data from its disk buffer only after the ack. Job output travels as numbered chunks per stream, stored idempotently, completed by a message with counts and hashes, so a dropped connection never duplicates or loses output. Valkey carries notifications, never the only copy; if it is down, workers catch up from the database.
+- **Acknowledge only after a durable write**: the gateway writes agent batches (check results) and job output chunks to Postgres and only then acks; the agent deletes data from its disk buffer only after the ack. Job output travels as numbered chunks per stream, stored idempotently, completed by a message with counts and hashes, so a dropped connection never duplicates or loses output. PostgreSQL notifications only wake components up; every subscriber also catches up from the database, so a lost notification delays work and never loses it.
 - Every external call (integrations, Action1, SMTP) has timeouts, retries with backoff, and a circuit breaker. An integration being down must never degrade core monitoring.
 - Migrations are forward-only, tested against a copy of production data, and follow **expand/contract**: the previous release must still run on the new schema so an image rollback works; CI proves it. A release that cannot comply is marked in the release manifest, and `install.sh` then rolls back by restoring the pre-update backup. Details in `MD-Files/ARCHITECTURE.md` §7.
 - Backups: nightly `pg_dump` + WAL archiving to off-VPS object storage in the EU, per instance, encrypted before upload; the dashboard warns while no destination is configured; restore procedure documented and tested (a backup that has never been restored does not exist).
@@ -291,7 +306,7 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
 - Log and event search must return first results in under 1 second at 10,000 endpoints. Use GIN/tsvector indexes, time-bucketed partitions, keyset pagination (no OFFSET on large sets).
 - Retention is configurable per data type (e.g. raw check results 30 days, aggregates 13 months, logs 90 days) and enforced by TimescaleDB retention policies — the disk on a VPS is finite.
 - Dashboard queries read continuous aggregates, never raw hypertables.
-- Live endpoint status via pub/sub push to the UI, not polling loops.
+- Live endpoint status via database notifications pushed to the UI, not polling loops.
 - Remote control: under 100 ms input latency on a LAN-quality link, adaptive quality on poor links.
 - Load-test the gateway and ingest path at 10,000 simulated agents before calling anything done; keep the simulator (`Fleetify.LoadTest`) in the repo. Size one VPS for several instances; document the per-instance footprint.
 
@@ -346,6 +361,5 @@ home-grown patch engine, file transfer inside remote control. Note them, do not 
   confirmed; macOS and Linux to check), API rate limits, licensing model, and how Action1
   organizations map to Fleeto clients.
 - Final product name — "Fleeto" is a working title; a Google Play app "Fleeto" exists in vehicle fleet management. Do the BOIP/EUIPO and domain checks before public use.
-- Gateway implementation language: .NET (stack consistency) vs Go (shared code with agent). Benchmark both at 10k connections.
 - Pricing per managed endpoint is undecided.
 - Apple platform depth: monitoring only, or also patch/MDM-adjacent features (scope risk).

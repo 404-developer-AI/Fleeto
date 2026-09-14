@@ -1,0 +1,43 @@
+@using Microsoft.AspNetCore.Http
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <base href="/" />
+    <ResourcePreloader />
+    <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    @* The framework renders the import map as an inline script, so it carries the CSP nonce. *@
+    <ImportMap nonce="@Nonce" />
+    <link rel="icon" type="image/svg+xml" href="@Assets["favicon.svg"]" />
+    <HeadOutlet @rendermode="PageRenderMode" />
+</head>
+
+<body>
+    <Routes @rendermode="PageRenderMode" RemoteIpAddress="@RemoteIpAddress" />
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
+    <script src="@Assets["js/fleeto.js"]"></script>
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+</body>
+
+</html>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    /// <summary>Per-response CSP nonce, set by the security headers middleware.</summary>
+    private string Nonce => HttpContext.Items[SecurityHeadersMiddleware.NonceItemKey] as string ?? string.Empty;
+
+    /// <summary>
+    /// Sign-in and setup pages are static server-rendered forms (no circuit), so they work in a session that is restricted
+    /// until two-factor setup; every other page is interactive.
+    /// </summary>
+    private IComponentRenderMode? PageRenderMode => HttpContext.AcceptsInteractiveRouting() ? InteractiveServer : null;
+
+    private string? RemoteIpAddress => HttpContext.RemoteIp();
+}

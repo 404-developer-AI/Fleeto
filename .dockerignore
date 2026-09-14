@@ -1,0 +1,43 @@
+# Build context for every image is the repository root. Keep it small and, above all, free of secrets and
+# development key material: an image must be built only from committed sources.
+
+# Secrets and keys (never in an image, see CLAUDE.md, Secrets)
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.pfx
+**/*.p12
+**/secrets/
+# Development public keys: release images get the Steaan production keys from build arguments only.
+Directory.Build.local.props
+
+# Source control, IDE and OS files
+.git/
+.github/
+.vs/
+.idea/
+.vscode/
+**/*.user
+**/*.suo
+**/.DS_Store
+**/Thumbs.db
+
+# Build output and test results
+**/bin/
+**/obj/
+**/TestResults/
+**/*.binlog
+artifacts/
+agent/bin/
+agent/dist/
+
+# Not needed by any image
+tests/
+tools/
+deploy/
+MD-Files/
+**/*.md
+**/node_modules/
+**/logs/
+**/*.log

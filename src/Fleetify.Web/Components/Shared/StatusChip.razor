@@ -1,0 +1,21 @@
+<span class="status-chip @Ui.CssClass(Kind)" title="@Title">
+    @if (Dot)
+    {
+        <span class="status-dot"></span>
+    }
+    @Text
+</span>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Text { get; set; } = string.Empty;
+
+    [Parameter]
+    public StatusKind Kind { get; set; } = StatusKind.Neutral;
+
+    [Parameter]
+    public bool Dot { get; set; }
+
+    [Parameter]
+    public string? Title { get; set; }
+}

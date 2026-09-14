@@ -1,0 +1,153 @@
+@page "/alerts"
+@attribute [Authorize(Policy = FleetifyPolicies.Viewer)]
+@inherits FleetoPageBase
+@inject AlertService AlertSvc
+@inject ClientService ClientSvc
+@inject LiveUpdates Live
+
+<PageTitle>Alerts - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Alerts</MudText>
+        <MudText Typo="Typo.body2" Class="muted">Checks that crossed their threshold, endpoints that went offline and duplicate agent identities.</MudText>
+    </div>
+</div>
+
+<div class="d-flex gap-3 flex-wrap mb-4">
+    <MudSelect T="AlertState?" Value="_state" ValueChanged="@(v => FilterAsync(() => _state = v))" Label="State" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width:180px">
+        <MudSelectItem T="AlertState?" Value="@((AlertState?)null)">All states</MudSelectItem>
+        <MudSelectItem T="AlertState?" Value="@((AlertState?)AlertState.Open)">Open</MudSelectItem>
+        <MudSelectItem T="AlertState?" Value="@((AlertState?)AlertState.Acknowledged)">Acknowledged</MudSelectItem>
+        <MudSelectItem T="AlertState?" Value="@((AlertState?)AlertState.Resolved)">Resolved</MudSelectItem>
+    </MudSelect>
+    <MudSelect T="AlertSeverity?" Value="_severity" ValueChanged="@(v => FilterAsync(() => _severity = v))" Label="Severity" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width:180px">
+        <MudSelectItem T="AlertSeverity?" Value="@((AlertSeverity?)null)">All severities</MudSelectItem>
+        <MudSelectItem T="AlertSeverity?" Value="@((AlertSeverity?)AlertSeverity.Critical)">Critical</MudSelectItem>
+        <MudSelectItem T="AlertSeverity?" Value="@((AlertSeverity?)AlertSeverity.Warning)">Warning</MudSelectItem>
+    </MudSelect>
+    <MudSelect T="Guid?" Value="_clientId" ValueChanged="@(v => FilterAsync(() => _clientId = v))" Label="Client" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width:240px">
+        <MudSelectItem T="Guid?" Value="@((Guid?)null)">All clients</MudSelectItem>
+        @foreach (var client in _clients)
+        {
+            <MudSelectItem T="Guid?" Value="@((Guid?)client.Id)">@client.Code - @client.Name</MudSelectItem>
+        }
+    </MudSelect>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_items.Count == 0)
+    {
+        <EmptyState Icon="@Icons.Material.Outlined.CheckCircle" Title="No alerts match these filters"
+                    Text="Change the filters to see other alerts." />
+    }
+    else
+    {
+        <MudTable Items="_items" Hover="true" Dense="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>Severity</MudTh>
+                <MudTh>State</MudTh>
+                <MudTh>Alert</MudTh>
+                <MudTh>Endpoint</MudTh>
+                <MudTh>Opened</MudTh>
+                @if (CanManage)
+                {
+                    <MudTh></MudTh>
+                }
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd><StatusChip Text="@context.Severity.ToString()" Kind="@Ui.SeverityKind(context.Severity)" /></MudTd>
+                <MudTd><StatusChip Text="@context.State.ToString()" Kind="@Ui.AlertStateKind(context.State)" /></MudTd>
+                <MudTd>
+                    @context.Title
+                    @if (!string.IsNullOrEmpty(context.ResolvedReason))
+                    {
+                        <div class="muted" style="font-size:0.75rem">@context.ResolvedReason</div>
+                    }
+                </MudTd>
+                <MudTd><MudLink Href="@($"/endpoints/{context.EndpointId}")">@context.ClientCode / @context.Hostname</MudLink></MudTd>
+                <MudTd><TimeText Value="context.OpenedAt" /></MudTd>
+                @if (CanManage)
+                {
+                    <MudTd Style="white-space:nowrap">
+                        @if (context.State == AlertState.Open)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => AcknowledgeAsync(context))">Acknowledge</MudButton>
+                        }
+                        @if (context.State != AlertState.Resolved)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => ResolveAsync(context))">Resolve</MudButton>
+                        }
+                    </MudTd>
+                }
+            </RowTemplate>
+        </MudTable>
+        @if (_nextCursor is not null)
+        {
+            <div class="mt-3"><MudButton Variant="Variant.Outlined" OnClick="MoreAsync">Show older alerts</MudButton></div>
+        }
+    }
+</LoadState>
+
+@code {
+    private AlertState? _state = AlertState.Open;
+    private AlertSeverity? _severity;
+    private Guid? _clientId;
+    private IReadOnlyList<ClientOption> _clients = [];
+    private List<AlertView> _items = [];
+    private string? _nextCursor;
+    private DebouncedRefresh? _refresh;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _refresh = new DebouncedRefresh(() => InvokeAsync(async () => { await ReloadAsync(); StateHasChanged(); }));
+        Live.AlertChanged += OnChange;
+        await LoadAsync(async caller => _clients = await ClientSvc.ListOptionsAsync(caller));
+        await ReloadAsync();
+    }
+
+    private void OnChange(Guid _) => _refresh?.Trigger();
+
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        var page = await AlertSvc.ListAsync(caller, new AlertQuery(_state, _severity, _clientId));
+        _items = page.Items.ToList();
+        _nextCursor = page.NextCursor;
+    });
+
+    private async Task FilterAsync(Action apply)
+    {
+        apply();
+        await ReloadAsync();
+    }
+
+    private Task MoreAsync() => LoadAsync(async caller =>
+    {
+        var page = await AlertSvc.ListAsync(caller, new AlertQuery(_state, _severity, _clientId, _nextCursor));
+        _items.AddRange(page.Items);
+        _nextCursor = page.NextCursor;
+    });
+
+    private async Task AcknowledgeAsync(AlertView alert)
+    {
+        if (await RunAsync(caller => AlertSvc.AcknowledgeAsync(caller, alert.Id), "The alert was acknowledged."))
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task ResolveAsync(AlertView alert)
+    {
+        if (await RunAsync(caller => AlertSvc.ResolveAsync(caller, alert.Id), "The alert was resolved. If the cause is still there, a new alert opens."))
+        {
+            await ReloadAsync();
+        }
+    }
+
+    public override void Dispose()
+    {
+        Live.AlertChanged -= OnChange;
+        _refresh?.Dispose();
+        base.Dispose();
+    }
+}

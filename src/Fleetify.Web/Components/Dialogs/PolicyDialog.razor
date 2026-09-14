@@ -1,0 +1,88 @@
+@* Create or edit a policy. The scope (global or one client) is chosen at creation and cannot change. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(Existing is null ? "New policy" : $"Edit policy {Existing.Name}")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" MaxLength="100" AutoFocus="true" Class="mb-3" />
+        <MudTextField @bind-Value="_description" Label="Description (optional)" Variant="Variant.Outlined" Lines="2" MaxLength="1000" Class="mb-3" />
+        @if (Existing is null)
+        {
+            <MudSelect T="Guid?" @bind-Value="_clientId" Label="Available for" Variant="Variant.Outlined" Class="mb-3"
+                       HelperText="A global policy can be linked to any site; a client policy only to that client's sites.">
+                <MudSelectItem T="Guid?" Value="@((Guid?)null)">Global (all clients)</MudSelectItem>
+                @foreach (var client in Clients)
+                {
+                    <MudSelectItem T="Guid?" Value="@((Guid?)client.Id)">@client.Code - @client.Name</MudSelectItem>
+                }
+            </MudSelect>
+        }
+        <MudNumericField T="int" @bind-Value="_heartbeat" Label="Heartbeat interval (seconds)" Variant="Variant.Outlined" Class="mb-1"
+                         Min="@PolicyService.MinHeartbeatSeconds" Max="@PolicyService.MaxHeartbeatSeconds" />
+        <MudText Typo="Typo.caption" Class="muted d-block mb-3">The agent reports it is alive @Intervals.Describe(Math.Max(1, _heartbeat)).</MudText>
+        <MudNumericField T="int" @bind-Value="_inventoryMinutes" Label="Inventory interval (minutes)" Variant="Variant.Outlined" Class="mb-1"
+                         Min="15" Max="10080" />
+        <MudText Typo="Typo.caption" Class="muted d-block mb-3">Inventory is reported @Intervals.Describe(Math.Max(1, _inventoryMinutes) * 60).</MudText>
+        <MudNumericField T="int" @bind-Value="_offlineMinutes" Label="Offline alert after (minutes)" Variant="Variant.Outlined" Class="mb-1"
+                         Min="0" Max="@PolicyService.MaxOfflineAlertMinutes" />
+        <MudText Typo="Typo.caption" Class="muted d-block mb-3">0 turns offline alerts off. Offline alerts apply to managed endpoints.</MudText>
+        <MudSelect T="AlertSeverity" @bind-Value="_offlineSeverity" Label="Offline alert severity" Variant="Variant.Outlined">
+            <MudSelectItem T="AlertSeverity" Value="AlertSeverity.Critical">Critical</MudSelectItem>
+            <MudSelectItem T="AlertSeverity" Value="AlertSeverity.Warning">Warning</MudSelectItem>
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">@(Existing is null ? "Create policy" : "Save")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public PolicyListItem? Existing { get; set; }
+    [Parameter] public IReadOnlyList<ClientOption> Clients { get; set; } = [];
+    [Parameter] public Func<Guid?, PolicyInput, Task<bool>> OnSubmit { get; set; } = (_, _) => Task.FromResult(true);
+
+    private string _name = string.Empty;
+    private string? _description;
+    private Guid? _clientId;
+    private int _heartbeat = 30;
+    private int _inventoryMinutes = 360;
+    private int _offlineMinutes = 10;
+    private AlertSeverity _offlineSeverity = AlertSeverity.Critical;
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        if (Existing is { } p)
+        {
+            _name = p.Name;
+            _description = p.Description;
+            _heartbeat = p.HeartbeatIntervalSeconds;
+            _inventoryMinutes = p.InventoryIntervalSeconds / 60;
+            _offlineMinutes = p.OfflineAlertAfterMinutes;
+            _offlineSeverity = p.OfflineAlertSeverity;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            var input = new PolicyInput(_name, _description, _heartbeat, _inventoryMinutes * 60, _offlineMinutes, _offlineSeverity);
+            if (await OnSubmit(_clientId, input))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -1,0 +1,48 @@
+@page "/account/two-factor"
+@attribute [AllowAnonymous]
+@attribute [AllowWithoutTwoFactor]
+@attribute [ExcludeFromInteractiveRouting]
+@layout LoginLayout
+
+<PageTitle>Two-factor authentication - Fleeto</PageTitle>
+
+<div class="login-card">
+    <div class="login-header">
+        <FleetoMark Size="48" />
+        <h1 class="login-title">Two-factor authentication</h1>
+        <p class="login-subtitle">Enter the 6-digit code from your authenticator app.</p>
+    </div>
+
+    @if (Error == "invalid")
+    {
+        <div class="login-error" role="alert">That code is not valid. Codes change every 30 seconds; enter the current one.</div>
+    }
+
+    <form method="post" action="/api/account/two-factor">
+        <AntiforgeryToken />
+        <input type="hidden" name="ReturnUrl" value="@EndpointExtensions.SafeReturnUrl(ReturnUrl)" />
+
+        <div class="login-field">
+            <label for="code" class="login-label">Authentication code</label>
+            <input type="text" id="code" name="Code" class="login-input" inputmode="numeric" autocomplete="one-time-code"
+                   maxlength="64" required autofocus />
+        </div>
+
+        <label style="display:flex;gap:10px;align-items:center;margin-bottom:22px;font-size:0.875rem;color:#57534E;">
+            <input type="checkbox" name="IsRecoveryCode" value="true" />
+            <span>This is a recovery code</span>
+        </label>
+
+        <button type="submit" class="login-button">Verify</button>
+    </form>
+
+    <p class="login-footer">No access to your authenticator app? Use one of your recovery codes, or ask an admin to reset two-factor authentication.</p>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    private string? Error { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    private string? ReturnUrl { get; set; }
+}

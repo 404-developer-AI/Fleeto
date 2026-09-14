@@ -1,0 +1,33 @@
+@page "/Error"
+@using System.Diagnostics
+@using Microsoft.AspNetCore.Http
+@attribute [AllowAnonymous]
+@attribute [AllowWithoutTwoFactor]
+@attribute [ExcludeFromInteractiveRouting]
+@layout LoginLayout
+
+<PageTitle>Something went wrong - Fleeto</PageTitle>
+
+<div class="login-card">
+    <div class="login-header">
+        <FleetoMark Size="48" />
+        <h1 class="login-title">Something went wrong</h1>
+        <p class="login-subtitle">
+            Fleeto could not complete this request. Try again, and check the web log if it keeps happening.
+        </p>
+        @if (!string.IsNullOrEmpty(_requestId))
+        {
+            <p class="login-subtitle mono">Request ID: @_requestId</p>
+        }
+    </div>
+    <a href="/" class="login-button" style="display:block;text-align:center;text-decoration:none;box-sizing:border-box;">Back to the dashboard</a>
+</div>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private string? _requestId;
+
+    protected override void OnInitialized() => _requestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

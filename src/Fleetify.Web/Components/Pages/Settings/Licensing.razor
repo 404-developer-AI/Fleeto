@@ -1,0 +1,140 @@
+@page "/settings/licensing"
+@attribute [Authorize(Policy = FleetifyPolicies.Admin)]
+@inherits FleetoPageBase
+@using Fleetify.Infrastructure.Licensing
+@inject LicenseService Licenses
+@inject ILogger<Licensing> Logger
+
+<PageTitle>Licensing - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Licensing</MudText>
+        <MudText Typo="Typo.body2" Class="muted">One license per managed endpoint. Agent-only endpoints are free and unlimited.</MudText>
+    </div>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_usage is { } usage)
+    {
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="5">
+                <div class="fl-panel pa-4">
+                    <MudText Typo="Typo.h6" Class="section-title mb-3">Current license</MudText>
+                    @if (usage.Status.State == LicenseState.Missing)
+                    {
+                        <MudText Typo="Typo.body1">No license is loaded. Every endpoint behaves as agent-only until you load one.</MudText>
+                    }
+                    else
+                    {
+                        <div class="stat-number mb-1" style="font-size:1.75rem;font-weight:600">@usage.ManagedInUse of @usage.Status.ManagedEndpointCount licenses in use</div>
+                        <MudSimpleTable Dense="true" Elevation="0" Class="mt-3">
+                            <tbody>
+                                <tr><td class="muted">Status</td><td><StatusChip Text="@StateLabel(usage.Status.State)" Kind="@StateKind(usage.Status.State)" /></td></tr>
+                                <tr><td class="muted">Customer</td><td>@usage.CustomerName</td></tr>
+                                <tr><td class="muted">Serial</td><td class="mono">@usage.Serial</td></tr>
+                                <tr><td class="muted">Expires</td><td><TimeText Value="usage.Status.ExpiresAt" Absolute="true" /></td></tr>
+                                <tr><td class="muted">Grace period ends</td><td><TimeText Value="usage.Status.GraceEndsAt" Absolute="true" /></td></tr>
+                                <tr><td class="muted">Available</td><td>@usage.Available</td></tr>
+                            </tbody>
+                        </MudSimpleTable>
+                    }
+                </div>
+            </MudItem>
+            <MudItem xs="12" md="7">
+                <div class="fl-panel pa-4">
+                    <MudText Typo="Typo.h6" Class="section-title mb-1">Load a license</MudText>
+                    <MudText Typo="Typo.body2" Class="muted mb-3">
+                        Paste the license document from Steaan, or upload the file. It is verified offline and replaces the current license.
+                    </MudText>
+                    <MudTextField @bind-Value="_text" Label="License document" Variant="Variant.Outlined" Lines="6" MaxLength="20000" Class="mb-3" />
+                    <div class="d-flex gap-2 flex-wrap">
+                        <MudFileUpload T="IBrowserFile" Accept=".txt,.lic,.license" MaximumFileCount="1" FilesChanged="UploadAsync">
+                            <CustomContent>
+                                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.UploadFile" OnClick="@context.OpenFilePickerAsync">Upload a license file</MudButton>
+                            </CustomContent>
+                        </MudFileUpload>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadLicenseAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_text))">Load license</MudButton>
+                    </div>
+                </div>
+            </MudItem>
+        </MudGrid>
+    }
+</LoadState>
+
+@code {
+    private LicenseUsage? _usage;
+    private string? _text;
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        caller.EnsureAdmin();
+        _usage = await Licenses.GetUsageAsync();
+    });
+
+    private static string StateLabel(LicenseState state) => state switch
+    {
+        LicenseState.Valid => "Valid",
+        LicenseState.ExpiringSoon => "Expires soon",
+        LicenseState.GracePeriod => "Expired, grace period",
+        LicenseState.Expired => "Expired",
+        _ => "Missing"
+    };
+
+    private static StatusKind StateKind(LicenseState state) => state switch
+    {
+        LicenseState.Valid => StatusKind.Ok,
+        LicenseState.ExpiringSoon or LicenseState.GracePeriod => StatusKind.Warning,
+        _ => StatusKind.Error
+    };
+
+    private async Task UploadAsync(IBrowserFile? file)
+    {
+        if (file is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await using var stream = file.OpenReadStream(maxAllowedSize: 64 * 1024);
+            using var reader = new StreamReader(stream);
+            _text = await reader.ReadToEndAsync();
+        }
+        catch (IOException ex)
+        {
+            Logger.LogWarning(ex, "A license file could not be read");
+            Snackbar.Add("The file could not be read. A license file is small text; paste its content instead.", Severity.Warning);
+        }
+    }
+
+    private async Task LoadLicenseAsync()
+    {
+        _busy = true;
+        try
+        {
+            var text = _text ?? string.Empty;
+            if (await RunAsync(async caller =>
+                {
+                    if (!caller.IsAdmin)
+                    {
+                        return ServiceResult.Forbidden();
+                    }
+
+                    var result = await Licenses.LoadAsync(text, caller.UserId, caller.Name, caller.IpAddress);
+                    return result.Success ? ServiceResult.Ok() : ServiceResult.Fail(result.Problem ?? "The license is not valid.");
+                }, "The license was loaded."))
+            {
+                _text = null;
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

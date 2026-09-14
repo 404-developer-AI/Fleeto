@@ -1,0 +1,300 @@
+// Agent protocol v1 between the Fleeto agent and fleetify-gateway.
+//
+// Transport:
+//   CA:         HTTPS GET https://<agent host>/v1/ca returns the instance CA certificates as a PEM bundle. The agent
+//               fetches it without sending anything secret, picks the CA whose SHA-256 (of the DER) equals the
+//               fingerprint from the install command, and refuses to continue if none matches. (TLS stacks do not send
+//               a self-signed root in the handshake, so the CA cannot be taken from the chain.)
+//   Enrollment: HTTPS POST https://<agent host>/v1/enroll, body EnrollRequest, Content-Type application/x-protobuf,
+//               over a connection verified normally against that CA as the only root, for the agent host name.
+//               200 with EnrollResponse, or a problem+json error (400 invalid, 401 token refused, 429, 503 retry).
+//   Session:    WebSocket wss://<agent host>/v1/connect with the agent client certificate (mTLS).
+//               Every binary WebSocket message is exactly one AgentMessage (agent to server) or ServerMessage
+//               (server to agent). The WebSocket frame is the length prefix. Maximum message size 4 MiB.
+//
+// Signatures (ed25519, instance signing key) cover "fleetify-agent-config-v1" || 0x00 || payload, where payload
+// is the exact serialized bytes carried in SignedConfig.payload. The agent never re-serializes before verifying.
+syntax = "proto3";
+
+package fleetify.agent.v1;
+
+option csharp_namespace = "Fleetify.Protocol.Agent.V1";
+option go_package = "github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1;agentv1";
+
+import "google/protobuf/timestamp.proto";
+
+// ---------------------------------------------------------------------------------------------------------------
+// Enrollment
+// ---------------------------------------------------------------------------------------------------------------
+
+message EnrollRequest {
+  // The enrollment token from the install command: fet_<id>_<secret>.
+  string token = 1;
+  // PKCS#10 certificate signing request, ECDSA P-256, DER.
+  bytes csr_der = 2;
+  string hostname = 3;
+  OsInfo os = 4;
+  string agent_version = 5;
+}
+
+message EnrollResponse {
+  string endpoint_id = 1;
+  string instance_id = 2;
+  // Agent certificate, DER. Valid 90 days.
+  bytes certificate_der = 3;
+  // Instance CA certificate, DER. The agent pins it.
+  bytes ca_certificate_der = 4;
+  // Raw 32-byte ed25519 public key of the instance signing key. The agent pins it.
+  bytes instance_signing_public_key = 5;
+  string instance_signing_key_id = 6;
+}
+
+message OsInfo {
+  // windows, linux or darwin.
+  string platform = 1;
+  // Product name, e.g. "Windows 11 Pro" or "Windows Server 2022 Standard".
+  string name = 2;
+  // Version and build, e.g. "10.0.26200".
+  string version = 3;
+  // True for server editions.
+  bool is_server = 4;
+  // amd64 or arm64.
+  string architecture = 5;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Session envelopes
+// ---------------------------------------------------------------------------------------------------------------
+
+message AgentMessage {
+  oneof body {
+    Hello hello = 1;
+    Heartbeat heartbeat = 2;
+    InventoryReport inventory = 3;
+    CheckResultBatch check_results = 4;
+    RenewCertificateRequest renew_certificate = 5;
+    ConfigApplied config_applied = 6;
+    Pong pong = 7;
+  }
+}
+
+message ServerMessage {
+  oneof body {
+    HelloAck hello_ack = 1;
+    BatchAck batch_ack = 2;
+    SignedConfig config = 3;
+    RenewCertificateResponse renew_certificate = 4;
+    Ping ping = 5;
+    Disconnect disconnect = 6;
+    InventoryRequest inventory_request = 7;
+  }
+}
+
+// First message after the WebSocket opens. The server closes the connection if anything else comes first.
+message Hello {
+  string agent_version = 1;
+  string hostname = 2;
+  OsInfo os = 3;
+  // Version of the signed configuration currently applied, 0 when none.
+  uint64 config_version = 4;
+  // Hash of the last inventory the agent sent; the server requests a new report when it differs from its copy.
+  string inventory_hash = 5;
+}
+
+message HelloAck {
+  string endpoint_id = 1;
+  google.protobuf.Timestamp server_time = 2;
+  // Interval for Heartbeat messages until a signed configuration says otherwise.
+  uint32 heartbeat_interval_seconds = 3;
+}
+
+message Heartbeat {
+  google.protobuf.Timestamp agent_time = 1;
+}
+
+// Liveness probe, e.g. when a second connection with the same certificate arrives.
+message Ping {
+  uint64 nonce = 1;
+}
+
+message Pong {
+  uint64 nonce = 1;
+}
+
+message InventoryRequest {}
+
+message InventoryReport {
+  // Hex SHA-256 over the deterministic serialization of inventory, computed by the agent.
+  string hash = 1;
+  Inventory inventory = 2;
+}
+
+message Inventory {
+  string hostname = 1;
+  OsInfo os = 2;
+  string manufacturer = 3;
+  string model = 4;
+  string serial_number = 5;
+  string cpu_model = 6;
+  uint32 cpu_cores = 7;
+  uint32 cpu_logical_processors = 8;
+  uint64 memory_total_bytes = 9;
+  repeated Disk disks = 10;
+  repeated NetworkInterface network_interfaces = 11;
+  repeated SoftwareItem software = 12;
+  google.protobuf.Timestamp boot_time = 13;
+  string domain = 14;
+  // User name of the interactive console session, empty when nobody is logged on. Personal data.
+  string logged_on_user = 15;
+}
+
+message Disk {
+  string mount = 1;
+  string filesystem = 2;
+  uint64 total_bytes = 3;
+  uint64 free_bytes = 4;
+}
+
+message NetworkInterface {
+  string name = 1;
+  string mac_address = 2;
+  repeated string ip_addresses = 3;
+}
+
+message SoftwareItem {
+  string name = 1;
+  string version = 2;
+  string publisher = 3;
+  // As reported by the OS, e.g. "20260114". Free text.
+  string install_date = 4;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Check results
+// ---------------------------------------------------------------------------------------------------------------
+
+// A batch of results. The agent keeps the batch on disk until it receives a BatchAck with the same sequence.
+// Sequence numbers are per endpoint, start at 1 and increase by one per batch; they survive agent restarts.
+// Resending an acknowledged sequence is harmless: the server acknowledges it again without storing it twice.
+// At most 500 results per batch.
+message CheckResultBatch {
+  uint64 sequence = 1;
+  repeated CheckResult results = 2;
+}
+
+message CheckResult {
+  // CheckSpec.id from the signed configuration.
+  string check_id = 1;
+  // Configuration version the check ran under.
+  uint64 config_version = 2;
+  google.protobuf.Timestamp collected_at = 3;
+  double value = 4;
+  // Instance of the check, e.g. "C:" for a disk check over every drive; empty when not applicable.
+  string target = 5;
+  // Human-readable detail, e.g. "12.3 GB free of 237 GB".
+  string detail = 6;
+  // Non-empty when the check could not run; value is then meaningless.
+  string error = 7;
+}
+
+// Sent only after the batch is committed to PostgreSQL.
+message BatchAck {
+  uint64 sequence = 1;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Certificates
+// ---------------------------------------------------------------------------------------------------------------
+
+// Sent when two thirds of the certificate lifetime has passed. Same key pair as the current certificate.
+message RenewCertificateRequest {
+  bytes csr_der = 1;
+}
+
+message RenewCertificateResponse {
+  bytes certificate_der = 1;
+  // Non-empty when the renewal was refused; the agent keeps its current certificate and retries later.
+  string error = 2;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Signed configuration
+// ---------------------------------------------------------------------------------------------------------------
+
+message SignedConfig {
+  // Serialized AgentConfig.
+  bytes payload = 1;
+  // ed25519 over "fleetify-agent-config-v1" || 0x00 || payload.
+  bytes signature = 2;
+  string key_id = 3;
+}
+
+// The agent accepts a configuration only when the signature verifies against the pinned instance signing key,
+// instance_id and endpoint_id equal its own, and version is higher than the applied version.
+message AgentConfig {
+  string instance_id = 1;
+  string endpoint_id = 2;
+  uint64 version = 3;
+  google.protobuf.Timestamp issued_at = 4;
+  Tier tier = 5;
+  uint32 heartbeat_interval_seconds = 6;
+  uint32 inventory_interval_seconds = 7;
+  // Always empty for TIER_AGENT_ONLY; the agent ignores checks on an agent-only configuration anyway.
+  repeated CheckSpec checks = 8;
+}
+
+enum Tier {
+  TIER_UNSPECIFIED = 0;
+  TIER_AGENT_ONLY = 1;
+  TIER_MANAGED = 2;
+}
+
+message CheckSpec {
+  // CheckDefinition id.
+  string id = 1;
+  CheckType type = 2;
+  uint32 interval_seconds = 3;
+  // Type-specific: CHECK_TYPE_DISK_FREE uses "drive" ("C:" or "*"), CHECK_TYPE_SERVICE_RUNNING uses "service",
+  // CHECK_TYPE_CPU_USAGE uses optional "sample_seconds" (default 60, at most the interval).
+  map<string, string> parameters = 4;
+}
+
+enum CheckType {
+  CHECK_TYPE_UNSPECIFIED = 0;
+  // value: average CPU usage in percent over the sample window.
+  CHECK_TYPE_CPU_USAGE = 1;
+  // value: physical memory in use, in percent.
+  CHECK_TYPE_MEMORY_USAGE = 2;
+  // value: free space in percent. One result per drive, target = drive.
+  CHECK_TYPE_DISK_FREE = 3;
+  // value: 1 running, 0 not running. target = service name. error when the service does not exist.
+  CHECK_TYPE_SERVICE_RUNNING = 4;
+  // value: days since boot, with decimals.
+  CHECK_TYPE_UPTIME = 5;
+}
+
+message ConfigApplied {
+  uint64 config_version = 1;
+  // Non-empty when the agent refused the configuration (bad signature, wrong endpoint, old version).
+  string error = 2;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Disconnect
+// ---------------------------------------------------------------------------------------------------------------
+
+message Disconnect {
+  DisconnectCode code = 1;
+  string reason = 2;
+}
+
+enum DisconnectCode {
+  DISCONNECT_CODE_UNSPECIFIED = 0;
+  // Certificate revoked or endpoint deleted. The agent stops reconnecting and reports that it needs enrollment.
+  DISCONNECT_CODE_REVOKED = 1;
+  // Another live connection uses the same certificate.
+  DISCONNECT_CODE_DUPLICATE_IDENTITY = 2;
+  // Gateway shutting down; reconnect with backoff.
+  DISCONNECT_CODE_SERVER_SHUTDOWN = 3;
+  DISCONNECT_CODE_PROTOCOL_ERROR = 4;
+}

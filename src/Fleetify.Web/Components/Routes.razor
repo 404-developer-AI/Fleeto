@@ -1,0 +1,33 @@
+@inject CurrentUser CurrentUser
+
+<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                @if (context.User.Identity?.IsAuthenticated == true)
+                {
+                    <AccessDeniedContent />
+                }
+                else
+                {
+                    <RedirectToLogin />
+                }
+            </NotAuthorized>
+            <Authorizing>
+                <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+            </Authorizing>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+</Router>
+
+@code {
+    /// <summary>The browser's address, captured from the HTTP request that started the circuit, for audit entries.</summary>
+    [Parameter]
+    public string? RemoteIpAddress { get; set; }
+
+    protected override void OnInitialized()
+    {
+        CurrentUser.IpAddress ??= RemoteIpAddress;
+    }
+}

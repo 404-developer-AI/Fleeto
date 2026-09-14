@@ -1,0 +1,114 @@
+@* The policy and monitoring templates of a site. Links from a client template are shown but cannot be removed here. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Policy and monitoring · @Site.Name</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.subtitle2" Class="mb-1">Policy</MudText>
+        <MudText Typo="Typo.body2" Class="muted mb-2">
+            Agent behaviour for every endpoint of this site. Without a linked policy the default policy applies.
+        </MudText>
+        <MudSelect T="Guid?" @bind-Value="_policyId" Label="Linked policy" Variant="Variant.Outlined" Disabled="@(!CanManage)" Class="mb-1">
+            @foreach (var policy in Policies)
+            {
+                <MudSelectItem T="Guid?" Value="@(policy.IsDefault ? (Guid?)null : policy.Id)">
+                    @policy.Name@(policy.IsGlobal ? "" : " (this client)")
+                </MudSelectItem>
+            }
+        </MudSelect>
+        @if (Site.PolicySource == LinkSource.ClientTemplate)
+        {
+            <StatusChip Text="From client template" Kind="StatusKind.Neutral" />
+        }
+
+        <MudText Typo="Typo.subtitle2" Class="mt-5 mb-1">Monitoring templates</MudText>
+        <MudText Typo="Typo.body2" Class="muted mb-2">
+            Checks from these templates run on the managed endpoints of this site. Templates are linked, not copied.
+        </MudText>
+        @if (Templates.Count == 0)
+        {
+            <MudText Typo="Typo.body2">No monitoring templates exist yet. Create one under Templates, Monitoring templates.</MudText>
+        }
+        @foreach (var template in Templates)
+        {
+            var fromTemplate = Site.MonitoringTemplates.Any(l => l.Id == template.Id && l.Source == LinkSource.ClientTemplate);
+            <div class="d-flex align-center">
+                <MudCheckBox T="bool" Value="@_selected.Contains(template.Id)" Disabled="@(!CanManage || fromTemplate)"
+                             ValueChanged="@(v => Toggle(template.Id, v))" Color="Color.Primary" Size="Size.Small" />
+                <span>@template.Name</span>
+                @if (!template.IsGlobal)
+                {
+                    <span class="muted ml-2">(this client)</span>
+                }
+                @if (fromTemplate)
+                {
+                    <span class="ml-2"><StatusChip Text="From client template" Kind="StatusKind.Neutral" /></span>
+                }
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">@(CanManage ? "Cancel" : "Close")</MudButton>
+        @if (CanManage)
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync" Disabled="@(_busy || !Changed)">Save</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public SiteDetail Site { get; set; } = default!;
+    [Parameter] public IReadOnlyList<LinkOption> Policies { get; set; } = [];
+    [Parameter] public IReadOnlyList<LinkOption> Templates { get; set; } = [];
+    [Parameter] public bool CanManage { get; set; }
+
+    /// <summary>Saves the policy (when changed) and the monitoring templates (when changed). Returns true when everything saved.</summary>
+    [Parameter] public Func<Guid?, bool, IReadOnlyCollection<Guid>, bool, Task<bool>> OnSubmit { get; set; } = (_, _, _, _) => Task.FromResult(true);
+
+    private Guid? _policyId;
+    private HashSet<Guid> _selected = [];
+    private bool _busy;
+
+    private bool PolicyChanged => _policyId != Site.PolicyId;
+    private bool TemplatesChanged => !_selected.SetEquals(Site.MonitoringTemplates.Select(t => t.Id));
+    private bool Changed => PolicyChanged || TemplatesChanged;
+
+    protected override void OnInitialized()
+    {
+        _policyId = Site.PolicyId;
+        _selected = Site.MonitoringTemplates.Select(t => t.Id).ToHashSet();
+    }
+
+    private void Toggle(Guid id, bool selected)
+    {
+        if (selected)
+        {
+            _selected.Add(id);
+        }
+        else
+        {
+            _selected.Remove(id);
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(_policyId, PolicyChanged, _selected.ToList(), TemplatesChanged))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

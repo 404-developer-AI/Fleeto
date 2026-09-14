@@ -1,0 +1,63 @@
+@page "/account/login"
+@attribute [AllowAnonymous]
+@attribute [AllowWithoutTwoFactor]
+@attribute [ExcludeFromInteractiveRouting]
+@layout LoginLayout
+
+<PageTitle>Sign in - Fleeto</PageTitle>
+
+<div class="login-card">
+    <div class="login-header">
+        <FleetoMark Size="48" />
+        <h1 class="login-title">Sign in to Fleeto</h1>
+        <p class="login-subtitle">Monitor and manage every endpoint with confidence.</p>
+    </div>
+
+    @if (ErrorMessage is { } message)
+    {
+        <div class="login-error" role="alert">@message</div>
+    }
+    @if (SignedOut == "1")
+    {
+        <div class="login-info">You are signed out.</div>
+    }
+
+    <form method="post" action="/api/account/login">
+        <AntiforgeryToken />
+        <input type="hidden" name="ReturnUrl" value="@EndpointExtensions.SafeReturnUrl(ReturnUrl)" />
+
+        <div class="login-field">
+            <label for="email" class="login-label">Email address</label>
+            <input type="email" id="email" name="Email" class="login-input" autocomplete="username" maxlength="320" required autofocus />
+        </div>
+
+        <div class="login-field" style="margin-bottom:24px;">
+            <label for="password" class="login-label">Password</label>
+            <input type="password" id="password" name="Password" class="login-input" autocomplete="current-password" maxlength="256" required />
+        </div>
+
+        <button type="submit" class="login-button">Sign in</button>
+    </form>
+
+    <p class="login-footer">Forgot your password or lost your authenticator? Ask an admin of this instance to reset it.</p>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    private string? Error { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    private string? ReturnUrl { get; set; }
+
+    [SupplyParameterFromQuery(Name = "signedout")]
+    private string? SignedOut { get; set; }
+
+    private string? ErrorMessage => Error switch
+    {
+        null or "" => null,
+        "lockedout" => "Too many failed attempts. This account is locked for 15 minutes; try again after that.",
+        "twofactorexpired" => "The sign-in expired before the code was entered. Sign in again.",
+        "expired" => "The page was open too long to submit safely. Sign in again.",
+        _ => "The email address or password is not correct. Check both and try again."
+    };
+}

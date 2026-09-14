@@ -1,0 +1,274 @@
+# Fleeto instance stack. install.sh copies this template to /opt/fleetify/<instance>/compose.yml and runs it as
+# Compose project "fleetify-<instance>":
+#
+#   docker compose --project-name fleetify-<instance> --env-file /opt/fleetify/<instance>/instance.conf \
+#     -f /opt/fleetify/<instance>/compose.yml up -d
+#
+# This file and instance.conf contain NO secrets. instance.conf holds the FQDN, the version, the two loopback ports
+# and the image references (by digest). Secrets are root-owned files in /opt/fleetify/<instance>/secrets/ (directory
+# 0700, files 0440 root:10001) mounted as Docker secrets under /run/secrets, and only into the containers that need
+# them:
+#
+#   root.key                 web, workers, migrator
+#   signer.key               signer, migrator
+#   db-<role>.password       that component and postgres
+#   db-postgres.password     postgres (superuser, local use only)
+#
+# Networks: "internal" has no route outside the host (postgres, signer and migrator live only here). "edge" lets web
+# and the gateway publish their port on 127.0.0.1 for the host Caddy; outbound NAT is off by default. "egress" gives
+# the workers outbound access (SMTP, backup storage). There is no Docker socket anywhere.
+
+name: fleetify-${FLEETIFY_INSTANCE:?FLEETIFY_INSTANCE must be set in instance.conf}
+
+x-logging: &logging
+  driver: local
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+# Hardening shared by every Fleetify container.
+x-app: &app
+  restart: unless-stopped
+  read_only: true
+  user: "10001:10001"
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=64m
+  logging: *logging
+  environment: &app-environment
+    DOTNET_ENVIRONMENT: Production
+    ASPNETCORE_ENVIRONMENT: Production
+    Fleetify__Secrets__Directory: /run/secrets
+    Fleetify__Database__Host: postgres
+    Fleetify__Database__Port: "5432"
+    Fleetify__Database__Name: fleetify
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:?POSTGRES_IMAGE must be set in instance.conf}
+    restart: unless-stopped
+    read_only: true
+    # uid/gid 70 is the postgres user of the (Alpine based) TimescaleDB image. Group 10001 lets it read the database
+    # password files, which are 0440 root:10001 on the host.
+    user: "70:70"
+    group_add: ["10001"]
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 256m
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: fleetify
+      POSTGRES_PASSWORD_FILE: /run/secrets/db-postgres.password
+      # Password authentication over TCP; the superuser only through the local socket (peer), i.e. docker exec.
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=peer --encoding=UTF8"
+      TIMESCALEDB_TELEMETRY: "off"
+      # timescaledb-tune sizes memory settings at first start. Several instances share one VPS, so it must not assume
+      # the whole machine.
+      TS_TUNE_MEMORY: ${POSTGRES_MEMORY:-1GB}
+      TS_TUNE_NUM_CPUS: ${POSTGRES_CPUS:-2}
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      # Copies each completed WAL segment into the spool directory shared with the workers, which encrypt and
+      # upload it. See postgres/archive-wal.sh.
+      - -c
+      - archive_command=/usr/local/bin/fleetify-archive-wal %p %f
+      - -c
+      - archive_timeout=300
+      - -c
+      - password_encryption=scram-sha-256
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./wal-spool:/var/lib/fleetify/wal-spool
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./postgres/archive-wal.sh:/usr/local/bin/fleetify-archive-wal:ro
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+      - /var/run/postgresql:rw,noexec,nosuid,nodev,size=1m,uid=70,gid=70,mode=0775
+    secrets:
+      - db-postgres.password
+      - db-migrator.password
+      - db-web.password
+      - db-gateway.password
+      - db-signer.password
+      - db-workers.password
+      - db-backup.password
+    networks:
+      - internal
+    healthcheck:
+      # Over TCP on purpose: during first initialisation the temporary server listens on the socket only, and the
+      # migrator must not start before the final server accepts TCP connections.
+      test: ["CMD", "pg_isready", "--host=127.0.0.1", "--port=5432", "--username=postgres", "--dbname=fleetify"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+    logging: *logging
+
+  migrator:
+    <<: *app
+    image: ${TOOL_IMAGE:?TOOL_IMAGE must be set in instance.conf}
+    # One-shot: applies migrations and grants and initialises the instance. Idempotent; runs before every start of
+    # the stack through `docker compose up`.
+    restart: "no"
+    command:
+      - migrate
+      - --fqdn
+      - ${FLEETIFY_FQDN:?FLEETIFY_FQDN must be set in instance.conf}
+      - --agent-host
+      - agents.${FLEETIFY_FQDN}
+      - --agent-port
+      - "443"
+      - --web-url
+      - https://${FLEETIFY_FQDN}
+    secrets:
+      - root.key
+      - signer.key
+      - db-migrator.password
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  signer:
+    <<: *app
+    image: ${SIGNER_IMAGE:?SIGNER_IMAGE must be set in instance.conf}
+    secrets:
+      - signer.key
+      - db-signer.password
+    # Internal network only: no listening port and no outbound access.
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+
+  gateway:
+    <<: *app
+    image: ${GATEWAY_IMAGE:?GATEWAY_IMAGE must be set in instance.conf}
+    environment:
+      <<: *app-environment
+      Gateway__ListenAddress: 0.0.0.0
+      Gateway__AgentPort: "8443"
+      Gateway__HealthPort: "8081"
+    ports:
+      # Loopback only; the host Caddy passes agents.<fqdn> through to this port by SNI.
+      - "127.0.0.1:${AGENT_PORT:?AGENT_PORT must be set in instance.conf}:8443"
+    secrets:
+      - db-gateway.password
+    networks:
+      - internal
+      - edge
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      signer:
+        condition: service_healthy
+
+  workers:
+    <<: *app
+    image: ${WORKERS_IMAGE:?WORKERS_IMAGE must be set in instance.conf}
+    environment:
+      <<: *app-environment
+      Backup__WalSpoolDirectory: /var/lib/fleetify/wal-spool
+      Backup__TempDirectory: /var/lib/fleetify/work
+    volumes:
+      # Shared with postgres: WAL segments to encrypt and upload. Directory 2770 70:10001 on the host.
+      - ./wal-spool:/var/lib/fleetify/wal-spool
+      # Scratch space for pg_dump output before encryption (too large for the /tmp tmpfs).
+      - ./work:/var/lib/fleetify/work
+    secrets:
+      - root.key
+      - db-workers.password
+      - db-backup.password
+    networks:
+      - internal
+      - egress
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+
+  web:
+    <<: *app
+    image: ${WEB_IMAGE:?WEB_IMAGE must be set in instance.conf}
+    environment:
+      <<: *app-environment
+      Web__HttpPort: "8080"
+      Agent__BinariesDirectory: /app/agent
+      DataProtection__KeysDirectory: /app/keys
+      # Caddy reaches web through the loopback port, which Docker forwards from the edge network's gateway address.
+      # Only processes on the VPS can reach that port, so the private ranges Docker allocates networks from are
+      # trusted for X-Forwarded-*: 172.16.0.0/12 (appsettings.json), plus the install.sh address pool and 192.168/16.
+      ReverseProxy__Enabled: "true"
+      ReverseProxy__KnownNetworks__1: 10.210.0.0/16
+      ReverseProxy__KnownNetworks__2: 192.168.0.0/16
+    ports:
+      # Loopback only; the host Caddy terminates TLS for the FQDN and proxies here.
+      - "127.0.0.1:${WEB_PORT:?WEB_PORT must be set in instance.conf}:8080"
+    volumes:
+      # Data protection key ring (antiforgery and authentication cookies must survive restarts).
+      - web-keys:/app/keys
+      # Rolling log files (14 x 10 MB at most); the console log (docker logs) is rotated by the local log driver.
+      - web-logs:/app/logs
+    secrets:
+      - root.key
+      - db-web.password
+    networks:
+      - internal
+      - edge
+    # Not dependent on the signer: the UI stays available to show what is wrong when signing is down.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+
+networks:
+  internal:
+    internal: true
+  edge:
+    driver: bridge
+    driver_opts:
+      # No outbound NAT: published ports still work, but web and the gateway cannot open connections to the
+      # internet. Set EDGE_EGRESS=true in instance.conf only if a feature of web needs outbound access.
+      com.docker.network.bridge.enable_ip_masquerade: "${EDGE_EGRESS:-false}"
+  egress:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  web-keys:
+  web-logs:
+
+secrets:
+  root.key:
+    file: ./secrets/root.key
+  signer.key:
+    file: ./secrets/signer.key
+  db-postgres.password:
+    file: ./secrets/db-postgres.password
+  db-migrator.password:
+    file: ./secrets/db-migrator.password
+  db-web.password:
+    file: ./secrets/db-web.password
+  db-gateway.password:
+    file: ./secrets/db-gateway.password
+  db-signer.password:
+    file: ./secrets/db-signer.password
+  db-workers.password:
+    file: ./secrets/db-workers.password
+  db-backup.password:
+    file: ./secrets/db-backup.password

@@ -1,0 +1,167 @@
+@* Add or edit a check. Fields depend on the check type; validation messages come from CheckParameters.Validate. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(Existing is null ? "New check" : $"Edit check {Existing.Name}")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudSelect T="CheckType" Value="_type" ValueChanged="OnTypeChanged" Label="Check type" Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var type in Enum.GetValues<CheckType>())
+            {
+                <MudSelectItem T="CheckType" Value="type">@Ui.CheckTypeLabel(type)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" MaxLength="100" Class="mb-3" />
+
+        @if (_type == CheckType.DiskFree)
+        {
+            <MudTextField @bind-Value="_drive" Label="Drive" Variant="Variant.Outlined" MaxLength="50" Class="mb-3"
+                          HelperText="For example C:, or * for every fixed drive." />
+        }
+        @if (_type == CheckType.ServiceRunning)
+        {
+            <MudTextField @bind-Value="_service" Label="Service name" Variant="Variant.Outlined" MaxLength="256" Class="mb-3"
+                          HelperText="The service name, not the display name. For example Spooler." />
+        }
+
+        <MudText Typo="Typo.subtitle2" Class="mb-1">Interval</MudText>
+        <div class="d-flex gap-2 mb-1">
+            <MudNumericField T="int" @bind-Value="_intervalAmount" Variant="Variant.Outlined" Min="1" Max="100000" Style="max-width:140px" />
+            <MudSelect T="int" @bind-Value="_intervalUnit" Variant="Variant.Outlined" Style="max-width:180px">
+                <MudSelectItem T="int" Value="1">seconds</MudSelectItem>
+                <MudSelectItem T="int" Value="60">minutes</MudSelectItem>
+                <MudSelectItem T="int" Value="3600">hours</MudSelectItem>
+                <MudSelectItem T="int" Value="86400">days</MudSelectItem>
+            </MudSelect>
+        </div>
+        <MudText Typo="Typo.caption" Class="muted d-block mb-3">Runs @Intervals.Describe(Math.Max(1, IntervalSeconds)).</MudText>
+
+        @if (_type == CheckType.ServiceRunning)
+        {
+            <MudSwitch T="bool" @bind-Value="_serviceWarningOnly" Color="Color.Primary" Label="Report a stopped service as a warning instead of critical" Class="mb-3" />
+        }
+        else
+        {
+            <MudText Typo="Typo.caption" Class="muted d-block mb-2">@ThresholdHelp</MudText>
+            <div class="d-flex gap-2 mb-3">
+                <MudNumericField T="double?" @bind-Value="_warning" Label="@($"Warning ({Ui.ThresholdUnit(_type)})")" Variant="Variant.Outlined" Clearable="true" />
+                <MudNumericField T="double?" @bind-Value="_critical" Label="@($"Critical ({Ui.ThresholdUnit(_type)})")" Variant="Variant.Outlined" Clearable="true" />
+            </div>
+        }
+
+        <MudNumericField T="int" @bind-Value="_failures" Label="Failed results before an alert opens" Variant="Variant.Outlined" Min="1" Max="100" Class="mb-3" />
+        <MudSelect T="CheckAppliesTo" @bind-Value="_appliesTo" Label="Runs on" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem T="CheckAppliesTo" Value="CheckAppliesTo.All">All endpoints</MudSelectItem>
+            <MudSelectItem T="CheckAppliesTo" Value="CheckAppliesTo.Workstation">Workstations only</MudSelectItem>
+            <MudSelectItem T="CheckAppliesTo" Value="CheckAppliesTo.Server">Servers only</MudSelectItem>
+        </MudSelect>
+        <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Label="Enabled" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">@(Existing is null ? "Add check" : "Save")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public CheckDefinitionView? Existing { get; set; }
+    [Parameter] public Func<CheckDefinitionInput, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+
+    private CheckType _type = CheckType.CpuUsage;
+    private string _name = "CPU usage";
+    private string? _drive = "*";
+    private string? _service;
+    private int _intervalAmount = 5;
+    private int _intervalUnit = 60;
+    private double? _warning = 85;
+    private double? _critical = 95;
+    private bool _serviceWarningOnly;
+    private int _failures = 1;
+    private CheckAppliesTo _appliesTo = CheckAppliesTo.All;
+    private bool _enabled = true;
+    private bool _busy;
+
+    private int IntervalSeconds => (int)Math.Min(int.MaxValue, (long)_intervalAmount * _intervalUnit);
+
+    private string ThresholdHelp => _type switch
+    {
+        CheckType.DiskFree => "Alert when free space drops to or below these percentages.",
+        CheckType.Uptime => "Alert when the endpoint has not restarted for this many days.",
+        _ => "Alert when usage reaches or exceeds these percentages."
+    };
+
+    protected override void OnInitialized()
+    {
+        if (Existing is not { } c)
+        {
+            return;
+        }
+
+        _type = c.Type;
+        _name = c.Name;
+        _drive = c.Parameters.TryGetValue("drive", out var drive) ? drive : null;
+        _service = c.Parameters.TryGetValue("service", out var service) ? service : null;
+        (_intervalAmount, _intervalUnit) = c.IntervalSeconds % 86400 == 0 ? (c.IntervalSeconds / 86400, 86400)
+            : c.IntervalSeconds % 3600 == 0 ? (c.IntervalSeconds / 3600, 3600)
+            : c.IntervalSeconds % 60 == 0 ? (c.IntervalSeconds / 60, 60)
+            : (c.IntervalSeconds, 1);
+        _warning = c.WarningThreshold;
+        _critical = c.CriticalThreshold;
+        _serviceWarningOnly = c.Type == CheckType.ServiceRunning && c.WarningThreshold >= 1;
+        _failures = c.FailuresBeforeAlert;
+        _appliesTo = c.AppliesTo;
+        _enabled = c.Enabled;
+    }
+
+    private void OnTypeChanged(CheckType type)
+    {
+        // Sensible defaults per type when adding; an edit keeps what the technician typed.
+        if (Existing is null)
+        {
+            _name = Ui.CheckTypeLabel(type);
+            (_warning, _critical) = type switch
+            {
+                CheckType.DiskFree => (15d, 5d),
+                CheckType.Uptime => (30d, 60d),
+                CheckType.ServiceRunning => ((double?)null, (double?)null),
+                _ => (85d, 95d)
+            };
+        }
+
+        _type = type;
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            var parameters = new Dictionary<string, string>();
+            if (_type == CheckType.DiskFree && !string.IsNullOrWhiteSpace(_drive))
+            {
+                parameters["drive"] = _drive;
+            }
+
+            if (_type == CheckType.ServiceRunning && !string.IsNullOrWhiteSpace(_service))
+            {
+                parameters["service"] = _service;
+            }
+
+            var warning = _type == CheckType.ServiceRunning ? (_serviceWarningOnly ? 1d : null) : _warning;
+            var critical = _type == CheckType.ServiceRunning ? null : _critical;
+            var input = new CheckDefinitionInput(_name, _type, IntervalSeconds, parameters, warning, critical, _failures, _appliesTo, _enabled);
+            if (await OnSubmit(input))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

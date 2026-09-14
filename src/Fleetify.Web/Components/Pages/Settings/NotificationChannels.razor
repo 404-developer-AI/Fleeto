@@ -1,0 +1,83 @@
+@page "/settings/notification-channels"
+@attribute [Authorize(Policy = FleetifyPolicies.Admin)]
+@inherits FleetoPageBase
+@inject SettingsService SettingsSvc
+@inject IDialogService DialogService
+
+<PageTitle>Notification channels - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Notification channels</MudText>
+        <MudText Typo="Typo.body2" Class="muted">Where alert notifications are sent. Email is delivered with the settings under Email.</MudText>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="@(() => EditAsync(null))">New channel</MudButton>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_channels.Count == 0)
+    {
+        <EmptyState Icon="@Icons.Material.Outlined.Mail" Title="No notification channels"
+                    Text="Alerts are visible in Fleeto, but nobody is emailed. Create a channel to send alerts to your team." />
+    }
+    else
+    {
+        <MudTable Items="_channels" Hover="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>Name</MudTh>
+                <MudTh>Recipients</MudTh>
+                <MudTh>Minimum severity</MudTh>
+                <MudTh>On resolve</MudTh>
+                <MudTh>Enabled</MudTh>
+                <MudTh Style="width:110px"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd><strong>@context.Name</strong></MudTd>
+                <MudTd>@context.Recipients</MudTd>
+                <MudTd>@context.MinimumSeverity</MudTd>
+                <MudTd>@(context.NotifyOnResolve ? "Yes" : "No")</MudTd>
+                <MudTd><StatusChip Text="@(context.Enabled ? "Enabled" : "Disabled")" Kind="@(context.Enabled ? StatusKind.Ok : StatusKind.Neutral)" /></MudTd>
+                <MudTd Style="white-space:nowrap">
+                    <MudTooltip Text="Edit"><MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="@(() => EditAsync(context))" /></MudTooltip>
+                    <MudTooltip Text="Delete"><MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context))" /></MudTooltip>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</LoadState>
+
+@code {
+    private IReadOnlyList<NotificationChannelView> _channels = [];
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private Task ReloadAsync() => LoadAsync(async caller => _channels = await SettingsSvc.ListChannelsAsync(caller));
+
+    private async Task EditAsync(NotificationChannelView? channel)
+    {
+        var parameters = new DialogParameters<NotificationChannelDialog>
+        {
+            { d => d.Existing, channel },
+            { d => d.OnSubmit, input => RunAsync(caller => SettingsSvc.SaveChannelAsync(caller, channel?.Id, input), "The notification channel was saved.") }
+        };
+        var dialog = await DialogService.ShowAsync<NotificationChannelDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(NotificationChannelView channel)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Delete notification channel {channel.Name}" },
+            { d => d.Message, "Its recipients no longer receive alert notifications from Fleeto." }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => SettingsSvc.DeleteChannelAsync(caller, channel.Id), "The notification channel was deleted."))
+        {
+            await ReloadAsync();
+        }
+    }
+}

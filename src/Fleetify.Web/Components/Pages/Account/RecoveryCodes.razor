@@ -1,0 +1,97 @@
+@page "/account/recovery-codes"
+@attribute [Authorize]
+@attribute [AllowWithoutTwoFactor]
+@attribute [ExcludeFromInteractiveRouting]
+@layout LoginLayout
+@using Microsoft.AspNetCore.Identity
+@using Fleetify.Infrastructure.Identity
+@inject UserManager<ApplicationUser> Users
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+@inject ILogger<RecoveryCodes> Logger
+
+<PageTitle>Recovery codes - Fleeto</PageTitle>
+
+<div class="login-card wide">
+    <div class="login-header">
+        <FleetoMark Size="48" />
+        <h1 class="login-title">Two-factor authentication is on</h1>
+    </div>
+
+    @if (_codes is not null)
+    {
+        <div class="login-info">
+            Save these recovery codes now, for example in a password manager. They are shown only once. Each code signs you in
+            one time if you lose access to your authenticator app.
+        </div>
+        <div class="recovery-codes" id="recovery-codes">
+            @foreach (var recoveryCode in _codes)
+            {
+                <span>@recoveryCode</span>
+            }
+        </div>
+        <p style="text-align:right;margin:0 0 20px;">
+            <button type="button" class="secondary-button" data-copy-target="recovery-codes">Copy codes</button>
+        </p>
+    }
+    else if (_failed)
+    {
+        <div class="login-error" role="alert">The recovery codes could not be created. Ask an admin to reset two-factor authentication, then set it up again.</div>
+    }
+    else
+    {
+        <div class="login-info">
+            Your recovery codes were already shown. If you lost them, ask an admin to reset two-factor authentication for your account.
+        </div>
+    }
+
+    <a href="@_next" class="login-button" style="display:block;text-align:center;text-decoration:none;box-sizing:border-box;">
+        @(_codes is null ? "Continue" : "I saved my recovery codes, continue")
+    </a>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "setup")]
+    private string? Setup { get; set; }
+
+    private IReadOnlyList<string>? _codes;
+    private bool _failed;
+    private string _next = "/";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _next = Setup == "1" ? "/setup/backups" : "/";
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var user = await Users.GetUserAsync(state.User);
+        if (user is null)
+        {
+            Navigation.NavigateTo("/account/login", forceLoad: true);
+            return;
+        }
+
+        if (!await Users.GetTwoFactorEnabledAsync(user))
+        {
+            Navigation.NavigateTo("/account/setup-2fa", forceLoad: true);
+            return;
+        }
+
+        var pending = await Users.GetAuthenticationTokenAsync(user, AccountService.MarkerProvider, AccountService.RecoveryCodesPendingToken);
+        if (pending is null)
+        {
+            return;
+        }
+
+        try
+        {
+            // Remove the marker first: if anything fails afterwards the codes are not shown twice.
+            await Users.RemoveAuthenticationTokenAsync(user, AccountService.MarkerProvider, AccountService.RecoveryCodesPendingToken);
+            _codes = (await Users.GenerateNewTwoFactorRecoveryCodesAsync(user, AccountService.RecoveryCodeCount))?.ToList();
+            _failed = _codes is null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Creating recovery codes failed for user {UserId}", user.Id);
+            _failed = true;
+        }
+    }
+}

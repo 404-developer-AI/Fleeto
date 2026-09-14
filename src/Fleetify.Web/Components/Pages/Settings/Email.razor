@@ -1,0 +1,101 @@
+@page "/settings/email"
+@attribute [Authorize(Policy = FleetifyPolicies.Admin)]
+@inherits FleetoPageBase
+@using Fleetify.Infrastructure.Settings
+@inject SettingsService SettingsSvc
+
+<PageTitle>Email - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Email</MudText>
+        <MudText Typo="Typo.body2" Class="muted">The mail server Fleeto uses for alert notifications and license reminders.</MudText>
+    </div>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    <div class="fl-panel pa-4" style="max-width:640px">
+        <MudTextField @bind-Value="_host" Label="SMTP host" Variant="Variant.Outlined" MaxLength="255" Class="mb-3" />
+        <div class="d-flex gap-2 mb-3">
+            <MudNumericField T="int" @bind-Value="_port" Label="Port" Variant="Variant.Outlined" Min="1" Max="65535" Style="max-width:140px" />
+            <MudSelect T="SmtpSecurity" @bind-Value="_security" Label="Security" Variant="Variant.Outlined">
+                <MudSelectItem T="SmtpSecurity" Value="SmtpSecurity.StartTls">STARTTLS</MudSelectItem>
+                <MudSelectItem T="SmtpSecurity" Value="SmtpSecurity.Tls">TLS</MudSelectItem>
+                <MudSelectItem T="SmtpSecurity" Value="SmtpSecurity.None">None (not recommended)</MudSelectItem>
+            </MudSelect>
+        </div>
+        <MudTextField @bind-Value="_username" Label="Username (optional)" Variant="Variant.Outlined" MaxLength="320" Class="mb-3" />
+        <MudTextField @bind-Value="_password" Label="@(_hasPassword ? "Password (leave blank to keep the current password)" : "Password (optional)")"
+                      Variant="Variant.Outlined" InputType="InputType.Password" MaxLength="1000" Class="mb-1" />
+        @if (_hasPassword)
+        {
+            <MudCheckBox T="bool" @bind-Value="_clearPassword" Label="Remove the stored password" Size="Size.Small" Class="mb-3" />
+        }
+        <MudTextField @bind-Value="_fromAddress" Label="Sender address" Variant="Variant.Outlined" MaxLength="320" Class="mb-3 mt-2" />
+        <MudTextField @bind-Value="_fromName" Label="Sender name" Variant="Variant.Outlined" MaxLength="100" Class="mb-4" />
+        <div class="d-flex gap-2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="_busy">Save</MudButton>
+            <MudButton Variant="Variant.Outlined" OnClick="TestAsync" Disabled="_busy">Send test email</MudButton>
+        </div>
+        <MudText Typo="Typo.caption" Class="muted d-block mt-2">The test email goes to @(Caller?.Email) and is normally delivered within a minute.</MudText>
+    </div>
+</LoadState>
+
+@code {
+    private string? _host;
+    private int _port = 587;
+    private SmtpSecurity _security = SmtpSecurity.StartTls;
+    private string? _username;
+    private string? _password;
+    private bool _hasPassword;
+    private bool _clearPassword;
+    private string? _fromAddress;
+    private string? _fromName = "Fleeto";
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        var smtp = await SettingsSvc.GetSmtpAsync(caller);
+        _host = smtp.Host;
+        _port = smtp.Port;
+        _security = smtp.Security;
+        _username = smtp.Username;
+        _hasPassword = smtp.HasPassword;
+        _fromAddress = smtp.FromAddress;
+        _fromName = smtp.FromName;
+        _password = null;
+        _clearPassword = false;
+    });
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        try
+        {
+            var input = new SmtpInput(_host, _port, _security, _username, _password, _clearPassword, _fromAddress, _fromName);
+            if (await RunAsync(caller => SettingsSvc.SaveSmtpAsync(caller, input), "The email settings were saved."))
+            {
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task TestAsync()
+    {
+        _busy = true;
+        try
+        {
+            await RunAsync(caller => SettingsSvc.SendTestEmailAsync(caller), "A test email was queued. Check your inbox in a minute.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

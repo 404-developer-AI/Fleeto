@@ -1,0 +1,10 @@
+@* The Fleeto mark (branding §5): a rounded teal square with a white heartbeat line icon, next to the name in Inter 600. *@
+<span class="fleeto-mark @(Size >= 40 ? "fleeto-mark-large" : "")" aria-hidden="true">
+    <MudIcon Icon="@Icons.Material.Outlined.MonitorHeart" Class="fleeto-mark-icon" />
+</span>
+
+@code {
+    /// <summary>32 (sidebar) or 48 (sign-in pages).</summary>
+    [Parameter]
+    public int Size { get; set; } = 32;
+}

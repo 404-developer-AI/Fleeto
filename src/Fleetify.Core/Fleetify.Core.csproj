@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Domain model, enums and pure domain rules. No infrastructure dependencies. -->
+  <ItemGroup>
+    <AssemblyMetadata Include="Fleetify.LicensePublicKeys" Value="$(FleetifyLicensePublicKeys)" />
+    <AssemblyMetadata Include="Fleetify.ReleasePublicKeys" Value="$(FleetifyReleasePublicKeys)" />
+  </ItemGroup>
+</Project>

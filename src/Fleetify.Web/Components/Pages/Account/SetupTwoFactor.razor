@@ -1,0 +1,113 @@
+@page "/account/setup-2fa"
+@attribute [Authorize]
+@attribute [AllowWithoutTwoFactor]
+@attribute [ExcludeFromInteractiveRouting]
+@layout LoginLayout
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using Fleetify.Infrastructure.Data
+@using Fleetify.Infrastructure.Identity
+@inject UserManager<ApplicationUser> Users
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IFleetifyDbContextFactory DbFactory
+@inject NavigationManager Navigation
+@inject ILogger<SetupTwoFactor> Logger
+
+@* Static page (no circuit): a session without two-factor authentication can reach nothing else. *@
+
+<PageTitle>Set up two-factor authentication - Fleeto</PageTitle>
+
+<div class="login-card wide">
+    <div class="login-header">
+        <FleetoMark Size="48" />
+        <h1 class="login-title">Set up two-factor authentication</h1>
+        <p class="login-subtitle">
+            Every Fleeto account uses an authenticator app as a second step when signing in, because this instance runs with
+            high privileges on your endpoints.
+        </p>
+    </div>
+
+    @if (Error == "invalid")
+    {
+        <div class="login-error" role="alert">That code is not valid. Check that the time on your phone is correct, then enter the current code.</div>
+    }
+    else if (Error == "expired")
+    {
+        <div class="login-error" role="alert">The page was open too long to submit safely. Enter the current code again.</div>
+    }
+
+    @if (_failed)
+    {
+        <div class="login-error" role="alert">Two-factor setup could not start. Reload the page, and check the web log if it keeps happening.</div>
+    }
+    else if (_key is not null)
+    {
+        <p class="steps">1. Open an authenticator app, such as Microsoft Authenticator or Google Authenticator, and scan this QR code.</p>
+        <div class="qr-code" aria-label="QR code for the authenticator app">@((MarkupString)_qrSvg!)</div>
+
+        <p class="steps">Cannot scan? Enter this setup key in the app instead:</p>
+        <div class="setup-key" id="setup-key">@_key</div>
+
+        <p class="steps">2. Enter the 6-digit code the app shows.</p>
+        <form method="post" action="/api/account/setup-2fa">
+            <AntiforgeryToken />
+            <input type="hidden" name="Setup" value="@(Setup == "1" ? "1" : "0")" />
+            <div class="login-field">
+                <label for="code" class="login-label">Authentication code</label>
+                <input type="text" id="code" name="Code" class="login-input" inputmode="numeric" autocomplete="one-time-code"
+                       maxlength="10" required autofocus />
+            </div>
+            <button type="submit" class="login-button">Verify and turn on</button>
+        </form>
+    }
+
+    <form method="post" action="/api/account/logout" class="login-footer">
+        <AntiforgeryToken />
+        <button type="submit" class="link-button">Sign out</button>
+    </form>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    private string? Error { get; set; }
+
+    [SupplyParameterFromQuery(Name = "setup")]
+    private string? Setup { get; set; }
+
+    private string? _key;
+    private string? _qrSvg;
+    private bool _failed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var user = await Users.GetUserAsync(state.User);
+        if (user is null)
+        {
+            Navigation.NavigateTo("/account/login", forceLoad: true);
+            return;
+        }
+
+        if (await Users.GetTwoFactorEnabledAsync(user))
+        {
+            Navigation.NavigateTo("/", forceLoad: true);
+            return;
+        }
+
+        try
+        {
+            // The key is created once and kept (encrypted) until setup completes, so reloading the page does not
+            // invalidate a code the user already scanned.
+            var key = await AccountService.GetOrCreateAuthenticatorKeyAsync(Users, user);
+            await using var db = DbFactory.CreateSystem();
+            var fqdn = await db.InstanceSettings.AsNoTracking().Select(i => i.Fqdn).FirstOrDefaultAsync() ?? "instance";
+            _key = AccountService.FormatKey(key);
+            _qrSvg = AccountService.BuildQrCodeSvg(AccountService.BuildOtpAuthUri(user.Email ?? user.UserName ?? "user", key, fqdn));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Starting two-factor setup failed for user {UserId}", user.Id);
+            _failed = true;
+        }
+    }
+}

@@ -1,0 +1,190 @@
+# Release build for tags vX.Y.Z: builds and pushes the images, captures their digests and produces the UNSIGNED
+# release manifest and install.sh as workflow artifacts. Signing happens offline with the Steaan hardware token and
+# never in CI (MD-Files/ARCHITECTURE.md section 5); see deploy/RELEASING.md for the manual steps.
+#
+# Repository variables (public keys only, never private keys):
+#   FLEETIFY_LICENSE_PUBLIC_KEYS   semicolon-separated base64 ed25519 license public keys (current first)
+#   FLEETIFY_RELEASE_PUBLIC_KEYS   semicolon-separated base64 ed25519 release public keys (current first)
+#
+# Third-party actions are pinned by full commit SHA (the comment names the version).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io/404-developer-ai
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check tag, version, keys and rollback mode
+        id: meta
+        env:
+          LICENSE_KEYS: ${{ vars.FLEETIFY_LICENSE_PUBLIC_KEYS }}
+          RELEASE_KEYS: ${{ vars.FLEETIFY_RELEASE_PUBLIC_KEYS }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Tag $GITHUB_REF_NAME is not vMAJOR.MINOR.PATCH"; exit 1; }
+          props_version="$(grep -oP '<Version>\K[^<]+' Directory.Build.props)"
+          [[ "$props_version" == "$version" ]] || { echo "::error::Tag $version does not match Directory.Build.props version $props_version"; exit 1; }
+          [[ -n "$LICENSE_KEYS" && -n "$RELEASE_KEYS" ]] || { echo "::error::Repository variables FLEETIFY_LICENSE_PUBLIC_KEYS and FLEETIFY_RELEASE_PUBLIC_KEYS must be set"; exit 1; }
+          rollback="$(grep -v '^#' deploy/release-rollback | tr -d '[:space:]')"
+          [[ "$rollback" == "images" || "$rollback" == "restore" ]] || { echo "::error::deploy/release-rollback must contain images or restore"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "rollback=$rollback" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # One image manifest per component (provenance and SBOM attestations off), so the digest in the release
+      # manifest is exactly what `docker pull <image>@<digest>` fetches on the VPS.
+      - name: web
+        id: web
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: src/Fleetify.Web/Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ env.REGISTRY }}/fleetify-web:${{ steps.meta.outputs.version }}
+          build-args: |
+            FLEETIFY_VERSION=${{ steps.meta.outputs.version }}
+            FLEETIFY_LICENSE_PUBLIC_KEYS=${{ vars.FLEETIFY_LICENSE_PUBLIC_KEYS }}
+            FLEETIFY_RELEASE_PUBLIC_KEYS=${{ vars.FLEETIFY_RELEASE_PUBLIC_KEYS }}
+
+      - name: gateway
+        id: gateway
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: src/Fleetify.Gateway/Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ env.REGISTRY }}/fleetify-gateway:${{ steps.meta.outputs.version }}
+          build-args: |
+            FLEETIFY_LICENSE_PUBLIC_KEYS=${{ vars.FLEETIFY_LICENSE_PUBLIC_KEYS }}
+            FLEETIFY_RELEASE_PUBLIC_KEYS=${{ vars.FLEETIFY_RELEASE_PUBLIC_KEYS }}
+
+      - name: signer
+        id: signer
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: src/Fleetify.Signer/Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ env.REGISTRY }}/fleetify-signer:${{ steps.meta.outputs.version }}
+          build-args: |
+            FLEETIFY_LICENSE_PUBLIC_KEYS=${{ vars.FLEETIFY_LICENSE_PUBLIC_KEYS }}
+            FLEETIFY_RELEASE_PUBLIC_KEYS=${{ vars.FLEETIFY_RELEASE_PUBLIC_KEYS }}
+
+      - name: workers
+        id: workers
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: src/Fleetify.Workers/Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ env.REGISTRY }}/fleetify-workers:${{ steps.meta.outputs.version }}
+          build-args: |
+            FLEETIFY_LICENSE_PUBLIC_KEYS=${{ vars.FLEETIFY_LICENSE_PUBLIC_KEYS }}
+            FLEETIFY_RELEASE_PUBLIC_KEYS=${{ vars.FLEETIFY_RELEASE_PUBLIC_KEYS }}
+
+      - name: tool
+        id: tool
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: src/Fleetify.Tools/Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ env.REGISTRY }}/fleetify-tool:${{ steps.meta.outputs.version }}
+          build-args: |
+            FLEETIFY_LICENSE_PUBLIC_KEYS=${{ vars.FLEETIFY_LICENSE_PUBLIC_KEYS }}
+            FLEETIFY_RELEASE_PUBLIC_KEYS=${{ vars.FLEETIFY_RELEASE_PUBLIC_KEYS }}
+
+      - name: caddy
+        id: caddy
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: deploy/caddy
+          file: deploy/caddy/Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ env.REGISTRY }}/fleetify-caddy:${{ steps.meta.outputs.version }}
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Bundle install.sh and write the unsigned manifest
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          ROLLBACK: ${{ steps.meta.outputs.rollback }}
+          RELEASE_KEYS: ${{ vars.FLEETIFY_RELEASE_PUBLIC_KEYS }}
+          WEB_DIGEST: ${{ steps.web.outputs.digest }}
+          GATEWAY_DIGEST: ${{ steps.gateway.outputs.digest }}
+          SIGNER_DIGEST: ${{ steps.signer.outputs.digest }}
+          WORKERS_DIGEST: ${{ steps.workers.outputs.digest }}
+          TOOL_DIGEST: ${{ steps.tool.outputs.digest }}
+          CADDY_DIGEST: ${{ steps.caddy.outputs.digest }}
+        run: |
+          mkdir -p dist/releases/"$VERSION"
+          bash deploy/ci/bundle-install.sh --version "$VERSION" --release-public-keys "$RELEASE_KEYS" \
+            --out dist/releases/"$VERSION"/install.sh
+          dotnet run --project src/Fleetify.Tools/Fleetify.Tools.csproj -c Release -- release manifest \
+            --version "$VERSION" \
+            --image "web=$WEB_DIGEST" --image "gateway=$GATEWAY_DIGEST" --image "signer=$SIGNER_DIGEST" \
+            --image "workers=$WORKERS_DIGEST" --image "tool=$TOOL_DIGEST" --image "caddy=$CADDY_DIGEST" \
+            --install-sh dist/releases/"$VERSION"/install.sh \
+            --rollback "$ROLLBACK" \
+            --out dist/releases/"$VERSION"/manifest.json
+          printf '%s\n' "$VERSION" > dist/releases/latest
+          (cd dist && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          cat dist/releases/"$VERSION"/manifest.json
+          cat dist/SHA256SUMS
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fleeto-${{ steps.meta.outputs.version }}-unsigned
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,10 @@
+@inject NavigationManager Navigation
+
+@code {
+    protected override void OnInitialized()
+    {
+        var path = "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+        var returnUrl = EndpointExtensions.SafeReturnUrl(path);
+        Navigation.NavigateTo(returnUrl == "/" ? "/account/login" : "/account/login?returnUrl=" + Uri.EscapeDataString(returnUrl), forceLoad: true);
+    }
+}

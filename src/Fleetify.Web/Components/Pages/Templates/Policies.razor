@@ -1,0 +1,149 @@
+@page "/templates/policies"
+@attribute [Authorize(Policy = FleetifyPolicies.Viewer)]
+@inherits FleetoPageBase
+@inject PolicyService PolicySvc
+@inject ClientService ClientSvc
+@inject IDialogService DialogService
+
+<PageTitle>Policies - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Policies</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            Agent behaviour for the endpoints of a site. Policies are linked, not copied: a change applies at once to every site that uses the policy.
+        </MudText>
+    </div>
+    @if (CanManage)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="CreateAsync">New policy</MudButton>
+    }
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    <MudTable Items="_policies" Hover="true" Elevation="0">
+        <HeaderContent>
+            <MudTh>Name</MudTh>
+            <MudTh>Available for</MudTh>
+            <MudTh>Heartbeat</MudTh>
+            <MudTh>Inventory</MudTh>
+            <MudTh>Offline alert</MudTh>
+            <MudTh>Used by</MudTh>
+            @if (CanManage)
+            {
+                <MudTh Style="width:140px"></MudTh>
+            }
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>
+                <strong>@context.Name</strong>
+                @if (context.IsDefault)
+                {
+                    <span class="ml-1"><StatusChip Text="Default" Kind="StatusKind.Active" /></span>
+                }
+                @if (!string.IsNullOrEmpty(context.Description))
+                {
+                    <div class="muted" style="font-size:0.8125rem">@context.Description</div>
+                }
+            </MudTd>
+            <MudTd>@(context.ClientCode ?? "All clients")</MudTd>
+            <MudTd>@Intervals.Describe(context.HeartbeatIntervalSeconds)</MudTd>
+            <MudTd>@Intervals.Describe(context.InventoryIntervalSeconds)</MudTd>
+            <MudTd>@(context.OfflineAlertAfterMinutes == 0 ? "Off" : $"{context.OfflineAlertSeverity} after {context.OfflineAlertAfterMinutes} min")</MudTd>
+            <MudTd>@(context.IsDefault ? "Sites without a policy" : $"{context.SiteCount} site{(context.SiteCount == 1 ? "" : "s")}")@(context.ClientTemplateSiteCount > 0 ? $", {context.ClientTemplateSiteCount} client template site{(context.ClientTemplateSiteCount == 1 ? "" : "s")}" : "")</MudTd>
+            @if (CanManage)
+            {
+                <MudTd Style="white-space:nowrap">
+                    <MudTooltip Text="Edit"><MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="@(() => EditAsync(context))" /></MudTooltip>
+                    <MudTooltip Text="Make a copy"><MudIconButton Icon="@Icons.Material.Outlined.ContentCopy" Size="Size.Small" OnClick="@(() => CopyAsync(context))" /></MudTooltip>
+                    @if (!context.IsDefault)
+                    {
+                        <MudTooltip Text="Delete"><MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context))" /></MudTooltip>
+                    }
+                </MudTd>
+            }
+        </RowTemplate>
+    </MudTable>
+</LoadState>
+
+@code {
+    private IReadOnlyList<PolicyListItem> _policies = [];
+    private IReadOnlyList<ClientOption> _clients = [];
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    /// <summary>True when opened from the Create menu in the navigation: the create dialog opens once the page has loaded.</summary>
+    [SupplyParameterFromQuery(Name = "new")]
+    public bool New { get; set; }
+
+    protected override void OnParametersSet() => OpenCreateFromQuery(New, CreateAsync);
+
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        _policies = await PolicySvc.ListAsync(caller);
+        _clients = await ClientSvc.ListOptionsAsync(caller);
+    });
+
+    private async Task CreateAsync()
+    {
+        var parameters = new DialogParameters<PolicyDialog>
+        {
+            { d => d.Clients, _clients },
+            { d => d.OnSubmit, (clientId, input) => RunAsync(caller => PolicySvc.CreateAsync(caller, clientId, input), "The policy was created.") }
+        };
+        await ShowAsync(parameters);
+    }
+
+    private async Task EditAsync(PolicyListItem policy)
+    {
+        var parameters = new DialogParameters<PolicyDialog>
+        {
+            { d => d.Existing, policy },
+            { d => d.OnSubmit, (_, input) => RunAsync(caller => PolicySvc.UpdateAsync(caller, policy.Id, input), "The policy was saved. Endpoints that use it receive the change shortly.") }
+        };
+        await ShowAsync(parameters);
+    }
+
+    private async Task ShowAsync(DialogParameters<PolicyDialog> parameters)
+    {
+        var dialog = await DialogService.ShowAsync<PolicyDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task CopyAsync(PolicyListItem policy)
+    {
+        var parameters = new DialogParameters<CopyDialog>
+        {
+            { d => d.Title, $"Copy policy {policy.Name}" },
+            { d => d.InitialName, policy.Name + " (copy)" },
+            { d => d.AllowClientTarget, true },
+            { d => d.Clients, _clients },
+            { d => d.OnSubmit, (name, clientId) => RunAsync(caller => PolicySvc.CopyAsync(caller, policy.Id, name, clientId), "The copy was created.") }
+        };
+        var dialog = await DialogService.ShowAsync<CopyDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(PolicyListItem policy)
+    {
+        var usage = policy.SiteCount > 0
+            ? $"{policy.SiteCount} site{(policy.SiteCount == 1 ? " uses" : "s use")} this policy and will fall back to the default policy. "
+            : string.Empty;
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Delete policy {policy.Name}" },
+            { d => d.Message, usage + "This cannot be undone." }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => PolicySvc.DeleteAsync(caller, policy.Id), "The policy was deleted."))
+        {
+            await ReloadAsync();
+        }
+    }
+}

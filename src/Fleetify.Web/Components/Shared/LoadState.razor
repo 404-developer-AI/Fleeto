@@ -1,0 +1,28 @@
+@* Shows a progress bar while loading and a calm error when loading failed; otherwise the content. *@
+@if (Loading)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-4" />
+}
+else if (Failed)
+{
+    <MudAlert Severity="Severity.Error" Class="my-4">
+        This page could not be loaded. Reload the page, and check the web log if it keeps happening.
+    </MudAlert>
+}
+else if (NotFound)
+{
+    <EmptyState Icon="@Icons.Material.Outlined.SearchOff" Title="@($"This {What} does not exist")"
+                Text="@($"It may have been deleted. Go back to the list and pick another {What}.")" />
+}
+else
+{
+    @ChildContent
+}
+
+@code {
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public bool Failed { get; set; }
+    [Parameter] public bool NotFound { get; set; }
+    [Parameter] public string What { get; set; } = "item";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

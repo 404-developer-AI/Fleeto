@@ -1,0 +1,66 @@
+@* Create an enrollment token for a site. The token itself is shown afterwards, once, in InstallCommandDialog. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">New enrollment token</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="muted mb-3">
+            Endpoints enrolled with this token join site @SiteName as agent-only. Keep the lifetime and number of uses as small as practical.
+        </MudText>
+        <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" MaxLength="100" AutoFocus="true"
+                      HelperText="Who or what the token is for, for example Laptop rollout September." Class="mb-3" />
+        <MudSelect T="int" @bind-Value="_lifetimeIndex" Label="Expires in" Variant="Variant.Outlined" Class="mb-3">
+            @for (var i = 0; i < EnrollmentService.Lifetimes.Count; i++)
+            {
+                var index = i;
+                <MudSelectItem T="int" Value="@index">@EnrollmentService.Lifetimes[index].Label</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="string" @bind-Value="_usesMode" Label="Uses" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem T="string" Value="@("single")">Single use</MudSelectItem>
+            <MudSelectItem T="string" Value="@("number")">A number of endpoints</MudSelectItem>
+            <MudSelectItem T="string" Value="@("unlimited")">Unlimited until it expires</MudSelectItem>
+        </MudSelect>
+        @if (_usesMode == "number")
+        {
+            <MudNumericField T="int" @bind-Value="_uses" Label="Number of endpoints" Variant="Variant.Outlined" Min="1" Max="@EnrollmentService.MaxUsesLimit" />
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">Create token</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public string SiteName { get; set; } = string.Empty;
+    [Parameter] public Func<string, TimeSpan, int?, Task<bool>> OnSubmit { get; set; } = (_, _, _) => Task.FromResult(true);
+
+    private string _name = string.Empty;
+    private int _lifetimeIndex = 1;
+    private string _usesMode = "single";
+    private int _uses = 10;
+    private bool _busy;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            int? maxUses = _usesMode switch { "single" => 1, "unlimited" => null, _ => _uses };
+            if (await OnSubmit(_name, EnrollmentService.Lifetimes[_lifetimeIndex].Lifetime, maxUses))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

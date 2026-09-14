@@ -1,0 +1,61 @@
+@* Copy a template or policy: a new name and, where allowed, the target (global or one client). *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@Title</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="muted mb-3">The copy is independent: later changes to the original do not apply to it.</MudText>
+        <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" MaxLength="100" AutoFocus="true" Class="mb-3" />
+        @if (AllowClientTarget)
+        {
+            <MudSelect T="Guid?" @bind-Value="_clientId" Label="Copy to" Variant="Variant.Outlined">
+                <MudSelectItem T="Guid?" Value="@((Guid?)null)">Global (all clients)</MudSelectItem>
+                @foreach (var client in Clients)
+                {
+                    <MudSelectItem T="Guid?" Value="@((Guid?)client.Id)">@client.Code - @client.Name</MudSelectItem>
+                }
+            </MudSelect>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">Copy</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public string Title { get; set; } = "Make a copy";
+    [Parameter] public string InitialName { get; set; } = string.Empty;
+    [Parameter] public bool AllowClientTarget { get; set; }
+    [Parameter] public IReadOnlyList<ClientOption> Clients { get; set; } = [];
+
+    /// <summary>Runs the copy; returns true when the dialog may close.</summary>
+    [Parameter] public Func<string, Guid?, Task<bool>> OnSubmit { get; set; } = (_, _) => Task.FromResult(true);
+
+    private string _name = string.Empty;
+    private Guid? _clientId;
+    private bool _busy;
+
+    protected override void OnInitialized() => _name = InitialName;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(_name, _clientId))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

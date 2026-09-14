@@ -1,0 +1,148 @@
+@page "/templates/client-templates"
+@attribute [Authorize(Policy = FleetifyPolicies.Viewer)]
+@inherits FleetoPageBase
+@inject ClientTemplateService TemplateSvc
+@inject PolicyService PolicySvc
+@inject MonitoringTemplateService MonitoringSvc
+@inject IDialogService DialogService
+
+<PageTitle>Client templates - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Client templates</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            Blueprints of sites with their policy and monitoring templates, used when creating a client. Clients keep following their template until they are detached.
+        </MudText>
+    </div>
+    @if (CanManage)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="@(() => EditAsync(null))">New client template</MudButton>
+    }
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_templates.Count == 0)
+    {
+        <EmptyState Icon="@Icons.Material.Outlined.AccountTree" Title="No client templates yet"
+                    Text="Create a client template to set up new clients with the same sites, policies and monitoring templates in one step." />
+    }
+    else
+    {
+        <MudTable Items="_templates" Hover="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>Name</MudTh>
+                <MudTh>Sites</MudTh>
+                <MudTh>Clients</MudTh>
+                @if (CanManage)
+                {
+                    <MudTh Style="width:140px"></MudTh>
+                }
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>
+                    <strong>@context.Name</strong>
+                    @if (!string.IsNullOrEmpty(context.Description))
+                    {
+                        <div class="muted" style="font-size:0.8125rem">@context.Description</div>
+                    }
+                </MudTd>
+                <MudTd>@context.SiteCount</MudTd>
+                <MudTd>@context.ClientCount</MudTd>
+                @if (CanManage)
+                {
+                    <MudTd Style="white-space:nowrap">
+                        <MudTooltip Text="Edit"><MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="@(() => EditAsync(context))" /></MudTooltip>
+                        <MudTooltip Text="Make a copy"><MudIconButton Icon="@Icons.Material.Outlined.ContentCopy" Size="Size.Small" OnClick="@(() => CopyAsync(context))" /></MudTooltip>
+                        <MudTooltip Text="Delete"><MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context))" /></MudTooltip>
+                    </MudTd>
+                }
+            </RowTemplate>
+        </MudTable>
+    }
+</LoadState>
+
+@code {
+    private IReadOnlyList<ClientTemplateListItem> _templates = [];
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    /// <summary>True when opened from the Create menu in the navigation: the create dialog opens once the page has loaded.</summary>
+    [SupplyParameterFromQuery(Name = "new")]
+    public bool New { get; set; }
+
+    protected override void OnParametersSet() => OpenCreateFromQuery(New, () => EditAsync(null));
+
+    private Task ReloadAsync() => LoadAsync(async caller => _templates = await TemplateSvc.ListAsync(caller));
+
+    private async Task EditAsync(ClientTemplateListItem? item)
+    {
+        ClientTemplateDetail? existing = null;
+        IReadOnlyList<PolicyListItem> policies = [];
+        IReadOnlyList<MonitoringTemplateListItem> monitoring = [];
+        await LoadAsync(async caller =>
+        {
+            if (item is not null)
+            {
+                existing = await TemplateSvc.GetAsync(caller, item.Id);
+            }
+
+            policies = (await PolicySvc.ListAsync(caller)).Where(p => p.ClientId is null).ToList();
+            monitoring = (await MonitoringSvc.ListAsync(caller)).Where(t => t.ClientId is null).ToList();
+        });
+
+        if (item is not null && existing is null)
+        {
+            Snackbar.Add("The client template no longer exists. Refresh the page.", Severity.Warning);
+            return;
+        }
+
+        var parameters = new DialogParameters<ClientTemplateDialog>
+        {
+            { d => d.Existing, existing },
+            { d => d.Policies, policies },
+            { d => d.MonitoringTemplates, monitoring },
+            {
+                d => d.OnSubmit, input => RunAsync(caller => TemplateSvc.SaveAsync(caller, item?.Id, input),
+                    item is null ? "The client template was created." : "The client template was saved and applied to the clients that follow it.")
+            }
+        };
+        var dialog = await DialogService.ShowAsync<ClientTemplateDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task CopyAsync(ClientTemplateListItem template)
+    {
+        var parameters = new DialogParameters<CopyDialog>
+        {
+            { d => d.Title, $"Copy client template {template.Name}" },
+            { d => d.InitialName, template.Name + " (copy)" },
+            { d => d.OnSubmit, (name, _) => RunAsync(caller => TemplateSvc.CopyAsync(caller, template.Id, name), "The copy was created.") }
+        };
+        var dialog = await DialogService.ShowAsync<CopyDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(ClientTemplateListItem template)
+    {
+        var usage = template.ClientCount > 0
+            ? $"{template.ClientCount} client{(template.ClientCount == 1 ? " follows" : "s follow")} this template. They are detached first: their sites and links stay, but become their own. "
+            : string.Empty;
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Delete client template {template.Name}" },
+            { d => d.Message, usage + "This cannot be undone." }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => TemplateSvc.DeleteAsync(caller, template.Id), "The client template was deleted."))
+        {
+            await ReloadAsync();
+        }
+    }
+}

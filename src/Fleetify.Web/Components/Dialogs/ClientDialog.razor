@@ -1,0 +1,64 @@
+@* Create a client (code, name, optional client template) or rename one. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(IsEdit ? "Rename client" : "New client")</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (!IsEdit)
+        {
+            <MudTextField @bind-Value="_code" Label="Client code" Variant="Variant.Outlined" MaxLength="16" AutoFocus="true"
+                          HelperText="Short and unique, for example ACME. Letters, digits and hyphens; stored in uppercase." Class="mb-3" />
+        }
+        <MudTextField @bind-Value="_name" Label="Client name" Variant="Variant.Outlined" MaxLength="200" AutoFocus="@IsEdit" Class="mb-3" />
+        @if (!IsEdit)
+        {
+            <MudSelect T="Guid?" @bind-Value="_templateId" Label="Client template" Variant="Variant.Outlined"
+                       HelperText="The template creates the sites with their policy and monitoring templates. Without one, a single site named Main site is created.">
+                <MudSelectItem T="Guid?" Value="@((Guid?)null)">No client template</MudSelectItem>
+                @foreach (var template in Templates)
+                {
+                    <MudSelectItem T="Guid?" Value="@((Guid?)template.Id)">@template.Name (@template.SiteCount site@(template.SiteCount == 1 ? "" : "s"))</MudSelectItem>
+                }
+            </MudSelect>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">@(IsEdit ? "Save" : "Create client")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public bool IsEdit { get; set; }
+    [Parameter] public string InitialName { get; set; } = string.Empty;
+    [Parameter] public IReadOnlyList<ClientTemplateListItem> Templates { get; set; } = [];
+    [Parameter] public Func<string, string, Guid?, Task<bool>> OnSubmit { get; set; } = (_, _, _) => Task.FromResult(true);
+
+    private string _code = string.Empty;
+    private string _name = string.Empty;
+    private Guid? _templateId;
+    private bool _busy;
+
+    protected override void OnInitialized() => _name = InitialName;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(_code, _name, _templateId))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -1,0 +1,31 @@
+<Project>
+  <!--
+    Shared build settings for every .NET project in the repository.
+    Server and agent are released together under one version number (CLAUDE.md, Versioning).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Version>0.1.0</Version>
+    <Company>Steaan</Company>
+    <Product>Fleeto</Product>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- Fail the build on any known vulnerable package, direct or transitive (CLAUDE.md, Security). -->
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+    <WarningsAsErrors>$(WarningsAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsAsErrors>
+    <!-- Public verification keys. Empty unless CI or Directory.Build.local.props provides them. -->
+    <FleetifyLicensePublicKeys Condition="'$(FleetifyLicensePublicKeys)' == ''"></FleetifyLicensePublicKeys>
+    <FleetifyReleasePublicKeys Condition="'$(FleetifyReleasePublicKeys)' == ''"></FleetifyReleasePublicKeys>
+  </PropertyGroup>
+
+  <!--
+    Directory.Build.local.props is written by tools/dev/setup-dev.ps1 and holds the public halves of the
+    development license and release keys. It is gitignored. CI passes the Steaan production public keys
+    as MSBuild properties instead. Public keys only: private keys never appear in any build input.
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)Directory.Build.local.props"
+          Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.local.props')" />
+</Project>

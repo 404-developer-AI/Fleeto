@@ -1,0 +1,66 @@
+@* Create or edit an email notification channel. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(Existing is null ? "New notification channel" : $"Edit {Existing.Name}")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" MaxLength="100" AutoFocus="true" Class="mb-3" />
+        <MudTextField @bind-Value="_recipients" Label="Recipients" Variant="Variant.Outlined" Lines="3" MaxLength="2000" Class="mb-3"
+                      HelperText="Email addresses, separated by commas or one per line." />
+        <MudSelect T="AlertSeverity" @bind-Value="_minimumSeverity" Label="Send alerts of at least" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem T="AlertSeverity" Value="AlertSeverity.Warning">Warning</MudSelectItem>
+            <MudSelectItem T="AlertSeverity" Value="AlertSeverity.Critical">Critical</MudSelectItem>
+        </MudSelect>
+        <MudSwitch T="bool" @bind-Value="_notifyOnResolve" Color="Color.Primary" Label="Also send a message when an alert is resolved" />
+        <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Label="Enabled" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">@(Existing is null ? "Create" : "Save")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public NotificationChannelView? Existing { get; set; }
+    [Parameter] public Func<NotificationChannelInput, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+
+    private string? _name;
+    private string? _recipients;
+    private AlertSeverity _minimumSeverity = AlertSeverity.Warning;
+    private bool _notifyOnResolve = true;
+    private bool _enabled = true;
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        if (Existing is { } c)
+        {
+            _name = c.Name;
+            _recipients = c.Recipients;
+            _minimumSeverity = c.MinimumSeverity;
+            _notifyOnResolve = c.NotifyOnResolve;
+            _enabled = c.Enabled;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(new NotificationChannelInput(_name, _recipients, _minimumSeverity, _notifyOnResolve, _enabled)))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

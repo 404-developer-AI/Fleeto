@@ -1,0 +1,913 @@
+@page "/clients"
+@page "/clients/{ClientId:guid}"
+@page "/sites/{SiteId:guid}"
+@attribute [Authorize(Policy = FleetifyPolicies.Viewer)]
+@inherits FleetoPageBase
+@inject ClientService ClientSvc
+@inject ClientTemplateService ClientTemplates
+@inject SiteService SiteSvc
+@inject EndpointService EndpointSvc
+@inject EnrollmentService EnrollmentSvc
+@inject IDialogService DialogService
+@inject LiveUpdates Live
+@inject IJSRuntime JS
+
+@* Clients workspace: clients and sites on the left, the endpoints of the selection on the right, and the selected endpoint below. *@
+<PageTitle>@PageTitleText - Fleeto</PageTitle>
+
+<div class="clients-workspace">
+    <aside class="client-panel">
+        <div class="client-panel-head">
+            <a href="/clients" class="client-panel-all @(IsAllScope ? "selected" : "")">
+                <MudIcon Icon="@Icons.Material.Outlined.Home" Size="Size.Small" />
+                <span>All clients</span>
+            </a>
+            @if (CanManage)
+            {
+                <MudTooltip Text="New client">
+                    <MudIconButton Icon="@Icons.Material.Outlined.Add" Size="Size.Small" aria-label="New client" OnClick="CreateClientAsync" />
+                </MudTooltip>
+            }
+        </div>
+        <div class="px-3 pb-2">
+            <MudTextField T="string" Value="_clientSearch" ValueChanged="SearchClientsAsync" Placeholder="Search clients" Variant="Variant.Outlined"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" Immediate="true" DebounceInterval="300"
+                          Margin="Margin.Dense" Clearable="true" />
+        </div>
+        <nav class="client-panel-list" aria-label="Clients and sites">
+            @if (_tree.Count == 0 && !_treeLoading)
+            {
+                <MudText Typo="Typo.body2" Class="muted px-4 py-2">
+                    @(string.IsNullOrEmpty(_clientSearch) ? "No clients yet." : "No clients match this search.")
+                </MudText>
+            }
+            @foreach (var client in _tree)
+            {
+                var expanded = _expanded.Contains(client.Id);
+                <div class="client-row @(ClientId == client.Id ? "selected" : "")">
+                    <button type="button" class="client-expand" aria-label="@(expanded ? "Collapse" : "Expand") @client.Code" @onclick="() => ToggleExpanded(client.Id)">
+                        <MudIcon Icon="@(expanded ? Icons.Material.Outlined.ExpandMore : Icons.Material.Outlined.ChevronRight)" Size="Size.Small" />
+                    </button>
+                    <a href="@($"/clients/{client.Id}")" class="client-link" title="@($"[{client.Code}] {client.Name}")">
+                        <MudIcon Icon="@Icons.Material.Outlined.Business" Size="Size.Small" Class="client-icon" />
+                        <span class="client-name">[@client.Code] @client.Name</span>
+                        @if (client.OpenAlertCount > 0)
+                        {
+                            <span class="tree-badge tree-badge-alert" title="@($"{client.OpenAlertCount} open alerts")">@client.OpenAlertCount</span>
+                        }
+                    </a>
+                </div>
+                @if (expanded)
+                {
+                    @foreach (var site in client.Sites)
+                    {
+                        <a href="@($"/sites/{site.Id}")" class="site-row @(SiteId == site.Id ? "selected" : "")" title="@site.Name">
+                            <MudIcon Icon="@Icons.Material.Outlined.Folder" Size="Size.Small" Class="client-icon" />
+                            <span class="client-name">@site.Name</span>
+                            @if (site.OpenAlertCount > 0)
+                            {
+                                <span class="tree-badge tree-badge-alert">@site.OpenAlertCount</span>
+                            }
+                            else
+                            {
+                                <span class="tree-badge">@site.EndpointCount</span>
+                            }
+                        </a>
+                    }
+                }
+            }
+        </nav>
+    </aside>
+
+    <section class="workspace-main">
+        <LoadState Loading="Loading" Failed="LoadFailed" NotFound="_notFound" What="@(SiteId is null ? "client" : "site")">
+            <MudBreadcrumbs Items="Breadcrumb" Class="px-0 pt-0 pb-2 fl-breadcrumbs" />
+
+            <div class="workspace-header">
+                <div class="workspace-header-icon">
+                    <MudIcon Icon="@(SiteId is not null ? Icons.Material.Outlined.Folder : IsAllScope ? Icons.Material.Outlined.Home : Icons.Material.Outlined.Business)" />
+                </div>
+                <div class="workspace-header-text">
+                    <MudText Typo="Typo.h4" Class="page-title">@HeaderTitle</MudText>
+                    <MudText Typo="Typo.body2" Class="muted">@HeaderSubtitle</MudText>
+                </div>
+                <div class="workspace-header-actions">
+                    @if (_site is { } site && CanManage)
+                    {
+                        <MudMenu Label="Site settings" StartIcon="@Icons.Material.Outlined.Settings" Variant="Variant.Outlined"
+                                 AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                            <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="EditSiteAsync">Edit site</MudMenuItem>
+                            <MudMenuItem Icon="@Icons.Material.Outlined.Tune" OnClick="EditSiteLinksAsync">Policy and monitoring</MudMenuItem>
+                            <MudMenuItem Icon="@Icons.Material.Outlined.Key" OnClick="ShowTokensAsync">Enrollment tokens</MudMenuItem>
+                            <MudDivider />
+                            <MudMenuItem Icon="@Icons.Material.Outlined.Delete" IconColor="Color.Error" OnClick="DeleteSiteAsync">Delete site</MudMenuItem>
+                        </MudMenu>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add"
+                                   OnClick="@(() => CreateTokenAsync(site.Id, site.Name))">Add endpoint</MudButton>
+                    }
+                    else if (_site is not null)
+                    {
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Tune" OnClick="EditSiteLinksAsync">Policy and monitoring</MudButton>
+                    }
+                    else if (_client is { } client && CanManage)
+                    {
+                        <MudMenu Label="Client settings" StartIcon="@Icons.Material.Outlined.Settings" Variant="Variant.Outlined"
+                                 AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                            <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="RenameClientAsync">Rename client</MudMenuItem>
+                            <MudMenuItem Icon="@Icons.Material.Outlined.CreateNewFolder" OnClick="CreateSiteAsync">New site</MudMenuItem>
+                            @if (client.ClientTemplateId is not null)
+                            {
+                                <MudMenuItem Icon="@Icons.Material.Outlined.LinkOff" OnClick="DetachClientAsync">Detach from client template</MudMenuItem>
+                            }
+                            <MudDivider />
+                            <MudMenuItem Icon="@Icons.Material.Outlined.Delete" IconColor="Color.Error" OnClick="DeleteClientAsync">Delete client</MudMenuItem>
+                        </MudMenu>
+                        @if (client.Sites.Count == 1)
+                        {
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add"
+                                       OnClick="@(() => CreateTokenAsync(client.Sites[0].Id, client.Sites[0].Name))">Add endpoint</MudButton>
+                        }
+                        else if (client.Sites.Count > 1)
+                        {
+                            <MudMenu Label="Add endpoint" StartIcon="@Icons.Material.Outlined.Add" EndIcon="@Icons.Material.Outlined.ArrowDropDown"
+                                     Variant="Variant.Filled" Color="Color.Primary" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                                <MudMenuItem Disabled="true">Choose the site for the new endpoint</MudMenuItem>
+                                @foreach (var clientSite in client.Sites)
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.Folder" OnClick="@(() => CreateTokenAsync(clientSite.Id, clientSite.Name))">@clientSite.Name</MudMenuItem>
+                                }
+                            </MudMenu>
+                        }
+                    }
+                </div>
+            </div>
+
+            <div class="endpoint-list fl-panel">
+                <div class="endpoint-list-toolbar">
+                    <MudTabs Elevation="0" ActivePanelIndex="_tab" ActivePanelIndexChanged="OnTabChangedAsync" Class="endpoint-class-tabs">
+                        <MudTabPanel Text="@($"Servers ({_page?.ServerCount ?? 0})")" Icon="@Icons.Material.Outlined.Dns" />
+                        <MudTabPanel Text="@($"Workstations ({_page?.WorkstationCount ?? 0})")" Icon="@Icons.Material.Outlined.Computer" />
+                        <MudTabPanel Text="@($"Mixed ({_page?.TotalCount ?? 0})")" Icon="@Icons.Material.Outlined.Devices" />
+                    </MudTabs>
+                    <div class="endpoint-list-search">
+                        <MudTextField T="string" Value="_endpointSearch" ValueChanged="SearchEndpointsAsync" Placeholder="Search endpoints"
+                                      Variant="Variant.Outlined" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search"
+                                      Immediate="true" DebounceInterval="300" Margin="Margin.Dense" Clearable="true" />
+                        <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" aria-label="Filter endpoints">
+                            <ActivatorContent>
+                                <MudBadge Dot="true" Color="Color.Primary" Visible="@FiltersActive" Overlap="true">
+                                    <MudIconButton Icon="@Icons.Material.Outlined.FilterList" Variant="Variant.Outlined" Size="Size.Medium" aria-label="Filter endpoints" />
+                                </MudBadge>
+                            </ActivatorContent>
+                            <ChildContent>
+                                <MudMenuItem Disabled="true">Status</MudMenuItem>
+                                @FilterItem("All statuses", _status == EndpointStatusFilter.All, () => SetStatusAsync(EndpointStatusFilter.All))
+                                @FilterItem("Online", _status == EndpointStatusFilter.Online, () => SetStatusAsync(EndpointStatusFilter.Online))
+                                @FilterItem("Offline", _status == EndpointStatusFilter.Offline, () => SetStatusAsync(EndpointStatusFilter.Offline))
+                                @FilterItem("With open alerts", _status == EndpointStatusFilter.WithOpenAlerts, () => SetStatusAsync(EndpointStatusFilter.WithOpenAlerts))
+                                <MudDivider />
+                                <MudMenuItem Disabled="true">License tier</MudMenuItem>
+                                @FilterItem("All tiers", _tier is null, () => SetTierFilterAsync(null))
+                                @FilterItem("Managed", _tier == EndpointTier.Managed, () => SetTierFilterAsync(EndpointTier.Managed))
+                                @FilterItem("Agent-only", _tier == EndpointTier.AgentOnly, () => SetTierFilterAsync(EndpointTier.AgentOnly))
+                            </ChildContent>
+                        </MudMenu>
+                    </div>
+                </div>
+
+                @if (CanManage && _selected.Count > 0)
+                {
+                    <div class="endpoint-bulk-bar">
+                        <MudText Typo="Typo.body2"><strong>@_selected.Count</strong> selected</MudText>
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy"
+                                   OnClick="@(() => SetTierAsync(EndpointTier.Managed))">Switch to managed</MudButton>
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy"
+                                   OnClick="@(() => SetTierAsync(EndpointTier.AgentOnly))">Switch to agent-only</MudButton>
+                        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => _selected.Clear())">Clear selection</MudButton>
+                    </div>
+                }
+
+                <div class="endpoint-table-scroll" @ref="_tableScroll">
+                    @if (_rowsLoading && _page is null)
+                    {
+                        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                    }
+                    else if (_page is null || _page.Rows.Count == 0)
+                    {
+                        @EmptyList()
+                    }
+                    else
+                    {
+                        <MudTable T="EndpointRow" Items="_page.Rows" Dense="true" Hover="true" Elevation="0" FixedHeader="true" Class="endpoint-table"
+                                  OnRowClick="OnRowClick" RowClassFunc="RowClass">
+                            <HeaderContent>
+                                @if (CanManage)
+                                {
+                                    <MudTh Style="width:44px">
+                                        <MudCheckBox T="bool" Value="@AllSelected" ValueChanged="SelectAll" Size="Size.Small" />
+                                    </MudTh>
+                                }
+                                <MudTh Style="width:36px"></MudTh>
+                                <MudTh>Hostname</MudTh>
+                                @if (IsAllScope)
+                                {
+                                    <MudTh>Client</MudTh>
+                                }
+                                @if (SiteId is null)
+                                {
+                                    <MudTh>Site</MudTh>
+                                }
+                                <MudTh>Operating system</MudTh>
+                                <MudTh>User</MudTh>
+                                <MudTh>Tier</MudTh>
+                                <MudTh>Status</MudTh>
+                                <MudTh>Last seen</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                @if (CanManage)
+                                {
+                                    <MudTd>
+                                        <span @onclick:stopPropagation="true">
+                                            <MudCheckBox T="bool" Value="@_selected.Contains(context.Id)" ValueChanged="@(v => Toggle(context.Id, v))" Size="Size.Small" />
+                                        </span>
+                                    </MudTd>
+                                }
+                                <MudTd>
+                                    <MudIcon Icon="@(context.EffectiveClass == EndpointClass.Server ? Icons.Material.Outlined.Dns : Icons.Material.Outlined.Computer)"
+                                             Size="Size.Small" Class="muted" />
+                                </MudTd>
+                                <MudTd><strong>@context.Hostname</strong></MudTd>
+                                @if (IsAllScope)
+                                {
+                                    <MudTd>[@context.ClientCode] @context.ClientName</MudTd>
+                                }
+                                @if (SiteId is null)
+                                {
+                                    <MudTd>@context.SiteName</MudTd>
+                                }
+                                <MudTd>@context.OsName</MudTd>
+                                <MudTd>@(string.IsNullOrEmpty(context.LoggedOnUser) ? "-" : context.LoggedOnUser)</MudTd>
+                                <MudTd><StatusChip Text="@Ui.TierLabel(context.Tier)" Kind="@Ui.TierKind(context.Tier)" /></MudTd>
+                                <MudTd>
+                                    <div class="d-flex align-center gap-1 flex-wrap">
+                                        <StatusChip Text="@(context.IsOnline ? "Online" : "Offline")" Kind="@(context.IsOnline ? StatusKind.Ok : StatusKind.Error)" Dot="true" />
+                                        @if (context.OpenAlertCount > 0)
+                                        {
+                                            <StatusChip Text="@(context.OpenAlertCount == 1 ? "1 alert" : $"{context.OpenAlertCount} alerts")"
+                                                        Kind="@(context.HasCriticalAlert ? StatusKind.Error : StatusKind.Warning)" />
+                                        }
+                                    </div>
+                                </MudTd>
+                                <MudTd><TimeText Value="context.LastSeenAt" /></MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                        @if (_page.Truncated)
+                        {
+                            <MudText Typo="Typo.body2" Class="muted px-4 py-2">
+                                Showing the first @EndpointService.ListLimit endpoints. Search, filter or pick a client to see the others.
+                            </MudText>
+                        }
+                    }
+                </div>
+            </div>
+
+            @if (SelectedEndpointId is { } endpointId)
+            {
+                <div class="split-handle" @ref="_splitHandle" title="Drag to resize the endpoint list" role="separator" aria-orientation="horizontal">
+                    <span></span>
+                </div>
+                <div class="fl-panel endpoint-detail-panel">
+                    <div class="d-flex justify-end">
+                        <MudTooltip Text="Close">
+                            <MudIconButton Icon="@Icons.Material.Outlined.Close" Size="Size.Small" aria-label="Close endpoint details" OnClick="CloseDetail" />
+                        </MudTooltip>
+                    </div>
+                    <EndpointDetailView EndpointId="endpointId" Embedded="true" OnChanged="OnEndpointChangedAsync" OnDeleted="OnEndpointDeletedAsync" />
+                </div>
+            }
+        </LoadState>
+    </section>
+</div>
+
+@code {
+    private const int ServersTab = 0;
+    private const int WorkstationsTab = 1;
+
+    [Parameter] public Guid? ClientId { get; set; }
+    [Parameter] public Guid? SiteId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "endpoint")]
+    public Guid? SelectedEndpointId { get; set; }
+
+    /// <summary>True when opened from the Create menu in the navigation: the new client dialog opens once the page has loaded.</summary>
+    [SupplyParameterFromQuery(Name = "new")]
+    public bool New { get; set; }
+
+    private IReadOnlyList<ClientTreeItem> _tree = [];
+    private bool _treeLoading = true;
+    private string? _clientSearch;
+    private readonly HashSet<Guid> _expanded = [];
+
+    private string? _scopeKey;
+    private bool _notFound;
+    private ClientDetail? _client;
+    private SiteSummary? _site;
+
+    private EndpointListPage? _page;
+    private bool _rowsLoading = true;
+    private int _tab = ServersTab;
+    private string? _endpointSearch;
+    private EndpointStatusFilter _status = EndpointStatusFilter.All;
+    private EndpointTier? _tier;
+    private readonly HashSet<Guid> _selected = [];
+    private bool _busy;
+
+    private ElementReference _tableScroll;
+    private ElementReference _splitHandle;
+    private DebouncedRefresh? _refresh;
+
+    private bool IsAllScope => ClientId is null && SiteId is null;
+    private bool FiltersActive => _status != EndpointStatusFilter.All || _tier is not null;
+    private bool AllSelected => _page is { Rows.Count: > 0 } && _page.Rows.All(r => _selected.Contains(r.Id));
+
+    private string PageTitleText => _site is not null ? _site.Name : _client is not null ? _client.Code : "Clients";
+
+    private string HeaderTitle => _site is not null ? _site.Name : _client is not null ? $"[{_client.Code}] {_client.Name}" : "All clients";
+
+    private string HeaderSubtitle
+    {
+        get
+        {
+            if (_site is { } site)
+            {
+                var templates = site.MonitoringTemplateCount == 1 ? "1 monitoring template" : $"{site.MonitoringTemplateCount} monitoring templates";
+                return $"[{site.ClientCode}] {site.ClientName} · {site.PolicyName} · {templates}" +
+                       (string.IsNullOrEmpty(site.Description) ? string.Empty : " · " + site.Description);
+            }
+
+            if (_client is { } client)
+            {
+                return client.TemplateName is not null
+                    ? $"Follows client template {client.TemplateName}. Every endpoint of every site of this client."
+                    : "Every endpoint of every site of this client.";
+            }
+
+            return "Every endpoint of every client.";
+        }
+    }
+
+    private List<BreadcrumbItem> Breadcrumb
+    {
+        get
+        {
+            var items = new List<BreadcrumbItem> { new("Clients", IsAllScope ? null : "/clients", disabled: IsAllScope) };
+            if (_site is { } site)
+            {
+                items.Add(new BreadcrumbItem($"[{site.ClientCode}] {site.ClientName}", $"/clients/{site.ClientId}"));
+                items.Add(new BreadcrumbItem(site.Name, null, disabled: true));
+            }
+            else if (_client is { } client)
+            {
+                items.Add(new BreadcrumbItem($"[{client.Code}] {client.Name}", null, disabled: true));
+            }
+
+            return items;
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        _refresh = new DebouncedRefresh(() => InvokeAsync(async () =>
+        {
+            await Task.WhenAll(LoadTreeAsync(), LoadRowsAsync());
+            StateHasChanged();
+        }));
+        Live.EndpointStatusChanged += OnLiveChange;
+        Live.AlertChanged += OnLiveChange;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        OpenCreateFromQuery(New, CreateClientAsync);
+        var scopeKey = SiteId?.ToString() ?? ClientId?.ToString() ?? "all";
+        if (scopeKey == _scopeKey)
+        {
+            // Only the selected endpoint changed: the detail view reacts to its own parameter.
+            return;
+        }
+
+        var firstLoad = _scopeKey is null;
+        _scopeKey = scopeKey;
+        _selected.Clear();
+        _page = null;
+        _rowsLoading = true;
+
+        if (firstLoad)
+        {
+            await LoadTreeAsync();
+        }
+
+        await LoadScopeAsync();
+        if (_notFound)
+        {
+            return;
+        }
+
+        // Open on the first tab that has endpoints: Servers, then Workstations.
+        _tab = ServersTab;
+        await LoadRowsAsync();
+        if (_page is { ServerCount: 0, WorkstationCount: > 0 })
+        {
+            _tab = WorkstationsTab;
+            await LoadRowsAsync();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await RunPendingCreateAsync();
+        if (SelectedEndpointId is null)
+        {
+            return;
+        }
+
+        try
+        {
+            // Idempotent: the script marks an element once it is wired.
+            await JS.InvokeVoidAsync("fleeto.initSplitter", _splitHandle, _tableScroll, "fleeto.clients.listHeight");
+        }
+        catch (JSException)
+        {
+            // Resizing is a convenience; the list keeps its default height.
+        }
+        catch (InvalidOperationException)
+        {
+            // Prerendering: no JavaScript yet.
+        }
+    }
+
+    private async Task LoadTreeAsync()
+    {
+        await LoadAsync(async caller => _tree = await ClientSvc.ListTreeAsync(caller, _clientSearch));
+        _treeLoading = false;
+        if (!string.IsNullOrEmpty(_clientSearch))
+        {
+            foreach (var client in _tree.Where(c => c.Sites.Count > 0))
+            {
+                _expanded.Add(client.Id);
+            }
+        }
+    }
+
+    private async Task LoadScopeAsync()
+    {
+        await LoadAsync(async caller =>
+        {
+            _site = null;
+            _client = null;
+            _notFound = false;
+            if (SiteId is { } siteId)
+            {
+                _site = await SiteSvc.GetSummaryAsync(caller, siteId);
+                _notFound = _site is null;
+                if (_site is not null)
+                {
+                    _expanded.Add(_site.ClientId);
+                }
+            }
+            else if (ClientId is { } clientId)
+            {
+                _client = await ClientSvc.GetAsync(caller, clientId);
+                _notFound = _client is null;
+                if (_client is not null)
+                {
+                    _expanded.Add(_client.Id);
+                }
+            }
+        });
+    }
+
+    private async Task LoadRowsAsync()
+    {
+        if (_notFound)
+        {
+            return;
+        }
+
+        var endpointClass = _tab switch { ServersTab => EndpointClass.Server, WorkstationsTab => (EndpointClass?)EndpointClass.Workstation, _ => null };
+        var query = new EndpointListQuery(SiteId is null ? ClientId : null, SiteId, endpointClass, _endpointSearch, _status, _tier);
+        await LoadAsync(async caller =>
+        {
+            _page = await EndpointSvc.ListAsync(caller, query);
+            _selected.IntersectWith(_page.Rows.Select(r => r.Id));
+        });
+        _rowsLoading = false;
+    }
+
+    private void OnLiveChange(Guid _) => _refresh?.Trigger();
+
+    private async Task SearchClientsAsync(string? value)
+    {
+        _clientSearch = value;
+        await LoadTreeAsync();
+    }
+
+    private void ToggleExpanded(Guid clientId)
+    {
+        if (!_expanded.Remove(clientId))
+        {
+            _expanded.Add(clientId);
+        }
+    }
+
+    private async Task OnTabChangedAsync(int tab)
+    {
+        _tab = tab;
+        await LoadRowsAsync();
+    }
+
+    private async Task SearchEndpointsAsync(string? value)
+    {
+        _endpointSearch = value;
+        await LoadRowsAsync();
+    }
+
+    private async Task SetStatusAsync(EndpointStatusFilter status)
+    {
+        _status = status;
+        await LoadRowsAsync();
+    }
+
+    private async Task SetTierFilterAsync(EndpointTier? tier)
+    {
+        _tier = tier;
+        await LoadRowsAsync();
+    }
+
+    private RenderFragment FilterItem(string label, bool active, Func<Task> onClick) => __builder =>
+    {
+        <MudMenuItem OnClick="onClick" Icon="@(active ? Icons.Material.Outlined.Check : Icons.Material.Outlined.CheckBoxOutlineBlank)"
+                     IconColor="@(active ? Color.Primary : Color.Transparent)">@label</MudMenuItem>
+    };
+
+    private RenderFragment EmptyList() => __builder =>
+    {
+        if (!string.IsNullOrEmpty(_endpointSearch) || FiltersActive)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.SearchOff" Title="No endpoints match" Text="Change the search or the filters." />
+        }
+        else if (_site is not null)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.Computer" Title="No endpoints here yet"
+                        Text="Use Add endpoint to create an enrollment token, then run its install command on the endpoint. It appears here as agent-only." />
+        }
+        else if (_client is not null)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.Computer" Title="This client has no endpoints yet"
+                        Text="Use Add endpoint and pick a site to get an install command." />
+        }
+        else
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.Business" Title="No endpoints yet"
+                        Text="Create a client, open one of its sites and use Add endpoint to install the first agent." />
+        }
+    };
+
+    private string RowClass(EndpointRow row, int _) => row.Id == SelectedEndpointId ? "row-selected" : string.Empty;
+
+    private void OnRowClick(TableRowClickEventArgs<EndpointRow> args)
+    {
+        if (args.Item is { } row)
+        {
+            Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("endpoint", row.Id), new NavigationOptions { ReplaceHistoryEntry = true });
+        }
+    }
+
+    private void CloseDetail() =>
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("endpoint", (Guid?)null), new NavigationOptions { ReplaceHistoryEntry = true });
+
+    private void Toggle(Guid id, bool selected)
+    {
+        if (selected)
+        {
+            _selected.Add(id);
+        }
+        else
+        {
+            _selected.Remove(id);
+        }
+    }
+
+    private void SelectAll(bool selected)
+    {
+        foreach (var row in _page?.Rows ?? [])
+        {
+            Toggle(row.Id, selected);
+        }
+    }
+
+    private async Task SetTierAsync(EndpointTier tier)
+    {
+        _busy = true;
+        try
+        {
+            var ids = _selected.ToList();
+            var label = tier == EndpointTier.Managed ? "managed" : "agent-only";
+            if (await RunAsync(caller => EndpointSvc.SetTierAsync(caller, ids, tier), $"{ids.Count} endpoint{(ids.Count == 1 ? " is" : "s are")} now {label}."))
+            {
+                _selected.Clear();
+                await LoadRowsAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task OnEndpointChangedAsync() => await Task.WhenAll(LoadRowsAsync(), LoadTreeAsync());
+
+    private async Task OnEndpointDeletedAsync(Guid _)
+    {
+        CloseDetail();
+        await Task.WhenAll(LoadRowsAsync(), LoadTreeAsync());
+    }
+
+    private async Task ReloadAllAsync()
+    {
+        await LoadTreeAsync();
+        await LoadScopeAsync();
+        await LoadRowsAsync();
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Clients
+    // ---------------------------------------------------------------------------------------------------------------
+
+    private async Task CreateClientAsync()
+    {
+        IReadOnlyList<ClientTemplateListItem> templates = [];
+        await LoadAsync(async caller => templates = await ClientTemplates.ListAsync(caller));
+        Guid? createdId = null;
+        var parameters = new DialogParameters<ClientDialog>
+        {
+            { d => d.Templates, templates },
+            {
+                d => d.OnSubmit, async (code, name, templateId) =>
+                {
+                    var result = await RunForValueAsync(caller => ClientSvc.CreateAsync(caller, code, name, templateId), "The client was created.");
+                    createdId = result?.Value;
+                    return result is not null;
+                }
+            }
+        };
+        var dialog = await DialogService.ShowAsync<ClientDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        await dialog.Result;
+        if (createdId is { } id)
+        {
+            await LoadTreeAsync();
+            Navigation.NavigateTo($"/clients/{id}");
+        }
+    }
+
+    private async Task RenameClientAsync()
+    {
+        var client = _client!;
+        var parameters = new DialogParameters<ClientDialog>
+        {
+            { d => d.IsEdit, true },
+            { d => d.InitialName, client.Name },
+            { d => d.OnSubmit, (_, name, _) => RunAsync(caller => ClientSvc.RenameAsync(caller, client.Id, name), "The client was renamed.") }
+        };
+        var dialog = await DialogService.ShowAsync<ClientDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAllAsync();
+        }
+    }
+
+    private async Task DetachClientAsync()
+    {
+        var client = _client!;
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, "Detach from client template" },
+            { d => d.Message, $"Client {client.Code} will stop following client template {client.TemplateName}. Its sites, policies and monitoring templates stay as they are, but later changes to the template no longer apply to this client." },
+            { d => d.ConfirmText, "Detach" },
+            { d => d.ConfirmColor, Color.Primary }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled &&
+            await RunAsync(caller => ClientSvc.DetachFromTemplateAsync(caller, client.Id), "The client no longer follows the client template."))
+        {
+            await LoadScopeAsync();
+        }
+    }
+
+    private async Task DeleteClientAsync()
+    {
+        var client = _client!;
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Delete client {client.Code}" },
+            { d => d.Message, $"This removes client {client.Code} with every site, every endpoint and all data of the client: inventory, checks, alerts, enrollment tokens and agent certificates. Connected agents are disconnected and must be enrolled again to return. This cannot be undone." },
+            { d => d.TypeToConfirm, client.Code },
+            { d => d.ConfirmText, "Delete client" }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        var result = await dialog.Result;
+        if (!result!.Canceled &&
+            await RunAsync(caller => ClientSvc.DeleteAsync(caller, client.Id, result.Data as string), $"Client {client.Code} was deleted."))
+        {
+            _expanded.Remove(client.Id);
+            await LoadTreeAsync();
+            Navigation.NavigateTo("/clients");
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Sites
+    // ---------------------------------------------------------------------------------------------------------------
+
+    private async Task CreateSiteAsync()
+    {
+        var client = _client!;
+        Guid? createdId = null;
+        var parameters = new DialogParameters<SiteDialog>
+        {
+            {
+                d => d.OnSubmit, async (name, description) =>
+                {
+                    var result = await RunForValueAsync(caller => SiteSvc.CreateAsync(caller, client.Id, name, description), "The site was created.");
+                    createdId = result?.Value;
+                    return result is not null;
+                }
+            }
+        };
+        var dialog = await DialogService.ShowAsync<SiteDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        await dialog.Result;
+        if (createdId is { } id)
+        {
+            await LoadTreeAsync();
+            Navigation.NavigateTo($"/sites/{id}");
+        }
+    }
+
+    private async Task EditSiteAsync()
+    {
+        var site = _site!;
+        var parameters = new DialogParameters<SiteDialog>
+        {
+            { d => d.IsEdit, true },
+            { d => d.InitialName, site.Name },
+            { d => d.InitialDescription, site.Description },
+            { d => d.OnSubmit, (name, description) => RunAsync(caller => SiteSvc.UpdateAsync(caller, site.Id, name, description), "The site was saved.") }
+        };
+        var dialog = await DialogService.ShowAsync<SiteDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAllAsync();
+        }
+    }
+
+    private async Task DeleteSiteAsync()
+    {
+        var site = _site!;
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Delete site {site.Name}" },
+            { d => d.Message, "The site, its links to a policy and monitoring templates, and its enrollment tokens are removed. A site with endpoints cannot be deleted." }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled &&
+            await RunAsync(caller => SiteSvc.DeleteAsync(caller, site.Id), $"Site {site.Name} was deleted."))
+        {
+            await LoadTreeAsync();
+            Navigation.NavigateTo($"/clients/{site.ClientId}");
+        }
+    }
+
+    private async Task EditSiteLinksAsync()
+    {
+        var siteId = SiteId!.Value;
+        SiteDetail? detail = null;
+        IReadOnlyList<LinkOption> policies = [];
+        IReadOnlyList<LinkOption> templates = [];
+        await LoadAsync(async caller =>
+        {
+            detail = await SiteSvc.GetAsync(caller, siteId);
+            if (detail is not null)
+            {
+                (policies, templates) = await SiteSvc.GetLinkOptionsAsync(caller, detail.ClientId);
+            }
+        });
+        if (detail is null)
+        {
+            return;
+        }
+
+        var parameters = new DialogParameters<SiteLinksDialog>
+        {
+            { d => d.Site, detail },
+            { d => d.Policies, policies },
+            { d => d.Templates, templates },
+            { d => d.CanManage, CanManage },
+            {
+                d => d.OnSubmit, async (policyId, policyChanged, templateIds, templatesChanged) =>
+                {
+                    if (policyChanged && !await RunAsync(caller => SiteSvc.SetPolicyAsync(caller, siteId, policyId), null))
+                    {
+                        return false;
+                    }
+
+                    if (templatesChanged && !await RunAsync(caller => SiteSvc.SetMonitoringTemplatesAsync(caller, siteId, templateIds), null))
+                    {
+                        return false;
+                    }
+
+                    Snackbar.Add("The policy and monitoring templates of this site were saved. Its endpoints receive the new configuration shortly.", Severity.Success);
+                    return true;
+                }
+            }
+        };
+        var dialog = await DialogService.ShowAsync<SiteLinksDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await LoadScopeAsync();
+        }
+    }
+
+    private async Task ShowTokensAsync()
+    {
+        var site = _site!;
+        IReadOnlyList<EnrollmentTokenListItem> tokens = [];
+        await LoadAsync(async caller => tokens = await EnrollmentSvc.ListAsync(caller, site.Id));
+        var parameters = new DialogParameters<EnrollmentTokensDialog>
+        {
+            { d => d.SiteName, site.Name },
+            { d => d.CanManage, CanManage },
+            { d => d.Tokens, tokens },
+            { d => d.OnRevoke, token => RevokeTokenAsync(site.Id, token) }
+        };
+        var dialog = await DialogService.ShowAsync<EnrollmentTokensDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        await dialog.Result;
+    }
+
+    private async Task<IReadOnlyList<EnrollmentTokenListItem>?> RevokeTokenAsync(Guid siteId, EnrollmentTokenListItem token)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, "Revoke enrollment token" },
+            { d => d.Message, $"Token {token.Name} stops working at once. Endpoints already enrolled with it are not affected." },
+            { d => d.ConfirmText, "Revoke" }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if ((await dialog.Result)!.Canceled || !await RunAsync(caller => EnrollmentSvc.RevokeAsync(caller, token.Id), "The enrollment token was revoked."))
+        {
+            return null;
+        }
+
+        IReadOnlyList<EnrollmentTokenListItem> refreshed = [];
+        await LoadAsync(async caller => refreshed = await EnrollmentSvc.ListAsync(caller, siteId));
+        return refreshed;
+    }
+
+    private async Task CreateTokenAsync(Guid siteId, string siteName)
+    {
+        CreatedEnrollmentToken? created = null;
+        var parameters = new DialogParameters<EnrollmentTokenDialog>
+        {
+            { d => d.SiteName, siteName },
+            {
+                d => d.OnSubmit, async (name, lifetime, maxUses) =>
+                {
+                    var result = await RunForValueAsync(caller => EnrollmentSvc.CreateAsync(caller, siteId, name, lifetime, maxUses), null);
+                    created = result?.Value;
+                    return result is not null;
+                }
+            }
+        };
+        var dialog = await DialogService.ShowAsync<EnrollmentTokenDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        await dialog.Result;
+        if (created is null)
+        {
+            return;
+        }
+
+        var show = new DialogParameters<InstallCommandDialog> { { d => d.Created, created } };
+        // The command is shown once: the dialog cannot be dismissed by clicking beside it by accident.
+        var commandDialog = await DialogService.ShowAsync<InstallCommandDialog>(null, show,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false });
+        created = null;
+        await commandDialog.Result;
+    }
+
+    public override void Dispose()
+    {
+        Live.EndpointStatusChanged -= OnLiveChange;
+        Live.AlertChanged -= OnLiveChange;
+        _refresh?.Dispose();
+        base.Dispose();
+    }
+}

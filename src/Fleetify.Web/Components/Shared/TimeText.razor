@@ -1,0 +1,15 @@
+@inject TimeDisplay TimeDisplay
+
+@* Relative under 24 hours, absolute after that; the absolute time in the user's zone is always in the tooltip. *@
+<span title="@(Value is null ? null : TimeDisplay.Absolute(Value))">@(Absolute ? TimeDisplay.Absolute(Value) : TimeDisplay.Relative(Value, Never))</span>
+
+@code {
+    [Parameter]
+    public DateTime? Value { get; set; }
+
+    [Parameter]
+    public bool Absolute { get; set; }
+
+    [Parameter]
+    public string Never { get; set; } = "Never";
+}

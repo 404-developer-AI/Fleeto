@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- fleetify-web: Blazor Server UI (MudBlazor) and, from 0.2.0, the public REST API. -->
+  <PropertyGroup>
+    <RootNamespace>Fleetify.Web</RootNamespace>
+    <AssemblyName>Fleetify.Web</AssemblyName>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Fleetify.Infrastructure\Fleetify.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="MudBlazor" />
+    <PackageReference Include="QRCoder" />
+    <PackageReference Include="NetEscapades.Extensions.Logging.RollingFile" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Fleetify.Web.Tests" />
+  </ItemGroup>
+</Project>

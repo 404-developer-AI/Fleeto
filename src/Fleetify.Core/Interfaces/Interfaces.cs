@@ -1,0 +1,159 @@
+using Fleetify.Core.Entities;
+
+namespace Fleetify.Core.Interfaces;
+
+/// <summary>
+/// The set of clients the current caller may see. Every client-owned query is filtered on it by the
+/// DbContext. System context (background services, the signer) sees every client.
+/// </summary>
+public interface IClientScope
+{
+    /// <summary>True for system context and for users without a client restriction.</summary>
+    bool AllClients { get; }
+
+    /// <summary>Allowed clients when <see cref="AllClients"/> is false. Empty means nothing is visible.</summary>
+    IReadOnlyCollection<Guid> ClientIds { get; }
+}
+
+/// <summary>
+/// Encrypts secrets at rest with envelope encryption: a data key per purpose, wrapped by the root key.
+/// The associated data binds a ciphertext to where it is stored, so it cannot be moved to another row.
+/// </summary>
+public interface ISecretProtector
+{
+    string Protect(string purpose, string plaintext, string associatedData);
+    string Unprotect(string purpose, string ciphertext, string associatedData);
+    byte[] Protect(string purpose, ReadOnlySpan<byte> plaintext, string associatedData);
+    byte[] Unprotect(string purpose, ReadOnlySpan<byte> ciphertext, string associatedData);
+}
+
+/// <summary>Cross-process notifications (PostgreSQL LISTEN/NOTIFY). Never the only copy of any data.</summary>
+public interface INotificationBus
+{
+    /// <summary>Publishes a small payload (at most 8000 bytes) on a channel.</summary>
+    Task PublishAsync(string channel, string payload, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Subscribes to a channel. The handler also receives an empty payload with
+    /// <see cref="NotificationBusEvents.Resync"/> after a reconnect, so subscribers can catch up from the
+    /// database for anything they may have missed.
+    /// </summary>
+    IDisposable Subscribe(string channel, Func<string, CancellationToken, Task> handler);
+}
+
+public static class NotificationBusEvents
+{
+    /// <summary>Payload delivered to every subscriber after the listener reconnects.</summary>
+    public const string Resync = "__resync__";
+}
+
+/// <summary>Channel names. Payloads are ids or tiny JSON objects, never data that exists nowhere else.</summary>
+public static class NotificationChannels
+{
+    /// <summary>Payload: SigningRequest id. Raised by a database trigger on insert.</summary>
+    public const string SigningRequests = "fleetify_signing_requests";
+
+    /// <summary>Payload: SigningRequest id. Raised by a database trigger when a request completes.</summary>
+    public const string SigningResults = "fleetify_signing_results";
+
+    /// <summary>Payload: endpoint id. New check results were stored for this endpoint.</summary>
+    public const string CheckResults = "fleetify_check_results";
+
+    /// <summary>Payload: endpoint id. Online state, inventory or tier changed.</summary>
+    public const string EndpointStatus = "fleetify_endpoint_status";
+
+    /// <summary>Payload: endpoint id. A newer signed configuration is available.</summary>
+    public const string EndpointConfig = "fleetify_endpoint_config";
+
+    /// <summary>Payload: endpoint id. Certificates of this endpoint were revoked or the endpoint was deleted.</summary>
+    public const string Revocations = "fleetify_revocations";
+
+    /// <summary>Payload: alert id. An alert opened, changed or resolved.</summary>
+    public const string Alerts = "fleetify_alerts";
+
+    /// <summary>Payload: ConfigChangeEvent id. Raised by a database trigger on insert.</summary>
+    public const string ConfigChanges = "fleetify_config_changes";
+
+    /// <summary>Payload: EndpointEvent id. Raised by a database trigger on insert.</summary>
+    public const string EndpointEvents = "fleetify_endpoint_events";
+
+    /// <summary>Payload: OutboxEmail id. Raised by a database trigger on insert.</summary>
+    public const string OutboxEmails = "fleetify_outbox_emails";
+}
+
+/// <summary>Writes audit entries. The table is append-only; there is no update or delete.</summary>
+public interface IAuditLog
+{
+    Task WriteAsync(AuditRecord record, CancellationToken cancellationToken = default);
+}
+
+/// <summary>One audit record. <paramref name="Details"/> is serialized to JSON; never put secrets in it.</summary>
+public sealed record AuditRecord(
+    string Action,
+    string TargetType,
+    string TargetId,
+    Guid? ClientId,
+    AuditActorType ActorType,
+    string ActorId,
+    string ActorName,
+    object? Details = null,
+    string? IpAddress = null);
+
+/// <summary>Well-known audit action names.</summary>
+public static class AuditActions
+{
+    public const string LoginSucceeded = "user.login";
+    public const string LoginFailed = "user.login_failed";
+    public const string Logout = "user.logout";
+    public const string TwoFactorEnabled = "user.2fa_enabled";
+    public const string TwoFactorReset = "user.2fa_reset";
+    public const string UserCreated = "user.created";
+    public const string UserUpdated = "user.updated";
+    public const string UserDeleted = "user.deleted";
+    public const string RolesChanged = "user.roles_changed";
+    public const string PasswordChanged = "user.password_changed";
+    public const string FirstAdminCreated = "instance.first_admin_created";
+
+    public const string ClientCreated = "client.created";
+    public const string ClientUpdated = "client.updated";
+    public const string ClientDeleted = "client.deleted";
+    public const string ClientDetachedFromTemplate = "client.detached_from_template";
+    public const string SiteCreated = "site.created";
+    public const string SiteUpdated = "site.updated";
+    public const string SiteDeleted = "site.deleted";
+    public const string SiteLinksChanged = "site.links_changed";
+
+    public const string EnrollmentTokenCreated = "enrollment_token.created";
+    public const string EnrollmentTokenRevoked = "enrollment_token.revoked";
+    public const string EndpointEnrolled = "endpoint.enrolled";
+    public const string EndpointTierChanged = "endpoint.tier_changed";
+    public const string EndpointClassChanged = "endpoint.class_changed";
+    public const string EndpointMoved = "endpoint.moved";
+    public const string EndpointDeleted = "endpoint.deleted";
+    public const string CertificateIssued = "certificate.issued";
+    public const string CertificateRenewed = "certificate.renewed";
+    public const string CertificateRevoked = "certificate.revoked";
+    public const string ConfigSigned = "config.signed";
+    public const string SigningKeyCreated = "signing_key.created";
+    public const string CertificateAuthorityCreated = "certificate_authority.created";
+    public const string SigningRefused = "signing.refused";
+
+    public const string PolicyCreated = "policy.created";
+    public const string PolicyUpdated = "policy.updated";
+    public const string PolicyDeleted = "policy.deleted";
+    public const string MonitoringTemplateCreated = "monitoring_template.created";
+    public const string MonitoringTemplateUpdated = "monitoring_template.updated";
+    public const string MonitoringTemplateDeleted = "monitoring_template.deleted";
+    public const string ClientTemplateCreated = "client_template.created";
+    public const string ClientTemplateUpdated = "client_template.updated";
+    public const string ClientTemplateDeleted = "client_template.deleted";
+
+    public const string AlertAcknowledged = "alert.acknowledged";
+    public const string AlertResolvedManually = "alert.resolved_manually";
+
+    public const string LicenseLoaded = "license.loaded";
+    public const string SettingsChanged = "settings.changed";
+    public const string CredentialChanged = "settings.credential_changed";
+    public const string NotificationChannelChanged = "notification_channel.changed";
+    public const string BackupStarted = "backup.started";
+}

@@ -1,0 +1,163 @@
+@page "/"
+@attribute [Authorize(Policy = FleetifyPolicies.Viewer)]
+@inherits FleetoPageBase
+@inject DashboardService DashboardData
+@inject LiveUpdates Live
+
+<PageTitle>Dashboard - Fleeto</PageTitle>
+
+<div class="page-header">
+    <MudText Typo="Typo.h4" Class="page-title">Dashboard</MudText>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_data is { } data)
+    {
+        <MudGrid Spacing="3" Class="mb-4">
+            <MudItem xs="12" sm="6" md="4" lg="2">
+                <div class="stat-card fl-panel">
+                    <div class="stat-label">Endpoints online</div>
+                    <div class="stat-number" style="color:var(--fl-primary)">@data.EndpointsOnline</div>
+                    <div class="stat-detail">of @(data.EndpointsOnline + data.EndpointsOffline) endpoints</div>
+                </div>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4" lg="2">
+                <div class="stat-card fl-panel @(data.EndpointsOffline > 0 ? "stat-error" : "")">
+                    <div class="stat-label">Endpoints offline</div>
+                    <div class="stat-number">@data.EndpointsOffline</div>
+                    <div class="stat-detail">@(data.EndpointsOffline == 0 ? "Every endpoint is connected" : "Not connected to the gateway")</div>
+                </div>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4" lg="2">
+                <div class="stat-card fl-panel @(data.OpenCritical > 0 ? "stat-error" : data.OpenWarning > 0 ? "stat-warning" : "")">
+                    <div class="stat-label">Open alerts</div>
+                    <div class="stat-number">@(data.OpenCritical + data.OpenWarning)</div>
+                    <div class="stat-detail">@data.OpenCritical critical · @data.OpenWarning warning</div>
+                </div>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4" lg="2">
+                <div class="stat-card fl-panel @(data.AgentsOutOfDate > 0 ? "stat-warning" : "")">
+                    <div class="stat-label">Agents out of date</div>
+                    <div class="stat-number">@data.AgentsOutOfDate</div>
+                    <div class="stat-detail">Current version @FleetifyVersion.Current</div>
+                </div>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4" lg="2">
+                <div class="stat-card fl-panel @(data.License.Status.State is LicenseState.Missing or LicenseState.Expired ? "stat-warning" : "")">
+                    <div class="stat-label">Licenses</div>
+                    <div class="stat-number">@data.License.ManagedInUse</div>
+                    <div class="stat-detail">@LicenseDetail(data.License)</div>
+                </div>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4" lg="2">
+                <div class="stat-card fl-panel @(!data.Backups.DestinationConfigured || data.Backups.LastRunFailed ? "stat-warning" : "")">
+                    <div class="stat-label">Backups</div>
+                    @if (!data.Backups.DestinationConfigured)
+                    {
+                        <div class="stat-detail" style="margin-top:0">
+                            No backup destination is configured, so backups exist on this server only.
+                            @if (IsAdmin)
+                            {
+                                <MudLink Href="/settings/backups" Typo="Typo.body2">Configure backups</MudLink>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="stat-number" style="font-size:1.125rem;margin-top:10px;"><TimeText Value="data.Backups.LastSucceededAt" Never="No backup yet" /></div>
+                        <div class="stat-detail">
+                            @(data.Backups.LastRunFailed ? "The last backup failed. Check Settings, Backups." : "Last successful backup")
+                        </div>
+                    }
+                </div>
+            </MudItem>
+        </MudGrid>
+
+        <MudGrid Spacing="3">
+            <MudItem xs="12" lg="7">
+                <MudText Typo="Typo.h6" Class="section-title mb-2">Open alerts</MudText>
+                @if (data.OpenAlerts.Count == 0)
+                {
+                    <EmptyState Icon="@Icons.Material.Outlined.CheckCircle" Title="No open alerts"
+                                Text="Alerts appear here when a check on a managed endpoint crosses its threshold." />
+                }
+                else
+                {
+                    <MudTable Items="data.OpenAlerts" Hover="true" Dense="true" Elevation="0">
+                        <HeaderContent>
+                            <MudTh>Severity</MudTh>
+                            <MudTh>Alert</MudTh>
+                            <MudTh>Endpoint</MudTh>
+                            <MudTh>Opened</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd><StatusChip Text="@context.Severity.ToString()" Kind="@Ui.SeverityKind(context.Severity)" /></MudTd>
+                            <MudTd>@context.Title</MudTd>
+                            <MudTd><MudLink Href="@($"/endpoints/{context.EndpointId}")">@context.ClientCode / @context.Hostname</MudLink></MudTd>
+                            <MudTd><TimeText Value="context.OpenedAt" /></MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                    <MudLink Href="/alerts" Typo="Typo.body2" Class="mt-2 d-inline-block">All alerts</MudLink>
+                }
+            </MudItem>
+            <MudItem xs="12" lg="5">
+                <MudText Typo="Typo.h6" Class="section-title mb-2">Recent activity</MudText>
+                @if (data.RecentActivity.Count == 0)
+                {
+                    <EmptyState Icon="@Icons.Material.Outlined.History" Title="No activity yet" Text="Changes by users and the system appear here." />
+                }
+                else
+                {
+                    <MudTable Items="data.RecentActivity" Dense="true" Elevation="0">
+                        <HeaderContent>
+                            <MudTh>When</MudTh>
+                            <MudTh>Who</MudTh>
+                            <MudTh>What</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd><TimeText Value="context.Time" /></MudTd>
+                            <MudTd>@context.ActorName</MudTd>
+                            <MudTd><span class="mono">@context.Action</span></MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            </MudItem>
+        </MudGrid>
+    }
+</LoadState>
+
+@code {
+    private DashboardData? _data;
+    private DebouncedRefresh? _refresh;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _refresh = new DebouncedRefresh(() => InvokeAsync(async () =>
+        {
+            await LoadAsync(async caller => _data = await DashboardData.GetAsync(caller));
+            StateHasChanged();
+        }));
+        Live.EndpointStatusChanged += OnChange;
+        Live.AlertChanged += OnChange;
+        await LoadAsync(async caller => _data = await DashboardData.GetAsync(caller));
+    }
+
+    private void OnChange(Guid _) => _refresh?.Trigger();
+
+    private string LicenseDetail(Fleetify.Infrastructure.Licensing.LicenseUsage usage) => usage.Status.State switch
+    {
+        LicenseState.Missing => "No license loaded",
+        LicenseState.Expired => "The license has expired",
+        LicenseState.GracePeriod => $"{usage.ManagedInUse} of {usage.Status.ManagedEndpointCount} licenses in use · grace period until {Time.Absolute(usage.Status.GraceEndsAt)}",
+        LicenseState.ExpiringSoon => $"{usage.ManagedInUse} of {usage.Status.Capacity} licenses in use · expires {Time.Absolute(usage.Status.ExpiresAt)}",
+        _ => $"{usage.ManagedInUse} of {usage.Status.Capacity} licenses in use"
+    };
+
+    public override void Dispose()
+    {
+        Live.EndpointStatusChanged -= OnChange;
+        Live.AlertChanged -= OnChange;
+        _refresh?.Dispose();
+        base.Dispose();
+    }
+}

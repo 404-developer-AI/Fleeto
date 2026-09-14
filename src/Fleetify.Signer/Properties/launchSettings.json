@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Fleetify.Signer": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

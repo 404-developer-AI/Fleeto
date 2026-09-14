@@ -78,7 +78,7 @@ Use these terms consistently in UI, docs and email; do not introduce synonyms.
 | **client** | A customer of the IT team; identified by a client code and a client name. The top of the hierarchy inside an instance. |
 | **site** | A group of endpoints within a client; where policies and monitoring templates are linked |
 | **endpoint** | Anything with an agent or monitored via an integration (server, workstation, hypervisor). Never "device" or "machine" in UI text. |
-| **workstation / server** | The two endpoint classes; the tabs in an endpoint list are Workstations, Servers and Mixed (all endpoints together) |
+| **workstation / server** | The two endpoint classes; the tabs in an endpoint list are Servers, Workstations and Mixed (all endpoints together) |
 | **agent-only / managed** | The two license tiers of an endpoint. Agent-only is free: visible with inventory, nothing else. Managed uses one license and unlocks everything. Never "free tier" or "premium" in UI text. |
 | **license** | One managed endpoint. "3 of 50 licenses in use." |
 | **agent** | The Fleeto software installed on an endpoint |

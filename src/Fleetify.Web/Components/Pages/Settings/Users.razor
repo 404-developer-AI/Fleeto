@@ -1,0 +1,122 @@
+@page "/settings/users"
+@attribute [Authorize(Policy = FleetifyPolicies.Admin)]
+@inherits FleetoPageBase
+@inject UserAdminService UserSvc
+@inject IDialogService DialogService
+
+<PageTitle>Users - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Users</MudText>
+        <MudText Typo="Typo.body2" Class="muted">People who can sign in to this instance. Every user signs in with two-factor authentication.</MudText>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PersonAdd" OnClick="CreateAsync">New user</MudButton>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    <MudTable Items="_users" Hover="true" Elevation="0">
+        <HeaderContent>
+            <MudTh>User</MudTh>
+            <MudTh>Roles</MudTh>
+            <MudTh>Two-factor</MudTh>
+            <MudTh>Last sign-in</MudTh>
+            <MudTh Style="width:220px"></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>
+                <strong>@context.DisplayName</strong>
+                <div class="muted" style="font-size:0.8125rem">@context.Email</div>
+                @if (context.LockedOut)
+                {
+                    <StatusChip Text="Locked out" Kind="StatusKind.Warning" />
+                }
+            </MudTd>
+            <MudTd>@string.Join(", ", context.Roles)</MudTd>
+            <MudTd><StatusChip Text="@(context.TwoFactorEnabled ? "On" : "Not set up")" Kind="@(context.TwoFactorEnabled ? StatusKind.Ok : StatusKind.Neutral)" /></MudTd>
+            <MudTd><TimeText Value="context.LastLoginAt" /></MudTd>
+            <MudTd Style="white-space:nowrap">
+                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => RolesAsync(context))">Roles</MudButton>
+                @if (context.TwoFactorEnabled)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => ResetTwoFactorAsync(context))">Reset 2FA</MudButton>
+                }
+                @if (context.Id != Caller?.UserId)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" OnClick="@(() => DeleteAsync(context))">Delete</MudButton>
+                }
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+</LoadState>
+
+@code {
+    private IReadOnlyList<UserListItem> _users = [];
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    /// <summary>True when opened from the Create menu in the navigation: the create dialog opens once the page has loaded.</summary>
+    [SupplyParameterFromQuery(Name = "new")]
+    public bool New { get; set; }
+
+    protected override void OnParametersSet() => OpenCreateFromQuery(New, CreateAsync);
+
+    private Task ReloadAsync() => LoadAsync(async caller => _users = await UserSvc.ListAsync(caller));
+
+    private async Task CreateAsync()
+    {
+        var parameters = new DialogParameters<UserDialog>
+        {
+            { d => d.OnSubmit, (email, name, password, roles) => RunAsync(caller => UserSvc.CreateAsync(caller, email, name, password, roles), "The user was created.") }
+        };
+        var dialog = await DialogService.ShowAsync<UserDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task RolesAsync(UserListItem user)
+    {
+        var parameters = new DialogParameters<UserDialog>
+        {
+            { d => d.Existing, user },
+            { d => d.OnSubmit, (_, _, _, roles) => RunAsync(caller => UserSvc.SetRolesAsync(caller, user.Id, roles), "The roles were saved. Open sessions pick them up within five minutes.") }
+        };
+        var dialog = await DialogService.ShowAsync<UserDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task ResetTwoFactorAsync(UserListItem user)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Reset two-factor authentication of {user.Email}" },
+            { d => d.Message, "The authenticator key and recovery codes of this user are removed and their sessions end. At the next sign-in they set up two-factor authentication again." },
+            { d => d.ConfirmText, "Reset" }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => UserSvc.ResetTwoFactorAsync(caller, user.Id), "Two-factor authentication was reset."))
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(UserListItem user)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Delete user {user.Email}" },
+            { d => d.Message, "The user can no longer sign in and open sessions end. Audit entries of this user are kept." },
+            { d => d.ConfirmText, "Delete user" }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => UserSvc.DeleteAsync(caller, user.Id), "The user was deleted."))
+        {
+            await ReloadAsync();
+        }
+    }
+}

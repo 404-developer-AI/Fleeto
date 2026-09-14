@@ -9,8 +9,42 @@ When a third released version is added, the oldest entry moves to the top of
 
 ## [Unreleased]
 
+Implementation of 0.0.x (foundation) and 0.1.0 (first usable release), to be released as 0.1.0.
+
 ### Added
 
+- .NET 10 solution: `Fleetify.Core`, `Fleetify.Protocol` (agent protocol v1), `Fleetify.Infrastructure`,
+  `Fleetify.Web`, `Fleetify.Gateway`, `Fleetify.Signer`, `Fleetify.Workers`, `Fleetify.Tools`
+  (`fleetify-tool`), per-component test projects against a real PostgreSQL, and `Fleetify.LoadTest`.
+- PostgreSQL 17 schema with migrations: client-scoped tables with composite foreign keys and
+  consistency triggers, append-only audit log, notification triggers, TimescaleDB hypertable when
+  installed, least-privilege grants per container role.
+- Envelope encryption with a root key and per-purpose data keys; signer key for the instance
+  signing key and internal CA; Argon2id passwords; encrypted TOTP keys and hashed recovery codes.
+- Go agent for Windows (`fleetify-agent`): Windows service install, enrollment with CA fingerprint
+  pinning, TPM-backed or software CNG key, mTLS WebSocket session, signed configuration, CPU,
+  memory, disk, service and uptime checks with jitter, on-disk result buffer, inventory, renewal,
+  revocation handling. Linux and macOS compile as stubs.
+- Gateway: enrollment endpoint, public CA endpoint (`/v1/ca`), mTLS sessions with an allow list,
+  duplicate identity detection, idempotent batch ingest acknowledged after commit, config
+  delivery with tier enforcement, short-lived gateway certificate from the signer.
+- Signer: key bootstrap, enrollment, renewal, gateway certificate and agent configuration
+  signing, with every rule re-checked against the database and rate limits.
+- Workers: configuration fan-out, check evaluation with per-endpoint cursors, alerts with
+  deduplication and escalation, offline and duplicate identity alerts, email outbox (SMTP or
+  pickup directory), license monitoring, encrypted backups (pg_dump and WAL shipping to
+  S3-compatible storage or a directory), retention.
+- Web UI (Blazor Server, MudBlazor): first-admin setup, mandatory 2FA, dashboard with live
+  updates, clients, sites with Workstations/Servers/Mixed tabs and enrollment tokens, endpoint
+  pages, alerts, client and monitoring templates, policies, settings for users, licensing, email,
+  notification channels, backups, audit log and instance.
+- Licensing: signed license documents, license page, serialized license allocation, 14-day
+  grace period, protected clock.
+- Deployment: Dockerfiles, per-instance Compose stack, host Caddy with layer4 SNI passthrough,
+  `install.sh` with signed manifests, update and rollback, GitHub Actions CI and release
+  workflows, `deploy/README.md` and `deploy/RELEASING.md`.
+- Local development without Docker: `tools/dev/setup-dev.ps1`, `start-dev.ps1`,
+  `build-agent.ps1`.
 - Git repository with `.gitignore` (secrets, IDE, .NET, Go), `.gitattributes` (LF, shell
   scripts always LF), `.editorconfig` and `README.md`.
 - `fleetify-signer` container in the design: sole holder of the instance signing key and
@@ -25,8 +59,18 @@ When a third released version is added, the oldest entry moves to the top of
 ### Changed
 
 - Agent gateway routing decided: SNI passthrough on port 443 for `agents.<fqdn>`.
-- Gateway acknowledges agent data only after it is written to Postgres; valkey carries
-  notifications only.
+- Gateway acknowledges agent data only after it is written to Postgres.
+- No Valkey: cross-container notifications use PostgreSQL LISTEN/NOTIFY, because the signer may
+  only talk to the database; every subscriber also catches up from the tables.
+- PostgreSQL 17 instead of 16, locally and on the VPS.
+- Certificates (internal CA, agents, gateway) use ECDSA P-256 because Windows SChannel does not
+  support ed25519 in TLS; application signatures stay ed25519.
+- Agent certificate checks use an allow list (issued, not revoked, not expired) instead of a deny
+  list, so a deleted endpoint can never reconnect.
+- Gateway implementation language decided: .NET.
+- A site links at most one policy; the instance default policy applies otherwise.
+- CheckResults has no foreign keys (hypertable ingest); the workers purge results of deleted
+  endpoints.
 - Off-VPS encrypted backups moved from 0.7.0 to 0.1.0 in the roadmap.
 - Every client-owned table carries its own `ClientId`, kept consistent by composite foreign
   keys; tables that can be global or client-specific (policies, monitoring templates, check
@@ -44,7 +88,12 @@ When a third released version is added, the oldest entry moves to the top of
 - Separate Steaan release signing key (offline, hardware token) for agent binaries,
   `install.sh` and the release manifest; instance signing key limited to jobs, policies,
   check definitions and session tokens.
-- Agent certificate revocation (deny list checked on every connection), 90-day certificates
+- Only the gateway role can request certificate signatures and only workers or the signer can
+  request configurations (database trigger), so a compromised web or workers container cannot
+  obtain a gateway certificate.
+- Enrollment fetches the instance CA from `/v1/ca`, matches it against the install fingerprint
+  and sends the token only over a connection verified against that CA.
+- Agent certificate revocation (allow list checked on every connection), 90-day certificates
   with renewal, TPM-backed keys where available, duplicate identity detection, CA
   fingerprint in the install command.
 - Signed jobs carry `InstanceId`, `EndpointId` and `ValidUntil`.

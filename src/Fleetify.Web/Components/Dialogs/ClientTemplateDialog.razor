@@ -1,0 +1,144 @@
+@* Create or edit a client template: its sites, each with a global policy and global monitoring templates. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(IsEdit ? "Edit client template" : "New client template")</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (IsEdit && ClientCount > 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                @ClientCount client@(ClientCount == 1 ? " follows" : "s follow") this template. Saving applies the changes to @(ClientCount == 1 ? "it" : "all of them").
+            </MudAlert>
+        }
+        <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" MaxLength="100" AutoFocus="true" Class="mb-3" />
+        <MudTextField @bind-Value="_description" Label="Description (optional)" Variant="Variant.Outlined" Lines="2" MaxLength="1000" Class="mb-4" />
+
+        <div class="d-flex align-center justify-space-between mb-2">
+            <MudText Typo="Typo.subtitle1">Sites</MudText>
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Add" OnClick="AddSite">Add site</MudButton>
+        </div>
+
+        @foreach (var site in _sites)
+        {
+            <div class="fl-panel pa-3 mb-3">
+                <div class="d-flex gap-2 align-start">
+                    <MudTextField @bind-Value="site.Name" Label="Site name" Variant="Variant.Outlined" MaxLength="100" Margin="Margin.Dense" />
+                    <MudTooltip Text="Remove site">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Delete" Color="Color.Error" OnClick="@(() => _sites.Remove(site))" Class="mt-2" />
+                    </MudTooltip>
+                </div>
+                <MudTextField @bind-Value="site.Description" Label="Description (optional)" Variant="Variant.Outlined" MaxLength="1000" Margin="Margin.Dense" Class="mt-2" />
+                <MudSelect T="Guid?" @bind-Value="site.PolicyId" Label="Policy" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2">
+                    <MudSelectItem T="Guid?" Value="@((Guid?)null)">No policy (the default policy applies)</MudSelectItem>
+                    @foreach (var policy in Policies.Where(p => !p.IsDefault))
+                    {
+                        <MudSelectItem T="Guid?" Value="@((Guid?)policy.Id)">@policy.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudText Typo="Typo.caption" Class="muted d-block mt-2">Monitoring templates</MudText>
+                @if (MonitoringTemplates.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Class="muted">No global monitoring templates exist yet.</MudText>
+                }
+                <div class="d-flex flex-wrap">
+                    @foreach (var template in MonitoringTemplates)
+                    {
+                        <MudCheckBox T="bool" Value="@site.MonitoringTemplateIds.Contains(template.Id)" Size="Size.Small" Color="Color.Primary"
+                                     ValueChanged="@(v => Toggle(site, template.Id, v))" Label="@template.Name" />
+                    }
+                </div>
+            </div>
+        }
+        @if (_sites.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted">Add at least one site: a client needs at least one site.</MudText>
+        }
+        <MudText Typo="Typo.caption" Class="muted d-block">Only global policies and monitoring templates can be used, because a client template applies to any client.</MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">@(IsEdit ? "Save" : "Create")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private sealed class SiteModel
+    {
+        public Guid? Id { get; init; }
+        public string? Name { get; set; }
+        public string? Description { get; set; }
+        public Guid? PolicyId { get; set; }
+        public HashSet<Guid> MonitoringTemplateIds { get; init; } = [];
+    }
+
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public ClientTemplateDetail? Existing { get; set; }
+    [Parameter] public IReadOnlyList<PolicyListItem> Policies { get; set; } = [];
+    [Parameter] public IReadOnlyList<MonitoringTemplateListItem> MonitoringTemplates { get; set; } = [];
+    [Parameter] public Func<ClientTemplateInput, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+
+    private bool IsEdit => Existing is not null;
+    private int ClientCount => Existing?.ClientCount ?? 0;
+
+    private string _name = string.Empty;
+    private string? _description;
+    private List<SiteModel> _sites = [];
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        if (Existing is { } template)
+        {
+            _name = template.Name;
+            _description = template.Description;
+            _sites = template.Sites.Select(s => new SiteModel
+            {
+                Id = s.Id,
+                Name = s.Name,
+                Description = s.Description,
+                PolicyId = s.PolicyId,
+                MonitoringTemplateIds = s.MonitoringTemplateIds.ToHashSet()
+            }).ToList();
+        }
+        else
+        {
+            _sites = [new SiteModel { Name = "Monitoring" }];
+        }
+    }
+
+    private void AddSite() => _sites.Add(new SiteModel());
+
+    private static void Toggle(SiteModel site, Guid id, bool selected)
+    {
+        if (selected)
+        {
+            site.MonitoringTemplateIds.Add(id);
+        }
+        else
+        {
+            site.MonitoringTemplateIds.Remove(id);
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            var input = new ClientTemplateInput(_name, _description,
+                _sites.Select(s => new ClientTemplateSiteInput(s.Id, s.Name, s.Description, s.PolicyId, s.MonitoringTemplateIds.ToList())).ToList());
+            if (await OnSubmit(input))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}
