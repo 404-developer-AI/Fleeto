@@ -51,7 +51,7 @@ Inside one instance:
 
 | Container | Scope | Role | Notes |
 |---|---|---|---|
-| **caddy** | VPS | Reverse proxy, automatic TLS | One per VPS, built with the layer4 module. Terminates TLS for the UI and API of every instance, so it holds the TLS private keys and ACME account for every FQDN on the VPS (see §5). Agent traffic to `agents.<fqdn>` is passed through by SNI to the instance gateway and never decrypted, so mTLS stays end to end between agent and gateway. |
+| **caddy** | VPS | Reverse proxy, automatic TLS | One per VPS, built with the layer4 module. Terminates TLS for the UI and API of every instance, so it holds the TLS private keys and ACME account for every FQDN on the VPS (see §5). Agent traffic to `agents.<fqdn>` is passed through by SNI to the instance gateway and never decrypted, so mTLS stays end to end between agent and gateway. In front of the passed-through connection Caddy sends a PROXY protocol v2 header with the agent's address (see §5, Other controls). |
 | **fleetify-web** | instance | Blazor Server UI and public REST API (.NET, MudBlazor) | Follows the Migrify project layout and conventions. Cannot sign anything an agent executes. |
 | **fleetify-gateway** | instance | Agent connection endpoint and remote control relay | Persistent WebSocket over mTLS for online state, command push and check results. Checks certificate revocation on every connection. Acks agent data only after it is written to Postgres. Target: 10,000 concurrent connections on modest hardware. Language: .NET (decided in 0.1.0). |
 | **fleetify-signer** | instance | Signs everything that establishes trust with agents | Holds the instance signing key and the internal CA key, decrypted with its own signer key that no other container mounts. No listening port: it picks up signing requests from the database. Re-checks role, tier, script approval and validity window before signing. See §5. |
@@ -73,8 +73,11 @@ customer can be moved to another VPS by copying one directory and one backup.
 ```
 Client 1──* Site 1──* Endpoint 1──* CheckResult (hypertable)
                 │         │
-                │         ├──* Job, Alert, Note, InventorySnapshot, RemoteSession
-                │         └──* AgentCertificate
+                │         ├──* Job, Alert, Note, InventorySnapshot, RemoteSession, CheckState, CheckRunRequest
+                │         ├──* AgentCertificate
+                │         ├──* CheckDefinition (endpoint-only checks)
+                │         ├──* EndpointCheckOverride ──> CheckDefinition (of a template)
+                │         └──* EndpointMonitoringTemplate ──> MonitoringTemplate
                 │
                 ├──* SiteMonitoringTemplate ──> MonitoringTemplate 1──* CheckDefinition
                 └──* SitePolicy ──────────────> Policy
@@ -92,12 +95,16 @@ AuditEntry (append-only)
 |---|---|---|
 | **Client** | `Id`, `Code` (unique, uppercase), `Name`, `CreatedAt`, `Maintenance` | Tenant boundary inside the instance. Every client-owned table carries its own `ClientId`, denormalized on purpose (see the rule below the table), and every query filters on it. |
 | **Site** | `Id`, `ClientId`, `Name`, `Description`, `Maintenance` | Groups endpoints. Holds the link to at most one policy (without one the instance default policy applies) and to any number of monitoring templates. Enrollment tokens belong to a site. |
-| **Endpoint** | `Id`, `ClientId`, `SiteId`, `Hostname`, `Class` (`workstation`/`server`), `ClassOverride`, `Tier` (`agent_only`/`managed`), `Os`, `AgentVersion`, `LastSeenAt`, `Source` (`agent`/`integration`), `Maintenance` | Endpoints without an agent exist only for hypervisor inventory (ESXi hosts and VMs from vCenter or Proxmox). `Tier` gates every feature server-side. |
+| **Endpoint** | `Id`, `ClientId`, `SiteId`, `Hostname`, `Class` (`workstation`/`server`), `ClassOverride`, `Tier` (`agent_only`/`managed`), `Os`, `AgentVersion`, `LastSeenAt`, `Source` (`agent`/`integration`), `Maintenance`, `PublicIpAddress?`, `PublicIpSeenAt?` | Endpoints without an agent exist only for hypervisor inventory (ESXi hosts and VMs from vCenter or Proxmox). `Tier` gates every feature server-side. `PublicIpAddress` is the address the gateway saw for the latest agent connection (personal data: only the latest value is kept, deleted with the endpoint). |
 | `Maintenance` (on Client, Site, Endpoint) | `StartedAt?`, `EndsAt?`, `StartedBy?`, `Reason?` | Maintenance mode (0.2.0), stored as nullable columns on each of the three tables. Active while `StartedAt` is set and `EndsAt` is null or in the future; nothing clears expired values, every query compares with the current time. See *Maintenance mode* in §4. |
 | **AgentCertificate** | `Id`, `ClientId`, `EndpointId`, `Fingerprint`, `IssuedAt`, `ExpiresAt`, `RevokedAt?`, `RevokedBy?`, `RevokedReason?` | One row per issued certificate, renewals included. The gateway refuses every certificate with `RevokedAt` set. |
 | **Policy** | `Id`, `ClientId?`, `Name`, settings | Agent behaviour: intervals, patch behaviour, update ring, script permissions and **script approval required**, remote control rules (consent, recording), maintenance windows. `ClientId` null = global. |
 | **MonitoringTemplate** | `Id`, `ClientId?`, `Name` | Named set of `CheckDefinition`s with thresholds and alert rules. `ClientId` null = global. |
-| **CheckDefinition** | `Id`, `ClientId?`, `MonitoringTemplateId`, `Type`, `Interval`, `Thresholds`, `AppliesToClass` | Interval from seconds to monthly. |
+| **CheckDefinition** | `Id`, `ClientId?`, `MonitoringTemplateId?`, `EndpointId?`, `Type`, `Interval`, `Thresholds`, `FailuresBeforeAlert`, `AppliesToClass`, `Enabled` | Interval from seconds to monthly. Owned by exactly one of a monitoring template or one endpoint (check constraint). An endpoint-only check carries the endpoint's `ClientId` (composite foreign key) and runs whatever the endpoint class. |
+| **EndpointMonitoringTemplate** | `EndpointId`, `ClientId`, `MonitoringTemplateId`, `CreatedAt`, `CreatedBy?` | An extra monitoring template for one endpoint, on top of those of its site. Global or same-client templates only (constraint trigger). |
+| **EndpointCheckOverride** | `EndpointId`, `CheckDefinitionId`, `ClientId`, `Disabled`, `IntervalSeconds?`, `FailuresBeforeAlert?`, `OverrideThresholds`, `WarningThreshold?`, `CriticalThreshold?` | Adjusts one template check for one endpoint. Unset values inherit the template, so the template stays linked. `OverrideThresholds` replaces both thresholds as a pair, so "no threshold" can be an override too. Template checks only (constraint trigger). |
+| **CheckState** | `EndpointId`, `CheckDefinitionId`, `Target`, `ClientId`, `Status`, `Value?`, `ConsecutiveNonOk`, `LastResultAt`, `ResetAt?` | Current evaluated state per check and target, maintained by the workers. "Re-run requested" while `ResetAt` is later than `LastResultAt`. States of checks that no longer apply are removed on the hourly sweep. |
+| **CheckRunRequest** | `Id`, `ClientId`, `EndpointId`, `CheckDefinitionId`, `Reset`, `RequestedBy`, `RequestedAt`, `ExpiresAt`, `ResetAppliedAt?`, `DeliveredAt?`, `Outcome?` (`expired`, `not_applicable`, `not_managed`) | A technician's "Run now" or "Reset and run" (§4). Kept 7 days. |
 | **ClientTemplate** | `Id`, `Name`, sites with linked policies and templates | Blueprint used at client creation. Linked, not copied: later changes apply to every client using it; a technician can make an independent copy. |
 | **Script**, **ScriptVersion** | `Id`, `ClientId?`, `Name`; version: `ClientId?`, `Number`, `Body`, `Sha256`, `AuthorId`, `ApprovedBy?`, `ApprovedAt?` | Every edit creates a new version. A version needs approval by a second admin before it runs on a site whose policy requires approval. |
 | **Job** | `Id`, `ClientId`, `EndpointId`, `Type`, `Payload`, `ValidUntil`, `Signature`, `InitiatedBy`, `State` (`pending_signature`, `queued`, `running`, `succeeded`, `failed`, `expired`, `refused`, `lost`), `ExitCode`, `OutputState` (`none`, `receiving`, `complete`, `incomplete`), `OutputTruncated` | One row per endpoint. Idempotent by `Id`. Never delivered or executed after `ValidUntil`. `State` describes execution, `OutputState` describes the output; they move independently. |
@@ -107,8 +114,8 @@ AuditEntry (append-only)
 | **ApiKey** | `Id`, `Name`, `Prefix`, `KeyHash`, `Scope` (`read`/`read_write`), `ClientIds?`, `CreatedBy`, `LastUsedAt`, `RevokedAt` | Plaintext shown once at creation. Format in §6. |
 | **RemoteSession** | `Id`, `ClientId`, `EndpointId`, `TechnicianId`, `Reason`, `StartedAt`, `EndedAt`, `ConsentGiven`, `BrowserKeyFingerprint`, `RecordingRef?` | Every session, whether it connected or not. |
 | **CheckResult** | `Time` (ingest), `ClientId`, `EndpointId`, `CheckDefinitionId`, `Status`, `Value`, `Payload` | TimescaleDB hypertable, compressed, retention policy. Deduplicated per endpoint and agent batch sequence number. |
-| **Alert** | `Id`, `ClientId`, `EndpointId`, `CheckDefinitionId`, `Severity`, `State`, `AcknowledgedBy`, timestamps | Deduplicated per endpoint and check. |
-| **Note** | `Id`, `ClientId`, `EndpointId?`, `SiteId?`, `AuthorId`, `Body` (markdown), timestamps | Searchable. |
+| **Alert** | `Id`, `ClientId`, `EndpointId`, `CheckDefinitionId`, `Severity`, `State`, `AcknowledgedBy`, `HeldUntil?`, `HeldAt?`, `HeldBy?`, timestamps | Deduplicated per endpoint and check. On hold while `HeldUntil` is in the future (§4, Alert hold). |
+| **Note** | `Id`, `ClientId`, `EndpointId`, `AuthorId`, `AuthorName`, `Body` (markdown, at most 20,000 characters), `CreatedAt`, `UpdatedAt`, `EditedAt?` | Endpoints only (site notes were dropped). Managed endpoints only. The author edits, an admin deletes. Searchable from 0.6.0. An external ticket reference follows with the public API. |
 | **Integration** | `Id`, `Type`, `EncryptedCredentials`, `Status` | Credentials are ciphertext, see §5. |
 | **IntegrationMapping** | `IntegrationId`, `ExternalTenantId`, `ClientId` | One external tenant (Action1 organization, Sophos tenant) maps to one client. |
 | **User**, **Role** | `Id`, `Email`, `PasswordHash` (Argon2id), `TotpSecret` (encrypted), roles | Roles: admin, technician, read-only. |
@@ -127,8 +134,8 @@ move between clients; moving one means enrolling it again.
 Three kinds of tables:
 
 - **Client-owned** (`ClientId` required): Site, Endpoint, AgentCertificate, Job,
-  JobOutputChunk, Alert, Note, InventorySnapshot, RemoteSession, CheckResult,
-  IntegrationMapping. Consistency by composite foreign key, as above. One documented
+  JobOutputChunk, Alert, Note, InventorySnapshot, RemoteSession, CheckResult, CheckState,
+  CheckRunRequest, EndpointMonitoringTemplate, EndpointCheckOverride, IntegrationMapping. Consistency by composite foreign key, as above. One documented
   exception: CheckResult (the hypertable) has no foreign keys, for ingest speed and because
   compressed chunks and cascading deletes do not mix well. The gateway takes its ClientId from
   the endpoint row, and the workers purge results of deleted endpoints.
@@ -138,7 +145,9 @@ Three kinds of tables:
   ScriptVersion that of its Script), so a client-specific check or script is filtered like
   any other client data. PostgreSQL does not check a composite foreign key when one of its
   columns is null, so for these tables a constraint trigger enforces that child and parent
-  `ClientId` are equal, null included. Tests cover both directions.
+  `ClientId` are equal, null included. Tests cover both directions. An endpoint-only
+  CheckDefinition has no template parent; its `ClientId` is required and kept equal to the
+  endpoint's by a composite foreign key.
 - **Instance-wide** (no `ClientId`): users, roles, API keys, client templates, license,
   integrations, and SigningRequest and AuditEntry rows that concern no client (their
   `ClientId` is null).
@@ -176,6 +185,35 @@ Three kinds of tables:
   (bounded, oldest-first eviction) and flushed on reconnect. A batch is removed from disk
   only after the gateway acknowledges its sequence number. Every interval gets per-agent
   random jitter so 10,000 agents never fire in the same second.
+- **Run now.** The server can ask the agent to run checks outside their schedule
+  (`RunChecksNow`, §4). The message is not signed: it can only start checks of the applied,
+  verified signed configuration and never add or change one, so a hostile gateway could at
+  most cause extra runs. The agent bounds that: one manual run per check per 30 seconds, 20
+  per minute in total, 100 ids per message; unknown ids and agent-only configurations start
+  nothing. `InventoryRequest` follows the same reasoning.
+- **Watchdog service (0.2.0, design).** A second Windows service, `fleetify-watchdog`, a small
+  separate binary from the same Go codebase, running as SYSTEM:
+  - It has its own key (TPM-backed where available) and its own 90-day certificate for the same
+    endpoint, marked with the role *watchdog*, issued at install and renewed like the agent's.
+    The gateway keeps one session per certificate, so agent and watchdog are both connected
+    at all times without triggering the duplicate identity rule; revoking or deleting the
+    endpoint revokes both certificates.
+  - The watchdog watches the agent service and restarts it after a crash or stop; the agent
+    watches the watchdog the same way. Each reports the other's state in its heartbeat.
+  - When the watchdog is online but the agent service is not running and cannot be started,
+    the endpoint gets the alert "Agent service stopped" (separate from the offline alert, which
+    means both are gone). When the agent reports the watchdog stopped and cannot restart it,
+    the alert is "Watchdog stopped". Both alerts are for managed endpoints only.
+  - The watchdog installs agent updates and rolls back to the previous binary when the new one
+    does not come up; both binaries are installed only with a valid Steaan release signature.
+- **Remote terminal (0.3.0, design).** An interactive terminal as SYSTEM (cmd and PowerShell on
+  Windows, sh on Linux and macOS), served by the watchdog so it also works when the agent is
+  broken. Same trust model as remote control: a single-use session token from the signer bound
+  to the technician, endpoint and the browser's ephemeral key, end-to-end encryption between
+  browser and watchdog, the gateway relays ciphertext only. Admins and technicians, managed
+  endpoints only, always available (no policy switch). Every session is an audit entry
+  (technician, endpoint, start, end); a transcript is kept when the policy records remote
+  control sessions. See §5 for the accepted risk towards script approval.
 - Reconnect with exponential backoff plus jitter.
 - Wire format: protobuf over the WebSocket, one message per binary WebSocket frame (the frame is
   the length prefix), results batched. Never one HTTP request per check result. Contract:
@@ -224,8 +262,8 @@ live connection is refused → the endpoint gets an alert "Duplicate agent ident
 technician revokes the certificate and enrolls the copies again, each with its own
 identity.
 
-**Switching an endpoint to managed.** Technician flips the tier on the endpoint page or in
-bulk → web checks the license pool (`ManagedEndpointCount` minus endpoints already managed)
+**Switching an endpoint to managed.** Technician switches the tier from the right-click menu of
+the endpoint list, for one endpoint or in bulk → web checks the license pool (`ManagedEndpointCount` minus endpoints already managed)
 → refuses with a clear message when the pool is empty → otherwise sets `Tier = managed`,
 requests signatures for the site policy and check definitions, pushes them to the agent,
 writes an audit entry. License allocation is serialized: the pool check and the tier change
@@ -245,6 +283,59 @@ polling. Workers keep a cursor per endpoint (result ids are monotonic per endpoi
 agent sends one batch at a time, but not globally in commit order) and sweep for endpoints with
 newer results, so a lost notification makes alerts late and loses nothing. When Postgres is down, the gateway does not
 acknowledge and agents keep buffering on disk.
+
+**Checks of an endpoint.** One rule decides which checks run on an endpoint, implemented once
+in C# (`EffectiveChecks`, used by the configuration builder in the signer, the check evaluation
+in the workers and the Checks tab in web) with a SQL twin for set-based statements
+(`EffectiveCheckResolver.AppliesSql`); a test proves both agree:
+- a template check applies when it is enabled, its template is linked to the endpoint's site or
+  to the endpoint itself, it matches the endpoint class, and no override disables it on the
+  endpoint;
+- an endpoint-only check applies when it is enabled;
+- overrides replace the interval (signed into the configuration), thresholds and failures before
+  alert (applied by the workers) for that endpoint only.
+Tier is applied on top by each caller. Every change (link, override, endpoint check) writes a
+configuration change event for the endpoint; the signer re-signs only when the content changed.
+Alerts of checks that stop applying resolve on the next sweep. The Checks tab lists every
+applying check straight away, as "Not run yet" until its first result.
+
+**Run now and reset.** A technician clicks Run now or Reset and run on a check of a managed
+endpoint → web checks role, tier and that the check applies, refuses a second request for the
+same check within 30 seconds and more than 6 requests per user per endpoint per minute, writes a
+`CheckRunRequest` (expires after 10 minutes) and an audit entry → a database trigger notifies
+workers and gateway →
+- for a reset, the workers take the same per-endpoint advisory lock as check evaluation, resolve
+  the open alerts of the check ("Reset by …"), set its states to Unknown without a value, zero
+  the failure count and stamp `ResetAt`, then mark the reset applied (notifying the gateway
+  again). The state shows "Re-run requested", never a made-up OK. Results ingested before
+  `ResetAt` are ignored by the evaluation, so a result already on its way cannot overwrite the
+  reset; the first newer result sets the real state, and an alert needs the configured number of
+  failures again;
+- the gateway delivers the request to the live agent once (marked delivered in the database; at
+  session start and on the 5-minute catch-up as well), only to managed sessions and, for a
+  reset, only after the reset was applied; an offline agent receives it if it connects before
+  the request expires, otherwise the check runs at its next interval;
+- the agent runs the check within its limits (§3) and the result follows the normal path.
+
+**Alert hold.** A technician puts an unresolved alert on hold until a time (1 hour, 4 hours,
+24 hours or a chosen time, at most 7 days) → `HeldUntil` is set and an audit entry written →
+while the hold lasts, the alert is left out of open alert lists and counts (dashboard, clients
+panel, endpoint list) and shown under the "On hold" filter; the notification service sends no
+escalation or resolve email for it; the alert itself stays real and still escalates and resolves
+with its check → a technician can end the hold early (audit entry) → the workers clear holds
+whose time passed every 30 seconds and, for an alert that is still unresolved, send one "still
+open after hold" email. Pages already treat a hold in the past as ended. The UI never calls this
+snooze or mute (branding §6). Maintenance mode (below) is the tool for planned work on a whole
+endpoint, site or client.
+
+**Check history (0.2.0, design).** Per check of an endpoint, an overview of the last hour, day,
+week, month and year: a line chart for numeric checks (CPU, memory, free disk space, which shows
+storage growth, uptime) and a status timeline for the service check. The last hour and day are
+read from raw `CheckResult` rows (kept 30 days); week and longer read hourly and daily rollups
+(minimum, average, maximum and worst status per endpoint, check and target), kept 13 months.
+With TimescaleDB the rollups are continuous aggregates; without it the workers maintain rollup
+tables with a watermark, so local development works the same. Charts use MudChart; no new
+library.
 
 **Maintenance mode (0.2.0).** A technician puts a client, a site or one managed endpoint in
 maintenance, with an optional end time. An endpoint is in *effective maintenance* when its own,
@@ -486,6 +577,12 @@ container:
   secure desktop; the same privilege is why the session token and signature checks are
   never optional.
 - Clipboard sync is text-only in v1 and can be disabled per policy.
+- **Remote terminal (0.3.0), accepted risk.** The interactive terminal (§3) is available to
+  admins and technicians on every managed endpoint, also where the policy requires script
+  approval. On those endpoints script approval therefore only governs library scripts run as
+  jobs: a technician who may open a terminal can run any command as SYSTEM. This is a deliberate
+  product decision; the controls are the per-session signed token, end-to-end encryption, the
+  audit entry per session and the transcript when recording is on.
 
 ### Backups
 
@@ -531,9 +628,23 @@ container:
   to agents (agent traffic passes through untouched and agents pin the instance CA) and it
   has no access to instance databases or keys. Mitigations: pinned Caddy version, admin API
   on a local socket only, minimal configuration written by `install.sh`, HSTS on every FQDN.
+- **Agent addresses behind the host proxy.** Caddy sends a PROXY protocol v2 header before the
+  passed-through TLS connection. The gateway reads it in a connection middleware before TLS, and
+  only from the trusted proxy networks (`Gateway:ProxyProtocol:TrustedNetworks`, the private
+  ranges the published loopback port is reached from); from anywhere else the bytes go to TLS
+  unread. A trusted connection without a header keeps its own address, a malformed header closes
+  the connection. The address sets the endpoint's Public IP, the logs and the per-address
+  enrollment rate limit; it never grants an identity (mTLS does). Residual risk: a process on the
+  VPS or a compromised container of the instance could forge the header and so the address it
+  appears to come from. Off for local development.
 - One database role per container with the minimum grants; the gateway has no access to
   encrypted secrets and does not mount the root key.
 - Every privileged action writes an `AuditEntry`; the table has no update or delete path.
+  Audit details never copy personal free text such as note bodies (only ids and lengths), so
+  deleting an endpoint really removes that data.
+- Notes are rendered from markdown with raw HTML disabled; images are shown as text and links
+  are kept only for absolute http, https and mailto addresses, with
+  `rel="noopener noreferrer nofollow"`.
 - Per-endpoint rate limiting, strict input validation, parameterized queries only, CSP
   with a per-request nonce and without unsafe-inline for scripts (styles allow inline because
   MudBlazor renders style attributes), TOTP 2FA for every user, API keys hashed and scoped.
@@ -595,10 +706,11 @@ key, signer key and DB passwords into `/opt/fleetify/<instance>/secrets/` (see K
 ownership and modes; never part of a backup) → verify the release manifest and pull images by
 digest → run migrations → start the stack → the signer creates the instance signing key and
 internal CA → regenerate the host Caddyfile from all instances: the layer4 module runs as a
-listener wrapper on Caddy's own :443 server, sends `tls sni agents.<fqdn>` untouched to the
-gateway's loopback port and lets everything else fall through to Caddy's TLS, which serves the
-FQDN with HSTS and proxies to the web's loopback port (no second internal hop, no PROXY
-protocol; real client IPs reach the web) → print the URL, the one-time first-admin setup link
+listener wrapper on Caddy's own :443 server, sends `tls sni agents.<fqdn>` untouched (after a
+PROXY protocol v2 header with the agent's address) to the gateway's loopback port and lets
+everything else fall through to Caddy's TLS, which serves the FQDN with HSTS and proxies to the
+web's loopback port (no second internal hop; real client IPs reach the web through
+X-Forwarded-For) → print the URL, the one-time first-admin setup link
 and a reminder to run the key
 ceremony (offline copies of root key and signer key, backup key pair). First-admin setup
 asks for the backup destination and the backup public key.

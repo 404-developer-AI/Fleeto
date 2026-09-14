@@ -12,7 +12,8 @@ public enum ManagedFeature
     Jobs,
     Scripts,
     Patching,
-    RemoteControl
+    RemoteControl,
+    Notes
 }
 
 /// <summary>Thrown when an operation needs a managed endpoint and the endpoint is agent-only.</summary>

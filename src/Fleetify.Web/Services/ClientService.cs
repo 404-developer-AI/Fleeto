@@ -49,6 +49,7 @@ public sealed class ClientService
     {
         caller.EnsureView();
         await using var db = _dbFactory.Create(caller.Scope);
+        var now = _time.GetUtcNow().UtcDateTime; // alerts on hold are not counted as open
         var query = db.Clients.AsNoTracking();
         if (ServiceSupport.Clean(search) is { } term)
         {
@@ -67,7 +68,7 @@ public sealed class ClientService
                 db.Sites.Count(s => s.ClientId == c.Id),
                 db.Endpoints.Count(e => e.ClientId == c.Id),
                 db.Endpoints.Count(e => e.ClientId == c.Id && e.IsOnline),
-                db.Alerts.Count(a => a.ClientId == c.Id && a.State != AlertState.Resolved)))
+                db.Alerts.Count(a => a.ClientId == c.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now))))
             .ToListAsync(cancellationToken);
     }
 
@@ -79,6 +80,7 @@ public sealed class ClientService
     {
         caller.EnsureView();
         await using var db = _dbFactory.Create(caller.Scope);
+        var now = _time.GetUtcNow().UtcDateTime; // alerts on hold are not counted as open
         var clients = db.Clients.AsNoTracking();
         if (ServiceSupport.Clean(search) is { } term)
         {
@@ -97,7 +99,7 @@ public sealed class ClientService
                 c.Name,
                 Endpoints = db.Endpoints.Count(e => e.ClientId == c.Id),
                 Online = db.Endpoints.Count(e => e.ClientId == c.Id && e.IsOnline),
-                Alerts = db.Alerts.Count(a => a.ClientId == c.Id && a.State != AlertState.Resolved)
+                Alerts = db.Alerts.Count(a => a.ClientId == c.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now))
             })
             .ToListAsync(cancellationToken);
 
@@ -113,7 +115,7 @@ public sealed class ClientService
                     s.Name,
                     db.Endpoints.Count(e => e.SiteId == s.Id),
                     db.Endpoints.Count(e => e.SiteId == s.Id && e.IsOnline),
-                    db.Alerts.Count(a => a.ClientId == s.ClientId && a.State != AlertState.Resolved &&
+                    db.Alerts.Count(a => a.ClientId == s.ClientId && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now) &&
                                          db.Endpoints.Any(e => e.Id == a.EndpointId && e.SiteId == s.Id)))
             })
             .ToListAsync(cancellationToken);
@@ -137,6 +139,7 @@ public sealed class ClientService
     {
         caller.EnsureView();
         await using var db = _dbFactory.Create(caller.Scope);
+        var now = _time.GetUtcNow().UtcDateTime; // alerts on hold are not counted as open
         var client = await db.Clients.AsNoTracking()
             .Where(c => c.Id == clientId)
             .Select(c => new
@@ -165,7 +168,7 @@ public sealed class ClientService
                 s.ClientTemplateSiteId != null,
                 db.Endpoints.Count(e => e.SiteId == s.Id),
                 db.Endpoints.Count(e => e.SiteId == s.Id && e.IsOnline),
-                db.Alerts.Count(a => a.State != AlertState.Resolved && db.Endpoints.Any(e => e.Id == a.EndpointId && e.SiteId == s.Id)),
+                db.Alerts.Count(a => a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now) && db.Endpoints.Any(e => e.Id == a.EndpointId && e.SiteId == s.Id)),
                 db.SitePolicies.Where(l => l.SiteId == s.Id).Select(l => l.Policy!.Name).FirstOrDefault()))
             .ToListAsync(cancellationToken);
 

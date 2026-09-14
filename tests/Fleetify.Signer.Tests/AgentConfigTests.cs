@@ -125,6 +125,73 @@ public sealed class AgentConfigTests
         Assert.False(await db.EndpointConfigs.AnyAsync(c => c.EndpointId == endpoint.Id));
     }
 
+    [Fact]
+    public async Task Endpoint_adjustments_are_part_of_the_signed_configuration()
+    {
+        await _fixture.Database.LoadTestLicenseAsync(100);
+        var (endpoint, template) = await CreateEndpointWithTemplateAsync(EndpointTier.Managed);
+        var disabled = Check(template, "Memory usage", CheckType.MemoryUsage, "{}");
+        var extraTemplate = new MonitoringTemplate { Id = Guid.NewGuid(), Name = "Extra " + Guid.NewGuid(), CreatedAt = _fixture.Now, UpdatedAt = _fixture.Now };
+        var linked = Check(extraTemplate, "Uptime", CheckType.Uptime, "{}");
+        var own = new CheckDefinition
+        {
+            Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, Name = "Spooler", Type = CheckType.ServiceRunning,
+            IntervalSeconds = 120, ParametersJson = """{"service":"Spooler"}""", CreatedAt = _fixture.Now, UpdatedAt = _fixture.Now
+        };
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            var cpu = await db.CheckDefinitions.SingleAsync(c => c.MonitoringTemplateId == template.Id);
+            db.CheckDefinitions.Add(disabled);
+            db.MonitoringTemplates.Add(extraTemplate);
+            db.CheckDefinitions.Add(linked);
+            db.CheckDefinitions.Add(own);
+            db.EndpointMonitoringTemplates.Add(new EndpointMonitoringTemplate
+            {
+                EndpointId = endpoint.Id, ClientId = endpoint.ClientId, MonitoringTemplateId = extraTemplate.Id, CreatedAt = _fixture.Now
+            });
+            db.EndpointCheckOverrides.Add(new EndpointCheckOverride
+            {
+                EndpointId = endpoint.Id, ClientId = endpoint.ClientId, CheckDefinitionId = cpu.Id, IntervalSeconds = 30, CreatedAt = _fixture.Now,
+                UpdatedAt = _fixture.Now
+            });
+            db.EndpointCheckOverrides.Add(new EndpointCheckOverride
+            {
+                EndpointId = endpoint.Id, ClientId = endpoint.ClientId, CheckDefinitionId = disabled.Id, Disabled = true, CreatedAt = _fixture.Now,
+                UpdatedAt = _fixture.Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var (config, _) = await SignConfigAsync(endpoint);
+
+        Assert.Equal(3, config.Checks.Count);
+        Assert.Equal(30u, config.Checks.Single(c => c.Type == Protocol.Agent.V1.CheckType.CpuUsage).IntervalSeconds);
+        Assert.DoesNotContain(config.Checks, c => c.Id == disabled.Id.ToString("D"));
+        Assert.Contains(config.Checks, c => c.Id == linked.Id.ToString("D"));
+        Assert.Equal("Spooler", config.Checks.Single(c => c.Id == own.Id.ToString("D")).Parameters["service"]);
+    }
+
+    [Fact]
+    public async Task Agent_only_endpoint_gets_no_endpoint_only_checks()
+    {
+        await _fixture.Database.LoadTestLicenseAsync(100);
+        var (endpoint, _) = await CreateEndpointWithTemplateAsync(EndpointTier.AgentOnly);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            db.CheckDefinitions.Add(new CheckDefinition
+            {
+                Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, Name = "Uptime", Type = CheckType.Uptime,
+                WarningThreshold = 30, CreatedAt = _fixture.Now, UpdatedAt = _fixture.Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var (config, _) = await SignConfigAsync(endpoint);
+
+        Assert.Equal(Tier.AgentOnly, config.Tier);
+        Assert.Empty(config.Checks);
+    }
+
     private async Task<(AgentConfig Config, EndpointConfig Row)> SignConfigAsync(Endpoint endpoint)
     {
         var request = await _fixture.ProcessAsync(SigningRequestKind.AgentConfig, endpoint.ClientId, endpoint.Id, [], "workers");

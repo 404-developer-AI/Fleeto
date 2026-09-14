@@ -1,7 +1,11 @@
-@* Endpoint detail: header with actions and the tabs Summary, Checks, Software and History. Used below the endpoint list in the
+@* Endpoint detail: header and the tabs Summary, Checks, Software, Notes and History. Used below the endpoint list in the
    clients workspace (Embedded) and on the full endpoint page. Only data of the visible tab is loaded. *@
 @inherits FleetoPageBase
 @inject EndpointService EndpointSvc
+@inject EndpointCheckService CheckSvc
+@inject NoteService NoteSvc
+@inject IDialogService DialogService
+@inject TimeProvider Clock
 @inject LiveUpdates Live
 
 <LoadState Loading="Loading" Failed="LoadFailed" NotFound="_notFound" What="endpoint">
@@ -21,6 +25,10 @@
                         {
                             <StatusChip Text="@AlertCountText(e.OpenAlertCount)" Kind="StatusKind.Warning" />
                         }
+                        @if (e.HeldAlertCount > 0)
+                        {
+                            <StatusChip Text="@($"{e.HeldAlertCount} on hold")" Kind="StatusKind.Neutral" />
+                        }
                     </div>
                     <div class="muted endpoint-detail-subtitle">
                         @e.OsName · @Ui.ClassLabel(e.ClassOverride ?? e.DetectedClass) · [@e.ClientCode] @e.ClientName › @e.SiteName
@@ -30,17 +38,6 @@
                     @if (Embedded)
                     {
                         <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.OpenInNew" Href="@($"/endpoints/{e.Id}")">Open page</MudButton>
-                    }
-                    @if (CanManage)
-                    {
-                        @if (e.Tier == EndpointTier.AgentOnly)
-                        {
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => SetTierAsync(EndpointTier.Managed))">Switch to managed</MudButton>
-                        }
-                        else
-                        {
-                            <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="@(() => SetTierAsync(EndpointTier.AgentOnly))">Switch to agent-only</MudButton>
-                        }
                     }
                 </div>
             </div>
@@ -55,6 +52,9 @@
                 <MudTabPanel Text="Software" Icon="@Icons.Material.Outlined.Apps">
                     @Software()
                 </MudTabPanel>
+                <MudTabPanel Text="Notes" Icon="@Icons.Material.Outlined.StickyNote2">
+                    @Notes(e)
+                </MudTabPanel>
                 <MudTabPanel Text="History" Icon="@Icons.Material.Outlined.History">
                     @History()
                 </MudTabPanel>
@@ -67,7 +67,8 @@
     private const int SummaryTab = 0;
     private const int ChecksTab = 1;
     private const int SoftwareTab = 2;
-    private const int HistoryTab = 3;
+    private const int NotesTab = 3;
+    private const int HistoryTab = 4;
 
     [Parameter, EditorRequired]
     public Guid EndpointId { get; set; }
@@ -76,7 +77,7 @@
     [Parameter]
     public bool Embedded { get; set; }
 
-    /// <summary>Raised after the endpoint changed (tier), so the owner can refresh its list.</summary>
+    /// <summary>Raised after something on the endpoint changed here (alerts, checks), so the owner can refresh its list.</summary>
     [Parameter]
     public EventCallback OnChanged { get; set; }
 
@@ -84,9 +85,10 @@
     private EndpointDetail? _endpoint;
     private bool _notFound;
     private int _tab = SummaryTab;
-    private bool _busy;
     private InventoryView? _inventory;
-    private IReadOnlyList<CheckStateView> _checks = [];
+    private EndpointChecksView? _checks;
+    private NotePage? _notes;
+    private List<NoteView> _noteItems = [];
     private IReadOnlyList<AlertView> _alerts = [];
     private IReadOnlyList<EndpointEventView> _events = [];
     private IReadOnlyList<AuditEntryView> _audit = [];
@@ -146,7 +148,11 @@
                 _inventory = await EndpointSvc.GetInventoryAsync(caller, EndpointId);
                 break;
             case ChecksTab:
-                _checks = await EndpointSvc.GetChecksAsync(caller, EndpointId);
+                _checks = await CheckSvc.GetChecksAsync(caller, EndpointId);
+                break;
+            case NotesTab:
+                _notes = await NoteSvc.ListAsync(caller, EndpointId);
+                _noteItems = _notes?.Items.ToList() ?? [];
                 break;
             case HistoryTab:
                 _alerts = await EndpointSvc.GetAlertsAsync(caller, EndpointId, 50);
@@ -178,122 +184,164 @@
     private RenderFragment Summary(EndpointDetail e) => __builder =>
     {
         var inv = _inventory;
-        <MudGrid Spacing="3">
-            <MudItem xs="12" lg="4">
-                <div class="fl-panel pa-4 h-100">
-                    <MudText Typo="Typo.h6" Class="section-title mb-2">Status</MudText>
-                    <MudSimpleTable Dense="true" Elevation="0" Class="detail-table">
-                        <tbody>
-                            <tr><td class="muted">Connection</td><td>@(e.IsOnline ? "Online" : "Offline") · last seen <TimeText Value="e.LastSeenAt" /></td></tr>
-                            <tr><td class="muted">Operating system</td><td>@e.OsName @e.OsVersion (@e.Architecture)</td></tr>
-                            <tr>
-                                <td class="muted">Agent version</td>
-                                <td>
-                                    @e.AgentVersion
-                                    @if (e.AgentVersion != FleetifyVersion.Current)
-                                    {
-                                        <span class="ml-1"><StatusChip Text="Out of date" Kind="StatusKind.Warning" /></span>
-                                    }
-                                </td>
-                            </tr>
-                            <tr><td class="muted">Signed-in user</td><td>@(string.IsNullOrEmpty(inv?.LoggedOnUser) ? "-" : inv.LoggedOnUser)</td></tr>
-                            <tr><td class="muted">Enrolled</td><td><TimeText Value="e.EnrolledAt" Absolute="true" /></td></tr>
-                            <tr><td class="muted">Configuration</td><td>version @e.AppliedConfigVersion applied, @e.ConfigVersion issued</td></tr>
-                            <tr><td class="muted">Agent certificate</td><td>@(e.ActiveCertificates > 0 ? $"Valid until {Time.Absolute(e.CertificateExpiresAt)}" : "No valid certificate: the agent cannot connect")</td></tr>
-                            <tr><td class="muted">Open alerts</td><td>@e.OpenAlertCount</td></tr>
-                        </tbody>
-                    </MudSimpleTable>
-                </div>
-            </MudItem>
-            <MudItem xs="12" lg="4">
-                <div class="fl-panel pa-4 h-100">
-                    <MudText Typo="Typo.h6" Class="section-title mb-2">Hardware</MudText>
-                    @if (inv is null)
-                    {
-                        <MudText Typo="Typo.body2" Class="muted">The agent has not reported inventory yet.</MudText>
-                    }
-                    else
-                    {
+        <div class="summary-container">
+        <div class="summary-grid">
+            <div>
+                <div class="d-flex flex-column gap-3">
+                    <div class="fl-panel pa-4">
+                        <MudText Typo="Typo.h6" Class="section-title mb-2">Status</MudText>
                         <MudSimpleTable Dense="true" Elevation="0" Class="detail-table">
                             <tbody>
-                                <tr><td class="muted">Manufacturer</td><td>@inv.Manufacturer</td></tr>
-                                <tr><td class="muted">Model</td><td>@inv.Model</td></tr>
-                                <tr><td class="muted">Serial number</td><td>@inv.SerialNumber</td></tr>
-                                <tr><td class="muted">CPU</td><td>@inv.CpuModel (@inv.CpuCores cores, @inv.CpuLogicalProcessors threads)</td></tr>
-                                <tr><td class="muted">Memory</td><td>@Ui.Bytes(inv.MemoryTotalBytes)</td></tr>
-                                <tr><td class="muted">Last boot</td><td><TimeText Value="inv.BootTime" /></td></tr>
-                                <tr><td class="muted">Domain</td><td>@(string.IsNullOrEmpty(inv.Domain) ? "-" : inv.Domain)</td></tr>
-                                <tr><td class="muted">Inventory received</td><td><TimeText Value="inv.ReceivedAt" /></td></tr>
+                                <tr><td class="muted">Connection</td><td>@(e.IsOnline ? "Online" : "Offline") · last seen <TimeText Value="e.LastSeenAt" /></td></tr>
+                                <tr><td class="muted">Operating system</td><td>@e.OsName @e.OsVersion (@e.Architecture)</td></tr>
+                                <tr>
+                                    <td class="muted">Agent version</td>
+                                    <td>
+                                        @e.AgentVersion
+                                        @if (e.AgentVersion != FleetifyVersion.Current)
+                                        {
+                                            <span class="ml-1"><StatusChip Text="Out of date" Kind="StatusKind.Warning" /></span>
+                                        }
+                                    </td>
+                                </tr>
+                                <tr><td class="muted">Agent certificate</td><td>@(e.ActiveCertificates > 0 ? $"Valid until {Time.Absolute(e.CertificateExpiresAt)}" : "No valid certificate: the agent cannot connect")</td></tr>
                             </tbody>
                         </MudSimpleTable>
-                    }
-                </div>
-            </MudItem>
-            <MudItem xs="12" lg="4">
-                <div class="fl-panel pa-4 h-100">
-                    <MudText Typo="Typo.h6" Class="section-title mb-2">Disks</MudText>
-                    @if (inv is null || inv.Disks.Count == 0)
-                    {
-                        <MudText Typo="Typo.body2" Class="muted">The agent has not reported disks yet.</MudText>
-                    }
-                    else
-                    {
-                        @foreach (var disk in inv.Disks)
+                    </div>
+                    <div class="fl-panel pa-4">
+                        <MudText Typo="Typo.h6" Class="section-title mb-2">Hardware</MudText>
+                        @if (inv is null)
                         {
-                            var usedPercent = disk.TotalBytes > 0 ? (disk.TotalBytes - disk.FreeBytes) * 100.0 / disk.TotalBytes : 0;
-                            <div class="mb-3">
-                                <div class="d-flex justify-space-between">
-                                    <span><strong>@disk.Mount</strong> <span class="muted">@disk.Filesystem</span></span>
-                                    <span class="muted">@Ui.Bytes(disk.FreeBytes) free of @Ui.Bytes(disk.TotalBytes)</span>
-                                </div>
-                                <MudProgressLinear Value="usedPercent" Color="@(usedPercent >= 90 ? Color.Error : usedPercent >= 80 ? Color.Warning : Color.Primary)"
-                                                   Rounded="true" Size="Size.Medium" Class="mt-1" />
-                            </div>
+                            <MudText Typo="Typo.body2" Class="muted">The agent has not reported inventory yet.</MudText>
                         }
-                    }
+                        else
+                        {
+                            <MudSimpleTable Dense="true" Elevation="0" Class="detail-table">
+                                <tbody>
+                                    <tr><td class="muted">Manufacturer</td><td>@inv.Manufacturer</td></tr>
+                                    <tr><td class="muted">Model</td><td>@inv.Model</td></tr>
+                                    <tr><td class="muted">Serial number</td><td>@inv.SerialNumber</td></tr>
+                                    <tr><td class="muted">CPU</td><td>@inv.CpuModel (@inv.CpuCores cores, @inv.CpuLogicalProcessors threads)</td></tr>
+                                    <tr><td class="muted">Memory</td><td>@Ui.Bytes(inv.MemoryTotalBytes)</td></tr>
+                                    <tr><td class="muted">Last boot</td><td><TimeText Value="inv.BootTime" /></td></tr>
+                                    <tr><td class="muted">Domain</td><td>@(string.IsNullOrEmpty(inv.Domain) ? "-" : inv.Domain)</td></tr>
+                                    <tr><td class="muted">Inventory received</td><td><TimeText Value="inv.ReceivedAt" /></td></tr>
+                                </tbody>
+                            </MudSimpleTable>
+                        }
+                    </div>
                 </div>
-            </MudItem>
-            <MudItem xs="12">
-                <div class="fl-panel pa-4">
-                    <MudText Typo="Typo.h6" Class="section-title mb-2">Network</MudText>
-                    @if (inv is null || inv.NetworkInterfaces.Count == 0)
-                    {
-                        <MudText Typo="Typo.body2" Class="muted">The agent has not reported network interfaces yet.</MudText>
-                    }
-                    else
-                    {
-                        <MudSimpleTable Dense="true" Elevation="0" Class="detail-table">
-                            <thead><tr><th>Interface</th><th>MAC address</th><th>IP addresses</th></tr></thead>
+            </div>
+            <div>
+                <div class="d-flex flex-column gap-3">
+                    <div class="fl-panel pa-4">
+                        <MudText Typo="Typo.h6" Class="section-title mb-2">Disks</MudText>
+                        @if (inv is null || inv.Disks.Count == 0)
+                        {
+                            <MudText Typo="Typo.body2" Class="muted">The agent has not reported disks yet.</MudText>
+                        }
+                        else
+                        {
+                            @foreach (var disk in inv.Disks)
+                            {
+                                var usedPercent = disk.TotalBytes > 0 ? (disk.TotalBytes - disk.FreeBytes) * 100.0 / disk.TotalBytes : 0;
+                                <div class="mb-3">
+                                    <div class="d-flex justify-space-between">
+                                        <span><strong>@disk.Mount</strong> <span class="muted">@disk.Filesystem</span></span>
+                                        <span class="muted">@Ui.Bytes(disk.FreeBytes) free of @Ui.Bytes(disk.TotalBytes)</span>
+                                    </div>
+                                    <MudProgressLinear Value="usedPercent" Color="@(usedPercent >= 90 ? Color.Error : usedPercent >= 80 ? Color.Warning : Color.Primary)"
+                                                       Rounded="true" Size="Size.Medium" Class="mt-1" />
+                                </div>
+                            }
+                        }
+                    </div>
+                    <div class="fl-panel pa-4">
+                        <MudText Typo="Typo.h6" Class="section-title mb-2">Network</MudText>
+                        <MudSimpleTable Dense="true" Elevation="0" Class="detail-table mb-2">
                             <tbody>
-                                @foreach (var nic in inv.NetworkInterfaces)
-                                {
-                                    <tr><td>@nic.Name</td><td class="mono">@nic.MacAddress</td><td class="mono">@string.Join(", ", nic.IpAddresses)</td></tr>
-                                }
+                                <tr>
+                                    <td class="muted">Public IP</td>
+                                    <td>
+                                        @if (string.IsNullOrEmpty(e.PublicIpAddress))
+                                        {
+                                            <span>-</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="mono">@e.PublicIpAddress</span>
+                                            <span class="muted"> · seen <TimeText Value="e.PublicIpSeenAt" /></span>
+                                        }
+                                    </td>
+                                </tr>
                             </tbody>
                         </MudSimpleTable>
-                    }
+                        @if (inv is null || inv.NetworkInterfaces.Count == 0)
+                        {
+                            <MudText Typo="Typo.body2" Class="muted">The agent has not reported network interfaces yet.</MudText>
+                        }
+                        else
+                        {
+                            <MudSimpleTable Dense="true" Elevation="0" Class="detail-table">
+                                <thead><tr><th>Interface</th><th>MAC address</th><th>IP addresses</th></tr></thead>
+                                <tbody>
+                                    @foreach (var nic in inv.NetworkInterfaces)
+                                    {
+                                        <tr><td>@nic.Name</td><td class="mono">@nic.MacAddress</td><td class="mono">@string.Join(", ", nic.IpAddresses)</td></tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+                        }
+                    </div>
                 </div>
-            </MudItem>
-        </MudGrid>
+            </div>
+        </div>
+        </div>
     };
 
     private RenderFragment Checks(EndpointDetail e) => __builder =>
     {
-        if (e.Tier == EndpointTier.AgentOnly)
+        if (_checks is null)
+        {
+            return;
+        }
+
+        if (!_checks.Managed)
         {
             <EmptyState Icon="@Icons.Material.Outlined.Rule" Title="No checks on agent-only endpoints"
-                        Text="Checks run on managed endpoints. Switch this endpoint to managed to use them." />
+                        Text="Checks run on managed endpoints. Switch this endpoint to managed from the endpoint list to use them." />
             return;
         }
 
-        if (_checks.Count == 0)
+        <div class="d-flex align-center justify-space-between flex-wrap gap-2 mb-2">
+            <MudText Typo="Typo.body2" Class="muted">
+                @if (_checks.ConfigurationPending)
+                {
+                    <span>The agent has not applied the latest configuration yet. New or changed checks start once it has.</span>
+                }
+                else
+                {
+                    <span>Checks from the monitoring templates of the site and of this endpoint, and checks of this endpoint only.</span>
+                }
+            </MudText>
+            @if (CanManage)
+            {
+                <div class="d-flex gap-2">
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.LibraryAddCheck" OnClick="@(() => EditTemplatesAsync(e))">Monitoring templates</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="@(() => EditEndpointCheckAsync(e, null))">Add check</MudButton>
+                </div>
+            }
+        </div>
+
+        if (_checks.Rows.Count == 0)
         {
-            <EmptyState Icon="@Icons.Material.Outlined.Rule" Title="No check results yet"
-                        Text="Link a monitoring template to the site of this endpoint. Results appear after the first check interval." />
+            <EmptyState Icon="@Icons.Material.Outlined.Rule" Title="No checks yet"
+                        Text="Link a monitoring template to the site or to this endpoint, or add a check for this endpoint only." />
             return;
         }
 
-        <MudTable Items="_checks" Dense="true" Hover="true" Elevation="0">
+        var now = Clock.GetUtcNow().UtcDateTime;
+        <MudTable Items="_checks.Rows" Dense="true" Hover="true" Elevation="0">
             <HeaderContent>
                 <MudTh Style="width:44px"></MudTh>
                 <MudTh>Check</MudTh>
@@ -302,14 +350,18 @@
                 <MudTh>Interval</MudTh>
                 <MudTh>Last run</MudTh>
                 <MudTh>Status</MudTh>
+                @if (CanManage)
+                {
+                    <MudTh Style="width:52px"></MudTh>
+                }
             </HeaderContent>
             <RowTemplate>
-                <MudTd><MudIcon Icon="@CheckIcon(context.Status)" Color="@CheckColor(context.Status)" Size="Size.Small" /></MudTd>
+                <MudTd><MudIcon Icon="@RowIcon(context)" Color="@RowColor(context)" Size="Size.Small" /></MudTd>
                 <MudTd>
                     <strong>@context.Name</strong>@(string.IsNullOrEmpty(context.Target) ? "" : $" ({context.Target})")
-                    <div class="muted" style="font-size:0.75rem">@context.MonitoringTemplateName@(context.Enabled ? "" : " · disabled")</div>
+                    <div class="muted" style="font-size:0.75rem">@SourceText(context)@(context.HasOverrides ? " · adjusted for this endpoint" : "")</div>
                 </MudTd>
-                <MudTd>@Ui.CheckValue(context.Type, context.Value)</MudTd>
+                <MudTd>@(context.Status is null ? "-" : Ui.CheckValue(context.Type, context.Value))</MudTd>
                 <MudTd>
                     @context.Detail
                     @if (!string.IsNullOrEmpty(context.Error))
@@ -318,10 +370,140 @@
                     }
                 </MudTd>
                 <MudTd>@Intervals.Describe(context.IntervalSeconds)</MudTd>
-                <MudTd><TimeText Value="context.LastResultAt" /></MudTd>
-                <MudTd><StatusChip Text="@context.Status.ToString()" Kind="@Ui.CheckKind(context.Status)" /></MudTd>
+                <MudTd><TimeText Value="context.LastResultAt" Never="-" /></MudTd>
+                <MudTd>
+                    <div class="d-flex flex-wrap gap-1">
+                        <StatusChip Text="@RowStatusText(context)" Kind="@RowStatusKind(context)" />
+                        @if (context.OpenAlert is { } alert && alert.IsHeld(now))
+                        {
+                            <StatusChip Text="@($"On hold until {Time.Absolute(alert.HeldUntil)}")" Kind="StatusKind.Neutral" />
+                        }
+                    </div>
+                </MudTd>
+                @if (CanManage)
+                {
+                    <MudTd>
+                        <MudMenu Icon="@Icons.Material.Outlined.MoreVert" Size="Size.Small" Dense="true" AriaLabel="Check actions"
+                                 AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                            @if (!context.DisabledOnEndpoint)
+                            {
+                                <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="@(() => RunCheckAsync(context, false))">Run now</MudMenuItem>
+                                <MudMenuItem Icon="@Icons.Material.Outlined.RestartAlt" OnClick="@(() => RunCheckAsync(context, true))">Reset and run</MudMenuItem>
+                            }
+                            @if (context.OpenAlert is { } rowAlert)
+                            {
+                                @if (rowAlert.State == AlertState.Open)
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.Check" OnClick="@(() => AlertActionAsync(rowAlert, AlertAction.Acknowledge))">Acknowledge alert</MudMenuItem>
+                                }
+                                @if (rowAlert.IsHeld(now))
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.PlayCircle" OnClick="@(() => AlertActionAsync(rowAlert, AlertAction.EndHold))">End hold</MudMenuItem>
+                                }
+                                else
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.PauseCircle" OnClick="@(() => AlertActionAsync(rowAlert, AlertAction.Hold))">Put alert on hold</MudMenuItem>
+                                }
+                                <MudMenuItem Icon="@Icons.Material.Outlined.TaskAlt" OnClick="@(() => AlertActionAsync(rowAlert, AlertAction.Resolve))">Resolve alert</MudMenuItem>
+                            }
+                            @if (context.Source == CheckSource.Endpoint)
+                            {
+                                <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="@(() => EditEndpointCheckAsync(e, context.DefinitionId))">Edit</MudMenuItem>
+                                <MudMenuItem Icon="@Icons.Material.Outlined.Delete" OnClick="@(() => DeleteEndpointCheckAsync(context))">Delete</MudMenuItem>
+                            }
+                            else
+                            {
+                                <MudMenuItem Icon="@Icons.Material.Outlined.Tune" OnClick="@(() => EditOverrideAsync(context))">Edit for this endpoint</MudMenuItem>
+                                @if (context.DisabledOnEndpoint)
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.ToggleOn" OnClick="@(() => SetDisabledAsync(context, false))">Enable on this endpoint</MudMenuItem>
+                                }
+                                else
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.ToggleOff" OnClick="@(() => SetDisabledAsync(context, true))">Disable on this endpoint</MudMenuItem>
+                                }
+                            }
+                        </MudMenu>
+                    </MudTd>
+                }
             </RowTemplate>
         </MudTable>
+    };
+
+    private RenderFragment Notes(EndpointDetail e) => __builder =>
+    {
+        if (_notes is null)
+        {
+            return;
+        }
+
+        if (!_notes.Managed)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.StickyNote2" Title="No notes on agent-only endpoints"
+                        Text="Notes are available on managed endpoints. Switch this endpoint to managed from the endpoint list to use them." />
+            return;
+        }
+
+        <div class="d-flex align-center justify-space-between flex-wrap gap-2 mb-2">
+            <MudText Typo="Typo.body2" Class="muted">Newest first. The author can edit a note; an admin can delete it.</MudText>
+            @if (CanManage)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="@(() => EditNoteAsync(null))">Add note</MudButton>
+            }
+        </div>
+
+        if (_noteItems.Count == 0)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.StickyNote2" Title="No notes yet"
+                        Text="Write down what others should know about this endpoint, such as a known issue or a change you made." />
+            return;
+        }
+
+        <MudTable Items="_noteItems" Dense="true" Elevation="0">
+            <HeaderContent>
+                <MudTh Style="width:170px">Created</MudTh>
+                <MudTh Style="width:180px">Author</MudTh>
+                <MudTh>Note</MudTh>
+                @if (CanManage)
+                {
+                    <MudTh Style="width:52px"></MudTh>
+                }
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>
+                    <TimeText Value="context.CreatedAt" />
+                    @if (context.EditedAt is not null)
+                    {
+                        <div class="muted" style="font-size:0.75rem">edited <TimeText Value="context.EditedAt" /></div>
+                    }
+                </MudTd>
+                <MudTd>@context.AuthorName</MudTd>
+                <MudTd><div class="note-body">@NoteMarkdown.ToHtml(context.Body)</div></MudTd>
+                @if (CanManage)
+                {
+                    <MudTd>
+                        @if (context.AuthorUserId == Caller?.UserId || IsAdmin)
+                        {
+                            <MudMenu Icon="@Icons.Material.Outlined.MoreVert" Size="Size.Small" Dense="true" AriaLabel="Note actions"
+                                     AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                                @if (context.AuthorUserId == Caller?.UserId)
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="@(() => EditNoteAsync(context))">Edit</MudMenuItem>
+                                }
+                                @if (IsAdmin)
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.Delete" OnClick="@(() => DeleteNoteAsync(context))">Delete</MudMenuItem>
+                                }
+                            </MudMenu>
+                        }
+                    </MudTd>
+                }
+            </RowTemplate>
+        </MudTable>
+        @if (_notes.NextCursor is not null)
+        {
+            <div class="mt-3"><MudButton Variant="Variant.Outlined" OnClick="MoreNotesAsync">Show older notes</MudButton></div>
+        }
     };
 
     private RenderFragment Software() => __builder =>
@@ -372,6 +554,7 @@
         }
         else
         {
+            var now = Clock.GetUtcNow().UtcDateTime;
             <MudTable Items="_alerts" Dense="true" Elevation="0" Class="mb-5">
                 <HeaderContent>
                     <MudTh>Severity</MudTh>
@@ -379,13 +562,30 @@
                     <MudTh>Alert</MudTh>
                     <MudTh>Opened</MudTh>
                     <MudTh>Resolved</MudTh>
+                    @if (CanManage)
+                    {
+                        <MudTh Style="width:52px"></MudTh>
+                    }
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd><StatusChip Text="@context.Severity.ToString()" Kind="@Ui.SeverityKind(context.Severity)" /></MudTd>
-                    <MudTd><StatusChip Text="@context.State.ToString()" Kind="@Ui.AlertStateKind(context.State)" /></MudTd>
+                    <MudTd>
+                        @if (context.IsHeld(now))
+                        {
+                            <StatusChip Text="@($"On hold until {Time.Absolute(context.HeldUntil)}")" Kind="StatusKind.Neutral" />
+                        }
+                        else
+                        {
+                            <StatusChip Text="@context.State.ToString()" Kind="@Ui.AlertStateKind(context.State)" />
+                        }
+                    </MudTd>
                     <MudTd>@context.Title<div class="muted" style="font-size:0.75rem">@context.ResolvedReason</div></MudTd>
                     <MudTd><TimeText Value="context.OpenedAt" /></MudTd>
                     <MudTd><TimeText Value="context.ResolvedAt" Never="-" /></MudTd>
+                    @if (CanManage)
+                    {
+                        <MudTd><AlertActions Alert="context" OnChanged="AfterActionAsync" /></MudTd>
+                    }
                 </RowTemplate>
             </MudTable>
         }
@@ -438,6 +638,237 @@
         }
     };
 
+    private static string RowStatusText(EndpointCheckRow row) =>
+        row.DisabledOnEndpoint ? "Disabled on this endpoint"
+        : row.RerunRequested ? "Re-run requested"
+        : row.Status is { } status ? status.ToString()
+        : "Not run yet";
+
+    private static StatusKind RowStatusKind(EndpointCheckRow row) =>
+        row.DisabledOnEndpoint || row.RerunRequested || row.Status is null ? StatusKind.Neutral : Ui.CheckKind(row.Status.Value);
+
+    private static string RowIcon(EndpointCheckRow row) =>
+        row.DisabledOnEndpoint ? Icons.Material.Outlined.DoNotDisturbOn
+        : row.RerunRequested || row.Status is null ? Icons.Material.Outlined.Schedule
+        : CheckIcon(row.Status.Value);
+
+    private static Color RowColor(EndpointCheckRow row) =>
+        row.DisabledOnEndpoint || row.RerunRequested || row.Status is null ? Color.Default : CheckColor(row.Status.Value);
+
+    private static string SourceText(EndpointCheckRow row) => row.Source switch
+    {
+        CheckSource.Endpoint => "This endpoint only",
+        CheckSource.EndpointTemplate => $"{row.TemplateName} (linked to this endpoint)",
+        _ => row.TemplateName ?? string.Empty
+    };
+
+    private enum AlertAction
+    {
+        Acknowledge,
+        Hold,
+        EndHold,
+        Resolve
+    }
+
+    [Inject] private AlertService AlertSvc { get; set; } = default!;
+
+    private async Task AfterActionAsync()
+    {
+        await ReloadAsync();
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task AlertActionAsync(AlertView alert, AlertAction action)
+    {
+        var done = action switch
+        {
+            AlertAction.Acknowledge => await RunAsync(caller => AlertSvc.AcknowledgeAsync(caller, alert.Id), "The alert was acknowledged."),
+            AlertAction.EndHold => await RunAsync(caller => AlertSvc.EndHoldAsync(caller, alert.Id), "The hold was ended. The alert is open again."),
+            AlertAction.Resolve => await RunAsync(caller => AlertSvc.ResolveAsync(caller, alert.Id),
+                "The alert was resolved. If the cause is still there, a new alert opens."),
+            _ => await HoldAsync(alert)
+        };
+        if (done)
+        {
+            await AfterActionAsync();
+        }
+    }
+
+    private async Task<bool> HoldAsync(AlertView alert)
+    {
+        var parameters = new DialogParameters<HoldAlertDialog>
+        {
+            { d => d.Alert, alert },
+            { d => d.OnSubmit, until => RunAsync(caller => AlertSvc.HoldAsync(caller, alert.Id, until), $"The alert is on hold until {Time.Absolute(until)}.") }
+        };
+        var dialog = await DialogService.ShowAsync<HoldAlertDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        return !(await dialog.Result)!.Canceled;
+    }
+
+    private async Task RunCheckAsync(EndpointCheckRow row, bool reset)
+    {
+        var result = await RunForValueAsync(caller => CheckSvc.RequestRunAsync(caller, EndpointId, row.DefinitionId, reset), null);
+        if (result is null)
+        {
+            return;
+        }
+
+        var what = reset ? $"{row.Name} was reset and" : row.Name;
+        Snackbar.Add(result.Value
+                ? $"{what} will run on the agent now. The result appears here when it arrives."
+                : $"The endpoint is offline. {what} runs when the agent connects within 10 minutes, otherwise at its next interval.",
+            MudBlazor.Severity.Success);
+        await AfterActionAsync();
+    }
+
+    private async Task SetDisabledAsync(EndpointCheckRow row, bool disabled)
+    {
+        if (await RunAsync(caller => CheckSvc.SetDisabledAsync(caller, EndpointId, row.DefinitionId, disabled),
+                disabled ? $"{row.Name} no longer runs on this endpoint." : $"{row.Name} runs on this endpoint again."))
+        {
+            await AfterActionAsync();
+        }
+    }
+
+    private async Task EditOverrideAsync(EndpointCheckRow row)
+    {
+        CheckOverrideView? view = null;
+        await LoadAsync(async caller => view = await CheckSvc.GetOverrideAsync(caller, EndpointId, row.DefinitionId));
+        if (view is null)
+        {
+            Snackbar.Add("This check no longer applies to this endpoint. Refresh the page.", MudBlazor.Severity.Warning);
+            return;
+        }
+
+        var parameters = new DialogParameters<CheckOverrideDialog>
+        {
+            { d => d.Check, view },
+            { d => d.OnSubmit, input => RunAsync(caller => CheckSvc.SaveOverrideAsync(caller, EndpointId, row.DefinitionId, input), "The check was saved for this endpoint.") }
+        };
+        var dialog = await DialogService.ShowAsync<CheckOverrideDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await AfterActionAsync();
+        }
+    }
+
+    private async Task EditEndpointCheckAsync(EndpointDetail e, Guid? checkId)
+    {
+        CheckDefinitionView? existing = null;
+        if (checkId is { } id)
+        {
+            await LoadAsync(async caller => existing = await CheckSvc.GetEndpointCheckAsync(caller, EndpointId, id));
+            if (existing is null)
+            {
+                Snackbar.Add("This check no longer exists. Refresh the page.", MudBlazor.Severity.Warning);
+                return;
+            }
+        }
+
+        var parameters = new DialogParameters<CheckDialog>
+        {
+            { d => d.Existing, existing },
+            { d => d.ForEndpoint, true },
+            {
+                d => d.OnSubmit, input => RunAsync(caller => CheckSvc.SaveEndpointCheckAsync(caller, EndpointId, checkId, input),
+                    checkId is null ? $"The check was added to {e.Hostname}." : "The check was saved.")
+            }
+        };
+        var dialog = await DialogService.ShowAsync<CheckDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await AfterActionAsync();
+        }
+    }
+
+    private async Task DeleteEndpointCheckAsync(EndpointCheckRow row)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, "Delete check" },
+            { d => d.Message, $"Delete the check {row.Name} from this endpoint? Its open alerts are resolved." }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if ((await dialog.Result)!.Canceled)
+        {
+            return;
+        }
+
+        if (await RunAsync(caller => CheckSvc.DeleteEndpointCheckAsync(caller, EndpointId, row.DefinitionId), $"{row.Name} was deleted."))
+        {
+            await AfterActionAsync();
+        }
+    }
+
+    private async Task EditTemplatesAsync(EndpointDetail e)
+    {
+        EndpointTemplateLinks? links = null;
+        await LoadAsync(async caller => links = await CheckSvc.GetTemplateLinksAsync(caller, EndpointId));
+        if (links is null)
+        {
+            return;
+        }
+
+        var parameters = new DialogParameters<EndpointTemplatesDialog>
+        {
+            { d => d.Hostname, e.Hostname },
+            { d => d.Links, links },
+            { d => d.OnSubmit, ids => RunAsync(caller => CheckSvc.SetEndpointTemplatesAsync(caller, EndpointId, ids), "The monitoring templates of this endpoint were saved.") }
+        };
+        var dialog = await DialogService.ShowAsync<EndpointTemplatesDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await AfterActionAsync();
+        }
+    }
+
+    private async Task EditNoteAsync(NoteView? note)
+    {
+        var parameters = new DialogParameters<NoteDialog>
+        {
+            { d => d.Existing, note },
+            {
+                d => d.OnSubmit, body => note is null
+                    ? RunAsync(caller => NoteSvc.CreateAsync(caller, EndpointId, body), "The note was added.")
+                    : RunAsync(caller => NoteSvc.UpdateAsync(caller, note.Id, body), "The note was saved.")
+            }
+        };
+        var dialog = await DialogService.ShowAsync<NoteDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task DeleteNoteAsync(NoteView note)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, "Delete note" },
+            { d => d.Message, $"Delete the note by {note.AuthorName}? This cannot be undone." }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if ((await dialog.Result)!.Canceled)
+        {
+            return;
+        }
+
+        if (await RunAsync(caller => NoteSvc.DeleteAsync(caller, note.Id), "The note was deleted."))
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private Task MoreNotesAsync() => LoadAsync(async caller =>
+    {
+        var page = await NoteSvc.ListAsync(caller, EndpointId, _notes?.NextCursor);
+        if (page is not null)
+        {
+            _noteItems.AddRange(page.Items);
+            _notes = page;
+        }
+    });
+
     private IEnumerable<SoftwareInfo> FilteredSoftware =>
         _inventory is null ? []
         : string.IsNullOrWhiteSpace(_softwareSearch) ? _inventory.Software.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
@@ -460,29 +891,6 @@
         CheckStatus.Critical => Color.Error,
         _ => Color.Default
     };
-
-    private async Task AfterChangeAsync()
-    {
-        await ReloadAsync();
-        await OnChanged.InvokeAsync();
-    }
-
-    private async Task SetTierAsync(EndpointTier tier)
-    {
-        _busy = true;
-        try
-        {
-            var label = tier == EndpointTier.Managed ? "managed" : "agent-only";
-            if (await RunAsync(caller => EndpointSvc.SetTierAsync(caller, [EndpointId], tier), $"The endpoint is now {label}."))
-            {
-                await AfterChangeAsync();
-            }
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
 
     public override void Dispose()
     {

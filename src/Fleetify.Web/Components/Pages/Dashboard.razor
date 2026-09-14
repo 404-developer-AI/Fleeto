@@ -89,12 +89,20 @@
                             <MudTh>Alert</MudTh>
                             <MudTh>Endpoint</MudTh>
                             <MudTh>Opened</MudTh>
+                            @if (CanManage)
+                            {
+                                <MudTh Style="width:52px"></MudTh>
+                            }
                         </HeaderContent>
                         <RowTemplate>
                             <MudTd><StatusChip Text="@context.Severity.ToString()" Kind="@Ui.SeverityKind(context.Severity)" /></MudTd>
                             <MudTd>@context.Title</MudTd>
                             <MudTd><MudLink Href="@($"/endpoints/{context.EndpointId}")">@context.ClientCode / @context.Hostname</MudLink></MudTd>
                             <MudTd><TimeText Value="context.OpenedAt" /></MudTd>
+                            @if (CanManage)
+                            {
+                                <MudTd><AlertActions Alert="context" OnChanged="ReloadAsync" /></MudTd>
+                            }
                         </RowTemplate>
                     </MudTable>
                     <MudLink Href="/alerts" Typo="Typo.body2" Class="mt-2 d-inline-block">All alerts</MudLink>
@@ -143,6 +151,8 @@
     }
 
     private void OnChange(Guid _) => _refresh?.Trigger();
+
+    private Task ReloadAsync() => LoadAsync(async caller => _data = await DashboardData.GetAsync(caller));
 
     private string LicenseDetail(Fleetify.Infrastructure.Licensing.LicenseUsage usage) => usage.Status.State switch
     {

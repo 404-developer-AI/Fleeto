@@ -55,6 +55,13 @@ public sealed class WorkersFixture : IAsyncLifetime
         new(Db.DbFactory, Db.Bus, Db.Licenses, new AlertNotificationService(Db.Time), MsOptions.Create(new CheckEvaluationOptions()),
             Heartbeat(), Db.Time, NullLogger<CheckEvaluationService>.Instance);
 
+    public CheckRunRequestService CheckRunRequests() =>
+        new(Db.DbFactory, Db.Bus, Db.Licenses, new AlertNotificationService(Db.Time), Heartbeat(), Db.Time,
+            NullLogger<CheckRunRequestService>.Instance);
+
+    public AlertHoldService AlertHolds() =>
+        new(Db.DbFactory, Db.Bus, new AlertNotificationService(Db.Time), Heartbeat(), Db.Time, NullLogger<AlertHoldService>.Instance);
+
     public EndpointHealthService EndpointHealth() =>
         new(Db.DbFactory, Db.Bus, Db.Licenses, new AlertNotificationService(Db.Time), Heartbeat(), Db.Time,
             NullLogger<EndpointHealthService>.Instance);

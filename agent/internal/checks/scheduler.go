@@ -19,6 +19,15 @@ import (
 // MinInterval is the shortest interval the agent runs a check at; shorter values are raised to it.
 const MinInterval = time.Second
 
+// Limits on runs requested by the server (RunChecksNow). The request is not signed, so a misbehaving gateway must not be
+// able to turn checks into a busy loop: at most one manual run per check per MinRunNowGap, MaxRunNowPerMinute manual runs
+// in total per minute, and MaxRunNowIDs ids per request.
+const (
+	MinRunNowGap       = 30 * time.Second
+	MaxRunNowPerMinute = 20
+	MaxRunNowIDs       = 100
+)
+
 // Measurement is one result of a check run, before the scheduler stamps check id, version and time.
 type Measurement struct {
 	Value  float64
@@ -69,14 +78,21 @@ type Scheduler struct {
 	mu      sync.Mutex
 	runners map[string]*runner
 	stopped bool
+
+	// Manual runs in the current one-minute window (RunNow).
+	manualWindow time.Time
+	manualCount  int
 }
 
 type runner struct {
 	spec    *agentv1.CheckSpec
 	cancel  context.CancelFunc
 	done    chan struct{}
+	trigger chan struct{} // capacity 1: repeated requests before the run starts coalesce
 	mu      sync.Mutex
 	version uint64
+	// Guarded by Scheduler.mu.
+	lastManual time.Time
 }
 
 // NewScheduler returns a scheduler without checks.
@@ -115,11 +131,53 @@ func (s *Scheduler) Apply(cfg *agentv1.AgentConfig) {
 	}
 	for id, spec := range wanted {
 		ctx, cancel := context.WithCancel(context.Background())
-		r := &runner{spec: spec, cancel: cancel, done: make(chan struct{}), version: cfg.GetVersion()}
+		r := &runner{spec: spec, cancel: cancel, done: make(chan struct{}), trigger: make(chan struct{}, 1), version: cfg.GetVersion()}
 		s.runners[id] = r
 		safego.Go(s.logger, "check "+id, func() { s.run(ctx, r) })
 	}
 	s.logger.Info("checks applied", "configVersion", cfg.GetVersion(), "tier", cfg.GetTier().String(), "checks", len(s.runners))
+}
+
+// RunNow starts the named checks at once, outside their schedule. Only checks of the applied signed configuration can
+// run: ids that are not scheduled (unknown, or an agent-only configuration without checks) are ignored. Rate limits apply
+// (MinRunNowGap per check, MaxRunNowPerMinute in total). It returns how many checks were started and how many were
+// dropped by a limit.
+func (s *Scheduler) RunNow(ids []string) (started, dropped int) {
+	if len(ids) > MaxRunNowIDs {
+		dropped += len(ids) - MaxRunNowIDs
+		ids = ids[:MaxRunNowIDs]
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopped {
+		return 0, len(ids)
+	}
+	now := s.now()
+	if now.Sub(s.manualWindow) >= time.Minute || now.Before(s.manualWindow) {
+		s.manualWindow = now
+		s.manualCount = 0
+	}
+	seen := map[string]bool{}
+	for _, id := range ids {
+		r, ok := s.runners[id]
+		if !ok || seen[id] {
+			continue
+		}
+		seen[id] = true
+		if s.manualCount >= MaxRunNowPerMinute || (!r.lastManual.IsZero() && now.Sub(r.lastManual) < MinRunNowGap && !now.Before(r.lastManual)) {
+			dropped++
+			continue
+		}
+		select {
+		case r.trigger <- struct{}{}:
+			r.lastManual = now
+			s.manualCount++
+			started++
+		default:
+			// A run requested earlier has not started yet; this request is served by it.
+		}
+	}
+	return started, dropped
 }
 
 // Count returns the number of scheduled checks.
@@ -163,11 +221,13 @@ func (s *Scheduler) run(ctx context.Context, r *runner) {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
+		case <-r.trigger:
 		}
 		s.runOnce(ctx, r)
 		if ctx.Err() != nil {
 			return
 		}
+		// A manual run counts as a run: the next scheduled one follows an interval later.
 		timer.Reset(NextDelay(interval))
 	}
 }

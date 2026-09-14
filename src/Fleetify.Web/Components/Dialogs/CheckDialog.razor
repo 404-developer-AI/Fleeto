@@ -1,4 +1,5 @@
-@* Add or edit a check. Fields depend on the check type; validation messages come from CheckParameters.Validate. *@
+@* Add or edit a check of a monitoring template or of one endpoint. Fields depend on the check type; validation messages come
+   from CheckParameters.Validate. *@
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">@(Existing is null ? "New check" : $"Edit check {Existing.Name}")</MudText>
@@ -49,11 +50,14 @@
         }
 
         <MudNumericField T="int" @bind-Value="_failures" Label="Failed results before an alert opens" Variant="Variant.Outlined" Min="1" Max="100" Class="mb-3" />
-        <MudSelect T="CheckAppliesTo" @bind-Value="_appliesTo" Label="Runs on" Variant="Variant.Outlined" Class="mb-3">
-            <MudSelectItem T="CheckAppliesTo" Value="CheckAppliesTo.All">All endpoints</MudSelectItem>
-            <MudSelectItem T="CheckAppliesTo" Value="CheckAppliesTo.Workstation">Workstations only</MudSelectItem>
-            <MudSelectItem T="CheckAppliesTo" Value="CheckAppliesTo.Server">Servers only</MudSelectItem>
-        </MudSelect>
+        @if (!ForEndpoint)
+        {
+            <MudSelect T="CheckAppliesTo" @bind-Value="_appliesTo" Label="Runs on" Variant="Variant.Outlined" Class="mb-3">
+                <MudSelectItem T="CheckAppliesTo" Value="CheckAppliesTo.All">All endpoints</MudSelectItem>
+                <MudSelectItem T="CheckAppliesTo" Value="CheckAppliesTo.Workstation">Workstations only</MudSelectItem>
+                <MudSelectItem T="CheckAppliesTo" Value="CheckAppliesTo.Server">Servers only</MudSelectItem>
+            </MudSelect>
+        }
         <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Label="Enabled" />
     </DialogContent>
     <DialogActions>
@@ -67,6 +71,9 @@
     private IMudDialogInstance MudDialog { get; set; } = default!;
 
     [Parameter] public CheckDefinitionView? Existing { get; set; }
+
+    /// <summary>A check that exists only on one endpoint: it runs whatever the endpoint class, so "Runs on" is hidden.</summary>
+    [Parameter] public bool ForEndpoint { get; set; }
     [Parameter] public Func<CheckDefinitionInput, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
 
     private CheckType _type = CheckType.CpuUsage;

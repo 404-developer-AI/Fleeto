@@ -4,6 +4,7 @@ using Fleetify.Core.Entities;
 using Fleetify.Core.Interfaces;
 using Fleetify.Infrastructure.Data;
 using Fleetify.Infrastructure.Licensing;
+using Fleetify.Infrastructure.Services;
 using Fleetify.Workers.Alerts;
 using Fleetify.Workers.Hosting;
 using Fleetify.Workers.Options;
@@ -36,7 +37,8 @@ public sealed class CheckEvaluationService : WorkerLoop
     public const string ResolvedReasonNotApplicable = "The check no longer applies to this endpoint";
     public const string ResolvedReasonNotManaged = "The endpoint is no longer managed";
 
-    private const int AdvisoryLockClass = 0x46434556; // "FCEV"
+    /// <summary>Advisory lock class of per-endpoint evaluation; also taken by the check run request service for resets.</summary>
+    internal const int AdvisoryLockClass = 0x46434556; // "FCEV"
     private const int MaxDrainPerPass = 5000;
     private static readonly TimeSpan SweepInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan WideSweepInterval = TimeSpan.FromHours(1);
@@ -49,8 +51,8 @@ public sealed class CheckEvaluationService : WorkerLoop
         WHERE w."Value" IS NULL OR w."Value" < r."MaxId"
         """;
 
-    // Resolves unresolved check alerts whose definition was deleted (the foreign key nulls it), disabled, unlinked from
-    // the endpoint's site, or no longer matches the endpoint class.
+    // Resolves unresolved check alerts whose definition was deleted (the foreign key nulls it), disabled, unlinked from the
+    // endpoint's site and the endpoint, disabled on the endpoint, or no longer matches the endpoint class.
     private const string ResolveNotApplicableSql = """
         UPDATE "Alerts" a
         SET "State" = 'Resolved', "ResolvedAt" = @now, "UpdatedAt" = @now, "ResolvedReason" = @reason
@@ -58,11 +60,24 @@ public sealed class CheckEvaluationService : WorkerLoop
           AND NOT EXISTS (
             SELECT 1
             FROM "CheckDefinitions" d
-            JOIN "SiteMonitoringTemplates" l ON l."MonitoringTemplateId" = d."MonitoringTemplateId"
-            JOIN "Endpoints" e ON e."SiteId" = l."SiteId"
-            WHERE d."Id" = a."CheckDefinitionId" AND e."Id" = a."EndpointId" AND d."Enabled"
-              AND (d."AppliesTo" = 'All' OR d."AppliesTo" = COALESCE(e."ClassOverride", e."DetectedClass")))
+            JOIN "Endpoints" e ON e."Id" = a."EndpointId"
+            WHERE d."Id" = a."CheckDefinitionId" AND
+        """ + EffectiveCheckResolver.AppliesSql + """
+            )
         RETURNING a."Id" AS "Value"
+        """;
+
+    // States of checks that no longer apply are removed, so a check that applies again starts as "not run yet" instead of
+    // showing an old result. Runs on the wide sweep only; the endpoint page hides such states in the meantime.
+    private const string DeleteNotApplicableStatesSql = """
+        DELETE FROM "CheckStates" s
+        USING "Endpoints" e
+        WHERE e."Id" = s."EndpointId"
+          AND NOT EXISTS (
+            SELECT 1 FROM "CheckDefinitions" d
+            WHERE d."Id" = s."CheckDefinitionId" AND
+        """ + EffectiveCheckResolver.AppliesSql + """
+            )
         """;
 
     private readonly IFleetifyDbContextFactory _dbFactory;
@@ -127,6 +142,7 @@ public sealed class CheckEvaluationService : WorkerLoop
         if (now >= _nextWideSweep)
         {
             await SweepAsync(TimeSpan.FromHours(_options.WideSweepWindowHours), cancellationToken);
+            await DeleteStaleStatesAsync(cancellationToken);
             _nextWideSweep = now + WideSweepInterval;
             _nextSweep = now + SweepInterval;
         }
@@ -145,6 +161,11 @@ public sealed class CheckEvaluationService : WorkerLoop
     {
         await SweepAsync(wideSweep ? TimeSpan.FromHours(_options.WideSweepWindowHours) : TimeSpan.FromMinutes(_options.SweepWindowMinutes),
             cancellationToken);
+        if (wideSweep)
+        {
+            await DeleteStaleStatesAsync(cancellationToken);
+        }
+
         while (!_queue.IsEmpty)
         {
             await ProcessQueueAsync(cancellationToken);
@@ -205,6 +226,19 @@ public sealed class CheckEvaluationService : WorkerLoop
 
         await AlertCleanup.PublishAsync(_bus, resolved, cancellationToken);
         return resolved.Count;
+    }
+
+    /// <summary>Deletes check states of checks that no longer apply to their endpoint. Returns the number deleted.</summary>
+    internal async Task<int> DeleteStaleStatesAsync(CancellationToken cancellationToken)
+    {
+        await using var db = _dbFactory.CreateSystem();
+        var deleted = await db.Database.ExecuteSqlRawAsync(DeleteNotApplicableStatesSql, cancellationToken);
+        if (deleted > 0)
+        {
+            Logger.LogInformation("Removed {Count} check state(s) of checks that no longer apply", deleted);
+        }
+
+        return deleted;
     }
 
     private async Task ProcessQueueAsync(CancellationToken cancellationToken)
@@ -363,13 +397,9 @@ public sealed class CheckEvaluationService : WorkerLoop
         List<AlertTransition> transitions, DateTime now, CancellationToken cancellationToken)
     {
         var definitionIds = results.Select(r => r.CheckDefinitionId).Distinct().ToList();
-        var linkedTemplates = await db.SiteMonitoringTemplates.AsNoTracking()
-            .Where(l => l.SiteId == endpoint.SiteId)
-            .Select(l => l.MonitoringTemplateId)
-            .ToListAsync(cancellationToken);
-        var definitions = await db.CheckDefinitions.AsNoTracking()
-            .Where(d => definitionIds.Contains(d.Id))
-            .ToDictionaryAsync(d => d.Id, cancellationToken);
+        var checks = (await EffectiveCheckResolver.LoadAsync(db, endpoint.Id, endpoint.SiteId, endpoint.Class, includeDisabledOnEndpoint: false,
+                cancellationToken))
+            .ToDictionary(c => c.Id);
         var states = await db.CheckStates
             .Where(s => s.EndpointId == endpoint.Id && definitionIds.Contains(s.CheckDefinitionId))
             .ToDictionaryAsync(s => (s.CheckDefinitionId, s.Target), cancellationToken);
@@ -382,15 +412,22 @@ public sealed class CheckEvaluationService : WorkerLoop
         var statusChanged = false;
         foreach (var result in results)
         {
-            if (!definitions.TryGetValue(result.CheckDefinitionId, out var definition) || !Applies(definition, endpoint, linkedTemplates))
+            if (!checks.TryGetValue(result.CheckDefinitionId, out var check))
             {
                 continue;
             }
 
-            var status = CheckEvaluator.Evaluate(definition.Type, result.Value, result.Error, definition.WarningThreshold, definition.CriticalThreshold);
+            var definition = check.Definition;
             var key = (definition.Id, result.Target);
+            if (states.TryGetValue(key, out var existing) && existing.ResetAt is { } resetAt && result.Time < resetAt)
+            {
+                // Ingested before a technician reset the check: that result belongs to the old state.
+                continue;
+            }
 
-            if (!states.TryGetValue(key, out var state))
+            var status = CheckEvaluator.Evaluate(definition.Type, result.Value, result.Error, check.WarningThreshold, check.CriticalThreshold);
+
+            if (existing is not { } state)
             {
                 state = new CheckState
                 {
@@ -403,7 +440,7 @@ public sealed class CheckEvaluationService : WorkerLoop
                 states[key] = state;
                 statusChanged = true;
             }
-            else if (state.Status != status)
+            else if (state.Status != status || state.RerunRequested)
             {
                 statusChanged = true;
             }
@@ -432,13 +469,13 @@ public sealed class CheckEvaluationService : WorkerLoop
                 continue;
             }
 
-            if (state.ConsecutiveNonOk < Math.Max(1, definition.FailuresBeforeAlert))
+            if (state.ConsecutiveNonOk < Math.Max(1, check.FailuresBeforeAlert))
             {
                 continue;
             }
 
             var severity = CheckEvaluator.SeverityFor(status);
-            var title = Truncate(CheckEvaluator.AlertTitle(endpoint.Hostname, definition, result.Target, status, result.Value, result.Error), 500);
+            var title = Truncate(CheckEvaluator.AlertTitle(endpoint.Hostname, check.ToEffectiveDefinition(), result.Target, status, result.Value, result.Error), 500);
             var detail = Truncate(string.IsNullOrEmpty(result.Error) ? result.Detail : result.Error, 2000);
 
             if (alert is null)
@@ -481,13 +518,6 @@ public sealed class CheckEvaluationService : WorkerLoop
         return statusChanged;
     }
 
-    private static bool Applies(CheckDefinition definition, EndpointFacts endpoint, List<Guid> linkedTemplates) =>
-        definition.Enabled &&
-        linkedTemplates.Contains(definition.MonitoringTemplateId) &&
-        (definition.AppliesTo == CheckAppliesTo.All ||
-         (definition.AppliesTo == CheckAppliesTo.Server && endpoint.Class == EndpointClass.Server) ||
-         (definition.AppliesTo == CheckAppliesTo.Workstation && endpoint.Class == EndpointClass.Workstation));
-
     private async Task<LicenseStatus> GetLicenseStatusAsync(CancellationToken cancellationToken)
     {
         var now = Time.GetUtcNow();
@@ -509,7 +539,7 @@ public sealed class CheckEvaluationService : WorkerLoop
     }
 
     /// <summary>Lock key within <see cref="AdvisoryLockClass"/>. A collision only serializes two unrelated endpoints.</summary>
-    private static int LockKey(Guid endpointId)
+    internal static int LockKey(Guid endpointId)
     {
         Span<byte> bytes = stackalloc byte[16];
         endpointId.TryWriteBytes(bytes);

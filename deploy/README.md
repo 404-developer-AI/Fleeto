@@ -69,7 +69,9 @@ fingerprint checked) and the host proxy. For the instance it then:
 1. checks DNS, verifies the release manifest and pulls every image by digest;
 2. creates `/opt/fleetify/<instance>/` and generates `root.key`, `signer.key` and one database password per role;
 3. starts PostgreSQL, runs the migrator, starts the stack and waits until every service is healthy;
-4. adds the HTTPS route and the SNI passthrough route to the host proxy;
+4. adds the HTTPS route and the SNI passthrough route to the host proxy (the passthrough sends a PROXY protocol v2
+   header, so the gateway sees the agent's address; the gateway trusts that header only from the private Docker ranges
+   set in `compose/compose.yml`);
 5. prints the URL, the one-time first-admin setup link (valid 24 hours) and the key ceremony reminder.
 
 Running it again is safe: an interrupted install continues, existing secrets are never overwritten.

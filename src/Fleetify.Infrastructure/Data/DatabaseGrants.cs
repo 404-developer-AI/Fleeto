@@ -46,6 +46,8 @@ public static class DatabaseGrants
             ["CheckDefinitions"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["SiteMonitoringTemplates"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["SitePolicies"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+            ["EndpointMonitoringTemplates"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+            ["EndpointCheckOverrides"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["ClientTemplates"] = Grants(web: ReadWrite, workers: Read),
             ["ClientTemplateSites"] = Grants(web: ReadWrite, workers: Read),
             ["ClientTemplateSiteMonitoringTemplates"] = Grants(web: ReadWrite, workers: Read),
@@ -55,6 +57,10 @@ public static class DatabaseGrants
             ["CheckStates"] = Grants(web: Read, workers: ReadWrite),
             ["Alerts"] = Grants(web: "SELECT, UPDATE", workers: ReadWrite),
             ["EndpointEvents"] = Grants(web: Read, gateway: "INSERT", workers: "SELECT, UPDATE, DELETE"),
+            // Web asks, the workers apply a reset, the gateway delivers; nobody else can change a request.
+            ["CheckRunRequests"] = Grants(web: "SELECT, INSERT", gateway: "SELECT, UPDATE", workers: "SELECT, UPDATE, DELETE"),
+            // Deleted with their endpoint through the foreign key cascade.
+            ["Notes"] = Grants(web: ReadWrite),
 
             // Who may request which kind is also enforced by trigger TR_SigningRequests_Origin (migration SigningRequestOrigin).
             ["SigningRequests"] = Grants(web: Read, gateway: "SELECT, INSERT", signer: "SELECT, UPDATE", workers: "SELECT, INSERT, DELETE"),

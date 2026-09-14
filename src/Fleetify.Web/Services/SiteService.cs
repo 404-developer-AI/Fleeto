@@ -59,7 +59,7 @@ public sealed class SiteService
             .Select(l => new LinkedTemplate(l.MonitoringTemplateId, l.MonitoringTemplate!.Name, l.MonitoringTemplate.ClientId == null, l.Source))
             .ToListAsync(cancellationToken);
 
-        var endpoints = await ListEndpointsQuery(db, siteId).ToListAsync(cancellationToken);
+        var endpoints = await ListEndpointsQuery(db, siteId, _time.GetUtcNow().UtcDateTime).ToListAsync(cancellationToken);
 
         return new SiteDetail(site.Id, site.Name, site.Description, site.ClientId, site.Code, site.ClientName, site.ClientTemplateSiteId is not null,
             policy?.PolicyId, policy?.Name ?? defaultPolicyName!, policy?.Source, templates, endpoints);
@@ -100,15 +100,15 @@ public sealed class SiteService
     {
         caller.EnsureView();
         await using var db = _dbFactory.Create(caller.Scope);
-        return await ListEndpointsQuery(db, siteId).ToListAsync(cancellationToken);
+        return await ListEndpointsQuery(db, siteId, _time.GetUtcNow().UtcDateTime).ToListAsync(cancellationToken);
     }
 
-    private static IQueryable<EndpointListItem> ListEndpointsQuery(FleetifyDbContext db, Guid siteId) =>
+    private static IQueryable<EndpointListItem> ListEndpointsQuery(FleetifyDbContext db, Guid siteId, DateTime now) =>
         db.Endpoints.AsNoTracking()
             .Where(e => e.SiteId == siteId)
             .OrderBy(e => e.Hostname)
             .Select(e => new EndpointListItem(e.Id, e.Hostname, e.IsOnline, e.Tier, e.ClassOverride ?? e.DetectedClass, e.OsName, e.OsVersion,
-                e.AgentVersion, e.LastSeenAt, db.Alerts.Count(a => a.EndpointId == e.Id && a.State != AlertState.Resolved)));
+                e.AgentVersion, e.LastSeenAt, db.Alerts.Count(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now))));
 
     /// <summary>Policies and monitoring templates this site can link: global ones and those of its own client.</summary>
     public async Task<(IReadOnlyList<LinkOption> Policies, IReadOnlyList<LinkOption> MonitoringTemplates)> GetLinkOptionsAsync(Caller caller,

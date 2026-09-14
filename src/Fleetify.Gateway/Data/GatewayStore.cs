@@ -10,6 +10,9 @@ namespace Fleetify.Gateway.Data;
 /// <summary>What the gateway needs to know about an endpoint when its session opens.</summary>
 public sealed record SessionStart(Guid ClientId, EndpointTier Tier, StoredConfig? NewerConfig, string? InventoryHash);
 
+/// <summary>A check run request that may be delivered to its agent now.</summary>
+public sealed record DeliverableRunRequest(Guid Id, Guid EndpointId, Guid CheckDefinitionId);
+
 /// <summary>An endpoint's latest signed configuration together with the endpoint's stored tier.</summary>
 public sealed record StoredConfig(Guid EndpointId, long Version, byte[] Payload, byte[] Signature, string KeyId, EndpointTier Tier);
 
@@ -23,7 +26,8 @@ public enum IngestOutcome
 /// <summary>
 /// Hot-path SQL of the gateway, written directly against Npgsql. Touches only what the <c>fleetify_gateway</c> role is
 /// granted (DatabaseGrants): Endpoints (select, update), InventorySnapshots, CheckResults (insert), IngestBatches,
-/// EndpointEvents (insert), EndpointConfigs and AgentCertificates (select). Every statement is a constant.
+/// EndpointEvents (insert), EndpointConfigs and AgentCertificates (select), CheckRunRequests (select, update). Every
+/// statement is a constant.
 /// </summary>
 public sealed class GatewayStore
 {
@@ -51,7 +55,7 @@ public sealed class GatewayStore
     /// Returns null when the endpoint no longer exists.
     /// </summary>
     public async Task<SessionStart?> OpenSessionAsync(Guid endpointId, Hello hello, ulong agentConfigVersion, string remoteAddress,
-        DateTime now, CancellationToken cancellationToken)
+        DateTime now, CancellationToken cancellationToken, string? publicIpAddress = null)
     {
         var os = hello.Os ?? new OsInfo();
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
@@ -63,7 +67,9 @@ public sealed class GatewayStore
             UPDATE "Endpoints" SET
               "IsOnline" = true, "LastSeenAt" = @now, "AgentVersion" = @agentVersion, "Hostname" = @hostname,
               "OsPlatform" = @osPlatform, "OsName" = @osName, "OsVersion" = @osVersion, "Architecture" = @architecture,
-              "DetectedClass" = @detectedClass, "UpdatedAt" = @now
+              "DetectedClass" = @detectedClass, "UpdatedAt" = @now,
+              "PublicIpAddress" = COALESCE(@publicIp, "PublicIpAddress"),
+              "PublicIpSeenAt" = CASE WHEN @publicIp IS NULL THEN "PublicIpSeenAt" ELSE @now END
             WHERE "Id" = @id
             RETURNING "ClientId", "Tier"
             """, connection, transaction))
@@ -71,6 +77,7 @@ public sealed class GatewayStore
             update.Parameters.Add(new NpgsqlParameter<Guid>("id", endpointId));
             update.Parameters.Add(new NpgsqlParameter<DateTime>("now", now));
             update.Parameters.Add(new NpgsqlParameter<string>("agentVersion", DbText.Clean(hello.AgentVersion, 50)));
+            update.Parameters.Add(new NpgsqlParameter("publicIp", NpgsqlDbType.Varchar) { Value = (object?)publicIpAddress ?? DBNull.Value });
             AddEndpointFacts(update, hello.Hostname, os);
             await using var reader = await update.ExecuteReaderAsync(cancellationToken);
             if (!await reader.ReadAsync(cancellationToken))
@@ -397,6 +404,58 @@ public sealed class GatewayStore
         }
 
         return tiers;
+    }
+
+    /// <summary>
+    /// Check run requests that may be delivered now: not delivered or closed, not expired, and a requested reset already
+    /// applied by the workers (so the new result cannot be overwritten by the reset).
+    /// </summary>
+    public async Task<List<DeliverableRunRequest>> ReadDeliverableRunRequestsAsync(Guid[] endpointIds, DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var requests = new List<DeliverableRunRequest>();
+        if (endpointIds.Length == 0)
+        {
+            return requests;
+        }
+
+        await using var command = _dataSource.CreateCommand("""
+            SELECT "Id", "EndpointId", "CheckDefinitionId" FROM "CheckRunRequests"
+            WHERE "EndpointId" = ANY($1) AND "DeliveredAt" IS NULL AND "Outcome" IS NULL AND "ExpiresAt" > $2
+              AND (NOT "Reset" OR "ResetAppliedAt" IS NOT NULL)
+            ORDER BY "RequestedAt"
+            LIMIT 1000
+            """);
+        command.Parameters.Add(new NpgsqlParameter<Guid[]> { TypedValue = endpointIds });
+        command.Parameters.Add(new NpgsqlParameter<DateTime> { TypedValue = now });
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            requests.Add(new DeliverableRunRequest(reader.GetGuid(0), reader.GetGuid(1), reader.GetGuid(2)));
+        }
+
+        return requests;
+    }
+
+    /// <summary>The endpoint of a check run request, or null when it does not exist.</summary>
+    public async Task<Guid?> ReadRunRequestEndpointAsync(Guid requestId, CancellationToken cancellationToken)
+    {
+        await using var command = _dataSource.CreateCommand("""SELECT "EndpointId" FROM "CheckRunRequests" WHERE "Id" = $1""");
+        command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = requestId });
+        return await command.ExecuteScalarAsync(cancellationToken) is Guid endpointId ? endpointId : null;
+    }
+
+    /// <summary>Marks a run request delivered. Returns false when it was delivered or closed before, so it is sent once.</summary>
+    public async Task<bool> MarkRunRequestDeliveredAsync(Guid requestId, DateTime now, CancellationToken cancellationToken)
+    {
+        await using var command = _dataSource.CreateCommand("""
+            UPDATE "CheckRunRequests" SET "DeliveredAt" = $2
+            WHERE "Id" = $1 AND "DeliveredAt" IS NULL AND "Outcome" IS NULL AND "ExpiresAt" > $2
+            RETURNING 1
+            """);
+        command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = requestId });
+        command.Parameters.Add(new NpgsqlParameter<DateTime> { TypedValue = now });
+        return await command.ExecuteScalarAsync(cancellationToken) is not null;
     }
 
     /// <summary>Records the configuration version the agent confirmed. Never moves backwards.</summary>

@@ -40,6 +40,8 @@ public static class WorkersServiceCollectionExtensions
         services.AddHostedService<HeartbeatFileService>();
         services.AddHostedService<ConfigChangeFanoutService>();
         services.AddHostedService<CheckEvaluationService>();
+        services.AddHostedService<CheckRunRequestService>();
+        services.AddHostedService<AlertHoldService>();
         services.AddHostedService<EndpointHealthService>();
         services.AddHostedService<EndpointEventService>();
         services.AddHostedService<OutboxEmailService>();

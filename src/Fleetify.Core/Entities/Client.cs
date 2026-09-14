@@ -80,6 +80,14 @@ public class Endpoint
     /// <summary>Configuration version the agent last confirmed as applied.</summary>
     public long AppliedConfigVersion { get; set; }
 
+    /// <summary>
+    /// Personal data (GDPR): the address the gateway saw for the latest agent connection (behind the host proxy taken from
+    /// the PROXY protocol header). Only the latest value is kept.
+    /// </summary>
+    public string? PublicIpAddress { get; set; }
+
+    public DateTime? PublicIpSeenAt { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

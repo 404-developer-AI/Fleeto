@@ -628,6 +628,7 @@ type ServerMessage struct {
 	//	*ServerMessage_Ping
 	//	*ServerMessage_Disconnect
 	//	*ServerMessage_InventoryRequest
+	//	*ServerMessage_RunChecksNow
 	Body          isServerMessage_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -733,6 +734,15 @@ func (x *ServerMessage) GetInventoryRequest() *InventoryRequest {
 	return nil
 }
 
+func (x *ServerMessage) GetRunChecksNow() *RunChecksNow {
+	if x != nil {
+		if x, ok := x.Body.(*ServerMessage_RunChecksNow); ok {
+			return x.RunChecksNow
+		}
+	}
+	return nil
+}
+
 type isServerMessage_Body interface {
 	isServerMessage_Body()
 }
@@ -765,6 +775,10 @@ type ServerMessage_InventoryRequest struct {
 	InventoryRequest *InventoryRequest `protobuf:"bytes,7,opt,name=inventory_request,json=inventoryRequest,proto3,oneof"`
 }
 
+type ServerMessage_RunChecksNow struct {
+	RunChecksNow *RunChecksNow `protobuf:"bytes,8,opt,name=run_checks_now,json=runChecksNow,proto3,oneof"`
+}
+
 func (*ServerMessage_HelloAck) isServerMessage_Body() {}
 
 func (*ServerMessage_BatchAck) isServerMessage_Body() {}
@@ -778,6 +792,8 @@ func (*ServerMessage_Ping) isServerMessage_Body() {}
 func (*ServerMessage_Disconnect) isServerMessage_Body() {}
 
 func (*ServerMessage_InventoryRequest) isServerMessage_Body() {}
+
+func (*ServerMessage_RunChecksNow) isServerMessage_Body() {}
 
 // First message after the WebSocket opens. The server closes the connection if anything else comes first.
 type Hello struct {
@@ -1088,6 +1104,64 @@ func (*InventoryRequest) Descriptor() ([]byte, []int) {
 	return file_agent_proto_rawDescGZIP(), []int{10}
 }
 
+// Asks the agent to run checks of its applied signed configuration now, outside their interval (a technician clicked
+// "Run now" or "Reset"). Not signed: it can only start checks the agent already verified in a signed configuration, never
+// add or change one, and the agent rate-limits it per check and in total. Unknown ids are ignored. Older agents ignore
+// the whole message.
+type RunChecksNow struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// CheckSpec ids; at most 100 are honoured.
+	CheckIds []string `protobuf:"bytes,1,rep,name=check_ids,json=checkIds,proto3" json:"check_ids,omitempty"`
+	// Id of the request in the server database, for logs.
+	RequestId     string `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunChecksNow) Reset() {
+	*x = RunChecksNow{}
+	mi := &file_agent_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunChecksNow) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunChecksNow) ProtoMessage() {}
+
+func (x *RunChecksNow) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunChecksNow.ProtoReflect.Descriptor instead.
+func (*RunChecksNow) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *RunChecksNow) GetCheckIds() []string {
+	if x != nil {
+		return x.CheckIds
+	}
+	return nil
+}
+
+func (x *RunChecksNow) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
 type InventoryReport struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Hex SHA-256 over the deterministic serialization of inventory, computed by the agent.
@@ -1099,7 +1173,7 @@ type InventoryReport struct {
 
 func (x *InventoryReport) Reset() {
 	*x = InventoryReport{}
-	mi := &file_agent_proto_msgTypes[11]
+	mi := &file_agent_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1111,7 +1185,7 @@ func (x *InventoryReport) String() string {
 func (*InventoryReport) ProtoMessage() {}
 
 func (x *InventoryReport) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[11]
+	mi := &file_agent_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1124,7 +1198,7 @@ func (x *InventoryReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InventoryReport.ProtoReflect.Descriptor instead.
 func (*InventoryReport) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{11}
+	return file_agent_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *InventoryReport) GetHash() string {
@@ -1165,7 +1239,7 @@ type Inventory struct {
 
 func (x *Inventory) Reset() {
 	*x = Inventory{}
-	mi := &file_agent_proto_msgTypes[12]
+	mi := &file_agent_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1177,7 +1251,7 @@ func (x *Inventory) String() string {
 func (*Inventory) ProtoMessage() {}
 
 func (x *Inventory) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[12]
+	mi := &file_agent_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1190,7 +1264,7 @@ func (x *Inventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Inventory.ProtoReflect.Descriptor instead.
 func (*Inventory) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{12}
+	return file_agent_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Inventory) GetHostname() string {
@@ -1310,7 +1384,7 @@ type Disk struct {
 
 func (x *Disk) Reset() {
 	*x = Disk{}
-	mi := &file_agent_proto_msgTypes[13]
+	mi := &file_agent_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1322,7 +1396,7 @@ func (x *Disk) String() string {
 func (*Disk) ProtoMessage() {}
 
 func (x *Disk) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[13]
+	mi := &file_agent_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1335,7 +1409,7 @@ func (x *Disk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Disk.ProtoReflect.Descriptor instead.
 func (*Disk) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{13}
+	return file_agent_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *Disk) GetMount() string {
@@ -1377,7 +1451,7 @@ type NetworkInterface struct {
 
 func (x *NetworkInterface) Reset() {
 	*x = NetworkInterface{}
-	mi := &file_agent_proto_msgTypes[14]
+	mi := &file_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1389,7 +1463,7 @@ func (x *NetworkInterface) String() string {
 func (*NetworkInterface) ProtoMessage() {}
 
 func (x *NetworkInterface) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[14]
+	mi := &file_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1402,7 +1476,7 @@ func (x *NetworkInterface) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkInterface.ProtoReflect.Descriptor instead.
 func (*NetworkInterface) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{14}
+	return file_agent_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *NetworkInterface) GetName() string {
@@ -1439,7 +1513,7 @@ type SoftwareItem struct {
 
 func (x *SoftwareItem) Reset() {
 	*x = SoftwareItem{}
-	mi := &file_agent_proto_msgTypes[15]
+	mi := &file_agent_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1451,7 +1525,7 @@ func (x *SoftwareItem) String() string {
 func (*SoftwareItem) ProtoMessage() {}
 
 func (x *SoftwareItem) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[15]
+	mi := &file_agent_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1464,7 +1538,7 @@ func (x *SoftwareItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SoftwareItem.ProtoReflect.Descriptor instead.
 func (*SoftwareItem) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{15}
+	return file_agent_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *SoftwareItem) GetName() string {
@@ -1509,7 +1583,7 @@ type CheckResultBatch struct {
 
 func (x *CheckResultBatch) Reset() {
 	*x = CheckResultBatch{}
-	mi := &file_agent_proto_msgTypes[16]
+	mi := &file_agent_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1521,7 +1595,7 @@ func (x *CheckResultBatch) String() string {
 func (*CheckResultBatch) ProtoMessage() {}
 
 func (x *CheckResultBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[16]
+	mi := &file_agent_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1534,7 +1608,7 @@ func (x *CheckResultBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckResultBatch.ProtoReflect.Descriptor instead.
 func (*CheckResultBatch) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{16}
+	return file_agent_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *CheckResultBatch) GetSequence() uint64 {
@@ -1571,7 +1645,7 @@ type CheckResult struct {
 
 func (x *CheckResult) Reset() {
 	*x = CheckResult{}
-	mi := &file_agent_proto_msgTypes[17]
+	mi := &file_agent_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1583,7 +1657,7 @@ func (x *CheckResult) String() string {
 func (*CheckResult) ProtoMessage() {}
 
 func (x *CheckResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[17]
+	mi := &file_agent_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1596,7 +1670,7 @@ func (x *CheckResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckResult.ProtoReflect.Descriptor instead.
 func (*CheckResult) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{17}
+	return file_agent_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *CheckResult) GetCheckId() string {
@@ -1658,7 +1732,7 @@ type BatchAck struct {
 
 func (x *BatchAck) Reset() {
 	*x = BatchAck{}
-	mi := &file_agent_proto_msgTypes[18]
+	mi := &file_agent_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1670,7 +1744,7 @@ func (x *BatchAck) String() string {
 func (*BatchAck) ProtoMessage() {}
 
 func (x *BatchAck) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[18]
+	mi := &file_agent_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1683,7 +1757,7 @@ func (x *BatchAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchAck.ProtoReflect.Descriptor instead.
 func (*BatchAck) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{18}
+	return file_agent_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *BatchAck) GetSequence() uint64 {
@@ -1703,7 +1777,7 @@ type RenewCertificateRequest struct {
 
 func (x *RenewCertificateRequest) Reset() {
 	*x = RenewCertificateRequest{}
-	mi := &file_agent_proto_msgTypes[19]
+	mi := &file_agent_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1715,7 +1789,7 @@ func (x *RenewCertificateRequest) String() string {
 func (*RenewCertificateRequest) ProtoMessage() {}
 
 func (x *RenewCertificateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[19]
+	mi := &file_agent_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1728,7 +1802,7 @@ func (x *RenewCertificateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenewCertificateRequest.ProtoReflect.Descriptor instead.
 func (*RenewCertificateRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{19}
+	return file_agent_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *RenewCertificateRequest) GetCsrDer() []byte {
@@ -1749,7 +1823,7 @@ type RenewCertificateResponse struct {
 
 func (x *RenewCertificateResponse) Reset() {
 	*x = RenewCertificateResponse{}
-	mi := &file_agent_proto_msgTypes[20]
+	mi := &file_agent_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1761,7 +1835,7 @@ func (x *RenewCertificateResponse) String() string {
 func (*RenewCertificateResponse) ProtoMessage() {}
 
 func (x *RenewCertificateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[20]
+	mi := &file_agent_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1774,7 +1848,7 @@ func (x *RenewCertificateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenewCertificateResponse.ProtoReflect.Descriptor instead.
 func (*RenewCertificateResponse) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{20}
+	return file_agent_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *RenewCertificateResponse) GetCertificateDer() []byte {
@@ -1804,7 +1878,7 @@ type SignedConfig struct {
 
 func (x *SignedConfig) Reset() {
 	*x = SignedConfig{}
-	mi := &file_agent_proto_msgTypes[21]
+	mi := &file_agent_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1816,7 +1890,7 @@ func (x *SignedConfig) String() string {
 func (*SignedConfig) ProtoMessage() {}
 
 func (x *SignedConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[21]
+	mi := &file_agent_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1829,7 +1903,7 @@ func (x *SignedConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedConfig.ProtoReflect.Descriptor instead.
 func (*SignedConfig) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{21}
+	return file_agent_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *SignedConfig) GetPayload() []byte {
@@ -1872,7 +1946,7 @@ type AgentConfig struct {
 
 func (x *AgentConfig) Reset() {
 	*x = AgentConfig{}
-	mi := &file_agent_proto_msgTypes[22]
+	mi := &file_agent_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1884,7 +1958,7 @@ func (x *AgentConfig) String() string {
 func (*AgentConfig) ProtoMessage() {}
 
 func (x *AgentConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[22]
+	mi := &file_agent_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1897,7 +1971,7 @@ func (x *AgentConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentConfig.ProtoReflect.Descriptor instead.
 func (*AgentConfig) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{22}
+	return file_agent_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *AgentConfig) GetInstanceId() string {
@@ -1971,7 +2045,7 @@ type CheckSpec struct {
 
 func (x *CheckSpec) Reset() {
 	*x = CheckSpec{}
-	mi := &file_agent_proto_msgTypes[23]
+	mi := &file_agent_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1983,7 +2057,7 @@ func (x *CheckSpec) String() string {
 func (*CheckSpec) ProtoMessage() {}
 
 func (x *CheckSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[23]
+	mi := &file_agent_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1996,7 +2070,7 @@ func (x *CheckSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckSpec.ProtoReflect.Descriptor instead.
 func (*CheckSpec) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{23}
+	return file_agent_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *CheckSpec) GetId() string {
@@ -2038,7 +2112,7 @@ type ConfigApplied struct {
 
 func (x *ConfigApplied) Reset() {
 	*x = ConfigApplied{}
-	mi := &file_agent_proto_msgTypes[24]
+	mi := &file_agent_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2050,7 +2124,7 @@ func (x *ConfigApplied) String() string {
 func (*ConfigApplied) ProtoMessage() {}
 
 func (x *ConfigApplied) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[24]
+	mi := &file_agent_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2063,7 +2137,7 @@ func (x *ConfigApplied) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigApplied.ProtoReflect.Descriptor instead.
 func (*ConfigApplied) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{24}
+	return file_agent_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ConfigApplied) GetConfigVersion() uint64 {
@@ -2090,7 +2164,7 @@ type Disconnect struct {
 
 func (x *Disconnect) Reset() {
 	*x = Disconnect{}
-	mi := &file_agent_proto_msgTypes[25]
+	mi := &file_agent_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2102,7 +2176,7 @@ func (x *Disconnect) String() string {
 func (*Disconnect) ProtoMessage() {}
 
 func (x *Disconnect) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[25]
+	mi := &file_agent_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2115,7 +2189,7 @@ func (x *Disconnect) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Disconnect.ProtoReflect.Descriptor instead.
 func (*Disconnect) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{25}
+	return file_agent_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *Disconnect) GetCode() DisconnectCode {
@@ -2166,7 +2240,7 @@ const file_agent_proto_rawDesc = "" +
 	"\x11renew_certificate\x18\x05 \x01(\v2*.fleetify.agent.v1.RenewCertificateRequestH\x00R\x10renewCertificate\x12I\n" +
 	"\x0econfig_applied\x18\x06 \x01(\v2 .fleetify.agent.v1.ConfigAppliedH\x00R\rconfigApplied\x12-\n" +
 	"\x04pong\x18\a \x01(\v2\x17.fleetify.agent.v1.PongH\x00R\x04pongB\x06\n" +
-	"\x04body\"\xea\x03\n" +
+	"\x04body\"\xb3\x04\n" +
 	"\rServerMessage\x12:\n" +
 	"\thello_ack\x18\x01 \x01(\v2\x1b.fleetify.agent.v1.HelloAckH\x00R\bhelloAck\x12:\n" +
 	"\tbatch_ack\x18\x02 \x01(\v2\x1b.fleetify.agent.v1.BatchAckH\x00R\bbatchAck\x129\n" +
@@ -2176,7 +2250,8 @@ const file_agent_proto_rawDesc = "" +
 	"\n" +
 	"disconnect\x18\x06 \x01(\v2\x1d.fleetify.agent.v1.DisconnectH\x00R\n" +
 	"disconnect\x12R\n" +
-	"\x11inventory_request\x18\a \x01(\v2#.fleetify.agent.v1.InventoryRequestH\x00R\x10inventoryRequestB\x06\n" +
+	"\x11inventory_request\x18\a \x01(\v2#.fleetify.agent.v1.InventoryRequestH\x00R\x10inventoryRequest\x12G\n" +
+	"\x0erun_checks_now\x18\b \x01(\v2\x1f.fleetify.agent.v1.RunChecksNowH\x00R\frunChecksNowB\x06\n" +
 	"\x04body\"\xc1\x01\n" +
 	"\x05Hello\x12#\n" +
 	"\ragent_version\x18\x01 \x01(\tR\fagentVersion\x12\x1a\n" +
@@ -2197,7 +2272,11 @@ const file_agent_proto_rawDesc = "" +
 	"\x05nonce\x18\x01 \x01(\x04R\x05nonce\"\x1c\n" +
 	"\x04Pong\x12\x14\n" +
 	"\x05nonce\x18\x01 \x01(\x04R\x05nonce\"\x12\n" +
-	"\x10InventoryRequest\"a\n" +
+	"\x10InventoryRequest\"J\n" +
+	"\fRunChecksNow\x12\x1b\n" +
+	"\tcheck_ids\x18\x01 \x03(\tR\bcheckIds\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x02 \x01(\tR\trequestId\"a\n" +
 	"\x0fInventoryReport\x12\x12\n" +
 	"\x04hash\x18\x01 \x01(\tR\x04hash\x12:\n" +
 	"\tinventory\x18\x02 \x01(\v2\x1c.fleetify.agent.v1.InventoryR\tinventory\"\x86\x05\n" +
@@ -2318,7 +2397,7 @@ func file_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_agent_proto_goTypes = []any{
 	(Tier)(0),                        // 0: fleetify.agent.v1.Tier
 	(CheckType)(0),                   // 1: fleetify.agent.v1.CheckType
@@ -2334,62 +2413,64 @@ var file_agent_proto_goTypes = []any{
 	(*Ping)(nil),                     // 11: fleetify.agent.v1.Ping
 	(*Pong)(nil),                     // 12: fleetify.agent.v1.Pong
 	(*InventoryRequest)(nil),         // 13: fleetify.agent.v1.InventoryRequest
-	(*InventoryReport)(nil),          // 14: fleetify.agent.v1.InventoryReport
-	(*Inventory)(nil),                // 15: fleetify.agent.v1.Inventory
-	(*Disk)(nil),                     // 16: fleetify.agent.v1.Disk
-	(*NetworkInterface)(nil),         // 17: fleetify.agent.v1.NetworkInterface
-	(*SoftwareItem)(nil),             // 18: fleetify.agent.v1.SoftwareItem
-	(*CheckResultBatch)(nil),         // 19: fleetify.agent.v1.CheckResultBatch
-	(*CheckResult)(nil),              // 20: fleetify.agent.v1.CheckResult
-	(*BatchAck)(nil),                 // 21: fleetify.agent.v1.BatchAck
-	(*RenewCertificateRequest)(nil),  // 22: fleetify.agent.v1.RenewCertificateRequest
-	(*RenewCertificateResponse)(nil), // 23: fleetify.agent.v1.RenewCertificateResponse
-	(*SignedConfig)(nil),             // 24: fleetify.agent.v1.SignedConfig
-	(*AgentConfig)(nil),              // 25: fleetify.agent.v1.AgentConfig
-	(*CheckSpec)(nil),                // 26: fleetify.agent.v1.CheckSpec
-	(*ConfigApplied)(nil),            // 27: fleetify.agent.v1.ConfigApplied
-	(*Disconnect)(nil),               // 28: fleetify.agent.v1.Disconnect
-	nil,                              // 29: fleetify.agent.v1.CheckSpec.ParametersEntry
-	(*timestamppb.Timestamp)(nil),    // 30: google.protobuf.Timestamp
+	(*RunChecksNow)(nil),             // 14: fleetify.agent.v1.RunChecksNow
+	(*InventoryReport)(nil),          // 15: fleetify.agent.v1.InventoryReport
+	(*Inventory)(nil),                // 16: fleetify.agent.v1.Inventory
+	(*Disk)(nil),                     // 17: fleetify.agent.v1.Disk
+	(*NetworkInterface)(nil),         // 18: fleetify.agent.v1.NetworkInterface
+	(*SoftwareItem)(nil),             // 19: fleetify.agent.v1.SoftwareItem
+	(*CheckResultBatch)(nil),         // 20: fleetify.agent.v1.CheckResultBatch
+	(*CheckResult)(nil),              // 21: fleetify.agent.v1.CheckResult
+	(*BatchAck)(nil),                 // 22: fleetify.agent.v1.BatchAck
+	(*RenewCertificateRequest)(nil),  // 23: fleetify.agent.v1.RenewCertificateRequest
+	(*RenewCertificateResponse)(nil), // 24: fleetify.agent.v1.RenewCertificateResponse
+	(*SignedConfig)(nil),             // 25: fleetify.agent.v1.SignedConfig
+	(*AgentConfig)(nil),              // 26: fleetify.agent.v1.AgentConfig
+	(*CheckSpec)(nil),                // 27: fleetify.agent.v1.CheckSpec
+	(*ConfigApplied)(nil),            // 28: fleetify.agent.v1.ConfigApplied
+	(*Disconnect)(nil),               // 29: fleetify.agent.v1.Disconnect
+	nil,                              // 30: fleetify.agent.v1.CheckSpec.ParametersEntry
+	(*timestamppb.Timestamp)(nil),    // 31: google.protobuf.Timestamp
 }
 var file_agent_proto_depIdxs = []int32{
 	5,  // 0: fleetify.agent.v1.EnrollRequest.os:type_name -> fleetify.agent.v1.OsInfo
 	8,  // 1: fleetify.agent.v1.AgentMessage.hello:type_name -> fleetify.agent.v1.Hello
 	10, // 2: fleetify.agent.v1.AgentMessage.heartbeat:type_name -> fleetify.agent.v1.Heartbeat
-	14, // 3: fleetify.agent.v1.AgentMessage.inventory:type_name -> fleetify.agent.v1.InventoryReport
-	19, // 4: fleetify.agent.v1.AgentMessage.check_results:type_name -> fleetify.agent.v1.CheckResultBatch
-	22, // 5: fleetify.agent.v1.AgentMessage.renew_certificate:type_name -> fleetify.agent.v1.RenewCertificateRequest
-	27, // 6: fleetify.agent.v1.AgentMessage.config_applied:type_name -> fleetify.agent.v1.ConfigApplied
+	15, // 3: fleetify.agent.v1.AgentMessage.inventory:type_name -> fleetify.agent.v1.InventoryReport
+	20, // 4: fleetify.agent.v1.AgentMessage.check_results:type_name -> fleetify.agent.v1.CheckResultBatch
+	23, // 5: fleetify.agent.v1.AgentMessage.renew_certificate:type_name -> fleetify.agent.v1.RenewCertificateRequest
+	28, // 6: fleetify.agent.v1.AgentMessage.config_applied:type_name -> fleetify.agent.v1.ConfigApplied
 	12, // 7: fleetify.agent.v1.AgentMessage.pong:type_name -> fleetify.agent.v1.Pong
 	9,  // 8: fleetify.agent.v1.ServerMessage.hello_ack:type_name -> fleetify.agent.v1.HelloAck
-	21, // 9: fleetify.agent.v1.ServerMessage.batch_ack:type_name -> fleetify.agent.v1.BatchAck
-	24, // 10: fleetify.agent.v1.ServerMessage.config:type_name -> fleetify.agent.v1.SignedConfig
-	23, // 11: fleetify.agent.v1.ServerMessage.renew_certificate:type_name -> fleetify.agent.v1.RenewCertificateResponse
+	22, // 9: fleetify.agent.v1.ServerMessage.batch_ack:type_name -> fleetify.agent.v1.BatchAck
+	25, // 10: fleetify.agent.v1.ServerMessage.config:type_name -> fleetify.agent.v1.SignedConfig
+	24, // 11: fleetify.agent.v1.ServerMessage.renew_certificate:type_name -> fleetify.agent.v1.RenewCertificateResponse
 	11, // 12: fleetify.agent.v1.ServerMessage.ping:type_name -> fleetify.agent.v1.Ping
-	28, // 13: fleetify.agent.v1.ServerMessage.disconnect:type_name -> fleetify.agent.v1.Disconnect
+	29, // 13: fleetify.agent.v1.ServerMessage.disconnect:type_name -> fleetify.agent.v1.Disconnect
 	13, // 14: fleetify.agent.v1.ServerMessage.inventory_request:type_name -> fleetify.agent.v1.InventoryRequest
-	5,  // 15: fleetify.agent.v1.Hello.os:type_name -> fleetify.agent.v1.OsInfo
-	30, // 16: fleetify.agent.v1.HelloAck.server_time:type_name -> google.protobuf.Timestamp
-	30, // 17: fleetify.agent.v1.Heartbeat.agent_time:type_name -> google.protobuf.Timestamp
-	15, // 18: fleetify.agent.v1.InventoryReport.inventory:type_name -> fleetify.agent.v1.Inventory
-	5,  // 19: fleetify.agent.v1.Inventory.os:type_name -> fleetify.agent.v1.OsInfo
-	16, // 20: fleetify.agent.v1.Inventory.disks:type_name -> fleetify.agent.v1.Disk
-	17, // 21: fleetify.agent.v1.Inventory.network_interfaces:type_name -> fleetify.agent.v1.NetworkInterface
-	18, // 22: fleetify.agent.v1.Inventory.software:type_name -> fleetify.agent.v1.SoftwareItem
-	30, // 23: fleetify.agent.v1.Inventory.boot_time:type_name -> google.protobuf.Timestamp
-	20, // 24: fleetify.agent.v1.CheckResultBatch.results:type_name -> fleetify.agent.v1.CheckResult
-	30, // 25: fleetify.agent.v1.CheckResult.collected_at:type_name -> google.protobuf.Timestamp
-	30, // 26: fleetify.agent.v1.AgentConfig.issued_at:type_name -> google.protobuf.Timestamp
-	0,  // 27: fleetify.agent.v1.AgentConfig.tier:type_name -> fleetify.agent.v1.Tier
-	26, // 28: fleetify.agent.v1.AgentConfig.checks:type_name -> fleetify.agent.v1.CheckSpec
-	1,  // 29: fleetify.agent.v1.CheckSpec.type:type_name -> fleetify.agent.v1.CheckType
-	29, // 30: fleetify.agent.v1.CheckSpec.parameters:type_name -> fleetify.agent.v1.CheckSpec.ParametersEntry
-	2,  // 31: fleetify.agent.v1.Disconnect.code:type_name -> fleetify.agent.v1.DisconnectCode
-	32, // [32:32] is the sub-list for method output_type
-	32, // [32:32] is the sub-list for method input_type
-	32, // [32:32] is the sub-list for extension type_name
-	32, // [32:32] is the sub-list for extension extendee
-	0,  // [0:32] is the sub-list for field type_name
+	14, // 15: fleetify.agent.v1.ServerMessage.run_checks_now:type_name -> fleetify.agent.v1.RunChecksNow
+	5,  // 16: fleetify.agent.v1.Hello.os:type_name -> fleetify.agent.v1.OsInfo
+	31, // 17: fleetify.agent.v1.HelloAck.server_time:type_name -> google.protobuf.Timestamp
+	31, // 18: fleetify.agent.v1.Heartbeat.agent_time:type_name -> google.protobuf.Timestamp
+	16, // 19: fleetify.agent.v1.InventoryReport.inventory:type_name -> fleetify.agent.v1.Inventory
+	5,  // 20: fleetify.agent.v1.Inventory.os:type_name -> fleetify.agent.v1.OsInfo
+	17, // 21: fleetify.agent.v1.Inventory.disks:type_name -> fleetify.agent.v1.Disk
+	18, // 22: fleetify.agent.v1.Inventory.network_interfaces:type_name -> fleetify.agent.v1.NetworkInterface
+	19, // 23: fleetify.agent.v1.Inventory.software:type_name -> fleetify.agent.v1.SoftwareItem
+	31, // 24: fleetify.agent.v1.Inventory.boot_time:type_name -> google.protobuf.Timestamp
+	21, // 25: fleetify.agent.v1.CheckResultBatch.results:type_name -> fleetify.agent.v1.CheckResult
+	31, // 26: fleetify.agent.v1.CheckResult.collected_at:type_name -> google.protobuf.Timestamp
+	31, // 27: fleetify.agent.v1.AgentConfig.issued_at:type_name -> google.protobuf.Timestamp
+	0,  // 28: fleetify.agent.v1.AgentConfig.tier:type_name -> fleetify.agent.v1.Tier
+	27, // 29: fleetify.agent.v1.AgentConfig.checks:type_name -> fleetify.agent.v1.CheckSpec
+	1,  // 30: fleetify.agent.v1.CheckSpec.type:type_name -> fleetify.agent.v1.CheckType
+	30, // 31: fleetify.agent.v1.CheckSpec.parameters:type_name -> fleetify.agent.v1.CheckSpec.ParametersEntry
+	2,  // 32: fleetify.agent.v1.Disconnect.code:type_name -> fleetify.agent.v1.DisconnectCode
+	33, // [33:33] is the sub-list for method output_type
+	33, // [33:33] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_agent_proto_init() }
@@ -2414,6 +2495,7 @@ func file_agent_proto_init() {
 		(*ServerMessage_Ping)(nil),
 		(*ServerMessage_Disconnect)(nil),
 		(*ServerMessage_InventoryRequest)(nil),
+		(*ServerMessage_RunChecksNow)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -2421,7 +2503,7 @@ func file_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   27,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

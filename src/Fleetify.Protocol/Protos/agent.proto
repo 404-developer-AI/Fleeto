@@ -87,6 +87,7 @@ message ServerMessage {
     Ping ping = 5;
     Disconnect disconnect = 6;
     InventoryRequest inventory_request = 7;
+    RunChecksNow run_checks_now = 8;
   }
 }
 
@@ -122,6 +123,17 @@ message Pong {
 }
 
 message InventoryRequest {}
+
+// Asks the agent to run checks of its applied signed configuration now, outside their interval (a technician clicked
+// "Run now" or "Reset"). Not signed: it can only start checks the agent already verified in a signed configuration, never
+// add or change one, and the agent rate-limits it per check and in total. Unknown ids are ignored. Older agents ignore
+// the whole message.
+message RunChecksNow {
+  // CheckSpec ids; at most 100 are honoured.
+  repeated string check_ids = 1;
+  // Id of the request in the server database, for logs.
+  string request_id = 2;
+}
 
 message InventoryReport {
   // Hex SHA-256 over the deterministic serialization of inventory, computed by the agent.

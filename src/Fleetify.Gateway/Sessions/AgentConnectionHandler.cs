@@ -76,7 +76,10 @@ public sealed class AgentConnectionHandler
             KeepAliveInterval = TimeSpan.FromSeconds(30),
             KeepAliveTimeout = TimeSpan.FromSeconds(60)
         });
-        using var session = new AgentSession(identity, RemoteAddress(context), _options.SendQueueCapacity, _time.GetUtcNow().UtcDateTime);
+        using var session = new AgentSession(identity, RemoteAddress(context), _options.SendQueueCapacity, _time.GetUtcNow().UtcDateTime)
+        {
+            PublicIpAddress = PublicIp(context)
+        };
         await RunAsync(webSocket, session);
     }
 
@@ -301,7 +304,12 @@ public sealed class AgentConnectionHandler
         }
     }
 
-    private static string RemoteAddress(HttpContext context) => context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    private static string RemoteAddress(HttpContext context) => PublicIp(context) ?? "unknown";
+
+    /// <summary>The address of the agent connection (from the PROXY protocol header behind the host proxy), IPv4 unmapped.</summary>
+    internal static string? PublicIp(HttpContext context) => context.Connection.RemoteIpAddress is { } address
+        ? (address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address).ToString()
+        : null;
 
     /// <summary>A pooled receive buffer that can grow; a class because async methods cannot take ref parameters.</summary>
     private sealed class ReceiveBuffer : IDisposable

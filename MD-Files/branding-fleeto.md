@@ -87,12 +87,17 @@ Use these terms consistently in UI, docs and email; do not introduce synonyms.
 | **check** | A single monitoring rule with an interval (e.g. disk space, every 5 minutes) |
 | **alert** | A check that crossed its threshold and needs attention |
 | **maintenance mode** | A client, site or endpoint temporarily raising no alerts. "In maintenance until 16:00." Never "snooze", "mute" or "silenced" in UI text. Shown with the neutral gray chip and the outlined Construction icon. |
+| **hold** | One alert set aside until a time: "Put on hold", "On hold until 16:00", "End hold". No emails while it lasts; the alert returns when the hold ends. Never "snooze", "mute" or "silenced". Shown with the neutral gray chip. |
+| **reset** | A check's state set aside and the check run again: "Reset and run", state "Re-run requested" until the new result arrives. Never shown as OK before it is. |
+| **not run yet** | A check that applies to an endpoint but has no result yet |
+| **watchdog** | The second Fleeto service on an endpoint that keeps the agent running (0.2.0). Never "helper" or "guardian". |
+| **remote terminal** | A command line on an endpoint from the browser (0.3.0). Never "remote shell", "SSH" or "console" in UI text. |
 | **job** | One execution of a script, patch run or task on an endpoint |
 | **policy** | Agent behaviour settings linked to a site |
 | **monitoring template** | A named set of checks with thresholds, linked to a site |
 | **client template** | A blueprint of sites, policies and monitoring templates used when creating a client |
 | **integration** | A connected external product (Action1, Sophos, Veeam, ...) |
-| **note** | Free-form text attached to an endpoint or site |
+| **note** | Free-form text (markdown) attached to an endpoint |
 
 Intervals are written in plain language: "every 30 seconds", "every 5 minutes", "once a month".
 
@@ -105,7 +110,7 @@ User-visible text says Fleeto; the following use **Fleetify** and must not be re
 - CSS bundle and token prefix `--fl-`
 - Environment variables and secret names (`FLEETIFY_ROOT_KEY_FILE`, ...)
 - Log file names `fleetify-{Date}.log`
-- Agent service names on endpoints (`fleetify-agent`)
+- Agent service names on endpoints (`fleetify-agent`, and `fleetify-watchdog` from 0.2.0)
 
 Check: `grep -rn "Fleetify" src/**/*.razor` should return identifiers only, never a string a customer can see.
 

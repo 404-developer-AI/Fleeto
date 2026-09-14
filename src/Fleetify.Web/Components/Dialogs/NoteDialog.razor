@@ -1,0 +1,65 @@
+@* Write or edit a note on an endpoint. Markdown, with a preview rendered the same (safe) way as the note list. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(Existing is null ? "New note" : "Edit note")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTabs Elevation="0" Class="fl-tabs" @bind-ActivePanelIndex="_tab">
+            <MudTabPanel Text="Write">
+                <MudTextField T="string" @bind-Value="_body" Variant="Variant.Outlined" Lines="12"
+                              MaxLength="@Note.MaxBodyLength" Counter="@Note.MaxBodyLength" Immediate="true" AutoFocus="true" Class="mt-2"
+                              HelperText="Markdown: **bold**, *italic*, lists, links and tables." />
+            </MudTabPanel>
+            <MudTabPanel Text="Preview">
+                <div class="note-body mt-3">
+                    @if (string.IsNullOrWhiteSpace(_body))
+                    {
+                        <MudText Typo="Typo.body2" Class="muted">Nothing to preview yet.</MudText>
+                    }
+                    else
+                    {
+                        @NoteMarkdown.ToHtml(_body)
+                    }
+                </div>
+            </MudTabPanel>
+        </MudTabs>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_body))">
+            @(Existing is null ? "Add note" : "Save")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public NoteView? Existing { get; set; }
+    [Parameter] public Func<string, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+
+    private string _body = string.Empty;
+    private int _tab;
+    private bool _busy;
+
+    protected override void OnInitialized() => _body = Existing?.Body ?? string.Empty;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(_body))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

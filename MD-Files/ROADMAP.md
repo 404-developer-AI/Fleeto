@@ -50,6 +50,20 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
   jitter, offline buffering, acknowledgement only after the batch is written to Postgres.
 - [done] Alerting: open, escalate, acknowledge, resolve, deduplicate; email notifications with retry.
 - [done] Dashboard with tiles (including license usage and backups) and open alerts, live updates.
+- [done] Endpoint detail: Summary in two columns (Status and Hardware, Disks and Network with the
+  public IP of the agent connection); tier switch only in the right-click menu of the endpoint list.
+- [done] PROXY protocol v2 from the host Caddy to the gateway, so the gateway sees agent addresses
+  (public IP, logs, per-address enrollment rate limit).
+- [done] Checks tab lists every check that applies straight away ("Not run yet" until the first result).
+- [done] Checks per endpoint on top of the linked monitoring templates: disable a check, override
+  interval, thresholds and failures before alert, add a check for this endpoint only, link an extra
+  monitoring template.
+- [done] Run a check now, and reset a check (open alerts resolved, "Re-run requested" until the new
+  result arrives).
+- [done] Alert actions on the Alerts page, the dashboard and the endpoint: acknowledge, put on hold
+  until a time (no emails, out of the open alert counts, one email when the hold ends), resolve.
+- [done] Notes on endpoints (managed endpoints only): table newest first with author, markdown, the
+  author edits, an admin deletes.
 - [open] Two instances on one VPS running side by side, each on its own FQDN.
 - [open] Key ceremony written out and rehearsed (release and license keys, root key, signer key,
   backup key pair).
@@ -67,8 +81,6 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
 
 ### Known limitations of 0.1.0
 
-- Behind Caddy's SNI passthrough the gateway sees Caddy's address, so the per-IP enrollment rate
-  limit is shared by all agents (PROXY protocol towards the gateway is future work).
 - Linux and macOS agents are stubs (0.2.0).
 - An agent offline past its certificate expiry (90 days, renewal from day 60) cannot reconnect and
   must be enrolled again as a new endpoint; recovery is planned for 0.2.0.
@@ -81,6 +93,28 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
 
 - Linux and macOS agents.
 - Complete check catalog, maintenance windows, escalation rules, webhook notifications.
+- Service checks by picking a service: besides typing the service name, choose from a list of the
+  services on the endpoint. The agent reports its services (name, display name, start type, state) as
+  part of the inventory; the check dialog on an endpoint offers them, and on a monitoring template it
+  offers the services seen on the endpoints of the linked sites. Typing a name stays possible for a
+  service that is not installed yet.
+- Email through Microsoft Graph (`sendMail` with application permission, limited to the sending
+  mailbox by an Exchange application access policy) as an alternative to SMTP, chosen in Settings,
+  Email. Same outbox, retry and circuit breaker as SMTP. Client secret or certificate stored encrypted
+  in the database.
+- Expiring credentials: every stored secret with an end date (starting with the Graph client secret or
+  certificate) carries that date. From 30 days before expiry the dashboard warns and admins get an
+  email, repeated at 14, 7 and 1 days; after expiry the warning turns red and states what stopped
+  working (email delivery) and the next step. An expired Graph secret cannot send its own warning, so
+  the warning also shows in the UI and the email goes through SMTP when that is configured as well.
+- Check history per check of an endpoint: the last hour, day, week, month and year; a line chart for
+  numeric checks (CPU, memory, free disk space including storage growth, uptime) and a status
+  timeline for service checks. Hourly and daily rollups kept 13 months (TimescaleDB continuous
+  aggregates where installed, worker-maintained rollups otherwise).
+- Watchdog service (`fleetify-watchdog`, Windows first): a second service with its own certificate
+  for the same endpoint, always connected. Agent and watchdog restart each other; alerts "Agent
+  service stopped" and "Watchdog stopped" on managed endpoints, separate from the offline alert.
+  The watchdog installs agent updates and rolls back a failed one.
 - Maintenance mode per client, site and endpoint: started by hand, with an optional end time
   (1 hour, 4 hours, 24 hours, a chosen time, or until turned off). While an endpoint is in
   maintenance no alert opens or escalates; open alerts stay open and still resolve when their
@@ -101,9 +135,9 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
   - Re-enrollment onto the same endpoint: an agent that enrolls again with a new token can be
     linked to its existing endpoint (chosen by the technician, or matched by the agent's key or
     state), so checks, alerts, notes and audit history are kept instead of creating a new endpoint.
-- Notes on endpoints and sites.
 - Public REST API `/api/v1`: API keys with scopes, read access to all core resources,
-  OpenAPI document with drift test, rate limiting, audit.
+  OpenAPI document with drift test, rate limiting, audit. Notes get an external ticket reference
+  (for a servicedesk), set and read through the API.
 
 ## 0.3.0 — Remote control
 
@@ -115,6 +149,11 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
   audit, reconnect and stuck-key protection.
 - macOS: Screen Recording and Accessibility permission flow, same feature set.
 - Linux: X11.
+- Remote terminal: an interactive terminal as SYSTEM (cmd and PowerShell on Windows, sh on Linux and
+  macOS) in the browser, served by the watchdog so it also works when the agent is broken. Same
+  session token and end-to-end encryption as remote control; admins and technicians on every
+  managed endpoint, also where the policy requires script approval (accepted risk, see
+  ARCHITECTURE.md §5); audit per session and a transcript when the policy records sessions.
 
 ## 0.4.0 — Patch management via Action1
 
@@ -130,6 +169,12 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
 - Proxmox VE and VMware vCenter (host and VM inventory and health).
 - Integration health on the dashboard.
 - API write access for the resources a technician can change in the UI.
+- Sign-in with Microsoft Entra ID (OpenID Connect) next to local accounts: an admin configures the
+  tenant, client id and client secret (or certificate) in Settings; users are linked to a local user
+  with its role and client restriction (no automatic account creation without an admin decision).
+  The secret is stored encrypted in the database like every other secret.
+- The Entra ID client secret or certificate uses the expiring-credentials warnings from 0.2.0; after
+  expiry the warning states that sign-in with Entra ID stopped working.
 
 ## 0.6.0 — Logs, search and retention
 

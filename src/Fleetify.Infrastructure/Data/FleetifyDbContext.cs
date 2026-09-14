@@ -41,6 +41,10 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
     public DbSet<CheckDefinition> CheckDefinitions => Set<CheckDefinition>();
     public DbSet<SiteMonitoringTemplate> SiteMonitoringTemplates => Set<SiteMonitoringTemplate>();
     public DbSet<SitePolicy> SitePolicies => Set<SitePolicy>();
+    public DbSet<EndpointMonitoringTemplate> EndpointMonitoringTemplates => Set<EndpointMonitoringTemplate>();
+    public DbSet<EndpointCheckOverride> EndpointCheckOverrides => Set<EndpointCheckOverride>();
+    public DbSet<CheckRunRequest> CheckRunRequests => Set<CheckRunRequest>();
+    public DbSet<Note> Notes => Set<Note>();
     public DbSet<ClientTemplate> ClientTemplates => Set<ClientTemplate>();
     public DbSet<ClientTemplateSite> ClientTemplateSites => Set<ClientTemplateSite>();
     public DbSet<ClientTemplateSiteMonitoringTemplate> ClientTemplateSiteMonitoringTemplates => Set<ClientTemplateSiteMonitoringTemplate>();
@@ -110,6 +114,7 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
             entity.Property(e => e.ClassOverride).HasConversion<string>().HasMaxLength(20);
             entity.Property(e => e.Tier).HasConversion<string>().HasMaxLength(20);
             entity.Property(e => e.Source).HasConversion<string>().HasMaxLength(20);
+            entity.Property(e => e.PublicIpAddress).HasMaxLength(64);
             entity.Ignore(e => e.EffectiveClass);
             entity.HasAlternateKey(e => new { e.Id, e.ClientId });
             entity.HasOne(e => e.Site).WithMany(s => s.Endpoints)
@@ -174,6 +179,8 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
             entity.Property(p => p.OfflineAlertSeverity).HasConversion<string>().HasMaxLength(20);
             entity.HasIndex(p => new { p.ClientId, p.Name }).IsUnique().AreNullsDistinct(false);
             entity.HasIndex(p => p.IsDefault).IsUnique().HasFilter("\"IsDefault\"");
+            // A client-specific policy is deleted with its client.
+            entity.HasOne<Client>().WithMany().HasForeignKey(p => p.ClientId).OnDelete(DeleteBehavior.Cascade);
             GlobalOrClientOwned(entity);
         });
 
@@ -183,6 +190,8 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
             entity.Property(t => t.Description).HasMaxLength(1000);
             entity.HasIndex(t => new { t.ClientId, t.Name }).IsUnique().AreNullsDistinct(false);
             entity.HasMany(t => t.Checks).WithOne(c => c.MonitoringTemplate).HasForeignKey(c => c.MonitoringTemplateId).OnDelete(DeleteBehavior.Cascade);
+            // A client-specific monitoring template is deleted with its client.
+            entity.HasOne<Client>().WithMany().HasForeignKey(t => t.ClientId).OnDelete(DeleteBehavior.Cascade);
             GlobalOrClientOwned(entity);
         });
 
@@ -192,6 +201,17 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
             entity.Property(c => c.Type).HasConversion<string>().HasMaxLength(30);
             entity.Property(c => c.AppliesTo).HasConversion<string>().HasMaxLength(20);
             entity.Property(c => c.ParametersJson).HasColumnType("jsonb");
+            // An endpoint-only check: the composite key keeps its ClientId equal to the endpoint's. Template checks are
+            // kept consistent by trigger TR_CheckDefinitions_Client.
+            entity.HasOne<Endpoint>().WithMany()
+                .HasForeignKey(c => new { c.EndpointId, c.ClientId })
+                .HasPrincipalKey(e => new { e.Id, e.ClientId })
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_CheckDefinitions_Owner", "num_nonnulls(\"MonitoringTemplateId\", \"EndpointId\") = 1");
+                t.HasCheckConstraint("CK_CheckDefinitions_EndpointClient", "\"EndpointId\" IS NULL OR \"ClientId\" IS NOT NULL");
+            });
             GlobalOrClientOwned(entity);
         });
 
@@ -205,6 +225,32 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(l => l.MonitoringTemplate).WithMany().HasForeignKey(l => l.MonitoringTemplateId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(l => l.MonitoringTemplateId);
+            ClientOwned(entity);
+        });
+
+        builder.Entity<EndpointMonitoringTemplate>(entity =>
+        {
+            entity.HasKey(l => new { l.EndpointId, l.MonitoringTemplateId });
+            EndpointChild(entity, l => new { l.EndpointId, l.ClientId });
+            entity.HasOne(l => l.MonitoringTemplate).WithMany().HasForeignKey(l => l.MonitoringTemplateId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(l => l.MonitoringTemplateId);
+            ClientOwned(entity);
+        });
+
+        builder.Entity<EndpointCheckOverride>(entity =>
+        {
+            entity.HasKey(o => new { o.EndpointId, o.CheckDefinitionId });
+            entity.Ignore(o => o.IsEmpty);
+            EndpointChild(entity, o => new { o.EndpointId, o.ClientId });
+            entity.HasOne<CheckDefinition>().WithMany().HasForeignKey(o => o.CheckDefinitionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(o => o.CheckDefinitionId);
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_EndpointCheckOverrides_Interval",
+                    "\"IntervalSeconds\" IS NULL OR \"IntervalSeconds\" BETWEEN 10 AND 2678400");
+                t.HasCheckConstraint("CK_EndpointCheckOverrides_Failures",
+                    "\"FailuresBeforeAlert\" IS NULL OR \"FailuresBeforeAlert\" BETWEEN 1 AND 100");
+            });
             ClientOwned(entity);
         });
 
@@ -276,8 +322,33 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
             entity.Property(s => s.Status).HasConversion<string>().HasMaxLength(20);
             entity.Property(s => s.Detail).HasMaxLength(1000);
             entity.Property(s => s.Error).HasMaxLength(1000);
+            entity.Ignore(s => s.RerunRequested);
             entity.HasOne<CheckDefinition>().WithMany().HasForeignKey(s => s.CheckDefinitionId).OnDelete(DeleteBehavior.Cascade);
             EndpointChild(entity, s => new { s.EndpointId, s.ClientId });
+            ClientOwned(entity);
+        });
+
+        builder.Entity<CheckRunRequest>(entity =>
+        {
+            entity.Property(r => r.RequestedByName).HasMaxLength(200);
+            entity.Property(r => r.Outcome).HasConversion<string>().HasMaxLength(30);
+            EndpointChild(entity, r => new { r.EndpointId, r.ClientId });
+            entity.HasOne<CheckDefinition>().WithMany().HasForeignKey(r => r.CheckDefinitionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(r => new { r.EndpointId, r.RequestedAt });
+            entity.HasIndex(r => new { r.RequestedByUserId, r.RequestedAt });
+            entity.HasIndex(r => r.RequestedAt);
+            entity.HasIndex(r => r.ExpiresAt).HasFilter("\"DeliveredAt\" IS NULL AND \"Outcome\" IS NULL").HasDatabaseName("IX_CheckRunRequests_Pending");
+            ClientOwned(entity);
+        });
+
+        builder.Entity<Note>(entity =>
+        {
+            entity.Property(n => n.AuthorName).HasMaxLength(200);
+            entity.Property(n => n.Body).HasMaxLength(Note.MaxBodyLength);
+            EndpointChild(entity, n => new { n.EndpointId, n.ClientId });
+            // Newest first per endpoint, keyset on (CreatedAt, Id).
+            entity.HasIndex(n => new { n.EndpointId, n.CreatedAt, n.Id }).IsDescending(false, true, true);
+            entity.ToTable(t => t.HasCheckConstraint("CK_Notes_Body", "char_length(\"Body\") BETWEEN 1 AND 20000"));
             ClientOwned(entity);
         });
 
@@ -304,6 +375,7 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
             entity.HasIndex(a => new { a.State, a.Severity });
             entity.HasIndex(a => new { a.ClientId, a.State });
             entity.HasIndex(a => a.OpenedAt);
+            entity.HasIndex(a => a.HeldUntil).HasFilter("\"HeldUntil\" IS NOT NULL AND \"State\" <> 'Resolved'").HasDatabaseName("IX_Alerts_Held");
             ClientOwned(entity);
         });
 

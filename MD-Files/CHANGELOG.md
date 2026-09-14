@@ -58,9 +58,40 @@ Implementation of 0.0.x (foundation) and 0.1.0 (first usable release), to be rel
   completion message with counts and hashes, output cap per job.
 - Migration compatibility policy (expand/contract) with a restore-based rollback for
   releases that cannot comply.
+- Checks per endpoint on top of the linked monitoring templates: disable a template check on one
+  endpoint, override its interval, thresholds and failures before alert, add checks that exist
+  only on that endpoint, and link extra monitoring templates to one endpoint. One shared rule
+  (`EffectiveChecks` with its SQL twin) decides which checks run, for the signer, the workers and
+  the web UI.
+- Run now and Reset and run per check: a `RunChecksNow` protocol message, rate-limited on the agent;
+  a reset resolves the open alerts of the check and shows "Re-run requested" until the new result
+  arrives, and results ingested before the reset are ignored.
+- Alert hold: put an unresolved alert on hold until a time (at most 7 days); no emails while it
+  lasts, left out of the open alert counts, one email when the hold ends on a still unresolved
+  alert. Alert actions (acknowledge, put on hold, end hold, resolve) on the Alerts page, the
+  dashboard and the endpoint page, with an "On hold" filter.
+- Notes tab on managed endpoints: markdown notes newest first with author, edited marker, write and
+  preview; the author edits, an admin deletes.
+- Public IP of the agent connection on the endpoint Summary, from a PROXY protocol v2 header sent by
+  the host Caddy and parsed by the gateway before TLS.
+- Roadmap: check history with charts, the watchdog service, service checks picked from the services
+  on the endpoint, email through Microsoft Graph and warnings before stored credentials expire (0.2.0),
+  note ticket reference through the API (0.2.0), remote terminal as SYSTEM through the watchdog
+  (0.3.0), sign-in with Microsoft Entra ID (0.5.0).
 
 ### Changed
 
+- Endpoint Summary in two columns: Status and Hardware on the left, Disks and Network on the right.
+  Status shows connection, operating system, agent version and certificate only. The two columns
+  follow the width of the detail itself (one column below 640 pixels), not the screen width.
+- The clients panel of the clients workspace, and the settings panel that shares its style, is 250 pixels wide
+  instead of 300.
+- The tier switch moved from the endpoint header to the right-click menu of the endpoint list only.
+- The Checks tab lists every check that applies at once ("Not run yet" before its first result) and
+  hides states of checks that no longer apply; the workers remove such states hourly.
+- Notes moved from 0.2.0 to 0.1.0, on endpoints only; site notes were dropped.
+- Client-specific monitoring templates and policies are deleted with their client (foreign keys
+  added; orphans of earlier deletions are removed by the migration).
 - Agent gateway routing decided: SNI passthrough on port 443 for `agents.<fqdn>`.
 - Gateway acknowledges agent data only after it is written to Postgres.
 - No Valkey: cross-container notifications use PostgreSQL LISTEN/NOTIFY, because the signer may
@@ -108,6 +139,16 @@ Implementation of 0.0.x (foundation) and 0.1.0 (first usable release), to be rel
 - API key format with 256-bit secret and `flt_` prefix; enrollment tokens stored hashed.
 - Documented that the host Caddy holds the TLS keys of every instance FQDN on the VPS, and
   the accepted residual risk of a compromised web container.
+- The gateway reads the PROXY protocol header only from trusted proxy networks; a malformed header
+  closes the connection. The per-address enrollment rate limit now applies per agent address
+  instead of to all agents behind Caddy together.
+- Per-endpoint links, overrides and check run requests are checked against the client of the
+  endpoint by constraint triggers; tier enforcement for checks per endpoint, run requests and notes
+  in web, signer, gateway and agent.
+- Notes render markdown with raw HTML disabled, images as text and only http, https and mailto
+  links; audit entries of notes carry the note id and length, never the body.
+- Accepted risk documented for 0.3.0: the remote terminal is available where script approval is
+  required.
 
 ## [0.0.0] — 2026-09-14
 

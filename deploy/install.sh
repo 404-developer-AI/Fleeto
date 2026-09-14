@@ -763,7 +763,9 @@ check_dns() {
 # Host proxy configuration
 # ---------------------------------------------------------------------------------------------------------------------
 # The Caddyfile is generated from every instance.conf on this VPS. Agent traffic for agents.<fqdn> is matched by SNI in
-# a layer4 listener wrapper on :443 and proxied to the gateway untouched (mTLS stays end to end). Every other
+# a layer4 listener wrapper on :443 and proxied to the gateway untouched (mTLS stays end to end), preceded by a PROXY
+# protocol v2 header so the gateway learns the agent's address (it trusts the header only from the Docker networks the
+# published port is reached through). Every other
 # connection falls through to Caddy's own TLS, which terminates HTTPS per FQDN with automatic certificates.
 generate_caddyfile() {
     local instance conf fqdn web_port agent_port matcher
@@ -786,7 +788,9 @@ generate_caddyfile() {
             matcher="agents_${instance//-/_}"
             printf '\t\t\t\t@%s tls sni agents.%s\n' "$matcher" "$fqdn"
             printf '\t\t\t\troute @%s {\n' "$matcher"
-            printf '\t\t\t\t\tproxy 127.0.0.1:%s\n' "$agent_port"
+            printf '\t\t\t\t\tproxy 127.0.0.1:%s {\n' "$agent_port"
+            printf '\t\t\t\t\t\tproxy_protocol v2\n'
+            printf '\t\t\t\t\t}\n'
             printf '\t\t\t\t}\n'
         done
         printf '\t\t\t}\n'

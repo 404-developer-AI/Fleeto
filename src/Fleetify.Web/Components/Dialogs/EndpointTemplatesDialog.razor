@@ -1,0 +1,83 @@
+@* Monitoring templates of one endpoint: those of its site (changed on the site) and extra ones linked to this endpoint only. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Monitoring templates · @Hostname</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="muted mb-3">
+            Checks of the templates of the site run on every managed endpoint of the site. Link extra templates here for this endpoint
+            only. Templates are linked, not copied.
+        </MudText>
+        @if (Links.Available.Count == 0)
+        {
+            <MudText Typo="Typo.body2">No monitoring templates exist yet. Create one under Templates, Monitoring templates.</MudText>
+        }
+        @foreach (var template in Links.Available)
+        {
+            var viaSite = Links.SiteTemplates.Any(t => t.Id == template.Id);
+            <div class="d-flex align-center">
+                <MudCheckBox T="bool" Value="@(viaSite || _selected.Contains(template.Id))" Disabled="@viaSite"
+                             ValueChanged="@(v => Toggle(template.Id, v))" Color="Color.Primary" Size="Size.Small" />
+                <span>@template.Name</span>
+                @if (!template.IsGlobal)
+                {
+                    <span class="muted ml-2">(this client)</span>
+                }
+                @if (viaSite)
+                {
+                    <span class="ml-2"><StatusChip Text="Linked to the site" Kind="StatusKind.Neutral" /></span>
+                }
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync" Disabled="@(_busy || !Changed)">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public string Hostname { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public EndpointTemplateLinks Links { get; set; } = default!;
+    [Parameter] public Func<IReadOnlyCollection<Guid>, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+
+    private HashSet<Guid> _selected = [];
+    private bool _busy;
+
+    private bool Changed => !_selected.SetEquals(Links.EndpointTemplates.Select(t => t.Id));
+
+    protected override void OnInitialized() => _selected = Links.EndpointTemplates.Select(t => t.Id).ToHashSet();
+
+    private void Toggle(Guid id, bool selected)
+    {
+        if (selected)
+        {
+            _selected.Add(id);
+        }
+        else
+        {
+            _selected.Remove(id);
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(_selected.ToList()))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

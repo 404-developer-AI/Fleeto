@@ -60,6 +60,8 @@ public static class WebServiceRegistration
         services.AddSingleton<SiteService>();
         services.AddSingleton<EnrollmentService>();
         services.AddSingleton<EndpointService>();
+        services.AddSingleton<EndpointCheckService>();
+        services.AddSingleton<NoteService>();
         services.AddSingleton<AlertService>();
         services.AddSingleton<PolicyService>();
         services.AddSingleton<MonitoringTemplateService>();

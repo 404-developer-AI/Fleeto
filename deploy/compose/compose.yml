@@ -160,6 +160,14 @@ services:
       Gateway__ListenAddress: 0.0.0.0
       Gateway__AgentPort: "8443"
       Gateway__HealthPort: "8081"
+      # The host Caddy sends a PROXY protocol v2 header with the agent's address. It arrives through the loopback port,
+      # which Docker forwards from the edge network's gateway address, so the same private ranges as for web are trusted.
+      # Only processes on the VPS or containers of this instance can reach the port from those ranges; the header only
+      # sets the address used for Public IP, logs and the enrollment rate limit, never an identity.
+      Gateway__ProxyProtocol__Enabled: "true"
+      Gateway__ProxyProtocol__TrustedNetworks__0: 172.16.0.0/12
+      Gateway__ProxyProtocol__TrustedNetworks__1: 10.210.0.0/16
+      Gateway__ProxyProtocol__TrustedNetworks__2: 192.168.0.0/16
     ports:
       # Loopback only; the host Caddy passes agents.<fqdn> through to this port by SNI.
       - "127.0.0.1:${AGENT_PORT:?AGENT_PORT must be set in instance.conf}:8443"

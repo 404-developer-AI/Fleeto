@@ -79,6 +79,7 @@ FLEETIFY_ROOT="$work/root" bash -c "source '$repo_root/deploy/install.sh'; gener
 FLEETIFY_ROOT="$work/empty" bash -c "source '$repo_root/deploy/install.sh'; generate_caddyfile" >"$work/caddy-empty/Caddyfile"
 grep -q 'tls sni agents.rmm.b.example' "$work/caddy-two/Caddyfile" || fail "SNI route missing"
 grep -q 'proxy 127.0.0.1:20003' "$work/caddy-two/Caddyfile" || fail "gateway upstream missing"
+grep -q 'proxy_protocol v2' "$work/caddy-two/Caddyfile" || fail "PROXY protocol towards the gateway missing"
 grep -q 'reverse_proxy 127.0.0.1:20000' "$work/caddy-two/Caddyfile" || fail "web upstream missing"
 pass "Caddyfile generated for two instances and for none"
 

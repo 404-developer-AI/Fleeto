@@ -59,19 +59,8 @@ public sealed class AgentConfigBuilder
 
         if (effectiveTier == EndpointTier.Managed)
         {
-            var endpointClass = endpoint.EffectiveClass;
-            var checks = await db.SiteMonitoringTemplates.AsNoTracking()
-                .Where(l => l.SiteId == endpoint.SiteId)
-                .SelectMany(l => l.MonitoringTemplate!.Checks)
-                .Where(c => c.Enabled)
-                .ToListAsync(cancellationToken);
-
-            foreach (var check in checks
-                         .Where(c => c.AppliesTo == CheckAppliesTo.All ||
-                                     (c.AppliesTo == CheckAppliesTo.Server && endpointClass == EndpointClass.Server) ||
-                                     (c.AppliesTo == CheckAppliesTo.Workstation && endpointClass == EndpointClass.Workstation))
-                         .DistinctBy(c => c.Id)
-                         .OrderBy(c => c.Id))
+            var checks = await EffectiveCheckResolver.LoadAsync(db, endpoint, includeDisabledOnEndpoint: false, cancellationToken);
+            foreach (var check in checks)
             {
                 var spec = new CheckSpec
                 {
@@ -79,7 +68,7 @@ public sealed class AgentConfigBuilder
                     Type = ToProto(check.Type),
                     IntervalSeconds = (uint)Math.Clamp(check.IntervalSeconds, CheckParameters.MinimumIntervalSeconds, CheckParameters.MaximumIntervalSeconds)
                 };
-                foreach (var (key, value) in CheckParameters.Parse(check.ParametersJson).OrderBy(p => p.Key, StringComparer.Ordinal))
+                foreach (var (key, value) in CheckParameters.Parse(check.Definition.ParametersJson).OrderBy(p => p.Key, StringComparer.Ordinal))
                 {
                     spec.Parameters[key] = value;
                 }

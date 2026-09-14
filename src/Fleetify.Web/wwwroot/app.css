@@ -153,6 +153,18 @@ html, body {
 .mono { font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace; font-size: 0.8125rem; word-break: break-all; }
 .command-box { background: #1C1917; color: #F5F5F4; border-radius: var(--fl-radius); padding: 14px 16px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.8125rem; white-space: pre-wrap; word-break: break-all; }
 .json-box { background: #F5F5F4; border-radius: var(--fl-radius); padding: 10px 12px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.75rem; white-space: pre-wrap; word-break: break-all; margin: 0; }
+/* Rendered note markdown (NoteMarkdown): compact, readable inside a table cell */
+.note-body { font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
+.note-body > :first-child { margin-top: 0; }
+.note-body > :last-child { margin-bottom: 0; }
+.note-body p, .note-body ul, .note-body ol, .note-body pre, .note-body table { margin: 0 0 8px; }
+.note-body ul, .note-body ol { padding-left: 20px; }
+.note-body code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.8125rem; background: #F5F5F4; border-radius: 4px; padding: 1px 4px; }
+.note-body pre { background: #F5F5F4; border-radius: var(--fl-radius); padding: 8px 10px; white-space: pre-wrap; }
+.note-body pre code { background: none; padding: 0; }
+.note-body a { color: var(--fl-primary); }
+.note-body table { border-collapse: collapse; }
+.note-body th, .note-body td { border: 1px solid var(--fl-border, #E7E5E4); padding: 2px 8px; text-align: left; }
 .empty-state { text-align: center; padding: 40px 24px; }
 .empty-state .empty-icon { font-size: 44px; color: var(--fl-text-muted); }
 .breadcrumb-link { color: var(--fl-text-secondary); text-decoration: none; }
@@ -162,7 +174,7 @@ html, body {
 
 /* Clients workspace: clients panel | endpoint list with the selected endpoint below */
 .clients-workspace { display: flex; margin: -28px -36px; min-height: 100vh; }
-.client-panel { width: 300px; flex-shrink: 0; background: var(--fl-surface); border-right: 1px solid var(--fl-border); position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; box-sizing: border-box; }
+.client-panel { width: 250px; flex-shrink: 0; background: var(--fl-surface); border-right: 1px solid var(--fl-border); position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; box-sizing: border-box; }
 .client-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 12px 10px 12px; }
 .client-panel-all { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--fl-radius); color: var(--fl-text); text-decoration: none; font-weight: 600; flex: 1; }
 .client-panel-all:hover { background: #F5F5F4; }
@@ -224,6 +236,11 @@ html, body {
 .endpoint-detail-subtitle { font-size: 0.8125rem; margin-top: 2px; }
 .endpoint-detail-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .endpoint-detail .mud-table { box-shadow: none; }
+/* Summary tab: two columns as long as the detail itself is wide enough, whatever the screen width (the detail sits next
+   to the navigation and the clients panel, so a viewport breakpoint switched to one column far too early). */
+.summary-container { container-type: inline-size; }
+.summary-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
+@container (min-width: 640px) { .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .detail-table td:first-child { width: 38%; }
 
 /* Sign-in and setup pages (static HTML forms) */

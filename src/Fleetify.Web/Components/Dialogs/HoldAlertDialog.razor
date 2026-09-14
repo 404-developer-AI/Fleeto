@@ -1,0 +1,92 @@
+@* Put an alert on hold until a time. Never called snooze, mute or silenced (branding §6). *@
+@inject TimeDisplay Time
+@inject TimeProvider Clock
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Put alert on hold</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-3">@Alert.Title</MudText>
+        <MudText Typo="Typo.body2" Class="muted mb-3">
+            While the alert is on hold, no emails are sent for it and it is left out of the open alerts. It still resolves when
+            the cause recovers. If it is still open when the hold ends, it returns and one email is sent.
+        </MudText>
+        <MudRadioGroup T="int" @bind-Value="_choice">
+            <MudRadio T="int" Value="1" Color="Color.Primary">1 hour</MudRadio>
+            <MudRadio T="int" Value="4" Color="Color.Primary">4 hours</MudRadio>
+            <MudRadio T="int" Value="24" Color="Color.Primary">24 hours</MudRadio>
+            <MudRadio T="int" Value="0" Color="Color.Primary">Until a chosen time</MudRadio>
+        </MudRadioGroup>
+        @if (_choice == 0)
+        {
+            <div class="d-flex gap-2 mt-2">
+                <MudDatePicker @bind-Date="_date" Label="Date" Variant="Variant.Outlined" MinDate="@LocalNow.Date" MaxDate="@LocalNow.Date.AddDays(7)" />
+                <MudTimePicker @bind-Time="_time" Label="Time" Variant="Variant.Outlined" />
+            </div>
+            <MudText Typo="Typo.caption" Class="muted d-block mt-1">In your time zone. A hold lasts at most 7 days.</MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="@(_busy || (_choice == 0 && (_date is null || _time is null)))">Put on hold</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public AlertView Alert { get; set; } = default!;
+
+    /// <summary>Receives the end of the hold in UTC; returns true when the hold was saved.</summary>
+    [Parameter] public Func<DateTime, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+
+    private int _choice = 1;
+    private DateTime? _date;
+    private TimeSpan? _time;
+    private bool _busy;
+
+    private DateTime LocalNow => TimeZoneInfo.ConvertTimeFromUtc(Clock.GetUtcNow().UtcDateTime, Time.Zone);
+
+    protected override void OnInitialized()
+    {
+        var suggestion = LocalNow.AddHours(2);
+        _date = suggestion.Date;
+        _time = new TimeSpan(suggestion.Hour, 0, 0);
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        DateTime untilUtc;
+        if (_choice == 0)
+        {
+            var local = DateTime.SpecifyKind(_date!.Value.Date + _time!.Value, DateTimeKind.Unspecified);
+            if (Time.Zone.IsInvalidTime(local))
+            {
+                local = local.AddHours(1);
+            }
+
+            untilUtc = TimeZoneInfo.ConvertTimeToUtc(local, Time.Zone);
+        }
+        else
+        {
+            untilUtc = Clock.GetUtcNow().UtcDateTime.AddHours(_choice);
+        }
+
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(untilUtc))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

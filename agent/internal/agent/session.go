@@ -306,6 +306,11 @@ func (s *session) handle(msg *agentv1.ServerMessage) (sessionOutcome, bool, erro
 	case *agentv1.ServerMessage_InventoryRequest:
 		s.startInventory(true)
 		return 0, false, nil
+	case *agentv1.ServerMessage_RunChecksNow:
+		started, dropped := a.scheduler.RunNow(body.RunChecksNow.GetCheckIds())
+		a.logger.Info("the server asked to run checks now", "requestId", body.RunChecksNow.GetRequestId(),
+			"requested", len(body.RunChecksNow.GetCheckIds()), "started", started, "droppedByLimit", dropped)
+		return 0, false, nil
 	case *agentv1.ServerMessage_Disconnect:
 		return s.handleDisconnect(body.Disconnect)
 	default:

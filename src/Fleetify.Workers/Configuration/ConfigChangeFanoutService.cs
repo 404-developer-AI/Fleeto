@@ -52,10 +52,11 @@ public sealed class ConfigChangeFanoutService : WorkerLoop
         """;
 
     private const string InsertMonitoringTemplate = InsertPrefix + """
-         AND EXISTS (SELECT 1 FROM "SiteMonitoringTemplates" l WHERE l."SiteId" = e."SiteId" AND l."MonitoringTemplateId" = @scopeId)
+         AND (EXISTS (SELECT 1 FROM "SiteMonitoringTemplates" l WHERE l."SiteId" = e."SiteId" AND l."MonitoringTemplateId" = @scopeId)
+              OR EXISTS (SELECT 1 FROM "EndpointMonitoringTemplates" el WHERE el."EndpointId" = e."Id" AND el."MonitoringTemplateId" = @scopeId))
         """;
 
-    // A deleted monitoring template lost its site links; only managed endpoints carry checks, so they are a safe superset.
+    // A deleted monitoring template lost its site and endpoint links; only managed endpoints carry checks, so they are a safe superset.
     private const string InsertMonitoringTemplateDeleted = InsertPrefix + """ AND e."Tier" = 'Managed'""";
 
     private readonly IFleetifyDbContextFactory _dbFactory;

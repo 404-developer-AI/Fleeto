@@ -19,7 +19,7 @@ namespace Fleetify.Workers.Retention;
 /// policy drops whole chunks).</item>
 /// <item>Check results of deleted endpoints: found through their evaluation cursors (all ages, by endpoint index) and by a
 /// scan of recent results (results that were never evaluated).</item>
-/// <item>Ingest batches after 7 days, finished signing requests after 7 days, processed endpoint events after 30 days,
+/// <item>Ingest batches after 7 days, finished signing requests and check run requests after 7 days, processed endpoint events after 30 days,
 /// sent emails after 30 days and failed ones after 90 days, agent certificates and enrollment tokens 30 days after they
 /// expired or were used up, and the evaluation cursors of deleted endpoints.</item>
 /// </list>
@@ -72,6 +72,11 @@ public sealed class RetentionService : WorkerLoop
     private const string DeleteSigningRequestsSql = """
         DELETE FROM "SigningRequests" WHERE "Id" IN (
           SELECT "Id" FROM "SigningRequests" WHERE "State" <> 'Pending' AND "CreatedAt" < @cutoff LIMIT 5000)
+        """;
+
+    private const string DeleteCheckRunRequestsSql = """
+        DELETE FROM "CheckRunRequests" WHERE "Id" IN (
+          SELECT "Id" FROM "CheckRunRequests" WHERE "RequestedAt" < @cutoff LIMIT 5000)
         """;
 
     private const string DeleteEndpointEventsSql = """
@@ -144,6 +149,7 @@ public sealed class RetentionService : WorkerLoop
         deleted["CheckResults (deleted endpoints)"] = await PurgeDeletedEndpointResultsAsync(now, cancellationToken);
         deleted["IngestBatches"] = await DeleteInBatchesAsync(DeleteIngestBatchesSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-7))], cancellationToken);
         deleted["SigningRequests"] = await DeleteInBatchesAsync(DeleteSigningRequestsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-7))], cancellationToken);
+        deleted["CheckRunRequests"] = await DeleteInBatchesAsync(DeleteCheckRunRequestsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-7))], cancellationToken);
         deleted["EndpointEvents"] = await DeleteInBatchesAsync(DeleteEndpointEventsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))], cancellationToken);
         deleted["OutboxEmails (sent)"] = await DeleteInBatchesAsync(DeleteSentEmailsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))], cancellationToken);
         deleted["OutboxEmails (failed)"] = await DeleteInBatchesAsync(DeleteFailedEmailsSql,

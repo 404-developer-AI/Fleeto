@@ -67,6 +67,17 @@ public enum AlertState
     Resolved
 }
 
+/// <summary>How a check run request ended without being delivered to the agent.</summary>
+public enum CheckRunRequestOutcome
+{
+    /// <summary>The agent did not connect before the request expired.</summary>
+    Expired,
+    /// <summary>The check no longer applies to the endpoint.</summary>
+    NotApplicable,
+    /// <summary>The endpoint is no longer managed.</summary>
+    NotManaged
+}
+
 public enum AlertKind
 {
     Check,

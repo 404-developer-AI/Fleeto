@@ -102,6 +102,12 @@ the API and the database follows it.
   template (adding or removing a check, for example) applies immediately to every client, site
   and endpoint that uses it. A technician can make a copy of a template to give one client its
   own variant; the copy is independent from then on.
+- **Checks per endpoint**: on top of the templates of its site, a managed endpoint can have extra
+  monitoring templates linked to it, checks that exist only on that endpoint, and adjustments of a
+  template check (disabled, or its own interval, thresholds or failures before alert). Adjustments
+  keep the template linked: every value that is not overridden follows the template.
+- **Alert hold**: an unresolved alert can be put on hold until a time (at most 7 days): no emails
+  and out of the open alert counts, while the alert itself stays real. Never called snooze or mute.
 
 UI structure:
 
@@ -113,8 +119,8 @@ UI structure:
   site) with tabs **Servers**, **Workstations** and **Mixed** (all endpoints together), search
   and filters. Selecting an endpoint shows its detail below the list (resizable split); the
   same detail opens as a full page with its own URL. Detail tabs grow with the features that
-  exist: Summary, Checks, Software, History today; jobs, patches, remote control and
-  notes arrive with their versions.
+  exist: Summary, Checks, Software, Notes, History today; jobs, patches and remote control
+  arrive with their versions. The tier switch lives in the right-click menu of the endpoint list.
 - **Navigation**: a persistent sidebar that collapses to icons; the choice is remembered per
   browser. It lists Dashboard, Clients and Alerts; its footer holds the settings, profile and
   create buttons.
@@ -233,13 +239,15 @@ instance; a VPS can hold several.
 
 Ubuntu VPS, Docker Compose, one stack per instance behind one host-level **caddy** (reverse
 proxy, automatic TLS, routes by FQDN; agent traffic to `agents.<fqdn>` is passed through by
-SNI, never terminated). Per instance: **fleetify-web** (Blazor Server UI + public REST API,
+SNI, never terminated, with a PROXY protocol header so the gateway sees agent addresses). Per instance: **fleetify-web** (Blazor Server UI + public REST API,
 .NET, MudBlazor, Migrify conventions), **fleetify-gateway** (mTLS WebSocket endpoint for
 agents, remote control relay), **fleetify-signer** (the only holder of the instance signing
 key and internal CA, no listening port), **fleetify-workers** (checks, alerting, integration
 pollers, patch orchestration, retention, backups) and **postgres** (PostgreSQL 17 +
 TimescaleDB, the only durable store; its LISTEN/NOTIFY carries cross-container notifications, never
-the only copy of anything). Agents are one Go codebase, one static binary per platform.
+the only copy of anything). Agents are one Go codebase, one static binary per platform; from
+0.2.0 a second service, the **watchdog**, with its own certificate, keeps the agent running and
+serves the remote terminal (0.3.0).
 No Valkey: the signer may only talk to the database, so database notifications are needed anyway, and one
 mechanism is simpler on a single VPS. Valkey can return behind `INotificationBus` if scale demands it.
 Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
@@ -257,6 +265,7 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
 - **Accepted risk**: full control of fleetify-web still lets an attacker get jobs signed within the signer's rules. The signer keeps the key out of web, enforces the rules and rate limits, and is the single audited choke point. Documented in `MD-Files/ARCHITECTURE.md` §5.
 - **Command authorization**: every job records who initiated it, when, on which endpoints, with what payload. Immutable audit log for all privileged actions (script run, script approval, patch, remote control session, credential change, API key change, license change, login, permission change, certificate revocation, client or site deletion).
 - **Remote control** is the highest-risk feature: per-session tokens, end-to-end encryption, visible on the endpoint, policy-controlled consent, audited, managed endpoints only.
+- **Remote terminal** (0.3.0): interactive terminal as SYSTEM with the same session token and end-to-end encryption as remote control, audited per session, managed endpoints only. Available to admins and technicians also where script approval is required: accepted risk, documented in `MD-Files/ARCHITECTURE.md` §5.
 - **Web/API**: 2FA (TOTP) for all users, session hardening, per-endpoint rate limiting, strict input validation, parameterized queries only, CSP with a nonce and without unsafe-inline for scripts (styles need `'unsafe-inline'` because MudBlazor renders inline style attributes). API keys hashed at rest, scoped, revocable.
 - **Least privilege**: containers run as non-root, read-only filesystems where possible, no Docker socket exposure to app containers, one database role per container. Instances on the same VPS share nothing but the host proxy: separate networks, volumes and secrets. The host proxy is not secret-free: it holds the TLS keys of every instance FQDN on the VPS, so it is pinned, minimally configured and its admin API is local only.
 - **Multi-tenancy discipline**: every query is scoped by client; every client-owned table carries its own `ClientId` (denormalized on purpose, kept consistent by composite foreign keys to the parent); write tests that prove cross-client reads fail. Instances are separate stacks, so cross-instance access is impossible by construction, not by a filter.
@@ -265,7 +274,8 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
 ## Secrets, keys and personal data
 
 - **All secrets live in the database, encrypted at rest**: integration credentials (Sophos,
-  Veeam, vCenter, Proxmox, Action1), SMTP, webhook secrets, backup destination credentials,
+  Veeam, vCenter, Proxmox, Action1), SMTP, Microsoft Entra ID and Microsoft Graph client secrets
+  or certificates (with their expiry date, warned about before they expire), webhook secrets, backup destination credentials,
   the instance signing key and internal CA key (encrypted under the signer key, readable
   only by fleetify-signer), TOTP seeds, enrollment tokens and API keys (hashed), the license
   document. Nothing in `.env`, `appsettings` or any other file on the server, and nothing in
@@ -337,13 +347,15 @@ check/alert model as agent data (one alert pipeline, not two), credentials encry
 - Clients, sites, endpoints; client templates, monitoring templates, policies
 - Dashboard with tiles, alerts and recent activity
 - Endpoint inventory (hardware, OS, software, patch level) per site
-- Checks with per-check intervals (seconds → monthly), thresholds, maintenance windows
-- Alerting with acknowledgement, deduplication and escalation via email/webhook
+- Checks with per-check intervals (seconds → monthly), thresholds, maintenance windows; checks
+  adjustable per endpoint, run now and reset; check history with charts
+- Alerting with acknowledgement, hold, deduplication and escalation via email/webhook
 - Script library + remote execution with output capture
-- Remote control with two-way clipboard, built in
+- Remote control with two-way clipboard, built in; remote terminal as SYSTEM
+- Watchdog service that keeps the agent running and alerts when it cannot
 - Patch compliance and deployment through Action1
 - Log and event search
-- **Notes**: markdown notes on endpoints and sites, with author + timestamp, searchable, included in the audit trail
+- **Notes**: markdown notes on managed endpoints, with author + timestamp, searchable, included in the audit trail (without the body); an external ticket reference through the API
 - Users, roles (admin / technician / read-only), 2FA
 - Public REST API with scoped API keys and OpenAPI document
 - Integrations: Action1, Sophos, Veeam, Proxmox, vCenter
@@ -361,6 +373,9 @@ home-grown patch engine, file transfer inside remote control. Note them, do not 
 
 ## Open decisions (revisit before building)
 
+- **Entra ID sign-in and 2FA** (0.5.0): does an Entra ID sign-in replace the local TOTP step when
+  the token proves MFA (`amr` claim), or is local TOTP always required on top? And may a user with
+  Entra ID still sign in with a local password?
 - **Whitelabel depth**: FQDN only (v1) vs. customer logo and product name in the UI and emails.
 - **Remote control transport**: WebRTC with the gateway as TURN relay vs. a plain WebSocket
   relay through the gateway. Prototype both on Windows before the remote control milestone.

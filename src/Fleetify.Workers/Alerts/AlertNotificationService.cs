@@ -11,7 +11,9 @@ public enum AlertTransitionKind
     Opened,
     /// <summary>The severity went up (warning to critical).</summary>
     Escalated,
-    Resolved
+    Resolved,
+    /// <summary>The hold on an alert ended while the alert is still unresolved.</summary>
+    HoldEnded
 }
 
 /// <summary>An alert state change that was just written in the caller's transaction.</summary>
@@ -22,12 +24,18 @@ public sealed record AlertTransition(Guid AlertId, AlertTransitionKind Kind);
 /// meets. Called inside the transaction that changes the alert, after the alert rows are saved: the emails are
 /// committed together with the transition or not at all, so a crash can neither lose a notification nor send one
 /// twice, and no "last notified" bookkeeping is needed.
+/// <para>
+/// While an alert is on hold its escalation and resolve emails are not sent; opening never happens on hold (a new alert
+/// has no hold). When the hold ends and the alert is still unresolved, one <see cref="AlertTransitionKind.HoldEnded"/>
+/// email goes out.
+/// </para>
 /// </summary>
 public sealed class AlertNotificationService
 {
     public const string CategoryOpened = "alert.opened";
     public const string CategoryEscalated = "alert.escalated";
     public const string CategoryResolved = "alert.resolved";
+    public const string CategoryHoldEnded = "alert.hold_ended";
 
     private readonly TimeProvider _time;
 
@@ -68,6 +76,7 @@ public sealed class AlertNotificationService
                 a.OpenedAt,
                 a.ResolvedAt,
                 a.ResolvedReason,
+                a.HeldUntil,
                 a.EndpointId,
                 Hostname = a.Endpoint!.Hostname,
                 SiteName = a.Endpoint.Site!.Name,
@@ -82,6 +91,11 @@ public sealed class AlertNotificationService
         foreach (var transition in transitions)
         {
             if (!alerts.TryGetValue(transition.AlertId, out var alert))
+            {
+                continue;
+            }
+
+            if (alert.HeldUntil is { } heldUntil && heldUntil > now && transition.Kind != AlertTransitionKind.HoldEnded)
             {
                 continue;
             }
@@ -103,6 +117,7 @@ public sealed class AlertNotificationService
             {
                 AlertTransitionKind.Opened => (EmailTemplates.AlertOpened(model), CategoryOpened),
                 AlertTransitionKind.Escalated => (EmailTemplates.AlertEscalated(model), CategoryEscalated),
+                AlertTransitionKind.HoldEnded => (EmailTemplates.AlertHoldEnded(model), CategoryHoldEnded),
                 _ => (EmailTemplates.AlertResolved(model), CategoryResolved)
             };
 

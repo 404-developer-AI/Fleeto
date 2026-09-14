@@ -1,0 +1,149 @@
+@* Adjust a template check for one endpoint. Fields left on "template" follow the monitoring template, also when it changes later. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Edit @Check.Name for this endpoint</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="muted mb-4">
+            This check comes from the monitoring template @(Check.TemplateName ?? "of the site"). Changes here apply to this endpoint only;
+            every value you do not override keeps following the template.
+        </MudText>
+
+        <div class="d-flex align-center justify-space-between">
+            <MudText Typo="Typo.subtitle2">Interval</MudText>
+            <MudSwitch T="bool" @bind-Value="_overrideInterval" Color="Color.Primary" Label="Override" />
+        </div>
+        @if (_overrideInterval)
+        {
+            <div class="d-flex gap-2 mb-1">
+                <MudNumericField T="int" @bind-Value="_intervalAmount" Variant="Variant.Outlined" Min="1" Max="100000" Style="max-width:140px" />
+                <MudSelect T="int" @bind-Value="_intervalUnit" Variant="Variant.Outlined" Style="max-width:180px">
+                    <MudSelectItem T="int" Value="1">seconds</MudSelectItem>
+                    <MudSelectItem T="int" Value="60">minutes</MudSelectItem>
+                    <MudSelectItem T="int" Value="3600">hours</MudSelectItem>
+                    <MudSelectItem T="int" Value="86400">days</MudSelectItem>
+                </MudSelect>
+            </div>
+            <MudText Typo="Typo.caption" Class="muted d-block mb-3">Runs @Intervals.Describe(Math.Max(1, IntervalSeconds)). Template: @Intervals.Describe(Check.TemplateIntervalSeconds).</MudText>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">Template: runs @Intervals.Describe(Check.TemplateIntervalSeconds).</MudText>
+        }
+
+        <div class="d-flex align-center justify-space-between">
+            <MudText Typo="Typo.subtitle2">@(Check.Type == CheckType.ServiceRunning ? "Severity" : "Thresholds")</MudText>
+            <MudSwitch T="bool" @bind-Value="_overrideThresholds" Color="Color.Primary" Label="Override" />
+        </div>
+        @if (_overrideThresholds)
+        {
+            @if (Check.Type == CheckType.ServiceRunning)
+            {
+                <MudSwitch T="bool" @bind-Value="_serviceWarningOnly" Color="Color.Primary" Label="Report a stopped service as a warning instead of critical" Class="mb-1" />
+            }
+            else
+            {
+                <div class="d-flex gap-2 mb-1">
+                    <MudNumericField T="double?" @bind-Value="_warning" Label="@($"Warning ({Ui.ThresholdUnit(Check.Type)})")" Variant="Variant.Outlined" Clearable="true" />
+                    <MudNumericField T="double?" @bind-Value="_critical" Label="@($"Critical ({Ui.ThresholdUnit(Check.Type)})")" Variant="Variant.Outlined" Clearable="true" />
+                </div>
+            }
+        }
+        <MudText Typo="Typo.body2" Class="@(_overrideThresholds ? "mb-3 muted" : "mb-3")">Template: @TemplateThresholds</MudText>
+
+        <div class="d-flex align-center justify-space-between">
+            <MudText Typo="Typo.subtitle2">Failed results before an alert opens</MudText>
+            <MudSwitch T="bool" @bind-Value="_overrideFailures" Color="Color.Primary" Label="Override" />
+        </div>
+        @if (_overrideFailures)
+        {
+            <MudNumericField T="int" @bind-Value="_failures" Variant="Variant.Outlined" Min="1" Max="100" Class="mb-1" />
+        }
+        <MudText Typo="Typo.body2" Class="@(_overrideFailures ? "muted" : "")">Template: @Check.TemplateFailuresBeforeAlert</MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="RevertAll" Disabled="@(!_overrideInterval && !_overrideThresholds && !_overrideFailures)">Revert all to template</MudButton>
+        <MudSpacer />
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public CheckOverrideView Check { get; set; } = default!;
+    [Parameter] public Func<CheckOverrideInput, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+
+    private bool _overrideInterval;
+    private int _intervalAmount;
+    private int _intervalUnit;
+    private bool _overrideThresholds;
+    private double? _warning;
+    private double? _critical;
+    private bool _serviceWarningOnly;
+    private bool _overrideFailures;
+    private int _failures;
+    private bool _busy;
+
+    private int IntervalSeconds => (int)Math.Min(int.MaxValue, (long)_intervalAmount * _intervalUnit);
+
+    private string TemplateThresholds => Check.Type == CheckType.ServiceRunning
+        ? (Check.TemplateWarningThreshold >= 1 ? "a stopped service is a warning" : "a stopped service is critical")
+        : $"warning {Format(Check.TemplateWarningThreshold)}, critical {Format(Check.TemplateCriticalThreshold)}";
+
+    private string Format(double? value) => value is null ? "none" : $"{value:0.##} {Ui.ThresholdUnit(Check.Type)}".Trim();
+
+    protected override void OnInitialized()
+    {
+        _overrideInterval = Check.IntervalSeconds is not null;
+        (_intervalAmount, _intervalUnit) = Split(Check.IntervalSeconds ?? Check.TemplateIntervalSeconds);
+        _overrideThresholds = Check.OverrideThresholds;
+        _warning = Check.OverrideThresholds ? Check.WarningThreshold : Check.TemplateWarningThreshold;
+        _critical = Check.OverrideThresholds ? Check.CriticalThreshold : Check.TemplateCriticalThreshold;
+        _serviceWarningOnly = _warning >= 1;
+        _overrideFailures = Check.FailuresBeforeAlert is not null;
+        _failures = Check.FailuresBeforeAlert ?? Check.TemplateFailuresBeforeAlert;
+    }
+
+    private static (int, int) Split(int seconds) =>
+        seconds % 86400 == 0 ? (seconds / 86400, 86400)
+        : seconds % 3600 == 0 ? (seconds / 3600, 3600)
+        : seconds % 60 == 0 ? (seconds / 60, 60)
+        : (seconds, 1);
+
+    private void RevertAll()
+    {
+        _overrideInterval = false;
+        _overrideThresholds = false;
+        _overrideFailures = false;
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        var warning = Check.Type == CheckType.ServiceRunning ? (_serviceWarningOnly ? 1d : null) : _warning;
+        var critical = Check.Type == CheckType.ServiceRunning ? null : _critical;
+        var input = new CheckOverrideInput(
+            _overrideInterval ? IntervalSeconds : null,
+            _overrideThresholds,
+            _overrideThresholds ? warning : null,
+            _overrideThresholds ? critical : null,
+            _overrideFailures ? _failures : null);
+
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(input))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

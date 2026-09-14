@@ -79,6 +79,12 @@ public static class NotificationChannels
 
     /// <summary>Payload: OutboxEmail id. Raised by a database trigger on insert.</summary>
     public const string OutboxEmails = "fleetify_outbox_emails";
+
+    /// <summary>
+    /// Payload: CheckRunRequest id. Raised by a database trigger on insert (workers apply a reset) and when a reset was
+    /// applied (the gateway delivers the request).
+    /// </summary>
+    public const string CheckRunRequests = "fleetify_check_run_requests";
 }
 
 /// <summary>Writes audit entries. The table is append-only; there is no update or delete.</summary>
@@ -130,6 +136,12 @@ public static class AuditActions
     public const string EndpointClassChanged = "endpoint.class_changed";
     public const string EndpointMoved = "endpoint.moved";
     public const string EndpointDeleted = "endpoint.deleted";
+    public const string EndpointChecksChanged = "endpoint.checks_changed";
+    public const string CheckRunRequested = "check.run_requested";
+    public const string CheckReset = "check.reset";
+    public const string NoteCreated = "note.created";
+    public const string NoteUpdated = "note.updated";
+    public const string NoteDeleted = "note.deleted";
     public const string CertificateIssued = "certificate.issued";
     public const string CertificateRenewed = "certificate.renewed";
     public const string CertificateRevoked = "certificate.revoked";
@@ -150,6 +162,8 @@ public static class AuditActions
 
     public const string AlertAcknowledged = "alert.acknowledged";
     public const string AlertResolvedManually = "alert.resolved_manually";
+    public const string AlertHeld = "alert.held";
+    public const string AlertHoldEnded = "alert.hold_ended";
 
     public const string LicenseLoaded = "license.loaded";
     public const string SettingsChanged = "settings.changed";

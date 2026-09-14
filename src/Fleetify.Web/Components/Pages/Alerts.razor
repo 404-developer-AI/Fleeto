@@ -3,6 +3,7 @@
 @inherits FleetoPageBase
 @inject AlertService AlertSvc
 @inject ClientService ClientSvc
+@inject TimeProvider Clock
 @inject LiveUpdates Live
 
 <PageTitle>Alerts - Fleeto</PageTitle>
@@ -15,11 +16,12 @@
 </div>
 
 <div class="d-flex gap-3 flex-wrap mb-4">
-    <MudSelect T="AlertState?" Value="_state" ValueChanged="@(v => FilterAsync(() => _state = v))" Label="State" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width:180px">
-        <MudSelectItem T="AlertState?" Value="@((AlertState?)null)">All states</MudSelectItem>
-        <MudSelectItem T="AlertState?" Value="@((AlertState?)AlertState.Open)">Open</MudSelectItem>
-        <MudSelectItem T="AlertState?" Value="@((AlertState?)AlertState.Acknowledged)">Acknowledged</MudSelectItem>
-        <MudSelectItem T="AlertState?" Value="@((AlertState?)AlertState.Resolved)">Resolved</MudSelectItem>
+    <MudSelect T="AlertStateFilter" Value="_state" ValueChanged="@(v => FilterAsync(() => _state = v))" Label="State" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width:180px">
+        <MudSelectItem T="AlertStateFilter" Value="AlertStateFilter.All">All states</MudSelectItem>
+        <MudSelectItem T="AlertStateFilter" Value="AlertStateFilter.Open">Open</MudSelectItem>
+        <MudSelectItem T="AlertStateFilter" Value="AlertStateFilter.Acknowledged">Acknowledged</MudSelectItem>
+        <MudSelectItem T="AlertStateFilter" Value="AlertStateFilter.OnHold">On hold</MudSelectItem>
+        <MudSelectItem T="AlertStateFilter" Value="AlertStateFilter.Resolved">Resolved</MudSelectItem>
     </MudSelect>
     <MudSelect T="AlertSeverity?" Value="_severity" ValueChanged="@(v => FilterAsync(() => _severity = v))" Label="Severity" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width:180px">
         <MudSelectItem T="AlertSeverity?" Value="@((AlertSeverity?)null)">All severities</MudSelectItem>
@@ -57,7 +59,16 @@
             </HeaderContent>
             <RowTemplate>
                 <MudTd><StatusChip Text="@context.Severity.ToString()" Kind="@Ui.SeverityKind(context.Severity)" /></MudTd>
-                <MudTd><StatusChip Text="@context.State.ToString()" Kind="@Ui.AlertStateKind(context.State)" /></MudTd>
+                <MudTd>
+                    @if (context.IsHeld(Clock.GetUtcNow().UtcDateTime))
+                    {
+                        <StatusChip Text="@($"On hold until {Time.Absolute(context.HeldUntil)}")" Kind="StatusKind.Neutral" />
+                    }
+                    else
+                    {
+                        <StatusChip Text="@context.State.ToString()" Kind="@Ui.AlertStateKind(context.State)" />
+                    }
+                </MudTd>
                 <MudTd>
                     @context.Title
                     @if (!string.IsNullOrEmpty(context.ResolvedReason))
@@ -70,14 +81,7 @@
                 @if (CanManage)
                 {
                     <MudTd Style="white-space:nowrap">
-                        @if (context.State == AlertState.Open)
-                        {
-                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => AcknowledgeAsync(context))">Acknowledge</MudButton>
-                        }
-                        @if (context.State != AlertState.Resolved)
-                        {
-                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => ResolveAsync(context))">Resolve</MudButton>
-                        }
+                        <AlertActions Alert="context" OnChanged="ReloadAsync" />
                     </MudTd>
                 }
             </RowTemplate>
@@ -90,7 +94,7 @@
 </LoadState>
 
 @code {
-    private AlertState? _state = AlertState.Open;
+    private AlertStateFilter _state = AlertStateFilter.Open;
     private AlertSeverity? _severity;
     private Guid? _clientId;
     private IReadOnlyList<ClientOption> _clients = [];
@@ -127,22 +131,6 @@
         _items.AddRange(page.Items);
         _nextCursor = page.NextCursor;
     });
-
-    private async Task AcknowledgeAsync(AlertView alert)
-    {
-        if (await RunAsync(caller => AlertSvc.AcknowledgeAsync(caller, alert.Id), "The alert was acknowledged."))
-        {
-            await ReloadAsync();
-        }
-    }
-
-    private async Task ResolveAsync(AlertView alert)
-    {
-        if (await RunAsync(caller => AlertSvc.ResolveAsync(caller, alert.Id), "The alert was resolved. If the cause is still there, a new alert opens."))
-        {
-            await ReloadAsync();
-        }
-    }
 
     public override void Dispose()
     {

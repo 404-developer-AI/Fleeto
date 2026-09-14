@@ -48,6 +48,10 @@ public sealed class AgentSession : IDisposable
     public AgentIdentity Identity { get; }
     public Guid EndpointId => Identity.EndpointId;
     public string RemoteAddress { get; }
+
+    /// <summary>Address of the agent as stored on the endpoint (Public IP); null when unknown.</summary>
+    public string? PublicIpAddress { get; init; }
+
     public DateTime ConnectedAt { get; }
 
     /// <summary>Set when the session is accepted.</summary>

@@ -1,3 +1,4 @@
+using Fleetify.Gateway.Tls;
 using Fleetify.Protocol;
 
 namespace Fleetify.Gateway;
@@ -36,6 +37,9 @@ public sealed class GatewayOptions
 
     /// <summary>Messages queued for one agent before the gateway gives up on it (the agent is not reading).</summary>
     public int SendQueueCapacity { get; set; } = 256;
+
+    /// <summary>PROXY protocol v2 from the host proxy on the agent port, so the gateway sees agent addresses.</summary>
+    public ProxyProtocolOptions ProxyProtocol { get; set; } = new();
 
     public TimeSpan SigningTimeout => TimeSpan.FromSeconds(SigningTimeoutSeconds);
 }

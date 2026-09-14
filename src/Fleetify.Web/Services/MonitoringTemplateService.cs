@@ -371,18 +371,25 @@ public sealed class MonitoringTemplateService
         }
 
         var now = _time.GetUtcNow().UtcDateTime;
-        // Links cascade away with the template, so the affected sites are recorded before the delete.
+        // Links cascade away with the template, so the affected sites and endpoints are recorded before the delete.
         var siteIds = await db.SiteMonitoringTemplates.IgnoreQueryFilters().Where(l => l.MonitoringTemplateId == templateId)
             .Select(l => l.SiteId).ToListAsync(cancellationToken);
+        var endpointIds = await db.EndpointMonitoringTemplates.IgnoreQueryFilters().Where(l => l.MonitoringTemplateId == templateId)
+            .Select(l => l.EndpointId).ToListAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         foreach (var siteId in siteIds)
         {
             db.ConfigChangeEvents.Add(new ConfigChangeEvent { Scope = ConfigChangeScope.Site, ScopeId = siteId, CreatedAt = now });
         }
 
+        foreach (var endpointId in endpointIds)
+        {
+            db.ConfigChangeEvents.Add(new ConfigChangeEvent { Scope = ConfigChangeScope.Endpoint, ScopeId = endpointId, CreatedAt = now });
+        }
+
         db.MonitoringTemplates.Remove(template);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.MonitoringTemplateDeleted, "MonitoringTemplate", template.Id.ToString(),
-            template.ClientId, new { template.Name, Sites = siteIds.Count }), now));
+            template.ClientId, new { template.Name, Sites = siteIds.Count, Endpoints = endpointIds.Count }), now));
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return ServiceResult.Ok();

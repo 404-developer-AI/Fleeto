@@ -83,6 +83,30 @@ public static class EmailTemplates
         return new EmailContent(Subject($"Now {alert.Severity.ToLowerInvariant()}: {alert.Title}"), html, Footer(text));
     }
 
+    /// <summary>The hold on an alert ended while the alert is still unresolved.</summary>
+    public static EmailContent AlertHoldEnded(AlertEmailModel alert)
+    {
+        var html = Layout($"""
+            <p style="margin:0 0 8px">{SeverityChip(alert.Severity)}</p>
+            <p style="margin:0 0 16px">The hold on this alert has ended and the alert is still open.</p>
+            <p style="margin:0 0 16px;font-size:17px;font-weight:600">{Enc(alert.Title)}</p>
+            {AlertFacts(alert)}
+            {DetailBlock(alert.Detail)}
+            {Button(alert.EndpointUrl, "Open the endpoint")}
+            """);
+
+        var text = $"""
+            The hold on this alert has ended and the alert is still open.
+
+            {alert.Title}
+
+            {AlertFactsText(alert)}{DetailText(alert.Detail)}
+            Open the endpoint: {alert.EndpointUrl}
+            """;
+
+        return new EmailContent(Subject($"Still open after hold: {alert.Title}"), html, Footer(text));
+    }
+
     public static EmailContent AlertResolved(AlertEmailModel alert)
     {
         var reason = string.IsNullOrWhiteSpace(alert.ResolvedReason) ? "The alert was resolved." : alert.ResolvedReason;

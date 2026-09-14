@@ -14,7 +14,8 @@ public sealed record EndpointDetail(
     bool IsOnline, EndpointTier Tier, EndpointSource Source, EndpointClass DetectedClass, EndpointClass? ClassOverride,
     string OsPlatform, string OsName, string OsVersion, string Architecture, string AgentVersion,
     DateTime EnrolledAt, DateTime? LastSeenAt, long ConfigVersion, long AppliedConfigVersion,
-    int ActiveCertificates, DateTime? CertificateExpiresAt, int OpenAlertCount, IReadOnlyList<SiteOption> ClientSites);
+    int ActiveCertificates, DateTime? CertificateExpiresAt, int OpenAlertCount, int HeldAlertCount, IReadOnlyList<SiteOption> ClientSites,
+    string? PublicIpAddress, DateTime? PublicIpSeenAt);
 
 public sealed record SiteOption(Guid Id, string Name);
 
@@ -71,12 +72,13 @@ public sealed record InventoryView(DateTime ReceivedAt, string Manufacturer, str
     int CpuLogicalProcessors, long MemoryTotalBytes, DateTime? BootTime, string Domain, string LoggedOnUser,
     IReadOnlyList<DiskInfo> Disks, IReadOnlyList<NetworkInterfaceInfo> NetworkInterfaces, IReadOnlyList<SoftwareInfo> Software);
 
-public sealed record CheckStateView(Guid CheckDefinitionId, string Name, CheckType Type, string Target, CheckStatus Status, double? Value,
-    string Detail, string Error, DateTime LastResultAt, int IntervalSeconds, string MonitoringTemplateName, bool Enabled);
-
 public sealed record AlertView(Guid Id, Guid EndpointId, string Hostname, Guid ClientId, string ClientCode, AlertKind Kind, AlertSeverity Severity,
     AlertState State, string Title, string Detail, DateTime OpenedAt, DateTime UpdatedAt, DateTime? AcknowledgedAt, DateTime? ResolvedAt,
-    string? ResolvedReason);
+    string? ResolvedReason, DateTime? HeldUntil, Guid? CheckDefinitionId, string Target)
+{
+    /// <summary>True while the alert is on hold at <paramref name="now"/>.</summary>
+    public bool IsHeld(DateTime now) => State != AlertState.Resolved && HeldUntil is { } until && until > now;
+}
 
 public sealed record EndpointEventView(long Id, EndpointEventKind Kind, string Detail, DateTime Time);
 
@@ -118,6 +120,8 @@ public sealed class EndpointService
         caller.EnsureView();
         await using var db = _dbFactory.Create(caller.Scope);
         var endpoints = db.Endpoints.AsNoTracking();
+        // Open alert counts leave out alerts on hold.
+        var now = _time.GetUtcNow().UtcDateTime;
 
         if (query.SiteId is { } siteId)
         {
@@ -139,7 +143,8 @@ public sealed class EndpointService
         {
             EndpointStatusFilter.Online => endpoints.Where(e => e.IsOnline),
             EndpointStatusFilter.Offline => endpoints.Where(e => !e.IsOnline),
-            EndpointStatusFilter.WithOpenAlerts => endpoints.Where(e => db.Alerts.Any(a => a.EndpointId == e.Id && a.State != AlertState.Resolved)),
+            EndpointStatusFilter.WithOpenAlerts => endpoints.Where(e => db.Alerts.Any(a => a.EndpointId == e.Id && a.State != AlertState.Resolved &&
+                                                                                      (a.HeldUntil == null || a.HeldUntil <= now))),
             _ => endpoints
         };
 
@@ -179,8 +184,9 @@ public sealed class EndpointService
                 e.AgentVersion,
                 e.Inventory != null ? e.Inventory.LoggedOnUser : string.Empty,
                 e.LastSeenAt,
-                db.Alerts.Count(a => a.EndpointId == e.Id && a.State != AlertState.Resolved),
-                db.Alerts.Any(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && a.Severity == AlertSeverity.Critical)))
+                db.Alerts.Count(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now)),
+                db.Alerts.Any(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now) &&
+                                   a.Severity == AlertSeverity.Critical)))
             .ToListAsync(cancellationToken);
 
         var truncated = rows.Count > ListLimit;
@@ -203,7 +209,8 @@ public sealed class EndpointService
                 ActiveCertificates = db.AgentCertificates.Count(c => c.EndpointId == e.Id && c.RevokedAt == null && c.ExpiresAt > now),
                 CertificateExpiresAt = db.AgentCertificates.Where(c => c.EndpointId == e.Id && c.RevokedAt == null)
                     .OrderByDescending(c => c.ExpiresAt).Select(c => (DateTime?)c.ExpiresAt).FirstOrDefault(),
-                OpenAlerts = db.Alerts.Count(a => a.EndpointId == e.Id && a.State != AlertState.Resolved)
+                OpenAlerts = db.Alerts.Count(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now)),
+                HeldAlerts = db.Alerts.Count(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && a.HeldUntil != null && a.HeldUntil > now)
             })
             .SingleOrDefaultAsync(cancellationToken);
         if (endpoint is null)
@@ -218,7 +225,7 @@ public sealed class EndpointService
         return new EndpointDetail(e.Id, e.Hostname, e.ClientId, endpoint.ClientCode ?? string.Empty, endpoint.ClientName ?? string.Empty, e.SiteId,
             endpoint.SiteName, e.IsOnline, e.Tier, e.Source, e.DetectedClass, e.ClassOverride, e.OsPlatform, e.OsName, e.OsVersion, e.Architecture,
             e.AgentVersion, e.EnrolledAt, e.LastSeenAt, e.ConfigVersion, e.AppliedConfigVersion, endpoint.ActiveCertificates,
-            endpoint.CertificateExpiresAt, endpoint.OpenAlerts, sites);
+            endpoint.CertificateExpiresAt, endpoint.OpenAlerts, endpoint.HeldAlerts, sites, e.PublicIpAddress, e.PublicIpSeenAt);
     }
 
     public async Task<InventoryView?> GetInventoryAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
@@ -235,20 +242,6 @@ public sealed class EndpointService
             snapshot.CpuCores, snapshot.CpuLogicalProcessors, snapshot.MemoryTotalBytes, snapshot.BootTime, snapshot.Domain, snapshot.LoggedOnUser,
             ParseList<DiskInfo>(snapshot.DisksJson, endpointId), ParseList<NetworkInterfaceInfo>(snapshot.NetworkInterfacesJson, endpointId),
             ParseList<SoftwareInfo>(snapshot.SoftwareJson, endpointId));
-    }
-
-    public async Task<IReadOnlyList<CheckStateView>> GetChecksAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
-    {
-        caller.EnsureView();
-        await using var db = _dbFactory.Create(caller.Scope);
-        return await db.CheckStates.AsNoTracking()
-            .Where(s => s.EndpointId == endpointId)
-            .Join(db.CheckDefinitions, s => s.CheckDefinitionId, d => d.Id, (s, d) => new { State = s, Definition = d })
-            .OrderBy(x => x.Definition.Name).ThenBy(x => x.State.Target)
-            .Select(x => new CheckStateView(x.Definition.Id, x.Definition.Name, x.Definition.Type, x.State.Target, x.State.Status, x.State.Value,
-                x.State.Detail, x.State.Error, x.State.LastResultAt, x.Definition.IntervalSeconds, x.Definition.MonitoringTemplate!.Name,
-                x.Definition.Enabled))
-            .ToListAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<AlertView>> GetAlertsAsync(Caller caller, Guid endpointId, int limit = 100, CancellationToken cancellationToken = default)

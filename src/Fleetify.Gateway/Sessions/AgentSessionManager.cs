@@ -66,6 +66,7 @@ public sealed class AgentSessionManager : BackgroundService
         _allowList.Reloaded += OnAllowListReloaded;
         _subscriptions.Add(_bus.Subscribe(NotificationChannels.EndpointConfig, OnEndpointConfigAsync));
         _subscriptions.Add(_bus.Subscribe(NotificationChannels.EndpointStatus, OnEndpointStatusAsync));
+        _subscriptions.Add(_bus.Subscribe(NotificationChannels.CheckRunRequests, OnCheckRunRequestAsync));
     }
 
     /// <summary>True once the startup reset of online state has succeeded; sessions are refused before that.</summary>
@@ -130,7 +131,8 @@ public sealed class AgentSessionManager : BackgroundService
                 SessionStart? start;
                 try
                 {
-                    start = await _store.OpenSessionAsync(endpointId, hello, hello.ConfigVersion, session.RemoteAddress, now, cancellationToken);
+                    start = await _store.OpenSessionAsync(endpointId, hello, hello.ConfigVersion, session.RemoteAddress, now, cancellationToken,
+                        session.PublicIpAddress);
                 }
                 catch (Exception ex) when (ex is NpgsqlException or TimeoutException)
                 {
@@ -183,6 +185,16 @@ public sealed class AgentSessionManager : BackgroundService
         }
 
         await PublishAsync(NotificationChannels.EndpointStatus, endpointId);
+        try
+        {
+            await DeliverRunRequestsAsync([endpointId], cancellationToken);
+        }
+        catch (Exception ex) when (ex is NpgsqlException or TimeoutException)
+        {
+            // The periodic catch-up delivers them later.
+            _logger.LogWarning(ex, "Endpoint {EndpointId}: could not read pending check run requests", endpointId);
+        }
+
         return true;
     }
 
@@ -583,6 +595,66 @@ public sealed class AgentSessionManager : BackgroundService
         }
     }
 
+    // ---------------------------------------------------------------------------------------------------------------
+    // Check run requests
+    // ---------------------------------------------------------------------------------------------------------------
+
+    private async Task OnCheckRunRequestAsync(string payload, CancellationToken cancellationToken)
+    {
+        if (payload == NotificationBusEvents.Resync)
+        {
+            await DeliverRunRequestsAsync(_sessions.Keys.ToArray(), cancellationToken);
+        }
+        else if (Guid.TryParse(payload, out var requestId) &&
+                 await _store.ReadRunRequestEndpointAsync(requestId, cancellationToken) is { } endpointId &&
+                 _sessions.ContainsKey(endpointId))
+        {
+            await DeliverRunRequestsAsync([endpointId], cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Delivers pending check run requests to live agents, each request once. Tier enforcement, layer 3: never to an
+    /// endpoint whose stored tier is agent-only (the request then expires). The agent itself only runs checks of its signed
+    /// configuration and rate-limits the requests.
+    /// </summary>
+    internal async Task DeliverRunRequestsAsync(Guid[] endpointIds, CancellationToken cancellationToken)
+    {
+        var live = endpointIds.Where(id => _sessions.TryGetValue(id, out var s) && !s.IsClosing && s.Tier == EndpointTier.Managed).ToArray();
+        if (live.Length == 0)
+        {
+            return;
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        var requests = await _store.ReadDeliverableRunRequestsAsync(live, now, cancellationToken);
+        foreach (var request in requests)
+        {
+            if (!_sessions.TryGetValue(request.EndpointId, out var session) || session.IsClosing || session.Tier != EndpointTier.Managed)
+            {
+                continue;
+            }
+
+            if (!await _store.MarkRunRequestDeliveredAsync(request.Id, now, cancellationToken))
+            {
+                continue;
+            }
+
+            var message = new RunChecksNow { RequestId = request.Id.ToString("D") };
+            message.CheckIds.Add(request.CheckDefinitionId.ToString("D"));
+            if (session.Send(new ServerMessage { RunChecksNow = message }))
+            {
+                _logger.LogInformation("Endpoint {EndpointId}: asked the agent to run check {CheckId} now (request {RequestId})",
+                    request.EndpointId, request.CheckDefinitionId, request.Id);
+            }
+            else
+            {
+                // The check still runs on its schedule; the technician can ask again.
+                _logger.LogWarning("Endpoint {EndpointId}: check run request {RequestId} could not be sent", request.EndpointId, request.Id);
+            }
+        }
+    }
+
     internal async Task RefreshTiersAsync(CancellationToken cancellationToken)
     {
         var sessions = _sessions.Values.ToArray();
@@ -693,6 +765,7 @@ public sealed class AgentSessionManager : BackgroundService
                 {
                     await RefreshTiersAsync(stoppingToken);
                     await CatchUpConfigsAsync(stoppingToken);
+                    await DeliverRunRequestsAsync(_sessions.Keys.ToArray(), stoppingToken);
                 }
                 catch (Exception ex) when (ex is NpgsqlException or TimeoutException)
                 {

@@ -1,0 +1,73 @@
+@* Actions on one unresolved alert: acknowledge, put on hold, end hold, resolve. Render only for callers who can manage. *@
+@inherits FleetoPageBase
+@inject AlertService AlertSvc
+@inject IDialogService DialogService
+@inject TimeProvider Clock
+
+@if (Alert.State != AlertState.Resolved)
+{
+    <MudMenu Icon="@Icons.Material.Outlined.MoreVert" Size="Size.Small" Dense="true" AriaLabel="Alert actions" AnchorOrigin="Origin.BottomRight"
+             TransformOrigin="Origin.TopRight">
+        @if (Alert.State == AlertState.Open)
+        {
+            <MudMenuItem Icon="@Icons.Material.Outlined.Check" OnClick="AcknowledgeAsync">Acknowledge</MudMenuItem>
+        }
+        @if (Alert.IsHeld(Clock.GetUtcNow().UtcDateTime))
+        {
+            <MudMenuItem Icon="@Icons.Material.Outlined.PlayCircle" OnClick="EndHoldAsync">End hold</MudMenuItem>
+        }
+        else
+        {
+            <MudMenuItem Icon="@Icons.Material.Outlined.PauseCircle" OnClick="HoldAsync">Put on hold</MudMenuItem>
+        }
+        <MudMenuItem Icon="@Icons.Material.Outlined.TaskAlt" OnClick="ResolveAsync">Resolve</MudMenuItem>
+    </MudMenu>
+}
+
+@code {
+    [Parameter, EditorRequired] public AlertView Alert { get; set; } = default!;
+
+    /// <summary>Raised after an action succeeded, so the owner reloads.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private async Task AcknowledgeAsync()
+    {
+        if (await RunAsync(caller => AlertSvc.AcknowledgeAsync(caller, Alert.Id), "The alert was acknowledged."))
+        {
+            await OnChanged.InvokeAsync();
+        }
+    }
+
+    private async Task ResolveAsync()
+    {
+        if (await RunAsync(caller => AlertSvc.ResolveAsync(caller, Alert.Id), "The alert was resolved. If the cause is still there, a new alert opens."))
+        {
+            await OnChanged.InvokeAsync();
+        }
+    }
+
+    private async Task EndHoldAsync()
+    {
+        if (await RunAsync(caller => AlertSvc.EndHoldAsync(caller, Alert.Id), "The hold was ended. The alert is open again."))
+        {
+            await OnChanged.InvokeAsync();
+        }
+    }
+
+    private async Task HoldAsync()
+    {
+        var parameters = new DialogParameters<HoldAlertDialog>
+        {
+            { d => d.Alert, Alert },
+            {
+                d => d.OnSubmit, until => RunAsync(caller => AlertSvc.HoldAsync(caller, Alert.Id, until),
+                    $"The alert is on hold until {Time.Absolute(until)}.")
+            }
+        };
+        var dialog = await DialogService.ShowAsync<HoldAlertDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await OnChanged.InvokeAsync();
+        }
+    }
+}

@@ -33,6 +33,7 @@ public static class GatewayApplication
         builder.Services.AddSingleton<AgentConnectionHandler>();
         builder.Services.AddSingleton<GatewayHealth>();
         builder.Services.AddSingleton<AgentTlsOptions>();
+        builder.Services.AddSingleton<ProxyProtocolMiddleware>();
 
         // Hosted singletons: resolvable by type and started by the host. Order matters for shutdown (reverse order):
         // the session manager stops before the allow list and the certificate provider.
@@ -46,6 +47,11 @@ public static class GatewayApplication
         builder.Services.AddHostedService<GatewaySummaryLogger>();
 
         var gatewayOptions = builder.Configuration.GetSection(GatewayOptions.SectionName).Get<GatewayOptions>() ?? new GatewayOptions();
+        if (gatewayOptions.ProxyProtocol.Enabled && ProxyProtocolMiddleware.ParseNetworks(gatewayOptions.ProxyProtocol.TrustedNetworks).Count == 0)
+        {
+            throw new InvalidOperationException(
+                "Gateway:ProxyProtocol is enabled without trusted networks. Set Gateway:ProxyProtocol:TrustedNetworks to the network the host proxy connects from.");
+        }
         EnrollmentHandler.AddRateLimiting(builder.Services, gatewayOptions.EnrollmentsPerMinutePerAddress);
 
         builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(20));
@@ -64,6 +70,9 @@ public static class GatewayApplication
             kestrel.Listen(address, options.AgentPort, listen =>
             {
                 listen.Protocols = HttpProtocols.Http1;
+                // Before TLS: the PROXY protocol header precedes the ClientHello.
+                listen.Use(next => connection =>
+                    kestrel.ApplicationServices.GetRequiredService<ProxyProtocolMiddleware>().OnConnectionAsync(connection, next));
                 listen.UseHttps(new TlsHandshakeCallbackOptions
                 {
                     HandshakeTimeout = TimeSpan.FromSeconds(10),

@@ -48,6 +48,43 @@ public class CheckState
     public int ConsecutiveNonOk { get; set; }
     public DateTime LastResultAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+
+    /// <summary>
+    /// When a technician reset the check. Until a result ingested after this time arrives the state is "re-run requested":
+    /// status Unknown without a value, never a made-up OK. Results ingested before it are ignored.
+    /// </summary>
+    public DateTime? ResetAt { get; set; }
+
+    /// <summary>True while a reset waits for its first new result.</summary>
+    public bool RerunRequested => ResetAt is { } reset && reset > LastResultAt;
+}
+
+/// <summary>
+/// A technician's request to run one check now on one endpoint, optionally with a reset of its state. Written by web,
+/// the reset is applied by the workers and the request is delivered to the agent by the gateway.
+/// </summary>
+public class CheckRunRequest
+{
+    public Guid Id { get; set; }
+    public Guid ClientId { get; set; }
+    public Guid EndpointId { get; set; }
+    public Guid CheckDefinitionId { get; set; }
+
+    /// <summary>Resolve the open alerts of the check and set its state to "re-run requested" before it runs.</summary>
+    public bool Reset { get; set; }
+
+    public Guid RequestedByUserId { get; set; }
+    public string RequestedByName { get; set; } = string.Empty;
+    public DateTime RequestedAt { get; set; }
+
+    /// <summary>An agent that connects after this time does not receive the request.</summary>
+    public DateTime ExpiresAt { get; set; }
+
+    public DateTime? ResetAppliedAt { get; set; }
+    public DateTime? DeliveredAt { get; set; }
+
+    /// <summary>Set when the request ends without delivery. Null while pending or once delivered.</summary>
+    public CheckRunRequestOutcome? Outcome { get; set; }
 }
 
 /// <summary>An alert. At most one unresolved alert per endpoint, kind, check and target.</summary>
@@ -72,6 +109,15 @@ public class Alert
     public Guid? AcknowledgedByUserId { get; set; }
     public DateTime? ResolvedAt { get; set; }
     public string? ResolvedReason { get; set; }
+
+    /// <summary>
+    /// While in the future the alert is on hold: no escalation or resolve emails, left out of open alert lists and counts.
+    /// The alert itself stays real: it still resolves when its cause recovers. Cleared by the workers when it passes.
+    /// </summary>
+    public DateTime? HeldUntil { get; set; }
+
+    public DateTime? HeldAt { get; set; }
+    public Guid? HeldByUserId { get; set; }
 
     public Endpoint? Endpoint { get; set; }
 }

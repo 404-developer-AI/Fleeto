@@ -182,3 +182,83 @@ func TestFormatBytes(t *testing.T) {
 		}
 	}
 }
+
+func dailyConfig(tier agentv1.Tier, ids ...string) *agentv1.AgentConfig {
+	cfg := &agentv1.AgentConfig{Version: 1, Tier: tier}
+	for _, id := range ids {
+		cfg.Checks = append(cfg.Checks, &agentv1.CheckSpec{Id: id, Type: agentv1.CheckType_CHECK_TYPE_UPTIME, IntervalSeconds: 86400})
+	}
+	return cfg
+}
+
+func TestRunNowRunsOnlyScheduledChecks(t *testing.T) {
+	collector := &countingCollector{}
+	rec := &sinkRecorder{}
+	s := NewScheduler(collector, rec.sink, logging.Discard())
+	defer s.Stop()
+	s.Apply(dailyConfig(agentv1.Tier_TIER_MANAGED, "c1", "c2"))
+
+	started, dropped := s.RunNow([]string{"c1", "unknown", "c1"})
+	if started != 1 || dropped != 0 {
+		t.Fatalf("started %d dropped %d, want 1 and 0", started, dropped)
+	}
+	waitFor(t, 3*time.Second, func() bool { return rec.count() == 1 })
+	time.Sleep(200 * time.Millisecond)
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.results) != 1 || rec.results[0].GetCheckId() != "c1" {
+		t.Fatalf("unexpected results %v", rec.results)
+	}
+}
+
+func TestRunNowDoesNothingWithoutAManagedConfig(t *testing.T) {
+	collector := &countingCollector{}
+	s := NewScheduler(collector, (&sinkRecorder{}).sink, logging.Discard())
+	defer s.Stop()
+	s.Apply(dailyConfig(agentv1.Tier_TIER_AGENT_ONLY, "c1"))
+	if started, _ := s.RunNow([]string{"c1"}); started != 0 {
+		t.Fatalf("an agent-only configuration started %d checks", started)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if collector.calls.Load() != 0 {
+		t.Fatal("a check ran on an agent-only configuration")
+	}
+}
+
+func TestRunNowIsRateLimitedPerCheck(t *testing.T) {
+	collector := &countingCollector{}
+	s := NewScheduler(collector, (&sinkRecorder{}).sink, logging.Discard())
+	defer s.Stop()
+	var clock atomic.Int64 // read by the runner goroutine as well
+	clock.Store(time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC).UnixNano())
+	s.now = func() time.Time { return time.Unix(0, clock.Load()) }
+	s.Apply(dailyConfig(agentv1.Tier_TIER_MANAGED, "c1"))
+
+	if started, _ := s.RunNow([]string{"c1"}); started != 1 {
+		t.Fatal("the first request did not start the check")
+	}
+	waitFor(t, 3*time.Second, func() bool { return collector.calls.Load() == 1 })
+	clock.Add(int64(MinRunNowGap - time.Second))
+	if started, dropped := s.RunNow([]string{"c1"}); started != 0 || dropped != 1 {
+		t.Fatalf("a request within the gap started %d, dropped %d", started, dropped)
+	}
+	clock.Add(int64(2 * time.Second))
+	if started, _ := s.RunNow([]string{"c1"}); started != 1 {
+		t.Fatal("a request after the gap did not start the check")
+	}
+	waitFor(t, 3*time.Second, func() bool { return collector.calls.Load() == 2 })
+}
+
+func TestRunNowIsRateLimitedInTotal(t *testing.T) {
+	ids := make([]string, 0, MaxRunNowPerMinute+5)
+	for i := range MaxRunNowPerMinute + 5 {
+		ids = append(ids, "c"+string(rune('a'+i)))
+	}
+	s := NewScheduler(&countingCollector{}, (&sinkRecorder{}).sink, logging.Discard())
+	defer s.Stop()
+	s.Apply(dailyConfig(agentv1.Tier_TIER_MANAGED, ids...))
+	started, dropped := s.RunNow(ids)
+	if started != MaxRunNowPerMinute || dropped != 5 {
+		t.Fatalf("started %d dropped %d, want %d and 5", started, dropped, MaxRunNowPerMinute)
+	}
+}

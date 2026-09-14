@@ -40,12 +40,18 @@ public class MonitoringTemplate
     public ICollection<CheckDefinition> Checks { get; set; } = new List<CheckDefinition>();
 }
 
-/// <summary>One check in a monitoring template. Carries the same ClientId as its template.</summary>
+/// <summary>
+/// One check. Owned by exactly one of a monitoring template (carrying the same ClientId as its template) or a single
+/// endpoint (a check that exists only on that endpoint, carrying the endpoint's ClientId).
+/// </summary>
 public class CheckDefinition
 {
     public Guid Id { get; set; }
     public Guid? ClientId { get; set; }
-    public Guid MonitoringTemplateId { get; set; }
+    public Guid? MonitoringTemplateId { get; set; }
+
+    /// <summary>Set for a check that exists only on this endpoint; null for a template check.</summary>
+    public Guid? EndpointId { get; set; }
     public string Name { get; set; } = string.Empty;
     public CheckType Type { get; set; }
     public int IntervalSeconds { get; set; } = 300;
@@ -77,6 +83,51 @@ public class SiteMonitoringTemplate
     public DateTime CreatedAt { get; set; }
 
     public MonitoringTemplate? MonitoringTemplate { get; set; }
+}
+
+/// <summary>An extra monitoring template linked to one endpoint, on top of the templates of its site.</summary>
+public class EndpointMonitoringTemplate
+{
+    public Guid EndpointId { get; set; }
+    public Guid ClientId { get; set; }
+    public Guid MonitoringTemplateId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public Guid? CreatedByUserId { get; set; }
+
+    public MonitoringTemplate? MonitoringTemplate { get; set; }
+}
+
+/// <summary>
+/// Adjustments of one template check for one endpoint. The template stays linked: unset fields inherit its values, so a
+/// later change to the template still applies to the fields that are not overridden.
+/// </summary>
+public class EndpointCheckOverride
+{
+    public Guid EndpointId { get; set; }
+    public Guid CheckDefinitionId { get; set; }
+    public Guid ClientId { get; set; }
+
+    /// <summary>The check does not run on this endpoint.</summary>
+    public bool Disabled { get; set; }
+
+    public int? IntervalSeconds { get; set; }
+    public int? FailuresBeforeAlert { get; set; }
+
+    /// <summary>
+    /// True when <see cref="WarningThreshold"/> and <see cref="CriticalThreshold"/> replace the template thresholds as a
+    /// pair, null included. A flag rather than null-means-inherit, so "no warning threshold" can be an override too.
+    /// </summary>
+    public bool OverrideThresholds { get; set; }
+
+    public double? WarningThreshold { get; set; }
+    public double? CriticalThreshold { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public Guid? UpdatedByUserId { get; set; }
+
+    /// <summary>True when the row changes nothing and can be removed.</summary>
+    public bool IsEmpty => !Disabled && IntervalSeconds is null && FailuresBeforeAlert is null && !OverrideThresholds;
 }
 
 /// <summary>The policy linked to a site. At most one per site; without one the default policy applies.</summary>
