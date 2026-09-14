@@ -121,17 +121,21 @@ Licenses are counted **per endpoint** and belong to the instance.
 - An endpoint is agent-only until a technician switches it to managed; switching consumes
   one license from the instance pool. Switching back frees it. The dashboard shows used and
   available licenses; the switch is refused when the pool is empty, with a clear message.
+  Pool check and tier change are one serialized transaction (row lock on the license), so
+  concurrent switches can never overspend the pool; bulk switches are all or nothing.
 - The license is a signed document (ed25519, Steaan private key, public key baked into the
   build) stating customer, endpoint count, expiry and instance FQDN. Stored encrypted in the
-  instance database, verified offline. An expired license turns every endpoint read-only
-  (agent-only behaviour) but deletes nothing.
+  instance database, verified offline. After expiry a **14-day grace period** keeps everything
+  working with a banner and daily admin email; after that every endpoint behaves as
+  agent-only until a new license is loaded. Nothing is ever deleted.
 - **License management is central, later.** Target: a Steaan management server that issues,
   renews and revokes licenses, and that instances talk to over an API. Until that exists
   (v1 ships without it) the license document is loaded in Settings by hand. Design the
   license format and the Settings page so the management server can replace the manual
   step without changing the instance side.
 - Every feature checks the endpoint tier server-side, not only in the UI. Tests prove that an
-  agent-only endpoint rejects jobs, policies and remote control at the API and gateway level.
+  agent-only endpoint rejects jobs, policies and remote control at the API, signer, gateway
+  and agent level.
 
 ## Remote control
 
@@ -146,7 +150,10 @@ Screen takeover is built into Fleeto: no external tool, no third-party account.
 - Policy decides whether the endpoint user must consent first, and whether sessions are
   recorded. Every session is an audit entry with technician, endpoint, start, end and reason.
 - Sessions are end-to-end encrypted between browser and agent, authorised per session with
-  a short-lived token, and only possible on managed endpoints.
+  a short-lived token, and only possible on managed endpoints. The key exchange is anchored
+  outside the relay: the signed session token carries the browser's ephemeral public key and
+  the agent signs its own with its certificate key, so a compromised gateway cannot sit in
+  the middle. Details in `MD-Files/ARCHITECTURE.md` §4 and §5.
 - Platforms in order: Windows, macOS (needs the Screen Recording and Accessibility
   permissions), Linux (X11 first, Wayland later).
 
@@ -157,7 +164,8 @@ Fleeto into other tools.
 
 - Authentication with **API keys** created in Settings: named, scoped (read-only or
   read-write, optionally limited to clients), revocable, shown once at creation and stored
-  hashed. Every call is rate limited and audited.
+  hashed. Format `flt_<id>_<secret>` with a 256-bit random secret, so SHA-256 is a sufficient
+  hash and secret scanners recognise leaked keys. Every call is rate limited and audited.
 - Read access to clients, sites, endpoints (with inventory and status), alerts, jobs, checks,
   patch compliance and notes. Write access to the same objects where a technician could do it
   in the UI, with the same license and role checks.
@@ -180,63 +188,82 @@ rather than a home-grown fallback. See the open decisions for what still has to 
 One script does both, on a fresh or an existing Ubuntu VPS: `install.sh`. It works per
 instance; a VPS can hold several.
 
+- **Never `curl | sudo bash`.** `install.sh` is downloaded with its signature and verified
+  against the Steaan release public key before it runs. Every release publishes a manifest
+  with image digests, signed with the release key; `install.sh` verifies it and pulls images
+  by digest only.
 - First run on a VPS: installs Docker and the host-level reverse proxy.
 - New instance: asks for the **FQDN** (or takes `--fqdn rmm.customer.example`), checks that
-  the name resolves to this VPS, generates the root key and database password, writes the
-  Compose files under `/opt/fleetify/<instance>/`, pulls the images, runs migrations, starts
-  the stack, registers the FQDN with the reverse proxy and prints the URL plus the one-time
-  first-admin setup link.
-- Every later run for an instance: backs up its database, pulls the requested images
-  (default: latest release), runs migrations, restarts the stack. Idempotent and safe to
-  re-run; a failed update rolls back to the previous images.
+  the FQDN and `agents.<fqdn>` resolve to this VPS, generates the root key, signer key and
+  database passwords, writes the Compose files under `/opt/fleetify/<instance>/`, pulls the
+  images, runs migrations, starts the stack, registers the HTTPS route and the agent SNI
+  passthrough route with the reverse proxy and prints the URL plus the one-time first-admin
+  setup link.
+- Every later run for an instance: verifies the release manifest, backs up its database,
+  pulls the requested images (default: latest release), runs migrations, restarts the
+  stack. Idempotent and safe to re-run; a failed update rolls back to the previous images.
 - `install.sh --version 0.1.0` pins a version. `install.sh --check` reports the installed and
   the latest available version without changing anything. `install.sh --list` shows the
   instances on this VPS.
 - Agents are installed with a one-line command generated in the UI (it carries the instance
-  FQDN and the site enrollment token) and self-update from the server, staged by update ring
-  per policy.
+  FQDN, the site enrollment token and the instance CA fingerprint) and self-update from the
+  server, staged by update ring per policy. The server only distributes binaries; the agent
+  installs one only if it is signed with the Steaan release key.
 
 ## Architecture in one paragraph
 
 Ubuntu VPS, Docker Compose, one stack per instance behind one host-level **caddy** (reverse
-proxy, automatic TLS, routes by FQDN). Per instance: **fleetify-web** (Blazor Server UI +
-public REST API, .NET, MudBlazor, Migrify conventions), **fleetify-gateway** (mTLS WebSocket
-endpoint for agents, remote control relay), **fleetify-workers** (checks, alerting,
-integration pollers, patch orchestration, retention), **postgres** (PostgreSQL 16 +
+proxy, automatic TLS, routes by FQDN; agent traffic to `agents.<fqdn>` is passed through by
+SNI, never terminated). Per instance: **fleetify-web** (Blazor Server UI + public REST API,
+.NET, MudBlazor, Migrify conventions), **fleetify-gateway** (mTLS WebSocket endpoint for
+agents, remote control relay), **fleetify-signer** (the only holder of the instance signing
+key and internal CA, no listening port), **fleetify-workers** (checks, alerting, integration
+pollers, patch orchestration, retention, backups), **postgres** (PostgreSQL 16 +
 TimescaleDB, the only durable store) and **valkey** (queues, pub/sub, caches, never the only
 copy of anything). Agents are one Go codebase, one static binary per platform.
 Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
 
 ## Security requirements (non-negotiable)
 
-- **Enrollment**: one-time enrollment token (per site, expiring, revocable) exchanged for a unique per-agent certificate. All agent traffic is mTLS. No shared API keys across agents.
-- **Agent updates and scripts are signed** (ed25519). Agents verify signatures before executing anything. The signing key is stored encrypted like every other secret (see Secrets) and the key ceremony is documented in `MD-Files/ARCHITECTURE.md`.
-- **Command authorization**: every job records who initiated it, when, on which endpoints, with what payload. Immutable audit log for all privileged actions (script run, patch, remote control session, credential change, API key change, license change, login, permission change, client or site deletion).
+- **Enrollment**: one-time enrollment token (per site, expiring, revocable, stored hashed) exchanged for a unique per-agent certificate (90 days, auto-renewed, TPM-backed key where available). All agent traffic is mTLS. No shared API keys across agents.
+- **Revocation**: the gateway checks a certificate deny list in the database on every connection and drops live connections the moment a certificate is revoked. Deleting an endpoint revokes its certificates. A certificate connecting twice at once is refused and raises an alert (cloned VM).
+- **Two signing keys, never mixed** (ed25519):
+  - the **Steaan release key** signs agent binaries, `install.sh` and the release manifest. It lives offline on a hardware token, never on a VPS or in CI secrets; its public keys are compiled into the agent and `install.sh`. A compromised instance cannot push an agent update.
+  - the **instance signing key** signs jobs, policies, check definitions and remote control session tokens for one instance. It is held only by **fleetify-signer**, which re-checks role, tier, script approval and validity before signing. Agents pin its public key at enrollment.
+  The key ceremony is documented in `MD-Files/ARCHITECTURE.md`.
+- **Jobs expire**: every signed job carries `InstanceId`, `EndpointId` and `ValidUntil` (default 24 hours, maximum 7 days). Signer, gateway and agent all refuse expired jobs.
+- **Script approval**: per policy, scripts can require approval by a second admin (fresh TOTP) before they run; each change needs new approval. Off by default, recommended for servers.
+- **Accepted risk**: full control of fleetify-web still lets an attacker get jobs signed within the signer's rules. The signer keeps the key out of web, enforces the rules and rate limits, and is the single audited choke point. Documented in `MD-Files/ARCHITECTURE.md` §5.
+- **Command authorization**: every job records who initiated it, when, on which endpoints, with what payload. Immutable audit log for all privileged actions (script run, script approval, patch, remote control session, credential change, API key change, license change, login, permission change, certificate revocation, client or site deletion).
 - **Remote control** is the highest-risk feature: per-session tokens, end-to-end encryption, visible on the endpoint, policy-controlled consent, audited, managed endpoints only.
 - **Web/API**: 2FA (TOTP) for all users, session hardening, per-endpoint rate limiting, strict input validation, parameterized queries only, CSP without unsafe-inline. API keys hashed at rest, scoped, revocable.
-- **Least privilege**: containers run as non-root, read-only filesystems where possible, no Docker socket exposure to app containers. Instances on the same VPS share nothing but the host proxy: separate networks, volumes and secrets.
-- **Multi-tenancy discipline**: every query is scoped by client; write tests that prove cross-client reads fail. Instances are separate stacks, so cross-instance access is impossible by construction, not by a filter.
+- **Least privilege**: containers run as non-root, read-only filesystems where possible, no Docker socket exposure to app containers, one database role per container. Instances on the same VPS share nothing but the host proxy: separate networks, volumes and secrets. The host proxy is not secret-free: it holds the TLS keys of every instance FQDN on the VPS, so it is pinned, minimally configured and its admin API is local only.
+- **Multi-tenancy discipline**: every query is scoped by client; every client-owned table carries its own `ClientId` (denormalized on purpose, kept consistent by composite foreign keys to the parent); write tests that prove cross-client reads fail. Instances are separate stacks, so cross-instance access is impossible by construction, not by a filter.
 - Dependency policy: minimal, well-maintained packages; `dotnet list package --vulnerable` and `govulncheck` in CI; fail the build on known CVEs.
 
 ## Secrets, keys and personal data
 
 - **All secrets live in the database, encrypted at rest**: integration credentials (Sophos,
-  Veeam, vCenter, Proxmox, Action1), SMTP, webhook secrets, the agent signing key, TOTP
-  seeds, enrollment tokens, API keys (hashed), agent certificates, the license document.
-  Nothing in `.env`, `appsettings` or any other file on the server, and nothing in the
-  repository.
+  Veeam, vCenter, Proxmox, Action1), SMTP, webhook secrets, backup destination credentials,
+  the instance signing key and internal CA key (encrypted under the signer key, readable
+  only by fleetify-signer), TOTP seeds, enrollment tokens and API keys (hashed), the license
+  document. Nothing in `.env`, `appsettings` or any other file on the server, and nothing in
+  the repository. The Steaan release and license signing keys never touch a server at all.
 - **Envelope encryption**: one root key (KEK) wraps per-purpose data keys (DEKs) that are
   stored, wrapped, in the database. DEKs encrypt the data with AES-256-GCM. Rotating a DEK
   re-encrypts its data without touching the root key; rotating the root key only rewraps
   the DEKs.
-- **The root key is the one thing that cannot live in the database** (it would encrypt
-  itself). `install.sh` generates one per instance and stores it as a Docker secret: a
-  root-owned file with mode 0600 outside the repository, never in `.env`, never in a Compose
-  file. The database password is handled the same way. An offline backup of the root key is
-  part of the key ceremony.
+- **The root key and the signer key are the only keys that cannot live in the database**
+  (they would encrypt themselves). `install.sh` generates both per instance and stores them
+  as Docker secrets: root-owned files with mode 0600 outside the repository, never in
+  `.env`, never in a Compose file, each mounted only in the containers that need it (root
+  key: web and workers; signer key: signer). Database passwords are handled the same way.
+  Offline backups of both keys are part of the key ceremony.
 - User passwords: Argon2id. Secrets are never logged, never returned by the API after
-  creation (write-only fields), never included in backups in plaintext (backups are
-  encrypted with a separate key before leaving the VPS).
+  creation (write-only fields), never included in backups in plaintext.
+- **Backups leave the VPS encrypted with a public key**: the VPS holds only the backup public
+  key; the private key is created in the key ceremony and stays offline. Backup storage
+  credentials are write-only, so a compromised VPS can neither read nor delete backups.
 - **GDPR**: Fleeto processes personal data (user accounts, endpoint user names, IP addresses,
   log content, remote control recordings) on behalf of customers and their clients. Rules:
   data stays in the EU; retention limits apply to every data type and are enforced
@@ -251,9 +278,10 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
 ## Robustness requirements
 
 - Idempotent job execution: re-delivered commands must not run twice (job IDs + agent-side dedupe).
+- **Acknowledge only after a durable write**: the gateway writes agent batches (check results) and job output chunks to Postgres and only then acks; the agent deletes data from its disk buffer only after the ack. Job output travels as numbered chunks per stream, stored idempotently, completed by a message with counts and hashes, so a dropped connection never duplicates or loses output. Valkey carries notifications, never the only copy; if it is down, workers catch up from the database.
 - Every external call (integrations, Action1, SMTP) has timeouts, retries with backoff, and a circuit breaker. An integration being down must never degrade core monitoring.
-- Migrations are forward-only, tested against a copy of production data.
-- Backups: nightly `pg_dump` + WAL archiving to off-VPS storage, per instance; restore procedure documented and tested (a backup that has never been restored does not exist).
+- Migrations are forward-only, tested against a copy of production data, and follow **expand/contract**: the previous release must still run on the new schema so an image rollback works; CI proves it. A release that cannot comply is marked in the release manifest, and `install.sh` then rolls back by restoring the pre-update backup. Details in `MD-Files/ARCHITECTURE.md` §7.
+- Backups: nightly `pg_dump` + WAL archiving to off-VPS object storage in the EU, per instance, encrypted before upload; the dashboard warns while no destination is configured; restore procedure documented and tested (a backup that has never been restored does not exist).
 - Health endpoints on every container; Compose restart policies; every instance self-recovers from a VPS reboot with no manual steps.
 - Clock skew tolerance: never trust agent timestamps for ordering; stamp on ingest.
 - A remote control session that drops reconnects on its own; a dropped session never leaves input stuck (keys released) on the endpoint.
@@ -306,14 +334,12 @@ home-grown patch engine, file transfer inside remote control. Note them, do not 
 - Namespaces, images, env vars, service names: **Fleetify**. User-visible text: **Fleeto**. Run the grep check from `MD-Files/branding-fleeto.md` §7 before every release.
 - UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, monitoring template, client template, integration, note, remote control session, API key).
 - Follow the Migrify codebase conventions where they exist (project layout, EF Core patterns, MudBlazor usage, email templates).
-- Tests: unit tests for domain logic, integration tests against real PostgreSQL in CI, the cross-client tests from Security, license-tier enforcement tests, and the load-test scenario. New features without tests are not done.
+- Tests: unit tests for domain logic, integration tests against real PostgreSQL in CI, the cross-client tests from Security, license-tier enforcement tests, signer rule tests (refused roles, tiers, unapproved scripts, expired jobs), certificate revocation tests, and the load-test scenario. New features without tests are not done.
 - CI on GitHub Actions: build, tests, vulnerability scan, secret scan, the Fleetify grep check. A release is a tagged commit that passes CI.
 
 ## Open decisions (revisit before building)
 
 - **Whitelabel depth**: FQDN only (v1) vs. customer logo and product name in the UI and emails.
-- **Agent gateway routing per instance**: TLS passthrough by SNI on the host proxy (agents
-  connect to `agents.<fqdn>`) vs. one port per instance. Decide during 0.0.x.
 - **Remote control transport**: WebRTC with the gateway as TURN relay vs. a plain WebSocket
   relay through the gateway. Prototype both on Windows before the remote control milestone.
 - **Action1**: to be worked out when the Action1 milestone starts: platform coverage (Windows
