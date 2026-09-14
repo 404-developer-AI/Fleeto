@@ -86,6 +86,7 @@ Use these terms consistently in UI, docs and email; do not introduce synonyms.
 | **API key** | A credential for the public API, created in Settings |
 | **check** | A single monitoring rule with an interval (e.g. disk space, every 5 minutes) |
 | **alert** | A check that crossed its threshold and needs attention |
+| **maintenance mode** | A client, site or endpoint temporarily raising no alerts. "In maintenance until 16:00." Never "snooze", "mute" or "silenced" in UI text. Shown with the neutral gray chip and the outlined Construction icon. |
 | **job** | One execution of a script, patch run or task on an endpoint |
 | **policy** | Agent behaviour settings linked to a site |
 | **monitoring template** | A named set of checks with thresholds, linked to a site |

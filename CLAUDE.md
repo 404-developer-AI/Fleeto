@@ -89,6 +89,10 @@ the API and the database follows it.
 - **Policy**: agent behaviour pushed to every endpoint of a site (a site links at most one policy;
   without one the instance default policy applies): check intervals, patch
   behaviour, update ring, script permissions, remote control rules, maintenance windows.
+- **Maintenance mode** (0.2.0): a client, a site or one endpoint is put in maintenance by hand,
+  with an optional end time. While it lasts, its endpoints open and escalate no alerts (open
+  alerts stay open and still resolve). The clients panel shows per client and site whether all
+  or some endpoints are in maintenance.
 - **Monitoring template**: a named set of checks with thresholds and alert rules. Linked to a
   site, applied to all of its endpoints (class-specific checks apply to matching endpoints only).
 - **Client template**: a blueprint used when creating a client. It lists the sites to

@@ -81,6 +81,13 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
 
 - Linux and macOS agents.
 - Complete check catalog, maintenance windows, escalation rules, webhook notifications.
+- Maintenance mode per client, site and endpoint: started by hand, with an optional end time
+  (1 hour, 4 hours, 24 hours, a chosen time, or until turned off). While an endpoint is in
+  maintenance no alert opens or escalates; open alerts stay open and still resolve when their
+  check recovers. Duplicate identity alerts are never suppressed. The clients panel shows per
+  client and site whether all or some endpoints are in maintenance ("all" or "2/14"); the
+  endpoint list and detail show it per endpoint. Maintenance windows from the policy feed the
+  same rule.
 - Script library with versions and optional four-eyes approval per policy; signed remote
   execution with `ValidUntil`, output capture, job history including expired and refused jobs.
 - Agent self-update with update rings, installed only with a valid Steaan release signature.

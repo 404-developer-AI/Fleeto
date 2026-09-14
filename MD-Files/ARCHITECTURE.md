@@ -90,9 +90,10 @@ AuditEntry (append-only)
 
 | Entity | Key fields | Notes |
 |---|---|---|
-| **Client** | `Id`, `Code` (unique, uppercase), `Name`, `CreatedAt` | Tenant boundary inside the instance. Every client-owned table carries its own `ClientId`, denormalized on purpose (see the rule below the table), and every query filters on it. |
-| **Site** | `Id`, `ClientId`, `Name`, `Description` | Groups endpoints. Holds the link to at most one policy (without one the instance default policy applies) and to any number of monitoring templates. Enrollment tokens belong to a site. |
-| **Endpoint** | `Id`, `ClientId`, `SiteId`, `Hostname`, `Class` (`workstation`/`server`), `ClassOverride`, `Tier` (`agent_only`/`managed`), `Os`, `AgentVersion`, `LastSeenAt`, `Source` (`agent`/`integration`) | Endpoints without an agent exist only for hypervisor inventory (ESXi hosts and VMs from vCenter or Proxmox). `Tier` gates every feature server-side. |
+| **Client** | `Id`, `Code` (unique, uppercase), `Name`, `CreatedAt`, `Maintenance` | Tenant boundary inside the instance. Every client-owned table carries its own `ClientId`, denormalized on purpose (see the rule below the table), and every query filters on it. |
+| **Site** | `Id`, `ClientId`, `Name`, `Description`, `Maintenance` | Groups endpoints. Holds the link to at most one policy (without one the instance default policy applies) and to any number of monitoring templates. Enrollment tokens belong to a site. |
+| **Endpoint** | `Id`, `ClientId`, `SiteId`, `Hostname`, `Class` (`workstation`/`server`), `ClassOverride`, `Tier` (`agent_only`/`managed`), `Os`, `AgentVersion`, `LastSeenAt`, `Source` (`agent`/`integration`), `Maintenance` | Endpoints without an agent exist only for hypervisor inventory (ESXi hosts and VMs from vCenter or Proxmox). `Tier` gates every feature server-side. |
+| `Maintenance` (on Client, Site, Endpoint) | `StartedAt?`, `EndsAt?`, `StartedBy?`, `Reason?` | Maintenance mode (0.2.0), stored as nullable columns on each of the three tables. Active while `StartedAt` is set and `EndsAt` is null or in the future; nothing clears expired values, every query compares with the current time. See *Maintenance mode* in §4. |
 | **AgentCertificate** | `Id`, `ClientId`, `EndpointId`, `Fingerprint`, `IssuedAt`, `ExpiresAt`, `RevokedAt?`, `RevokedBy?`, `RevokedReason?` | One row per issued certificate, renewals included. The gateway refuses every certificate with `RevokedAt` set. |
 | **Policy** | `Id`, `ClientId?`, `Name`, settings | Agent behaviour: intervals, patch behaviour, update ring, script permissions and **script approval required**, remote control rules (consent, recording), maintenance windows. `ClientId` null = global. |
 | **MonitoringTemplate** | `Id`, `ClientId?`, `Name` | Named set of `CheckDefinition`s with thresholds and alert rules. `ClientId` null = global. |
@@ -244,6 +245,23 @@ polling. Workers keep a cursor per endpoint (result ids are monotonic per endpoi
 agent sends one batch at a time, but not globally in commit order) and sweep for endpoints with
 newer results, so a lost notification makes alerts late and loses nothing. When Postgres is down, the gateway does not
 acknowledge and agents keep buffering on disk.
+
+**Maintenance mode (0.2.0).** A technician puts a client, a site or one managed endpoint in
+maintenance, with an optional end time. An endpoint is in *effective maintenance* when its own,
+its site's or its client's maintenance is active; maintenance windows from the policy become a
+fourth source of the same rule later. One domain rule (`MaintenanceRules`) defines it, used by
+EF queries and by the raw SQL in workers. Effects:
+- Check evaluation keeps updating check states and failure counters, and still resolves alerts
+  whose check recovers, but opens and escalates nothing. When maintenance ends, the next failing
+  result opens the alert right away.
+- Offline detection opens no offline alert; an endpoint still offline after maintenance gets one
+  on the next sweep. Fleeto does not hide a real problem once maintenance is over.
+- Open alerts stay open. Duplicate identity alerts are never suppressed: they are a security signal.
+- No alert transition means no email; the notification path needs no maintenance logic.
+- Start, end and expiry are audit entries. A worker notices expired end times (watermark) and
+  publishes an endpoint status notification so open pages update; client- and site-level changes
+  publish a resync. Maintenance on an endpoint cannot be ended at endpoint level while its site
+  or client keeps it in maintenance.
 
 **Job.** Technician starts a script or patch action, picks the targets and a validity window
 (default 24 hours, maximum 7 days) → web writes one `Job` per endpoint in state
