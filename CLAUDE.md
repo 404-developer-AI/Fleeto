@@ -9,8 +9,8 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 - **Language**: conversation with the developer is always in Dutch. Documentation, code,
   comments, commit messages, log messages and UI text are always in English.
 - **Current phase**: documentation only. Do not write code until the developer says so.
-- **Source control**: git, default branch `main`, private GitHub repository as remote (to be
-  created). Conventional commits. Secrets never enter the repository, not even in example
+- **Source control**: git, default branch `main`, private GitHub repository
+  `404-developer-AI/Fleeto` as `origin`. Conventional commits. Secrets never enter the repository, not even in example
   files with real values; `.gitignore` blocks the usual suspects.
 - **Documentation set**: this file in the repository root, everything else in `MD-Files/`.
   Keep each file to its purpose and update the relevant file in the same commit as the
