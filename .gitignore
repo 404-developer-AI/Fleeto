@@ -1,0 +1,49 @@
+# Secrets: never in the repository (see CLAUDE.md, Secrets, keys and personal data)
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+secrets/
+**/secrets/
+docker-compose.override.yml
+compose.override.yml
+appsettings.*.local.json
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.swp
+
+# .NET
+bin/
+obj/
+*.binlog
+TestResults/
+artifacts/
+.dotnet/
+*.nupkg
+
+# Go
+/agent/bin/
+/agent/dist/
+*.test
+*.out
+
+# Node (only if a front-end build step is added)
+node_modules/
+
+# Local data
+*.log
+*.sqlite
+*.db
+/data/
+/backups/
+
+# OS
+.DS_Store
+Thumbs.db
