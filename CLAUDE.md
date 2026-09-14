@@ -113,7 +113,7 @@ UI structure:
   site) with tabs **Servers**, **Workstations** and **Mixed** (all endpoints together), search
   and filters. Selecting an endpoint shows its detail below the list (resizable split); the
   same detail opens as a full page with its own URL. Detail tabs grow with the features that
-  exist: Summary, Checks, Software, Assets, History today; jobs, patches, remote control and
+  exist: Summary, Checks, Software, History today; jobs, patches, remote control and
   notes arrive with their versions.
 - **Navigation**: a persistent sidebar that collapses to icons; the choice is remembered per
   browser. It lists Dashboard, Clients and Alerts; its footer holds the settings, profile and

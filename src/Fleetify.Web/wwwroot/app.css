@@ -206,7 +206,6 @@ html, body {
 .endpoint-class-tabs .mud-tabs-panels { display: none; }
 .endpoint-list-search { display: flex; align-items: center; gap: 8px; padding: 8px 0; min-width: 280px; }
 .endpoint-list-search .mud-input-control { margin: 0 !important; }
-.endpoint-bulk-bar { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: var(--fl-primary-tint); border-bottom: 1px solid var(--fl-primary-tint-strong); flex-wrap: wrap; }
 .endpoint-table-scroll { max-height: 42vh; overflow: auto; }
 .endpoint-table-scroll .mud-table { border: none; border-radius: 0 !important; box-shadow: none; }
 .endpoint-table .mud-table-row { cursor: pointer; }

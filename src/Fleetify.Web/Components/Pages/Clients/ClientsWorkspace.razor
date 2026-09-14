@@ -176,18 +176,6 @@
                     </div>
                 </div>
 
-                @if (CanManage && _selected.Count > 0)
-                {
-                    <div class="endpoint-bulk-bar">
-                        <MudText Typo="Typo.body2"><strong>@_selected.Count</strong> selected</MudText>
-                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy"
-                                   OnClick="@(() => SetTierAsync(EndpointTier.Managed))">Switch to managed</MudButton>
-                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy"
-                                   OnClick="@(() => SetTierAsync(EndpointTier.AgentOnly))">Switch to agent-only</MudButton>
-                        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => _selected.Clear())">Clear selection</MudButton>
-                    </div>
-                }
-
                 <div class="endpoint-table-scroll" @ref="_tableScroll">
                     @if (_rowsLoading && _page is null)
                     {
@@ -202,12 +190,6 @@
                         <MudTable T="EndpointRow" Items="_page.Rows" Dense="true" Hover="true" Elevation="0" FixedHeader="true" Class="endpoint-table"
                                   OnRowClick="OnRowClick" RowClassFunc="RowClass">
                             <HeaderContent>
-                                @if (CanManage)
-                                {
-                                    <MudTh Style="width:44px">
-                                        <MudCheckBox T="bool" Value="@AllSelected" ValueChanged="SelectAll" Size="Size.Small" />
-                                    </MudTh>
-                                }
                                 <MudTh Style="width:36px"></MudTh>
                                 <MudTh>Hostname</MudTh>
                                 @if (IsAllScope)
@@ -224,32 +206,25 @@
                                 <MudTh>Status</MudTh>
                                 <MudTh>Last seen</MudTh>
                             </HeaderContent>
+                            @* Every cell opens the endpoint menu on right-click (see RowMenu): MudTable has no row-level context menu event. *@
                             <RowTemplate>
-                                @if (CanManage)
-                                {
-                                    <MudTd>
-                                        <span @onclick:stopPropagation="true">
-                                            <MudCheckBox T="bool" Value="@_selected.Contains(context.Id)" ValueChanged="@(v => Toggle(context.Id, v))" Size="Size.Small" />
-                                        </span>
-                                    </MudTd>
-                                }
-                                <MudTd>
+                                <MudTd @attributes="RowMenu(context)">
                                     <MudIcon Icon="@(context.EffectiveClass == EndpointClass.Server ? Icons.Material.Outlined.Dns : Icons.Material.Outlined.Computer)"
                                              Size="Size.Small" Class="muted" />
                                 </MudTd>
-                                <MudTd><strong>@context.Hostname</strong></MudTd>
+                                <MudTd @attributes="RowMenu(context)"><strong>@context.Hostname</strong></MudTd>
                                 @if (IsAllScope)
                                 {
-                                    <MudTd>[@context.ClientCode] @context.ClientName</MudTd>
+                                    <MudTd @attributes="RowMenu(context)">[@context.ClientCode] @context.ClientName</MudTd>
                                 }
                                 @if (SiteId is null)
                                 {
-                                    <MudTd>@context.SiteName</MudTd>
+                                    <MudTd @attributes="RowMenu(context)">@context.SiteName</MudTd>
                                 }
-                                <MudTd>@context.OsName</MudTd>
-                                <MudTd>@(string.IsNullOrEmpty(context.LoggedOnUser) ? "-" : context.LoggedOnUser)</MudTd>
-                                <MudTd><StatusChip Text="@Ui.TierLabel(context.Tier)" Kind="@Ui.TierKind(context.Tier)" /></MudTd>
-                                <MudTd>
+                                <MudTd @attributes="RowMenu(context)">@context.OsName</MudTd>
+                                <MudTd @attributes="RowMenu(context)">@(string.IsNullOrEmpty(context.LoggedOnUser) ? "-" : context.LoggedOnUser)</MudTd>
+                                <MudTd @attributes="RowMenu(context)"><StatusChip Text="@Ui.TierLabel(context.Tier)" Kind="@Ui.TierKind(context.Tier)" /></MudTd>
+                                <MudTd @attributes="RowMenu(context)">
                                     <div class="d-flex align-center gap-1 flex-wrap">
                                         <StatusChip Text="@(context.IsOnline ? "Online" : "Offline")" Kind="@(context.IsOnline ? StatusKind.Ok : StatusKind.Error)" Dot="true" />
                                         @if (context.OpenAlertCount > 0)
@@ -259,9 +234,32 @@
                                         }
                                     </div>
                                 </MudTd>
-                                <MudTd><TimeText Value="context.LastSeenAt" /></MudTd>
+                                <MudTd @attributes="RowMenu(context)"><TimeText Value="context.LastSeenAt" /></MudTd>
                             </RowTemplate>
                         </MudTable>
+                        @if (CanManage)
+                        {
+                            <MudMenu @ref="_endpointMenu" PositionAtCursor="true" aria-label="Endpoint actions">
+                                <ActivatorContent></ActivatorContent>
+                                <ChildContent>
+                                    @if (_menuRow is { } row)
+                                    {
+                                        <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="@(() => EditEndpointAsync(row))">Edit</MudMenuItem>
+                                        @if (row.Tier == EndpointTier.AgentOnly)
+                                        {
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.Verified" Disabled="_busy" OnClick="@(() => SetTierAsync(row, EndpointTier.Managed))">Switch to managed</MudMenuItem>
+                                        }
+                                        else
+                                        {
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.RemoveModerator" Disabled="_busy" OnClick="@(() => SetTierAsync(row, EndpointTier.AgentOnly))">Switch to agent-only</MudMenuItem>
+                                        }
+                                        <MudMenuItem Icon="@Icons.Material.Outlined.GppBad" OnClick="@(() => RevokeEndpointAsync(row))">Revoke agent</MudMenuItem>
+                                        <MudDivider />
+                                        <MudMenuItem Icon="@Icons.Material.Outlined.Delete" IconColor="Color.Error" OnClick="@(() => DeleteEndpointAsync(row))">Delete endpoint</MudMenuItem>
+                                    }
+                                </ChildContent>
+                            </MudMenu>
+                        }
                         @if (_page.Truncated)
                         {
                             <MudText Typo="Typo.body2" Class="muted px-4 py-2">
@@ -283,7 +281,7 @@
                             <MudIconButton Icon="@Icons.Material.Outlined.Close" Size="Size.Small" aria-label="Close endpoint details" OnClick="CloseDetail" />
                         </MudTooltip>
                     </div>
-                    <EndpointDetailView EndpointId="endpointId" Embedded="true" OnChanged="OnEndpointChangedAsync" OnDeleted="OnEndpointDeletedAsync" />
+                    <EndpointDetailView @ref="_detail" EndpointId="endpointId" Embedded="true" OnChanged="OnEndpointChangedAsync" />
                 </div>
             }
         </LoadState>
@@ -320,8 +318,10 @@
     private string? _endpointSearch;
     private EndpointStatusFilter _status = EndpointStatusFilter.All;
     private EndpointTier? _tier;
-    private readonly HashSet<Guid> _selected = [];
     private bool _busy;
+    private MudMenu? _endpointMenu;
+    private EndpointRow? _menuRow;
+    private EndpointDetailView? _detail;
 
     private ElementReference _tableScroll;
     private ElementReference _splitHandle;
@@ -329,7 +329,6 @@
 
     private bool IsAllScope => ClientId is null && SiteId is null;
     private bool FiltersActive => _status != EndpointStatusFilter.All || _tier is not null;
-    private bool AllSelected => _page is { Rows.Count: > 0 } && _page.Rows.All(r => _selected.Contains(r.Id));
 
     private string PageTitleText => _site is not null ? _site.Name : _client is not null ? _client.Code : "Clients";
 
@@ -400,7 +399,6 @@
 
         var firstLoad = _scopeKey is null;
         _scopeKey = scopeKey;
-        _selected.Clear();
         _page = null;
         _rowsLoading = true;
 
@@ -498,11 +496,7 @@
 
         var endpointClass = _tab switch { ServersTab => EndpointClass.Server, WorkstationsTab => (EndpointClass?)EndpointClass.Workstation, _ => null };
         var query = new EndpointListQuery(SiteId is null ? ClientId : null, SiteId, endpointClass, _endpointSearch, _status, _tier);
-        await LoadAsync(async caller =>
-        {
-            _page = await EndpointSvc.ListAsync(caller, query);
-            _selected.IntersectWith(_page.Rows.Select(r => r.Id));
-        });
+        await LoadAsync(async caller => _page = await EndpointSvc.ListAsync(caller, query));
         _rowsLoading = false;
     }
 
@@ -588,37 +582,92 @@
     private void CloseDetail() =>
         Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("endpoint", (Guid?)null), new NavigationOptions { ReplaceHistoryEntry = true });
 
-    private void Toggle(Guid id, bool selected)
+    private async Task OnEndpointChangedAsync() => await Task.WhenAll(LoadRowsAsync(), LoadTreeAsync());
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Endpoint menu (right-click on a row)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    private static readonly IReadOnlyDictionary<string, object> NoRowMenu = new Dictionary<string, object>();
+
+    // MudTd suppresses the browser's context menu only when an oncontextmenu handler is present, so read-only users keep it.
+    private IReadOnlyDictionary<string, object> RowMenu(EndpointRow row) => CanManage
+        ? new Dictionary<string, object> { ["oncontextmenu"] = EventCallback.Factory.Create<MouseEventArgs>(this, e => OpenEndpointMenuAsync(e, row)) }
+        : NoRowMenu;
+
+    private async Task OpenEndpointMenuAsync(MouseEventArgs args, EndpointRow row)
     {
-        if (selected)
+        if (!CanManage || _endpointMenu is null)
         {
-            _selected.Add(id);
+            return;
         }
-        else
+
+        _menuRow = row;
+        await _endpointMenu.OpenMenuAsync(args);
+    }
+
+    /// <summary>Refreshes the list, and the detail below it when the changed endpoint is the one shown there.</summary>
+    private async Task AfterEndpointActionAsync(Guid endpointId)
+    {
+        await Task.WhenAll(LoadRowsAsync(), LoadTreeAsync());
+        if (endpointId == SelectedEndpointId && _detail is not null)
         {
-            _selected.Remove(id);
+            await _detail.RefreshAsync();
         }
     }
 
-    private void SelectAll(bool selected)
+    private async Task EditEndpointAsync(EndpointRow row)
     {
-        foreach (var row in _page?.Rows ?? [])
+        // The row carries neither the class override nor the sites of the client: load the endpoint itself.
+        EndpointDetail? endpoint = null;
+        await LoadAsync(async caller => endpoint = await EndpointSvc.GetAsync(caller, row.Id));
+        if (endpoint is null)
         {
-            Toggle(row.Id, selected);
+            return;
+        }
+
+        // Class and site save separately: refresh after the dialog even when only the first save succeeded.
+        var saved = false;
+        var parameters = new DialogParameters<EndpointDialog>
+        {
+            { d => d.Endpoint, endpoint },
+            {
+                d => d.OnSubmit, async (classOverride, classChanged, siteId, siteChanged) =>
+                {
+                    if (classChanged && !await RunAsync(caller => EndpointSvc.SetClassOverrideAsync(caller, row.Id, classOverride), null))
+                    {
+                        return false;
+                    }
+
+                    saved |= classChanged;
+                    if (siteChanged && !await RunAsync(caller => EndpointSvc.MoveAsync(caller, row.Id, siteId), null))
+                    {
+                        return false;
+                    }
+
+                    saved = true;
+                    Snackbar.Add($"{row.Hostname} was saved. It receives its new configuration shortly.", Severity.Success);
+                    return true;
+                }
+            }
+        };
+        var dialog = await DialogService.ShowAsync<EndpointDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        await dialog.Result;
+        if (saved)
+        {
+            await AfterEndpointActionAsync(row.Id);
         }
     }
 
-    private async Task SetTierAsync(EndpointTier tier)
+    private async Task SetTierAsync(EndpointRow row, EndpointTier tier)
     {
         _busy = true;
         try
         {
-            var ids = _selected.ToList();
             var label = tier == EndpointTier.Managed ? "managed" : "agent-only";
-            if (await RunAsync(caller => EndpointSvc.SetTierAsync(caller, ids, tier), $"{ids.Count} endpoint{(ids.Count == 1 ? " is" : "s are")} now {label}."))
+            if (await RunAsync(caller => EndpointSvc.SetTierAsync(caller, [row.Id], tier), $"{row.Hostname} is now {label}."))
             {
-                _selected.Clear();
-                await LoadRowsAsync();
+                await AfterEndpointActionAsync(row.Id);
             }
         }
         finally
@@ -627,11 +676,43 @@
         }
     }
 
-    private async Task OnEndpointChangedAsync() => await Task.WhenAll(LoadRowsAsync(), LoadTreeAsync());
-
-    private async Task OnEndpointDeletedAsync(Guid _)
+    private async Task RevokeEndpointAsync(EndpointRow row)
     {
-        CloseDetail();
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Revoke the agent of {row.Hostname}" },
+            { d => d.Message, "Every certificate of this agent is revoked and its connection is closed at once. The agent cannot reconnect or renew; to use this endpoint again, enroll it with a new token." },
+            { d => d.ReasonLabel, "Reason, for example a stolen laptop or a suspected clone" },
+            { d => d.ConfirmText, "Revoke agent" }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (!result!.Canceled && await RunAsync(caller => EndpointSvc.RevokeAsync(caller, row.Id, result.Data as string), "The agent was revoked."))
+        {
+            await AfterEndpointActionAsync(row.Id);
+        }
+    }
+
+    private async Task DeleteEndpointAsync(EndpointRow row)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Delete {row.Hostname}" },
+            { d => d.Message, "The endpoint and all of its data (inventory, checks, alerts, certificates) are removed and the agent is disconnected. If the agent is still installed, enroll it again to bring the endpoint back." },
+            { d => d.TypeToConfirm, row.Hostname },
+            { d => d.ConfirmText, "Delete endpoint" }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if ((await dialog.Result)!.Canceled || !await RunAsync(caller => EndpointSvc.DeleteAsync(caller, row.Id), $"{row.Hostname} was deleted."))
+        {
+            return;
+        }
+
+        if (row.Id == SelectedEndpointId)
+        {
+            CloseDetail();
+        }
+
         await Task.WhenAll(LoadRowsAsync(), LoadTreeAsync());
     }
 

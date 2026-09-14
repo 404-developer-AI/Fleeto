@@ -1,0 +1,74 @@
+@* Edit an endpoint: its class and its site. Opened from the endpoint menu of the clients workspace. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Edit endpoint · @Endpoint.Hostname</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.subtitle2" Class="mb-3">Management</MudText>
+        <MudSelect T="string" @bind-Value="_class" Variant="Variant.Outlined" Label="Endpoint class" Margin="Margin.Dense" Class="mb-4"
+                   HelperText="Detected from the OS edition. Override it when the detection does not fit.">
+            <MudSelectItem T="string" Value="@("detected")">Detected (@Ui.ClassLabel(Endpoint.DetectedClass))</MudSelectItem>
+            <MudSelectItem T="string" Value="@("workstation")">Workstation</MudSelectItem>
+            <MudSelectItem T="string" Value="@("server")">Server</MudSelectItem>
+        </MudSelect>
+        <MudSelect T="Guid" @bind-Value="_siteId" Variant="Variant.Outlined" Label="Site" Margin="Margin.Dense"
+                   HelperText="An endpoint can move between sites of the same client only.">
+            @foreach (var site in Endpoint.ClientSites)
+            {
+                <MudSelectItem T="Guid" Value="@site.Id">@site.Name</MudSelectItem>
+            }
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync" Disabled="@(_busy || !Changed)">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public EndpointDetail Endpoint { get; set; } = default!;
+
+    /// <summary>Saves the class override (when changed) and the site (when changed). Returns true when everything saved.</summary>
+    [Parameter] public Func<EndpointClass?, bool, Guid, bool, Task<bool>> OnSubmit { get; set; } = (_, _, _, _) => Task.FromResult(true);
+
+    private string _class = "detected";
+    private Guid _siteId;
+    private bool _busy;
+
+    private EndpointClass? ClassOverride => _class switch { "workstation" => EndpointClass.Workstation, "server" => EndpointClass.Server, _ => null };
+    private bool ClassChanged => ClassOverride != Endpoint.ClassOverride;
+    private bool SiteChanged => _siteId != Endpoint.SiteId;
+    private bool Changed => ClassChanged || SiteChanged;
+
+    protected override void OnInitialized()
+    {
+        _class = Endpoint.ClassOverride switch
+        {
+            EndpointClass.Workstation => "workstation",
+            EndpointClass.Server => "server",
+            _ => "detected"
+        };
+        _siteId = Endpoint.SiteId;
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(ClassOverride, ClassChanged, _siteId, SiteChanged))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

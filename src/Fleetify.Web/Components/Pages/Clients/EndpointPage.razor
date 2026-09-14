@@ -10,7 +10,7 @@
 {
     <MudBreadcrumbs Items="crumb" Class="px-0 pt-0 pb-3 fl-breadcrumbs" />
 }
-<EndpointDetailView EndpointId="EndpointId" OnChanged="LoadHeaderAsync" OnDeleted="OnDeletedAsync" />
+<EndpointDetailView EndpointId="EndpointId" OnChanged="LoadHeaderAsync" />
 
 @code {
     [Parameter]
@@ -35,10 +35,4 @@
             ];
         }
     });
-
-    private Task OnDeletedAsync(Guid siteId)
-    {
-        Navigation.NavigateTo($"/sites/{siteId}");
-        return Task.CompletedTask;
-    }
 }

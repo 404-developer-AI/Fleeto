@@ -35,8 +35,10 @@ Implementation of 0.0.x (foundation) and 0.1.0 (first usable release), to be rel
   pickup directory), license monitoring, encrypted backups (pg_dump and WAL shipping to
   S3-compatible storage or a directory), retention.
 - Web UI (Blazor Server, MudBlazor): first-admin setup, mandatory 2FA, dashboard with live
-  updates, clients, sites with Workstations/Servers/Mixed tabs and enrollment tokens, endpoint
-  pages, alerts, and a settings workspace (settings panel opened from the sidebar footer) with
+  updates, clients, sites with Workstations/Servers/Mixed tabs and enrollment tokens, a
+  right-click menu on the endpoint list (edit class and site, switch tier, revoke agent, delete
+  endpoint), endpoint pages (Summary with status and hardware, Checks, Software, History),
+  alerts, and a settings workspace (settings panel opened from the sidebar footer) with
   client and monitoring templates, policies, users, licensing, email, notification channels,
   backups, audit log and instance.
 - Licensing: signed license documents, license page, serialized license allocation, 14-day
