@@ -29,7 +29,11 @@ When a third released version is added, the oldest entry moves to the top of
   notifications only.
 - Off-VPS encrypted backups moved from 0.7.0 to 0.1.0 in the roadmap.
 - Every client-owned table carries its own `ClientId`, kept consistent by composite foreign
-  keys.
+  keys; tables that can be global or client-specific (policies, monitoring templates, check
+  definitions, scripts, script versions) carry a nullable `ClientId` equal to their parent's,
+  enforced by a constraint trigger.
+- Job execution state and output state are separate (`State` and `OutputState`), with a
+  `lost` state for jobs that never report completion.
 - License allocation and tier change run in one serialized transaction.
 - Enrollment response relies on the TLS connection validated against the pinned CA
   fingerprint instead of a separate signature.
@@ -46,8 +50,8 @@ When a third released version is added, the oldest entry moves to the top of
 - Signed jobs carry `InstanceId`, `EndpointId` and `ValidUntil`.
 - Remote control key exchange bound to the signed session token and the agent certificate.
 - Backups encrypted per file with ephemeral X25519 key agreement against a backup public key
-  whose private half stays offline, HKDF and chunked AES-256-GCM; write-only storage
-  credentials.
+  whose private half stays offline, HKDF and chunked AES-256-GCM with a per-file counter
+  nonce under a key that is never reused; write-only storage credentials.
 - `install.sh` verified by signature instead of `curl | sudo bash`; images pulled by digest.
 - API key format with 256-bit secret and `flt_` prefix; enrollment tokens stored hashed.
 - Documented that the host Caddy holds the TLS keys of every instance FQDN on the VPS, and

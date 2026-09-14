@@ -97,12 +97,12 @@ AuditEntry (append-only)
 | **AgentCertificate** | `Id`, `ClientId`, `EndpointId`, `Fingerprint`, `IssuedAt`, `ExpiresAt`, `RevokedAt?`, `RevokedBy?`, `RevokedReason?` | One row per issued certificate, renewals included. The gateway refuses every certificate with `RevokedAt` set. |
 | **Policy** | `Id`, `ClientId?`, `Name`, settings | Agent behaviour: intervals, patch behaviour, update ring, script permissions and **script approval required**, remote control rules (consent, recording), maintenance windows. `ClientId` null = global. |
 | **MonitoringTemplate** | `Id`, `ClientId?`, `Name` | Named set of `CheckDefinition`s with thresholds and alert rules. `ClientId` null = global. |
-| **CheckDefinition** | `Id`, `MonitoringTemplateId`, `Type`, `Interval`, `Thresholds`, `AppliesToClass` | Interval from seconds to monthly. |
+| **CheckDefinition** | `Id`, `ClientId?`, `MonitoringTemplateId`, `Type`, `Interval`, `Thresholds`, `AppliesToClass` | Interval from seconds to monthly. |
 | **ClientTemplate** | `Id`, `Name`, sites with linked policies and templates | Blueprint used at client creation. Linked, not copied: later changes apply to every client using it; a technician can make an independent copy. |
-| **Script**, **ScriptVersion** | `Id`, `ClientId?`, `Name`; version: `Number`, `Body`, `Sha256`, `AuthorId`, `ApprovedBy?`, `ApprovedAt?` | Every edit creates a new version. A version needs approval by a second admin before it runs on a site whose policy requires approval. |
-| **Job** | `Id`, `ClientId`, `EndpointId`, `Type`, `Payload`, `ValidUntil`, `Signature`, `InitiatedBy`, `State` (`pending_signature`, `queued`, `running`, `succeeded`, `failed`, `expired`, `refused`), `ExitCode`, `OutputComplete`, `OutputTruncated` | One row per endpoint. Idempotent by `Id`. Never delivered or executed after `ValidUntil`. |
+| **Script**, **ScriptVersion** | `Id`, `ClientId?`, `Name`; version: `ClientId?`, `Number`, `Body`, `Sha256`, `AuthorId`, `ApprovedBy?`, `ApprovedAt?` | Every edit creates a new version. A version needs approval by a second admin before it runs on a site whose policy requires approval. |
+| **Job** | `Id`, `ClientId`, `EndpointId`, `Type`, `Payload`, `ValidUntil`, `Signature`, `InitiatedBy`, `State` (`pending_signature`, `queued`, `running`, `succeeded`, `failed`, `expired`, `refused`, `lost`), `ExitCode`, `OutputState` (`none`, `receiving`, `complete`, `incomplete`), `OutputTruncated` | One row per endpoint. Idempotent by `Id`. Never delivered or executed after `ValidUntil`. `State` describes execution, `OutputState` describes the output; they move independently. |
 | **JobOutputChunk** | `ClientId`, `JobId`, `Stream` (`stdout`/`stderr`), `Sequence`, `Data`, `ReceivedAt` | Unique on `JobId`, `Stream`, `Sequence`. Protocol in §4, Job output. |
-| **SigningRequest** | `Id`, `Kind` (`job`, `session_token`, `agent_csr`, `gateway_csr`, `policy`), `SubjectId`, `RequestedBy`, `State`, `RefusalReason?` | Written by web or gateway, processed by the signer. |
+| **SigningRequest** | `Id`, `ClientId?`, `Kind` (`job`, `session_token`, `agent_csr`, `gateway_csr`, `policy`), `SubjectId`, `RequestedBy`, `State`, `RefusalReason?` | Written by web or gateway, processed by the signer. |
 | **License** | `Id`, `CustomerName`, `Fqdn`, `ManagedEndpointCount`, `ExpiresAt`, `SignedDocument` (encrypted) | One per instance. Verified offline with the Steaan license public key baked into the build. Grace period of 14 days after `ExpiresAt`. |
 | **ApiKey** | `Id`, `Name`, `Prefix`, `KeyHash`, `Scope` (`read`/`read_write`), `ClientIds?`, `CreatedBy`, `LastUsedAt`, `RevokedAt` | Plaintext shown once at creation. Format in §6. |
 | **RemoteSession** | `Id`, `ClientId`, `EndpointId`, `TechnicianId`, `Reason`, `StartedAt`, `EndedAt`, `ConsentGiven`, `BrowserKeyFingerprint`, `RecordingRef?` | Every session, whether it connected or not. |
@@ -122,8 +122,23 @@ table without joins. The redundant column cannot drift: it is part of a composit
 key to the parent (for example `Endpoint (SiteId, ClientId)` references
 `Site (Id, ClientId)`, `Job (EndpointId, ClientId)` references `Endpoint (Id, ClientId)`),
 so the database rejects a row whose `ClientId` differs from its parent's. Endpoints never
-move between clients; moving one means enrolling it again. Instance-wide tables (users,
-roles, global templates with `ClientId` null, license, integrations) are not client-owned.
+move between clients; moving one means enrolling it again.
+
+Three kinds of tables:
+
+- **Client-owned** (`ClientId` required): Site, Endpoint, AgentCertificate, Job,
+  JobOutputChunk, Alert, Note, InventorySnapshot, RemoteSession, CheckResult,
+  IntegrationMapping. Consistency by composite foreign key, as above.
+- **Global or client-specific** (`ClientId` nullable, null = global): Policy,
+  MonitoringTemplate, CheckDefinition, Script, ScriptVersion. A child always carries the
+  same `ClientId` as its parent (a CheckDefinition that of its MonitoringTemplate, a
+  ScriptVersion that of its Script), so a client-specific check or script is filtered like
+  any other client data. PostgreSQL does not check a composite foreign key when one of its
+  columns is null, so for these tables a constraint trigger enforces that child and parent
+  `ClientId` are equal, null included. Tests cover both directions.
+- **Instance-wide** (no `ClientId`): users, roles, API keys, client templates, license,
+  integrations, and SigningRequest and AuditEntry rows that concern no client (their
+  `ClientId` is null).
 
 ## 3. Agents
 
@@ -242,12 +257,23 @@ each chunk idempotently (unique on `JobId`, `Stream`, `Sequence`; a duplicate is
 acknowledged and ignored) and acknowledges it after the write → the agent deletes a chunk
 from disk only after its ack and, after a reconnect, resends every unacknowledged chunk.
 When the process exits the agent sends `JobCompletion` with the exit code and, per stream,
-the final chunk count, total byte count and SHA-256 → the job becomes `succeeded` or `failed`
-only when every chunk up to that count is stored and the hashes match; until then it shows
-"output incomplete" and the gateway asks the agent for the missing sequence numbers. Output
-per job is capped (default 50 MiB, configurable per policy); beyond the cap the agent stops
-sending, records the truncation in `JobCompletion` and the UI says so. Execution is never
-repeated to recover output.
+the final chunk count, total byte count and SHA-256. Execution state and output state are
+separate:
+
+- **Execution**: `JobCompletion` sets `State` to `succeeded` or `failed` from the exit code
+  at once, whatever the output looks like. A job that stays `running` without a
+  `JobCompletion` beyond its maximum runtime (set per job type) becomes `lost`: the result
+  is unknown, and the UI says so rather than guessing.
+- **Output**: `OutputState` is `receiving` while chunks arrive and becomes `complete` when
+  every chunk up to the announced counts is stored and the hashes match. While chunks are
+  missing, the gateway asks the agent for them on every reconnect. The agent keeps
+  unacknowledged output on disk for 7 days; when that passes, or the endpoint is removed,
+  without the output being complete, `OutputState` becomes `incomplete` for good and the UI
+  shows which part is missing. So a job can be `succeeded` with output `incomplete`.
+
+Output per job is capped (default 50 MiB, configurable per policy); beyond the cap the
+agent stops sending, records the truncation in `JobCompletion` (`OutputTruncated`) and the
+UI says so. Execution is never repeated to recover output.
 
 **Script approval.** When a site's policy has script approval required, jobs for its
 endpoints may only run library scripts whose current version is approved. An author saves
@@ -432,10 +458,16 @@ container:
 - Nightly `pg_dump` plus continuous WAL archiving, per instance.
 - Encrypted on the VPS before upload, using the instance's **backup public key** for key
   agreement only. Per file: generate an ephemeral X25519 key pair → X25519 with the backup
-  public key gives a shared secret → HKDF-SHA256 derives a file key → the file is encrypted
-  in chunks of 1 MiB with AES-256-GCM (nonce from chunk counter, last chunk flagged so
-  truncation is detected) → the ephemeral public key is stored in the file header. Never
-  "encrypt with X25519" directly. The private key never exists on the VPS, so neither a
+  public key gives a shared secret → HKDF-SHA256 derives a file key (the HKDF input includes
+  both public keys) → the file is encrypted in chunks of 1 MiB with AES-256-GCM → the
+  ephemeral public key is stored in the file header. Never "encrypt with X25519" directly.
+- Nonces: the 96-bit nonce is an 88-bit big-endian chunk counter plus one final byte that
+  is 1 for the last chunk and 0 otherwise, so truncation or reordering is detected. The
+  counter starts at 0 for every file. This is safe only because every file gets a fresh
+  ephemeral key pair and therefore its own file key: a file key is never used for a second
+  file, a retry of an upload re-encrypts with a new ephemeral key, and a (key, nonce) pair is
+  never used twice. Tests assert that two encryptions of the same file produce different
+  keys. The private key never exists on the VPS, so neither a
   compromised VPS nor the storage provider can read a backup.
 - Destination: S3-compatible object storage in the EU, configured per instance in Settings
   (first-admin setup asks for it). Credentials are write-only (no read, no delete) and stored
