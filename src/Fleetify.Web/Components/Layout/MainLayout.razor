@@ -30,109 +30,49 @@
             <MudNavLink Href="/clients" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Business" title="Clients"
                         Class="@(IsClientsArea ? "active" : "")">Clients</MudNavLink>
             <MudNavLink Href="/alerts" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.NotificationsActive" title="Alerts">Alerts</MudNavLink>
-            <MudNavGroup Title="Templates" Icon="@Icons.Material.Outlined.LibraryBooks" Expanded="@(_navOpen && _templatesExpanded)"
-                         ExpandedChanged="@(v => OnGroupExpandedAsync(v, isTemplates: true))">
-                <MudNavLink Href="/templates/client-templates" Match="NavLinkMatch.Prefix">Client templates</MudNavLink>
-                <MudNavLink Href="/templates/monitoring-templates" Match="NavLinkMatch.Prefix">Monitoring templates</MudNavLink>
-                <MudNavLink Href="/templates/policies" Match="NavLinkMatch.Prefix">Policies</MudNavLink>
-            </MudNavGroup>
-            <AuthorizeView Policy="@FleetifyPolicies.Admin">
-                <MudNavGroup Title="Settings" Icon="@Icons.Material.Outlined.Settings" Expanded="@(_navOpen && _settingsExpanded)"
-                             ExpandedChanged="@(v => OnGroupExpandedAsync(v, isTemplates: false))">
-                    <MudNavLink Href="/settings/users" Match="NavLinkMatch.Prefix">Users</MudNavLink>
-                    <MudNavLink Href="/settings/licensing" Match="NavLinkMatch.Prefix">Licensing</MudNavLink>
-                    <MudNavLink Href="/settings/email" Match="NavLinkMatch.Prefix">Email</MudNavLink>
-                    <MudNavLink Href="/settings/notification-channels" Match="NavLinkMatch.Prefix">Notification channels</MudNavLink>
-                    <MudNavLink Href="/settings/backups" Match="NavLinkMatch.Prefix">Backups</MudNavLink>
-                    <MudNavLink Href="/settings/audit-log" Match="NavLinkMatch.Prefix">Audit log</MudNavLink>
-                    <MudNavLink Href="/settings/instance" Match="NavLinkMatch.Prefix">Instance</MudNavLink>
-                </MudNavGroup>
-            </AuthorizeView>
         </MudNavMenu>
 
         <MudSpacer />
 
-        <div class="sidebar-bottom">
+        @* Sidebar footer: collapse button, then a hairline and the status (live dot, version, date and time) with the settings,
+           profile and create buttons beside it. Collapsed, the buttons stack above the collapse button and the status shrinks
+           to the dot and the time. *@
+        <div class="sidebar-bottom @(_navOpen ? "" : "collapsed")">
+            @if (!_navOpen)
+            {
+                <div class="sidebar-actions stacked">@SidebarActions</div>
+            }
+
             @if (_navOpen)
             {
                 <button type="button" class="sidebar-collapse" @onclick="() => SetNavOpenAsync(false)">
-                    <MudIcon Icon="@Icons.Material.Outlined.ChevronLeft" Size="Size.Small" />
+                    <MudIcon Icon="@Icons.Material.Outlined.ChevronLeft" Class="sidebar-collapse-icon" />
                     <span>Collapse</span>
                 </button>
             }
             else
             {
-                <MudTooltip Text="Expand navigation" Placement="Placement.Right">
-                    <button type="button" class="sidebar-collapse icon-only" aria-label="Expand navigation" @onclick="() => SetNavOpenAsync(true)">
-                        <MudIcon Icon="@Icons.Material.Outlined.ChevronRight" Size="Size.Small" />
+                <MudTooltip Text="Expand navigation" Placement="Placement.Right" RootClass="d-block">
+                    <button type="button" class="sidebar-collapse" aria-label="Expand navigation" @onclick="() => SetNavOpenAsync(true)">
+                        <MudIcon Icon="@Icons.Material.Outlined.ChevronRight" Class="sidebar-collapse-icon" />
                     </button>
                 </MudTooltip>
             }
 
-            <div class="sidebar-footer @(_navOpen ? "" : "collapsed")">
+            <div class="sidebar-footer">
                 <SidebarStatus Collapsed="@(!_navOpen)" />
-                <div class="sidebar-footer-actions">
-                    <AuthorizeView Policy="@FleetifyPolicies.Admin">
-                        <MudTooltip Text="Settings" Placement="@(_navOpen ? Placement.Top : Placement.Right)">
-                            <a href="/settings/users" class="sidebar-square" aria-label="Settings">
-                                <MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" />
-                            </a>
-                        </MudTooltip>
-                    </AuthorizeView>
-                    <AuthorizeView>
-                        <Authorized>
-                            <MudMenu AnchorOrigin="@(_navOpen ? Origin.TopLeft : Origin.CenterRight)" TransformOrigin="@(_navOpen ? Origin.BottomLeft : Origin.CenterLeft)"
-                                     aria-label="Profile">
-                                <ActivatorContent Context="menuContext">
-                                    <MudTooltip Text="Profile" Placement="@(_navOpen ? Placement.Top : Placement.Right)">
-                                        <span class="sidebar-square" role="button" aria-label="Profile">
-                                            <MudIcon Icon="@Icons.Material.Outlined.AccountCircle" Size="Size.Small" />
-                                        </span>
-                                    </MudTooltip>
-                                </ActivatorContent>
-                                <ChildContent>
-                                    <div class="profile-menu-header">
-                                        <div class="profile-menu-name">@(_caller?.Name ?? context.User.Identity?.Name)</div>
-                                        @if (_caller is { } caller)
-                                        {
-                                            <div class="profile-menu-detail">@caller.Email</div>
-                                            <div class="profile-menu-detail">@RoleText(caller)</div>
-                                        }
-                                    </div>
-                                    <MudDivider />
-                                    <MudMenuItem Icon="@Icons.Material.Outlined.Logout" OnClick="SignOutAsync">Sign out</MudMenuItem>
-                                </ChildContent>
-                            </MudMenu>
-                            @* The menu item submits this form: signing out is a POST with an antiforgery token. *@
-                            <form id="fleeto-sign-out" method="post" action="/api/account/logout" class="d-none">
-                                <AntiforgeryToken />
-                            </form>
-                        </Authorized>
-                    </AuthorizeView>
-                    <AuthorizeView Policy="@FleetifyPolicies.Technician">
-                        <MudMenu AnchorOrigin="@(_navOpen ? Origin.TopRight : Origin.CenterRight)" TransformOrigin="@(_navOpen ? Origin.BottomRight : Origin.CenterLeft)"
-                                 aria-label="Create">
-                            <ActivatorContent Context="menuContext">
-                                <MudTooltip Text="Create" Placement="@(_navOpen ? Placement.Top : Placement.Right)">
-                                    <span class="sidebar-square primary" role="button" aria-label="Create">
-                                        <MudIcon Icon="@Icons.Material.Outlined.Add" Size="Size.Small" />
-                                    </span>
-                                </MudTooltip>
-                            </ActivatorContent>
-                            <ChildContent>
-                                <MudMenuItem Icon="@Icons.Material.Outlined.Business" Href="/clients?new=true">New client</MudMenuItem>
-                                <MudMenuItem Icon="@Icons.Material.Outlined.AccountTree" Href="/templates/client-templates?new=true">New client template</MudMenuItem>
-                                <MudMenuItem Icon="@Icons.Material.Outlined.Rule" Href="/templates/monitoring-templates?new=true">New monitoring template</MudMenuItem>
-                                <MudMenuItem Icon="@Icons.Material.Outlined.Tune" Href="/templates/policies?new=true">New policy</MudMenuItem>
-                                <AuthorizeView Policy="@FleetifyPolicies.Admin" Context="adminContext">
-                                    <MudDivider />
-                                    <MudMenuItem Icon="@Icons.Material.Outlined.PersonAdd" Href="/settings/users?new=true">New user</MudMenuItem>
-                                </AuthorizeView>
-                            </ChildContent>
-                        </MudMenu>
-                    </AuthorizeView>
-                </div>
+                @if (_navOpen)
+                {
+                    <div class="sidebar-actions">@SidebarActions</div>
+                }
             </div>
+
+            <AuthorizeView>
+                @* The profile menu submits this form: signing out is a POST with an antiforgery token. *@
+                <form id="fleeto-sign-out" method="post" action="/api/account/logout" class="d-none">
+                    <AntiforgeryToken />
+                </form>
+            </AuthorizeView>
         </div>
     </MudDrawer>
 
@@ -159,15 +99,11 @@
     private bool _allowed;
     private Caller? _caller;
     private bool _navOpen = true;
-    private bool _templatesExpanded;
-    private bool _settingsExpanded;
 
     private bool IsClientsArea => IsUnder("/clients") || IsUnder("/sites") || IsUnder("/endpoints");
 
     protected override async Task OnInitializedAsync()
     {
-        _templatesExpanded = IsUnder("/templates");
-        _settingsExpanded = IsUnder("/settings");
         Navigation.LocationChanged += OnLocationChanged;
         var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
         // Layout gate: a session without completed two-factor setup never renders a page body. The middleware already refuses
@@ -255,26 +191,69 @@
         }
     }
 
+    // Settings, profile and create: beside the status when the navigation is open, stacked above the collapse button when not.
+    private RenderFragment SidebarActions => __builder =>
+    {
+        var tooltip = _navOpen ? Placement.Top : Placement.Right;
+        var anchor = _navOpen ? Origin.TopRight : Origin.BottomRight;
+        var transform = _navOpen ? Origin.BottomRight : Origin.BottomLeft;
+        <AuthorizeView Policy="@FleetifyPolicies.Viewer">
+            <MudTooltip Text="Settings" Placement="tooltip">
+                <a href="/settings/client-templates" class="sidebar-square @(IsUnder("/settings") ? "active" : "")" aria-label="Settings">
+                    <MudIcon Icon="@Icons.Material.Outlined.Settings" Class="sidebar-square-icon" />
+                </a>
+            </MudTooltip>
+        </AuthorizeView>
+        <AuthorizeView>
+            <Authorized>
+                <MudMenu AnchorOrigin="anchor" TransformOrigin="transform" aria-label="Profile">
+                    <ActivatorContent Context="menuContext">
+                        <MudTooltip Text="@(_caller?.Email ?? "Profile")" Placement="tooltip">
+                            <button type="button" class="sidebar-square" aria-label="Profile" @onclick="menuContext.ToggleAsync">
+                                <MudIcon Icon="@Icons.Material.Outlined.AccountCircle" Class="sidebar-square-icon" />
+                            </button>
+                        </MudTooltip>
+                    </ActivatorContent>
+                    <ChildContent>
+                        <div class="profile-menu-header">
+                            <div class="profile-menu-name">@(_caller?.Name ?? context.User.Identity?.Name)</div>
+                            @if (_caller is { } caller)
+                            {
+                                <div class="profile-menu-detail">@caller.Email</div>
+                                <div class="profile-menu-role">@RoleText(caller)</div>
+                            }
+                        </div>
+                        <MudDivider />
+                        <MudMenuItem Icon="@Icons.Material.Outlined.Logout" OnClick="SignOutAsync">Sign out</MudMenuItem>
+                    </ChildContent>
+                </MudMenu>
+            </Authorized>
+        </AuthorizeView>
+        <AuthorizeView Policy="@FleetifyPolicies.Technician">
+            <MudMenu AnchorOrigin="anchor" TransformOrigin="transform" aria-label="Create">
+                <ActivatorContent Context="menuContext">
+                    <MudTooltip Text="Create" Placement="tooltip">
+                        <button type="button" class="sidebar-square primary" aria-label="Create" @onclick="menuContext.ToggleAsync">
+                            <MudIcon Icon="@Icons.Material.Outlined.Add" Class="sidebar-square-icon" />
+                        </button>
+                    </MudTooltip>
+                </ActivatorContent>
+                <ChildContent>
+                    <MudMenuItem Icon="@Icons.Material.Outlined.Business" Href="/clients?new=true">New client</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Outlined.AccountTree" Href="/settings/client-templates?new=true">New client template</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Outlined.Rule" Href="/settings/monitoring-templates?new=true">New monitoring template</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Outlined.Tune" Href="/settings/policies?new=true">New policy</MudMenuItem>
+                    <AuthorizeView Policy="@FleetifyPolicies.Admin" Context="adminContext">
+                        <MudDivider />
+                        <MudMenuItem Icon="@Icons.Material.Outlined.PersonAdd" Href="/settings/users?new=true">New user</MudMenuItem>
+                    </AuthorizeView>
+                </ChildContent>
+            </MudMenu>
+        </AuthorizeView>
+    };
+
     private static string RoleText(Caller caller) =>
         caller.IsAdmin ? "Admin" : caller.CanManage ? "Technician" : "Read-only";
-
-    // Opening a group from the collapsed navigation expands the navigation, otherwise its links would stay hidden.
-    private async Task OnGroupExpandedAsync(bool expanded, bool isTemplates)
-    {
-        if (isTemplates)
-        {
-            _templatesExpanded = expanded;
-        }
-        else
-        {
-            _settingsExpanded = expanded;
-        }
-
-        if (expanded && !_navOpen)
-        {
-            await SetNavOpenAsync(true);
-        }
-    }
 
     private bool IsUnder(string prefix) =>
         ("/" + Navigation.ToBaseRelativePath(Navigation.Uri)).StartsWith(prefix, StringComparison.OrdinalIgnoreCase);

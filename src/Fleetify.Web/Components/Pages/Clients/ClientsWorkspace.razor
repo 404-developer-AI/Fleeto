@@ -156,7 +156,8 @@
                         <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" aria-label="Filter endpoints">
                             <ActivatorContent>
                                 <MudBadge Dot="true" Color="Color.Primary" Visible="@FiltersActive" Overlap="true">
-                                    <MudIconButton Icon="@Icons.Material.Outlined.FilterList" Variant="Variant.Outlined" Size="Size.Medium" aria-label="Filter endpoints" />
+                                    <MudIconButton Icon="@Icons.Material.Outlined.FilterList" Variant="Variant.Outlined" Size="Size.Medium" aria-label="Filter endpoints"
+                                                   OnClick="@context.ToggleAsync" />
                                 </MudBadge>
                             </ActivatorContent>
                             <ChildContent>

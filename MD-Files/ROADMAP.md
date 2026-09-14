@@ -29,7 +29,7 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
 - [done] Release signing tooling: release key, signed release manifest with image digests, signed
   `install.sh` (verifiable with openssl). [open] Production key on a hardware token.
 - [done] Users, roles, login, mandatory TOTP 2FA, first-admin setup flow with backup step.
-- [done] Clients, sites, endpoints: CRUD, clients workspace (clients panel, endpoint list with tabs Servers / Workstations / Mixed, endpoint detail below the list), collapsible navigation.
+- [done] Clients, sites, endpoints: CRUD, clients workspace (clients panel, endpoint list with tabs Servers / Workstations / Mixed, endpoint detail below the list), collapsible navigation, settings workspace (settings panel with templates and administration pages, opened from the sidebar footer).
 - [done] Client templates, monitoring templates, policies: CRUD, linking to sites, copy.
 - [done] Endpoint tier with server-side enforcement in four layers; license format, signing tool,
   license page, pool counting with serialized allocation, 14-day grace period.

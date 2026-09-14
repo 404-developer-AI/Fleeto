@@ -51,6 +51,9 @@ window.fleeto = {
     function paint() {
       var text = format.format(new Date()).replace(",", "");
       document.querySelectorAll("[data-fleeto-clock]").forEach(function (element) { element.textContent = text; });
+      // Collapsed navigation: hours and minutes only ("dd/mm/yyyy hh:mm:ss" ends with the time).
+      var shortText = text.slice(-8, -3);
+      document.querySelectorAll("[data-fleeto-clock-short]").forEach(function (element) { element.textContent = shortText; });
       document.querySelectorAll("[data-fleeto-live]").forEach(function (element) {
         element.setAttribute("data-state", state);
         element.title = state === "ok"

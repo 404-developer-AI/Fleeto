@@ -1,4 +1,4 @@
-@page "/templates/monitoring-templates"
+@page "/settings/monitoring-templates"
 @attribute [Authorize(Policy = FleetifyPolicies.Viewer)]
 @inherits FleetoPageBase
 @inject MonitoringTemplateService TemplateSvc
@@ -41,7 +41,7 @@
             </HeaderContent>
             <RowTemplate>
                 <MudTd>
-                    <MudLink Href="@($"/templates/monitoring-templates/{context.Id}")"><strong>@context.Name</strong></MudLink>
+                    <MudLink Href="@($"/settings/monitoring-templates/{context.Id}")"><strong>@context.Name</strong></MudLink>
                     @if (!string.IsNullOrEmpty(context.Description))
                     {
                         <div class="muted" style="font-size:0.8125rem">@context.Description</div>
@@ -99,7 +99,7 @@
         await dialog.Result;
         if (createdId is { } id)
         {
-            Navigation.NavigateTo($"/templates/monitoring-templates/{id}");
+            Navigation.NavigateTo($"/settings/monitoring-templates/{id}");
         }
     }
 

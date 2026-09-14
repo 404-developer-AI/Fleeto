@@ -36,8 +36,9 @@ Implementation of 0.0.x (foundation) and 0.1.0 (first usable release), to be rel
   S3-compatible storage or a directory), retention.
 - Web UI (Blazor Server, MudBlazor): first-admin setup, mandatory 2FA, dashboard with live
   updates, clients, sites with Workstations/Servers/Mixed tabs and enrollment tokens, endpoint
-  pages, alerts, client and monitoring templates, policies, settings for users, licensing, email,
-  notification channels, backups, audit log and instance.
+  pages, alerts, and a settings workspace (settings panel opened from the sidebar footer) with
+  client and monitoring templates, policies, users, licensing, email, notification channels,
+  backups, audit log and instance.
 - Licensing: signed license documents, license page, serialized license allocation, 14-day
   grace period, protected clock.
 - Deployment: Dockerfiles, per-instance Compose stack, host Caddy with layer4 SNI passthrough,

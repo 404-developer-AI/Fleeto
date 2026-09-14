@@ -1,4 +1,4 @@
-@page "/templates/monitoring-templates/{TemplateId:guid}"
+@page "/settings/monitoring-templates/{TemplateId:guid}"
 @attribute [Authorize(Policy = FleetifyPolicies.Viewer)]
 @inherits FleetoPageBase
 @inject MonitoringTemplateService TemplateSvc
@@ -9,7 +9,7 @@
 <LoadState Loading="Loading" Failed="LoadFailed" NotFound="_notFound" What="monitoring template">
     @if (_template is { } template)
     {
-        <div class="mb-1"><a href="/templates/monitoring-templates" class="breadcrumb-link">Monitoring templates</a></div>
+        <div class="mb-1"><a href="/settings/monitoring-templates" class="breadcrumb-link">Monitoring templates</a></div>
         <div class="page-header">
             <div>
                 <MudText Typo="Typo.h4" Class="page-title">@template.Name</MudText>

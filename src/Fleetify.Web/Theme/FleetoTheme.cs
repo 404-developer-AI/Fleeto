@@ -63,6 +63,7 @@ public static class FleetoTheme
         {
             DefaultBorderRadius = "8px",
             DrawerWidthLeft = "260px",
+            DrawerMiniWidthLeft = "76px",
             AppbarHeight = "0px"
         }
     };

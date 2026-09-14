@@ -4,13 +4,18 @@
 @* Live connection dot, version and clock at the bottom of the navigation. The browser pings the circuit every 5 seconds and turns
    the dot red when the server does not answer; the clock runs in the browser in the user's own time zone. *@
 <div class="sidebar-status @(Collapsed ? "collapsed" : "")">
-    <span class="live-dot" data-fleeto-live role="status" aria-label="Connection to the server"></span>
-    @if (!Collapsed)
+    @if (Collapsed)
     {
-        <div class="sidebar-status-text">
-            <span>v@(FleetifyVersion.Current)</span>
-            <span data-fleeto-clock></span>
+        <span class="live-dot" data-fleeto-live role="status" aria-label="Connection to the server"></span>
+        <span class="sidebar-clock" data-fleeto-clock-short></span>
+    }
+    else
+    {
+        <div class="sidebar-status-line">
+            <span class="live-dot" data-fleeto-live role="status" aria-label="Connection to the server"></span>
+            <span class="sidebar-version">v@(FleetifyVersion.Current)</span>
         </div>
+        <span class="sidebar-clock" data-fleeto-clock></span>
     }
 </div>
 

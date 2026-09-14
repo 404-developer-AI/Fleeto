@@ -112,12 +112,15 @@ UI structure:
   exist: Summary, Checks, Software, Assets, History today; jobs, patches, remote control and
   notes arrive with their versions.
 - **Navigation**: a persistent sidebar that collapses to icons; the choice is remembered per
-  browser.
+  browser. It lists Dashboard, Clients and Alerts; its footer holds the settings, profile and
+  create buttons.
 - **No placeholder UI**: a feature that is not built has no button, tab or menu item, not even
   a disabled or hidden one.
-- **Templates**: client templates, monitoring templates, policies.
-- **Settings**: users and roles, licensing, API keys, integrations, notification channels,
-  retention, audit log.
+- **Settings**: opened from the settings button in the sidebar footer. One workspace like
+  Clients: left, a settings panel; right, the selected page. Group **Templates** (client
+  templates, monitoring templates, policies) for every user, and the administration pages for
+  admins: users and roles, licensing, API keys, integrations, notification channels, retention,
+  audit log.
 
 ## Licensing: per endpoint, two tiers
 
