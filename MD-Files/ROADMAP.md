@@ -14,7 +14,7 @@ build (decided 2026-09-15). What was listed as open before the tag stays a check
 run; its release build failed), `v0.2.0-alpha.2` (first published test build), `v0.2.0-alpha.3` (VPS behind NAT, first VPS install), `v0.2.0-alpha.4` (fixes from the first install) and `v0.2.0-alpha.5` (network MTU). `v0.2.0-alpha.5` runs on the first test VPS.
 
 **0.2.1** — planned: read-only public API, Servicedesk ticket reference on notes, agent self-update with update rings,
-watchdog, Linux agent, arm64 agents and the script features deferred from 0.2.0.
+watchdog, Linux agent, arm64 agents, the script features deferred from 0.2.0 and the icon for the installed web app.
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
 2026-09-15, see Later).
@@ -220,6 +220,11 @@ Everything that was still open for 0.2.0, moved here on 2026-09-15, with the dev
   endpoints (deferred from 0.2.0).
 - [open] Output cap for job output per policy instead of the fixed 50 MiB (deferred from 0.2.0).
 - [open] Run a script as the logged-on user instead of SYSTEM or root (deferred from 0.2.0).
+- [open] Fleeto icon for the installed web app: the instance only serves an SVG favicon and no web app manifest, so
+  installing Fleeto from the browser shows a generic icon. Add `manifest.webmanifest` (name Fleeto, standalone display,
+  theme colour teal `#0F766E`) with PNG icons made from the favicon mark (192 and 512 px, plus a maskable 512 px),
+  an `apple-touch-icon` (180 px) and the `theme-color` meta tag in `App.razor`; check that the manifest and icons are
+  served without sign-in and allowed by the CSP.
 - [open] Remove the container images of the failed `v0.2.0-alpha.1` release from ghcr.io.
 - Not supported for now: **macOS** (decided 2026-09-15): no macOS agent, watchdog, remote control or remote terminal.
   It may come later when there is demand (see Later).
