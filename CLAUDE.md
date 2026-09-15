@@ -180,8 +180,8 @@ Screen takeover is built into Fleeto: no external tool, no third-party account.
   outside the relay: the signed session token carries the browser's ephemeral public key and
   the agent signs its own with its certificate key, so a compromised gateway cannot sit in
   the middle. Details in `MD-Files/ARCHITECTURE.md` §4 and §5.
-- Platforms in order: Windows, macOS (needs the Screen Recording and Accessibility
-  permissions), Linux (X11 first, Wayland later).
+- Platforms in order: Windows, Linux (X11 first, Wayland later). macOS is not supported for now
+  (decided 2026-09-15; possibly later when there is demand).
 
 ## Public API
 
@@ -386,8 +386,9 @@ home-grown patch engine, file transfer inside remote control. Note them, do not 
 - **Remote control transport**: WebRTC with the gateway as TURN relay vs. a plain WebSocket
   relay through the gateway. Prototype both on Windows before the remote control milestone.
 - **Action1**: to be worked out when the Action1 milestone starts: platform coverage (Windows
-  confirmed; macOS and Linux to check), API rate limits, licensing model, and how Action1
+  confirmed; Linux to check), API rate limits, licensing model, and how Action1
   organizations map to Fleeto clients.
 - Final product name — "Fleeto" is a working title; a Google Play app "Fleeto" exists in vehicle fleet management. Do the BOIP/EUIPO and domain checks before public use.
 - Pricing per managed endpoint is undecided.
-- Apple platform depth: monitoring only, or also patch/MDM-adjacent features (scope risk).
+- Apple platforms: not supported for now (decided 2026-09-15). When there is demand, decide the depth (monitoring only,
+  or also patch/MDM-adjacent features) and get an Apple Developer account for signing and notarisation.

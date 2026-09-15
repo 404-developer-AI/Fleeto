@@ -131,6 +131,8 @@ first VPS install; `0.2.0-alpha.3` adds support for a VPS behind NAT, `0.2.0-alp
 
 ### Changed
 
+- 0.2.0: macOS is not supported for now (decided 2026-09-15): the UI names Windows and Linux as the platforms of checks
+  and scripts.
 - 0.2.0: The Docker networks of an instance use the MTU of the VPS uplink (detected by install.sh, 1280 to 1500), so containers
   work on a 1400 link without relying on "packet too big" messages or MSS clamping. An update recreates the networks when
   the MTU changed.

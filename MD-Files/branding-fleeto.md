@@ -28,7 +28,7 @@ Sibling products: Migravo (mailbox migration), Ticksy (servicedesk). Same design
 | Context | Text |
 |---|---|
 | Fleeto tagline | Monitor and manage every endpoint with confidence. |
-| Fleeto lede | Fleeto keeps an eye on your Windows, Linux and macOS endpoints, your Proxmox and VMware hosts, and the tools around them — with checks that run on your schedule, from every few seconds to once a month. |
+| Fleeto lede | Fleeto keeps an eye on your Windows and Linux endpoints, your Proxmox and VMware hosts, and the tools around them — with checks that run on your schedule, from every few seconds to once a month. |
 | Primary call to action | Start for free with agent-only endpoints |
 | Secondary call to action | See how it works |
 | Reassurance line | No credit card required · Cancel anytime |
@@ -38,7 +38,7 @@ Messaging pillars, in priority order:
 1. **Trust**: security first — signed agents, encrypted transport, full audit trail.
 2. **Reliability**: the platform stays up and tells the truth; an alert means something.
 3. **Speed**: dashboards and log search respond instantly, even at 10,000 endpoints.
-4. **Any platform**: Windows, Linux, macOS, Proxmox, VMware, and API integrations for the rest.
+4. **Any platform**: Windows, Linux, Proxmox, VMware, and API integrations for the rest.
 
 Avoid: fear-based wording ("before disaster strikes"), exclamation marks, superlatives, "AI-powered" fluff.
 

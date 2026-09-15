@@ -4,7 +4,7 @@ public enum ScriptLanguage
 {
     PowerShell,
     Batch,
-    /// <summary>POSIX sh on Linux and macOS.</summary>
+    /// <summary>POSIX sh on Linux.</summary>
     Shell,
     Bash
 }

@@ -26,7 +26,7 @@ public static class ScriptLanguages
     };
 
     public static string PlatformLabel(ScriptLanguage language) =>
-        language is ScriptLanguage.PowerShell or ScriptLanguage.Batch ? "Windows" : "Linux and macOS";
+        language is ScriptLanguage.PowerShell or ScriptLanguage.Batch ? "Windows" : "Linux";
 
     /// <summary>
     /// The body as stored and signed: Batch uses CRLF line endings (cmd.exe misreads labels otherwise), every other language LF.

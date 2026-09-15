@@ -312,7 +312,8 @@ public static partial class CheckCatalog
 
     public static string PlatformLabel(CheckPlatforms platforms) => platforms switch
     {
-        CheckPlatforms.All => "Windows, Linux and macOS",
+        // macOS is not supported for now (decided 2026-09-15), so a check for every platform names the supported ones.
+        CheckPlatforms.All => "Windows and Linux",
         CheckPlatforms.Windows => "Windows only",
         CheckPlatforms.Windows | CheckPlatforms.Linux => "Windows and Linux",
         _ => string.Join(", ", Enum.GetValues<CheckPlatforms>().Where(p => p != CheckPlatforms.All && platforms.HasFlag(p)))

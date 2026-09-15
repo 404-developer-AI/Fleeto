@@ -162,7 +162,9 @@ Three kinds of tables:
 ## 3. Agents
 
 - **One codebase, Go**: single static binary per platform, no runtime dependencies on the
-  endpoint. Targets: Windows (service running as SYSTEM), Linux (systemd), macOS (launchd).
+  endpoint. Targets: Windows (service running as SYSTEM) and Linux (systemd, 0.2.1), on amd64 and arm64. macOS is not
+  supported for now and may come when there is demand (decided 2026-09-15); the code keeps building for it only so the
+  platform abstraction stays honest.
   Proxmox hosts are Debian, so the Linux agent applies, plus optional Proxmox API
   integration for VM inventory.
 - **VMware ESXi gets no agent**: monitored agentless through the vCenter/ESXi API from the
@@ -248,8 +250,8 @@ Three kinds of tables:
     the alert is "Watchdog stopped". Both alerts are for managed endpoints only.
   - The watchdog installs agent updates and rolls back to the previous binary when the new one
     does not come up; both binaries are installed only with a valid Steaan release signature.
-- **Remote terminal (0.3.0, design).** An interactive terminal as SYSTEM (cmd and PowerShell on
-  Windows, sh on Linux and macOS), served by the watchdog so it also works when the agent is
+- **Remote terminal (0.3.0, design).** An interactive terminal as SYSTEM or root (cmd and PowerShell on
+  Windows, sh on Linux), served by the watchdog so it also works when the agent is
   broken. Same trust model as remote control: a single-use session token from the signer bound
   to the technician, endpoint and the browser's ephemeral key, end-to-end encryption between
   browser and watchdog, the gateway relays ciphertext only. Admins and technicians, managed
@@ -512,7 +514,7 @@ A job that is not signed within 15 minutes becomes `refused` (the signer did not
 cancelled while it waits for its signature or is queued and not yet delivered; delivery and cancel are
 atomic, so a delivered job cannot be cancelled. Scripts run at most 4 at a time per agent, with a timeout
 from 30 seconds to 24 hours set per version (default 10 minutes); the whole process tree ends at the timeout
-(a job object on Windows, a process group on Linux and macOS). A job that was running when the agent
+(a job object on Windows, a process group on Linux). A job that was running when the agent
 stopped is reported as `interrupted` after the restart and becomes `lost`: it is never started again, since
 running it twice could be worse than not knowing. Running a script as the logged-on user comes later
 (decided 2026-09-15).

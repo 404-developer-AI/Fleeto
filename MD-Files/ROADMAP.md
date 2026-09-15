@@ -7,15 +7,20 @@
 
 ## Current
 
-**0.1.0** — implemented and tested on a development PC, waiting for the developer's local test.
-Not tagged yet; it gets a tag after all, as a historical marker on the last 0.1.0 commit (decided 2026-09-15). What is
-still open before the tag is listed under "Open before tagging 0.1.0".
+**0.1.0** — implemented; tagged `v0.1.0` on 2026-09-15 as a historical marker on its last commit, without a release
+build (decided 2026-09-15). What was listed as open before the tag stays a checklist under "Open items from 0.1.0".
 
 **0.2.0** — every item built (2026-09-15); everything that was still open moved to 0.2.1 (decided 2026-09-15). Pre-releases `v0.2.0-alpha.1` (2026-09-15, first CI
-run; its release build failed), `v0.2.0-alpha.2` (first published test build), `v0.2.0-alpha.3` (VPS behind NAT, first VPS install), `v0.2.0-alpha.4` (fixes from the first install) and `v0.2.0-alpha.5` (network MTU). Installed on the first test VPS.
+run; its release build failed), `v0.2.0-alpha.2` (first published test build), `v0.2.0-alpha.3` (VPS behind NAT, first VPS install), `v0.2.0-alpha.4` (fixes from the first install) and `v0.2.0-alpha.5` (network MTU). `v0.2.0-alpha.5` runs on the first test VPS.
 
 **0.2.1** — planned: read-only public API, Servicedesk ticket reference on notes, agent self-update with update rings,
 watchdog, Linux agent, arm64 agents and the script features deferred from 0.2.0.
+
+**Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
+2026-09-15, see Later).
+
+**Deployment**: Steaan runs every instance (SaaS, decided 2026-09-15); releases are GitHub Releases of the private
+repository.
 
 Markers: [done] built and tested, [open] still to do.
 
@@ -34,7 +39,8 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
 - [done] `Fleetify.Signer`: signer key, instance signing key, internal CA, signing requests over
   LISTEN/NOTIFY, signing rules with tests, role check on who may request which signature.
 - [done] Release signing tooling: release key, signed release manifest with image digests, signed
-  `install.sh` (verifiable with openssl). [open] Production key on a hardware token.
+  `install.sh` (verifiable with openssl). [done] Test keys for the first VPS (2026-09-15). [open] Production key on a
+  hardware token.
 - [done] Users, roles, login, mandatory TOTP 2FA, first-admin setup flow with backup step.
 - [done] Clients, sites, endpoints: CRUD, clients workspace (clients panel, endpoint list with tabs Servers / Workstations / Mixed, endpoint detail below the list), collapsible navigation, settings workspace (settings panel with templates and administration pages, opened from the sidebar footer).
 - [done] Client templates, monitoring templates, policies: CRUD, linking to sites, copy.
@@ -42,7 +48,7 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
   license page, pool counting with serialized allocation, 14-day grace period.
 - [done] `install.sh` first version (signature and manifest verification, Docker, DNS check, host
   Caddy with SNI passthrough, update with rollback, `--version`, `--check`, `--list`, `--all`).
-  [open] Never run on a real VPS yet.
+  [done] First install and updates on a real VPS (2026-09-15, see 0.2.0, Deployment).
 - [done] Load-test simulator (`Fleetify.LoadTest`).
 
 ## 0.1.0 — First usable release
@@ -77,20 +83,26 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
 - [done] Encrypted off-VPS backups per instance (S3-compatible or directory, WAL shipping).
   [open] Restore onto a fresh VPS tested.
 
-### Open before tagging 0.1.0
+### Open items from 0.1.0
 
-1. Local test by the developer (web UI click-through, agent install as a Windows service).
-2. First CI run on GitHub (Docker image builds, tests with TimescaleDB, gitleaks over the history).
-3. First install on a VPS with two instances; restore of a backup onto a fresh VPS.
-4. Load test at 10,000 simulated agents.
-5. Key ceremony document and production keys (release, license) on hardware tokens; repository
-   variables `FLEETIFY_LICENSE_PUBLIC_KEYS` and `FLEETIFY_RELEASE_PUBLIC_KEYS` set.
+Listed as open before the 0.1.0 tag; the tag was set as a historical marker, so they stay a checklist for the first
+production release.
+
+1. [open] Local test by the developer (web UI click-through, agent install as a Windows service). [done] Partly on the
+   first test VPS (2026-09-15): sign-in, UI and a Windows agent.
+2. [done] First CI run on GitHub (Docker image builds, tests with TimescaleDB, gitleaks over the history), green since
+   2026-09-15.
+3. [done] First install on a VPS (2026-09-15, one instance behind NAT). [open] Two instances on one VPS; restore of a
+   backup onto a fresh VPS.
+4. [open] Load test at 10,000 simulated agents.
+5. [done] Repository variables `FLEETIFY_LICENSE_PUBLIC_KEYS` and `FLEETIFY_RELEASE_PUBLIC_KEYS` set, with test keys
+   (2026-09-15). [open] Key ceremony document and production keys (release, license) on hardware tokens.
 
 ### Known limitations of 0.1.0
 
-- Linux and macOS agents are stubs (the Linux agent follows in 0.2.1; macOS is not supported for now).
+- The Linux agent is a stub (it follows in 0.2.1); macOS is not supported for now.
 - An agent offline past its certificate expiry (90 days, renewal from day 60) cannot reconnect and
-  must be enrolled again as a new endpoint; recovery is planned for 0.2.0.
+  must be enrolled again as a new endpoint. [done] Recovery built in 0.2.0.
 - The web data protection key ring is stored unencrypted on its volume.
 - No email throttling or digest during a mass outage; duplicate identity alerts do not resolve on
   their own.
@@ -148,6 +160,16 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
   PowerShell and Batch on Windows, sh and bash on Linux, always as SYSTEM or root (decided 2026-09-15). Decided
   while building: a script runs on one endpoint at a time from the UI. Running a script on a selection of endpoints,
   an output cap per policy and running as the logged-on user are planned for 0.2.1.
+- [done] Deployment for SaaS (decided 2026-09-15: Steaan runs every instance), tested with the first install on a VPS:
+  - releases are GitHub Releases of the private repository; install.sh reads them with a fine-grained read-only token
+    and pulls the private images with a classic `read:packages` token, both asked once and stored root-only;
+  - the release workflow drafts the release, `deploy/sign-release.ps1` checks, signs and publishes it;
+  - pre-release versions (`vX.Y.Z-alpha.N`), ordered by semantic versioning; a VPS follows pre-releases only when it
+    runs one;
+  - a VPS behind a firewall or NAT: install.sh asks once to confirm the forwarded public address;
+  - the instance networks use the MTU of the VPS uplink (a 1400 link works without MSS clamping);
+  - fixes found by the first install: the Blazor framework script in the web image, the proxy configuration check
+    with the capabilities of the running proxy.
 - [done] Recovery for agents that were offline past their certificate expiry (for example a laptop
   that stayed in a drawer for months):
   - Renewal with an expired certificate: the gateway accepts an expired but not revoked agent
@@ -199,9 +221,8 @@ Everything that was still open for 0.2.0, moved here on 2026-09-15, with the dev
 - [open] Output cap for job output per policy instead of the fixed 50 MiB (deferred from 0.2.0).
 - [open] Run a script as the logged-on user instead of SYSTEM or root (deferred from 0.2.0).
 - [open] Remove the container images of the failed `v0.2.0-alpha.1` release from ghcr.io.
-- Not supported for now: **macOS** (decided 2026-09-15). A macOS agent needs signing and notarisation with an Apple
-  Developer account; there is none, so no macOS agent, watchdog, remote control or remote terminal until that changes
-  (see Later).
+- Not supported for now: **macOS** (decided 2026-09-15): no macOS agent, watchdog, remote control or remote terminal.
+  It may come later when there is demand (see Later).
 
 ## 0.3.0 — Remote control
 
@@ -211,10 +232,8 @@ Everything that was still open for 0.2.0, moved here on 2026-09-15, with the dev
 - Windows: console session as SYSTEM (login screen, UAC), active user session with banner,
   keyboard and mouse, two-way text clipboard, consent and recording per policy, session
   audit, reconnect and stuck-key protection.
-- macOS: Screen Recording and Accessibility permission flow, same feature set, only once macOS is supported (see 0.2.1).
 - Linux: X11.
-- Remote terminal: an interactive terminal as SYSTEM (cmd and PowerShell on Windows, sh on Linux and
-  macOS) in the browser, served by the watchdog so it also works when the agent is broken. Same
+- Remote terminal: an interactive terminal as SYSTEM or root (cmd and PowerShell on Windows, sh on Linux) in the browser, served by the watchdog so it also works when the agent is broken. Same
   session token and end-to-end encryption as remote control; admins and technicians on every
   managed endpoint, also where the policy requires script approval (accepted risk, see
   ARCHITECTURE.md §5); audit per session and a transcript when the policy records sessions.
@@ -232,7 +251,6 @@ Everything that was still open for 0.2.0, moved here on 2026-09-15, with the dev
 - Veeam (backup job status).
 - Proxmox VE and VMware vCenter (host and VM inventory and health).
 - Integration health on the dashboard.
-- API write access for the resources a technician can change in the UI.
 - Sign-in with Microsoft Entra ID (OpenID Connect) next to local accounts: an admin configures the
   tenant, client id and client secret (or certificate) in Settings; users are linked to a local user
   with its role and client restriction (no automatic account creation without an admin decision).
@@ -266,9 +284,11 @@ Everything that was still open for 0.2.0, moved here on 2026-09-15, with the dev
 
 ## Later (not planned for 1.0)
 
-- macOS agent, watchdog, remote control and remote terminal: need an Apple Developer account for signing and notarisation
-  (not supported for now, decided 2026-09-15).
-- Write access in the public API: only when there is demand (decided 2026-09-15).
+- macOS: not supported for now; it may come when there is demand (decided 2026-09-15). It would need an Apple Developer
+  account for signing and notarisation, a launchd agent and watchdog, and the Screen Recording and Accessibility
+  permission flow for remote control.
+- Write access in the public API for the resources a technician can change in the UI: only when there is demand
+  (decided 2026-09-15).
 - File transfer inside remote control; Wayland support on Linux.
 - Whitelabel beyond the FQDN: customer logo and product name in UI and email.
 - Steaan management server: central issue, renewal and revocation of licenses, fetched by

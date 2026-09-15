@@ -26,7 +26,7 @@
                 <MudNumericField T="int" @bind-Value="_timeoutMinutes" Label="Timeout (minutes)" Variant="Variant.Outlined" Min="1" Max="1440" Style="max-width:160px" />
             </div>
             <MudTextField @bind-Value="_body" Label="Script" Variant="Variant.Outlined" Lines="16" MaxLength="@ScriptRules.MaxBodyLength" Class="script-editor"
-                          HelperText="Runs as SYSTEM on Windows and as root on Linux and macOS. The exit code decides whether the job succeeded (0) or failed." />
+                          HelperText="Runs as SYSTEM on Windows and as root on Linux. The exit code decides whether the job succeeded (0) or failed." />
         }
     </DialogContent>
     <DialogActions>
