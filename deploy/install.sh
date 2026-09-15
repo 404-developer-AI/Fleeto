@@ -959,12 +959,16 @@ host_addresses() {
     { detected_host_addresses; stored_public_addresses; } | { grep -v '^$' || true; } | tr 'A-F' 'a-f' | sort -u
 }
 
+# is_interactive: stdin is a terminal. Callers never redirect stdin around a question (a loop over a here-string would
+# silently answer it).
+is_interactive() { [[ -t 0 ]]; }
+
 # confirm_forwarded_address <address> <name>: asks whether a firewall or NAT forwards TCP 80 and 443 on an address that
 # is not on this VPS (inbound and outbound addresses often differ behind a firewall). A confirmed address is stored, so
 # later runs do not ask again. Never assumed without an interactive answer: a wrong record means no certificates.
 confirm_forwarded_address() {
     local address="$1" name="$2" answer
-    [[ -t 0 ]] || return 1
+    is_interactive || return 1
     info "$name resolves to $address, which is not an address of this VPS."
     info "Behind a firewall or NAT that is expected when it forwards TCP 80 and 443 on $address to this VPS"
     info "(a plain port forward that keeps the client address, so agents are shown with their own address)."
@@ -977,6 +981,7 @@ confirm_forwarded_address() {
 
 check_dns() {
     local fqdn="$1" name address problems=() host_ips resolved name_ok
+    local -a addresses
     step "Checking DNS for $fqdn and agents.$fqdn"
     host_ips="$(host_addresses)"
     for name in "$fqdn" "agents.$fqdn"; do
@@ -986,7 +991,9 @@ check_dns() {
             continue
         fi
         name_ok=true
-        while read -r address; do
+        # An array, not a loop reading a here-string: confirm_forwarded_address reads the answer from stdin.
+        mapfile -t addresses <<<"$resolved"
+        for address in "${addresses[@]}"; do
             if grep -qxF "$address" <<<"$host_ips"; then
                 continue
             fi
@@ -996,7 +1003,7 @@ check_dns() {
                 problems+=("$name resolves to $address, which is not an address of this VPS and not confirmed as forwarded to it")
                 name_ok=false
             fi
-        done <<<"$resolved"
+        done
         if $name_ok; then
             ok "$name -> $(tr '\n' ' ' <<<"$resolved")"
         fi

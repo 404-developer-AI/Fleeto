@@ -150,6 +150,14 @@ resolve_addresses() {
 case "$CASE" in
     own) ( check_dns rmm.own.example ) >/dev/null 2>&1 || exit 20 ;;
     unconfirmed) ( check_dns rmm.nat.example </dev/null ) >/dev/null 2>&1 && exit 21 ;;
+    answered)
+        # The operator answers the question on stdin: once for the address both names use, then it is stored.
+        is_interactive() { true; }
+        ensure_fleetify_root() { :; }
+        ( check_dns rmm.nat.example <<<"y" ) >/dev/null 2>&1 || exit 26
+        grep -qx '172.32.0.189' "$FLEETIFY_ROOT/public-addresses" || exit 27
+        ( check_dns rmm.nat.example </dev/null ) >/dev/null 2>&1 || exit 28
+        ;;
     stored)
         printf '172.32.0.189\n' >"$FLEETIFY_ROOT/public-addresses"
         ( check_dns rmm.nat.example ) >/dev/null 2>&1 || exit 22
@@ -160,7 +168,7 @@ case "$CASE" in
 esac
 exit 0
 EOF
-for case in own unconfirmed stored; do
+for case in own unconfirmed answered stored; do
     mkdir -p "$work/dns-$case"
     FLEETIFY_ROOT="$work/dns-$case" REPO="$repo_root" CASE="$case" bash "$work/dns.sh" </dev/null \
         || fail "DNS check behind NAT, case $case (exit $?)"
