@@ -194,10 +194,10 @@ if [[ -z "$caddy_image" ]]; then
 fi
 
 for config in caddy-two caddy-empty; do
-    docker run --rm --network none -v "$work/$config:/candidate:ro" "$caddy_image" \
-        adapt --config /candidate/Caddyfile --adapter caddyfile >/dev/null || fail "caddy adapt rejected $config"
+    # The same validation install.sh runs, with the same container restrictions as the running proxy.
+    bash -c "source '$repo_root/deploy/install.sh'; caddy_adapt '$caddy_image' '$work/$config'" || fail "caddy adapt rejected $config"
 done
-pass "fleetify-caddy image adapts both generated Caddyfiles"
+pass "fleetify-caddy image adapts both generated Caddyfiles under the restrictions of the running proxy"
 
 instance="$work/root/rmm-a-example"
 mkdir -p "$instance/secrets"

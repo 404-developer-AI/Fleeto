@@ -1092,6 +1092,16 @@ validate_generated_values() {
 
 # Regenerates the Caddyfile, validates it with the Caddy image and reloads the running proxy gracefully (agent
 # connections of other instances survive a reload). On failure the previous configuration stays active.
+# caddy_adapt <image> <directory with a Caddyfile>: validates the Caddyfile with the proxy image, isolated (no network,
+# read-only) but with the same capabilities as the running proxy. The Caddy binary carries the file capability to bind
+# ports below 1024, and the kernel refuses to start it when that capability is not in the container's bounding set.
+caddy_adapt() {
+    local image="$1" directory="$2"
+    docker run --rm --network none --read-only --user 0:0 --cap-drop ALL --cap-add NET_BIND_SERVICE \
+        --security-opt no-new-privileges:true -v "$directory:/candidate:ro" "$image" \
+        adapt --config /candidate/Caddyfile --adapter caddyfile >/dev/null
+}
+
 update_caddy_routes() {
     local image candidate_dir previous
     step "Updating host proxy routes"
@@ -1100,8 +1110,7 @@ update_caddy_routes() {
     candidate_dir="$WORK_DIR/caddy-candidate"
     mkdir -p "$candidate_dir"
     generate_caddyfile >"$candidate_dir/Caddyfile"
-    if ! docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges:true \
-        -v "$candidate_dir:/candidate:ro" "$image" adapt --config /candidate/Caddyfile --adapter caddyfile >/dev/null 2>"$WORK_DIR/caddy-adapt.log"; then
+    if ! caddy_adapt "$image" "$candidate_dir" 2>"$WORK_DIR/caddy-adapt.log"; then
         cat "$WORK_DIR/caddy-adapt.log" >&2
         die "The generated proxy configuration is invalid; the running proxy was not changed." "Report this output to Steaan support."
     fi
