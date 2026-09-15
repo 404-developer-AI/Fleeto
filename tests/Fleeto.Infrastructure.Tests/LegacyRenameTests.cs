@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using Fleeto.Core.Entities;
+using Fleeto.Infrastructure.Data;
 using Fleeto.Infrastructure.Licensing;
 using Fleeto.Infrastructure.Migrations;
 using Fleeto.Infrastructure.Security;
@@ -43,6 +44,22 @@ public class LegacyRenameTests
         var dataKey = EnvelopeSecretProtector.CreateDataKey(other, SecretPurposes.Settings, DateTime.UtcNow);
 
         Assert.ThrowsAny<CryptographicException>(() => EnvelopeSecretProtector.UpgradeLegacyWrap(dataKey, rootKey));
+    }
+
+    [Fact]
+    public void Signer_key_material_sealed_with_the_old_label_is_sealed_again_once()
+    {
+        var signerKey = new SignerKey(RandomNumberGenerator.GetBytes(32));
+        var secret = RandomNumberGenerator.GetBytes(32);
+        var legacy = AesGcmBox.Seal(signerKey.Key, secret, Encoding.UTF8.GetBytes("fleetify-signer|InstanceSigningKeys|abc"));
+
+        var resealed = signerKey.UpgradeLegacySeal(legacy, "InstanceSigningKeys|abc");
+
+        Assert.NotNull(resealed);
+        Assert.Equal(secret, signerKey.Open(resealed, "InstanceSigningKeys|abc"));
+        Assert.Null(signerKey.UpgradeLegacySeal(resealed, "InstanceSigningKeys|abc"));
+        Assert.ThrowsAny<CryptographicException>(() => signerKey.UpgradeLegacySeal(legacy, "InstanceSigningKeys|other"));
+        Assert.ThrowsAny<CryptographicException>(() => new SignerKey(RandomNumberGenerator.GetBytes(32)).UpgradeLegacySeal(legacy, "InstanceSigningKeys|abc"));
     }
 
     [Fact]
@@ -135,6 +152,44 @@ public class RenameMigrationTests
         // Running it again changes nothing.
         await ExecuteAsync(connection, RenameToFleeto.RenameSql("fleetify_", "fleeto_"));
         Assert.Equal(0, await ScalarAsync<long>(connection, LegacyObjectCountSql));
+    }
+
+    [Fact]
+    public async Task Migrate_seals_signer_keys_again_and_renames_the_recovery_codes_marker()
+    {
+        var database = _db;
+        var (seed, publicKey) = Ed25519.GenerateKeyPair();
+        var keyId = "legacy" + Convert.ToHexString(RandomNumberGenerator.GetBytes(5)).ToLowerInvariant();
+        var user = await database.CreateUserAsync(FleetoRoles.Admin);
+        await using (var db = database.DbFactory.CreateSystem())
+        {
+            db.InstanceSigningKeys.Add(new InstanceSigningKey
+            {
+                Id = keyId, PublicKey = publicKey, CreatedAt = DateTime.UtcNow, RetiredAt = DateTime.UtcNow,
+                EncryptedPrivateKey = AesGcmBox.Seal(database.SignerKey.Key, seed, Encoding.UTF8.GetBytes("fleetify-signer|InstanceSigningKeys|" + keyId))
+            });
+            db.UserTokens.Add(new Microsoft.AspNetCore.Identity.IdentityUserToken<Guid> { UserId = user.Id, LoginProvider = "[Fleetify]", Name = "RecoveryCodesPending", Value = "1" });
+            await db.SaveChangesAsync();
+        }
+
+        try
+        {
+            await LegacyRenameUpgrade.RunAsync(database.DbFactory, database.SignerKey, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+            await LegacyRenameUpgrade.RunAsync(database.DbFactory, database.SignerKey, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+
+            await using var check = database.DbFactory.CreateSystem();
+            var row = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.SingleAsync(check.InstanceSigningKeys, k => k.Id == keyId);
+            Assert.Equal(seed, database.SignerKey.Open(row.EncryptedPrivateKey, "InstanceSigningKeys|" + keyId));
+            var providers = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync(
+                check.UserTokens.Where(t => t.UserId == user.Id).Select(t => t.LoginProvider));
+            Assert.Equal(["[Fleeto]"], providers);
+        }
+        finally
+        {
+            await using var cleanup = database.DbFactory.CreateSystem();
+            cleanup.InstanceSigningKeys.RemoveRange(cleanup.InstanceSigningKeys.Where(k => k.Id == keyId));
+            await cleanup.SaveChangesAsync();
+        }
     }
 
     [Fact]

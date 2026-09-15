@@ -15,8 +15,9 @@ test build of this state for the first CI run; its release build failed on the C
 first VPS install; `0.2.0-alpha.3` adds support for a VPS behind NAT, `0.2.0-alpha.4` fixes what the first install found, and `0.2.0-alpha.5` sets the network MTU. Pre-releases are not releases, so their entries stay here.
 Work on 0.2.1, which holds everything still open for 0.2.0, has entries starting with "0.2.1:". Pre-release `0.2.1-alpha.1`
 (2026-09-15) was the first test build of it; its release build failed while exporting the agent binaries, before any
-image was pushed. `0.2.1-alpha.2` fixes that: public API, agent self-update and watchdog, and the rename to Fleeto with the
-move of the test VPS from the Fleetify layout.
+image was pushed. `0.2.1-alpha.2` fixed that; moving the test VPS with it fell back to the old layout, because the signer could
+not open its keys under the new name. `0.2.1-alpha.3` seals them again during the move: public API, agent self-update and
+watchdog, and the rename to Fleeto with the move of the test VPS from the Fleetify layout.
 
 ### Added
 
@@ -164,7 +165,7 @@ move of the test VPS from the Fleetify layout.
 - 0.2.1: Migration from the Fleetify names. install.sh moves a VPS with its next update: every instance and the host proxy
   are copied to the new names (database and roles renamed, certificates kept) and updated, with the old layout left
   untouched until each instance runs the release and used again for an instance whose update fails. The migration
-  `RenameToFleeto` renames database functions and triggers, `fleeto-tool migrate` rewraps the data keys, and every endpoint
+  `RenameToFleeto` renames database functions and triggers, `fleeto-tool migrate` rewraps the data keys and the signer's key material, and every endpoint
   configuration is signed again. The install command takes a Fleetify agent over with its enrollment. setup-dev.ps1 moves a
   development setup. Certificates, licenses, backups and key files from before the rename stay valid.
 - 0.2.1: The branding check fails on the old name outside the migration files; `deploy/release-rollback` is `restore`.

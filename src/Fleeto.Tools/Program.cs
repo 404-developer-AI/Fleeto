@@ -49,6 +49,8 @@ migrate.SetAction(async (parse, cancellationToken) =>
 
     var initializer = ActivatorUtilities.CreateInstance<InstanceInitializer>(host.Services);
     var result = await initializer.RunAsync(options, cancellationToken);
+    // Before the signer starts: key material and markers from before the rename to Fleeto (0.2.1).
+    await LegacyRenameUpgrade.RunAsync(dbFactory, host.Services.GetRequiredService<SignerKey>(), logger, cancellationToken);
 
     Console.WriteLine($"Instance {result.InstanceId} is ready on {options.Fqdn}.");
     if (result.SetupLink is not null)

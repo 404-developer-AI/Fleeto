@@ -15,7 +15,7 @@ run; its release build failed), `v0.2.0-alpha.2` (first published test build), `
 
 **0.2.1** — in progress (started 2026-09-15): the read-only public API, agent self-update with update rings, the
 Windows watchdog and the rename to Fleeto everywhere are built (pre-releases `v0.2.1-alpha.1`, whose release build
-failed, and `v0.2.1-alpha.2`, 2026-09-15, to move the test VPS from the Fleetify layout); still open are the Linux agent (with its watchdog), arm64 agents, the script features deferred
+failed, `v0.2.1-alpha.2`, whose move of the test VPS fell back to the old layout, and `v0.2.1-alpha.3`, 2026-09-15); still open are the Linux agent (with its watchdog), arm64 agents, the script features deferred
 from 0.2.0 and the icon for the installed web app. The Servicedesk ticket reference on notes moved to "Not yet scheduled" (decided 2026-09-15).
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided

@@ -14,6 +14,12 @@ public static class LegacyNames
     /// <summary>Label of the associated data that wrapped data keys before the rename; rewrapped by <c>fleeto-tool migrate</c>.</summary>
     public const string DataKeyWrapLabel = "fleetify-dek";
 
+    /// <summary>Label of the associated data that sealed the instance signing key and CA key; resealed by <c>fleeto-tool migrate</c>.</summary>
+    public const string SignerKeyLabel = "fleetify-signer";
+
+    /// <summary>Login provider of the marker that recovery codes still have to be shown; renamed by <c>fleeto-tool migrate</c>.</summary>
+    public const string RecoveryCodesMarkerProvider = "[Fleetify]";
+
     /// <summary>Signature context of license documents signed before the rename.</summary>
     public const string LicenseSignatureContext = "fleetify-license-v1";
 
