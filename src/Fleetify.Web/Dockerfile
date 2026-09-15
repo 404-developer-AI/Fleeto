@@ -58,7 +58,9 @@ RUN dotnet publish src/Fleetify.Web/Fleetify.Web.csproj -c Release --no-restore 
         "-p:FleetifyLicensePublicKeys=$(printf '%s' "$FLEETIFY_LICENSE_PUBLIC_KEYS" | sed 's/;/%3B/g')" \
         "-p:FleetifyReleasePublicKeys=$(printf '%s' "$FLEETIFY_RELEASE_PUBLIC_KEYS" | sed 's/;/%3B/g')" \
     && rm -f /app/appsettings.Development.json \
-    && test -f /app/Fleetify.Web.dll
+    && test -f /app/Fleetify.Web.dll \
+    && test -f /app/wwwroot/_framework/blazor.web.js \
+    && grep -q '"Route":"_framework/blazor.web.js"' /app/Fleetify.Web.staticwebassets.endpoints.json
 
 # ---------------------------------------------------------------------------------------------------------------
 FROM ${DOTNET_ASPNET_IMAGE} AS runtime
