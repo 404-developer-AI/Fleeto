@@ -58,7 +58,13 @@ public sealed class GatewayEndToEndTests
         using var plain = new HttpClient();
         await WaitForHealthyAsync(plain, healthPort);
 
-        // Enrollment: the agent trusts the server only through the CA fingerprint from the install command.
+        // Enrollment: the agent trusts the server only through the CA fingerprint from the install command. Like the agent, it first
+        // fetches the CA bundle without verification (nothing secret is sent) and keeps only the CA with that fingerprint: TLS stacks
+        // leave a self-signed root out of the handshake, so the CA cannot be taken from the chain (it can on Windows, not on Linux).
+        using var bootstrapHandler = new SocketsHttpHandler();
+        bootstrapHandler.SslOptions.RemoteCertificateValidationCallback = (_, _, _, _) => true;
+        using var bootstrap = new HttpClient(bootstrapHandler);
+        var pinnedFromBundle = PinnedCa(await bootstrap.GetStringAsync($"https://localhost:{agentPort}/v1/ca"), _fixture.Ca.Fingerprint);
         using var agentKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var enroll = new EnrollRequest
         {
@@ -69,8 +75,7 @@ public sealed class GatewayEndToEndTests
             Os = new OsInfo { Platform = "windows", Name = "Windows 11 Pro", Version = "10.0.26200", Architecture = "amd64" }
         };
         using var enrollHandler = new SocketsHttpHandler();
-        enrollHandler.SslOptions.RemoteCertificateValidationCallback = (_, certificate, chain, _) =>
-            ChainsToPinnedCa(certificate, chain, _fixture.Ca.Fingerprint);
+        enrollHandler.SslOptions.RemoteCertificateValidationCallback = (_, certificate, _, _) => ChainsTo(certificate, pinnedFromBundle);
         using var https = new HttpClient(enrollHandler);
         using var content = new ByteArrayContent(enroll.ToByteArray());
         content.Headers.ContentType = new MediaTypeHeaderValue("application/x-protobuf");
@@ -126,22 +131,11 @@ public sealed class GatewayEndToEndTests
         await app.StopAsync();
     }
 
-    private static bool ChainsToPinnedCa(X509Certificate? certificate, X509Chain? chain, string caFingerprint)
+    private static X509Certificate2 PinnedCa(string pemBundle, string caFingerprint)
     {
-        if (certificate is null || chain is null)
-        {
-            return false;
-        }
-
-        foreach (var element in chain.ChainElements)
-        {
-            if (KeyIds.Sha256Hex(element.Certificate.RawData) == caFingerprint)
-            {
-                return ChainsTo(certificate, X509CertificateLoader.LoadCertificate(element.Certificate.RawData));
-            }
-        }
-
-        return false;
+        var bundle = new X509Certificate2Collection();
+        bundle.ImportFromPem(pemBundle);
+        return bundle.Single(c => KeyIds.Sha256Hex(c.RawData) == caFingerprint);
     }
 
     private static bool ChainsTo(X509Certificate? certificate, X509Certificate2 ca)

@@ -112,9 +112,11 @@ public sealed class RetentionTests
         await _fixture.Retention().RunAsync(CancellationToken.None);
 
         await using var check = _fixture.Db.DbFactory.CreateSystem();
-        var results = await check.CheckResults.AsNoTracking().Where(r => r.EndpointId == oldResultEndpoint).ToListAsync();
-        Assert.Single(results);
-        Assert.True(results[0].Time > now.AddDays(-2));
+        // With TimescaleDB its retention policy removes old chunks, so the service leaves results by age alone.
+        var timescale = await check.Database.SqlQueryRaw<bool>("""SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') AS "Value" """).SingleAsync();
+        var results = await check.CheckResults.AsNoTracking().Where(r => r.EndpointId == oldResultEndpoint).OrderBy(r => r.Time).ToListAsync();
+        Assert.Equal(timescale ? 2 : 1, results.Count);
+        Assert.True(results[^1].Time > now.AddDays(-2));
         Assert.False(await check.CheckResults.AnyAsync(r => r.EndpointId == gone.Id));
         Assert.False(await check.WorkerWatermarks.AnyAsync(w => w.Name == CheckEvaluationService.WatermarkName(gone.Id)));
 

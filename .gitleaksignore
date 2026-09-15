@@ -1,0 +1,3 @@
+# Findings reviewed and accepted. One fingerprint per line: <commit>:<file>:<rule>:<line>.
+# Test enrollment token in the agent enrollment tests, not a real token (reviewed 2026-09-15).
+f35fa38bcefcdcbf496ecfd8857f851f3eaf6ca8:agent/internal/enroll/enroll_test.go:generic-api-key:28

@@ -58,6 +58,13 @@ jobs:
         # Warnings are handled as configured in the repository (.editorconfig, Directory.Build.props).
         run: dotnet build Fleetify.slnx -c Release --no-restore
 
+      - name: PostgreSQL 17 client tools (pg_dump must match the server version for the backup tests)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          /usr/lib/postgresql/17/bin/pg_dump --version
+
       - name: Test
         run: dotnet test Fleetify.slnx -c Release --no-build --logger "console;verbosity=normal"
 
@@ -111,8 +118,8 @@ jobs:
       - name: govulncheck
         if: matrix.os == 'ubuntu-latest'
         run: |
-          go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
-          GOOS=windows go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+          GOOS=windows go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 
   protocol-generate:
     name: Go protocol code is up to date

@@ -743,9 +743,9 @@
             { d => d.Title, $"Enroll {row.Hostname} again" },
             {
                 d => d.Message,
-                "Creates a single-use install command, valid for one day, for an agent that cannot reconnect: it was offline for more than a year, was revoked by mistake, or the machine was reinstalled. " +
+                "Creates a single-use install command, valid for one day, for an agent that cannot reconnect: it was offline for more than a year, was revoked by mistake, or the endpoint was reinstalled. " +
                 "The agent installed with it takes over this endpoint with its checks, alerts, notes and history, and every earlier certificate of this endpoint is revoked. " +
-                "If the agent service is still installed on the machine, run fleetify-agent uninstall there first."
+                "If the agent service is still installed on the endpoint, run fleetify-agent uninstall there first."
             },
             { d => d.ConfirmText, "Create install command" }
         };

@@ -95,7 +95,7 @@ public static class Program
         stop.CancelAfter(TimeSpan.FromMinutes(options.DurationMinutes) + TimeSpan.FromSeconds(options.RampSeconds));
 
         var stats = new Stats();
-        using var enrollClient = CreateEnrollClient(options);
+        using var enrollClient = await CreateEnrollClientAsync(options);
         var agents = Enumerable.Range(1, options.Agents).Select(i => new SimulatedAgent(i, options, stats, enrollClient)).ToArray();
 
         Console.WriteLine($"Starting {options.Agents} agents against {options.Server} over {options.RampSeconds} s, " +
@@ -129,15 +129,27 @@ public static class Program
         return 0;
     }
 
-    private static HttpClient CreateEnrollClient(LoadTestOptions options)
+    /// <summary>
+    /// Like the agent: fetches the CA bundle from /v1/ca without verification (nothing secret is sent), keeps the CA with the pinned
+    /// fingerprint, and verifies the gateway against it for every enrollment. TLS stacks leave a self-signed root out of the handshake,
+    /// so the CA cannot be taken from the chain.
+    /// </summary>
+    private static async Task<HttpClient> CreateEnrollClientAsync(LoadTestOptions options)
     {
+        using var bootstrapHandler = new SocketsHttpHandler();
+        bootstrapHandler.SslOptions.RemoteCertificateValidationCallback = (_, _, _, _) => true;
+        using var bootstrap = new HttpClient(bootstrapHandler) { Timeout = TimeSpan.FromSeconds(30) };
+        var bundle = new X509Certificate2Collection();
+        bundle.ImportFromPem(await bootstrap.GetStringAsync($"https://{options.Server}{ProtocolLimits.CaPath}"));
+        var ca = bundle.FirstOrDefault(c => Convert.ToHexStringLower(SHA256.HashData(c.RawData)) == options.CaFingerprint.ToLowerInvariant())
+                 ?? throw new InvalidOperationException("The gateway's CA bundle has no certificate with the given --ca-fingerprint. Check the fingerprint.");
+
         var handler = new SocketsHttpHandler
         {
             MaxConnectionsPerServer = 64,
             PooledConnectionLifetime = TimeSpan.FromMinutes(5)
         };
-        handler.SslOptions.RemoteCertificateValidationCallback = (_, certificate, chain, _) =>
-            Tls.ServerChainsToPinnedCa(certificate, chain, options.CaFingerprint);
+        handler.SslOptions.RemoteCertificateValidationCallback = (_, certificate, _, _) => Tls.ChainsTo(certificate, ca);
         return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(60) };
     }
 
@@ -214,26 +226,6 @@ internal sealed class LoadTestOptions
 
 internal static class Tls
 {
-    /// <summary>Enrollment: the server chain must contain the CA with the pinned fingerprint and chain to it.</summary>
-    public static bool ServerChainsToPinnedCa(X509Certificate? certificate, X509Chain? chain, string caFingerprint)
-    {
-        if (certificate is null || chain is null)
-        {
-            return false;
-        }
-
-        foreach (var element in chain.ChainElements)
-        {
-            if (Convert.ToHexStringLower(SHA256.HashData(element.Certificate.RawData)) == caFingerprint)
-            {
-                using var ca = X509CertificateLoader.LoadCertificate(element.Certificate.RawData);
-                return ChainsTo(certificate, ca);
-            }
-        }
-
-        return false;
-    }
-
     public static bool ChainsTo(X509Certificate? certificate, X509Certificate2 ca)
     {
         if (certificate is null)

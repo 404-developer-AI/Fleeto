@@ -25,7 +25,7 @@ import (
 const (
 	testEndpoint = "0b6a4e2c-1d3f-4a5b-8c7d-9e0f1a2b3c4d"
 	testInstance = "6f1d3c1e-5a4b-4f7e-9a31-2b8f0c1d2e3f"
-	testToken    = "fet_abcdef_0123456789secret"
+	testToken    = "fet_abcdef_0123456789secret" // gitleaks:allow (test value, never a real token)
 )
 
 type fakeGateway struct {
