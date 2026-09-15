@@ -18,7 +18,8 @@ ENV GOTOOLCHAIN=local GOFLAGS=-trimpath
 RUN xcaddy build "${CADDY_VERSION}" \
         --with "github.com/mholt/caddy-l4@${CADDY_L4_VERSION}" \
         --output /out/caddy \
-    && /out/caddy list-modules > /tmp/caddy-modules     && grep -qx 'layer4' /tmp/caddy-modules \
+    && /out/caddy list-modules > /tmp/caddy-modules \
+    && grep -qx 'layer4' /tmp/caddy-modules \
     && /out/caddy version
 
 FROM ${CADDY_RUNTIME_IMAGE} AS runtime
