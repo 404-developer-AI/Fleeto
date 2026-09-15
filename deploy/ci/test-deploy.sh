@@ -57,6 +57,30 @@ EOF
 SITE="$work/site" DIGEST="$digest" bash "$work/verify.sh" >/dev/null 2>&1 || fail "install.sh did not accept a correctly signed release (exit $?)"
 pass "install.sh accepts a correctly signed pointer and manifest"
 
+cat >"$work/versions.sh" <<'EOF'
+source "$SITE/install.sh"
+set +e
+trap - ERR
+expect() { if version_lt "$1" "$2"; then r=lower; else r=not-lower; fi; [[ "$r" == "$3" ]] || { echo "$1 vs $2: $r" >&2; exit 1; }; }
+expect 0.1.0 0.2.0-alpha.1 lower
+expect 0.2.0-alpha.1 0.2.0 lower
+expect 0.2.0 0.2.0-alpha.1 not-lower
+expect 0.2.0-alpha.1 0.2.0-alpha.2 lower
+expect 0.2.0-alpha.2 0.2.0-alpha.10 lower
+expect 0.2.0-alpha.9 0.2.0-beta.1 lower
+expect 0.2.0-alpha 0.2.0-alpha.1 lower
+expect 0.2.0-1 0.2.0-alpha lower
+expect 0.2.0-alpha.1 0.2.0-alpha.1 not-lower
+expect 0.10.0 0.9.0 not-lower
+is_version 0.2.0-alpha.1 || exit 2
+! is_version 0.2.0- || exit 3
+! is_version '0.2.0-alpha;rm' || exit 4
+! is_version 01.2.0 || exit 5
+exit 0
+EOF
+SITE="$work/site" bash "$work/versions.sh" || fail "install.sh compares or validates versions wrongly (exit $?)"
+pass "install.sh orders releases and pre-releases by semantic versioning"
+
 cp "$work/site/releases/9.9.9/manifest.json" "$work/manifest.orig"
 sed -i 's/"images"/"rollback": "restore", "images"/' "$work/site/releases/9.9.9/manifest.json"
 if SITE="$work/site" DIGEST="$digest" bash "$work/verify.sh" >/dev/null 2>&1; then

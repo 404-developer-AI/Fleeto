@@ -50,7 +50,7 @@ func Enroll(ctx context.Context, p EnrollParams) (*state.State, error) {
 		return nil, err
 	}
 	store := state.NewStore(p.StateDir, p.Access)
-	if existing, err := store.Load(); err == nil && !existing.Revoked {
+	if existing, err := store.Load(); err == nil && !existing.Revoked && !certificateExpired(existing, time.Now()) {
 		return nil, fmt.Errorf("the agent is already enrolled as endpoint %s; uninstall it first to enroll again", existing.EndpointID)
 	}
 
@@ -88,6 +88,11 @@ func Enroll(ctx context.Context, p EnrollParams) (*state.State, error) {
 		Key:              ref,
 		EnrolledAt:       time.Now().UTC(),
 	}
+	// Jobs of a previous enrollment belong to that endpoint.
+	if err := os.RemoveAll(filepath.Join(p.StateDir, JobsDirName)); err != nil {
+		_ = keystore.Delete(p.StateDir, ref)
+		return nil, fmt.Errorf("remove the jobs of the previous enrollment: %w", err)
+	}
 	if err := os.Remove(filepath.Join(p.StateDir, BufferFileName)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		_ = keystore.Delete(p.StateDir, ref)
 		return nil, fmt.Errorf("remove the result buffer of the previous enrollment: %w", err)
@@ -99,6 +104,13 @@ func Enroll(ctx context.Context, p EnrollParams) (*state.State, error) {
 	p.Logger.Info("enrolled", "endpointId", st.EndpointID, "instanceId", st.InstanceID, "server", st.Server,
 		"certificateExpires", res.Certificate.NotAfter.UTC().Format(time.RFC3339))
 	return st, nil
+}
+
+// certificateExpired reports whether the stored certificate has passed its end date (or cannot be read). Such an agent may be
+// enrolled again: with an "enroll again" token it takes over its existing endpoint.
+func certificateExpired(st *state.State, now time.Time) bool {
+	cert, err := st.Certificate()
+	return err != nil || now.After(cert.NotAfter)
 }
 
 func withDefaults(ref state.KeyRef) state.KeyRef {

@@ -67,6 +67,7 @@ public sealed class AgentSessionManager : BackgroundService
         _subscriptions.Add(_bus.Subscribe(NotificationChannels.EndpointConfig, OnEndpointConfigAsync));
         _subscriptions.Add(_bus.Subscribe(NotificationChannels.EndpointStatus, OnEndpointStatusAsync));
         _subscriptions.Add(_bus.Subscribe(NotificationChannels.CheckRunRequests, OnCheckRunRequestAsync));
+        _subscriptions.Add(_bus.Subscribe(NotificationChannels.Jobs, OnJobsAsync));
     }
 
     /// <summary>True once the startup reset of online state has succeeded; sessions are refused before that.</summary>
@@ -188,11 +189,12 @@ public sealed class AgentSessionManager : BackgroundService
         try
         {
             await DeliverRunRequestsAsync([endpointId], cancellationToken);
+            await DeliverJobsAsync([endpointId], cancellationToken);
         }
         catch (Exception ex) when (ex is NpgsqlException or TimeoutException)
         {
             // The periodic catch-up delivers them later.
-            _logger.LogWarning(ex, "Endpoint {EndpointId}: could not read pending check run requests", endpointId);
+            _logger.LogWarning(ex, "Endpoint {EndpointId}: could not read pending check run requests or jobs", endpointId);
         }
 
         return true;
@@ -292,6 +294,15 @@ public sealed class AgentSessionManager : BackgroundService
                 break;
             case AgentMessage.BodyOneofCase.ConfigApplied:
                 await ConfigAppliedAsync(session, message.ConfigApplied, cancellationToken);
+                break;
+            case AgentMessage.BodyOneofCase.JobStarted:
+                await JobStartedAsync(session, message.JobStarted, cancellationToken);
+                break;
+            case AgentMessage.BodyOneofCase.JobOutput:
+                await JobOutputAsync(session, message.JobOutput, cancellationToken);
+                break;
+            case AgentMessage.BodyOneofCase.JobCompletion:
+                await JobCompletionAsync(session, message.JobCompletion, cancellationToken);
                 break;
             case AgentMessage.BodyOneofCase.Hello:
                 session.Close(DisconnectCode.ProtocolError, "Hello may only be sent once per connection.");
@@ -655,6 +666,136 @@ public sealed class AgentSessionManager : BackgroundService
         }
     }
 
+    // ---------------------------------------------------------------------------------------------------------------
+    // Jobs (0.2.0)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    private async Task OnJobsAsync(string payload, CancellationToken cancellationToken)
+    {
+        if (payload == NotificationBusEvents.Resync)
+        {
+            await DeliverJobsAsync(_sessions.Keys.ToArray(), cancellationToken);
+        }
+        else if (Guid.TryParse(payload, out var endpointId) && _sessions.ContainsKey(endpointId))
+        {
+            await DeliverJobsAsync([endpointId], cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Delivers queued, valid jobs to live managed agents, again after every reconnect (the agent runs a job id once). Tier
+    /// enforcement, layer 3: never to an endpoint whose stored tier is agent-only; such jobs expire.
+    /// </summary>
+    internal async Task DeliverJobsAsync(Guid[] endpointIds, CancellationToken cancellationToken)
+    {
+        var live = endpointIds.Where(id => _sessions.TryGetValue(id, out var s) && !s.IsClosing && s.Tier == EndpointTier.Managed).ToArray();
+        if (live.Length == 0)
+        {
+            return;
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        foreach (var job in await _store.ReadDeliverableJobsAsync(live, now, cancellationToken))
+        {
+            if (!_sessions.TryGetValue(job.EndpointId, out var session) || session.IsClosing || session.Tier != EndpointTier.Managed ||
+                !session.TryMarkJobSent(job.Id))
+            {
+                continue;
+            }
+
+            if (!await _store.MarkJobDeliveredAsync(job.Id, now, cancellationToken))
+            {
+                continue;
+            }
+
+            if (session.Send(new ServerMessage
+                {
+                    Job = new SignedJob { Payload = ByteString.CopyFrom(job.Payload), Signature = ByteString.CopyFrom(job.Signature), KeyId = job.KeyId }
+                }))
+            {
+                _logger.LogInformation("Endpoint {EndpointId}: delivered job {JobId}", job.EndpointId, job.Id);
+            }
+        }
+    }
+
+    private async Task JobStartedAsync(AgentSession session, JobStarted started, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(started.JobId, out var jobId))
+        {
+            return;
+        }
+
+        if (await StoreJobMessageAsync(session, () => _store.JobStartedAsync(jobId, session.EndpointId, _time.GetUtcNow().UtcDateTime, cancellationToken)) is { } update)
+        {
+            session.Send(new ServerMessage { JobAck = new JobAck { JobId = started.JobId, Kind = JobAckKind.Started } });
+            if (update == JobUpdate.Changed)
+            {
+                await PublishAsync(NotificationChannels.Jobs, session.EndpointId);
+            }
+        }
+    }
+
+    private async Task JobOutputAsync(AgentSession session, JobOutput output, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(output.JobId, out var jobId))
+        {
+            return;
+        }
+
+        if (output.Data.Length > ScriptRules.MaxChunkBytes)
+        {
+            session.Close(DisconnectCode.ProtocolError, $"A job output chunk may be at most {ScriptRules.MaxChunkBytes / 1024} KiB.");
+            return;
+        }
+
+        if (await StoreJobMessageAsync(session, () => _store.StoreJobOutputAsync(jobId, session.EndpointId, output.Stream, output.Sequence,
+                output.Data.ToByteArray(), _time.GetUtcNow().UtcDateTime, cancellationToken)) is { } update)
+        {
+            session.Send(new ServerMessage
+            {
+                JobAck = new JobAck { JobId = output.JobId, Kind = JobAckKind.Output, Stream = output.Stream, Sequence = output.Sequence }
+            });
+            if (update == JobUpdate.Changed || output.Sequence % 16 == 0)
+            {
+                await PublishAsync(NotificationChannels.Jobs, session.EndpointId);
+            }
+        }
+    }
+
+    private async Task JobCompletionAsync(AgentSession session, JobCompletion completion, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(completion.JobId, out var jobId))
+        {
+            return;
+        }
+
+        if (await StoreJobMessageAsync(session, () => _store.CompleteJobAsync(jobId, session.EndpointId, completion, _time.GetUtcNow().UtcDateTime,
+                cancellationToken)) is { } update)
+        {
+            session.Send(new ServerMessage { JobAck = new JobAck { JobId = completion.JobId, Kind = JobAckKind.Completion } });
+            if (update == JobUpdate.Changed)
+            {
+                _logger.LogInformation("Endpoint {EndpointId}: job {JobId} ended ({Result}, exit code {ExitCode})", session.EndpointId, jobId,
+                    completion.Result, completion.ExitCode);
+                await PublishAsync(NotificationChannels.Jobs, session.EndpointId);
+            }
+        }
+    }
+
+    /// <summary>Runs a job write. Returns null when the database is unavailable: no acknowledgement, so the agent sends it again.</summary>
+    private async Task<JobUpdate?> StoreJobMessageAsync(AgentSession session, Func<Task<JobUpdate>> write)
+    {
+        try
+        {
+            return await write();
+        }
+        catch (Exception ex) when (ex is NpgsqlException or TimeoutException)
+        {
+            _logger.LogWarning(ex, "Endpoint {EndpointId}: could not store a job message; the agent sends it again", session.EndpointId);
+            return null;
+        }
+    }
+
     internal async Task RefreshTiersAsync(CancellationToken cancellationToken)
     {
         var sessions = _sessions.Values.ToArray();
@@ -766,6 +907,7 @@ public sealed class AgentSessionManager : BackgroundService
                     await RefreshTiersAsync(stoppingToken);
                     await CatchUpConfigsAsync(stoppingToken);
                     await DeliverRunRequestsAsync(_sessions.Keys.ToArray(), stoppingToken);
+                    await DeliverJobsAsync(_sessions.Keys.ToArray(), stoppingToken);
                 }
                 catch (Exception ex) when (ex is NpgsqlException or TimeoutException)
                 {

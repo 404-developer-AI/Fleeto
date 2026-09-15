@@ -1,0 +1,55 @@
+@* Status timeline of a yes/no check (service, process, pending restart, file, antivirus and firewall) or a script check: one block per
+   bucket, teal when every result was fine, red when at least one was a problem, amber when the check could not run, gray without results. *@
+@inject TimeDisplay Time
+
+<div class="status-timeline" role="img" aria-label="@($"Status history of {View.Name}")">
+    @foreach (var point in View.Points)
+    {
+        <span class="status-timeline-block @CssClass(point)" title="@Tooltip(point)"></span>
+    }
+</div>
+<div class="d-flex justify-space-between muted mt-1" style="font-size:0.75rem">
+    <span>@Time.Absolute(View.From)</span>
+    <span>@Time.Absolute(View.To)</span>
+</div>
+<div class="d-flex gap-3 mt-2 muted flex-wrap" style="font-size:0.75rem">
+    <span><span class="status-timeline-block status-timeline-ok legend"></span> @FineText</span>
+    <span><span class="status-timeline-block status-timeline-problem legend"></span> @ProblemText</span>
+    <span><span class="status-timeline-block status-timeline-error legend"></span> Could not run</span>
+    <span><span class="status-timeline-block status-timeline-empty legend"></span> No results</span>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public CheckHistoryView View { get; set; } = default!;
+
+    private bool ExitCode => View.Kind == ThresholdKind.ExitCode;
+
+    private string FineText => ExitCode ? "Exit code 0" : Ui.CheckValue(View.Type, 1, View.Target, View.Parameters);
+
+    private string ProblemText => ExitCode ? "Another exit code" : Ui.CheckValue(View.Type, 0, View.Target, View.Parameters);
+
+    /// <summary>
+    /// Flag values are 1 (fine) and 0 (problem), so the minimum of a bucket tells whether a problem occurred. A script is fine only with
+    /// exit code 0, so any other lowest or highest value is a problem.
+    /// </summary>
+    private bool IsProblem(HistoryPoint point) => ExitCode ? point.Min is { } min && (min != 0 || point.Max != 0) : point.Min is < 1;
+
+    private string CssClass(HistoryPoint point) =>
+        IsProblem(point) ? "status-timeline-problem"
+        : point.Values > 0 ? "status-timeline-ok"
+        : point.Errors + point.NoResponses > 0 ? "status-timeline-error"
+        : "status-timeline-empty";
+
+    private string Tooltip(HistoryPoint point)
+    {
+        var when = Time.Absolute(point.Time);
+        if (!point.HasData)
+        {
+            return $"{when}: no results";
+        }
+
+        var text = IsProblem(point) ? ProblemText : point.Values > 0 ? FineText : "Could not run";
+        return point.Errors > 0 && point.Values > 0 ? $"{when}: {text}, {point.Errors} could not run" : $"{when}: {text}";
+    }
+}

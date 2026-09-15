@@ -1,8 +1,10 @@
 using System.Globalization;
+using Fleetify.Core.Domain;
 using Fleetify.Core.Entities;
 using Fleetify.Core.Interfaces;
 using Fleetify.Infrastructure.Data;
 using Fleetify.Infrastructure.Licensing;
+using Fleetify.Infrastructure.Services;
 using Fleetify.Workers.Alerts;
 using Fleetify.Workers.Hosting;
 using Microsoft.EntityFrameworkCore;
@@ -17,7 +19,8 @@ namespace Fleetify.Workers.Endpoints;
 /// <item>An endpoint marked online whose last message is older than three heartbeat intervals of its policy is marked
 /// offline. This covers a crashed gateway that could not mark its connections closed (never lie about endpoint state).</item>
 /// <item>A managed endpoint offline for longer than its policy's <c>OfflineAlertAfterMinutes</c> gets an offline alert,
-/// resolved when it comes back online, when it stops being managed or when the policy turns offline alerts off.</item>
+/// resolved when it comes back online, when it stops being managed or when the policy turns offline alerts off. No offline
+/// alert opens while the endpoint is in maintenance; one still offline afterwards gets it on the next pass.</item>
 /// </list>
 /// </summary>
 public sealed class EndpointHealthService : WorkerLoop
@@ -62,6 +65,8 @@ public sealed class EndpointHealthService : WorkerLoop
           AND pol."OfflineAlertAfterMinutes" > 0
           AND COALESCE(e."LastSeenAt", e."EnrolledAt") < @now - make_interval(mins => pol."OfflineAlertAfterMinutes")
           AND NOT EXISTS (SELECT 1 FROM "Alerts" a WHERE a."EndpointId" = e."Id" AND a."Kind" = 'Offline' AND a."State" <> 'Resolved')
+          AND NOT
+        """ + " " + MaintenanceSql.EndpointInMaintenance + " " + """
         ORDER BY e."Id"
         LIMIT 2000
         """;
@@ -146,7 +151,7 @@ public sealed class EndpointHealthService : WorkerLoop
             resolved.AddRange(await AlertCleanup.ResolveNotManagedAsync(db, AlertKind.Offline, license, now, cancellationToken));
             resolved.AddRange(await db.Database.SqlQueryRaw<Guid>(ResolveDisabledSql,
                 new NpgsqlParameter("now", now), new NpgsqlParameter("reason", ResolvedReasonDisabled)).ToListAsync(cancellationToken));
-            transitions.AddRange(resolved.Distinct().Select(id => new AlertTransition(id, AlertTransitionKind.Resolved)));
+            transitions.AddRange(resolved.Distinct().Select(id => new AlertTransition(id, NotificationEvent.Resolved)));
 
             var candidates = await db.Database.SqlQueryRaw<OfflineCandidate>(OfflineCandidatesSql,
                     new NpgsqlParameter("now", now), new NpgsqlParameter("allowsManaged", license.AllowsManaged))
@@ -170,7 +175,7 @@ public sealed class EndpointHealthService : WorkerLoop
                     UpdatedAt = now
                 };
                 db.Alerts.Add(alert);
-                transitions.Add(new AlertTransition(alert.Id, AlertTransitionKind.Opened));
+                transitions.Add(new AlertTransition(alert.Id, NotificationEvent.Opened));
             }
 
             try
@@ -195,7 +200,7 @@ public sealed class EndpointHealthService : WorkerLoop
         }
 
         await AlertCleanup.PublishAsync(_bus, transitions.Select(t => t.AlertId), cancellationToken);
-        return transitions.Count(t => t.Kind == AlertTransitionKind.Opened);
+        return transitions.Count(t => t.Kind == NotificationEvent.Opened);
     }
 
     /// <summary>Branding §8: cause and next step.</summary>

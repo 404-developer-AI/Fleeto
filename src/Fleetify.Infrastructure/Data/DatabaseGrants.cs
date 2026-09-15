@@ -37,7 +37,8 @@ public static class DatabaseGrants
             ["Clients"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["Sites"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["Endpoints"] = Grants(web: ReadWrite, gateway: "SELECT, UPDATE", signer: "SELECT, INSERT, UPDATE", workers: "SELECT, UPDATE"),
-            ["AgentCertificates"] = Grants(web: "SELECT, UPDATE", gateway: Read, signer: "SELECT, INSERT", workers: "SELECT, DELETE"),
+            // The signer revokes the earlier certificates of an endpoint that enrolls again (0.2.0).
+            ["AgentCertificates"] = Grants(web: "SELECT, UPDATE", gateway: Read, signer: "SELECT, INSERT, UPDATE", workers: "SELECT, DELETE"),
             ["EnrollmentTokens"] = Grants(web: ReadWrite, gateway: Read, signer: "SELECT, UPDATE", workers: "SELECT, DELETE"),
             ["InventorySnapshots"] = Grants(web: Read, gateway: "SELECT, INSERT, UPDATE", workers: Read),
 
@@ -46,6 +47,8 @@ public static class DatabaseGrants
             ["CheckDefinitions"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["SiteMonitoringTemplates"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["SitePolicies"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+            // Maintenance window occurrences: written by web when a policy is saved and by the workers every hour.
+            ["MaintenanceWindowOccurrences"] = Grants(web: ReadWrite, workers: ReadWrite),
             ["EndpointMonitoringTemplates"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["EndpointCheckOverrides"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["ClientTemplates"] = Grants(web: ReadWrite, workers: Read),
@@ -53,14 +56,25 @@ public static class DatabaseGrants
             ["ClientTemplateSiteMonitoringTemplates"] = Grants(web: ReadWrite, workers: Read),
 
             ["CheckResults"] = Grants(web: Read, gateway: "INSERT", workers: "SELECT, DELETE"),
-            ["IngestBatches"] = Grants(gateway: "SELECT, INSERT", workers: "SELECT, DELETE"),
+            // The signer clears the batch sequences of an endpoint that enrolls again: the new agent state counts from 1 (0.2.0).
+            ["IngestBatches"] = Grants(gateway: "SELECT, INSERT", signer: "SELECT, DELETE", workers: "SELECT, DELETE"),
             ["CheckStates"] = Grants(web: Read, workers: ReadWrite),
+            // Check history rollups: maintained by the workers with the evaluation, read by web.
+            ["CheckResultsHourly"] = Grants(web: Read, workers: ReadWrite),
+            ["CheckResultsDaily"] = Grants(web: Read, workers: ReadWrite),
             ["Alerts"] = Grants(web: "SELECT, UPDATE", workers: ReadWrite),
             ["EndpointEvents"] = Grants(web: Read, gateway: "INSERT", workers: "SELECT, UPDATE, DELETE"),
             // Web asks, the workers apply a reset, the gateway delivers; nobody else can change a request.
             ["CheckRunRequests"] = Grants(web: "SELECT, INSERT", gateway: "SELECT, UPDATE", workers: "SELECT, UPDATE, DELETE"),
             // Deleted with their endpoint through the foreign key cascade.
             ["Notes"] = Grants(web: ReadWrite),
+
+            // Scripts and jobs (0.2.0): web writes, the signer decides and signs, the gateway delivers and stores output, the
+            // workers expire and clean up. Who may request a job signature is also enforced by TR_SigningRequests_Origin.
+            ["Scripts"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+            ["ScriptVersions"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+            ["Jobs"] = Grants(web: "SELECT, INSERT, UPDATE", gateway: "SELECT, UPDATE", signer: "SELECT, UPDATE", workers: "SELECT, UPDATE, DELETE"),
+            ["JobOutputChunks"] = Grants(web: Read, gateway: "SELECT, INSERT", workers: "SELECT, DELETE"),
 
             // Who may request which kind is also enforced by trigger TR_SigningRequests_Origin (migration SigningRequestOrigin).
             ["SigningRequests"] = Grants(web: Read, gateway: "SELECT, INSERT", signer: "SELECT, UPDATE", workers: "SELECT, INSERT, DELETE"),
@@ -75,6 +89,9 @@ public static class DatabaseGrants
             ["AuditEntries"] = Grants(web: "SELECT, INSERT", gateway: "INSERT", signer: "INSERT", workers: "SELECT, INSERT"),
             ["NotificationChannels"] = Grants(web: ReadWrite, workers: Read),
             ["OutboxEmails"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
+            ["NotificationChannelClients"] = Grants(web: ReadWrite, workers: Read),
+            // Web queues test deliveries and reads the last delivery per channel; the workers deliver.
+            ["OutboxWebhooks"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
             ["BackupRuns"] = Grants(web: Read, workers: ReadWrite),
             ["WorkerWatermarks"] = Grants(workers: ReadWrite),
 
@@ -95,6 +112,11 @@ public static class DatabaseGrants
         // INSERT ... RETURNING "Id" (EF Core) needs SELECT on the returned column; the rest of the audit trail stays unreadable.
         ("AuditEntries", DatabaseRoles.Gateway, ["Id"]),
         ("AuditEntries", DatabaseRoles.Signer, ["Id"]),
+        // The signer checks that the initiator and the approver of a job still exist, are not locked out and hold the right role;
+        // never password hashes, security stamps or two-factor data.
+        ("AspNetUsers", DatabaseRoles.Signer, ["Id", "LockoutEnd", "TwoFactorEnabled"]),
+        ("AspNetUserRoles", DatabaseRoles.Signer, ["UserId", "RoleId"]),
+        ("AspNetRoles", DatabaseRoles.Signer, ["Id", "NormalizedName"]),
     ];
 
     /// <summary>SQL that resets and applies all grants. Idempotent; run as the migrator (table owner).</summary>

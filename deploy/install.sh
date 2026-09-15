@@ -181,7 +181,7 @@ parse_args() {
     done
 
     if [[ -n "$ARG_VERSION" ]] && ! is_version "$ARG_VERSION"; then
-        die "'$ARG_VERSION' is not a valid version." "Use the form MAJOR.MINOR.PATCH, for example 0.1.0."
+        die "'$ARG_VERSION' is not a valid version." "Use the form MAJOR.MINOR.PATCH with an optional pre-release, for example 0.2.0 or 0.2.0-alpha.1."
     fi
     if $ARG_LIST && { $ARG_CHECK || $ARG_ALL || [[ -n "$ARG_FQDN" ]]; }; then
         die "--list cannot be combined with other commands." "Run install.sh --list on its own."
@@ -194,18 +194,48 @@ parse_args() {
 # ---------------------------------------------------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------------------------------------------------
-is_version() { [[ "$1" =~ ^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$ ]]; }
+# A version is MAJOR.MINOR.PATCH with an optional pre-release of at most five short identifiers (0.2.0-alpha.1).
+is_version() {
+    [[ "$1" =~ ^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})(-[0-9A-Za-z]{1,10}(\.[0-9A-Za-z]{1,10}){0,4})?$ ]]
+}
 
-# version_lt a b: true when version a is lower than version b.
+# version_lt a b: true when version a is lower than version b, with semantic versioning precedence for pre-releases:
+# 0.2.0-alpha.1 < 0.2.0-alpha.2 < 0.2.0-beta < 0.2.0. Both arguments are valid versions (is_version).
 version_lt() {
+    local core_a="${1%%-*}" core_b="${2%%-*}" pre_a="" pre_b=""
+    [[ "$1" == *-* ]] && pre_a="${1#*-}"
+    [[ "$2" == *-* ]] && pre_b="${2#*-}"
     local -a a b
-    IFS=. read -r -a a <<<"$1"
-    IFS=. read -r -a b <<<"$2"
+    IFS=. read -r -a a <<<"$core_a"
+    IFS=. read -r -a b <<<"$core_b"
     local i
     for i in 0 1 2; do
         if ((10#${a[i]} < 10#${b[i]})); then return 0; fi
         if ((10#${a[i]} > 10#${b[i]})); then return 1; fi
     done
+    # Same MAJOR.MINOR.PATCH: a pre-release is lower than the release itself.
+    if [[ -z "$pre_a" ]]; then return 1; fi
+    if [[ -z "$pre_b" ]]; then return 0; fi
+    local -a pa pb
+    IFS=. read -r -a pa <<<"$pre_a"
+    IFS=. read -r -a pb <<<"$pre_b"
+    local x y
+    for ((i = 0; i < ${#pa[@]} && i < ${#pb[@]}; i++)); do
+        x="${pa[i]}"
+        y="${pb[i]}"
+        if [[ "$x" == "$y" ]]; then continue; fi
+        if [[ "$x" =~ ^[0-9]+$ && "$y" =~ ^[0-9]+$ ]]; then
+            if ((10#$x < 10#$y)); then return 0; fi
+            return 1
+        fi
+        # A numeric identifier is lower than an alphanumeric one; two alphanumeric identifiers compare in ASCII order.
+        if [[ "$x" =~ ^[0-9]+$ ]]; then return 0; fi
+        if [[ "$y" =~ ^[0-9]+$ ]]; then return 1; fi
+        if [[ "$(LC_ALL=C sort <<<"$x"$'\n'"$y" | head -n 1)" == "$x" ]]; then return 0; fi
+        return 1
+    done
+    # Equal so far: the one with fewer identifiers is lower.
+    if ((${#pa[@]} < ${#pb[@]})); then return 0; fi
     return 1
 }
 

@@ -82,6 +82,10 @@ public sealed class FakeSigner : IAsyncDisposable
                 SigningRequestKind.GatewayCertificate => InternalCertificateAuthority.IssueGatewayCertificate(_fixture.Ca.CertificateDer,
                     _fixture.Ca.PrivateKeyPkcs8, request.Payload, HostNames, DateTime.UtcNow).CertificateDer,
                 SigningRequestKind.AgentRenewal => await RenewAsync(request, cancellationToken),
+                SigningRequestKind.AgentRecovery => await RenewAsync(new SigningRequest
+                {
+                    Id = request.Id, SubjectId = request.SubjectId, Payload = RecoverRequest.Parser.ParseFrom(request.Payload).CsrDer.ToByteArray()
+                }, cancellationToken),
                 SigningRequestKind.AgentEnrollment => await EnrollAsync(request, cancellationToken),
                 _ => null
             };

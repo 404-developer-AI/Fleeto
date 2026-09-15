@@ -3,6 +3,7 @@
 @inherits FleetoPageBase
 @inject DashboardService DashboardData
 @inject LiveUpdates Live
+@inject JobService JobSvc
 
 <PageTitle>Dashboard - Fleeto</PageTitle>
 
@@ -13,6 +14,29 @@
 <LoadState Loading="Loading" Failed="LoadFailed">
     @if (_data is { } data)
     {
+        @foreach (var credential in data.CredentialWarnings)
+        {
+            <MudAlert Severity="@(credential.Expired ? Severity.Error : Severity.Warning)" Class="mb-3">
+                @if (credential.Expired)
+                {
+                    <span>
+                        @credential.Name expired on @Time.Absolute(credential.ExpiresAt). @Capitalize(credential.StopsWorking) has stopped@(credential.FallbackInUse ? "; email goes through SMTP until it is renewed" : "").
+                    </span>
+                }
+                else
+                {
+                    <span>@credential.Name expires on @Time.Absolute(credential.ExpiresAt). After that date @credential.StopsWorking stops.</span>
+                }
+                @if (IsAdmin)
+                {
+                    <span> @credential.NextStep </span><MudLink Href="@credential.SettingsPath">Open settings</MudLink>
+                }
+                else
+                {
+                    <span> Ask an admin to renew it.</span>
+                }
+            </MudAlert>
+        }
         <MudGrid Spacing="3" Class="mb-4">
             <MudItem xs="12" sm="6" md="4" lg="2">
                 <div class="stat-card fl-panel">
@@ -129,30 +153,61 @@
                         </RowTemplate>
                     </MudTable>
                 }
+
+                <MudText Typo="Typo.h6" Class="section-title mb-2 mt-4">Recent jobs</MudText>
+                @if (_jobs.Count == 0)
+                {
+                    <EmptyState Icon="@Icons.Material.Outlined.Terminal" Title="No jobs yet" Text="Scripts started on endpoints appear here." />
+                }
+                else
+                {
+                    <MudTable Items="_jobs" Dense="true" Elevation="0">
+                        <HeaderContent>
+                            <MudTh>Started</MudTh>
+                            <MudTh>Script</MudTh>
+                            <MudTh>Endpoint</MudTh>
+                            <MudTh>Result</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd><TimeText Value="context.StartedAt ?? context.CreatedAt" /></MudTd>
+                            <MudTd>@context.ScriptName</MudTd>
+                            <MudTd><MudLink Href="@($"/endpoints/{context.EndpointId}")">@context.ClientCode / @context.Hostname</MudLink></MudTd>
+                            <MudTd><StatusChip Text="@Ui.JobStateLabel(context.State, context.Result)" Kind="@Ui.JobStateKind(context.State)" /></MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
             </MudItem>
         </MudGrid>
     }
 </LoadState>
 
 @code {
+    private static string Capitalize(string value) => value.Length == 0 ? value : char.ToUpperInvariant(value[0]) + value[1..];
+
     private DashboardData? _data;
+    private IReadOnlyList<JobListItem> _jobs = [];
     private DebouncedRefresh? _refresh;
 
     protected override async Task OnInitializedAsync()
     {
         _refresh = new DebouncedRefresh(() => InvokeAsync(async () =>
         {
-            await LoadAsync(async caller => _data = await DashboardData.GetAsync(caller));
+            await ReloadAsync();
             StateHasChanged();
         }));
         Live.EndpointStatusChanged += OnChange;
         Live.AlertChanged += OnChange;
-        await LoadAsync(async caller => _data = await DashboardData.GetAsync(caller));
+        Live.JobsChanged += OnChange;
+        await ReloadAsync();
     }
 
     private void OnChange(Guid _) => _refresh?.Trigger();
 
-    private Task ReloadAsync() => LoadAsync(async caller => _data = await DashboardData.GetAsync(caller));
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        _data = await DashboardData.GetAsync(caller);
+        _jobs = await JobSvc.ListRecentAsync(caller, 8);
+    });
 
     private string LicenseDetail(Fleetify.Infrastructure.Licensing.LicenseUsage usage) => usage.Status.State switch
     {
@@ -167,6 +222,7 @@
     {
         Live.EndpointStatusChanged -= OnChange;
         Live.AlertChanged -= OnChange;
+        Live.JobsChanged -= OnChange;
         _refresh?.Dispose();
         base.Dispose();
     }

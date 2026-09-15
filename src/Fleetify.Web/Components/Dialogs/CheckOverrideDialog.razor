@@ -31,25 +31,28 @@
             <MudText Typo="Typo.body2" Class="mb-3">Template: runs @Intervals.Describe(Check.TemplateIntervalSeconds).</MudText>
         }
 
+        @if (HasThresholds)
+        {
         <div class="d-flex align-center justify-space-between">
-            <MudText Typo="Typo.subtitle2">@(Check.Type == CheckType.ServiceRunning ? "Severity" : "Thresholds")</MudText>
+            <MudText Typo="Typo.subtitle2">@(IsFlag ? "Severity" : "Thresholds")</MudText>
             <MudSwitch T="bool" @bind-Value="_overrideThresholds" Color="Color.Primary" Label="Override" />
         </div>
         @if (_overrideThresholds)
         {
-            @if (Check.Type == CheckType.ServiceRunning)
+            @if (IsFlag)
             {
-                <MudSwitch T="bool" @bind-Value="_serviceWarningOnly" Color="Color.Primary" Label="Report a stopped service as a warning instead of critical" Class="mb-1" />
+                <MudSwitch T="bool" @bind-Value="_serviceWarningOnly" Color="Color.Primary" Label="@(Info.FlagWarningLabel ?? "Report a problem as a warning instead of critical")" Class="mb-1" />
             }
             else
             {
                 <div class="d-flex gap-2 mb-1">
-                    <MudNumericField T="double?" @bind-Value="_warning" Label="@($"Warning ({Ui.ThresholdUnit(Check.Type)})")" Variant="Variant.Outlined" Clearable="true" />
-                    <MudNumericField T="double?" @bind-Value="_critical" Label="@($"Critical ({Ui.ThresholdUnit(Check.Type)})")" Variant="Variant.Outlined" Clearable="true" />
+                    <MudNumericField T="double?" @bind-Value="_warning" Label="@UnitLabel("Warning")" Variant="Variant.Outlined" Clearable="true" />
+                    <MudNumericField T="double?" @bind-Value="_critical" Label="@UnitLabel("Critical")" Variant="Variant.Outlined" Clearable="true" />
                 </div>
             }
         }
         <MudText Typo="Typo.body2" Class="@(_overrideThresholds ? "mb-3 muted" : "mb-3")">Template: @TemplateThresholds</MudText>
+        }
 
         <div class="d-flex align-center justify-space-between">
             <MudText Typo="Typo.subtitle2">Failed results before an alert opens</MudText>
@@ -89,11 +92,19 @@
 
     private int IntervalSeconds => (int)Math.Min(int.MaxValue, (long)_intervalAmount * _intervalUnit);
 
-    private string TemplateThresholds => Check.Type == CheckType.ServiceRunning
-        ? (Check.TemplateWarningThreshold >= 1 ? "a stopped service is a warning" : "a stopped service is critical")
-        : $"warning {Format(Check.TemplateWarningThreshold)}, critical {Format(Check.TemplateCriticalThreshold)}";
+    private CheckTypeInfo Info => CheckCatalog.Get(Check.Type);
 
-    private string Format(double? value) => value is null ? "none" : $"{value:0.##} {Ui.ThresholdUnit(Check.Type)}".Trim();
+    private bool IsFlag => Info.ThresholdKindFor(Check.Parameters) == ThresholdKind.Flag;
+
+    private bool HasThresholds => Info.ThresholdKindFor(Check.Parameters) != ThresholdKind.ExitCode;
+
+    private string UnitLabel(string label)
+    {
+        var unit = Ui.ThresholdUnit(Check.Type, Check.Parameters);
+        return string.IsNullOrEmpty(unit) ? label : $"{label} ({unit})";
+    }
+
+    private string TemplateThresholds => Ui.ThresholdsText(Check.Type, Check.Parameters, Check.TemplateWarningThreshold, Check.TemplateCriticalThreshold);
 
     protected override void OnInitialized()
     {
@@ -124,8 +135,8 @@
 
     private async Task SubmitAsync()
     {
-        var warning = Check.Type == CheckType.ServiceRunning ? (_serviceWarningOnly ? 1d : null) : _warning;
-        var critical = Check.Type == CheckType.ServiceRunning ? null : _critical;
+        var warning = IsFlag ? (_serviceWarningOnly ? 1d : null) : _warning;
+        var critical = IsFlag ? null : _critical;
         var input = new CheckOverrideInput(
             _overrideInterval ? IntervalSeconds : null,
             _overrideThresholds,

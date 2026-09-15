@@ -1,0 +1,41 @@
+@* Maintenance mode: the neutral gray chip with the outlined Construction icon (branding §6): "In maintenance until 16:00". *@
+@inject TimeDisplay Time
+
+@if (Maintenance is { } m)
+{
+    <span class="status-chip status-neutral" title="@Tooltip(m)">
+        <MudIcon Icon="@Icons.Material.Outlined.Construction" Style="font-size:14px" />
+        @(m.EndsAt is null ? "In maintenance" : $"In maintenance until {Time.Short(m.EndsAt)}")
+    </span>
+}
+
+@code {
+    [Parameter]
+    public EffectiveMaintenance? Maintenance { get; set; }
+
+    /// <summary>Site or client name the maintenance comes from, when it is not the endpoint's own.</summary>
+    [Parameter]
+    public string? SourceName { get; set; }
+
+    private string Tooltip(EffectiveMaintenance m)
+    {
+        var parts = new List<string>();
+        if (m.Source == MaintenanceSource.PolicyWindow)
+        {
+            parts.Add($"Maintenance window of policy {m.SourceName}");
+        }
+        else if (m.Source != MaintenanceSource.Endpoint)
+        {
+            parts.Add(SourceName is null ? $"Through its {m.Source.ToString().ToLowerInvariant()}" : $"Through {m.Source.ToString().ToLowerInvariant()} {SourceName}");
+        }
+
+        parts.Add($"Started {Time.Absolute(m.StartedAt)}" + (string.IsNullOrEmpty(m.StartedByName) ? string.Empty : $" by {m.StartedByName}"));
+        parts.Add(m.EndsAt is null ? "Until turned off" : $"Ends {Time.Absolute(m.EndsAt)}");
+        if (!string.IsNullOrEmpty(m.Reason))
+        {
+            parts.Add(m.Reason);
+        }
+
+        return string.Join(" · ", parts);
+    }
+}

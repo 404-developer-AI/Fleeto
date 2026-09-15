@@ -29,7 +29,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "--version must be MAJOR.MINOR.PATCH"
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]{1,10}(\.[0-9A-Za-z]{1,10}){0,4})?$ ]] ||
+    fail "--version must be MAJOR.MINOR.PATCH with an optional pre-release such as -alpha.1"
 [[ -n "$keys" ]] || fail "--release-public-keys is required (an install.sh without keys cannot verify releases)"
 [[ -n "$output" ]] || fail "--out is required"
 

@@ -150,7 +150,7 @@ public sealed class CheckRunRequestService : WorkerLoop
                         alert.ResolvedAt = now;
                         alert.ResolvedReason = reason;
                         alert.UpdatedAt = now;
-                        transitions.Add(new AlertTransition(alert.Id, AlertTransitionKind.Resolved));
+                        transitions.Add(new AlertTransition(alert.Id, NotificationEvent.Resolved));
                     }
 
                     await db.CheckStates

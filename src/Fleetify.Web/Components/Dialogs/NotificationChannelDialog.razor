@@ -1,16 +1,52 @@
-@* Create or edit an email notification channel. *@
+@* Create or edit a notification channel: email or webhook, with its routing rules (clients, minimum severity, resolves). *@
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">@(Existing is null ? "New notification channel" : $"Edit {Existing.Name}")</MudText>
     </TitleContent>
     <DialogContent>
         <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" MaxLength="100" AutoFocus="true" Class="mb-3" />
-        <MudTextField @bind-Value="_recipients" Label="Recipients" Variant="Variant.Outlined" Lines="3" MaxLength="2000" Class="mb-3"
-                      HelperText="Email addresses, separated by commas or one per line." />
+        <MudSelect T="NotificationChannelType" @bind-Value="_type" Label="Type" Variant="Variant.Outlined" Class="mb-3" Disabled="Existing is not null"
+                   HelperText="@(Existing is null ? null : "The type of a channel cannot change.")">
+            <MudSelectItem T="NotificationChannelType" Value="NotificationChannelType.Email">Email</MudSelectItem>
+            <MudSelectItem T="NotificationChannelType" Value="NotificationChannelType.Webhook">Webhook</MudSelectItem>
+        </MudSelect>
+
+        @if (_type == NotificationChannelType.Email)
+        {
+            <MudTextField @bind-Value="_recipients" Label="Recipients" Variant="Variant.Outlined" Lines="3" MaxLength="2000" Class="mb-3"
+                          HelperText="Email addresses, separated by commas or one per line." />
+        }
+        else
+        {
+            <MudSelect T="WebhookFormat" @bind-Value="_format" Label="Format" Variant="Variant.Outlined" Class="mb-3" HelperText="@FormatHelp">
+                <MudSelectItem T="WebhookFormat" Value="WebhookFormat.Generic">Generic JSON (signed)</MudSelectItem>
+                <MudSelectItem T="WebhookFormat" Value="WebhookFormat.Slack">Slack</MudSelectItem>
+                <MudSelectItem T="WebhookFormat" Value="WebhookFormat.Teams">Microsoft Teams</MudSelectItem>
+            </MudSelect>
+            <MudTextField @bind-Value="_url" Label="@UrlLabel" Variant="Variant.Outlined" MaxLength="2000" Class="mb-3" InputType="InputType.Password"
+                          HelperText="@UrlHelp" />
+        }
+
         <MudSelect T="AlertSeverity" @bind-Value="_minimumSeverity" Label="Send alerts of at least" Variant="Variant.Outlined" Class="mb-3">
             <MudSelectItem T="AlertSeverity" Value="AlertSeverity.Warning">Warning</MudSelectItem>
             <MudSelectItem T="AlertSeverity" Value="AlertSeverity.Critical">Critical</MudSelectItem>
         </MudSelect>
+
+        <MudRadioGroup T="bool" @bind-Value="_allClients" Class="mb-2">
+            <MudRadio T="bool" Value="true" Color="Color.Primary">Alerts of all clients</MudRadio>
+            <MudRadio T="bool" Value="false" Color="Color.Primary">Alerts of chosen clients</MudRadio>
+        </MudRadioGroup>
+        @if (!_allClients)
+        {
+            <MudSelect T="Guid" MultiSelection="true" @bind-SelectedValues="_clientIds" Label="Clients" Variant="Variant.Outlined" Class="mb-3"
+                       ToStringFunc="ClientLabel" MaxHeight="320" HelperText="Clients created later are not added automatically.">
+                @foreach (var client in Clients)
+                {
+                    <MudSelectItem T="Guid" Value="client.Id">@client.Code · @client.Name</MudSelectItem>
+                }
+            </MudSelect>
+        }
+
         <MudSwitch T="bool" @bind-Value="_notifyOnResolve" Color="Color.Primary" Label="Also send a message when an alert is resolved" />
         <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Label="Enabled" />
     </DialogContent>
@@ -25,11 +61,17 @@
     private IMudDialogInstance MudDialog { get; set; } = default!;
 
     [Parameter] public NotificationChannelView? Existing { get; set; }
+    [Parameter] public IReadOnlyList<ChannelClient> Clients { get; set; } = [];
     [Parameter] public Func<NotificationChannelInput, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
 
     private string? _name;
+    private NotificationChannelType _type = NotificationChannelType.Email;
     private string? _recipients;
+    private WebhookFormat _format = WebhookFormat.Generic;
+    private string? _url;
     private AlertSeverity _minimumSeverity = AlertSeverity.Warning;
+    private bool _allClients = true;
+    private IReadOnlyCollection<Guid> _clientIds = new HashSet<Guid>();
     private bool _notifyOnResolve = true;
     private bool _enabled = true;
     private bool _busy;
@@ -39,12 +81,33 @@
         if (Existing is { } c)
         {
             _name = c.Name;
+            _type = c.Type;
             _recipients = c.Recipients;
+            _format = c.WebhookFormat ?? WebhookFormat.Generic;
             _minimumSeverity = c.MinimumSeverity;
+            _allClients = c.AllClients;
+            _clientIds = c.Clients.Select(x => x.Id).ToHashSet();
             _notifyOnResolve = c.NotifyOnResolve;
             _enabled = c.Enabled;
         }
     }
+
+    private string UrlLabel => Existing is null || Existing.Type != NotificationChannelType.Webhook
+        ? "Webhook URL"
+        : "Webhook URL (leave blank to keep the current URL)";
+
+    private string UrlHelp => Existing?.WebhookHost is { } host
+        ? $"Currently posts to {host}. The URL is stored encrypted and never shown again."
+        : "An https address. The URL is stored encrypted and never shown again.";
+
+    private string FormatHelp => _format switch
+    {
+        WebhookFormat.Slack => "A Slack incoming webhook URL (https://hooks.slack.com/services/...).",
+        WebhookFormat.Teams => "The URL of a Teams workflow that starts with 'When a Teams webhook request is received'.",
+        _ => "Fleeto's own JSON with an X-Fleeto-Signature header. The signing secret is shown once after saving."
+    };
+
+    private string ClientLabel(Guid id) => Clients.FirstOrDefault(c => c.Id == id) is { } client ? client.Code : string.Empty;
 
     private void Cancel() => MudDialog.Cancel();
 
@@ -53,7 +116,9 @@
         _busy = true;
         try
         {
-            if (await OnSubmit(new NotificationChannelInput(_name, _recipients, _minimumSeverity, _notifyOnResolve, _enabled)))
+            var input = new NotificationChannelInput(_name, _type, _recipients, _format, _url, _minimumSeverity, _notifyOnResolve, _enabled,
+                _allClients, _clientIds.ToList());
+            if (await OnSubmit(input))
             {
                 MudDialog.Close(DialogResult.Ok(true));
             }

@@ -16,15 +16,19 @@ public sealed record SiteListItem(Guid Id, string Name, string? Description, boo
     int OpenAlertCount, string? PolicyName);
 
 public sealed record ClientDetail(Guid Id, string Code, string Name, Guid? ClientTemplateId, string? TemplateName, DateTime CreatedAt,
-    IReadOnlyList<SiteListItem> Sites);
+    IReadOnlyList<SiteListItem> Sites, MaintenancePeriod Maintenance);
 
 public sealed record ClientOption(Guid Id, string Code, string Name);
 
-/// <summary>A client in the clients panel, with its sites and live counts.</summary>
+/// <summary>
+/// A client in the clients panel, with its sites and live counts. <see cref="InMaintenanceCount"/> counts endpoints in effective
+/// maintenance; <see cref="MaintenanceActive"/> is the client's own maintenance.
+/// </summary>
 public sealed record ClientTreeItem(Guid Id, string Code, string Name, int EndpointCount, int OnlineCount, int OpenAlertCount,
-    IReadOnlyList<SiteTreeItem> Sites);
+    IReadOnlyList<SiteTreeItem> Sites, bool MaintenanceActive = false, int InMaintenanceCount = 0);
 
-public sealed record SiteTreeItem(Guid Id, string Name, int EndpointCount, int OnlineCount, int OpenAlertCount);
+public sealed record SiteTreeItem(Guid Id, string Name, int EndpointCount, int OnlineCount, int OpenAlertCount, bool MaintenanceActive = false,
+    int InMaintenanceCount = 0);
 
 /// <summary>Clients: list, create (optionally from a client template), rename, detach from template, delete.</summary>
 public sealed class ClientService
@@ -99,7 +103,8 @@ public sealed class ClientService
                 c.Name,
                 Endpoints = db.Endpoints.Count(e => e.ClientId == c.Id),
                 Online = db.Endpoints.Count(e => e.ClientId == c.Id && e.IsOnline),
-                Alerts = db.Alerts.Count(a => a.ClientId == c.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now))
+                Alerts = db.Alerts.Count(a => a.ClientId == c.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now)),
+                Maintenance = c.MaintenanceStartedAt != null && c.MaintenanceStartedAt <= now && (c.MaintenanceEndsAt == null || c.MaintenanceEndsAt > now)
             })
             .ToListAsync(cancellationToken);
 
@@ -116,13 +121,26 @@ public sealed class ClientService
                     db.Endpoints.Count(e => e.SiteId == s.Id),
                     db.Endpoints.Count(e => e.SiteId == s.Id && e.IsOnline),
                     db.Alerts.Count(a => a.ClientId == s.ClientId && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now) &&
-                                         db.Endpoints.Any(e => e.Id == a.EndpointId && e.SiteId == s.Id)))
+                                         db.Endpoints.Any(e => e.Id == a.EndpointId && e.SiteId == s.Id)),
+                    s.MaintenanceStartedAt != null && s.MaintenanceStartedAt <= now && (s.MaintenanceEndsAt == null || s.MaintenanceEndsAt > now))
             })
             .ToListAsync(cancellationToken);
 
-        var sitesByClient = siteRows.GroupBy(s => s.ClientId).ToDictionary(g => g.Key, g => (IReadOnlyList<SiteTreeItem>)g.Select(s => s.Item).ToList());
+        // One grouped count for the whole tree instead of a subquery per client and site.
+        var inMaintenance = await db.Endpoints.AsNoTracking()
+            .Where(e => clientIds.Contains(e.ClientId))
+            .Where(MaintenanceRules.EndpointInMaintenance(now, db.MaintenanceWindowOccurrences, db.SitePolicies, db.Policies))
+            .GroupBy(e => new { e.ClientId, e.SiteId })
+            .Select(g => new { g.Key.ClientId, g.Key.SiteId, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+        var siteMaintenance = inMaintenance.ToDictionary(m => m.SiteId, m => m.Count);
+        var clientMaintenance = inMaintenance.GroupBy(m => m.ClientId).ToDictionary(g => g.Key, g => g.Sum(m => m.Count));
+
+        var sitesByClient = siteRows.GroupBy(s => s.ClientId).ToDictionary(g => g.Key,
+            g => (IReadOnlyList<SiteTreeItem>)g.Select(s => s.Item with { InMaintenanceCount = siteMaintenance.GetValueOrDefault(s.Item.Id) }).ToList());
         return clientRows
-            .Select(c => new ClientTreeItem(c.Id, c.Code, c.Name, c.Endpoints, c.Online, c.Alerts, sitesByClient.GetValueOrDefault(c.Id, [])))
+            .Select(c => new ClientTreeItem(c.Id, c.Code, c.Name, c.Endpoints, c.Online, c.Alerts, sitesByClient.GetValueOrDefault(c.Id, []),
+                c.Maintenance, clientMaintenance.GetValueOrDefault(c.Id)))
             .ToList();
     }
 
@@ -149,7 +167,8 @@ public sealed class ClientService
                 c.Name,
                 c.ClientTemplateId,
                 TemplateName = db.ClientTemplates.Where(t => t.Id == c.ClientTemplateId).Select(t => t.Name).FirstOrDefault(),
-                c.CreatedAt
+                c.CreatedAt,
+                Maintenance = new MaintenancePeriod(c.MaintenanceStartedAt, c.MaintenanceEndsAt, c.MaintenanceStartedByName, c.MaintenanceReason)
             })
             .SingleOrDefaultAsync(cancellationToken);
         if (client is null)
@@ -173,7 +192,8 @@ public sealed class ClientService
             .ToListAsync(cancellationToken);
 
         sites = sites.Select(s => s with { PolicyName = s.PolicyName ?? defaultPolicy }).ToList();
-        return new ClientDetail(client.Id, client.Code, client.Name, client.ClientTemplateId, client.TemplateName, client.CreatedAt, sites);
+        return new ClientDetail(client.Id, client.Code, client.Name, client.ClientTemplateId, client.TemplateName, client.CreatedAt, sites,
+            client.Maintenance);
     }
 
     /// <summary>

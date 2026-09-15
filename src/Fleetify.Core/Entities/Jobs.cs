@@ -1,0 +1,219 @@
+namespace Fleetify.Core.Entities;
+
+public enum ScriptLanguage
+{
+    PowerShell,
+    Batch,
+    /// <summary>POSIX sh on Linux and macOS.</summary>
+    Shell,
+    Bash
+}
+
+/// <summary>A script in the library (0.2.0). ClientId null = global. Every change of the body creates a new version.</summary>
+public class Script
+{
+    public Guid Id { get; set; }
+    public Guid? ClientId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public ScriptLanguage Language { get; set; }
+
+    /// <summary>The newest version; jobs always run it.</summary>
+    public Guid? CurrentVersionId { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+
+    public List<ScriptVersion> Versions { get; set; } = [];
+}
+
+/// <summary>
+/// One immutable version of a script. Approval by a second admin (with a fresh two-factor code) is bound to the body hash;
+/// sites whose policy requires approval run only an approved current version.
+/// </summary>
+public class ScriptVersion
+{
+    public Guid Id { get; set; }
+    public Guid ScriptId { get; set; }
+
+    /// <summary>Always the ClientId of the script, kept equal by a trigger.</summary>
+    public Guid? ClientId { get; set; }
+
+    public int Number { get; set; }
+    public string Body { get; set; } = string.Empty;
+
+    /// <summary>Lowercase hex SHA-256 of the UTF-8 body.</summary>
+    public string Sha256 { get; set; } = string.Empty;
+
+    public int TimeoutSeconds { get; set; }
+    public Guid AuthorUserId { get; set; }
+    public string AuthorName { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+
+    public Guid? ApprovedByUserId { get; set; }
+    public string? ApprovedByName { get; set; }
+    public DateTime? ApprovedAt { get; set; }
+
+    /// <summary>The body hash the approver saw; an approval counts only while it equals <see cref="Sha256"/>.</summary>
+    public string? ApprovedSha256 { get; set; }
+
+    public bool IsApproved => ApprovedAt is not null && ApprovedByUserId is not null && ApprovedByUserId != AuthorUserId && ApprovedSha256 == Sha256;
+}
+
+public enum JobType
+{
+    Script
+}
+
+public enum JobState
+{
+    /// <summary>Written by web; fleetify-signer has not signed it yet.</summary>
+    PendingSignature,
+    /// <summary>Signed; the gateway delivers it while the agent is online and it is valid.</summary>
+    Queued,
+    Running,
+    Succeeded,
+    Failed,
+    /// <summary>Not started before its ValidUntil.</summary>
+    Expired,
+    /// <summary>Refused by fleetify-signer or by the agent, with a reason.</summary>
+    Refused,
+    /// <summary>Started, but no result arrived within its timeout and grace: the outcome is unknown.</summary>
+    Lost,
+    /// <summary>Cancelled by a technician before it was delivered.</summary>
+    Cancelled
+}
+
+/// <summary>What the agent reported when the job ended.</summary>
+public enum JobResult
+{
+    Exited,
+    TimedOut,
+    Refused,
+    FailedToStart,
+    /// <summary>The agent stopped while the job ran; whether it finished is unknown.</summary>
+    Interrupted
+}
+
+public enum JobOutputState
+{
+    None,
+    Receiving,
+    Complete,
+    Incomplete
+}
+
+/// <summary>
+/// One job on one endpoint (ARCHITECTURE.md §4, Job). Runs created together share a <see cref="BatchId"/>. The signed payload
+/// carries the script body, so the job stays exactly what was signed even when the script changes or is deleted.
+/// </summary>
+public class Job
+{
+    public Guid Id { get; set; }
+    public Guid ClientId { get; set; }
+    public Guid EndpointId { get; set; }
+    public Guid BatchId { get; set; }
+    public JobType Type { get; set; } = JobType.Script;
+
+    public Guid? ScriptId { get; set; }
+    public Guid? ScriptVersionId { get; set; }
+    public string ScriptName { get; set; } = string.Empty;
+    public int ScriptVersionNumber { get; set; }
+    public ScriptLanguage Language { get; set; }
+    public string ScriptSha256 { get; set; } = string.Empty;
+    public int TimeoutSeconds { get; set; }
+    public long MaxOutputBytes { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+    public DateTime ValidUntil { get; set; }
+    public Guid InitiatedByUserId { get; set; }
+    public string InitiatedByName { get; set; } = string.Empty;
+
+    public JobState State { get; set; } = JobState.PendingSignature;
+    public string? RefusalReason { get; set; }
+
+    /// <summary>Serialized JobPayload protobuf, set by the signer.</summary>
+    public byte[]? Payload { get; set; }
+
+    public byte[]? Signature { get; set; }
+    public string? SigningKeyId { get; set; }
+    public DateTime? SignedAt { get; set; }
+
+    public DateTime? DeliveredAt { get; set; }
+    public DateTime? StartedAt { get; set; }
+    public DateTime? CompletedAt { get; set; }
+    public JobResult? Result { get; set; }
+    public int? ExitCode { get; set; }
+
+    /// <summary>Agent message when the job could not run or was refused on the endpoint.</summary>
+    public string? Error { get; set; }
+
+    public JobOutputState OutputState { get; set; } = JobOutputState.None;
+
+    /// <summary>Output bytes stored so far, both streams; the gateway refuses chunks beyond <see cref="MaxOutputBytes"/>.</summary>
+    public long ReceivedOutputBytes { get; set; }
+
+    public bool OutputTruncated { get; set; }
+    public long? StdoutChunks { get; set; }
+    public long? StdoutBytes { get; set; }
+    public string? StdoutSha256 { get; set; }
+    public long? StderrChunks { get; set; }
+    public long? StderrBytes { get; set; }
+    public string? StderrSha256 { get; set; }
+}
+
+public enum JobStream
+{
+    Stdout,
+    Stderr
+}
+
+/// <summary>A piece of job output, stored idempotently per job, stream and sequence (ARCHITECTURE.md §4, Job output).</summary>
+public class JobOutputChunk
+{
+    public Guid JobId { get; set; }
+    public JobStream Stream { get; set; }
+    public long Sequence { get; set; }
+    public Guid ClientId { get; set; }
+    public byte[] Data { get; set; } = [];
+    public DateTime ReceivedAt { get; set; }
+}
+
+/// <summary>Limits of scripts and jobs (0.2.0), shared by web, signer, gateway and workers.</summary>
+public static class ScriptRules
+{
+    public const int MaxBodyLength = 256 * 1024;
+    public const int MinTimeoutSeconds = 30;
+    public const int MaxTimeoutSeconds = 24 * 3600;
+    public const int DefaultTimeoutSeconds = 10 * 60;
+
+    public static readonly TimeSpan DefaultValidity = TimeSpan.FromHours(24);
+    public static readonly TimeSpan MaxValidity = TimeSpan.FromDays(7);
+
+    /// <summary>Output per job the agent sends at most; beyond it the output is marked truncated.</summary>
+    public const long MaxOutputBytes = 50L * 1024 * 1024;
+
+    /// <summary>Largest output chunk.</summary>
+    public const int MaxChunkBytes = 64 * 1024;
+
+    /// <summary>Shortest interval of a script check: starting a script interpreter is not free.</summary>
+    public const int MinCheckIntervalSeconds = 60;
+
+    /// <summary>Longest a script check may run; the version's timeout applies when it is shorter, and never beyond the interval.</summary>
+    public const int MaxCheckTimeoutSeconds = 5 * 60;
+
+    /// <summary>
+    /// Script bytes one agent configuration carries at most (the configuration travels in one protocol message of 4 MiB). Script
+    /// checks beyond it are sent without their script and report why.
+    /// </summary>
+    public const int MaxCheckScriptBytesPerConfig = 1024 * 1024;
+
+    /// <summary>Endpoints one run may target.</summary>
+    public const int MaxEndpointsPerRun = 500;
+
+    /// <summary>A running job without a result becomes lost this long after its timeout.</summary>
+    public static readonly TimeSpan LostGrace = TimeSpan.FromMinutes(15);
+
+    /// <summary>Output that is still incomplete this long after the job ended stays incomplete.</summary>
+    public static readonly TimeSpan OutputRecoveryPeriod = TimeSpan.FromDays(7);
+}

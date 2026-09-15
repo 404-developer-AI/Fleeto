@@ -111,6 +111,9 @@ func NewStore(dir string, access platform.Access) *Store {
 // Dir returns the state directory.
 func (s *Store) Dir() string { return s.dir }
 
+// Access returns who may read the state directory.
+func (s *Store) Access() platform.Access { return s.access }
+
 // Path returns the path of the state file.
 func (s *Store) Path() string { return filepath.Join(s.dir, FileName) }
 

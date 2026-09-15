@@ -16,6 +16,19 @@ public class Client
     /// <summary>The client template this client follows, if any. Linked, not copied.</summary>
     public Guid? ClientTemplateId { get; set; }
 
+    /// <summary>Maintenance mode: active while started and the end is unset or in the future (MaintenanceRules).</summary>
+    public DateTime? MaintenanceStartedAt { get; set; }
+
+    /// <summary>Null means until turned off.</summary>
+    public DateTime? MaintenanceEndsAt { get; set; }
+
+    public Guid? MaintenanceStartedByUserId { get; set; }
+    public string? MaintenanceStartedByName { get; set; }
+    public string? MaintenanceReason { get; set; }
+
+    public Domain.MaintenancePeriod Maintenance =>
+        new(MaintenanceStartedAt, MaintenanceEndsAt, MaintenanceStartedByName, MaintenanceReason);
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
@@ -32,6 +45,19 @@ public class Site
 
     /// <summary>The client template site this site was created from; null for manual or detached sites.</summary>
     public Guid? ClientTemplateSiteId { get; set; }
+
+    /// <summary>Maintenance mode: active while started and the end is unset or in the future (MaintenanceRules).</summary>
+    public DateTime? MaintenanceStartedAt { get; set; }
+
+    /// <summary>Null means until turned off.</summary>
+    public DateTime? MaintenanceEndsAt { get; set; }
+
+    public Guid? MaintenanceStartedByUserId { get; set; }
+    public string? MaintenanceStartedByName { get; set; }
+    public string? MaintenanceReason { get; set; }
+
+    public Domain.MaintenancePeriod Maintenance =>
+        new(MaintenanceStartedAt, MaintenanceEndsAt, MaintenanceStartedByName, MaintenanceReason);
 
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
@@ -88,6 +114,19 @@ public class Endpoint
 
     public DateTime? PublicIpSeenAt { get; set; }
 
+    /// <summary>Maintenance mode: active while started and the end is unset or in the future (MaintenanceRules).</summary>
+    public DateTime? MaintenanceStartedAt { get; set; }
+
+    /// <summary>Null means until turned off.</summary>
+    public DateTime? MaintenanceEndsAt { get; set; }
+
+    public Guid? MaintenanceStartedByUserId { get; set; }
+    public string? MaintenanceStartedByName { get; set; }
+    public string? MaintenanceReason { get; set; }
+
+    public Domain.MaintenancePeriod Maintenance =>
+        new(MaintenanceStartedAt, MaintenanceEndsAt, MaintenanceStartedByName, MaintenanceReason);
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
@@ -129,6 +168,13 @@ public class EnrollmentToken
     public Guid Id { get; set; }
     public Guid ClientId { get; set; }
     public Guid SiteId { get; set; }
+
+    /// <summary>
+    /// Set for an "enroll again" token (0.2.0): the agent that enrolls with it takes over this existing endpoint (its checks,
+    /// alerts, notes and history) instead of creating a new one; the endpoint's earlier certificates are revoked.
+    /// </summary>
+    public Guid? EndpointId { get; set; }
+
     public string Name { get; set; } = string.Empty;
     public string TokenHash { get; set; } = string.Empty;
     public DateTime ExpiresAt { get; set; }
@@ -178,4 +224,7 @@ public class InventorySnapshot
 
     /// <summary>JSON array of installed software: name, version, publisher, installDate.</summary>
     public string SoftwareJson { get; set; } = "[]";
+
+    /// <summary>JSON array of services: name, displayName, startType, state. For picking a service in a check (0.2.0).</summary>
+    public string ServicesJson { get; set; } = "[]";
 }

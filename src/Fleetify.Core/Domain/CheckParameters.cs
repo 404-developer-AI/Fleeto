@@ -1,9 +1,10 @@
+using System.Globalization;
 using System.Text.Json;
 using Fleetify.Core.Entities;
 
 namespace Fleetify.Core.Domain;
 
-/// <summary>Parsing and validation of the type-specific parameters of a check definition.</summary>
+/// <summary>Parsing and validation of the type-specific parameters of a check definition, following <see cref="CheckCatalog"/>.</summary>
 public static class CheckParameters
 {
     /// <summary>Smallest allowed interval. The agent adds jitter, so tighter intervals only add load.</summary>
@@ -33,8 +34,8 @@ public static class CheckParameters
         JsonSerializer.Serialize(parameters);
 
     /// <summary>
-    /// Validates a definition before it is saved. Returns human-readable problems (cause and next step), empty
-    /// when the definition is valid.
+    /// Validates a definition before it is saved. Returns human-readable problems (cause and next step), empty when the definition
+    /// is valid. The parameters are expected to be cleaned with <see cref="CheckCatalog.CleanParameters"/>.
     /// </summary>
     public static IReadOnlyList<string> Validate(CheckDefinition definition)
     {
@@ -50,66 +51,151 @@ public static class CheckParameters
         {
             problems.Add($"The interval must be between {MinimumIntervalSeconds} seconds and once a month.");
         }
+        else if (definition.Type == CheckType.Script && definition.IntervalSeconds < ScriptRules.MinCheckIntervalSeconds)
+        {
+            problems.Add($"A script check runs at most once a minute. Set an interval of at least {ScriptRules.MinCheckIntervalSeconds} seconds.");
+        }
 
         if (definition.FailuresBeforeAlert is < 1 or > 100)
         {
             problems.Add("Failures before alert must be between 1 and 100.");
         }
 
-        switch (definition.Type)
+        if (!Enum.IsDefined(definition.Type))
         {
-            case CheckType.CpuUsage:
-            case CheckType.MemoryUsage:
-                RequirePercent(definition, problems);
-                if (definition.WarningThreshold is not null && definition.CriticalThreshold is not null &&
-                    definition.WarningThreshold > definition.CriticalThreshold)
-                {
-                    problems.Add("The warning threshold must be lower than the critical threshold.");
-                }
-                break;
-            case CheckType.DiskFree:
-                RequirePercent(definition, problems);
-                if (definition.WarningThreshold is not null && definition.CriticalThreshold is not null &&
-                    definition.WarningThreshold < definition.CriticalThreshold)
-                {
-                    problems.Add("For free disk space the warning threshold must be higher than the critical threshold.");
-                }
-                if (!parameters.TryGetValue("drive", out var drive) || string.IsNullOrWhiteSpace(drive))
-                {
-                    problems.Add("Enter a drive such as C: or * for every fixed drive.");
-                }
-                break;
-            case CheckType.ServiceRunning:
-                if (!parameters.TryGetValue("service", out var service) || string.IsNullOrWhiteSpace(service))
-                {
-                    problems.Add("Enter the service name, for example Spooler.");
-                }
-                else if (service.Length > 256 || service.IndexOfAny(['\\', '/', '"']) >= 0)
-                {
-                    problems.Add("The service name contains characters that are not allowed.");
-                }
-                break;
-            case CheckType.Uptime:
-                if (definition.WarningThreshold is null && definition.CriticalThreshold is null)
-                {
-                    problems.Add("Set a warning or critical threshold in days.");
-                }
-                break;
+            problems.Add("Choose a check type.");
+            return problems;
         }
 
+        var info = CheckCatalog.Get(definition.Type);
+        foreach (var spec in info.Parameters.Where(s => s.AppliesTo(definition.Type, parameters)))
+        {
+            parameters.TryGetValue(spec.Name, out var value);
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                if (spec.Required)
+                {
+                    problems.Add($"Enter the {spec.Label.ToLowerInvariant()}.");
+                }
+
+                continue;
+            }
+
+            if (ValidateValue(spec, value) is { } problem)
+            {
+                problems.Add($"{spec.Label}: {problem}");
+            }
+        }
+
+        ValidateThresholds(definition, info, parameters, problems);
         return problems;
     }
 
-    private static void RequirePercent(CheckDefinition definition, List<string> problems)
+    private static string? ValidateValue(CheckParameterSpec spec, string value)
     {
-        if (definition.WarningThreshold is null && definition.CriticalThreshold is null)
+        if (value.Length > spec.MaxLength)
         {
-            problems.Add("Set a warning or critical threshold.");
+            return $"at most {spec.MaxLength} characters.";
         }
 
-        if (definition.WarningThreshold is < 0 or > 100 || definition.CriticalThreshold is < 0 or > 100)
+        switch (spec.Kind)
         {
-            problems.Add("Thresholds are percentages between 0 and 100.");
+            case ParameterKind.Integer:
+                if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var number) ||
+                    (spec.Min is { } min && number < min) || (spec.Max is { } max && number > max))
+                {
+                    return $"enter a whole number between {spec.Min ?? 0} and {spec.Max ?? int.MaxValue}.";
+                }
+
+                break;
+            case ParameterKind.Choice:
+                if (spec.Choices?.Any(c => c.Value == value) != true)
+                {
+                    return "choose one of the options.";
+                }
+
+                break;
+            case ParameterKind.Boolean:
+                if (value is not ("true" or "false"))
+                {
+                    return "choose yes or no.";
+                }
+
+                break;
+        }
+
+        return spec.Validate?.Invoke(value);
+    }
+
+    private static void ValidateThresholds(CheckDefinition definition, CheckTypeInfo info, IReadOnlyDictionary<string, string> parameters, List<string> problems)
+    {
+        var warning = definition.WarningThreshold;
+        var critical = definition.CriticalThreshold;
+        var unit = info.UnitFor(parameters);
+        switch (info.ThresholdKindFor(parameters))
+        {
+            case ThresholdKind.ExitCode:
+                if (warning is not null || critical is not null)
+                {
+                    problems.Add("A script check has no thresholds: its exit code sets the status.");
+                }
+
+                break;
+            case ThresholdKind.Flag:
+                if (critical is not null || warning is not (null or 1))
+                {
+                    problems.Add("This check has no thresholds: a problem is critical, or a warning when you choose so.");
+                }
+
+                break;
+            case ThresholdKind.Reachability:
+                if (warning is < 0 || critical is < 0)
+                {
+                    problems.Add("Response time thresholds cannot be negative.");
+                }
+
+                if (warning is not null && critical is not null && warning > critical)
+                {
+                    problems.Add("The warning threshold must be lower than the critical threshold.");
+                }
+
+                break;
+            case ThresholdKind.HigherIsWorse:
+                if (warning is null && critical is null)
+                {
+                    problems.Add(unit == "%" ? "Set a warning or critical threshold." : $"Set a warning or critical threshold in {unit}.");
+                }
+
+                if (warning is < 0 || critical is < 0 || (unit == "%" && (warning > 100 || critical > 100)))
+                {
+                    problems.Add(unit == "%" ? "Thresholds are percentages between 0 and 100." : "Thresholds cannot be negative.");
+                }
+
+                if (warning is not null && critical is not null && warning > critical)
+                {
+                    problems.Add("The warning threshold must be lower than the critical threshold.");
+                }
+
+                break;
+            case ThresholdKind.LowerIsWorse:
+                if (warning is null && critical is null)
+                {
+                    problems.Add(unit == "%" ? "Set a warning or critical threshold." : $"Set a warning or critical threshold in {unit}.");
+                }
+
+                if (unit == "%" && (warning is < 0 or > 100 || critical is < 0 or > 100))
+                {
+                    problems.Add("Thresholds are percentages between 0 and 100.");
+                }
+
+                if (warning is not null && critical is not null && warning < critical)
+                {
+                    problems.Add(definition.Type == CheckType.DiskFree
+                        ? "For free disk space the warning threshold must be higher than the critical threshold."
+                        : "The warning threshold must be higher than the critical threshold.");
+                }
+
+                break;
         }
     }
 }

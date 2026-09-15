@@ -1,0 +1,58 @@
+@* Shows one script version read-only; for an approval, also asks for a fresh two-factor code. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(Approve ? $"Approve version {Version.Number}" : $"Version {Version.Number}")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="muted mb-2">
+            Written by @Version.AuthorName, <TimeText Value="Version.CreatedAt" /> · timeout @(Version.TimeoutSeconds / 60) min · SHA-256 <span class="mono">@Version.Sha256[..12]</span>
+        </MudText>
+        <pre class="job-output mb-3">@Body</pre>
+        @if (Approve)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                Read the whole script. It runs as SYSTEM or root on every endpoint it is started on. Your approval applies to exactly this text.
+            </MudAlert>
+            <MudTextField @bind-Value="_code" Label="Code from your authenticator app" Variant="Variant.Outlined" MaxLength="6" InputMode="InputMode.numeric"
+                          AutoFocus="true" Style="max-width:240px" />
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">@(Approve ? "Cancel" : "Close")</MudButton>
+        @if (Approve)
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">Approve</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public ScriptVersionView Version { get; set; } = default!;
+    [Parameter, EditorRequired] public string Body { get; set; } = string.Empty;
+    [Parameter] public bool Approve { get; set; }
+    [Parameter] public Func<string?, Task<bool>> OnApprove { get; set; } = _ => Task.FromResult(true);
+
+    private string? _code;
+    private bool _busy;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnApprove(_code))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

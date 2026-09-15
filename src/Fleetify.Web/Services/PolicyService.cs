@@ -1,7 +1,9 @@
+using Fleetify.Core.Domain;
 using Fleetify.Core.Entities;
 using Fleetify.Core.Interfaces;
 using Fleetify.Infrastructure.Audit;
 using Fleetify.Infrastructure.Data;
+using Fleetify.Infrastructure.Services;
 using Fleetify.Web.Security;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,10 +11,12 @@ namespace Fleetify.Web.Services;
 
 public sealed record PolicyListItem(Guid Id, string Name, string? Description, Guid? ClientId, string? ClientCode, bool IsDefault,
     int HeartbeatIntervalSeconds, int InventoryIntervalSeconds, int OfflineAlertAfterMinutes, AlertSeverity OfflineAlertSeverity, int SiteCount,
-    int ClientTemplateSiteCount);
+    int ClientTemplateSiteCount, IReadOnlyList<MaintenanceWindow> MaintenanceWindows, bool ScriptApprovalRequired = false);
 
+/// <param name="MaintenanceWindows">Recurring maintenance windows (0.2.0). Null keeps the current windows when updating, none when creating.</param>
 public sealed record PolicyInput(string? Name, string? Description, int HeartbeatIntervalSeconds, int InventoryIntervalSeconds,
-    int OfflineAlertAfterMinutes, AlertSeverity OfflineAlertSeverity);
+    int OfflineAlertAfterMinutes, AlertSeverity OfflineAlertSeverity, IReadOnlyList<MaintenanceWindow>? MaintenanceWindows = null,
+    bool? ScriptApprovalRequired = null);
 
 /// <summary>Policies (global or per client). Linked, not copied: a change applies at once to every site that uses the policy.</summary>
 public sealed class PolicyService
@@ -36,14 +40,19 @@ public sealed class PolicyService
     {
         caller.EnsureView();
         await using var db = _dbFactory.Create(caller.Scope);
-        return await db.Policies.AsNoTracking()
+        var rows = await db.Policies.AsNoTracking()
             .OrderByDescending(p => p.IsDefault).ThenBy(p => p.ClientId != null).ThenBy(p => p.Name)
-            .Select(p => new PolicyListItem(p.Id, p.Name, p.Description, p.ClientId,
-                db.Clients.Where(c => c.Id == p.ClientId).Select(c => c.Code).FirstOrDefault(),
-                p.IsDefault, p.HeartbeatIntervalSeconds, p.InventoryIntervalSeconds, p.OfflineAlertAfterMinutes, p.OfflineAlertSeverity,
-                db.SitePolicies.Count(l => l.PolicyId == p.Id),
-                db.ClientTemplateSites.Count(s => s.PolicyId == p.Id)))
+            .Select(p => new
+            {
+                Item = new PolicyListItem(p.Id, p.Name, p.Description, p.ClientId,
+                    db.Clients.Where(c => c.Id == p.ClientId).Select(c => c.Code).FirstOrDefault(),
+                    p.IsDefault, p.HeartbeatIntervalSeconds, p.InventoryIntervalSeconds, p.OfflineAlertAfterMinutes, p.OfflineAlertSeverity,
+                    db.SitePolicies.Count(l => l.PolicyId == p.Id),
+                    db.ClientTemplateSites.Count(s => s.PolicyId == p.Id), Array.Empty<MaintenanceWindow>(), p.ScriptApprovalRequired),
+                p.MaintenanceWindowsJson
+            })
             .ToListAsync(cancellationToken);
+        return rows.Select(r => r.Item with { MaintenanceWindows = MaintenanceWindowSchedule.Parse(r.MaintenanceWindowsJson) }).ToList();
     }
 
     public async Task<ServiceResult<Guid>> CreateAsync(Caller caller, Guid? clientId, PolicyInput input, CancellationToken cancellationToken = default)
@@ -72,10 +81,14 @@ public sealed class PolicyService
 
         var now = _time.GetUtcNow().UtcDateTime;
         var policy = new Policy { Id = Guid.NewGuid(), ClientId = clientId, CreatedAt = now };
-        Apply(policy, input, now);
+        Apply(policy, input with { MaintenanceWindows = input.MaintenanceWindows ?? [] }, now);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         db.Policies.Add(policy);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.PolicyCreated, "Policy", policy.Id.ToString(), clientId, Describe(policy)), now));
         await db.SaveChangesAsync(cancellationToken);
+        await MaintenanceWindowSchedule.ReplaceAsync(db, policy.Id, MaintenanceWindowSchedule.Parse(policy.MaintenanceWindowsJson), now, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return ServiceResult<Guid>.Ok(policy.Id);
     }
 
@@ -106,10 +119,14 @@ public sealed class PolicyService
 
         var now = _time.GetUtcNow().UtcDateTime;
         Apply(policy, input, now);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         // Every site using the policy (and, for the default policy, every site without one) gets a new configuration.
         db.ConfigChangeEvents.Add(new ConfigChangeEvent { Scope = ConfigChangeScope.Policy, ScopeId = policy.Id, CreatedAt = now });
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.PolicyUpdated, "Policy", policy.Id.ToString(), policy.ClientId, Describe(policy)), now));
         await db.SaveChangesAsync(cancellationToken);
+        await MaintenanceWindowSchedule.ReplaceAsync(db, policy.Id, MaintenanceWindowSchedule.Parse(policy.MaintenanceWindowsJson), now, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return ServiceResult.Ok();
     }
 
@@ -129,7 +146,8 @@ public sealed class PolicyService
         }
 
         var input = new PolicyInput(name, source.Description, source.HeartbeatIntervalSeconds, source.InventoryIntervalSeconds,
-            source.OfflineAlertAfterMinutes, source.OfflineAlertSeverity);
+            source.OfflineAlertAfterMinutes, source.OfflineAlertSeverity, MaintenanceWindowSchedule.Parse(source.MaintenanceWindowsJson),
+            source.ScriptApprovalRequired);
         var created = await CreateAsync(caller, targetClientId, input, cancellationToken);
         if (created.Success)
         {
@@ -186,6 +204,18 @@ public sealed class PolicyService
         policy.InventoryIntervalSeconds = input.InventoryIntervalSeconds;
         policy.OfflineAlertAfterMinutes = input.OfflineAlertAfterMinutes;
         policy.OfflineAlertSeverity = input.OfflineAlertSeverity;
+        if (input.MaintenanceWindows is { } windows)
+        {
+            policy.MaintenanceWindowsJson = MaintenanceWindowSchedule.Serialize(windows
+                .Select(w => w with { Name = ServiceSupport.Clean(w.Name), TimeZone = w.TimeZone.Trim() })
+                .ToList());
+        }
+
+        if (input.ScriptApprovalRequired is { } approval)
+        {
+            policy.ScriptApprovalRequired = approval;
+        }
+
         policy.UpdatedAt = now;
     }
 
@@ -195,7 +225,9 @@ public sealed class PolicyService
         policy.HeartbeatIntervalSeconds,
         policy.InventoryIntervalSeconds,
         policy.OfflineAlertAfterMinutes,
-        OfflineAlertSeverity = policy.OfflineAlertSeverity.ToString()
+        OfflineAlertSeverity = policy.OfflineAlertSeverity.ToString(),
+        policy.ScriptApprovalRequired,
+        MaintenanceWindows = MaintenanceWindowSchedule.Parse(policy.MaintenanceWindowsJson).Select(MaintenanceWindows.Describe).ToList()
     };
 
     internal static string? Validate(PolicyInput input)
@@ -226,6 +258,6 @@ public sealed class PolicyService
             return "The offline alert delay must be between 0 (no offline alerts) and 10080 minutes (7 days).";
         }
 
-        return null;
+        return input.MaintenanceWindows is { } windows ? MaintenanceWindows.Validate(windows) : null;
     }
 }

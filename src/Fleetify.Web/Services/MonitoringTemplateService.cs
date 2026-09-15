@@ -173,6 +173,11 @@ public sealed class MonitoringTemplateService
                 return ServiceResult<Guid>.NotFound("check");
             }
 
+            if (existing.Type != input.Type)
+            {
+                return ServiceResult<Guid>.Fail("The type of a check cannot change: its results and history belong to that type. Add a new check instead.");
+            }
+
             check = existing;
         }
         else
@@ -180,10 +185,17 @@ public sealed class MonitoringTemplateService
             check = new CheckDefinition { Id = Guid.NewGuid(), MonitoringTemplateId = templateId, ClientId = template.ClientId, CreatedAt = now };
         }
 
-        // Only the parameters that belong to the type are kept, trimmed.
-        var parameters = input.Parameters
-            .Where(p => ParameterNames(input.Type).Contains(p.Key) && !string.IsNullOrWhiteSpace(p.Value))
-            .ToDictionary(p => p.Key, p => p.Value.Trim());
+        if (!Enum.IsDefined(input.Type))
+        {
+            return ServiceResult<Guid>.Fail("Choose a check type.");
+        }
+
+        // Only the parameters that belong to the type (and apply) are kept, trimmed.
+        var parameters = CheckCatalog.CleanParameters(input.Type, input.Parameters);
+        if (input.Type == CheckType.Script && await ScriptChecks.BindAsync(db, template.ClientId, parameters, cancellationToken) is { } scriptProblem)
+        {
+            return ServiceResult<Guid>.Fail(scriptProblem);
+        }
 
         check.Name = input.Name?.Trim() ?? string.Empty;
         check.Type = input.Type;
@@ -317,6 +329,23 @@ public sealed class MonitoringTemplateService
             return ServiceResult<Guid>.Fail($"A monitoring template named {cleanName} already exists there. Choose another name.");
         }
 
+        // A script check may only use a global script or one of the template's client.
+        var scriptIds = source.Checks.Where(c => c.Type == CheckType.Script)
+            .Select(c => CheckParameters.Parse(c.ParametersJson).TryGetValue(CheckCatalog.ScriptParameter, out var id) && Guid.TryParse(id, out var guid) ? guid : Guid.Empty)
+            .ToList();
+        if (scriptIds.Count > 0)
+        {
+            var foreign = await db.Scripts.IgnoreQueryFilters().AsNoTracking()
+                .Where(s => scriptIds.Contains(s.Id) && s.ClientId != null && s.ClientId != targetClientId)
+                .Select(s => s.Name)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (foreign is not null)
+            {
+                return ServiceResult<Guid>.Fail(
+                    $"The template has a script check with script {foreign}, which belongs to one client. Choose a global script for that check first, or copy the template for that client.");
+            }
+        }
+
         var now = _time.GetUtcNow().UtcDateTime;
         var copy = new MonitoringTemplate
         {
@@ -395,13 +424,49 @@ public sealed class MonitoringTemplateService
         return ServiceResult.Ok();
     }
 
-    /// <summary>Parameter names each check type uses.</summary>
-    public static IReadOnlyCollection<string> ParameterNames(CheckType type) => type switch
+    /// <summary>Inventories read at most to suggest services for a template: the most recent ones of its endpoints.</summary>
+    internal const int ServiceSuggestionInventories = 1000;
+
+    // Distinct services over the most recent inventories of the endpoints that run this template (through their site or directly),
+    // limited to the caller's clients. Raw SQL skips the EF query filters, so the scope is a parameter here.
+    private const string TemplateServicesSql = """
+        WITH recent AS (
+          SELECT i."ServicesJson"
+          FROM "InventorySnapshots" i
+          JOIN "Endpoints" e ON e."Id" = i."EndpointId"
+          WHERE (@allClients OR i."ClientId" = ANY(@clientIds))
+            AND (EXISTS (SELECT 1 FROM "SiteMonitoringTemplates" l WHERE l."SiteId" = e."SiteId" AND l."MonitoringTemplateId" = @templateId)
+                 OR EXISTS (SELECT 1 FROM "EndpointMonitoringTemplates" el WHERE el."EndpointId" = e."Id" AND el."MonitoringTemplateId" = @templateId))
+          ORDER BY i."ReceivedAt" DESC
+          LIMIT @inventories)
+        SELECT s->>'name' AS "Name", max(s->>'displayName') AS "DisplayName", '' AS "StartType", '' AS "State"
+        FROM recent, jsonb_array_elements(recent."ServicesJson") s
+        WHERE jsonb_typeof(s) = 'object' AND coalesce(s->>'name', '') <> ''
+        GROUP BY s->>'name'
+        ORDER BY max(s->>'displayName'), s->>'name'
+        LIMIT 2000
+        """;
+
+    /// <summary>
+    /// Services seen on the endpoints that run this template, for picking the service of a service check. Empty while no linked
+    /// endpoint has reported its services; typing a name stays possible.
+    /// </summary>
+    public async Task<IReadOnlyList<ServiceOption>> GetServicesAsync(Caller caller, Guid templateId, CancellationToken cancellationToken = default)
     {
-        CheckType.DiskFree => ["drive"],
-        CheckType.ServiceRunning => ["service"],
-        _ => []
-    };
+        caller.EnsureView();
+        await using var db = _dbFactory.Create(caller.Scope);
+        if (!await db.MonitoringTemplates.AnyAsync(t => t.Id == templateId, cancellationToken))
+        {
+            return [];
+        }
+
+        return await db.Database.SqlQueryRaw<ServiceOption>(TemplateServicesSql,
+                new Npgsql.NpgsqlParameter("allClients", caller.Scope.AllClients),
+                new Npgsql.NpgsqlParameter("clientIds", caller.Scope.ClientIds.ToArray()),
+                new Npgsql.NpgsqlParameter("templateId", templateId),
+                new Npgsql.NpgsqlParameter("inventories", ServiceSuggestionInventories))
+            .ToListAsync(cancellationToken);
+    }
 
     private static Task<bool> NameTakenAsync(FleetifyDbContext db, Guid? clientId, string name, Guid? exceptId, CancellationToken cancellationToken) =>
         db.MonitoringTemplates.IgnoreQueryFilters()

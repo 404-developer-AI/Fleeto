@@ -44,6 +44,9 @@ node_modules/
 /data/
 /backups/
 
+# Manual test notes and screenshots of the developer
+/Manual-Logs/
+
 # OS
 .DS_Store
 Thumbs.db

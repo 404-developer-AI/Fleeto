@@ -37,6 +37,8 @@ public class PageAuthorizationTests
         "/settings/monitoring-templates",
         "/settings/monitoring-templates/{TemplateId:guid}",
         "/settings/policies",
+        "/settings/scripts",
+        "/settings/scripts/{ScriptId:guid}",
     ];
 
     private static bool IsTemplatePage(Type page) =>

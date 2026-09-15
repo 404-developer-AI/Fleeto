@@ -23,6 +23,17 @@ public static class ProtocolLimits
     public const string EnrollPath = "/v1/enroll";
     public const string ConnectPath = "/v1/connect";
 
+    /// <summary>Renewal of an expired, never revoked agent certificate (0.2.0).</summary>
+    public const string RecoverPath = "/v1/recover";
+
+    /// <summary>Header on a 401 from <see cref="ConnectPath"/> when the certificate expired but can still be recovered.</summary>
+    public const string CertificateStateHeader = "Fleeto-Certificate";
+
+    public const string CertificateExpiredValue = "expired";
+
+    /// <summary>How long after expiry a never revoked agent certificate can still renew itself.</summary>
+    public static readonly TimeSpan RecoveryGrace = TimeSpan.FromDays(365);
+
     /// <summary>Public PEM bundle of the instance CA certificates, fetched by the agent before enrollment.</summary>
     public const string CaPath = "/v1/ca";
     public const string ProtobufContentType = "application/x-protobuf";

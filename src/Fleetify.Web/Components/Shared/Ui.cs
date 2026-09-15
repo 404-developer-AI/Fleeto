@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Fleetify.Core.Domain;
 using Fleetify.Core.Entities;
 
 namespace Fleetify.Web.Components.Shared;
@@ -45,15 +46,7 @@ public static class Ui
         _ => StatusKind.Ok
     };
 
-    public static string CheckTypeLabel(CheckType type) => type switch
-    {
-        CheckType.CpuUsage => "CPU usage",
-        CheckType.MemoryUsage => "Memory usage",
-        CheckType.DiskFree => "Free disk space",
-        CheckType.ServiceRunning => "Service running",
-        CheckType.Uptime => "Uptime",
-        _ => type.ToString()
-    };
+    public static string CheckTypeLabel(CheckType type) => Enum.IsDefined(type) ? CheckCatalog.Get(type).Label : type.ToString();
 
     public static string AppliesToLabel(CheckAppliesTo appliesTo) => appliesTo switch
     {
@@ -62,28 +55,152 @@ public static class Ui
         _ => "All endpoints"
     };
 
-    /// <summary>The unit a threshold of this check type is expressed in.</summary>
-    public static string ThresholdUnit(CheckType type) => type switch
-    {
-        CheckType.Uptime => "days",
-        CheckType.ServiceRunning => string.Empty,
-        _ => "%"
-    };
+    /// <summary>The unit a threshold of this check type is expressed in, given its parameters.</summary>
+    public static string ThresholdUnit(CheckType type, IReadOnlyDictionary<string, string>? parameters = null) =>
+        Enum.IsDefined(type) ? CheckCatalog.UnitOf(type, parameters ?? NoParameters) : string.Empty;
 
-    public static string CheckValue(CheckType type, double? value)
+    private static readonly IReadOnlyDictionary<string, string> NoParameters = new Dictionary<string, string>();
+
+    /// <summary>"warning 85%, critical 95%", or for a flag check what a problem counts as.</summary>
+    public static string ThresholdsText(CheckType type, IReadOnlyDictionary<string, string> parameters, double? warning, double? critical)
     {
-        if (value is null)
+        if (!Enum.IsDefined(type))
         {
             return "-";
         }
 
-        return type switch
+        var kind = CheckCatalog.ThresholdKindOf(type, parameters);
+        if (kind == ThresholdKind.Flag)
         {
-            CheckType.ServiceRunning => value >= 1 ? "Running" : "Not running",
-            CheckType.Uptime => value.Value.ToString("0.#", CultureInfo.InvariantCulture) + " days",
-            _ => value.Value.ToString("0.#", CultureInfo.InvariantCulture) + "%"
+            return warning >= 1 ? "Problem: warning" : "Problem: critical";
+        }
+
+        if (kind == ThresholdKind.ExitCode)
+        {
+            return "Exit code 1: warning, other: critical";
+        }
+
+        var unit = CheckCatalog.UnitOf(type, parameters);
+        string Format(double v) => v.ToString("0.##", CultureInfo.InvariantCulture) + (unit == "%" ? "%" : " " + unit);
+        var parts = new List<string>();
+        if (kind == ThresholdKind.Reachability)
+        {
+            parts.Add("no response: critical");
+        }
+
+        if (warning is { } w)
+        {
+            parts.Add($"warning {Format(w)}");
+        }
+
+        if (critical is { } c)
+        {
+            parts.Add($"critical {Format(c)}");
+        }
+
+        return parts.Count == 0 ? "-" : string.Join(", ", parts);
+    }
+
+    /// <summary>A check result for the Checks tab: "85.2%", "Running", "No response", "12 ms", "34 days".</summary>
+    public static string CheckValue(CheckType type, double? value, string target = "", IReadOnlyDictionary<string, string>? parameters = null)
+    {
+        if (value is not { } v)
+        {
+            return "-";
+        }
+
+        parameters ??= NoParameters;
+        var number = v.ToString("0.#", CultureInfo.InvariantCulture);
+        if (type == CheckType.Http && target == CheckEvaluator.CertificateTarget)
+        {
+            return v < 0 ? "Expired" : $"{number} days left";
+        }
+
+        if (!Enum.IsDefined(type))
+        {
+            return number;
+        }
+
+        return CheckCatalog.ThresholdKindOf(type, parameters) switch
+        {
+            ThresholdKind.Flag => FlagText(type, parameters, v >= 1, v),
+            ThresholdKind.Reachability => v < 0 ? "No response" : $"{number} ms",
+            ThresholdKind.ExitCode => $"Exit code {v.ToString("0", CultureInfo.InvariantCulture)}",
+            _ => CheckCatalog.UnitOf(type, parameters) switch
+            {
+                "%" => number + "%",
+                "" => number,
+                var unit => type == CheckType.CertificateExpiry && v < 0 ? "Expired" : $"{number} {unit}"
+            }
         };
     }
+
+    private static string FlagText(CheckType type, IReadOnlyDictionary<string, string> parameters, bool fine, double value) => type switch
+    {
+        CheckType.ServiceRunning => fine ? "Running" : "Not running",
+        CheckType.ProcessRunning => fine ? $"{value.ToString("0", CultureInfo.InvariantCulture)} running" : "Not running",
+        CheckType.PendingReboot => fine ? "No restart pending" : "Restart pending",
+        CheckType.SecurityCenter => fine ? "On" : "Off",
+        CheckType.File => CheckCatalog.ParameterOrDefault(type, parameters, "condition") == "missing"
+            ? fine ? "Absent" : "Present"
+            : fine ? "Present" : "Missing",
+        _ => fine ? "OK" : "Problem"
+    };
+
+    /// <summary>
+    /// A parameter as "Label: value" for lists, with choices shown by their label and a script by its name. Null for a parameter that is
+    /// not shown (the language Fleeto copies from a script).
+    /// </summary>
+    public static string? ParameterText(CheckType type, string name, string value, IReadOnlyDictionary<string, string>? scriptNames = null)
+    {
+        if (type == CheckType.Script && name == CheckCatalog.ScriptLanguageParameter)
+        {
+            return null;
+        }
+
+        if (!Enum.IsDefined(type) || CheckCatalog.Get(type).Parameters.FirstOrDefault(p => p.Name == name) is not { } spec)
+        {
+            return $"{name}: {value}";
+        }
+
+        var shown = spec.Kind switch
+        {
+            ParameterKind.Choice => spec.Choices?.FirstOrDefault(c => c.Value == value)?.Label ?? value,
+            ParameterKind.Boolean => value == "true" ? "yes" : "no",
+            ParameterKind.Script => scriptNames?.GetValueOrDefault(value) ?? "not available",
+            _ => value
+        };
+        return $"{spec.Label}: {shown}";
+    }
+
+    public static string JobStateLabel(JobState state, JobResult? result) => state switch
+    {
+        JobState.PendingSignature => "Waiting for signature",
+        JobState.Queued => "Queued",
+        JobState.Running => "Running",
+        JobState.Succeeded => "Succeeded",
+        JobState.Failed => result == JobResult.TimedOut ? "Timed out" : result == JobResult.FailedToStart ? "Could not start" : "Failed",
+        JobState.Expired => "Expired",
+        JobState.Refused => "Refused",
+        JobState.Lost => "Result unknown",
+        _ => "Cancelled"
+    };
+
+    public static StatusKind JobStateKind(JobState state) => state switch
+    {
+        JobState.Succeeded => StatusKind.Ok,
+        JobState.Running or JobState.Queued or JobState.PendingSignature => StatusKind.Active,
+        JobState.Failed or JobState.Refused or JobState.Lost => StatusKind.Error,
+        _ => StatusKind.Neutral
+    };
+
+    public static string JobOutputLabel(JobOutputState state, bool truncated) => state switch
+    {
+        JobOutputState.None => "No output",
+        JobOutputState.Receiving => "Receiving output",
+        JobOutputState.Incomplete => "Output incomplete",
+        _ => truncated ? "Output truncated" : "Output complete"
+    };
 
     public static string Bytes(long bytes)
     {

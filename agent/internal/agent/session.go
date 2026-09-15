@@ -70,6 +70,8 @@ type session struct {
 	inventoryForce   bool
 	inventoryReady   chan *agentv1.Inventory
 	startedAt        time.Time
+	// jobsSent holds the job messages sent on this connection; after a reconnect everything unacknowledged is sent again.
+	jobsSent map[string]bool
 }
 
 // tlsConfig builds the mTLS configuration: the pinned instance CA is the only root, the client certificate is the
@@ -109,8 +111,11 @@ func (a *Agent) runSession(ctx context.Context) (sessionOutcome, error) {
 	}
 	now := a.opts.Now()
 	if now.After(cert.NotAfter) {
-		a.logger.Error("the agent certificate has expired; enroll the agent again if the system clock is correct",
-			"expired", cert.NotAfter.UTC().Format(time.RFC3339))
+		a.logger.Warn("the agent certificate has expired; recovering it", "expired", cert.NotAfter.UTC().Format(time.RFC3339))
+		if err := a.recoverCertificate(ctx, &st, tlsConf); err != nil {
+			return outcomeFailed, err
+		}
+		return outcomeRenewed, nil
 	}
 
 	transport := &http.Transport{
@@ -125,6 +130,14 @@ func (a *Agent) runSession(ctx context.Context) (sessionOutcome, error) {
 	})
 	cancelDial()
 	if err != nil {
+		if resp != nil && resp.StatusCode == http.StatusUnauthorized && resp.Header.Get(CertificateStateHeader) == certificateExpiredValue {
+			// The gateway sees the certificate as expired although this clock does not: recover it all the same.
+			a.logger.Warn("the gateway reports the agent certificate as expired; recovering it")
+			if recErr := a.recoverCertificate(ctx, &st, tlsConf); recErr != nil {
+				return outcomeFailed, recErr
+			}
+			return outcomeRenewed, nil
+		}
 		if resp != nil {
 			return outcomeFailed, fmt.Errorf("the gateway at %s refused the connection (HTTP %d): %w", st.Server, resp.StatusCode, err)
 		}
@@ -142,6 +155,7 @@ func (a *Agent) runSession(ctx context.Context) (sessionOutcome, error) {
 		incoming:       make(chan *agentv1.ServerMessage, 16),
 		readErr:        make(chan error, 1),
 		inventoryReady: make(chan *agentv1.Inventory, 1),
+		jobsSent:       map[string]bool{},
 		startedAt:      now,
 		lastFlush:      now,
 	}
@@ -242,6 +256,8 @@ func (s *session) loop() (sessionOutcome, error) {
 			err = s.inventoryCollected(inv)
 		case <-renewal.C:
 			err = s.maybeRenew()
+		case <-a.jobs.Notify():
+			err = s.sendJobMessages()
 		}
 		if err != nil {
 			if errors.Is(err, errWrite) {
@@ -270,6 +286,20 @@ func (s *session) send(msg *agentv1.AgentMessage) error {
 	return nil
 }
 
+// sendJobMessages sends the job messages that are not acknowledged and not yet sent on this connection.
+func (s *session) sendJobMessages() error {
+	if !s.acked {
+		return nil
+	}
+	for _, message := range s.a.jobs.Pending(func(key string) bool { return s.jobsSent[key] }) {
+		if err := s.send(message.Msg); err != nil {
+			return err
+		}
+		s.jobsSent[message.Key] = true
+	}
+	return nil
+}
+
 func (s *session) sendHello() error {
 	a := s.a
 	a.mu.Lock()
@@ -290,7 +320,16 @@ func (s *session) handle(msg *agentv1.ServerMessage) (sessionOutcome, bool, erro
 	a := s.a
 	switch body := msg.GetBody().(type) {
 	case *agentv1.ServerMessage_HelloAck:
-		return outcomeHealthy, false, s.handleHelloAck(body.HelloAck)
+		if err := s.handleHelloAck(body.HelloAck); err != nil {
+			return outcomeHealthy, false, err
+		}
+		return outcomeHealthy, false, s.sendJobMessages()
+	case *agentv1.ServerMessage_Job:
+		a.jobs.Accept(body.Job)
+		return 0, false, nil
+	case *agentv1.ServerMessage_JobAck:
+		a.jobs.Ack(body.JobAck)
+		return 0, false, nil
 	case *agentv1.ServerMessage_Ping:
 		return 0, false, s.send(&agentv1.AgentMessage{Body: &agentv1.AgentMessage_Pong{Pong: &agentv1.Pong{Nonce: body.Ping.GetNonce()}}})
 	case *agentv1.ServerMessage_Config:

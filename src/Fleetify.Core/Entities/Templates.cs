@@ -19,11 +19,37 @@ public class Policy
 
     public AlertSeverity OfflineAlertSeverity { get; set; } = AlertSeverity.Critical;
 
+    /// <summary>
+    /// Recurring maintenance windows (0.2.0) as a JSON array of <see cref="Domain.MaintenanceWindow"/>. Their occurrences are stored
+    /// ahead in <see cref="MaintenanceWindowOccurrence"/>.
+    /// </summary>
+    public string MaintenanceWindowsJson { get; set; } = "[]";
+
+    /// <summary>
+    /// Four-eyes approval (0.2.0): jobs for the endpoints of sites with this policy run only library scripts whose current version
+    /// a second admin approved. Off by default, recommended for servers.
+    /// </summary>
+    public bool ScriptApprovalRequired { get; set; }
+
     /// <summary>Policy this one was copied from; the copy is independent.</summary>
     public Guid? CopiedFromId { get; set; }
 
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+}
+
+/// <summary>
+/// One occurrence of a maintenance window of a policy, in UTC, stored ahead for <see cref="Domain.MaintenanceWindows.Horizon"/> by web
+/// (when the policy is saved) and the workers (every hour). Read by the maintenance rule as a fourth source.
+/// </summary>
+public class MaintenanceWindowOccurrence
+{
+    public Guid PolicyId { get; set; }
+    public int WindowIndex { get; set; }
+    public DateTime StartsAt { get; set; }
+    public DateTime EndsAt { get; set; }
+    public CheckAppliesTo AppliesTo { get; set; }
+    public string? Name { get; set; }
 }
 
 /// <summary>A named set of checks linked to sites. ClientId null = global.</summary>

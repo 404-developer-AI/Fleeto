@@ -68,6 +68,8 @@ public sealed record EffectiveCheck(
 /// <item>A template check applies when it is enabled, its template is linked to the endpoint's site or to the endpoint,
 /// it matches the endpoint class and it is not disabled on the endpoint.</item>
 /// <item>An endpoint-only check applies when it is enabled; it runs whatever the class.</item>
+/// <item>Either kind applies only when its type runs on the endpoint's platform (<see cref="CheckCatalog.IsSupported"/>), so a Windows
+/// event log check in a template linked to a mixed site never reaches a Linux endpoint.</item>
 /// </list>
 /// Tier is not part of the rule: every caller applies <see cref="TierRules.EffectiveTier"/> itself.
 /// </summary>
@@ -84,14 +86,15 @@ public static class EffectiveChecks
     /// page); they never run.
     /// </summary>
     public static IReadOnlyList<EffectiveCheck> Resolve(EndpointClass endpointClass, IEnumerable<CheckCandidate> candidates,
-        IReadOnlyDictionary<Guid, EndpointCheckOverride> overrides, bool includeDisabledOnEndpoint = false)
+        IReadOnlyDictionary<Guid, EndpointCheckOverride> overrides, bool includeDisabledOnEndpoint = false, string? osPlatform = null)
     {
         var result = new Dictionary<Guid, EffectiveCheck>();
         // Site links first, so a template linked to both the site and the endpoint reports the site as its source.
         foreach (var candidate in candidates.OrderBy(c => c.Source))
         {
             var definition = candidate.Definition;
-            if (!definition.Enabled || result.ContainsKey(definition.Id))
+            if (!definition.Enabled || result.ContainsKey(definition.Id) || !Enum.IsDefined(definition.Type) ||
+                !CheckCatalog.IsSupported(definition.Type, CheckParameters.Parse(definition.ParametersJson), osPlatform))
             {
                 continue;
             }

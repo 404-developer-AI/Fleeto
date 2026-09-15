@@ -11,6 +11,8 @@ import (
 	"github.com/shirou/gopsutil/v4/host"
 	"github.com/shirou/gopsutil/v4/mem"
 
+	"github.com/404-developer-AI/Fleeto/agent/internal/jobs"
+	"github.com/404-developer-AI/Fleeto/agent/internal/platform"
 	"github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1"
 )
 
@@ -26,10 +28,15 @@ type DriveUsage struct {
 }
 
 // SystemCollector measures the local system.
-type SystemCollector struct{}
+type SystemCollector struct {
+	// ScriptDir is where script checks write their script while it runs; script checks cannot run without it.
+	ScriptDir string
+	// Access protects ScriptDir.
+	Access platform.Access
+}
 
 // Collect implements Collector.
-func (SystemCollector) Collect(ctx context.Context, spec *agentv1.CheckSpec) []Measurement {
+func (c SystemCollector) Collect(ctx context.Context, spec *agentv1.CheckSpec) []Measurement {
 	switch spec.GetType() {
 	case agentv1.CheckType_CHECK_TYPE_CPU_USAGE:
 		return []Measurement{cpuUsage(ctx, spec)}
@@ -41,9 +48,51 @@ func (SystemCollector) Collect(ctx context.Context, spec *agentv1.CheckSpec) []M
 		return []Measurement{serviceRunning(spec.GetParameters()["service"])}
 	case agentv1.CheckType_CHECK_TYPE_UPTIME:
 		return []Measurement{uptime(ctx)}
+	case agentv1.CheckType_CHECK_TYPE_PING:
+		return []Measurement{pingCheck(ctx, spec.GetParameters())}
+	case agentv1.CheckType_CHECK_TYPE_TCP_PORT:
+		return []Measurement{tcpCheck(ctx, spec.GetParameters())}
+	case agentv1.CheckType_CHECK_TYPE_HTTP:
+		return httpCheck(ctx, spec.GetParameters())
+	case agentv1.CheckType_CHECK_TYPE_PROCESS_RUNNING:
+		return []Measurement{processCheck(ctx, spec.GetParameters()["process"])}
+	case agentv1.CheckType_CHECK_TYPE_PENDING_REBOOT:
+		return []Measurement{pendingReboot(ctx)}
+	case agentv1.CheckType_CHECK_TYPE_FILE:
+		return []Measurement{fileCheck(ctx, spec.GetParameters())}
+	case agentv1.CheckType_CHECK_TYPE_CERTIFICATE_EXPIRY:
+		return certificateCheck(spec.GetParameters(), time.Now())
+	case agentv1.CheckType_CHECK_TYPE_EVENT_LOG:
+		return []Measurement{eventLogCheck(ctx, spec.GetParameters())}
+	case agentv1.CheckType_CHECK_TYPE_SECURITY_CENTER:
+		return []Measurement{securityCenterCheck(ctx, spec.GetParameters()["component"])}
+	case agentv1.CheckType_CHECK_TYPE_SCRIPT:
+		return []Measurement{c.scriptCheck(ctx, spec)}
 	default:
 		return []Measurement{{Error: fmt.Sprintf("check type %s is not supported by this agent version; update the agent", spec.GetType())}}
 	}
+}
+
+// scriptCheck runs the library script of the verified configuration; its exit code is the value. The server judges the code.
+func (c SystemCollector) scriptCheck(ctx context.Context, spec *agentv1.CheckSpec) Measurement {
+	if reason := strings.TrimSpace(spec.GetParameters()["unavailable"]); reason != "" {
+		return Measurement{Error: reason}
+	}
+	if c.ScriptDir == "" {
+		return Measurement{Error: "script checks are not available in this agent mode"}
+	}
+	timeout := jobs.MaxCheckScriptTimeout
+	if n, err := strconv.Atoi(strings.TrimSpace(spec.GetParameters()["timeout_seconds"])); err == nil && n > 0 {
+		timeout = time.Duration(n) * time.Second
+	}
+	if interval := time.Duration(spec.GetIntervalSeconds()) * time.Second; interval > 0 && timeout > interval {
+		timeout = interval
+	}
+	result := jobs.RunCheckScript(ctx, c.ScriptDir, c.Access, spec.GetId(), spec.GetScript(), timeout)
+	if result.Error != "" {
+		return Measurement{Error: result.Error, Detail: result.Detail}
+	}
+	return Measurement{Value: float64(result.ExitCode), Detail: result.Detail}
 }
 
 // CPUSampleWindow returns the averaging window: sample_seconds, default 60, at most the interval, at least 1 s.
@@ -165,6 +214,25 @@ func round(v float64, decimals int) float64 {
 		return float64(int64(v*p-0.5)) / p
 	}
 	return float64(int64(v*p+0.5)) / p
+}
+
+// intParam reads an integer parameter within [min, max], or returns def when it is missing or invalid. The server validates
+// parameters; the agent checks again because they decide what runs on the endpoint.
+func intParam(params map[string]string, name string, def, min, max int) int {
+	v, ok := params[name]
+	if !ok {
+		return def
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || n < min || n > max {
+		return def
+	}
+	return n
+}
+
+// hasControlChars reports whether a parameter contains characters no valid parameter contains.
+func hasControlChars(s string) bool {
+	return strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f })
 }
 
 func errOrEmpty(err error) any {

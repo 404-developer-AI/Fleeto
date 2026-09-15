@@ -5,6 +5,7 @@ using Fleetify.Core.Entities;
 using Fleetify.Core.Interfaces;
 using Fleetify.Infrastructure.Audit;
 using Fleetify.Infrastructure.Data;
+using Fleetify.Infrastructure.Email;
 using Fleetify.Infrastructure.Security;
 using Fleetify.Infrastructure.Settings;
 using Fleetify.Web.Security;
@@ -17,6 +18,20 @@ public sealed record SmtpView(string Host, int Port, SmtpSecurity Security, stri
 public sealed record SmtpInput(string? Host, int Port, SmtpSecurity Security, string? Username, string? NewPassword, bool ClearPassword,
     string? FromAddress, string? FromName);
 
+/// <summary>Microsoft Graph email settings without secrets or private keys.</summary>
+public sealed record GraphView(string TenantId, string ClientId, string SenderAddress, GraphCredentialType CredentialType, bool HasClientSecret,
+    DateTime? ClientSecretExpiresAt, string? CertificateThumbprint, DateTime? CertificateExpiresAt, string? PendingCertificateThumbprint,
+    DateTime? PendingCertificateExpiresAt, bool IsComplete);
+
+/// <param name="NewClientSecret">A new secret value; blank keeps the current secret.</param>
+/// <param name="ClientSecretExpiresOn">The end date of the secret as shown in the app registration (a date, UTC).</param>
+public sealed record GraphInput(string? TenantId, string? ClientId, string? SenderAddress, GraphCredentialType CredentialType, string? NewClientSecret,
+    DateTime? ClientSecretExpiresOn);
+
+public sealed record EmailView(EmailProvider Provider, SmtpView Smtp, GraphView Graph);
+
+public sealed record GraphPublicCertificate(byte[] Der, string Thumbprint);
+
 public sealed record BackupView(BackupDestinationType DestinationType, string? S3Endpoint, string? S3Region, string? S3Bucket, string? S3Prefix,
     string? S3AccessKeyId, bool HasS3Secret, string? DirectoryPath, string PublicKey, int ScheduleHourUtc, DateTime? RequestedAt);
 
@@ -26,16 +41,11 @@ public sealed record BackupInput(BackupDestinationType DestinationType, string? 
 public sealed record BackupRunView(Guid Id, BackupKind Kind, BackupRunStatus Status, DateTime StartedAt, DateTime? CompletedAt, long SizeBytes,
     string ObjectKey, string? Error);
 
-public sealed record NotificationChannelView(Guid Id, string Name, string Recipients, AlertSeverity MinimumSeverity, bool NotifyOnResolve, bool Enabled,
-    DateTime UpdatedAt);
-
-public sealed record NotificationChannelInput(string? Name, string? Recipients, AlertSeverity MinimumSeverity, bool NotifyOnResolve, bool Enabled);
-
 public sealed record InstanceView(Guid InstanceId, string Fqdn, string WebBaseUrl, string AgentHostName, int AgentPort, string? CaFingerprint,
     DateTime? CaExpiresAt, string? SigningKeyId, string Version, DateTime CreatedAt);
 
 /// <summary>
-/// Instance settings for admins: email (SMTP), notification channels, backups and the instance identity. Secrets are
+/// Instance settings for admins: email (SMTP), backups and the instance identity. Secrets are
 /// write-only: they are stored encrypted and never returned; a blank field keeps the current value.
 /// </summary>
 public sealed class SettingsService
@@ -59,6 +69,208 @@ public sealed class SettingsService
         caller.EnsureAdmin();
         var smtp = await _settings.GetAsync<SmtpSettings>(SettingKeys.Smtp, cancellationToken) ?? new SmtpSettings();
         return new SmtpView(smtp.Host, smtp.Port, smtp.Security, smtp.Username, !string.IsNullOrEmpty(smtp.Password), smtp.FromAddress, smtp.FromName);
+    }
+
+    public async Task<EmailView> GetEmailAsync(Caller caller, CancellationToken cancellationToken = default)
+    {
+        var smtp = await GetSmtpAsync(caller, cancellationToken);
+        var graph = await _settings.GetAsync<GraphMailSettings>(SettingKeys.Graph, cancellationToken) ?? new GraphMailSettings();
+        return new EmailView(await GetProviderAsync(cancellationToken), smtp, new GraphView(graph.TenantId, graph.ClientId, graph.SenderAddress,
+            graph.CredentialType, !string.IsNullOrEmpty(graph.ClientSecret), graph.ClientSecretExpiresAt, graph.CertificateThumbprint,
+            graph.CertificateExpiresAt, graph.PendingCertificateThumbprint, graph.PendingCertificateExpiresAt, graph.IsComplete));
+    }
+
+    private async Task<EmailProvider> GetProviderAsync(CancellationToken cancellationToken) =>
+        await _settings.GetStringAsync(SettingKeys.EmailProvider, cancellationToken) == nameof(EmailProvider.MicrosoftGraph)
+            ? EmailProvider.MicrosoftGraph
+            : EmailProvider.Smtp;
+
+    /// <summary>Chooses how email is sent. Microsoft Graph can be chosen once its settings are complete.</summary>
+    public async Task<ServiceResult> SaveProviderAsync(Caller caller, EmailProvider provider, CancellationToken cancellationToken = default)
+    {
+        if (!caller.IsAdmin)
+        {
+            return ServiceResult.Forbidden();
+        }
+
+        if (!Enum.IsDefined(provider))
+        {
+            return ServiceResult.Fail("Choose SMTP or Microsoft Graph.");
+        }
+
+        if (provider == EmailProvider.MicrosoftGraph &&
+            await _settings.GetAsync<GraphMailSettings>(SettingKeys.Graph, cancellationToken) is not { IsComplete: true })
+        {
+            return ServiceResult.Fail("Save the Microsoft Graph settings with a client secret or a certificate first, then choose Microsoft Graph.");
+        }
+
+        await _settings.SetStringAsync(SettingKeys.EmailProvider, provider.ToString(), encrypted: false, caller.UserId, cancellationToken);
+        await WriteAuditAsync(caller, AuditActions.SettingsChanged, "Setting", SettingKeys.EmailProvider, new { Provider = provider.ToString() }, cancellationToken);
+        return ServiceResult.Ok();
+    }
+
+    /// <summary>Saves the Graph app registration. The client secret is write-only: blank keeps the current secret.</summary>
+    public async Task<ServiceResult> SaveGraphAsync(Caller caller, GraphInput input, CancellationToken cancellationToken = default)
+    {
+        if (!caller.IsAdmin)
+        {
+            return ServiceResult.Forbidden();
+        }
+
+        var tenantId = ServiceSupport.Clean(input.TenantId);
+        if (!GraphMail.IsValidTenantId(tenantId))
+        {
+            return ServiceResult.Fail("Enter the directory (tenant) ID of the app registration, or the tenant domain such as contoso.onmicrosoft.com.");
+        }
+
+        var clientId = ServiceSupport.Clean(input.ClientId);
+        if (!GraphMail.IsValidClientId(clientId))
+        {
+            return ServiceResult.Fail("Enter the application (client) ID of the app registration. It looks like 00000000-0000-0000-0000-000000000000.");
+        }
+
+        var sender = ServiceSupport.Clean(input.SenderAddress);
+        if (!ServiceSupport.IsValidEmail(sender))
+        {
+            return ServiceResult.Fail("Enter the address of the mailbox Fleeto sends as.");
+        }
+
+        if (!Enum.IsDefined(input.CredentialType) || input.NewClientSecret is { Length: > 1000 })
+        {
+            return ServiceResult.Fail("One of the fields is not valid. Check the credential and try again.");
+        }
+
+        var current = await _settings.GetAsync<GraphMailSettings>(SettingKeys.Graph, cancellationToken) ?? new GraphMailSettings();
+        var secretChanged = !string.IsNullOrWhiteSpace(input.NewClientSecret);
+        var secret = secretChanged ? input.NewClientSecret!.Trim() : current.ClientSecret;
+        var secretExpiresAt = current.ClientSecretExpiresAt;
+        if (input.CredentialType == GraphCredentialType.ClientSecret)
+        {
+            if (string.IsNullOrEmpty(secret))
+            {
+                return ServiceResult.Fail("Enter the client secret value of the app registration, or use a certificate.");
+            }
+
+            if (input.ClientSecretExpiresOn is not { } expiresOn)
+            {
+                return ServiceResult.Fail("Enter the end date of the client secret, as shown under Certificates & secrets in the app registration.");
+            }
+
+            // The end of the chosen day, UTC: Entra ID shows the date only.
+            var now = _time.GetUtcNow().UtcDateTime;
+            secretExpiresAt = DateTime.SpecifyKind(expiresOn.Date, DateTimeKind.Utc).AddDays(1).AddSeconds(-1);
+            if (secretChanged && secretExpiresAt <= now)
+            {
+                return ServiceResult.Fail("The end date of the new client secret has passed. Create a new secret and enter its end date.");
+            }
+
+            if (secretExpiresAt > now.AddYears(5))
+            {
+                return ServiceResult.Fail("Enter the real end date of the client secret; it is at most a few years away.");
+            }
+        }
+
+        var updated = current with
+        {
+            TenantId = tenantId!,
+            ClientId = clientId!,
+            SenderAddress = sender!,
+            CredentialType = input.CredentialType,
+            ClientSecret = secret,
+            ClientSecretExpiresAt = string.IsNullOrEmpty(secret) ? null : secretExpiresAt
+        };
+        if (!updated.IsComplete && await GetProviderAsync(cancellationToken) == EmailProvider.MicrosoftGraph)
+        {
+            return ServiceResult.Fail("Microsoft Graph sends the email of this instance, so these settings must stay complete. Create a certificate and switch to it first, or choose SMTP.");
+        }
+        await _settings.SetAsync(SettingKeys.Graph, updated, encrypted: true, caller.UserId, cancellationToken);
+        await WriteAuditAsync(caller, secretChanged ? AuditActions.CredentialChanged : AuditActions.SettingsChanged, "Setting", SettingKeys.Graph,
+            new
+            {
+                updated.TenantId,
+                updated.ClientId,
+                updated.SenderAddress,
+                CredentialType = updated.CredentialType.ToString(),
+                SecretChanged = secretChanged,
+                updated.ClientSecretExpiresAt
+            }, cancellationToken);
+        return ServiceResult.Ok();
+    }
+
+    /// <summary>
+    /// Creates a new certificate for the app registration. It waits as the pending certificate until the admin has uploaded it
+    /// and switches to it, so sending keeps working with the current credential meanwhile.
+    /// </summary>
+    public async Task<ServiceResult> CreateGraphCertificateAsync(Caller caller, CancellationToken cancellationToken = default)
+    {
+        if (!caller.IsAdmin)
+        {
+            return ServiceResult.Forbidden();
+        }
+
+        await using var db = _dbFactory.CreateSystem();
+        var fqdn = await db.InstanceSettings.AsNoTracking().Select(i => i.Fqdn).SingleAsync(cancellationToken);
+        var certificate = GraphMail.CreateCertificate(fqdn, _time.GetUtcNow().UtcDateTime);
+        var current = await _settings.GetAsync<GraphMailSettings>(SettingKeys.Graph, cancellationToken) ?? new GraphMailSettings();
+        var updated = current with
+        {
+            PendingCertificatePfx = certificate.PfxBase64,
+            PendingCertificateThumbprint = certificate.Thumbprint,
+            PendingCertificateExpiresAt = certificate.ExpiresAt
+        };
+        await _settings.SetAsync(SettingKeys.Graph, updated, encrypted: true, caller.UserId, cancellationToken);
+        await WriteAuditAsync(caller, AuditActions.CredentialChanged, "Setting", SettingKeys.Graph,
+            new { Change = "certificate created", certificate.Thumbprint, certificate.ExpiresAt }, cancellationToken);
+        return ServiceResult.Ok();
+    }
+
+    /// <summary>Switches to the pending certificate and signs in with certificates from now on.</summary>
+    public async Task<ServiceResult> ActivateGraphCertificateAsync(Caller caller, CancellationToken cancellationToken = default)
+    {
+        if (!caller.IsAdmin)
+        {
+            return ServiceResult.Forbidden();
+        }
+
+        var current = await _settings.GetAsync<GraphMailSettings>(SettingKeys.Graph, cancellationToken);
+        if (current?.PendingCertificatePfx is null)
+        {
+            return ServiceResult.Fail("There is no new certificate to switch to. Create one first.");
+        }
+
+        var updated = current with
+        {
+            CredentialType = GraphCredentialType.Certificate,
+            CertificatePfx = current.PendingCertificatePfx,
+            CertificateThumbprint = current.PendingCertificateThumbprint,
+            CertificateExpiresAt = current.PendingCertificateExpiresAt,
+            PendingCertificatePfx = null,
+            PendingCertificateThumbprint = null,
+            PendingCertificateExpiresAt = null
+        };
+        await _settings.SetAsync(SettingKeys.Graph, updated, encrypted: true, caller.UserId, cancellationToken);
+        await WriteAuditAsync(caller, AuditActions.CredentialChanged, "Setting", SettingKeys.Graph,
+            new { Change = "certificate in use", updated.CertificateThumbprint, updated.CertificateExpiresAt }, cancellationToken);
+        return ServiceResult.Ok();
+    }
+
+    /// <summary>The public part (DER) of the pending certificate, or else of the certificate in use; null when there is none.</summary>
+    public async Task<ServiceResult<GraphPublicCertificate>> GetGraphPublicCertificateAsync(Caller caller, CancellationToken cancellationToken = default)
+    {
+        if (!caller.IsAdmin)
+        {
+            return ServiceResult<GraphPublicCertificate>.Forbidden();
+        }
+
+        var graph = await _settings.GetAsync<GraphMailSettings>(SettingKeys.Graph, cancellationToken);
+        if (graph?.PendingCertificatePfx is { } pending)
+        {
+            return ServiceResult<GraphPublicCertificate>.Ok(new GraphPublicCertificate(GraphMail.PublicCertificate(pending), graph.PendingCertificateThumbprint ?? string.Empty));
+        }
+
+        return graph?.CertificatePfx is { } active
+            ? ServiceResult<GraphPublicCertificate>.Ok(new GraphPublicCertificate(GraphMail.PublicCertificate(active), graph.CertificateThumbprint ?? string.Empty))
+            : ServiceResult<GraphPublicCertificate>.Fail("There is no certificate to download. Create one first.");
     }
 
     public async Task<ServiceResult> SaveSmtpAsync(Caller caller, SmtpInput input, CancellationToken cancellationToken = default)
@@ -125,9 +337,11 @@ public sealed class SettingsService
         }
 
         var smtp = await _settings.GetAsync<SmtpSettings>(SettingKeys.Smtp, cancellationToken);
-        if (smtp is null || string.IsNullOrEmpty(smtp.Host))
+        var graphReady = await GetProviderAsync(cancellationToken) == EmailProvider.MicrosoftGraph &&
+                         await _settings.GetAsync<GraphMailSettings>(SettingKeys.Graph, cancellationToken) is { IsComplete: true };
+        if (!graphReady && (smtp is null || string.IsNullOrEmpty(smtp.Host)))
         {
-            return ServiceResult.Fail("Save the mail server settings first, then send a test email.");
+            return ServiceResult.Fail("Save the email settings first, then send a test email.");
         }
 
         await using var db = _dbFactory.CreateSystem();
@@ -148,126 +362,6 @@ public sealed class SettingsService
             new { Action = "test email queued", To = caller.Email }), now));
         await db.SaveChangesAsync(cancellationToken);
         return ServiceResult.Ok();
-    }
-
-    // ---------------------------------------------------------------------------------------------------------------
-    // Notification channels
-
-    public async Task<IReadOnlyList<NotificationChannelView>> ListChannelsAsync(Caller caller, CancellationToken cancellationToken = default)
-    {
-        caller.EnsureAdmin();
-        await using var db = _dbFactory.CreateSystem();
-        return await db.NotificationChannels.AsNoTracking().OrderBy(c => c.Name)
-            .Select(c => new NotificationChannelView(c.Id, c.Name, c.Recipients, c.MinimumSeverity, c.NotifyOnResolve, c.Enabled, c.UpdatedAt))
-            .ToListAsync(cancellationToken);
-    }
-
-    public async Task<ServiceResult<Guid>> SaveChannelAsync(Caller caller, Guid? channelId, NotificationChannelInput input,
-        CancellationToken cancellationToken = default)
-    {
-        if (!caller.IsAdmin)
-        {
-            return ServiceResult<Guid>.Forbidden();
-        }
-
-        var name = ServiceSupport.Clean(input.Name);
-        if (name is null || name.Length > 100)
-        {
-            return ServiceResult<Guid>.Fail("Enter a channel name of at most 100 characters.");
-        }
-
-        var recipients = ParseRecipients(input.Recipients, out var recipientProblem);
-        if (recipientProblem is not null)
-        {
-            return ServiceResult<Guid>.Fail(recipientProblem);
-        }
-
-        await using var db = _dbFactory.CreateSystem();
-        var now = _time.GetUtcNow().UtcDateTime;
-        NotificationChannel channel;
-        if (channelId is { } id)
-        {
-            var existing = await db.NotificationChannels.SingleOrDefaultAsync(c => c.Id == id, cancellationToken);
-            if (existing is null)
-            {
-                return ServiceResult<Guid>.NotFound("notification channel");
-            }
-
-            channel = existing;
-        }
-        else
-        {
-            channel = new NotificationChannel { Id = Guid.NewGuid(), Type = NotificationChannelType.Email, CreatedAt = now };
-            db.NotificationChannels.Add(channel);
-        }
-
-        channel.Name = name;
-        channel.Recipients = string.Join(", ", recipients);
-        channel.MinimumSeverity = input.MinimumSeverity;
-        channel.NotifyOnResolve = input.NotifyOnResolve;
-        channel.Enabled = input.Enabled;
-        channel.UpdatedAt = now;
-        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.NotificationChannelChanged, "NotificationChannel", channel.Id.ToString(), null,
-            new { Change = channelId is null ? "created" : "updated", channel.Name, Recipients = recipients.Count, MinimumSeverity = channel.MinimumSeverity.ToString(), channel.NotifyOnResolve, channel.Enabled }), now));
-        await db.SaveChangesAsync(cancellationToken);
-        return ServiceResult<Guid>.Ok(channel.Id);
-    }
-
-    public async Task<ServiceResult> DeleteChannelAsync(Caller caller, Guid channelId, CancellationToken cancellationToken = default)
-    {
-        if (!caller.IsAdmin)
-        {
-            return ServiceResult.Forbidden();
-        }
-
-        await using var db = _dbFactory.CreateSystem();
-        var channel = await db.NotificationChannels.SingleOrDefaultAsync(c => c.Id == channelId, cancellationToken);
-        if (channel is null)
-        {
-            return ServiceResult.NotFound("notification channel");
-        }
-
-        var now = _time.GetUtcNow().UtcDateTime;
-        db.NotificationChannels.Remove(channel);
-        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.NotificationChannelChanged, "NotificationChannel", channel.Id.ToString(), null,
-            new { Change = "deleted", channel.Name }), now));
-        await db.SaveChangesAsync(cancellationToken);
-        return ServiceResult.Ok();
-    }
-
-    /// <summary>Splits recipients on commas, semicolons and line breaks and validates each address.</summary>
-    internal static List<string> ParseRecipients(string? text, out string? problem)
-    {
-        problem = null;
-        var recipients = (text ?? string.Empty)
-            .Split([',', ';', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        if (recipients.Count == 0)
-        {
-            problem = "Enter at least one email address.";
-            return recipients;
-        }
-
-        if (recipients.Count > 50)
-        {
-            problem = "A channel can have at most 50 recipients.";
-            return recipients;
-        }
-
-        var invalid = recipients.FirstOrDefault(r => !ServiceSupport.IsValidEmail(r));
-        if (invalid is not null)
-        {
-            problem = $"{invalid} is not a valid email address. Correct it and try again.";
-            return recipients;
-        }
-
-        if (string.Join(", ", recipients).Length > 2000)
-        {
-            problem = "The recipient list is too long. Use fewer addresses, or a distribution list.";
-        }
-
-        return recipients;
     }
 
     // ---------------------------------------------------------------------------------------------------------------

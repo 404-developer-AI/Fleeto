@@ -21,7 +21,10 @@ public enum EndpointSource
     Integration
 }
 
-/// <summary>Check types supported by the agent in 0.1.0.</summary>
+/// <summary>
+/// Check types. Stored by name, so members are only ever appended. What each type measures, its parameters and on which
+/// platforms it runs is described once in <see cref="Domain.CheckCatalog"/>.
+/// </summary>
 public enum CheckType
 {
     /// <summary>Average CPU usage in percent over the sample window.</summary>
@@ -33,7 +36,27 @@ public enum CheckType
     /// <summary>1 when the named service is running, 0 otherwise.</summary>
     ServiceRunning,
     /// <summary>Days since the last boot.</summary>
-    Uptime
+    Uptime,
+    /// <summary>Average round-trip time of ICMP echo requests to a host in milliseconds; -1 when the host does not reply (0.2.0).</summary>
+    Ping,
+    /// <summary>Time to open a TCP connection in milliseconds; -1 when the port cannot be reached (0.2.0).</summary>
+    TcpPort,
+    /// <summary>Response time of an HTTP(S) URL in milliseconds, -1 when it fails; target "certificate": days until the TLS certificate expires (0.2.0).</summary>
+    Http,
+    /// <summary>Number of running processes with the name; 0 is a problem (0.2.0).</summary>
+    ProcessRunning,
+    /// <summary>1 when no restart is pending, 0 when the endpoint needs a restart (0.2.0).</summary>
+    PendingReboot,
+    /// <summary>A file or folder: exists (1/0), missing (1/0), size in MB, or hours since the last change (0.2.0).</summary>
+    File,
+    /// <summary>Days until a local certificate expires, one result per certificate (0.2.0).</summary>
+    CertificateExpiry,
+    /// <summary>Windows: number of matching events in an event log within a window (0.2.0).</summary>
+    EventLog,
+    /// <summary>Windows: 1 when antivirus or firewall protection is on, 0 otherwise (0.2.0).</summary>
+    SecurityCenter,
+    /// <summary>The exit code of a library script: 0 OK, 1 warning, any other code critical (0.2.0).</summary>
+    Script
 }
 
 /// <summary>Which endpoint class a check definition applies to.</summary>
@@ -103,7 +126,11 @@ public enum SigningRequestKind
     /// <summary>Short-lived server certificate for the gateway.</summary>
     GatewayCertificate,
     /// <summary>Signed agent configuration (tier, policy, checks) for one endpoint.</summary>
-    AgentConfig
+    AgentConfig,
+    /// <summary>Renewal of an expired, never revoked agent certificate within the recovery grace period (0.2.0).</summary>
+    AgentRecovery,
+    /// <summary>A job for one endpoint (0.2.0). SubjectId is the job id; only web may request it.</summary>
+    Job
 }
 
 public enum SigningRequestState
@@ -129,12 +156,27 @@ public enum ConfigChangeScope
     Site,
     Endpoint,
     Policy,
-    MonitoringTemplate
+    MonitoringTemplate,
+    /// <summary>Every managed endpoint with a script check that uses the script (0.2.0).</summary>
+    Script
 }
 
 public enum NotificationChannelType
 {
-    Email
+    Email,
+    /// <summary>An HTTPS POST per notification (0.2.0).</summary>
+    Webhook
+}
+
+/// <summary>The body of a webhook request.</summary>
+public enum WebhookFormat
+{
+    /// <summary>Fleeto's own JSON, signed with the channel's signing secret.</summary>
+    Generic,
+    /// <summary>A Slack incoming webhook message.</summary>
+    Slack,
+    /// <summary>An adaptive card for a Microsoft Teams workflow ("When a Teams webhook request is received").</summary>
+    Teams
 }
 
 public enum BackupKind

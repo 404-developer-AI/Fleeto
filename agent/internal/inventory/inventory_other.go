@@ -30,3 +30,8 @@ func collectPlatform(context.Context) (platformInfo, error) {
 func installedSoftware() ([]*agentv1.SoftwareItem, error) {
 	return nil, nil
 }
+
+func services() ([]*agentv1.ServiceItem, error) {
+	// systemd units and launchd jobs follow with the Linux and macOS agents.
+	return nil, nil
+}

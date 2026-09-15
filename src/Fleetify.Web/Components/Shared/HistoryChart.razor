@@ -1,0 +1,110 @@
+@* Line chart of the check history: the average as a line, minimum to maximum as a band, thresholds as dashed lines, and a red mark
+   under a bucket where the check could not run or got no response. Inline SVG, no chart library. *@
+@inject TimeDisplay Time
+
+<svg class="history-chart" viewBox="0 0 @HistoryChartLayout.F(HistoryChartLayout.Width) @HistoryChartLayout.F(HistoryChartLayout.Height)"
+     role="img" aria-label="@AriaLabel">
+    @foreach (var tick in _layout.YTicks())
+    {
+        var y = _layout.Y(tick);
+        <line x1="@HistoryChartLayout.F(HistoryChartLayout.Left)" x2="@HistoryChartLayout.F(HistoryChartLayout.Width - HistoryChartLayout.Right)"
+              y1="@HistoryChartLayout.F(y)" y2="@HistoryChartLayout.F(y)" class="history-grid" />
+        @SvgText(HistoryChartLayout.Left - 6, y + 4, "end", FormatValue(tick))
+    }
+    @foreach (var tick in _layout.XTicks())
+    {
+        @SvgText(_layout.X(tick), HistoryChartLayout.Height - 8, "middle", FormatTime(tick))
+    }
+
+    @if (_layout.HasValues)
+    {
+        <path d="@_layout.BandPath()" class="history-band" />
+        <path d="@_layout.AveragePath()" class="history-line" />
+    }
+    @if (View.WarningThreshold is { } warning)
+    {
+        <line x1="@HistoryChartLayout.F(HistoryChartLayout.Left)" x2="@HistoryChartLayout.F(HistoryChartLayout.Width - HistoryChartLayout.Right)"
+              y1="@HistoryChartLayout.F(_layout.Y(warning))" y2="@HistoryChartLayout.F(_layout.Y(warning))" class="history-threshold-warning" />
+    }
+    @if (View.CriticalThreshold is { } critical)
+    {
+        <line x1="@HistoryChartLayout.F(HistoryChartLayout.Left)" x2="@HistoryChartLayout.F(HistoryChartLayout.Width - HistoryChartLayout.Right)"
+              y1="@HistoryChartLayout.F(_layout.Y(critical))" y2="@HistoryChartLayout.F(_layout.Y(critical))" class="history-threshold-critical" />
+    }
+
+    @for (var i = 0; i < View.Points.Count; i++)
+    {
+        var point = View.Points[i];
+        var x = _layout.X(point.Time);
+        @if (point.Errors + point.NoResponses > 0)
+        {
+            <rect x="@HistoryChartLayout.F(x)" y="@HistoryChartLayout.F(HistoryChartLayout.Height - HistoryChartLayout.Bottom + 2)"
+                  width="@HistoryChartLayout.F(Math.Max(1, _layout.BucketWidth - 1))" height="4" class="history-problem" />
+        }
+        <rect x="@HistoryChartLayout.F(x)" y="@HistoryChartLayout.F(HistoryChartLayout.Top)" width="@HistoryChartLayout.F(_layout.BucketWidth)"
+              height="@HistoryChartLayout.F(_layout.PlotHeight)" class="history-hit"><title>@Tooltip(point)</title></rect>
+    }
+</svg>
+
+@code {
+    [Parameter, EditorRequired]
+    public CheckHistoryView View { get; set; } = default!;
+
+    private HistoryChartLayout _layout = default!;
+
+    protected override void OnParametersSet() =>
+        _layout = new HistoryChartLayout(View.Points, View.From, View.To, View.Unit, View.WarningThreshold, View.CriticalThreshold);
+
+    /// <summary>An SVG text element. Razor reserves the text tag, so it is written as markup; the label is always encoded.</summary>
+    private static MarkupString SvgText(double x, double y, string anchor, string label) =>
+        new($"<text x=\"{HistoryChartLayout.F(x)}\" y=\"{HistoryChartLayout.F(y)}\" class=\"history-label\" text-anchor=\"{anchor}\">{System.Net.WebUtility.HtmlEncode(label)}</text>");
+
+    private string AriaLabel => $"History of {View.Name}{(string.IsNullOrEmpty(View.Target) ? "" : $" ({View.Target})")}";
+
+    private string FormatValue(double value) => View.Unit switch
+    {
+        "%" => value.ToString("0", System.Globalization.CultureInfo.InvariantCulture) + "%",
+        _ => (Math.Abs(value) >= 100 ? value.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
+            : value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)) + (string.IsNullOrEmpty(View.Unit) ? "" : " " + View.Unit)
+    };
+
+    private string FormatTime(DateTime utc)
+    {
+        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), Time.Zone);
+        return View.Range switch
+        {
+            HistoryRange.Hour or HistoryRange.Day => local.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture),
+            HistoryRange.Year => local.ToString("MMM yyyy", System.Globalization.CultureInfo.InvariantCulture),
+            _ => local.ToString("d MMM", System.Globalization.CultureInfo.InvariantCulture)
+        };
+    }
+
+    private string Tooltip(HistoryPoint point)
+    {
+        var when = Time.Absolute(point.Time);
+        if (!point.HasData)
+        {
+            return $"{when}: no results";
+        }
+
+        var parts = new List<string> { when };
+        if (point.Avg is { } avg)
+        {
+            parts.Add(point.Values == 1 || point.Min == point.Max
+                ? $"{FormatValue(avg)}"
+                : $"average {FormatValue(avg)}, lowest {FormatValue(point.Min!.Value)}, highest {FormatValue(point.Max!.Value)}");
+        }
+
+        if (point.NoResponses > 0)
+        {
+            parts.Add($"{point.NoResponses} without a response");
+        }
+
+        if (point.Errors > 0)
+        {
+            parts.Add($"{point.Errors} could not run");
+        }
+
+        return string.Join(" · ", parts);
+    }
+}

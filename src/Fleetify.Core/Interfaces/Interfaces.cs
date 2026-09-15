@@ -80,6 +80,12 @@ public static class NotificationChannels
     /// <summary>Payload: OutboxEmail id. Raised by a database trigger on insert.</summary>
     public const string OutboxEmails = "fleetify_outbox_emails";
 
+    /// <summary>Payload: endpoint id. A job of this endpoint was signed, cancelled or changed state (0.2.0).</summary>
+    public const string Jobs = "fleetify_jobs";
+
+    /// <summary>Payload: OutboxWebhook id. Raised by a database trigger on insert.</summary>
+    public const string OutboxWebhooks = "fleetify_outbox_webhooks";
+
     /// <summary>
     /// Payload: CheckRunRequest id. Raised by a database trigger on insert (workers apply a reset) and when a reset was
     /// applied (the gateway delivers the request).
@@ -142,8 +148,23 @@ public static class AuditActions
     public const string NoteCreated = "note.created";
     public const string NoteUpdated = "note.updated";
     public const string NoteDeleted = "note.deleted";
+    public const string MaintenanceStarted = "maintenance.started";
+    public const string MaintenanceChanged = "maintenance.changed";
+    public const string MaintenanceEnded = "maintenance.ended";
+    public const string MaintenanceExpired = "maintenance.expired";
     public const string CertificateIssued = "certificate.issued";
     public const string CertificateRenewed = "certificate.renewed";
+    public const string CertificateRecovered = "certificate.recovered";
+    public const string ScriptCreated = "script.created";
+    public const string ScriptChanged = "script.changed";
+    public const string ScriptVersionSaved = "script.version_saved";
+    public const string ScriptVersionApproved = "script.version_approved";
+    public const string ScriptDeleted = "script.deleted";
+    public const string JobCreated = "job.created";
+    public const string JobSigned = "job.signed";
+    public const string JobRefused = "job.refused";
+    public const string JobCancelled = "job.cancelled";
+    public const string EndpointEnrolledAgain = "endpoint.enrolled_again";
     public const string CertificateRevoked = "certificate.revoked";
     public const string ConfigSigned = "config.signed";
     public const string SigningKeyCreated = "signing_key.created";

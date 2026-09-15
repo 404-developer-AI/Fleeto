@@ -102,14 +102,60 @@ public class NotificationChannel
     public string Name { get; set; } = string.Empty;
     public NotificationChannelType Type { get; set; } = NotificationChannelType.Email;
 
-    /// <summary>Comma-separated email addresses.</summary>
+    /// <summary>Email channels: comma-separated email addresses. Empty for webhooks.</summary>
     public string Recipients { get; set; } = string.Empty;
+
+    /// <summary>Webhook channels: the body format.</summary>
+    public WebhookFormat? WebhookFormat { get; set; }
+
+    /// <summary>Webhook channels: the host name of the URL, for display. The URL itself can carry a secret.</summary>
+    public string? WebhookHost { get; set; }
+
+    /// <summary>
+    /// Webhook channels: URL and signing secret as JSON, encrypted and bound to the channel id. Never returned to the UI.
+    /// </summary>
+    public string? EncryptedWebhook { get; set; }
 
     public AlertSeverity MinimumSeverity { get; set; } = AlertSeverity.Warning;
     public bool NotifyOnResolve { get; set; } = true;
     public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Routing (0.2.0): true sends alerts of every client, also clients created later; false only alerts of the clients
+    /// in <see cref="Clients"/>.
+    /// </summary>
+    public bool AllClients { get; set; } = true;
+
+    public List<NotificationChannelClient> Clients { get; set; } = [];
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+}
+
+/// <summary>A client whose alerts a channel with <see cref="NotificationChannel.AllClients"/> false receives.</summary>
+public class NotificationChannelClient
+{
+    public Guid NotificationChannelId { get; set; }
+    public Guid ClientId { get; set; }
+}
+
+/// <summary>
+/// Webhook outbox: one request per channel and notification, delivered by the workers with retry and backoff. The id is
+/// sent as the delivery id, the same on every attempt, so a receiver can drop duplicates.
+/// </summary>
+public class OutboxWebhook
+{
+    public Guid Id { get; set; }
+    public Guid NotificationChannelId { get; set; }
+    public string Category { get; set; } = string.Empty;
+
+    /// <summary>The request body, built when the notification was queued.</summary>
+    public string Payload { get; set; } = string.Empty;
+
+    public int Attempts { get; set; }
+    public DateTime NextAttemptAt { get; set; }
+    public DateTime? SentAt { get; set; }
+    public string? LastError { get; set; }
+    public DateTime CreatedAt { get; set; }
 }
 
 /// <summary>Email outbox. Written by web and workers, delivered by the workers with retry and backoff.</summary>

@@ -8,12 +8,17 @@
 //   Enrollment: HTTPS POST https://<agent host>/v1/enroll, body EnrollRequest, Content-Type application/x-protobuf,
 //               over a connection verified normally against that CA as the only root, for the agent host name.
 //               200 with EnrollResponse, or a problem+json error (400 invalid, 401 token refused, 429, 503 retry).
+//   Recovery:   HTTPS POST https://<agent host>/v1/recover with the expired agent client certificate (mTLS), body
+//               RecoverRequest (0.2.0). Only for a certificate that expired at most 365 days ago and was never revoked;
+//               200 with RecoverResponse, or a problem+json error (401 refused, 429, 503 retry). /v1/connect answers 401
+//               with the header "Fleeto-Certificate: expired" when such a certificate tries to open a session.
 //   Session:    WebSocket wss://<agent host>/v1/connect with the agent client certificate (mTLS).
 //               Every binary WebSocket message is exactly one AgentMessage (agent to server) or ServerMessage
 //               (server to agent). The WebSocket frame is the length prefix. Maximum message size 4 MiB.
 //
 // Signatures (ed25519, instance signing key) cover "fleetify-agent-config-v1" || 0x00 || payload, where payload
 // is the exact serialized bytes carried in SignedConfig.payload. The agent never re-serializes before verifying.
+// Jobs (0.2.0) use the context "fleetify-job-v1" the same way over SignedJob.payload.
 syntax = "proto3";
 
 package fleetify.agent.v1;
@@ -49,6 +54,19 @@ message EnrollResponse {
   string instance_signing_key_id = 6;
 }
 
+// Renewal of an expired certificate (0.2.0). The CSR must use the key of the expired certificate the TLS connection
+// authenticated with.
+message RecoverRequest {
+  bytes csr_der = 1;
+  string hostname = 2;
+  string agent_version = 3;
+}
+
+message RecoverResponse {
+  // New agent certificate for the same endpoint and key, DER. Valid 90 days.
+  bytes certificate_der = 1;
+}
+
 message OsInfo {
   // windows, linux or darwin.
   string platform = 1;
@@ -75,6 +93,9 @@ message AgentMessage {
     RenewCertificateRequest renew_certificate = 5;
     ConfigApplied config_applied = 6;
     Pong pong = 7;
+    JobStarted job_started = 8;
+    JobOutput job_output = 9;
+    JobCompletion job_completion = 10;
   }
 }
 
@@ -88,6 +109,8 @@ message ServerMessage {
     Disconnect disconnect = 6;
     InventoryRequest inventory_request = 7;
     RunChecksNow run_checks_now = 8;
+    SignedJob job = 9;
+    JobAck job_ack = 10;
   }
 }
 
@@ -158,6 +181,18 @@ message Inventory {
   string domain = 14;
   // User name of the interactive console session, empty when nobody is logged on. Personal data.
   string logged_on_user = 15;
+  // Services on the endpoint (Windows services, systemd units, launchd jobs), for picking a service in a check. 0.2.0.
+  repeated ServiceItem services = 16;
+}
+
+message ServiceItem {
+  // The name a service check uses: the Windows service name, the systemd unit name or the launchd label.
+  string name = 1;
+  string display_name = 2;
+  // automatic, automatic_delayed, manual, disabled, or empty when unknown.
+  string start_type = 3;
+  // running, stopped, starting, stopping, paused, or empty when unknown.
+  string state = 4;
 }
 
 message Disk {
@@ -266,9 +301,25 @@ message CheckSpec {
   string id = 1;
   CheckType type = 2;
   uint32 interval_seconds = 3;
-  // Type-specific: CHECK_TYPE_DISK_FREE uses "drive" ("C:" or "*"), CHECK_TYPE_SERVICE_RUNNING uses "service",
-  // CHECK_TYPE_CPU_USAGE uses optional "sample_seconds" (default 60, at most the interval).
+  // Type-specific parameters, validated by the server (CheckCatalog) and checked again by the agent:
+  //   CHECK_TYPE_DISK_FREE: "drive" ("C:", "/var" or "*").
+  //   CHECK_TYPE_SERVICE_RUNNING: "service".
+  //   CHECK_TYPE_CPU_USAGE: optional "sample_seconds" (default 60, at most the interval).
+  //   CHECK_TYPE_PING: "host", optional "count" (1-10, default 3).
+  //   CHECK_TYPE_TCP_PORT: "host", "port", optional "timeout_seconds" (1-60, default 5).
+  //   CHECK_TYPE_HTTP: "url", optional "expected_status" (default "200-399"), "contains", "timeout_seconds" (default 10),
+  //     "ignore_certificate_errors" ("true"/"false"); certificate thresholds are applied by the server only.
+  //   CHECK_TYPE_PROCESS_RUNNING: "process".
+  //   CHECK_TYPE_FILE: "path", "condition" (exists, missing, size, age).
+  //   CHECK_TYPE_CERTIFICATE_EXPIRY: "location" (store, path), "store" (LocalMachine\Name) or "path", optional "subject".
+  //   CHECK_TYPE_EVENT_LOG: "log", optional "source", "event_ids" (comma-separated), "level" (critical, error, warning, any),
+  //     "window_minutes" (1-1440, default 60).
+  //   CHECK_TYPE_SECURITY_CENTER: "component" (antivirus, firewall).
+  //   CHECK_TYPE_SCRIPT: "script" (script id), "timeout_seconds" (5-300, at most the interval); the script itself is in `script`.
+  //     Without `script` the check cannot run and "unavailable" says why (deleted, not approved, another client).
   map<string, string> parameters = 4;
+  // CHECK_TYPE_SCRIPT only: the library script version to run, covered by the configuration signature (0.2.0).
+  ScriptJob script = 5;
 }
 
 enum CheckType {
@@ -283,12 +334,163 @@ enum CheckType {
   CHECK_TYPE_SERVICE_RUNNING = 4;
   // value: days since boot, with decimals.
   CHECK_TYPE_UPTIME = 5;
+  // value: average round-trip time in milliseconds; -1 when no echo reply arrived. target = host.
+  CHECK_TYPE_PING = 6;
+  // value: milliseconds to open the connection; -1 when it failed. target = host:port.
+  CHECK_TYPE_TCP_PORT = 7;
+  // value: response time in milliseconds; -1 when the request failed, the status was unexpected or the text was missing
+  // (detail says why). For an https URL a second result with target "certificate": days until the leaf certificate
+  // expires (negative when expired).
+  CHECK_TYPE_HTTP = 8;
+  // value: number of running processes with the name (case-insensitive, with or without .exe).
+  CHECK_TYPE_PROCESS_RUNNING = 9;
+  // value: 1 when no restart is pending, 0 when one is (detail lists the reasons).
+  CHECK_TYPE_PENDING_REBOOT = 10;
+  // exists/missing: 1 when the condition holds, 0 otherwise; size: megabytes (a folder counts every file in it);
+  // age: hours since the last change (for a folder, of its newest file). target = path.
+  CHECK_TYPE_FILE = 11;
+  // value: days until the certificate expires, negative when expired. One result per certificate, target = its subject
+  // common name and short thumbprint. A certificate replaced by a newer one with the same subject is left out.
+  CHECK_TYPE_CERTIFICATE_EXPIRY = 12;
+  // Windows only. value: number of matching events within the window. Messages are never sent (they may hold personal data).
+  CHECK_TYPE_EVENT_LOG = 13;
+  // Windows only. value: 1 when the protection is on (antivirus: on and up to date), 0 otherwise. target = product or
+  // firewall profile.
+  CHECK_TYPE_SECURITY_CENTER = 14;
+  // value: the exit code of the script (0 OK, 1 warning, other critical, judged by the server). detail: the first line of output.
+  // error when the script timed out, could not start or is unavailable (0.2.0).
+  CHECK_TYPE_SCRIPT = 15;
 }
 
 message ConfigApplied {
   uint64 config_version = 1;
   // Non-empty when the agent refused the configuration (bad signature, wrong endpoint, old version).
   string error = 2;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Jobs (0.2.0)
+// ---------------------------------------------------------------------------------------------------------------
+
+// A job signed by fleetify-signer. The gateway delivers it while it is queued and valid, again after every reconnect; the
+// agent verifies the signature against the pinned instance signing key, the instance and endpoint ids, ValidUntil (5 minutes
+// clock tolerance) and its own managed tier, runs a job id at most once, and refuses everything else with a JobCompletion.
+message SignedJob {
+  // Serialized JobPayload.
+  bytes payload = 1;
+  bytes signature = 2;
+  string key_id = 3;
+}
+
+message JobPayload {
+  string job_id = 1;
+  string instance_id = 2;
+  string endpoint_id = 3;
+  JobType type = 4;
+  google.protobuf.Timestamp valid_until = 5;
+  // Display name of the technician, for the endpoint's log.
+  string initiated_by = 6;
+  uint32 timeout_seconds = 7;
+  // The agent sends at most this much output (both streams together) and marks the rest truncated.
+  uint64 max_output_bytes = 8;
+  ScriptJob script = 9;
+}
+
+enum JobType {
+  JOB_TYPE_UNSPECIFIED = 0;
+  JOB_TYPE_SCRIPT = 1;
+}
+
+message ScriptJob {
+  ScriptLanguage language = 1;
+  string name = 2;
+  uint32 version = 3;
+  // UTF-8 script body, exactly as signed.
+  string body = 4;
+  // Lowercase hex SHA-256 of body; the agent checks it before running.
+  string sha256 = 5;
+}
+
+enum ScriptLanguage {
+  SCRIPT_LANGUAGE_UNSPECIFIED = 0;
+  // Windows PowerShell, run as SYSTEM.
+  SCRIPT_LANGUAGE_POWERSHELL = 1;
+  // cmd.exe batch file, run as SYSTEM.
+  SCRIPT_LANGUAGE_BATCH = 2;
+  // /bin/sh, run as root.
+  SCRIPT_LANGUAGE_SHELL = 3;
+  // /bin/bash, run as root.
+  SCRIPT_LANGUAGE_BASH = 4;
+}
+
+// The agent started the job. Sent until acknowledged.
+message JobStarted {
+  string job_id = 1;
+  google.protobuf.Timestamp started_at = 2;
+}
+
+enum JobStream {
+  JOB_STREAM_UNSPECIFIED = 0;
+  JOB_STREAM_STDOUT = 1;
+  JOB_STREAM_STDERR = 2;
+}
+
+// One piece of output, at most 64 KiB. Sequences start at 0 per stream. The agent keeps a chunk on disk until it is
+// acknowledged and resends it after a reconnect; the server stores each (job, stream, sequence) once.
+message JobOutput {
+  string job_id = 1;
+  JobStream stream = 2;
+  uint64 sequence = 3;
+  bytes data = 4;
+}
+
+enum JobResult {
+  JOB_RESULT_UNSPECIFIED = 0;
+  // The process exited; exit_code is set.
+  JOB_RESULT_EXITED = 1;
+  // Killed after timeout_seconds.
+  JOB_RESULT_TIMED_OUT = 2;
+  // Not run: signature, addressing, validity, tier or language refused. error says why.
+  JOB_RESULT_REFUSED = 3;
+  // The interpreter could not be started. error says why.
+  JOB_RESULT_FAILED_TO_START = 4;
+  // The agent stopped while the job ran; whether it finished is unknown. It is never run again.
+  JOB_RESULT_INTERRUPTED = 5;
+}
+
+message JobStreamSummary {
+  // Number of chunks sent for the stream.
+  uint64 chunks = 1;
+  uint64 bytes = 2;
+  // Lowercase hex SHA-256 over the concatenated data of the sent chunks.
+  string sha256 = 3;
+}
+
+// The job ended. Sent until acknowledged, also before every output chunk is acknowledged.
+message JobCompletion {
+  string job_id = 1;
+  JobResult result = 2;
+  int32 exit_code = 3;
+  string error = 4;
+  JobStreamSummary stdout = 5;
+  JobStreamSummary stderr = 6;
+  bool output_truncated = 7;
+  google.protobuf.Timestamp finished_at = 8;
+}
+
+enum JobAckKind {
+  JOB_ACK_KIND_UNSPECIFIED = 0;
+  JOB_ACK_KIND_STARTED = 1;
+  JOB_ACK_KIND_OUTPUT = 2;
+  JOB_ACK_KIND_COMPLETION = 3;
+}
+
+// Sent only after the message is committed to PostgreSQL (or is known to be stored already).
+message JobAck {
+  string job_id = 1;
+  JobAckKind kind = 2;
+  JobStream stream = 3;
+  uint64 sequence = 4;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

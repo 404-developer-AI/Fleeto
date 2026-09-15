@@ -36,28 +36,63 @@ public interface IEmailTransportFactory
 }
 
 /// <summary>
-/// SMTP from Settings when configured; otherwise the development pickup directory when set; otherwise nothing, and
-/// emails stay pending until an admin configures SMTP.
+/// Chooses the transport per pass (0.2.0): Microsoft Graph when it is the chosen provider and complete; SMTP when chosen, or
+/// as fallback while the Graph credential has expired (an expired secret cannot even send its own warning); otherwise the
+/// development pickup directory when set; otherwise nothing, and emails stay pending until an admin configures email.
 /// </summary>
-public sealed class EmailTransportFactory : IEmailTransportFactory
+public sealed class EmailTransportFactory : IEmailTransportFactory, IDisposable
 {
+    private static readonly TimeSpan FallbackLogInterval = TimeSpan.FromHours(1);
+
     private readonly SettingsStore _settings;
     private readonly EmailOptions _options;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly TimeProvider _time;
+    private readonly HttpClient _graphHttp;
+    private DateTimeOffset _lastFallbackLog = DateTimeOffset.MinValue;
 
-    public EmailTransportFactory(SettingsStore settings, IOptions<EmailOptions> options, ILoggerFactory loggerFactory)
+    public EmailTransportFactory(SettingsStore settings, IOptions<EmailOptions> options, ILoggerFactory loggerFactory, TimeProvider time)
+        : this(settings, options, loggerFactory, time, new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5), AllowAutoRedirect = false })
+    {
+    }
+
+    internal EmailTransportFactory(SettingsStore settings, IOptions<EmailOptions> options, ILoggerFactory loggerFactory, TimeProvider time,
+        HttpMessageHandler graphHandler)
     {
         _settings = settings;
         _options = options.Value;
         _loggerFactory = loggerFactory;
+        _time = time;
+        _graphHttp = new HttpClient(graphHandler) { Timeout = TimeSpan.FromSeconds(Math.Max(5, _options.SmtpTimeoutSeconds)) };
     }
 
     public async Task<IEmailSession?> CreateSessionAsync(CancellationToken cancellationToken)
     {
         var smtp = await _settings.GetAsync<SmtpSettings>(SettingKeys.Smtp, cancellationToken);
-        if (smtp is not null && !string.IsNullOrWhiteSpace(smtp.Host) && !string.IsNullOrWhiteSpace(smtp.FromAddress))
+        var smtpConfigured = smtp is not null && !string.IsNullOrWhiteSpace(smtp.Host) && !string.IsNullOrWhiteSpace(smtp.FromAddress);
+
+        var provider = await _settings.GetStringAsync(SettingKeys.EmailProvider, cancellationToken);
+        if (provider == nameof(EmailProvider.MicrosoftGraph) &&
+            await _settings.GetAsync<GraphMailSettings>(SettingKeys.Graph, cancellationToken) is { IsComplete: true } graph)
         {
-            return new SmtpEmailSession(smtp, TimeSpan.FromSeconds(Math.Max(5, _options.SmtpTimeoutSeconds)),
+            var now = _time.GetUtcNow();
+            if (graph.CredentialExpiresAt > now.UtcDateTime || !smtpConfigured)
+            {
+                return new GraphEmailSession(graph, _graphHttp, _time);
+            }
+
+            if (now - _lastFallbackLog >= FallbackLogInterval)
+            {
+                _loggerFactory.CreateLogger<EmailTransportFactory>().LogWarning(
+                    "The Microsoft Graph credential expired on {ExpiresAt:yyyy-MM-dd}; sending through SMTP until a new credential is saved in Settings, Email",
+                    graph.CredentialExpiresAt);
+                _lastFallbackLog = now;
+            }
+        }
+
+        if (smtpConfigured)
+        {
+            return new SmtpEmailSession(smtp!, TimeSpan.FromSeconds(Math.Max(5, _options.SmtpTimeoutSeconds)),
                 _loggerFactory.CreateLogger<SmtpEmailSession>());
         }
 
@@ -68,6 +103,8 @@ public sealed class EmailTransportFactory : IEmailTransportFactory
 
         return null;
     }
+
+    public void Dispose() => _graphHttp.Dispose();
 }
 
 /// <summary>Builds the MIME message: sender name Fleeto, HTML with a plain-text alternative, marked as auto-generated.</summary>

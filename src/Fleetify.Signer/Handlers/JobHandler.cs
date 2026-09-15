@@ -1,0 +1,216 @@
+using Fleetify.Core.Domain;
+using Fleetify.Core.Entities;
+using Fleetify.Core.Interfaces;
+using Fleetify.Infrastructure.Licensing;
+using Fleetify.Infrastructure.Security;
+using Fleetify.Infrastructure.Services;
+using Fleetify.Protocol.Agent.V1;
+using Fleetify.Signer.Keys;
+using Fleetify.Signer.Processing;
+using Google.Protobuf;
+using Google.Protobuf.WellKnownTypes;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using JobType = Fleetify.Core.Entities.JobType;
+using ScriptLanguage = Fleetify.Core.Entities.ScriptLanguage;
+
+namespace Fleetify.Signer.Handlers;
+
+/// <summary>
+/// Signs one job (0.2.0, ARCHITECTURE.md §4, Job and §5, The signer). Everything is decided from the database, independently of
+/// web: the initiator still exists, is not locked out and is an admin or technician; the endpoint is managed (license included)
+/// and runs the script's platform; the script version belongs to the job's client or is global and its body still has the hash
+/// the job names; when the site's policy requires approval the version is the script's current one and was approved by another
+/// admin for exactly this body; the validity window is within 7 days. The signed payload carries the body the signer read.
+/// </summary>
+public sealed class JobHandler : ISigningRequestHandler
+{
+    public const string MissingJobReason = "The job no longer exists.";
+    public const string InitiatorReason =
+        "The technician who started the job no longer exists, is locked out or has no admin or technician role. Ask an admin to start it again.";
+    public const string NotManagedReason = "The endpoint is not managed. Switch it to managed before running scripts.";
+    public const string PlatformReason = "The script's language does not run on this endpoint's operating system.";
+    public const string ScriptChangedReason = "The script version no longer matches the job. Start the job again.";
+    public const string ScriptClientReason = "The script belongs to another client.";
+    public const string ApprovalReason =
+        "The site's policy requires approval of scripts, and this version of the script is not the current version approved by a second admin. Ask an admin to approve it.";
+    public const string ValidityReason = "The job's validity window is invalid or has passed. Start the job again with a validity of at most 7 days.";
+
+    private readonly SignerKeyRing _keyRing;
+    private readonly LicenseService _licenses;
+    private readonly ILogger<JobHandler> _logger;
+
+    public JobHandler(SignerKeyRing keyRing, LicenseService licenses, ILogger<JobHandler> logger)
+    {
+        _keyRing = keyRing;
+        _licenses = licenses;
+        _logger = logger;
+    }
+
+    public SigningRequestKind Kind => SigningRequestKind.Job;
+
+    public async Task<SigningOutcome> HandleAsync(SigningContext context, CancellationToken cancellationToken)
+    {
+        var db = context.Db;
+        var now = context.Now;
+        if (context.Request.SubjectId is not { } jobId)
+        {
+            return SigningOutcome.Refused(MissingJobReason);
+        }
+
+        var jobs = await db.Jobs.FromSql($"""SELECT * FROM "Jobs" WHERE "Id" = {jobId} FOR UPDATE""").IgnoreQueryFilters().ToListAsync(cancellationToken);
+        if (jobs.Count == 0 || jobs[0].ClientId != context.Request.ClientId)
+        {
+            return SigningOutcome.Refused(MissingJobReason);
+        }
+
+        var job = jobs[0];
+        if (job.State != JobState.PendingSignature)
+        {
+            // Cancelled or already handled: nothing to sign and nothing wrong.
+            return SigningOutcome.Completed(null);
+        }
+
+        if (job.Type != JobType.Script || job.ValidUntil <= now || job.ValidUntil > job.CreatedAt + ScriptRules.MaxValidity + TimeSpan.FromMinutes(5) ||
+            job.ValidUntil > now + ScriptRules.MaxValidity + TimeSpan.FromMinutes(5))
+        {
+            return SigningOutcome.Refused(ValidityReason);
+        }
+
+        if (!await HasRoleAsync(db, job.InitiatedByUserId, now, cancellationToken, FleetifyRoleNames.Admin, FleetifyRoleNames.Technician))
+        {
+            return SigningOutcome.Refused(InitiatorReason);
+        }
+
+        var endpoint = await db.Endpoints.IgnoreQueryFilters().AsNoTracking()
+            .Where(e => e.Id == job.EndpointId && e.ClientId == job.ClientId)
+            .Select(e => new { e.Id, e.SiteId, e.Tier, e.OsPlatform, e.Hostname })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (endpoint is null)
+        {
+            return SigningOutcome.Refused(MissingJobReason);
+        }
+
+        // Tier enforcement, layer 2 (the signer): the stored tier and the license must both allow managed behaviour.
+        var license = await _licenses.GetStatusAsync(db, cancellationToken);
+        if (TierRules.EffectiveTier(endpoint.Tier, license) != EndpointTier.Managed)
+        {
+            return SigningOutcome.Refused(NotManagedReason);
+        }
+
+        var version = job.ScriptVersionId is { } versionId
+            ? await db.ScriptVersions.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(v => v.Id == versionId, cancellationToken)
+            : null;
+        var script = version is null
+            ? null
+            : await db.Scripts.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(s => s.Id == version.ScriptId, cancellationToken);
+        if (version is null || script is null || script.Id != job.ScriptId || version.ClientId != script.ClientId ||
+            ScriptLanguages.Sha256(version.Body) != version.Sha256 || !SecureCompare.HexEquals(version.Sha256, job.ScriptSha256) ||
+            script.Language != job.Language)
+        {
+            return SigningOutcome.Refused(ScriptChangedReason);
+        }
+
+        if (script.ClientId is { } scriptClient && scriptClient != job.ClientId)
+        {
+            return SigningOutcome.Refused(ScriptClientReason);
+        }
+
+        if (!ScriptLanguages.RunsOn(script.Language, endpoint.OsPlatform))
+        {
+            return SigningOutcome.Refused(PlatformReason);
+        }
+
+        var policy = await db.SitePolicies.IgnoreQueryFilters().AsNoTracking()
+                         .Where(l => l.SiteId == endpoint.SiteId)
+                         .Select(l => l.Policy)
+                         .FirstOrDefaultAsync(cancellationToken)
+                     ?? await db.Policies.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, cancellationToken);
+        if (policy?.ScriptApprovalRequired == true &&
+            (script.CurrentVersionId != version.Id || !version.IsApproved ||
+             !await HasRoleAsync(db, version.ApprovedByUserId!.Value, null, cancellationToken, FleetifyRoleNames.Admin)))
+        {
+            return SigningOutcome.Refused(ApprovalReason);
+        }
+
+        var timeout = Math.Clamp(version.TimeoutSeconds, ScriptRules.MinTimeoutSeconds, ScriptRules.MaxTimeoutSeconds);
+        var payload = new JobPayload
+        {
+            JobId = job.Id.ToString("D"),
+            InstanceId = _keyRing.InstanceId.ToString("D"),
+            EndpointId = endpoint.Id.ToString("D"),
+            Type = Protocol.Agent.V1.JobType.Script,
+            ValidUntil = Timestamp.FromDateTime(DateTime.SpecifyKind(job.ValidUntil, DateTimeKind.Utc)),
+            InitiatedBy = job.InitiatedByName,
+            TimeoutSeconds = (uint)timeout,
+            MaxOutputBytes = (ulong)ScriptRules.MaxOutputBytes,
+            Script = new ScriptJob
+            {
+                Language = AgentConfigBuilder.ToProto(script.Language),
+                Name = script.Name,
+                Version = (uint)version.Number,
+                Body = version.Body,
+                Sha256 = version.Sha256
+            }
+        }.ToByteArray();
+
+        job.Payload = payload;
+        job.Signature = _keyRing.Sign(SignatureContexts.Job, payload);
+        job.SigningKeyId = _keyRing.SigningKeyId;
+        job.SignedAt = now;
+        job.TimeoutSeconds = timeout;
+        job.MaxOutputBytes = ScriptRules.MaxOutputBytes;
+        job.State = JobState.Queued;
+
+        await SignerAudit.WriteAsync(db, new AuditRecord(AuditActions.JobSigned, "Job", job.Id.ToString(), job.ClientId, AuditActorType.System,
+            "fleetify-signer", "fleetify-signer",
+            new
+            {
+                endpoint.Hostname,
+                EndpointId = endpoint.Id,
+                job.ScriptName,
+                job.ScriptVersionNumber,
+                job.ScriptSha256,
+                job.ValidUntil,
+                InitiatedBy = job.InitiatedByName,
+                ApprovalRequired = policy?.ScriptApprovalRequired == true
+            }), now, cancellationToken);
+
+        await db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Signed job {JobId} ({Script} v{Version}) for endpoint {EndpointId}", job.Id, job.ScriptName, job.ScriptVersionNumber, endpoint.Id);
+        return SigningOutcome.Completed(null, new PendingNotification(NotificationChannels.Jobs, endpoint.Id.ToString()));
+    }
+
+    /// <summary>Marks the job refused with the signer's reason, after the handler's own writes were rolled back.</summary>
+    public async Task<IReadOnlyList<PendingNotification>> OnRefusedAsync(SigningContext context, string reason, CancellationToken cancellationToken)
+    {
+        if (context.Request.SubjectId is not { } jobId)
+        {
+            return [];
+        }
+
+        var reasonText = reason.Length > 500 ? reason[..500] : reason;
+        var endpointIds = await context.Db.Jobs.IgnoreQueryFilters()
+            .Where(j => j.Id == jobId && j.ClientId == context.Request.ClientId && j.State == JobState.PendingSignature)
+            .Select(j => j.EndpointId)
+            .ToListAsync(cancellationToken);
+        await context.Db.Jobs.IgnoreQueryFilters()
+            .Where(j => j.Id == jobId && j.ClientId == context.Request.ClientId && j.State == JobState.PendingSignature)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(j => j.State, JobState.Refused)
+                .SetProperty(j => j.RefusalReason, reasonText)
+                .SetProperty(j => j.CompletedAt, context.Now), cancellationToken);
+        return endpointIds.Select(id => new PendingNotification(NotificationChannels.Jobs, id.ToString())).ToList();
+    }
+
+    private static Task<bool> HasRoleAsync(Infrastructure.Data.FleetifyDbContext db, Guid userId, DateTime? lockedOutAt,
+        CancellationToken cancellationToken, params string[] normalizedRoles) =>
+        ScriptCheckResolver.UserHasRoleAsync(db, userId, lockedOutAt, cancellationToken, normalizedRoles);
+}
+
+/// <summary>Normalized role names as stored by ASP.NET Core Identity.</summary>
+internal static class FleetifyRoleNames
+{
+    public static readonly string Admin = ScriptCheckResolver.AdminRole;
+    public static readonly string Technician = ScriptCheckResolver.TechnicianRole;
+}

@@ -15,6 +15,7 @@
             @Item("/settings/client-templates", Icons.Material.Outlined.AccountTree, "Client templates")
             @Item("/settings/monitoring-templates", Icons.Material.Outlined.Rule, "Monitoring templates")
             @Item("/settings/policies", Icons.Material.Outlined.Tune, "Policies")
+            @Item("/settings/scripts", Icons.Material.Outlined.Terminal, "Scripts")
             <AuthorizeView Policy="@FleetifyPolicies.Admin">
                 <div class="settings-group-title">Administration</div>
                 @Item("/settings/users", Icons.Material.Outlined.People, "Users")

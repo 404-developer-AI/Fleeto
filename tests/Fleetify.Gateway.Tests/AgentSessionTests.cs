@@ -262,7 +262,8 @@ public sealed class AgentSessionTests
             BootTime = Timestamp.FromDateTime(DateTime.UtcNow.AddDays(-2)),
             Disks = { new Disk { Mount = "C:", Filesystem = "NTFS", TotalBytes = 100, FreeBytes = 40 } },
             NetworkInterfaces = { new NetworkInterface { Name = "Ethernet", MacAddress = "00:11:22:33:44:55", IpAddresses = { "192.0.2.5" } } },
-            Software = { new SoftwareItem { Name = "Fleeto agent", Version = "0.1.0", Publisher = "Steaan", InstallDate = "20260914" } }
+            Software = { new SoftwareItem { Name = "Fleeto agent", Version = "0.1.0", Publisher = "Steaan", InstallDate = "20260914" } },
+            Services = { new ServiceItem { Name = "Spooler", DisplayName = "Print Spooler", StartType = "automatic", State = "running" } }
         };
         await harness.Manager.HandleAsync(session, new AgentMessage { Inventory = new InventoryReport { Hash = "abc", Inventory = inventory } },
             CancellationToken.None);
@@ -274,6 +275,8 @@ public sealed class AgentSessionTests
         Assert.Contains("\"freeBytes\"", snapshot.DisksJson);
         Assert.Contains("\"macAddress\"", snapshot.NetworkInterfacesJson);
         Assert.Contains("\"installDate\"", snapshot.SoftwareJson);
+        Assert.Contains("Print Spooler", snapshot.ServicesJson);
+        Assert.Contains("\"startType\"", snapshot.ServicesJson);
         var stored = await ReadEndpointAsync(endpoint.Id);
         Assert.Equal("SRV-NEW", stored.Hostname);
         Assert.Equal(EndpointClass.Server, stored.DetectedClass);

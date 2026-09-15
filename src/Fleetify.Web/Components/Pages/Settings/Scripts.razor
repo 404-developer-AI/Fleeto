@@ -1,0 +1,102 @@
+@page "/settings/scripts"
+@attribute [Authorize(Policy = FleetifyPolicies.Viewer)]
+@inherits FleetoPageBase
+@using Fleetify.Core.Domain
+@inject ScriptService ScriptSvc
+@inject ClientService ClientSvc
+@inject IDialogService DialogService
+
+<PageTitle>Scripts - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Scripts</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            The script library. Every change creates a new version; sites whose policy requires approval run only a version a second admin approved.
+        </MudText>
+    </div>
+    @if (CanManage)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="CreateAsync">New script</MudButton>
+    }
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_scripts.Count == 0)
+    {
+        <EmptyState Icon="@Icons.Material.Outlined.Terminal" Title="No scripts yet"
+                    Text="Create a script, then run it on managed endpoints from the endpoint menu." />
+    }
+    else
+    {
+        <MudTable Items="_scripts" Hover="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>Name</MudTh>
+                <MudTh>Language</MudTh>
+                <MudTh>Available for</MudTh>
+                <MudTh>Current version</MudTh>
+                <MudTh>Changed</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>
+                    <MudLink Href="@($"/settings/scripts/{context.Id}")"><strong>@context.Name</strong></MudLink>
+                    @if (!string.IsNullOrEmpty(context.Description))
+                    {
+                        <div class="muted" style="font-size:0.8125rem">@context.Description</div>
+                    }
+                </MudTd>
+                <MudTd>@ScriptLanguages.Label(context.Language) <span class="muted">· @ScriptLanguages.PlatformLabel(context.Language)</span></MudTd>
+                <MudTd>@(context.ClientCode ?? "All clients")</MudTd>
+                <MudTd>
+                    @if (context.CurrentVersionNumber is { } number)
+                    {
+                        <span>Version @number </span>
+                        <StatusChip Text="@(context.CurrentApproved ? "Approved" : "Not approved")" Kind="@(context.CurrentApproved ? StatusKind.Ok : StatusKind.Neutral)" />
+                    }
+                </MudTd>
+                <MudTd><TimeText Value="context.UpdatedAt" /></MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</LoadState>
+
+@code {
+    private IReadOnlyList<ScriptListItem> _scripts = [];
+    private IReadOnlyList<ClientOption> _clients = [];
+
+    [SupplyParameterFromQuery(Name = "new")]
+    public bool New { get; set; }
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    protected override void OnParametersSet() => OpenCreateFromQuery(New, CreateAsync);
+
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        _scripts = await ScriptSvc.ListAsync(caller);
+        _clients = await ClientSvc.ListOptionsAsync(caller);
+    });
+
+    private async Task CreateAsync()
+    {
+        Guid? createdId = null;
+        var parameters = new DialogParameters<ScriptDialog>
+        {
+            { d => d.Clients, _clients },
+            {
+                d => d.OnSubmit, async input =>
+                {
+                    var result = await RunForValueAsync(caller => ScriptSvc.CreateAsync(caller, input), "The script was created.");
+                    createdId = result?.Value;
+                    return result is not null;
+                }
+            }
+        };
+        var dialog = await DialogService.ShowAsync<ScriptDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        await dialog.Result;
+        if (createdId is { } id)
+        {
+            Navigation.NavigateTo($"/settings/scripts/{id}");
+        }
+    }
+}

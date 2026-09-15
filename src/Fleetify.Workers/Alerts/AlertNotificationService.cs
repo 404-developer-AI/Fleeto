@@ -1,32 +1,24 @@
+using Fleetify.Core.Domain;
 using Fleetify.Core.Entities;
 using Fleetify.Infrastructure.Data;
+using Fleetify.Infrastructure.Notifications;
 using Fleetify.Workers.Common;
 using Fleetify.Workers.Email;
 using Microsoft.EntityFrameworkCore;
 
 namespace Fleetify.Workers.Alerts;
 
-public enum AlertTransitionKind
-{
-    Opened,
-    /// <summary>The severity went up (warning to critical).</summary>
-    Escalated,
-    Resolved,
-    /// <summary>The hold on an alert ended while the alert is still unresolved.</summary>
-    HoldEnded
-}
-
 /// <summary>An alert state change that was just written in the caller's transaction.</summary>
-public sealed record AlertTransition(Guid AlertId, AlertTransitionKind Kind);
+public sealed record AlertTransition(Guid AlertId, NotificationEvent Kind);
 
 /// <summary>
-/// Turns alert transitions into outbox emails for every enabled notification channel whose minimum severity the alert
-/// meets. Called inside the transaction that changes the alert, after the alert rows are saved: the emails are
-/// committed together with the transition or not at all, so a crash can neither lose a notification nor send one
-/// twice, and no "last notified" bookkeeping is needed.
+/// Turns alert transitions into outbox emails and outbox webhooks for every channel that receives the alert under the
+/// routing rules (<see cref="NotificationRouting"/>: client, minimum severity, resolves). Called inside the transaction that
+/// changes the alert, after the alert rows are saved: the notifications are committed together with the transition or not
+/// at all, so a crash can neither lose a notification nor send one twice, and no "last notified" bookkeeping is needed.
 /// <para>
 /// While an alert is on hold its escalation and resolve emails are not sent; opening never happens on hold (a new alert
-/// has no hold). When the hold ends and the alert is still unresolved, one <see cref="AlertTransitionKind.HoldEnded"/>
+/// has no hold). When the hold ends and the alert is still unresolved, one <see cref="NotificationEvent.HoldEnded"/>
 /// email goes out.
 /// </para>
 /// </summary>
@@ -45,8 +37,9 @@ public sealed class AlertNotificationService
     }
 
     /// <summary>
-    /// Adds one <see cref="OutboxEmail"/> per recipient to <paramref name="db"/> (not saved). The alert rows must already be
-    /// saved in the current transaction. Returns the number of emails added.
+    /// Adds one <see cref="OutboxEmail"/> per recipient and one <see cref="OutboxWebhook"/> per webhook channel to
+    /// <paramref name="db"/> (not saved). The alert rows must already be saved in the current transaction. Returns the number
+    /// of notifications added.
     /// </summary>
     public async Task<int> AddNotificationsAsync(FleetifyDbContext db, IReadOnlyCollection<AlertTransition> transitions,
         CancellationToken cancellationToken)
@@ -57,7 +50,8 @@ public sealed class AlertNotificationService
         }
 
         var channels = await db.NotificationChannels.AsNoTracking()
-            .Where(c => c.Enabled && c.Type == NotificationChannelType.Email)
+            .Where(c => c.Enabled)
+            .Include(c => c.Clients)
             .ToListAsync(cancellationToken);
         if (channels.Count == 0)
         {
@@ -70,6 +64,7 @@ public sealed class AlertNotificationService
             .Select(a => new
             {
                 a.Id,
+                a.ClientId,
                 a.Severity,
                 a.Title,
                 a.Detail,
@@ -79,14 +74,17 @@ public sealed class AlertNotificationService
                 a.HeldUntil,
                 a.EndpointId,
                 Hostname = a.Endpoint!.Hostname,
+                a.Endpoint.SiteId,
                 SiteName = a.Endpoint.Site!.Name,
-                ClientName = a.Endpoint.Site.Client!.Name
+                ClientCode = a.Endpoint.Site.Client!.Code,
+                ClientName = a.Endpoint.Site.Client.Name
             })
             .ToDictionaryAsync(a => a.Id, cancellationToken);
 
         var instance = await InstanceQueries.GetInstanceAsync(db, cancellationToken);
         var now = _time.GetUtcNow().UtcDateTime;
         var added = 0;
+        var clientSets = channels.ToDictionary(c => c.Id, c => (IReadOnlySet<Guid>)c.Clients.Select(x => x.ClientId).ToHashSet());
 
         foreach (var transition in transitions)
         {
@@ -95,14 +93,39 @@ public sealed class AlertNotificationService
                 continue;
             }
 
-            if (alert.HeldUntil is { } heldUntil && heldUntil > now && transition.Kind != AlertTransitionKind.HoldEnded)
+            if (alert.HeldUntil is { } heldUntil && heldUntil > now && transition.Kind != NotificationEvent.HoldEnded)
             {
                 continue;
             }
 
-            var recipients = channels
-                .Where(c => c.MinimumSeverity <= alert.Severity)
-                .Where(c => transition.Kind != AlertTransitionKind.Resolved || c.NotifyOnResolve)
+            var receiving = channels
+                .Where(c => NotificationRouting.Receives(c, clientSets[c.Id], alert.ClientId, alert.Severity, transition.Kind))
+                .ToList();
+            if (receiving.Count == 0)
+            {
+                continue;
+            }
+
+            var notification = new AlertNotification(transition.Kind, alert.Id, alert.Title, alert.Detail, alert.Severity, alert.OpenedAt,
+                alert.ResolvedAt, alert.ResolvedReason, alert.EndpointId, alert.Hostname, alert.SiteId, alert.SiteName, alert.ClientId,
+                alert.ClientCode, alert.ClientName, instance.EndpointUrl(alert.EndpointId));
+            foreach (var channel in receiving.Where(c => c is { Type: NotificationChannelType.Webhook, WebhookFormat: not null }))
+            {
+                var id = Guid.NewGuid();
+                db.OutboxWebhooks.Add(new OutboxWebhook
+                {
+                    Id = id,
+                    NotificationChannelId = channel.Id,
+                    Category = NotificationRouting.EventName(transition.Kind),
+                    Payload = WebhookPayloads.Alert(channel.WebhookFormat!.Value, id, instance.Fqdn, notification, now),
+                    NextAttemptAt = now,
+                    CreatedAt = now
+                });
+                added++;
+            }
+
+            var recipients = receiving
+                .Where(c => c.Type == NotificationChannelType.Email)
                 .SelectMany(c => EmailAddresses.Split(c.Recipients))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -115,9 +138,9 @@ public sealed class AlertNotificationService
                 alert.OpenedAt, alert.Detail, instance.EndpointUrl(alert.EndpointId), alert.ResolvedReason, alert.ResolvedAt);
             var (content, category) = transition.Kind switch
             {
-                AlertTransitionKind.Opened => (EmailTemplates.AlertOpened(model), CategoryOpened),
-                AlertTransitionKind.Escalated => (EmailTemplates.AlertEscalated(model), CategoryEscalated),
-                AlertTransitionKind.HoldEnded => (EmailTemplates.AlertHoldEnded(model), CategoryHoldEnded),
+                NotificationEvent.Opened => (EmailTemplates.AlertOpened(model), CategoryOpened),
+                NotificationEvent.Escalated => (EmailTemplates.AlertEscalated(model), CategoryEscalated),
+                NotificationEvent.HoldEnded => (EmailTemplates.AlertHoldEnded(model), CategoryHoldEnded),
                 _ => (EmailTemplates.AlertResolved(model), CategoryResolved)
             };
 

@@ -10,8 +10,13 @@ namespace Fleetify.Web.Services;
 
 public sealed record BackupTile(bool DestinationConfigured, DateTime? LastSucceededAt, bool LastRunFailed, string? LastError);
 
+/// <summary>A stored credential that expires within 30 days or has expired (0.2.0).</summary>
+public sealed record CredentialWarning(string Name, DateTime ExpiresAt, bool Expired, string StopsWorking, string NextStep, string SettingsPath,
+    bool FallbackInUse);
+
 public sealed record DashboardData(int EndpointsOnline, int EndpointsOffline, int OpenCritical, int OpenWarning, int AgentsOutOfDate,
-    LicenseUsage License, BackupTile Backups, IReadOnlyList<AlertView> OpenAlerts, IReadOnlyList<AuditEntryView> RecentActivity);
+    LicenseUsage License, BackupTile Backups, IReadOnlyList<AlertView> OpenAlerts, IReadOnlyList<AuditEntryView> RecentActivity,
+    IReadOnlyList<CredentialWarning> CredentialWarnings);
 
 /// <summary>Dashboard tiles, the open alert list and recent activity.</summary>
 public sealed class DashboardService
@@ -62,7 +67,25 @@ public sealed class DashboardService
         var license = await _licenses.GetUsageAsync(cancellationToken);
         var backups = await GetBackupTileAsync(db, cancellationToken);
 
-        return new DashboardData(online, total - online, critical, warning, outOfDate, license, backups, openAlerts, activity);
+        return new DashboardData(online, total - online, critical, warning, outOfDate, license, backups, openAlerts, activity,
+            await GetCredentialWarningsAsync(now, cancellationToken));
+    }
+
+    private async Task<IReadOnlyList<CredentialWarning>> GetCredentialWarningsAsync(DateTime now, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (await ExpiringCredentials.ListAsync(_settings, cancellationToken))
+                .Where(c => c.StageAt(now) != CredentialExpiryStage.None)
+                .Select(c => new CredentialWarning(c.Name, c.ExpiresAt, c.StageAt(now) == CredentialExpiryStage.Expired, c.StopsWorking, c.NextStep,
+                    c.SettingsPath, c.FallbackInUse))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "The expiring credentials could not be read");
+            return [];
+        }
     }
 
     private async Task<BackupTile> GetBackupTileAsync(FleetifyDbContext db, CancellationToken cancellationToken)

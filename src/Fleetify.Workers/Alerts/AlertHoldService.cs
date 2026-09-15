@@ -1,3 +1,4 @@
+using Fleetify.Core.Domain;
 using Fleetify.Core.Interfaces;
 using Fleetify.Infrastructure.Data;
 using Fleetify.Workers.Hosting;
@@ -59,7 +60,7 @@ public sealed class AlertHoldService : WorkerLoop
                 .ToListAsync(cancellationToken);
             if (ended.Count > 0)
             {
-                await _notifier.AddNotificationsAsync(db, ended.Select(id => new AlertTransition(id, AlertTransitionKind.HoldEnded)).ToList(),
+                await _notifier.AddNotificationsAsync(db, ended.Select(id => new AlertTransition(id, NotificationEvent.HoldEnded)).ToList(),
                     cancellationToken);
                 await db.SaveChangesAsync(cancellationToken);
             }

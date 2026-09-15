@@ -1,3 +1,4 @@
+using Fleetify.Core.Domain;
 using Fleetify.Core.Entities;
 using Fleetify.Core.Interfaces;
 using Fleetify.Infrastructure.Data;
@@ -107,7 +108,7 @@ public sealed class EndpointEventService : WorkerLoop
                         UpdatedAt = now
                     };
                     db.Alerts.Add(alert);
-                    transitions.Add(new AlertTransition(alert.Id, AlertTransitionKind.Opened));
+                    transitions.Add(new AlertTransition(alert.Id, NotificationEvent.Opened));
                     Logger.LogWarning("Duplicate agent identity reported for endpoint {EndpointId}", endpoint.Id);
                 }
             }

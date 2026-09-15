@@ -133,3 +133,40 @@ public class EndpointEvent
     public DateTime Time { get; set; }
     public DateTime? ProcessedAt { get; set; }
 }
+
+/// <summary>
+/// Hourly rollup of the results of one check and target on one endpoint (0.2.0, check history). Maintained by the workers in the
+/// same transaction that evaluates the results, so every result is counted exactly once. The bucket is the start of the hour of the
+/// agent's collection time when that is plausible (at most 7 days before and 5 minutes after ingest), otherwise of the ingest time.
+/// Values that are errors or "no response" (-1 of a network check) are counted, never part of minimum, maximum or average.
+/// </summary>
+public class CheckResultHourly
+{
+    public Guid EndpointId { get; set; }
+    public Guid CheckDefinitionId { get; set; }
+    public string Target { get; set; } = string.Empty;
+    public DateTime Bucket { get; set; }
+    public Guid ClientId { get; set; }
+    public double? MinValue { get; set; }
+    public double? MaxValue { get; set; }
+    public double SumValue { get; set; }
+    public int ValueCount { get; set; }
+    public int ErrorCount { get; set; }
+    public int NoResponseCount { get; set; }
+}
+
+/// <summary>Daily rollup, same shape and rules as <see cref="CheckResultHourly"/>; the bucket is the start of the UTC day.</summary>
+public class CheckResultDaily
+{
+    public Guid EndpointId { get; set; }
+    public Guid CheckDefinitionId { get; set; }
+    public string Target { get; set; } = string.Empty;
+    public DateTime Bucket { get; set; }
+    public Guid ClientId { get; set; }
+    public double? MinValue { get; set; }
+    public double? MaxValue { get; set; }
+    public double SumValue { get; set; }
+    public int ValueCount { get; set; }
+    public int ErrorCount { get; set; }
+    public int NoResponseCount { get; set; }
+}

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Fleetify.Core.Domain;
 using Fleetify.Core.Entities;
 using Fleetify.Core.Interfaces;
 using Fleetify.Infrastructure.Audit;
@@ -15,7 +16,7 @@ public sealed record EndpointDetail(
     string OsPlatform, string OsName, string OsVersion, string Architecture, string AgentVersion,
     DateTime EnrolledAt, DateTime? LastSeenAt, long ConfigVersion, long AppliedConfigVersion,
     int ActiveCertificates, DateTime? CertificateExpiresAt, int OpenAlertCount, int HeldAlertCount, IReadOnlyList<SiteOption> ClientSites,
-    string? PublicIpAddress, DateTime? PublicIpSeenAt);
+    string? PublicIpAddress, DateTime? PublicIpSeenAt, EffectiveMaintenance? Maintenance, bool OwnMaintenanceActive);
 
 public sealed record SiteOption(Guid Id, string Name);
 
@@ -24,7 +25,8 @@ public enum EndpointStatusFilter
     All,
     Online,
     Offline,
-    WithOpenAlerts
+    WithOpenAlerts,
+    InMaintenance
 }
 
 /// <summary>Which endpoints the endpoint list shows: all clients, one client or one site, plus search and filters.</summary>
@@ -33,7 +35,8 @@ public sealed record EndpointListQuery(Guid? ClientId, Guid? SiteId, EndpointCla
 
 public sealed record EndpointRow(Guid Id, string Hostname, Guid ClientId, string ClientCode, string ClientName, Guid SiteId, string SiteName,
     bool IsOnline, EndpointTier Tier, EndpointClass EffectiveClass, string OsName, string OsVersion, string AgentVersion, string LoggedOnUser,
-    DateTime? LastSeenAt, int OpenAlertCount, bool HasCriticalAlert);
+    DateTime? LastSeenAt, int OpenAlertCount, bool HasCriticalAlert, EffectiveMaintenance? Maintenance = null, bool OwnMaintenanceActive = false,
+    MaintenancePeriod? OwnMaintenance = null);
 
 /// <summary>
 /// One page of the endpoint list. Counts cover the whole scope and filters; <see cref="Rows"/> holds at most
@@ -145,6 +148,7 @@ public sealed class EndpointService
             EndpointStatusFilter.Offline => endpoints.Where(e => !e.IsOnline),
             EndpointStatusFilter.WithOpenAlerts => endpoints.Where(e => db.Alerts.Any(a => a.EndpointId == e.Id && a.State != AlertState.Resolved &&
                                                                                       (a.HeldUntil == null || a.HeldUntil <= now))),
+            EndpointStatusFilter.InMaintenance => endpoints.Where(MaintenanceRules.EndpointInMaintenance(now, db.MaintenanceWindowOccurrences, db.SitePolicies, db.Policies)),
             _ => endpoints
         };
 
@@ -168,7 +172,9 @@ public sealed class EndpointService
         var rows = await endpoints
             .OrderBy(e => e.Hostname).ThenBy(e => e.Id)
             .Take(ListLimit + 1)
-            .Select(e => new EndpointRow(
+            .Select(e => new
+            {
+                Row = new EndpointRow(
                 e.Id,
                 e.Hostname,
                 e.ClientId,
@@ -186,11 +192,23 @@ public sealed class EndpointService
                 e.LastSeenAt,
                 db.Alerts.Count(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now)),
                 db.Alerts.Any(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now) &&
-                                   a.Severity == AlertSeverity.Critical)))
+                                   a.Severity == AlertSeverity.Critical), null),
+                Own = new MaintenancePeriod(e.MaintenanceStartedAt, e.MaintenanceEndsAt, e.MaintenanceStartedByName, e.MaintenanceReason),
+                Site = new MaintenancePeriod(e.Site.MaintenanceStartedAt, e.Site.MaintenanceEndsAt, e.Site.MaintenanceStartedByName, e.Site.MaintenanceReason),
+                Client = new MaintenancePeriod(e.Site.Client!.MaintenanceStartedAt, e.Site.Client.MaintenanceEndsAt, e.Site.Client.MaintenanceStartedByName,
+                    e.Site.Client.MaintenanceReason)
+            })
             .ToListAsync(cancellationToken);
 
         var truncated = rows.Count > ListLimit;
-        return new EndpointListPage(truncated ? rows.Take(ListLimit).ToList() : rows, serverCount, workstationCount, truncated);
+        var windows = await MaintenanceWindowSchedule.RunningBySiteAsync(db, rows.Select(r => r.Row.SiteId).Distinct().ToList(), now, cancellationToken);
+        var page = rows.Take(ListLimit).Select(r => r.Row with
+        {
+            Maintenance = MaintenanceRules.Effective(r.Own, r.Site, r.Client, now, MaintenanceWindowSchedule.PeriodFor(windows, r.Row.SiteId, r.Row.EffectiveClass)),
+            OwnMaintenanceActive = r.Own.IsActive(now),
+            OwnMaintenance = r.Own
+        }).ToList();
+        return new EndpointListPage(page, serverCount, workstationCount, truncated);
     }
 
     public async Task<EndpointDetail?> GetAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
@@ -210,7 +228,10 @@ public sealed class EndpointService
                 CertificateExpiresAt = db.AgentCertificates.Where(c => c.EndpointId == e.Id && c.RevokedAt == null)
                     .OrderByDescending(c => c.ExpiresAt).Select(c => (DateTime?)c.ExpiresAt).FirstOrDefault(),
                 OpenAlerts = db.Alerts.Count(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now)),
-                HeldAlerts = db.Alerts.Count(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && a.HeldUntil != null && a.HeldUntil > now)
+                HeldAlerts = db.Alerts.Count(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && a.HeldUntil != null && a.HeldUntil > now),
+                Site = new MaintenancePeriod(e.Site.MaintenanceStartedAt, e.Site.MaintenanceEndsAt, e.Site.MaintenanceStartedByName, e.Site.MaintenanceReason),
+                Client = new MaintenancePeriod(e.Site.Client!.MaintenanceStartedAt, e.Site.Client.MaintenanceEndsAt, e.Site.Client.MaintenanceStartedByName,
+                    e.Site.Client.MaintenanceReason)
             })
             .SingleOrDefaultAsync(cancellationToken);
         if (endpoint is null)
@@ -219,13 +240,16 @@ public sealed class EndpointService
         }
 
         var e = endpoint.Endpoint;
+        var windows = await MaintenanceWindowSchedule.RunningBySiteAsync(db, [e.SiteId], now, cancellationToken);
         var sites = await db.Sites.AsNoTracking().Where(s => s.ClientId == e.ClientId).OrderBy(s => s.Name)
             .Select(s => new SiteOption(s.Id, s.Name)).ToListAsync(cancellationToken);
 
         return new EndpointDetail(e.Id, e.Hostname, e.ClientId, endpoint.ClientCode ?? string.Empty, endpoint.ClientName ?? string.Empty, e.SiteId,
             endpoint.SiteName, e.IsOnline, e.Tier, e.Source, e.DetectedClass, e.ClassOverride, e.OsPlatform, e.OsName, e.OsVersion, e.Architecture,
             e.AgentVersion, e.EnrolledAt, e.LastSeenAt, e.ConfigVersion, e.AppliedConfigVersion, endpoint.ActiveCertificates,
-            endpoint.CertificateExpiresAt, endpoint.OpenAlerts, endpoint.HeldAlerts, sites, e.PublicIpAddress, e.PublicIpSeenAt);
+            endpoint.CertificateExpiresAt, endpoint.OpenAlerts, endpoint.HeldAlerts, sites, e.PublicIpAddress, e.PublicIpSeenAt,
+            MaintenanceRules.Effective(e.Maintenance, endpoint.Site, endpoint.Client, now, MaintenanceWindowSchedule.PeriodFor(windows, e.SiteId, e.EffectiveClass)),
+            e.Maintenance.IsActive(now));
     }
 
     public async Task<InventoryView?> GetInventoryAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)

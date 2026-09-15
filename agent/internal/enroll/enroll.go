@@ -195,7 +195,7 @@ func fetchPinnedCA(ctx context.Context, server, host string, fingerprint []byte)
 		return nil, fmt.Errorf("read the instance CA from the gateway: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, &Error{Status: resp.StatusCode, Detail: problemDetail(resp, data)}
+		return nil, &Error{Status: resp.StatusCode, Detail: ProblemDetail(resp, data)}
 	}
 	if len(data) > maxCABundleBytes {
 		return nil, errors.New("the CA bundle from the gateway is too large")
@@ -288,7 +288,7 @@ func Enroll(ctx context.Context, req Request) (*Result, error) {
 		return nil, errors.New("the enrollment response is too large")
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, &Error{Status: resp.StatusCode, Detail: problemDetail(resp, data)}
+		return nil, &Error{Status: resp.StatusCode, Detail: ProblemDetail(resp, data)}
 	}
 	if mt, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type")); mt != ContentType {
 		return nil, fmt.Errorf("the gateway answered with content type %q instead of %s", resp.Header.Get("Content-Type"), ContentType)
@@ -364,8 +364,8 @@ type problem struct {
 	Detail string `json:"detail"`
 }
 
-// problemDetail extracts a technician-facing message from a problem+json body.
-func problemDetail(resp *http.Response, data []byte) string {
+// ProblemDetail extracts a technician-facing message from a problem+json body.
+func ProblemDetail(resp *http.Response, data []byte) string {
 	var p problem
 	if mt, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type")); mt == "application/problem+json" || mt == "application/json" {
 		_ = json.Unmarshal(data, &p)

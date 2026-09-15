@@ -7,6 +7,7 @@ public static class OutboxEmails
 {
     public const string CategoryLicense = "license";
     public const string CategoryBackup = "backup";
+    public const string CategoryCredential = "credential";
 
     public static OutboxEmail Create(string toAddress, EmailContent content, string category, DateTime now) => new()
     {

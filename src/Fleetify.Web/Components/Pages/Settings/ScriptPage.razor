@@ -1,0 +1,181 @@
+@page "/settings/scripts/{ScriptId:guid}"
+@attribute [Authorize(Policy = FleetifyPolicies.Viewer)]
+@inherits FleetoPageBase
+@using Fleetify.Core.Domain
+@inject ScriptService ScriptSvc
+@inject IDialogService DialogService
+
+<PageTitle>@(_script?.Name ?? "Script") - Fleeto</PageTitle>
+
+<LoadState Loading="Loading" Failed="LoadFailed" NotFound="_notFound" What="script">
+    @if (_script is { } script)
+    {
+        <div class="mb-1"><a href="/settings/scripts" class="breadcrumb-link">Scripts</a></div>
+        <div class="page-header">
+            <div>
+                <MudText Typo="Typo.h4" Class="page-title">@script.Name</MudText>
+                <MudText Typo="Typo.body2" Class="muted">
+                    @ScriptLanguages.Label(script.Language) (@ScriptLanguages.PlatformLabel(script.Language)) · @(script.ClientCode is null ? "Global" : $"For client {script.ClientCode}")
+                    @if (!string.IsNullOrEmpty(script.Description))
+                    {
+                        <span> · @script.Description</span>
+                    }
+                </MudText>
+            </div>
+            @if (CanManage)
+            {
+                <div class="d-flex gap-2">
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Edit" OnClick="EditAsync">Edit</MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Outlined.Delete" OnClick="DeleteAsync">Delete</MudButton>
+                </div>
+            }
+        </div>
+
+        <div class="fl-panel pa-4 mb-4">
+            <MudText Typo="Typo.h6" Class="section-title mb-2">Current version</MudText>
+            <MudTextField @bind-Value="_body" Variant="Variant.Outlined" Lines="18" MaxLength="@ScriptRules.MaxBodyLength" Class="script-editor mb-3"
+                          ReadOnly="@(!CanManage)" />
+            @if (CanManage)
+            {
+                <div class="d-flex align-center gap-3 flex-wrap">
+                    <MudNumericField T="int" @bind-Value="_timeoutMinutes" Label="Timeout (minutes)" Variant="Variant.Outlined" Min="1" Max="1440" Style="max-width:160px" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="_busy">Save as new version</MudButton>
+                    <MudText Typo="Typo.caption" Class="muted">A new version needs a new approval on sites whose policy requires it.</MudText>
+                </div>
+            }
+        </div>
+
+        <MudText Typo="Typo.h6" Class="section-title mb-2">Versions</MudText>
+        <MudTable Items="script.Versions" Hover="true" Elevation="0" Dense="true">
+            <HeaderContent>
+                <MudTh>Version</MudTh>
+                <MudTh>Written by</MudTh>
+                <MudTh>SHA-256</MudTh>
+                <MudTh>Approval</MudTh>
+                <MudTh Style="width:190px"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>
+                    <strong>@context.Number</strong>
+                    @if (context.IsCurrent)
+                    {
+                        <span class="ml-1"><StatusChip Text="Current" Kind="StatusKind.Active" /></span>
+                    }
+                </MudTd>
+                <MudTd>@context.AuthorName · <TimeText Value="context.CreatedAt" /></MudTd>
+                <MudTd><span class="mono">@context.Sha256[..12]</span></MudTd>
+                <MudTd>
+                    @if (context.IsApproved)
+                    {
+                        <span>Approved by @context.ApprovedByName · <TimeText Value="context.ApprovedAt" /></span>
+                    }
+                    else
+                    {
+                        <span class="muted">Not approved</span>
+                    }
+                </MudTd>
+                <MudTd Style="white-space:nowrap">
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => ShowVersionAsync(context, false))">View</MudButton>
+                    @if (IsAdmin && !context.IsApproved && context.AuthorUserId != Caller?.UserId)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(() => ShowVersionAsync(context, true))">Approve</MudButton>
+                    }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</LoadState>
+
+@code {
+    [Parameter]
+    public Guid ScriptId { get; set; }
+
+    private ScriptDetail? _script;
+    private bool _notFound;
+    private string? _body;
+    private int _timeoutMinutes;
+    private bool _busy;
+
+    protected override Task OnParametersSetAsync() => ReloadAsync();
+
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        _script = await ScriptSvc.GetAsync(caller, ScriptId);
+        _notFound = _script is null;
+        _body = _script?.Body;
+        _timeoutMinutes = Math.Max(1, (_script?.TimeoutSeconds ?? ScriptRules.DefaultTimeoutSeconds) / 60);
+    });
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        try
+        {
+            var result = await RunForValueAsync(caller => ScriptSvc.SaveVersionAsync(caller, ScriptId, _body, _timeoutMinutes * 60), null);
+            if (result?.Value is { } number)
+            {
+                Snackbar.Add(number == _script?.Versions.FirstOrDefault()?.Number ? "Nothing changed; no new version was saved." : $"Version {number} was saved.",
+                    Severity.Success);
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task EditAsync()
+    {
+        var parameters = new DialogParameters<ScriptDialog>
+        {
+            { d => d.IsEdit, true },
+            { d => d.InitialName, _script!.Name },
+            { d => d.InitialDescription, _script.Description },
+            { d => d.OnSubmit, input => RunAsync(caller => ScriptSvc.UpdateDetailsAsync(caller, ScriptId, input.Name, input.Description), "The script was saved.") }
+        };
+        var dialog = await DialogService.ShowAsync<ScriptDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task ShowVersionAsync(ScriptVersionView version, bool approve)
+    {
+        string? body = null;
+        await LoadAsync(async caller => body = (await ScriptSvc.GetVersionAsync(caller, version.Id))?.Body);
+        if (body is null)
+        {
+            return;
+        }
+
+        var parameters = new DialogParameters<ScriptVersionDialog>
+        {
+            { d => d.Version, version },
+            { d => d.Body, body },
+            { d => d.Approve, approve },
+            { d => d.OnApprove, code => RunAsync(caller => ScriptSvc.ApproveAsync(caller, version.Id, code), $"Version {version.Number} was approved.") }
+        };
+        var dialog = await DialogService.ShowAsync<ScriptVersionDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        if (approve && !(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Delete script {_script!.Name}" },
+            { d => d.Message, "The script and all of its versions are removed. The job history stays, and jobs that were already signed still run." },
+            { d => d.ConfirmText, "Delete script" }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => ScriptSvc.DeleteAsync(caller, ScriptId), "The script was deleted."))
+        {
+            Navigation.NavigateTo("/settings/scripts");
+        }
+    }
+}

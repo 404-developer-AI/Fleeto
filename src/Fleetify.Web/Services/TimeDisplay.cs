@@ -53,6 +53,20 @@ public sealed class TimeDisplay
         return local.ToString("d MMM yyyy HH:mm", CultureInfo.InvariantCulture);
     }
 
+    /// <summary>A point in time close by: "16:00" today, otherwise "3 Oct 16:00" ("3 Oct 2027 16:00" in another year).</summary>
+    public string Short(DateTime? utc)
+    {
+        if (utc is null)
+        {
+            return "-";
+        }
+
+        var local = TimeZoneInfo.ConvertTimeFromUtc(AsUtc(utc.Value), Zone);
+        var today = TimeZoneInfo.ConvertTimeFromUtc(_time.GetUtcNow().UtcDateTime, Zone).Date;
+        var format = local.Date == today ? "HH:mm" : local.Year == today.Year ? "d MMM HH:mm" : "d MMM yyyy HH:mm";
+        return local.ToString(format, CultureInfo.InvariantCulture);
+    }
+
     /// <summary>"just now", "5 min ago", "3 h ago", "in 20 min" within 24 hours; absolute otherwise.</summary>
     public string Relative(DateTime? utc, string never = "Never")
     {

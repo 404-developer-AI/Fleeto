@@ -60,6 +60,7 @@ public sealed class AgentConfigBuilder
         if (effectiveTier == EndpointTier.Managed)
         {
             var checks = await EffectiveCheckResolver.LoadAsync(db, endpoint, includeDisabledOnEndpoint: false, cancellationToken);
+            var scriptBytes = 0L;
             foreach (var check in checks)
             {
                 var spec = new CheckSpec
@@ -68,9 +69,46 @@ public sealed class AgentConfigBuilder
                     Type = ToProto(check.Type),
                     IntervalSeconds = (uint)Math.Clamp(check.IntervalSeconds, CheckParameters.MinimumIntervalSeconds, CheckParameters.MaximumIntervalSeconds)
                 };
-                foreach (var (key, value) in CheckParameters.Parse(check.Definition.ParametersJson).OrderBy(p => p.Key, StringComparer.Ordinal))
+                var parameters = CheckParameters.Parse(check.Definition.ParametersJson);
+                foreach (var (key, value) in parameters.OrderBy(p => p.Key, StringComparer.Ordinal))
                 {
                     spec.Parameters[key] = value;
+                }
+
+                if (check.Type == Core.Entities.CheckType.Script)
+                {
+                    spec.IntervalSeconds = Math.Max(spec.IntervalSeconds, (uint)ScriptRules.MinCheckIntervalSeconds);
+                    parameters.TryGetValue(CheckCatalog.ScriptParameter, out var scriptId);
+                    var resolved = await ScriptCheckResolver.ResolveAsync(db, scriptId, endpoint.ClientId, endpoint.OsPlatform,
+                        policy.ScriptApprovalRequired, cancellationToken);
+                    var reason = resolved.UnavailableReason;
+                    if (resolved.Version is { } version && reason is null)
+                    {
+                        var size = System.Text.Encoding.UTF8.GetByteCount(version.Body);
+                        if (scriptBytes + size > ScriptRules.MaxCheckScriptBytesPerConfig)
+                        {
+                            reason = ScriptCheckResolver.TooLargeReason;
+                        }
+                        else
+                        {
+                            scriptBytes += size;
+                            spec.Parameters["timeout_seconds"] = Math.Min(Math.Min(version.TimeoutSeconds, ScriptRules.MaxCheckTimeoutSeconds),
+                                (int)Math.Min(spec.IntervalSeconds, int.MaxValue)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                            spec.Script = new ScriptJob
+                            {
+                                Language = ToProto(resolved.Script!.Language),
+                                Name = resolved.Script.Name,
+                                Version = (uint)version.Number,
+                                Body = version.Body,
+                                Sha256 = version.Sha256
+                            };
+                        }
+                    }
+
+                    if (reason is not null)
+                    {
+                        spec.Parameters["unavailable"] = reason;
+                    }
                 }
 
                 config.Checks.Add(spec);
@@ -103,6 +141,24 @@ public sealed class AgentConfigBuilder
         Core.Entities.CheckType.DiskFree => ProtoCheckType.DiskFree,
         Core.Entities.CheckType.ServiceRunning => ProtoCheckType.ServiceRunning,
         Core.Entities.CheckType.Uptime => ProtoCheckType.Uptime,
+        Core.Entities.CheckType.Ping => ProtoCheckType.Ping,
+        Core.Entities.CheckType.TcpPort => ProtoCheckType.TcpPort,
+        Core.Entities.CheckType.Http => ProtoCheckType.Http,
+        Core.Entities.CheckType.ProcessRunning => ProtoCheckType.ProcessRunning,
+        Core.Entities.CheckType.PendingReboot => ProtoCheckType.PendingReboot,
+        Core.Entities.CheckType.File => ProtoCheckType.File,
+        Core.Entities.CheckType.CertificateExpiry => ProtoCheckType.CertificateExpiry,
+        Core.Entities.CheckType.EventLog => ProtoCheckType.EventLog,
+        Core.Entities.CheckType.SecurityCenter => ProtoCheckType.SecurityCenter,
+        Core.Entities.CheckType.Script => ProtoCheckType.Script,
         _ => ProtoCheckType.Unspecified
+    };
+
+    public static Protocol.Agent.V1.ScriptLanguage ToProto(Core.Entities.ScriptLanguage language) => language switch
+    {
+        Core.Entities.ScriptLanguage.PowerShell => Protocol.Agent.V1.ScriptLanguage.Powershell,
+        Core.Entities.ScriptLanguage.Batch => Protocol.Agent.V1.ScriptLanguage.Batch,
+        Core.Entities.ScriptLanguage.Shell => Protocol.Agent.V1.ScriptLanguage.Shell,
+        _ => Protocol.Agent.V1.ScriptLanguage.Bash
     };
 }

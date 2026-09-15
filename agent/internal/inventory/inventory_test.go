@@ -51,3 +51,22 @@ func TestCollectReturnsTheBasics(t *testing.T) {
 		t.Fatal("hash is not stable")
 	}
 }
+
+func TestServicesAreListedOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("services are listed on Windows in this version")
+	}
+	list, err := services()
+	if err != nil || len(list) < 10 {
+		t.Fatalf("services: %d, %v", len(list), err)
+	}
+	found := false
+	for _, s := range list {
+		if s.GetName() == "RpcSs" {
+			found = s.GetState() == "running" && s.GetStartType() != "" && s.GetDisplayName() != ""
+		}
+	}
+	if !found {
+		t.Fatal("RpcSs was not listed as a running service with a start type and display name")
+	}
+}

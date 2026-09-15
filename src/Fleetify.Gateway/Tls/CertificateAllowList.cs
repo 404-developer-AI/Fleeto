@@ -1,6 +1,7 @@
 using System.Security.Cryptography.X509Certificates;
 using Fleetify.Core.Interfaces;
 using Fleetify.Infrastructure.Security;
+using Fleetify.Protocol;
 using Microsoft.Extensions.Hosting;
 using Npgsql;
 
@@ -17,6 +18,9 @@ public enum AllowListDecision
 /// <summary>The identity of an accepted agent certificate.</summary>
 public sealed record AgentIdentity(Guid EndpointId, string Fingerprint, string PublicKeyFingerprint, DateTime ExpiresAt);
 
+/// <summary>An expired, never revoked agent certificate that may renew itself through recovery (0.2.0).</summary>
+public sealed record ExpiredAgentIdentity(Guid EndpointId, Guid ClientId, string Fingerprint, string PublicKeyFingerprint, DateTime ExpiredAt);
+
 /// <summary>
 /// The set of agent certificates the gateway accepts: issued, not revoked, not expired, endpoint not deleted
 /// (certificates cascade away with their endpoint). An allow list rather than a deny list, so a certificate the
@@ -24,6 +28,10 @@ public sealed record AgentIdentity(Guid EndpointId, string Fingerprint, string P
 /// <para>
 /// Loaded at start, reloaded every minute, and at once on <see cref="NotificationChannels.Revocations"/> and after a
 /// listener reconnect. Also holds the non-retired instance CA certificates used for chain validation.
+/// </para>
+/// <para>
+/// Separately it holds the certificates that expired within <see cref="ProtocolLimits.RecoveryGrace"/> and were never revoked
+/// (0.2.0). Those never open a session; they are accepted only by <see cref="AuthorizeRecovery"/> for the recovery request.
 /// </para>
 /// </summary>
 public sealed class CertificateAllowList : BackgroundService
@@ -116,6 +124,51 @@ public sealed class CertificateAllowList : BackgroundService
     }
 
     /// <summary>
+    /// Decides whether a client certificate may request recovery: expired (by the list and by the certificate itself), within
+    /// the grace period, never revoked, SAN endpoint id equal to the recorded endpoint, and chaining to an instance CA at a moment
+    /// the certificate was valid. The TLS handshake has already proven possession of its key.
+    /// </summary>
+    public AllowListDecision AuthorizeRecovery(X509Certificate2? certificate, out ExpiredAgentIdentity? identity)
+    {
+        identity = null;
+        var snapshot = _snapshot;
+        if (snapshot is null)
+        {
+            return AllowListDecision.NotLoaded;
+        }
+
+        if (certificate is null)
+        {
+            return AllowListDecision.Refused;
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        var notAfter = certificate.NotAfter.ToUniversalTime();
+        var fingerprint = KeyIds.Sha256Hex(certificate.RawDataMemory.Span);
+        // A certificate that was still valid at the last reload and expired since is found among the valid entries.
+        if (!(snapshot.Expired.TryGetValue(fingerprint, out var entry) || snapshot.Entries.TryGetValue(fingerprint, out entry)) || entry.ExpiresAt > now || now - entry.ExpiresAt > ProtocolLimits.RecoveryGrace ||
+            notAfter > now || InternalCertificateAuthority.EndpointIdFromCertificate(certificate) != entry.EndpointId)
+        {
+            return AllowListDecision.Refused;
+        }
+
+        var issuers = CertificateChains.Build(certificate, snapshot.CaCertificates, CertificateChains.ClientAuthOid, notAfter.AddMinutes(-1));
+        if (issuers is null)
+        {
+            return AllowListDecision.Refused;
+        }
+
+        foreach (var issuer in issuers)
+        {
+            issuer.Dispose();
+        }
+
+        identity = new ExpiredAgentIdentity(entry.EndpointId, entry.ClientId, fingerprint, InternalCertificateAuthority.PublicKeyFingerprint(certificate),
+            entry.ExpiresAt);
+        return AllowListDecision.Accepted;
+    }
+
+    /// <summary>
     /// Re-check for a live session. Returns true while the list has not been loaded, so a database outage never drops
     /// sessions that were valid when they connected.
     /// </summary>
@@ -144,7 +197,7 @@ public sealed class CertificateAllowList : BackgroundService
         }
 
         var fingerprint = KeyIds.Sha256Hex(certificateDer);
-        _recent[fingerprint] = (new Entry(endpointId, certificate.NotAfter.ToUniversalTime()), System.Diagnostics.Stopwatch.GetTimestamp());
+        _recent[fingerprint] = (new Entry(endpointId, certificate.NotAfter.ToUniversalTime(), Guid.Empty), System.Diagnostics.Stopwatch.GetTimestamp());
     }
 
     private bool TryGetEntry(Snapshot snapshot, string fingerprint, out Entry entry)
@@ -177,11 +230,11 @@ public sealed class CertificateAllowList : BackgroundService
                 BatchCommands =
                 {
                     new NpgsqlBatchCommand("""
-                        SELECT "Fingerprint", "EndpointId", "ExpiresAt" FROM "AgentCertificates"
+                        SELECT "Fingerprint", "EndpointId", "ExpiresAt", "ClientId" FROM "AgentCertificates"
                         WHERE "RevokedAt" IS NULL AND "ExpiresAt" > $1
                         """)
                     {
-                        Parameters = { new NpgsqlParameter<DateTime> { TypedValue = now } }
+                        Parameters = { new NpgsqlParameter<DateTime> { TypedValue = now - ProtocolLimits.RecoveryGrace } }
                     },
                     new NpgsqlBatchCommand("""
                         SELECT "Fingerprint", "CertificateDer" FROM "CertificateAuthorities"
@@ -192,12 +245,14 @@ public sealed class CertificateAllowList : BackgroundService
 
             var previous = _snapshot;
             var entries = new Dictionary<string, Entry>(Math.Max(16, previous?.Entries.Count ?? 0), StringComparer.Ordinal);
+            var expired = new Dictionary<string, Entry>(StringComparer.Ordinal);
             var cas = new List<(string Fingerprint, byte[] Der)>();
             await using (var reader = await batch.ExecuteReaderAsync(cancellationToken))
             {
                 while (await reader.ReadAsync(cancellationToken))
                 {
-                    entries[reader.GetString(0)] = new Entry(reader.GetGuid(1), DateTime.SpecifyKind(reader.GetDateTime(2), DateTimeKind.Utc));
+                    var entry = new Entry(reader.GetGuid(1), DateTime.SpecifyKind(reader.GetDateTime(2), DateTimeKind.Utc), reader.GetGuid(3));
+                    (entry.ExpiresAt > now ? entries : expired)[reader.GetString(0)] = entry;
                 }
 
                 await reader.NextResultAsync(cancellationToken);
@@ -212,7 +267,7 @@ public sealed class CertificateAllowList : BackgroundService
                 ? previous.CaCertificates
                 : LoadCas(cas);
 
-            _snapshot = new Snapshot(entries, caCertificates, caSetKey, now);
+            _snapshot = new Snapshot(entries, expired, caCertificates, caSetKey, now);
 
             // Additions made before this reload read the database are now covered (or revoked) by the snapshot.
             foreach (var (fingerprint, recent) in _recent)
@@ -291,7 +346,8 @@ public sealed class CertificateAllowList : BackgroundService
         return collection;
     }
 
-    private readonly record struct Entry(Guid EndpointId, DateTime ExpiresAt);
+    private readonly record struct Entry(Guid EndpointId, DateTime ExpiresAt, Guid ClientId);
 
-    private sealed record Snapshot(Dictionary<string, Entry> Entries, X509Certificate2Collection CaCertificates, string CaSetKey, DateTime LoadedAt);
+    private sealed record Snapshot(Dictionary<string, Entry> Entries, Dictionary<string, Entry> Expired, X509Certificate2Collection CaCertificates,
+        string CaSetKey, DateTime LoadedAt);
 }

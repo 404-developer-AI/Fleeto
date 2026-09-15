@@ -29,9 +29,10 @@ public enum IngestOutcome
 /// EndpointEvents (insert), EndpointConfigs and AgentCertificates (select), CheckRunRequests (select, update). Every
 /// statement is a constant.
 /// </summary>
-public sealed class GatewayStore
+public sealed partial class GatewayStore
 {
     private const int MaxJsonString = 1000;
+    private const int MaxServices = 2000;
 
     private readonly NpgsqlDataSource _dataSource;
 
@@ -302,15 +303,16 @@ public sealed class GatewayStore
         var upsert = new NpgsqlBatchCommand("""
             INSERT INTO "InventorySnapshots" ("EndpointId", "ClientId", "ReceivedAt", "Hash", "Manufacturer", "Model", "SerialNumber",
               "CpuModel", "CpuCores", "CpuLogicalProcessors", "MemoryTotalBytes", "BootTime", "Domain", "LoggedOnUser",
-              "DisksJson", "NetworkInterfacesJson", "SoftwareJson")
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16::jsonb, $17::jsonb)
+              "DisksJson", "NetworkInterfacesJson", "SoftwareJson", "ServicesJson")
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16::jsonb, $17::jsonb, $18::jsonb)
             ON CONFLICT ("EndpointId") DO UPDATE SET
               "ReceivedAt" = EXCLUDED."ReceivedAt", "Hash" = EXCLUDED."Hash", "Manufacturer" = EXCLUDED."Manufacturer",
               "Model" = EXCLUDED."Model", "SerialNumber" = EXCLUDED."SerialNumber", "CpuModel" = EXCLUDED."CpuModel",
               "CpuCores" = EXCLUDED."CpuCores", "CpuLogicalProcessors" = EXCLUDED."CpuLogicalProcessors",
               "MemoryTotalBytes" = EXCLUDED."MemoryTotalBytes", "BootTime" = EXCLUDED."BootTime", "Domain" = EXCLUDED."Domain",
               "LoggedOnUser" = EXCLUDED."LoggedOnUser", "DisksJson" = EXCLUDED."DisksJson",
-              "NetworkInterfacesJson" = EXCLUDED."NetworkInterfacesJson", "SoftwareJson" = EXCLUDED."SoftwareJson"
+              "NetworkInterfacesJson" = EXCLUDED."NetworkInterfacesJson", "SoftwareJson" = EXCLUDED."SoftwareJson",
+              "ServicesJson" = EXCLUDED."ServicesJson"
             """);
         upsert.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = endpointId });
         upsert.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = clientId });
@@ -332,6 +334,7 @@ public sealed class GatewayStore
         upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = DisksJson(inventory) });
         upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = NetworkJson(inventory) });
         upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = SoftwareJson(inventory) });
+        upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = ServicesJson(inventory) });
         batch.BatchCommands.Add(upsert);
 
         // Batch commands take positional parameters only.
@@ -532,6 +535,15 @@ public sealed class GatewayStore
         writer.WriteString("version", DbText.Clean(item.Version, MaxJsonString));
         writer.WriteString("publisher", DbText.Clean(item.Publisher, MaxJsonString));
         writer.WriteString("installDate", DbText.Clean(item.InstallDate, MaxJsonString));
+    });
+
+    /// <summary>At most <see cref="MaxServices"/> services: a normal endpoint has a few hundred.</summary>
+    private static string ServicesJson(Inventory inventory) => WriteArray(inventory.Services.Take(MaxServices), static (writer, item) =>
+    {
+        writer.WriteString("name", DbText.Clean(item.Name, 256));
+        writer.WriteString("displayName", DbText.Clean(item.DisplayName, 256));
+        writer.WriteString("startType", DbText.Clean(item.StartType, 30));
+        writer.WriteString("state", DbText.Clean(item.State, 30));
     });
 
     private static string WriteArray<T>(IEnumerable<T> items, Action<Utf8JsonWriter, T> writeItem)

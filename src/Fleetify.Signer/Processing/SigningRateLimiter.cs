@@ -14,6 +14,8 @@ public sealed class SigningRateLimiter
     {
         [SigningRequestKind.AgentEnrollment] = 600,
         [SigningRequestKind.AgentRenewal] = 600,
+        [SigningRequestKind.AgentRecovery] = 600,
+        [SigningRequestKind.Job] = 3000,
         [SigningRequestKind.GatewayCertificate] = 10,
         [SigningRequestKind.AgentConfig] = 20_000
     };

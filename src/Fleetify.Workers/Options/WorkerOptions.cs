@@ -77,3 +77,21 @@ public sealed class CheckEvaluationOptions
     /// </summary>
     public int WideSweepWindowHours { get; set; } = 24;
 }
+
+/// <summary>Webhook delivery settings that are not secrets. Channels and URLs are configured in Settings (encrypted).</summary>
+public sealed class WebhookOptions
+{
+    public const string SectionName = "Webhooks";
+
+    /// <summary>Connect and request timeout of one delivery.</summary>
+    public int TimeoutSeconds { get; set; } = 15;
+
+    /// <summary>Consecutive delivery failures of one channel that pause that channel.</summary>
+    public int CircuitBreakerFailures { get; set; } = 5;
+
+    /// <summary>How long a channel pauses once its circuit breaker is open.</summary>
+    public int CircuitBreakerPauseMinutes { get; set; } = 5;
+
+    /// <summary>Deliveries handled per pass.</summary>
+    public int BatchSize { get; set; } = 50;
+}

@@ -8,9 +8,12 @@
 @inject SiteService SiteSvc
 @inject EndpointService EndpointSvc
 @inject EnrollmentService EnrollmentSvc
+@inject JobService JobSvc
+@inject MaintenanceService MaintenanceSvc
 @inject IDialogService DialogService
 @inject LiveUpdates Live
 @inject IJSRuntime JS
+@inject TimeProvider Clock
 
 @* Clients workspace: clients and sites on the left, the endpoints of the selection on the right, and the selected endpoint below. *@
 <PageTitle>@PageTitleText - Fleeto</PageTitle>
@@ -51,6 +54,7 @@
                     <a href="@($"/clients/{client.Id}")" class="client-link" title="@($"[{client.Code}] {client.Name}")">
                         <MudIcon Icon="@Icons.Material.Outlined.Business" Size="Size.Small" Class="client-icon" />
                         <span class="client-name">[@client.Code] @client.Name</span>
+                        @MaintenanceBadge(client.MaintenanceActive, client.InMaintenanceCount, client.EndpointCount)
                         @if (client.OpenAlertCount > 0)
                         {
                             <span class="tree-badge tree-badge-alert" title="@($"{client.OpenAlertCount} open alerts")">@client.OpenAlertCount</span>
@@ -64,6 +68,7 @@
                         <a href="@($"/sites/{site.Id}")" class="site-row @(SiteId == site.Id ? "selected" : "")" title="@site.Name">
                             <MudIcon Icon="@Icons.Material.Outlined.Folder" Size="Size.Small" Class="client-icon" />
                             <span class="client-name">@site.Name</span>
+                            @MaintenanceBadge(site.MaintenanceActive || client.MaintenanceActive, site.InMaintenanceCount, site.EndpointCount)
                             @if (site.OpenAlertCount > 0)
                             {
                                 <span class="tree-badge tree-badge-alert">@site.OpenAlertCount</span>
@@ -90,6 +95,10 @@
                 <div class="workspace-header-text">
                     <MudText Typo="Typo.h4" Class="page-title">@HeaderTitle</MudText>
                     <MudText Typo="Typo.body2" Class="muted">@HeaderSubtitle</MudText>
+                    @if (ScopeMaintenance is { } scopeMaintenance)
+                    {
+                        <div class="mt-1"><MaintenanceChip Maintenance="scopeMaintenance" SourceName="@ScopeMaintenanceSource" /></div>
+                    }
                 </div>
                 <div class="workspace-header-actions">
                     @if (_site is { } site && CanManage)
@@ -99,6 +108,7 @@
                             <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="EditSiteAsync">Edit site</MudMenuItem>
                             <MudMenuItem Icon="@Icons.Material.Outlined.Tune" OnClick="EditSiteLinksAsync">Policy and monitoring</MudMenuItem>
                             <MudMenuItem Icon="@Icons.Material.Outlined.Key" OnClick="ShowTokensAsync">Enrollment tokens</MudMenuItem>
+                            @MaintenanceMenuItems(MaintenanceTarget.Site, site.Id, $"site {site.Name}", true, site.Maintenance)
                             <MudDivider />
                             <MudMenuItem Icon="@Icons.Material.Outlined.Delete" IconColor="Color.Error" OnClick="DeleteSiteAsync">Delete site</MudMenuItem>
                         </MudMenu>
@@ -119,6 +129,7 @@
                             {
                                 <MudMenuItem Icon="@Icons.Material.Outlined.LinkOff" OnClick="DetachClientAsync">Detach from client template</MudMenuItem>
                             }
+                            @MaintenanceMenuItems(MaintenanceTarget.Client, client.Id, $"client {client.Code}", true, client.Maintenance)
                             <MudDivider />
                             <MudMenuItem Icon="@Icons.Material.Outlined.Delete" IconColor="Color.Error" OnClick="DeleteClientAsync">Delete client</MudMenuItem>
                         </MudMenu>
@@ -166,6 +177,7 @@
                                 @FilterItem("Online", _status == EndpointStatusFilter.Online, () => SetStatusAsync(EndpointStatusFilter.Online))
                                 @FilterItem("Offline", _status == EndpointStatusFilter.Offline, () => SetStatusAsync(EndpointStatusFilter.Offline))
                                 @FilterItem("With open alerts", _status == EndpointStatusFilter.WithOpenAlerts, () => SetStatusAsync(EndpointStatusFilter.WithOpenAlerts))
+                                @FilterItem("In maintenance", _status == EndpointStatusFilter.InMaintenance, () => SetStatusAsync(EndpointStatusFilter.InMaintenance))
                                 <MudDivider />
                                 <MudMenuItem Disabled="true">License tier</MudMenuItem>
                                 @FilterItem("All tiers", _tier is null, () => SetTierFilterAsync(null))
@@ -232,6 +244,7 @@
                                             <StatusChip Text="@(context.OpenAlertCount == 1 ? "1 alert" : $"{context.OpenAlertCount} alerts")"
                                                         Kind="@(context.HasCriticalAlert ? StatusKind.Error : StatusKind.Warning)" />
                                         }
+                                        <MaintenanceChip Maintenance="context.Maintenance" SourceName="@(context.Maintenance?.Source == MaintenanceSource.Client ? context.ClientCode : context.SiteName)" />
                                     </div>
                                 </MudTd>
                                 <MudTd @attributes="RowMenu(context)"><TimeText Value="context.LastSeenAt" /></MudTd>
@@ -253,6 +266,12 @@
                                         {
                                             <MudMenuItem Icon="@Icons.Material.Outlined.RemoveModerator" Disabled="_busy" OnClick="@(() => SetTierAsync(row, EndpointTier.AgentOnly))">Switch to agent-only</MudMenuItem>
                                         }
+                                        @if (row.Tier == EndpointTier.Managed)
+                                        {
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="@(() => RunScriptAsync(row))">Run script</MudMenuItem>
+                                            @MaintenanceMenuItems(MaintenanceTarget.Endpoint, row.Id, row.Hostname, false, row.OwnMaintenanceActive ? row.OwnMaintenance : null)
+                                        }
+                                        <MudMenuItem Icon="@Icons.Material.Outlined.Replay" OnClick="@(() => EnrollAgainAsync(row))">Enroll again</MudMenuItem>
                                         <MudMenuItem Icon="@Icons.Material.Outlined.GppBad" OnClick="@(() => RevokeEndpointAsync(row))">Revoke agent</MudMenuItem>
                                         <MudDivider />
                                         <MudMenuItem Icon="@Icons.Material.Outlined.Delete" IconColor="Color.Error" OnClick="@(() => DeleteEndpointAsync(row))">Delete endpoint</MudMenuItem>
@@ -355,6 +374,23 @@
             return "Every endpoint of every client.";
         }
     }
+
+    /// <summary>The own maintenance of the selected client or site, or for a site the maintenance of its client.</summary>
+    private EffectiveMaintenance? ScopeMaintenance
+    {
+        get
+        {
+            var now = Clock.GetUtcNow().UtcDateTime;
+            if (_site is { } site)
+            {
+                return MaintenanceRules.Effective(MaintenancePeriod.None, site.Maintenance, site.ClientMaintenance, now);
+            }
+
+            return _client is { } client ? MaintenanceRules.Effective(MaintenancePeriod.None, MaintenancePeriod.None, client.Maintenance, now) : null;
+        }
+    }
+
+    private string? ScopeMaintenanceSource => _site is not null && ScopeMaintenance?.Source == MaintenanceSource.Client ? _site.ClientCode : null;
 
     private List<BreadcrumbItem> Breadcrumb
     {
@@ -676,12 +712,67 @@
         }
     }
 
+    private async Task RunScriptAsync(EndpointRow row)
+    {
+        IReadOnlyList<RunnableScript> scripts = [];
+        if (!await RunAsync(async caller =>
+            {
+                scripts = await JobSvc.ListRunnableScriptsAsync(caller, [row.Id]);
+                return ServiceResult.Ok();
+            }, null))
+        {
+            return;
+        }
+
+        var parameters = new DialogParameters<RunScriptDialog>
+        {
+            { d => d.EndpointIds, new[] { row.Id } },
+            { d => d.TargetLabel, row.Hostname },
+            { d => d.Scripts, scripts },
+            { d => d.OnSubmit, (scriptId, validity) => RunAsync(caller => JobSvc.RunAsync(caller, scriptId, [row.Id], validity),
+                $"The job was started on {row.Hostname}. Its result appears on the Jobs tab.") }
+        };
+        var dialog = await DialogService.ShowAsync<RunScriptDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        await dialog.Result;
+    }
+
+    private async Task EnrollAgainAsync(EndpointRow row)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Enroll {row.Hostname} again" },
+            {
+                d => d.Message,
+                "Creates a single-use install command, valid for one day, for an agent that cannot reconnect: it was offline for more than a year, was revoked by mistake, or the machine was reinstalled. " +
+                "The agent installed with it takes over this endpoint with its checks, alerts, notes and history, and every earlier certificate of this endpoint is revoked. " +
+                "If the agent service is still installed on the machine, run fleetify-agent uninstall there first."
+            },
+            { d => d.ConfirmText, "Create install command" }
+        };
+        var confirm = await DialogService.ShowAsync<ConfirmDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if ((await confirm.Result)!.Canceled)
+        {
+            return;
+        }
+
+        if ((await RunForValueAsync(caller => EnrollmentSvc.CreateForEndpointAsync(caller, row.Id), null))?.Value is not { } created)
+        {
+            return;
+        }
+
+        var show = new DialogParameters<InstallCommandDialog> { { d => d.Created, created } };
+        // The command is shown once: the dialog cannot be dismissed by clicking beside it by accident.
+        var commandDialog = await DialogService.ShowAsync<InstallCommandDialog>(null, show,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false });
+        await commandDialog.Result;
+    }
+
     private async Task RevokeEndpointAsync(EndpointRow row)
     {
         var parameters = new DialogParameters<ConfirmDialog>
         {
             { d => d.Title, $"Revoke the agent of {row.Hostname}" },
-            { d => d.Message, "Every certificate of this agent is revoked and its connection is closed at once. The agent cannot reconnect or renew; to use this endpoint again, enroll it with a new token." },
+            { d => d.Message, "Every certificate of this agent is revoked and its connection is closed at once. The agent cannot reconnect, renew or recover; to use this endpoint again, choose Enroll again." },
             { d => d.ReasonLabel, "Reason, for example a stolen laptop or a suspected clone" },
             { d => d.ConfirmText, "Revoke agent" }
         };
@@ -722,6 +813,83 @@
         await LoadScopeAsync();
         await LoadRowsAsync();
     }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Maintenance mode
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// <summary>"all" when the whole client or site is in maintenance, "2/14" when some endpoints are.</summary>
+    private RenderFragment MaintenanceBadge(bool wholeScope, int count, int endpoints) => __builder =>
+    {
+        if (!wholeScope && count == 0)
+        {
+            return;
+        }
+
+        var all = wholeScope || count >= endpoints;
+        <span class="tree-badge" title="@(all ? "Every endpoint is in maintenance" : $"{count} of {endpoints} endpoints are in maintenance")">
+            <MudIcon Icon="@Icons.Material.Outlined.Construction" Style="font-size:11px;vertical-align:-1px" />
+            @(all ? "all" : $"{count}/{endpoints}")
+        </span>
+    };
+
+    /// <param name="current">The active maintenance of the target itself, or null when it has none.</param>
+    private RenderFragment MaintenanceMenuItems(MaintenanceTarget target, Guid id, string label, bool coversEndpoints, MaintenancePeriod? current) => __builder =>
+    {
+        var active = current?.IsActive(Clock.GetUtcNow().UtcDateTime) == true;
+        <MudMenuItem Icon="@Icons.Material.Outlined.Construction" OnClick="@(() => StartMaintenanceAsync(target, id, label, coversEndpoints, active ? current : null))">
+            @(active ? "Change maintenance" : "Start maintenance")
+        </MudMenuItem>
+        @if (active)
+        {
+            <MudMenuItem Icon="@Icons.Material.Outlined.PlayCircle" OnClick="@(() => EndMaintenanceAsync(target, id, label))">End maintenance</MudMenuItem>
+        }
+    };
+
+    private async Task StartMaintenanceAsync(MaintenanceTarget target, Guid id, string label, bool coversEndpoints, MaintenancePeriod? current)
+    {
+        var parameters = new DialogParameters<MaintenanceDialog>
+        {
+            { d => d.TargetLabel, label },
+            { d => d.CoversEndpoints, coversEndpoints },
+            { d => d.Current, current },
+            {
+                d => d.OnSubmit, (endsAt, reason) => RunAsync(caller => MaintenanceSvc.StartAsync(caller, target, id, endsAt, reason),
+                    endsAt is null ? $"{Capitalize(label)} is in maintenance until you turn it off." : $"{Capitalize(label)} is in maintenance until {Time.Absolute(endsAt)}.")
+            }
+        };
+        var dialog = await DialogService.ShowAsync<MaintenanceDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await AfterMaintenanceAsync(target, id);
+        }
+    }
+
+    private async Task EndMaintenanceAsync(MaintenanceTarget target, Guid id, string label)
+    {
+        if (await RunAsync(caller => MaintenanceSvc.EndAsync(caller, target, id), $"Maintenance of {label} has ended. Alerts open again when a check fails."))
+        {
+            await AfterMaintenanceAsync(target, id);
+        }
+    }
+
+    private async Task AfterMaintenanceAsync(MaintenanceTarget target, Guid id)
+    {
+        await LoadScopeAsync();
+        if (target == MaintenanceTarget.Endpoint)
+        {
+            await AfterEndpointActionAsync(id);
+            return;
+        }
+
+        await Task.WhenAll(LoadRowsAsync(), LoadTreeAsync());
+        if (_detail is not null)
+        {
+            await _detail.RefreshAsync();
+        }
+    }
+
+    private static string Capitalize(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
 
     // ---------------------------------------------------------------------------------------------------------------
     // Clients

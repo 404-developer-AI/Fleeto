@@ -19,6 +19,7 @@ public sealed class LiveUpdates : IDisposable
         _subscriptions.Add(bus.Subscribe(NotificationChannels.EndpointStatus, (payload, _) => Raise(EndpointStatusChanged, payload)));
         _subscriptions.Add(bus.Subscribe(NotificationChannels.Alerts, (payload, _) => Raise(AlertChanged, payload)));
         _subscriptions.Add(bus.Subscribe(NotificationChannels.CheckResults, (payload, _) => Raise(CheckResultsChanged, payload)));
+        _subscriptions.Add(bus.Subscribe(NotificationChannels.Jobs, (payload, _) => Raise(JobsChanged, payload)));
     }
 
     /// <summary>Payload: endpoint id, or <see cref="Guid.Empty"/> after a resync.</summary>
@@ -29,6 +30,9 @@ public sealed class LiveUpdates : IDisposable
 
     /// <summary>Payload: endpoint id, or <see cref="Guid.Empty"/> after a resync.</summary>
     public event Action<Guid>? CheckResultsChanged;
+
+    /// <summary>Payload: endpoint id whose jobs changed, or <see cref="Guid.Empty"/> after a resync (0.2.0).</summary>
+    public event Action<Guid>? JobsChanged;
 
     private Task Raise(Action<Guid>? handlers, string payload)
     {

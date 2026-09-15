@@ -1,4 +1,5 @@
 using Fleetify.Core.Entities;
+using Fleetify.Infrastructure.Data;
 using Fleetify.Infrastructure.Security;
 using Fleetify.Web.Services;
 using Microsoft.EntityFrameworkCore;
@@ -94,5 +95,37 @@ public class EnrollmentTests
         // Lifetimes outside the offered choices are refused.
         var odd = await service.CreateAsync(WebFixtureBase.Technician(), site.Id, "Odd", TimeSpan.FromDays(365), 1);
         Assert.False(odd.Success);
+    }
+    [Fact]
+    public async Task An_enroll_again_token_is_single_use_for_one_day_and_bound_to_its_endpoint()
+    {
+        var client = await _fixture.Database.CreateClientAsync();
+        var site = await _fixture.Database.CreateSiteAsync(client.Id);
+        var endpoint = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "SRV-AGAIN");
+        var enrollment = _fixture.Services.GetRequiredService<EnrollmentService>();
+
+        Assert.False((await enrollment.CreateForEndpointAsync(WebFixture.CallerWith(Infrastructure.Data.SystemClientScope.Instance, FleetifyRoles.ReadOnly),
+            endpoint.Id)).Success);
+        Assert.False((await enrollment.CreateForEndpointAsync(WebFixture.CallerWith(new RestrictedClientScope([Guid.NewGuid()]), FleetifyRoles.Technician),
+            endpoint.Id)).Success);
+
+        var created = await enrollment.CreateForEndpointAsync(WebFixture.Technician(), endpoint.Id);
+        Assert.True(created.Success, created.Problem);
+
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        var row = await db.EnrollmentTokens.AsNoTracking().SingleAsync(t => t.Id == created.Value!.Id);
+        Assert.Equal(endpoint.Id, row.EndpointId);
+        Assert.Equal(site.Id, row.SiteId);
+        Assert.Equal(1, row.MaxUses);
+        Assert.Equal(TimeSpan.FromDays(1), row.ExpiresAt - row.CreatedAt);
+        var listed = Assert.Single(await enrollment.ListAsync(WebFixture.Technician(), site.Id), t => t.Id == row.Id);
+        Assert.Equal("SRV-AGAIN", listed.EndpointHostname);
+        var audit = await db.AuditEntries.AsNoTracking().SingleAsync(a => a.TargetId == row.Id.ToString());
+        Assert.DoesNotContain(created.Value!.Token, audit.DetailsJson);
+        Assert.Contains(endpoint.Id.ToString(), audit.DetailsJson);
+
+        // Deleting the endpoint removes the token with it.
+        await db.Endpoints.Where(e => e.Id == endpoint.Id).ExecuteDeleteAsync();
+        Assert.False(await db.EnrollmentTokens.AnyAsync(t => t.Id == row.Id));
     }
 }

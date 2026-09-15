@@ -28,6 +28,7 @@
             <MudTh>Heartbeat</MudTh>
             <MudTh>Inventory</MudTh>
             <MudTh>Offline alert</MudTh>
+            <MudTh>Maintenance windows</MudTh>
             <MudTh>Used by</MudTh>
             @if (CanManage)
             {
@@ -41,6 +42,10 @@
                 {
                     <span class="ml-1"><StatusChip Text="Default" Kind="StatusKind.Active" /></span>
                 }
+                @if (context.ScriptApprovalRequired)
+                {
+                    <span class="ml-1"><StatusChip Text="Script approval" Kind="StatusKind.Neutral" /></span>
+                }
                 @if (!string.IsNullOrEmpty(context.Description))
                 {
                     <div class="muted" style="font-size:0.8125rem">@context.Description</div>
@@ -50,6 +55,16 @@
             <MudTd>@Intervals.Describe(context.HeartbeatIntervalSeconds)</MudTd>
             <MudTd>@Intervals.Describe(context.InventoryIntervalSeconds)</MudTd>
             <MudTd>@(context.OfflineAlertAfterMinutes == 0 ? "Off" : $"{context.OfflineAlertSeverity} after {context.OfflineAlertAfterMinutes} min")</MudTd>
+            <MudTd>
+                @if (context.MaintenanceWindows.Count == 0)
+                {
+                    <span class="muted">None</span>
+                }
+                @foreach (var window in context.MaintenanceWindows)
+                {
+                    <div style="font-size:0.8125rem">@(string.IsNullOrEmpty(window.Name) ? "" : window.Name + ": ")@Fleetify.Core.Domain.MaintenanceWindows.Describe(window)</div>
+                }
+            </MudTd>
             <MudTd>@(context.IsDefault ? "Sites without a policy" : $"{context.SiteCount} site{(context.SiteCount == 1 ? "" : "s")}")@(context.ClientTemplateSiteCount > 0 ? $", {context.ClientTemplateSiteCount} client template site{(context.ClientTemplateSiteCount == 1 ? "" : "s")}" : "")</MudTd>
             @if (CanManage)
             {

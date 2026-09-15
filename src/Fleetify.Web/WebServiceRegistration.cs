@@ -61,13 +61,18 @@ public static class WebServiceRegistration
         services.AddSingleton<EnrollmentService>();
         services.AddSingleton<EndpointService>();
         services.AddSingleton<EndpointCheckService>();
+        services.AddSingleton<CheckHistoryService>();
         services.AddSingleton<NoteService>();
         services.AddSingleton<AlertService>();
+        services.AddSingleton<MaintenanceService>();
         services.AddSingleton<PolicyService>();
         services.AddSingleton<MonitoringTemplateService>();
         services.AddSingleton<ClientTemplateService>();
         services.AddSingleton<UserAdminService>();
         services.AddSingleton<SettingsService>();
+        services.AddSingleton<NotificationChannelService>();
+        services.AddSingleton<ScriptService>();
+        services.AddSingleton<JobService>();
         services.AddSingleton<AuditQueryService>();
         return services;
     }

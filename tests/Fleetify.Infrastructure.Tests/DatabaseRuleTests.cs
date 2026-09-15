@@ -26,6 +26,14 @@ public class DatabaseRuleTests
     [InlineData("fleetify_gateway", "AgentConfig", false)]
     [InlineData("fleetify_web", "AgentConfig", false)]
     [InlineData("fleetify_workers", "AgentConfig", true)]
+    [InlineData("fleetify_web", "AgentRecovery", false)]
+    [InlineData("fleetify_signer", "AgentRecovery", false)]
+    [InlineData("fleetify_gateway", "AgentRecovery", true)]
+    [InlineData("fleetify_gateway", "SomethingNew", false)]
+    [InlineData("fleetify_web", "Job", true)]
+    [InlineData("fleetify_gateway", "Job", false)]
+    [InlineData("fleetify_workers", "Job", false)]
+    [InlineData("fleetify_workers", "SomethingNew", false)]
     public async Task Signing_request_kind_is_restricted_to_the_right_role(string role, string kind, bool allowed)
     {
         await EnsureRolesAsync();

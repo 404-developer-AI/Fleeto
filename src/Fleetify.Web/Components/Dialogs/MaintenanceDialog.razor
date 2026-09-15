@@ -1,0 +1,133 @@
+@* Start or change maintenance mode on a client, site or endpoint. Never called snooze, mute or silenced (branding §6). *@
+@inject TimeDisplay Time
+@inject TimeProvider Clock
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(IsChange ? "Change maintenance" : "Start maintenance")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-3">@Explanation</MudText>
+        <MudRadioGroup T="int" @bind-Value="_choice">
+            <MudRadio T="int" Value="1" Color="Color.Primary">1 hour</MudRadio>
+            <MudRadio T="int" Value="4" Color="Color.Primary">4 hours</MudRadio>
+            <MudRadio T="int" Value="24" Color="Color.Primary">24 hours</MudRadio>
+            <MudRadio T="int" Value="ChosenTime" Color="Color.Primary">Until a chosen time</MudRadio>
+            <MudRadio T="int" Value="UntilTurnedOff" Color="Color.Primary">Until I turn it off</MudRadio>
+        </MudRadioGroup>
+        @if (_choice == ChosenTime)
+        {
+            <div class="d-flex gap-2 mt-2">
+                <MudDatePicker @bind-Date="_date" Label="Date" Variant="Variant.Outlined" MinDate="@LocalNow.Date" MaxDate="@LocalNow.Date.AddDays(365)" />
+                <MudTimePicker @bind-Time="_time" Label="Time" Variant="Variant.Outlined" />
+            </div>
+            <MudText Typo="Typo.caption" Class="muted d-block mt-1">In your time zone.</MudText>
+        }
+        @if (IsChange)
+        {
+            <MudText Typo="Typo.caption" Class="muted d-block mt-2">The new end time counts from now; the start of the maintenance stays.</MudText>
+        }
+        <MudTextField @bind-Value="_reason" Label="Reason (optional)" Placeholder="For example: server migration" Variant="Variant.Outlined"
+                      Lines="2" MaxLength="500" Counter="500" Immediate="true" Class="mt-3" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync"
+                   Disabled="@(_busy || (_choice == ChosenTime && (_date is null || _time is null)))">@(IsChange ? "Save" : "Start maintenance")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private const int ChosenTime = 0;
+    private const int UntilTurnedOff = -1;
+
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    /// <summary>What goes into maintenance, as shown in the sentence: "client ACME", "site Monitoring" or a host name.</summary>
+    [Parameter, EditorRequired] public string TargetLabel { get; set; } = string.Empty;
+
+    /// <summary>True for a client or site: every endpoint below it is covered.</summary>
+    [Parameter] public bool CoversEndpoints { get; set; }
+
+    /// <summary>The active maintenance being changed, or null to start one.</summary>
+    [Parameter] public MaintenancePeriod? Current { get; set; }
+
+    /// <summary>Receives the end in UTC (null: until turned off) and the reason; returns true when saved.</summary>
+    [Parameter] public Func<DateTime?, string?, Task<bool>> OnSubmit { get; set; } = (_, _) => Task.FromResult(true);
+
+    private int _choice = 4;
+    private DateTime? _date;
+    private TimeSpan? _time;
+    private string? _reason;
+    private bool _busy;
+
+    private bool IsChange => Current is not null;
+
+    private DateTime LocalNow => TimeZoneInfo.ConvertTimeFromUtc(Clock.GetUtcNow().UtcDateTime, Time.Zone);
+
+    private string Explanation => (CoversEndpoints
+            ? $"While {TargetLabel} is in maintenance, no alert opens or escalates for its endpoints."
+            : $"While {TargetLabel} is in maintenance, no alert opens or escalates for it.") +
+        " Open alerts stay open and still resolve when their check recovers. When maintenance ends, an alert opens at the next failing result.";
+
+    protected override void OnInitialized()
+    {
+        var suggestion = LocalNow.AddHours(2);
+        _date = suggestion.Date;
+        _time = new TimeSpan(suggestion.Hour, 0, 0);
+        if (Current is { } current)
+        {
+            _reason = current.Reason;
+            if (current.EndsAt is null)
+            {
+                _choice = UntilTurnedOff;
+            }
+            else
+            {
+                var end = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(current.EndsAt.Value, DateTimeKind.Utc), Time.Zone);
+                _choice = ChosenTime;
+                _date = end.Date;
+                _time = new TimeSpan(end.Hour, end.Minute, 0);
+            }
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        DateTime? endsAtUtc;
+        if (_choice == UntilTurnedOff)
+        {
+            endsAtUtc = null;
+        }
+        else if (_choice == ChosenTime)
+        {
+            var local = DateTime.SpecifyKind(_date!.Value.Date + _time!.Value, DateTimeKind.Unspecified);
+            if (Time.Zone.IsInvalidTime(local))
+            {
+                local = local.AddHours(1);
+            }
+
+            endsAtUtc = TimeZoneInfo.ConvertTimeToUtc(local, Time.Zone);
+        }
+        else
+        {
+            endsAtUtc = Clock.GetUtcNow().UtcDateTime.AddHours(_choice);
+        }
+
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(endsAtUtc, _reason))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

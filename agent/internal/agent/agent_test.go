@@ -59,6 +59,9 @@ type fakeGateway struct {
 	issued       atomic.Int32
 	mu           sync.Mutex
 	open         []*gwConn
+	// recovered counts recoveries; refuseRecovery answers 401 instead.
+	recovered      atomic.Int32
+	refuseRecovery atomic.Bool
 }
 
 func newFakeGateway(t *testing.T) *fakeGateway {
@@ -81,11 +84,12 @@ func newFakeGateway(t *testing.T) *fakeGateway {
 	})
 	mux.HandleFunc("POST /v1/enroll", g.enroll)
 	mux.HandleFunc("GET /v1/connect", g.connect)
+	mux.HandleFunc("POST /v1/recover", g.recover)
 	g.server = httptest.NewUnstartedServer(mux)
+	// Like the real gateway, the handshake accepts an expired client certificate; every path decides afterwards.
 	g.server.TLS = &tls.Config{
 		Certificates: []tls.Certificate{serverCert},
-		ClientAuth:   tls.VerifyClientCertIfGiven,
-		ClientCAs:    ca.Pool(),
+		ClientAuth:   tls.RequestClientCert,
 	}
 	g.server.StartTLS()
 	t.Cleanup(func() {
@@ -126,9 +130,32 @@ func (g *fakeGateway) enroll(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 }
 
-func (g *fakeGateway) connect(w http.ResponseWriter, r *http.Request) {
+// clientCertificate returns the client certificate when it chains to the test CA; expired ones are reported, not refused.
+func (g *fakeGateway) clientCertificate(r *http.Request) (cert *x509.Certificate, expired bool) {
 	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
+		return nil, false
+	}
+	cert = r.TLS.PeerCertificates[0]
+	at := time.Now()
+	if at.After(cert.NotAfter) {
+		at = cert.NotAfter.Add(-time.Second)
+	}
+	if _, err := cert.Verify(x509.VerifyOptions{Roots: g.ca.Pool(), CurrentTime: at,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
+		return nil, false
+	}
+	return cert, time.Now().After(cert.NotAfter)
+}
+
+func (g *fakeGateway) connect(w http.ResponseWriter, r *http.Request) {
+	cert, expired := g.clientCertificate(r)
+	if cert == nil {
 		http.Error(w, "client certificate required", http.StatusUnauthorized)
+		return
+	}
+	if expired {
+		w.Header().Set(CertificateStateHeader, "expired")
+		http.Error(w, "the agent certificate has expired", http.StatusUnauthorized)
 		return
 	}
 	conn, err := websocket.Accept(w, r, nil)
@@ -142,6 +169,33 @@ func (g *fakeGateway) connect(w http.ResponseWriter, r *http.Request) {
 	g.mu.Unlock()
 	g.conns <- c
 	<-c.done
+}
+
+func (g *fakeGateway) recover(w http.ResponseWriter, r *http.Request) {
+	cert, expired := g.clientCertificate(r)
+	if cert == nil || !expired || g.refuseRecovery.Load() {
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"detail":"This agent certificate cannot be recovered."}`))
+		return
+	}
+	body, _ := io.ReadAll(r.Body)
+	var req agentv1.RecoverRequest
+	csr, err := x509.ParseCertificateRequest(func() []byte { _ = proto.Unmarshal(body, &req); return req.GetCsrDer() }())
+	if err != nil || csr.CheckSignature() != nil ||
+		!csr.PublicKey.(interface{ Equal(crypto.PublicKey) bool }).Equal(cert.PublicKey) {
+		http.Error(w, "the CSR must use the key of the expired certificate", http.StatusBadRequest)
+		return
+	}
+	certDER, err := g.ca.IssueAgent(req.GetCsrDer(), gwEndpoint, gwInstance, time.Now().Add(-time.Hour), 90*24*time.Hour)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	g.recovered.Add(1)
+	data, _ := proto.Marshal(&agentv1.RecoverResponse{CertificateDer: certDER})
+	w.Header().Set("Content-Type", "application/x-protobuf")
+	_, _ = w.Write(data)
 }
 
 func (g *fakeGateway) accept(t *testing.T) *gwConn {
@@ -464,5 +518,108 @@ func TestCertificateIsRenewedAfterTwoThirdsOfItsLifetime(t *testing.T) {
 	st, _ := store.Load()
 	if cert, _ := st.Certificate(); string(cert.Raw) != string(newDER) {
 		t.Fatal("the renewed certificate must be stored")
+	}
+}
+
+// expireStoredCertificate replaces the stored certificate with one for the same key that ended at notAfter.
+func expireStoredCertificate(t *testing.T, g *fakeGateway, store *state.Store, notAfter time.Time) []byte {
+	t.Helper()
+	st, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := keystore.Open(store.Dir(), st.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer key.Close()
+	csr, err := keystore.CreateCSR(rand.Reader, key, "test-host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := g.ca.IssueAgent(csr, gwEndpoint, gwInstance, notAfter.Add(-90*time.Minute), 90*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Update(func(s *state.State) error { s.CertificatePEM = state.EncodeCertificatePEM(der); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	return der
+}
+
+func TestAnExpiredCertificateIsRecoveredWithTheSameKeyAndTheAgentReconnects(t *testing.T) {
+	g := newFakeGateway(t)
+	store := enrollForTest(t, g)
+	expired := expireStoredCertificate(t, g, store, time.Now().Add(-30*time.Minute))
+	startAgent(t, testOptions(store))
+
+	c := g.accept(t)
+	if g.recovered.Load() != 1 {
+		t.Fatalf("expected one recovery, got %d", g.recovered.Load())
+	}
+	if string(c.clientCert.Raw) == string(expired) {
+		t.Fatal("the agent must reconnect with the recovered certificate")
+	}
+	st, _ := store.Load()
+	if cert, _ := st.Certificate(); string(cert.Raw) != string(c.clientCert.Raw) {
+		t.Fatal("the recovered certificate must be stored")
+	}
+}
+
+func TestTheGatewayHeaderStartsRecoveryWhenTheLocalClockIsBehind(t *testing.T) {
+	g := newFakeGateway(t)
+	store := enrollForTest(t, g)
+	expireStoredCertificate(t, g, store, time.Now().Add(-time.Minute))
+	opts := testOptions(store)
+	// Ten minutes behind: the agent still believes its certificate is valid.
+	opts.Now = func() time.Time { return time.Now().Add(-10 * time.Minute) }
+	startAgent(t, opts)
+
+	g.accept(t)
+	if g.recovered.Load() != 1 {
+		t.Fatalf("expected one recovery, got %d", g.recovered.Load())
+	}
+}
+
+func TestARefusedRecoveryKeepsTheCertificateAndWaitsBeforeTryingAgain(t *testing.T) {
+	g := newFakeGateway(t)
+	g.refuseRecovery.Store(true)
+	store := enrollForTest(t, g)
+	expired := expireStoredCertificate(t, g, store, time.Now().Add(-30*time.Minute))
+	startAgent(t, testOptions(store))
+
+	time.Sleep(time.Second)
+	select {
+	case <-g.conns:
+		t.Fatal("an agent with a refused recovery must not open a session")
+	default:
+	}
+	st, _ := store.Load()
+	if cert, _ := st.Certificate(); string(cert.Raw) != string(expired) {
+		t.Fatal("a refused recovery must keep the stored certificate")
+	}
+	if st.Revoked {
+		t.Fatal("a refused recovery is not a revocation")
+	}
+}
+
+func TestAnAgentEnrollsAgainOnlyWhenItsCertificateExpiredOrWasRevoked(t *testing.T) {
+	g := newFakeGateway(t)
+	store := enrollForTest(t, g)
+	params := EnrollParams{
+		StateDir: store.Dir(), Access: platform.AccessCurrentUser, Key: state.KeyRef{Kind: keystore.KindFile},
+		Server: g.addr(), Token: gwToken, CAFingerprint: g.ca.Fingerprint(), Logger: logging.Discard(),
+	}
+	if _, err := Enroll(context.Background(), params); err == nil || !strings.Contains(err.Error(), "already enrolled") {
+		t.Fatalf("a valid enrollment must not be replaced, got %v", err)
+	}
+
+	expireStoredCertificate(t, g, store, time.Now().Add(-30*time.Minute))
+	st, err := Enroll(context.Background(), params)
+	if err != nil {
+		t.Fatalf("an agent with an expired certificate must enroll again: %v", err)
+	}
+	if cert, _ := st.Certificate(); time.Now().After(cert.NotAfter) {
+		t.Fatal("the new enrollment must store a valid certificate")
 	}
 }

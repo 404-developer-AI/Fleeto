@@ -11,6 +11,18 @@ window.fleeto = {
   copyText: function (text) {
     return navigator.clipboard.writeText(text);
   },
+  // Saves a small file produced by the server (a public certificate). The content arrives base64 over the circuit.
+  saveFile: function (fileName, contentType, base64) {
+    var bytes = Uint8Array.from(atob(base64), function (c) { return c.charCodeAt(0); });
+    var url = URL.createObjectURL(new Blob([bytes], { type: contentType }));
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  },
   // Per-browser UI preferences (collapsed navigation, list height). Never account data or secrets.
   getPreference: function (key) {
     try {

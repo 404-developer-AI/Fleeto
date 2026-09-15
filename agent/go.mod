@@ -7,6 +7,7 @@ require (
 	github.com/shirou/gopsutil/v4 v4.26.8
 	github.com/yusufpapurcu/wmi v1.2.4
 	go.etcd.io/bbolt v1.5.0
+	golang.org/x/net v0.59.0
 	golang.org/x/sys v0.48.0
 	google.golang.org/protobuf v1.36.12
 )

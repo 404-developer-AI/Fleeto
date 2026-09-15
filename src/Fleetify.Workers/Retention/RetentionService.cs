@@ -1,8 +1,10 @@
 using System.Globalization;
+using Fleetify.Core.Domain;
 using Fleetify.Infrastructure.Data;
 using Fleetify.Infrastructure.Settings;
 using Fleetify.Workers.Checks;
 using Fleetify.Workers.Email;
+using Fleetify.Workers.Webhooks;
 using Fleetify.Workers.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -28,6 +30,11 @@ public sealed class RetentionService : WorkerLoop
 {
     public const int BatchSize = 5000;
     public const int DefaultCheckResultsDays = 30;
+
+    /// <summary>Job output is kept 90 days; the job history itself 13 months (0.2.0).</summary>
+    public static readonly TimeSpan JobOutputRetention = TimeSpan.FromDays(90);
+
+    public static readonly TimeSpan JobRetention = TimeSpan.FromDays(400);
 
     /// <summary>Upper bound of batches per statement per run, so one run never monopolizes the database.</summary>
     private const int MaxBatchesPerStatement = 200;
@@ -64,6 +71,16 @@ public sealed class RetentionService : WorkerLoop
           LIMIT 5000)
         """;
 
+    private const string DeleteHourlyRollupsSql = """
+        DELETE FROM "CheckResultsHourly" WHERE ("EndpointId", "CheckDefinitionId", "Target", "Bucket") IN (
+          SELECT "EndpointId", "CheckDefinitionId", "Target", "Bucket" FROM "CheckResultsHourly" WHERE "Bucket" < @cutoff LIMIT 5000)
+        """;
+
+    private const string DeleteDailyRollupsSql = """
+        DELETE FROM "CheckResultsDaily" WHERE ("EndpointId", "CheckDefinitionId", "Target", "Bucket") IN (
+          SELECT "EndpointId", "CheckDefinitionId", "Target", "Bucket" FROM "CheckResultsDaily" WHERE "Bucket" < @cutoff LIMIT 5000)
+        """;
+
     private const string DeleteIngestBatchesSql = """
         DELETE FROM "IngestBatches" WHERE ("EndpointId", "Sequence") IN (
           SELECT "EndpointId", "Sequence" FROM "IngestBatches" WHERE "ReceivedAt" < @cutoff LIMIT 5000)
@@ -92,6 +109,26 @@ public sealed class RetentionService : WorkerLoop
     private const string DeleteFailedEmailsSql = """
         DELETE FROM "OutboxEmails" WHERE "Id" IN (
           SELECT "Id" FROM "OutboxEmails" WHERE "SentAt" IS NULL AND "Attempts" >= @maxAttempts AND "CreatedAt" < @cutoff LIMIT 5000)
+        """;
+
+    private const string DeleteSentWebhooksSql = """
+        DELETE FROM "OutboxWebhooks" WHERE "Id" IN (
+          SELECT "Id" FROM "OutboxWebhooks" WHERE "SentAt" IS NOT NULL AND "SentAt" < @cutoff LIMIT 5000)
+        """;
+
+    private const string DeleteFailedWebhooksSql = """
+        DELETE FROM "OutboxWebhooks" WHERE "Id" IN (
+          SELECT "Id" FROM "OutboxWebhooks" WHERE "SentAt" IS NULL AND "Attempts" >= @maxAttempts AND "CreatedAt" < @cutoff LIMIT 5000)
+        """;
+
+    private const string DeleteJobOutputSql = """
+        DELETE FROM "JobOutputChunks" WHERE ("JobId", "Stream", "Sequence") IN (
+          SELECT "JobId", "Stream", "Sequence" FROM "JobOutputChunks" WHERE "ReceivedAt" < @cutoff LIMIT 5000)
+        """;
+
+    private const string DeleteJobsSql = """
+        DELETE FROM "Jobs" WHERE "Id" IN (
+          SELECT "Id" FROM "Jobs" WHERE "CreatedAt" < @cutoff AND "State" NOT IN ('PendingSignature', 'Queued', 'Running') LIMIT 5000)
         """;
 
     private const string DeleteAgentCertificatesSql = """
@@ -147,6 +184,9 @@ public sealed class RetentionService : WorkerLoop
         }
 
         deleted["CheckResults (deleted endpoints)"] = await PurgeDeletedEndpointResultsAsync(now, cancellationToken);
+        var rollupCutoff = now - CheckHistoryRules.RollupRetention;
+        deleted["CheckResultsHourly"] = await DeleteInBatchesAsync(DeleteHourlyRollupsSql, () => [new NpgsqlParameter("cutoff", rollupCutoff)], cancellationToken);
+        deleted["CheckResultsDaily"] = await DeleteInBatchesAsync(DeleteDailyRollupsSql, () => [new NpgsqlParameter("cutoff", rollupCutoff)], cancellationToken);
         deleted["IngestBatches"] = await DeleteInBatchesAsync(DeleteIngestBatchesSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-7))], cancellationToken);
         deleted["SigningRequests"] = await DeleteInBatchesAsync(DeleteSigningRequestsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-7))], cancellationToken);
         deleted["CheckRunRequests"] = await DeleteInBatchesAsync(DeleteCheckRunRequestsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-7))], cancellationToken);
@@ -154,6 +194,11 @@ public sealed class RetentionService : WorkerLoop
         deleted["OutboxEmails (sent)"] = await DeleteInBatchesAsync(DeleteSentEmailsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))], cancellationToken);
         deleted["OutboxEmails (failed)"] = await DeleteInBatchesAsync(DeleteFailedEmailsSql,
             () => [new NpgsqlParameter("cutoff", now.AddDays(-90)), new NpgsqlParameter("maxAttempts", OutboxEmailService.MaxAttempts)], cancellationToken);
+        deleted["OutboxWebhooks (sent)"] = await DeleteInBatchesAsync(DeleteSentWebhooksSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))], cancellationToken);
+        deleted["OutboxWebhooks (failed)"] = await DeleteInBatchesAsync(DeleteFailedWebhooksSql,
+            () => [new NpgsqlParameter("cutoff", now.AddDays(-90)), new NpgsqlParameter("maxAttempts", OutboxWebhookService.MaxAttempts)], cancellationToken);
+        deleted["JobOutputChunks"] = await DeleteInBatchesAsync(DeleteJobOutputSql, () => [new NpgsqlParameter("cutoff", now - JobOutputRetention)], cancellationToken);
+        deleted["Jobs"] = await DeleteInBatchesAsync(DeleteJobsSql, () => [new NpgsqlParameter("cutoff", now - JobRetention)], cancellationToken);
         deleted["AgentCertificates"] = await DeleteInBatchesAsync(DeleteAgentCertificatesSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))], cancellationToken);
         deleted["EnrollmentTokens"] = await DeleteInBatchesAsync(DeleteEnrollmentTokensSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))], cancellationToken);
 

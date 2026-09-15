@@ -53,7 +53,7 @@ public sealed class CheckEvaluationService : WorkerLoop
 
     // Resolves unresolved check alerts whose definition was deleted (the foreign key nulls it), disabled, unlinked from the
     // endpoint's site and the endpoint, disabled on the endpoint, or no longer matches the endpoint class.
-    private const string ResolveNotApplicableSql = """
+    private static readonly string ResolveNotApplicableSql = """
         UPDATE "Alerts" a
         SET "State" = 'Resolved', "ResolvedAt" = @now, "UpdatedAt" = @now, "ResolvedReason" = @reason
         WHERE a."Kind" = 'Check' AND a."State" <> 'Resolved'
@@ -69,7 +69,7 @@ public sealed class CheckEvaluationService : WorkerLoop
 
     // States of checks that no longer apply are removed, so a check that applies again starts as "not run yet" instead of
     // showing an old result. Runs on the wide sweep only; the endpoint page hides such states in the meantime.
-    private const string DeleteNotApplicableStatesSql = """
+    private static readonly string DeleteNotApplicableStatesSql = """
         DELETE FROM "CheckStates" s
         USING "Endpoints" e
         WHERE e."Id" = s."EndpointId"
@@ -216,7 +216,7 @@ public sealed class CheckEvaluationService : WorkerLoop
 
             if (resolved.Count > 0)
             {
-                await _notifier.AddNotificationsAsync(db, resolved.Select(id => new AlertTransition(id, AlertTransitionKind.Resolved)).ToList(),
+                await _notifier.AddNotificationsAsync(db, resolved.Select(id => new AlertTransition(id, NotificationEvent.Resolved)).ToList(),
                     cancellationToken);
                 await db.SaveChangesAsync(cancellationToken);
             }
@@ -341,7 +341,7 @@ public sealed class CheckEvaluationService : WorkerLoop
 
             var endpoint = await db.Endpoints.AsNoTracking()
                 .Where(e => e.Id == endpointId)
-                .Select(e => new EndpointFacts(e.Id, e.ClientId, e.SiteId, e.Hostname, e.Tier, e.ClassOverride ?? e.DetectedClass))
+                .Select(e => new EndpointFacts(e.Id, e.ClientId, e.SiteId, e.Hostname, e.Tier, e.ClassOverride ?? e.DetectedClass, e.OsPlatform))
                 .FirstOrDefaultAsync(cancellationToken);
 
             if (endpoint is not null)
@@ -349,7 +349,11 @@ public sealed class CheckEvaluationService : WorkerLoop
                 var license = await GetLicenseStatusAsync(cancellationToken);
                 if (TierRules.EffectiveTier(endpoint.Tier, license) == EndpointTier.Managed)
                 {
-                    stateChanged = await ApplyResultsAsync(db, endpoint, results, transitions, now, cancellationToken);
+                    var inMaintenance = await db.Endpoints.AsNoTracking()
+                        .Where(e => e.Id == endpointId)
+                        .Where(MaintenanceRules.EndpointInMaintenance(now, db.MaintenanceWindowOccurrences, db.SitePolicies, db.Policies))
+                        .AnyAsync(cancellationToken);
+                    stateChanged = await ApplyResultsAsync(db, endpoint, results, transitions, now, inMaintenance, cancellationToken);
                 }
             }
 
@@ -390,15 +394,19 @@ public sealed class CheckEvaluationService : WorkerLoop
         return more;
     }
 
-    private sealed record EndpointFacts(Guid Id, Guid ClientId, Guid SiteId, string Hostname, EndpointTier Tier, EndpointClass Class);
+    private sealed record EndpointFacts(Guid Id, Guid ClientId, Guid SiteId, string Hostname, EndpointTier Tier, EndpointClass Class, string OsPlatform);
 
-    /// <summary>Applies results in id order to states and alerts. Returns true when a state's status changed.</summary>
+    /// <summary>
+    /// Applies results in id order to states and alerts. Returns true when a state's status changed. In maintenance
+    /// (<paramref name="inMaintenance"/>) states and failure counts still update and alerts still resolve, but no alert opens or
+    /// escalates; the first failing result after maintenance opens the alert at once, because the failure count kept counting.
+    /// </summary>
     private static async Task<bool> ApplyResultsAsync(FleetifyDbContext db, EndpointFacts endpoint, List<CheckResult> results,
-        List<AlertTransition> transitions, DateTime now, CancellationToken cancellationToken)
+        List<AlertTransition> transitions, DateTime now, bool inMaintenance, CancellationToken cancellationToken)
     {
         var definitionIds = results.Select(r => r.CheckDefinitionId).Distinct().ToList();
-        var checks = (await EffectiveCheckResolver.LoadAsync(db, endpoint.Id, endpoint.SiteId, endpoint.Class, includeDisabledOnEndpoint: false,
-                cancellationToken))
+        var checks = (await EffectiveCheckResolver.LoadAsync(db, endpoint.Id, endpoint.SiteId, endpoint.Class, endpoint.OsPlatform,
+                includeDisabledOnEndpoint: false, cancellationToken))
             .ToDictionary(c => c.Id);
         var states = await db.CheckStates
             .Where(s => s.EndpointId == endpoint.Id && definitionIds.Contains(s.CheckDefinitionId))
@@ -410,6 +418,9 @@ public sealed class CheckEvaluationService : WorkerLoop
             .ToDictionary(a => (a.CheckDefinitionId!.Value, a.Target));
 
         var statusChanged = false;
+        var hourly = new Dictionary<(Guid, string, DateTime), RollupAccumulator>();
+        var daily = new Dictionary<(Guid, string, DateTime), RollupAccumulator>();
+        var parameterCache = new Dictionary<Guid, IReadOnlyDictionary<string, string>>();
         foreach (var result in results)
         {
             if (!checks.TryGetValue(result.CheckDefinitionId, out var check))
@@ -418,6 +429,18 @@ public sealed class CheckEvaluationService : WorkerLoop
             }
 
             var definition = check.Definition;
+            if (!parameterCache.TryGetValue(definition.Id, out var parameters))
+            {
+                parameters = CheckParameters.Parse(definition.ParametersJson);
+                parameterCache[definition.Id] = parameters;
+            }
+
+            // History counts every result of an applying check, also one that a reset makes the evaluation ignore.
+            var at = CheckHistoryRules.EffectiveTime(result.AgentTime, result.Time);
+            var noResponse = string.IsNullOrEmpty(result.Error) && CheckHistoryRules.IsNoResponse(definition.Type, result.Target, parameters, result.Value);
+            Accumulate(hourly, (definition.Id, result.Target, CheckHistoryRules.HourBucket(at)), result, noResponse);
+            Accumulate(daily, (definition.Id, result.Target, CheckHistoryRules.DayBucket(at)), result, noResponse);
+
             var key = (definition.Id, result.Target);
             if (states.TryGetValue(key, out var existing) && existing.ResetAt is { } resetAt && result.Time < resetAt)
             {
@@ -425,7 +448,8 @@ public sealed class CheckEvaluationService : WorkerLoop
                 continue;
             }
 
-            var status = CheckEvaluator.Evaluate(definition.Type, result.Value, result.Error, check.WarningThreshold, check.CriticalThreshold);
+            var status = CheckEvaluator.Evaluate(definition.Type, result.Target, result.Value, result.Error, check.WarningThreshold,
+                check.CriticalThreshold, parameters);
 
             if (existing is not { } state)
             {
@@ -463,7 +487,7 @@ public sealed class CheckEvaluationService : WorkerLoop
                     alert.ResolvedReason = ResolvedReasonOk;
                     alert.UpdatedAt = now;
                     openAlerts.Remove(key);
-                    transitions.Add(new AlertTransition(alert.Id, AlertTransitionKind.Resolved));
+                    transitions.Add(new AlertTransition(alert.Id, NotificationEvent.Resolved));
                 }
 
                 continue;
@@ -480,6 +504,11 @@ public sealed class CheckEvaluationService : WorkerLoop
 
             if (alert is null)
             {
+                if (inMaintenance)
+                {
+                    continue;
+                }
+
                 alert = new Alert
                 {
                     Id = Guid.NewGuid(),
@@ -497,9 +526,9 @@ public sealed class CheckEvaluationService : WorkerLoop
                 };
                 db.Alerts.Add(alert);
                 openAlerts[key] = alert;
-                transitions.Add(new AlertTransition(alert.Id, AlertTransitionKind.Opened));
+                transitions.Add(new AlertTransition(alert.Id, NotificationEvent.Opened));
             }
-            else if (alert.Severity != severity)
+            else if (alert.Severity != severity && !(inMaintenance && severity > alert.Severity))
             {
                 var escalated = severity > alert.Severity;
                 alert.Severity = severity;
@@ -510,12 +539,93 @@ public sealed class CheckEvaluationService : WorkerLoop
                 {
                     // An acknowledged warning that turns critical needs attention again.
                     alert.State = AlertState.Open;
-                    transitions.Add(new AlertTransition(alert.Id, AlertTransitionKind.Escalated));
+                    transitions.Add(new AlertTransition(alert.Id, NotificationEvent.Escalated));
                 }
             }
         }
 
+        await UpsertRollupsAsync(db, "CheckResultsHourly", endpoint, hourly, cancellationToken);
+        await UpsertRollupsAsync(db, "CheckResultsDaily", endpoint, daily, cancellationToken);
         return statusChanged;
+    }
+
+    private sealed class RollupAccumulator
+    {
+        public double? Min;
+        public double? Max;
+        public double Sum;
+        public int Values;
+        public int Errors;
+        public int NoResponses;
+    }
+
+    private static void Accumulate(Dictionary<(Guid, string, DateTime), RollupAccumulator> buckets, (Guid, string, DateTime) key, CheckResult result,
+        bool noResponse)
+    {
+        if (!buckets.TryGetValue(key, out var bucket))
+        {
+            bucket = new RollupAccumulator();
+            buckets[key] = bucket;
+        }
+
+        if (!string.IsNullOrEmpty(result.Error) || double.IsNaN(result.Value) || double.IsInfinity(result.Value))
+        {
+            bucket.Errors++;
+        }
+        else if (noResponse)
+        {
+            bucket.NoResponses++;
+        }
+        else
+        {
+            bucket.Min = bucket.Min is { } min ? Math.Min(min, result.Value) : result.Value;
+            bucket.Max = bucket.Max is { } max ? Math.Max(max, result.Value) : result.Value;
+            bucket.Sum += result.Value;
+            bucket.Values++;
+        }
+    }
+
+    // LEAST and GREATEST ignore nulls in PostgreSQL, so a bucket without values keeps null until a value arrives. The table name is a
+    // constant chosen by the caller, never input.
+    private const string UpsertRollupSql = """
+        INSERT INTO "{0}" AS t ("EndpointId", "CheckDefinitionId", "Target", "Bucket", "ClientId", "MinValue", "MaxValue", "SumValue", "ValueCount", "ErrorCount", "NoResponseCount")
+        SELECT @endpointId, u.check_id, u.target, u.bucket, @clientId, u.min_value, u.max_value, u.sum_value, u.value_count, u.error_count, u.no_response_count
+        FROM unnest(@checkIds, @targets, @buckets, @mins, @maxs, @sums, @valueCounts, @errorCounts, @noResponseCounts)
+          AS u(check_id, target, bucket, min_value, max_value, sum_value, value_count, error_count, no_response_count)
+        ON CONFLICT ("EndpointId", "CheckDefinitionId", "Target", "Bucket") DO UPDATE SET
+          "MinValue" = LEAST(t."MinValue", EXCLUDED."MinValue"),
+          "MaxValue" = GREATEST(t."MaxValue", EXCLUDED."MaxValue"),
+          "SumValue" = t."SumValue" + EXCLUDED."SumValue",
+          "ValueCount" = t."ValueCount" + EXCLUDED."ValueCount",
+          "ErrorCount" = t."ErrorCount" + EXCLUDED."ErrorCount",
+          "NoResponseCount" = t."NoResponseCount" + EXCLUDED."NoResponseCount"
+        """;
+
+    private static async Task UpsertRollupsAsync(FleetifyDbContext db, string table, EndpointFacts endpoint,
+        Dictionary<(Guid, string, DateTime), RollupAccumulator> buckets, CancellationToken cancellationToken)
+    {
+        if (buckets.Count == 0)
+        {
+            return;
+        }
+
+        var rows = buckets.ToList();
+#pragma warning disable EF1002 // The table name is one of two constants; every value is a parameter.
+        await db.Database.ExecuteSqlRawAsync(string.Format(System.Globalization.CultureInfo.InvariantCulture, UpsertRollupSql, table),
+            [
+                new NpgsqlParameter("endpointId", endpoint.Id),
+                new NpgsqlParameter("clientId", endpoint.ClientId),
+                new NpgsqlParameter("checkIds", rows.Select(r => r.Key.Item1).ToArray()),
+                new NpgsqlParameter("targets", rows.Select(r => r.Key.Item2).ToArray()),
+                new NpgsqlParameter("buckets", rows.Select(r => DateTime.SpecifyKind(r.Key.Item3, DateTimeKind.Utc)).ToArray()),
+                new NpgsqlParameter("mins", rows.Select(r => r.Value.Min).ToArray()),
+                new NpgsqlParameter("maxs", rows.Select(r => r.Value.Max).ToArray()),
+                new NpgsqlParameter("sums", rows.Select(r => r.Value.Sum).ToArray()),
+                new NpgsqlParameter("valueCounts", rows.Select(r => r.Value.Values).ToArray()),
+                new NpgsqlParameter("errorCounts", rows.Select(r => r.Value.Errors).ToArray()),
+                new NpgsqlParameter("noResponseCounts", rows.Select(r => r.Value.NoResponses).ToArray())
+            ], cancellationToken);
+#pragma warning restore EF1002
     }
 
     private async Task<LicenseStatus> GetLicenseStatusAsync(CancellationToken cancellationToken)

@@ -9,10 +9,59 @@ When a third released version is added, the oldest entry moves to the top of
 
 ## [Unreleased]
 
-Implementation of 0.0.x (foundation) and 0.1.0 (first usable release), to be released as 0.1.0.
+Implementation of 0.0.x (foundation) and 0.1.0 (first usable release), to be released as 0.1.0, and work on 0.2.0
+that started on 2026-09-15 on top of it (entries starting with "0.2.0:"). Pre-release `0.2.0-alpha.1` (2026-09-15) is a
+test build of this state for the first CI run and the first VPS install; it is not a release, so its entries stay here.
 
 ### Added
 
+- 0.2.0: Maintenance mode for a client, a site or a managed endpoint, started from the client and site settings menus and
+  the right-click menu of the endpoint list, for 1, 4 or 24 hours, until a chosen time or until turned off, with an
+  optional reason. No check or offline alert opens or escalates while it lasts; open alerts still resolve, duplicate
+  identity alerts still open, and the first failing result afterwards opens the alert at once. The clients panel shows
+  "all" or "2/14" per client and site, the endpoint list and detail show "In maintenance until 16:00", and the endpoint
+  list has an "In maintenance" filter. Start, change, end and expiry are audit entries (without the reason).
+- 0.2.0: Check catalog: ping, TCP port, HTTP(S) URL (status, response time, expected text and certificate expiry), process
+  running, pending restart (Windows, Linux), file or folder (exists, must not exist, size, hours since the last change),
+  certificate expiry (Windows certificate store or certificate files), event log (Windows) and antivirus and firewall
+  (Windows), next to CPU, memory, disk, service and uptime. One description per type (`CheckCatalog`) drives validation,
+  evaluation, alert titles and the check dialog; a check reaches only endpoints whose platform runs it.
+- 0.2.0: Certificate recovery: an agent whose certificate expired while it was offline renews it with that certificate and the
+  same key, up to a year after expiry, unless it was revoked or replaced. Enroll again on an endpoint creates a single-use
+  install command that lets a reinstalled or long-offline agent take over the endpoint with its history; earlier certificates
+  are revoked.
+- 0.2.0: Maintenance windows in policies: recurring on chosen days at a local start time, for a duration, in a time zone, for all
+  endpoints, servers or workstations. While a window runs, endpoints of the sites that use the policy are in maintenance; the
+  endpoint list and detail name the policy.
+- 0.2.0: Routing rules per notification channel: alerts of all clients or of chosen clients, with the minimum severity and
+  resolves as before.
+- 0.2.0: Webhook notification channels next to email: generic JSON signed with an `X-Fleeto-Signature` header (secret shown
+  once, replaceable), Slack and Microsoft Teams. Retries with backoff, a circuit breaker per channel, a test message and the
+  last delivery on the notification channels page. Webhooks only go to public https addresses.
+- 0.2.0: Email through Microsoft Graph as an alternative to SMTP, with a client secret or a certificate created by Fleeto
+  (downloaded and uploaded to the app registration, then switched to). SMTP, when configured, takes over while the Graph
+  credential has expired.
+- 0.2.0: Warnings for expiring credentials (the Microsoft Graph secret or certificate): a dashboard warning from 30 days
+  before the end date and admin emails at 30, 14, 7 and 1 days and after expiry.
+- 0.2.0: Check history per check of an endpoint for the last hour, day, week, month and year: a line chart with average,
+  lowest to highest and thresholds for numeric checks, a status timeline for yes/no checks. Hourly and daily rollups kept 13
+  months, maintained by the workers together with the evaluation.
+- 0.2.0: Script library under Settings, Templates, Scripts: PowerShell and Batch scripts for Windows, sh and bash for Linux
+  and macOS, global or for one client, with a description and a timeout. Saving a change creates a new version; older versions
+  stay readable. A policy can require approval of scripts by a second admin, who confirms with an authenticator code; a
+  change needs approval again.
+- 0.2.0: Jobs: run a library script as SYSTEM or root on a managed endpoint from its Jobs tab or the right-click menu of the
+  endpoint list, valid for 1 hour, 24 hours or 7 days. The signer checks role, tier, platform, client and approval again
+  before it signs; the agent verifies the signature, the endpoint, the validity and the script hash, runs the script with
+  its timeout and sends stdout and stderr in numbered chunks that it keeps on disk until the gateway stored them. The Jobs
+  tab shows state, exit code and output (live while the job runs), the dashboard shows recent jobs, and a job waiting for
+  delivery can be cancelled. Jobs that were not signed, expired, refused or lost stay in the history with the reason.
+- 0.2.0: Script check: runs a library script on its interval; exit code 0 is OK, 1 a warning and any other code critical, and the
+  first line of output is the detail. Available in monitoring templates and on one endpoint, only for scripts of the same scope and
+  platform. Where the policy requires approval the check runs the newest approved version. A script that checks use cannot be
+  deleted.
+- 0.2.0: Services in the inventory (Windows): name, display name, start type and state. The check dialog suggests them for a
+  service check, from the endpoint or, for a monitoring template, from the endpoints that run it; typing a name still works.
 - .NET 10 solution: `Fleetify.Core`, `Fleetify.Protocol` (agent protocol v1), `Fleetify.Infrastructure`,
   `Fleetify.Web`, `Fleetify.Gateway`, `Fleetify.Signer`, `Fleetify.Workers`, `Fleetify.Tools`
   (`fleetify-tool`), per-component test projects against a real PostgreSQL, and `Fleetify.LoadTest`.
@@ -81,6 +130,11 @@ Implementation of 0.0.x (foundation) and 0.1.0 (first usable release), to be rel
 
 ### Changed
 
+- 0.2.0: Pre-release versions (`0.2.0-alpha.1`): the release workflow, the install.sh bundler and install.sh accept them, and
+  install.sh orders them by semantic versioning, so `0.2.0-alpha.1` updates to `0.2.0`.
+- 0.2.0: The signing request origin trigger refuses signing request kinds it does not know for every container role.
+- 0.2.0: The type of an existing check can no longer be changed: its results and history belong to that type. Add a new check
+  instead.
 - Endpoint Summary in two columns: Status and Hardware on the left, Disks and Network on the right.
   Status shows connection, operating system, agent version and certificate only. The two columns
   follow the width of the detail itself (one column below 640 pixels), not the screen width.
@@ -119,6 +173,9 @@ Implementation of 0.0.x (foundation) and 0.1.0 (first usable release), to be rel
 
 ### Security
 
+- 0.2.0: Jobs are signed per endpoint with the context `fleetify-job-v1` and carry the script body; a job is never run twice
+  on an agent, and a job interrupted by an agent stop is reported as lost instead of run again. Only the web role can request
+  job signatures (database trigger). A script approval code is accepted once and a wrong code counts towards the lockout.
 - Separate Steaan release signing key (offline, hardware token) for agent binaries,
   `install.sh` and the release manifest; instance signing key limited to jobs, policies,
   check definitions and session tokens.

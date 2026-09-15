@@ -1,4 +1,5 @@
 @* Create or edit a policy. The scope (global or one client) is chosen at creation and cannot change. *@
+@inject TimeDisplay Time
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">@(Existing is null ? "New policy" : $"Edit policy {Existing.Name}")</MudText>
@@ -30,6 +31,12 @@
             <MudSelectItem T="AlertSeverity" Value="AlertSeverity.Critical">Critical</MudSelectItem>
             <MudSelectItem T="AlertSeverity" Value="AlertSeverity.Warning">Warning</MudSelectItem>
         </MudSelect>
+        <MudSwitch T="bool" @bind-Value="_scriptApproval" Color="Color.Primary" Class="mt-3" Label="Require approval of scripts by a second admin" />
+        <MudText Typo="Typo.caption" Class="muted d-block">
+            Jobs on the endpoints of sites with this policy then run only library scripts whose current version another admin approved.
+            Recommended for servers.
+        </MudText>
+        <MaintenanceWindowEditor Windows="_windows" DefaultTimeZone="@TimeZoneOptions.IanaId(Time.Zone)" />
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
@@ -52,6 +59,8 @@
     private int _inventoryMinutes = 360;
     private int _offlineMinutes = 10;
     private AlertSeverity _offlineSeverity = AlertSeverity.Critical;
+    private List<MaintenanceWindowEditor.WindowModel> _windows = [];
+    private bool _scriptApproval;
     private bool _busy;
 
     protected override void OnInitialized()
@@ -64,6 +73,8 @@
             _inventoryMinutes = p.InventoryIntervalSeconds / 60;
             _offlineMinutes = p.OfflineAlertAfterMinutes;
             _offlineSeverity = p.OfflineAlertSeverity;
+            _windows = p.MaintenanceWindows.Select(MaintenanceWindowEditor.WindowModel.From).ToList();
+            _scriptApproval = p.ScriptApprovalRequired;
         }
     }
 
@@ -74,7 +85,8 @@
         _busy = true;
         try
         {
-            var input = new PolicyInput(_name, _description, _heartbeat, _inventoryMinutes * 60, _offlineMinutes, _offlineSeverity);
+            var input = new PolicyInput(_name, _description, _heartbeat, _inventoryMinutes * 60, _offlineMinutes, _offlineSeverity,
+                _windows.Select(w => w.ToWindow()).ToList(), _scriptApproval);
             if (await OnSubmit(_clientId, input))
             {
                 MudDialog.Close(DialogResult.Ok(true));

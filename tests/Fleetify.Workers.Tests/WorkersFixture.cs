@@ -66,6 +66,9 @@ public sealed class WorkersFixture : IAsyncLifetime
         new(Db.DbFactory, Db.Bus, Db.Licenses, new AlertNotificationService(Db.Time), Heartbeat(), Db.Time,
             NullLogger<EndpointHealthService>.Instance);
 
+    public MaintenanceExpiryService MaintenanceExpiry() =>
+        new(Db.DbFactory, Db.Bus, Heartbeat(), Db.Time, NullLogger<MaintenanceExpiryService>.Instance);
+
     public EndpointEventService EndpointEvents() =>
         new(Db.DbFactory, Db.Bus, new AlertNotificationService(Db.Time), Heartbeat(), Db.Time, NullLogger<EndpointEventService>.Instance);
 

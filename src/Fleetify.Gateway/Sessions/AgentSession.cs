@@ -266,9 +266,16 @@ public sealed class AgentSession : IDisposable
         }
     }
 
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, byte> _sentJobs = new();
+
     internal bool TryBeginRenewal() => Interlocked.CompareExchange(ref _renewalInFlight, 1, 0) == 0;
 
     internal void EndRenewal() => Interlocked.Exchange(ref _renewalInFlight, 0);
+
+    /// <summary>
+    /// True the first time a job is offered to this connection; a job is delivered once per connection and again after a reconnect.
+    /// </summary>
+    internal bool TryMarkJobSent(Guid jobId) => _sentJobs.TryAdd(jobId, 0);
 
     /// <summary>True only the first time; used to log agent-only discards once per session.</summary>
     internal bool FirstAgentOnlyDiscard() => Interlocked.Exchange(ref _agentOnlyWarned, 1) == 0;

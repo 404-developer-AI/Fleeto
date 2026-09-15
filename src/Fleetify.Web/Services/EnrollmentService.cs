@@ -10,7 +10,7 @@ using AuditActions = Fleetify.Core.Interfaces.AuditActions;
 namespace Fleetify.Web.Services;
 
 public sealed record EnrollmentTokenListItem(Guid Id, string Name, DateTime CreatedAt, DateTime ExpiresAt, int? MaxUses, int UseCount,
-    DateTime? RevokedAt, string Status);
+    DateTime? RevokedAt, string Status, string? EndpointHostname = null);
 
 /// <summary>A token that was just created. The plaintext exists only in this object and on the screen, once.</summary>
 public sealed record CreatedEnrollmentToken(Guid Id, string Token, string? InstallCommand, string? Problem);
@@ -28,6 +28,9 @@ public sealed class EnrollmentService
     ];
 
     public const int MaxUsesLimit = 10000;
+
+    /// <summary>Lifetime of an "enroll again" token: single use, for one reinstall.</summary>
+    public static readonly TimeSpan EnrollAgainLifetime = TimeSpan.FromDays(1);
 
     private readonly IFleetifyDbContextFactory _dbFactory;
     private readonly TimeProvider _time;
@@ -49,12 +52,14 @@ public sealed class EnrollmentService
             .Where(t => t.SiteId == siteId)
             .OrderByDescending(t => t.CreatedAt)
             .Take(200)
+            .Select(t => new { Token = t, Hostname = db.Endpoints.Where(e => e.Id == t.EndpointId).Select(e => e.Hostname).FirstOrDefault() })
             .ToListAsync(cancellationToken);
-        return tokens.Select(t => new EnrollmentTokenListItem(t.Id, t.Name, t.CreatedAt, t.ExpiresAt, t.MaxUses, t.UseCount, t.RevokedAt,
-            t.RevokedAt is not null ? "Revoked"
-            : t.ExpiresAt <= now ? "Expired"
-            : t.MaxUses is not null && t.UseCount >= t.MaxUses ? "Used"
-            : "Active")).ToList();
+        return tokens.Select(x => new EnrollmentTokenListItem(x.Token.Id, x.Token.Name, x.Token.CreatedAt, x.Token.ExpiresAt, x.Token.MaxUses,
+            x.Token.UseCount, x.Token.RevokedAt,
+            x.Token.RevokedAt is not null ? "Revoked"
+            : x.Token.ExpiresAt <= now ? "Expired"
+            : x.Token.MaxUses is not null && x.Token.UseCount >= x.Token.MaxUses ? "Used"
+            : "Active", x.Hostname)).ToList();
     }
 
     /// <summary>
@@ -93,14 +98,51 @@ public sealed class EnrollmentService
             return ServiceResult<CreatedEnrollmentToken>.NotFound("site");
         }
 
+        return await CreateTokenAsync(db, caller, site.ClientId, site.Id, site.Name, null, cleanName, lifetime, maxUses, cancellationToken);
+    }
+
+    /// <summary>
+    /// Creates a single-use "enroll again" token for an existing endpoint (0.2.0): the agent installed with it takes over this
+    /// endpoint, with its checks, alerts, notes and history, and the endpoint's earlier certificates are revoked when it enrolls.
+    /// For an agent that was offline longer than certificate recovery allows, or a reinstalled machine.
+    /// </summary>
+    public async Task<ServiceResult<CreatedEnrollmentToken>> CreateForEndpointAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
+    {
+        if (!caller.CanManage)
+        {
+            return ServiceResult<CreatedEnrollmentToken>.Forbidden();
+        }
+
+        await using var db = _dbFactory.Create(caller.Scope);
+        var endpoint = await db.Endpoints.AsNoTracking().Where(e => e.Id == endpointId)
+            .Select(e => new { e.Id, e.ClientId, e.SiteId, e.Hostname, e.Source, SiteName = e.Site!.Name })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (endpoint is null)
+        {
+            return ServiceResult<CreatedEnrollmentToken>.NotFound("endpoint");
+        }
+
+        if (endpoint.Source != EndpointSource.Agent)
+        {
+            return ServiceResult<CreatedEnrollmentToken>.Fail("This endpoint has no agent. Only endpoints with an agent can be enrolled again.");
+        }
+
+        return await CreateTokenAsync(db, caller, endpoint.ClientId, endpoint.SiteId, endpoint.SiteName, endpoint.Id,
+            $"Enroll {endpoint.Hostname} again", EnrollAgainLifetime, 1, cancellationToken);
+    }
+
+    private async Task<ServiceResult<CreatedEnrollmentToken>> CreateTokenAsync(FleetifyDbContext db, Caller caller, Guid clientId, Guid siteId,
+        string siteName, Guid? endpointId, string name, TimeSpan lifetime, int? maxUses, CancellationToken cancellationToken)
+    {
         var now = _time.GetUtcNow().UtcDateTime;
         var (token, id, hash) = OpaqueTokens.Create(OpaqueTokens.EnrollmentPrefix);
         var row = new EnrollmentToken
         {
             Id = id,
-            ClientId = site.ClientId,
-            SiteId = site.Id,
-            Name = cleanName,
+            ClientId = clientId,
+            SiteId = siteId,
+            EndpointId = endpointId,
+            Name = name.Length > 100 ? name[..100] : name,
             TokenHash = hash,
             ExpiresAt = now + lifetime,
             MaxUses = maxUses,
@@ -108,10 +150,10 @@ public sealed class EnrollmentService
             CreatedAt = now
         };
         db.EnrollmentTokens.Add(row);
-        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.EnrollmentTokenCreated, "EnrollmentToken", id.ToString(), site.ClientId,
-            new { SiteId = site.Id, Site = site.Name, row.Name, row.ExpiresAt, row.MaxUses }), now));
+        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.EnrollmentTokenCreated, "EnrollmentToken", id.ToString(), clientId,
+            new { SiteId = siteId, Site = siteName, row.Name, row.ExpiresAt, row.MaxUses, EndpointId = endpointId }), now));
         await db.SaveChangesAsync(cancellationToken);
-        _logger.LogInformation("Enrollment token {TokenId} created for site {SiteId} by {UserId}", id, site.Id, caller.UserId);
+        _logger.LogInformation("Enrollment token {TokenId} created for site {SiteId} (endpoint {EndpointId}) by {UserId}", id, siteId, endpointId, caller.UserId);
 
         var instance = await db.InstanceSettings.AsNoTracking()
             .Select(i => new { i.WebBaseUrl, i.AgentHostName, i.AgentPort })

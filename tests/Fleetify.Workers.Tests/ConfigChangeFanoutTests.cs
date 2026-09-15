@@ -131,6 +131,35 @@ public sealed class ConfigChangeFanoutTests
     }
 
     [Fact]
+    public async Task Script_scope_requests_configs_for_managed_endpoints_with_a_check_that_uses_the_script()
+    {
+        var t = await CreateTopologyAsync();
+        var scriptId = Guid.NewGuid();
+        var otherScriptId = Guid.NewGuid();
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var now = _fixture.Now;
+            CheckDefinition Script(Guid id) => new()
+            {
+                Id = Guid.NewGuid(), Name = "Script", Type = CheckType.Script, IntervalSeconds = 300, ParametersJson = $$"""{"script":"{{id:D}}","language":"PowerShell"}""",
+                CreatedAt = now, UpdatedAt = now
+            };
+            var templateCheck = Script(scriptId);
+            templateCheck.MonitoringTemplateId = t.Template.Id;
+            var endpointCheck = Script(scriptId);
+            endpointCheck.EndpointId = t.E1.Id;
+            endpointCheck.ClientId = t.ClientA.Id;
+            var otherCheck = Script(otherScriptId);
+            otherCheck.EndpointId = t.E2.Id;
+            otherCheck.ClientId = t.ClientA.Id;
+            db.CheckDefinitions.AddRange(templateCheck, endpointCheck, otherCheck);
+            await db.SaveChangesAsync();
+        }
+
+        await AssertScopeAsync(t, ConfigChangeScope.Script, scriptId, t.E1.Id, t.E3.Id);
+    }
+
+    [Fact]
     public async Task Overlapping_events_do_not_create_duplicate_pending_requests()
     {
         var t = await CreateTopologyAsync();

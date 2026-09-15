@@ -41,16 +41,23 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
     public DbSet<CheckDefinition> CheckDefinitions => Set<CheckDefinition>();
     public DbSet<SiteMonitoringTemplate> SiteMonitoringTemplates => Set<SiteMonitoringTemplate>();
     public DbSet<SitePolicy> SitePolicies => Set<SitePolicy>();
+    public DbSet<MaintenanceWindowOccurrence> MaintenanceWindowOccurrences => Set<MaintenanceWindowOccurrence>();
     public DbSet<EndpointMonitoringTemplate> EndpointMonitoringTemplates => Set<EndpointMonitoringTemplate>();
     public DbSet<EndpointCheckOverride> EndpointCheckOverrides => Set<EndpointCheckOverride>();
     public DbSet<CheckRunRequest> CheckRunRequests => Set<CheckRunRequest>();
     public DbSet<Note> Notes => Set<Note>();
+    public DbSet<Script> Scripts => Set<Script>();
+    public DbSet<ScriptVersion> ScriptVersions => Set<ScriptVersion>();
+    public DbSet<Job> Jobs => Set<Job>();
+    public DbSet<JobOutputChunk> JobOutputChunks => Set<JobOutputChunk>();
     public DbSet<ClientTemplate> ClientTemplates => Set<ClientTemplate>();
     public DbSet<ClientTemplateSite> ClientTemplateSites => Set<ClientTemplateSite>();
     public DbSet<ClientTemplateSiteMonitoringTemplate> ClientTemplateSiteMonitoringTemplates => Set<ClientTemplateSiteMonitoringTemplate>();
     public DbSet<CheckResult> CheckResults => Set<CheckResult>();
     public DbSet<IngestBatch> IngestBatches => Set<IngestBatch>();
     public DbSet<CheckState> CheckStates => Set<CheckState>();
+    public DbSet<CheckResultHourly> CheckResultsHourly => Set<CheckResultHourly>();
+    public DbSet<CheckResultDaily> CheckResultsDaily => Set<CheckResultDaily>();
     public DbSet<Alert> Alerts => Set<Alert>();
     public DbSet<EndpointEvent> EndpointEvents => Set<EndpointEvent>();
     public DbSet<SigningRequest> SigningRequests => Set<SigningRequest>();
@@ -65,7 +72,9 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
     public DbSet<SetupToken> SetupTokens => Set<SetupToken>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
     public DbSet<NotificationChannel> NotificationChannels => Set<NotificationChannel>();
+    public DbSet<NotificationChannelClient> NotificationChannelClients => Set<NotificationChannelClient>();
     public DbSet<OutboxEmail> OutboxEmails => Set<OutboxEmail>();
+    public DbSet<OutboxWebhook> OutboxWebhooks => Set<OutboxWebhook>();
     public DbSet<BackupRun> BackupRuns => Set<BackupRun>();
     public DbSet<WorkerWatermark> WorkerWatermarks => Set<WorkerWatermark>();
 
@@ -87,6 +96,7 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
             entity.Property(c => c.Code).HasMaxLength(16);
             entity.Property(c => c.Name).HasMaxLength(200);
             entity.HasIndex(c => c.Code).IsUnique();
+            MaintenanceColumns(entity);
             entity.HasMany(c => c.Sites).WithOne(s => s.Client).HasForeignKey(s => s.ClientId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<ClientTemplate>().WithMany().HasForeignKey(c => c.ClientTemplateId).OnDelete(DeleteBehavior.SetNull);
             entity.HasQueryFilter(c => ScopeAllClients || ScopeClientIds.Contains(c.Id));
@@ -98,6 +108,7 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
             entity.Property(s => s.Description).HasMaxLength(1000);
             entity.HasAlternateKey(s => new { s.Id, s.ClientId });
             entity.HasIndex(s => new { s.ClientId, s.Name }).IsUnique();
+            MaintenanceColumns(entity);
             entity.HasOne<ClientTemplateSite>().WithMany().HasForeignKey(s => s.ClientTemplateSiteId).OnDelete(DeleteBehavior.SetNull);
             ClientOwned(entity);
         });
@@ -116,6 +127,7 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
             entity.Property(e => e.Source).HasConversion<string>().HasMaxLength(20);
             entity.Property(e => e.PublicIpAddress).HasMaxLength(64);
             entity.Ignore(e => e.EffectiveClass);
+            MaintenanceColumns(entity);
             entity.HasAlternateKey(e => new { e.Id, e.ClientId });
             entity.HasOne(e => e.Site).WithMany(s => s.Endpoints)
                 .HasForeignKey(e => new { e.SiteId, e.ClientId })
@@ -153,6 +165,10 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
                 .HasForeignKey(t => new { t.SiteId, t.ClientId })
                 .HasPrincipalKey(s => new { s.Id, s.ClientId })
                 .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Endpoint>().WithMany()
+                .HasForeignKey(t => new { t.EndpointId, t.ClientId })
+                .HasPrincipalKey(e => new { e.Id, e.ClientId })
+                .OnDelete(DeleteBehavior.Cascade);
             ClientOwned(entity);
         });
 
@@ -169,7 +185,18 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
             entity.Property(i => i.DisksJson).HasColumnType("jsonb");
             entity.Property(i => i.NetworkInterfacesJson).HasColumnType("jsonb");
             entity.Property(i => i.SoftwareJson).HasColumnType("jsonb");
+            entity.Property(i => i.ServicesJson).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
             ClientOwned(entity);
+        });
+
+        builder.Entity<MaintenanceWindowOccurrence>(entity =>
+        {
+            entity.HasKey(o => new { o.PolicyId, o.WindowIndex, o.StartsAt });
+            entity.Property(o => o.AppliesTo).HasConversion<string>().HasMaxLength(20);
+            entity.Property(o => o.Name).HasMaxLength(100);
+            entity.HasIndex(o => new { o.StartsAt, o.EndsAt });
+            entity.HasOne<Policy>().WithMany().HasForeignKey(o => o.PolicyId).OnDelete(DeleteBehavior.Cascade);
+            entity.ToTable(t => t.HasCheckConstraint("CK_MaintenanceWindowOccurrences_Span", "\"EndsAt\" > \"StartsAt\""));
         });
 
         builder.Entity<Policy>(entity =>
@@ -177,6 +204,7 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
             entity.Property(p => p.Name).HasMaxLength(100);
             entity.Property(p => p.Description).HasMaxLength(1000);
             entity.Property(p => p.OfflineAlertSeverity).HasConversion<string>().HasMaxLength(20);
+            entity.Property(p => p.MaintenanceWindowsJson).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
             entity.HasIndex(p => new { p.ClientId, p.Name }).IsUnique().AreNullsDistinct(false);
             entity.HasIndex(p => p.IsDefault).IsUnique().HasFilter("\"IsDefault\"");
             // A client-specific policy is deleted with its client.
@@ -328,6 +356,22 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
             ClientOwned(entity);
         });
 
+        builder.Entity<CheckResultHourly>(entity =>
+        {
+            entity.ToTable("CheckResultsHourly");
+            Rollup(entity);
+            EndpointChild(entity, r => new { r.EndpointId, r.ClientId });
+            ClientOwned(entity);
+        });
+
+        builder.Entity<CheckResultDaily>(entity =>
+        {
+            entity.ToTable("CheckResultsDaily");
+            Rollup(entity);
+            EndpointChild(entity, r => new { r.EndpointId, r.ClientId });
+            ClientOwned(entity);
+        });
+
         builder.Entity<CheckRunRequest>(entity =>
         {
             entity.Property(r => r.RequestedByName).HasMaxLength(200);
@@ -349,6 +393,76 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
             // Newest first per endpoint, keyset on (CreatedAt, Id).
             entity.HasIndex(n => new { n.EndpointId, n.CreatedAt, n.Id }).IsDescending(false, true, true);
             entity.ToTable(t => t.HasCheckConstraint("CK_Notes_Body", "char_length(\"Body\") BETWEEN 1 AND 20000"));
+            ClientOwned(entity);
+        });
+
+        builder.Entity<Script>(entity =>
+        {
+            entity.Property(s => s.Name).HasMaxLength(100);
+            entity.Property(s => s.Description).HasMaxLength(1000);
+            entity.Property(s => s.Language).HasConversion<string>().HasMaxLength(20);
+            entity.HasIndex(s => new { s.ClientId, s.Name }).IsUnique().AreNullsDistinct(false);
+            entity.HasMany(s => s.Versions).WithOne().HasForeignKey(v => v.ScriptId).OnDelete(DeleteBehavior.Cascade);
+            // A client-specific script is deleted with its client.
+            entity.HasOne<Client>().WithMany().HasForeignKey(s => s.ClientId).OnDelete(DeleteBehavior.Cascade);
+            GlobalOrClientOwned(entity);
+        });
+
+        builder.Entity<ScriptVersion>(entity =>
+        {
+            entity.Property(v => v.Body).HasMaxLength(ScriptRules.MaxBodyLength);
+            entity.Property(v => v.Sha256).HasMaxLength(64);
+            entity.Property(v => v.AuthorName).HasMaxLength(200);
+            entity.Property(v => v.ApprovedByName).HasMaxLength(200);
+            entity.Property(v => v.ApprovedSha256).HasMaxLength(64);
+            entity.Ignore(v => v.IsApproved);
+            entity.HasIndex(v => new { v.ScriptId, v.Number }).IsUnique();
+            entity.ToTable(t => t.HasCheckConstraint("CK_ScriptVersions_Approval",
+                "(\"ApprovedAt\" IS NULL) = (\"ApprovedByUserId\" IS NULL) AND (\"ApprovedByUserId\" IS NULL OR \"ApprovedByUserId\" <> \"AuthorUserId\")"));
+            GlobalOrClientOwned(entity);
+        });
+
+        builder.Entity<Job>(entity =>
+        {
+            entity.Property(j => j.Type).HasConversion<string>().HasMaxLength(20);
+            entity.Property(j => j.ScriptName).HasMaxLength(100);
+            entity.Property(j => j.Language).HasConversion<string>().HasMaxLength(20);
+            entity.Property(j => j.ScriptSha256).HasMaxLength(64);
+            entity.Property(j => j.InitiatedByName).HasMaxLength(200);
+            entity.Property(j => j.State).HasConversion<string>().HasMaxLength(20);
+            entity.Property(j => j.RefusalReason).HasMaxLength(500);
+            entity.Property(j => j.SigningKeyId).HasMaxLength(64);
+            entity.Property(j => j.Result).HasConversion<string>().HasMaxLength(20);
+            entity.Property(j => j.Error).HasMaxLength(1000);
+            entity.Property(j => j.OutputState).HasConversion<string>().HasMaxLength(20);
+            entity.Property(j => j.StdoutSha256).HasMaxLength(64);
+            entity.Property(j => j.StderrSha256).HasMaxLength(64);
+            entity.HasAlternateKey(j => new { j.Id, j.ClientId });
+            EndpointChild(entity, j => new { j.EndpointId, j.ClientId });
+            entity.HasOne<Script>().WithMany().HasForeignKey(j => j.ScriptId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<ScriptVersion>().WithMany().HasForeignKey(j => j.ScriptVersionId).OnDelete(DeleteBehavior.SetNull);
+            // Newest first per endpoint; delivery and maintenance by state.
+            entity.HasIndex(j => new { j.EndpointId, j.CreatedAt }).IsDescending(false, true);
+            entity.HasIndex(j => new { j.State, j.EndpointId }).HasFilter("\"State\" IN ('PendingSignature', 'Queued', 'Running')");
+            entity.HasIndex(j => j.BatchId);
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_Jobs_Validity", "\"ValidUntil\" > \"CreatedAt\" AND \"ValidUntil\" <= \"CreatedAt\" + interval '7 days 5 minutes'");
+                t.HasCheckConstraint("CK_Jobs_Signed", "\"State\" IN ('PendingSignature', 'Refused', 'Cancelled', 'Expired') OR \"Signature\" IS NOT NULL");
+            });
+            ClientOwned(entity);
+        });
+
+        builder.Entity<JobOutputChunk>(entity =>
+        {
+            entity.HasKey(c => new { c.JobId, c.Stream, c.Sequence });
+            entity.Property(c => c.Stream).HasConversion<string>().HasMaxLength(10);
+            entity.HasOne<Job>().WithMany()
+                .HasForeignKey(c => new { c.JobId, c.ClientId })
+                .HasPrincipalKey(j => new { j.Id, j.ClientId })
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(c => c.ReceivedAt);
+            entity.ToTable(t => t.HasCheckConstraint("CK_JobOutputChunks_Size", "octet_length(\"Data\") BETWEEN 1 AND 65536"));
             ClientOwned(entity);
         });
 
@@ -489,6 +603,30 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
             entity.Property(c => c.Type).HasConversion<string>().HasMaxLength(20);
             entity.Property(c => c.Recipients).HasMaxLength(2000);
             entity.Property(c => c.MinimumSeverity).HasConversion<string>().HasMaxLength(20);
+            entity.Property(c => c.WebhookFormat).HasConversion<string>().HasMaxLength(20);
+            entity.Property(c => c.WebhookHost).HasMaxLength(255);
+            entity.Property(c => c.EncryptedWebhook).HasMaxLength(8000);
+            entity.Property(c => c.AllClients).HasDefaultValue(true).ValueGeneratedNever();
+            entity.ToTable(t => t.HasCheckConstraint("CK_NotificationChannels_Type",
+                "(\"Type\" = 'Email' AND \"Recipients\" <> '' AND \"EncryptedWebhook\" IS NULL) OR " +
+                "(\"Type\" = 'Webhook' AND \"EncryptedWebhook\" IS NOT NULL AND \"WebhookFormat\" IS NOT NULL)"));
+            entity.HasMany(c => c.Clients).WithOne().HasForeignKey(c => c.NotificationChannelId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<NotificationChannelClient>(entity =>
+        {
+            entity.HasKey(c => new { c.NotificationChannelId, c.ClientId });
+            entity.HasIndex(c => c.ClientId);
+            entity.HasOne<Client>().WithMany().HasForeignKey(c => c.ClientId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<OutboxWebhook>(entity =>
+        {
+            entity.Property(w => w.Category).HasMaxLength(50);
+            entity.Property(w => w.LastError).HasMaxLength(1000);
+            entity.HasIndex(w => w.NextAttemptAt).HasFilter("\"SentAt\" IS NULL").HasDatabaseName("IX_OutboxWebhooks_Pending");
+            entity.HasIndex(w => new { w.NotificationChannelId, w.CreatedAt });
+            entity.HasOne<NotificationChannel>().WithMany().HasForeignKey(w => w.NotificationChannelId).OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<OutboxEmail>(entity =>
@@ -570,6 +708,27 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
                 throw new UnauthorizedAccessException("The change touches a client outside the caller's scope.");
             }
         }
+    }
+
+    /// <summary>Key, lengths, the check foreign key and the retention index of an hourly or daily rollup.</summary>
+    private static void Rollup<T>(EntityTypeBuilder<T> entity) where T : class
+    {
+        entity.HasKey("EndpointId", "CheckDefinitionId", "Target", "Bucket");
+        entity.Property<string>("Target").HasMaxLength(256);
+        entity.HasIndex("Bucket");
+        entity.HasOne<CheckDefinition>().WithMany().HasForeignKey("CheckDefinitionId").OnDelete(DeleteBehavior.Cascade);
+    }
+
+    /// <summary>Maintenance mode columns shared by clients, sites and endpoints (MaintenanceRules).</summary>
+    private static void MaintenanceColumns<T>(EntityTypeBuilder<T> entity) where T : class
+    {
+        entity.Property<string?>("MaintenanceStartedByName").HasMaxLength(200);
+        entity.Property<string?>("MaintenanceReason").HasMaxLength(Core.Domain.MaintenanceRules.MaxReasonLength);
+        entity.Ignore("Maintenance");
+        // The workers find maintenance that expired since their last pass (MaintenanceExpiryService).
+        entity.HasIndex("MaintenanceEndsAt").HasFilter("\"MaintenanceEndsAt\" IS NOT NULL");
+        entity.ToTable(t => t.HasCheckConstraint($"CK_{typeof(T).Name}s_Maintenance",
+            "\"MaintenanceEndsAt\" IS NULL OR \"MaintenanceStartedAt\" IS NOT NULL"));
     }
 
     private void ClientOwned<T>(EntityTypeBuilder<T> entity) where T : class

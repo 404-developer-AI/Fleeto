@@ -30,6 +30,7 @@ public static class GatewayApplication
         builder.Services.AddSingleton<SigningRequestClient>();
         builder.Services.AddSingleton<EnrollmentTokenValidator>();
         builder.Services.AddSingleton<EnrollmentHandler>();
+        builder.Services.AddSingleton<RecoveryHandler>();
         builder.Services.AddSingleton<AgentConnectionHandler>();
         builder.Services.AddSingleton<GatewayHealth>();
         builder.Services.AddSingleton<AgentTlsOptions>();
@@ -95,6 +96,9 @@ public static class GatewayApplication
             .RequireRateLimiting(EnrollmentHandler.RateLimitPolicy);
         app.MapGet(ProtocolLimits.ConnectPath, (HttpContext context, AgentConnectionHandler handler) => handler.HandleAsync(context))
             .AddEndpointFilter(OnlyOnPort(ports.AgentPort));
+        app.MapPost(ProtocolLimits.RecoverPath, (HttpContext context, RecoveryHandler handler) => handler.HandleAsync(context))
+            .AddEndpointFilter(OnlyOnPort(ports.AgentPort))
+            .RequireRateLimiting(EnrollmentHandler.RateLimitPolicy);
         // Public: the instance CA certificates (PEM). TLS stacks leave a self-signed root out of the handshake, so before
         // enrollment the agent fetches the CA here, matches it against the install fingerprint and only then connects
         // with normal TLS verification against it. Nothing secret is exchanged before that check.

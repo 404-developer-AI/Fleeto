@@ -84,6 +84,11 @@ func Collect(ctx context.Context, logger *slog.Logger) *agentv1.Inventory {
 		logger.Warn("inventory: installed software could not be read", "error", err)
 	}
 	inv.Software = software
+	if svc, err := services(); err == nil {
+		inv.Services = svc
+	} else {
+		logger.Warn("inventory: services could not be listed", "error", err)
+	}
 
 	Normalize(inv)
 	return inv
@@ -125,6 +130,8 @@ func Normalize(inv *agentv1.Inventory) {
 	inv.Software = slices.CompactFunc(inv.Software, func(a, b *agentv1.SoftwareItem) bool {
 		return a.GetName() == b.GetName() && a.GetVersion() == b.GetVersion() && a.GetPublisher() == b.GetPublisher()
 	})
+	slices.SortFunc(inv.Services, func(a, b *agentv1.ServiceItem) int { return cmp.Compare(a.GetName(), b.GetName()) })
+	inv.Services = slices.CompactFunc(inv.Services, func(a, b *agentv1.ServiceItem) bool { return a.GetName() == b.GetName() })
 	slices.SortFunc(inv.Disks, func(a, b *agentv1.Disk) int { return cmp.Compare(a.GetMount(), b.GetMount()) })
 	for _, nic := range inv.NetworkInterfaces {
 		slices.Sort(nic.IpAddresses)

@@ -15,7 +15,7 @@ namespace Fleetify.Web.Services;
 public sealed record EndpointCheckRow(
     Guid DefinitionId, string Name, CheckType Type, string Target, CheckStatus? Status, bool RerunRequested, double? Value, string Detail,
     string Error, DateTime? LastResultAt, int IntervalSeconds, CheckSource Source, string? TemplateName, bool DisabledOnEndpoint,
-    bool HasOverrides, AlertView? OpenAlert);
+    bool HasOverrides, AlertView? OpenAlert, IReadOnlyDictionary<string, string> Parameters);
 
 /// <param name="Managed">False for an agent-only endpoint (or an expired license): no checks run and nothing can change.</param>
 /// <param name="ConfigurationPending">The agent has not applied the latest signed configuration yet.</param>
@@ -25,7 +25,10 @@ public sealed record EndpointChecksView(bool Managed, bool ConfigurationPending,
 public sealed record CheckOverrideView(
     Guid DefinitionId, string Name, CheckType Type, string? TemplateName, int TemplateIntervalSeconds, double? TemplateWarningThreshold,
     double? TemplateCriticalThreshold, int TemplateFailuresBeforeAlert, bool Disabled, int? IntervalSeconds, bool OverrideThresholds,
-    double? WarningThreshold, double? CriticalThreshold, int? FailuresBeforeAlert);
+    double? WarningThreshold, double? CriticalThreshold, int? FailuresBeforeAlert, IReadOnlyDictionary<string, string> Parameters);
+
+/// <summary>A service seen on an endpoint, for picking the service of a service check.</summary>
+public sealed record ServiceOption(string Name, string DisplayName, string StartType, string State);
 
 /// <summary>Overrides of one template check. Null interval or failures, and OverrideThresholds false, inherit the template.</summary>
 public sealed record CheckOverrideInput(int? IntervalSeconds, bool OverrideThresholds, double? WarningThreshold, double? CriticalThreshold,
@@ -93,12 +96,13 @@ public sealed class EndpointCheckService
         var rows = new List<EndpointCheckRow>();
         foreach (var check in checks.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ThenBy(c => c.Id))
         {
+            var parameters = CheckParameters.Parse(check.Definition.ParametersJson);
             var checkStates = check.DisabledOnEndpoint ? [] : states[check.Id].OrderBy(s => s.Target, StringComparer.OrdinalIgnoreCase).ToList();
             if (checkStates.Count == 0)
             {
                 alerts.TryGetValue((check.Id, string.Empty), out var alert);
                 rows.Add(new EndpointCheckRow(check.Id, check.Name, check.Type, string.Empty, null, false, null, string.Empty, string.Empty, null,
-                    check.IntervalSeconds, check.Source, check.TemplateName, check.DisabledOnEndpoint, check.HasOverrides, alert));
+                    check.IntervalSeconds, check.Source, check.TemplateName, check.DisabledOnEndpoint, check.HasOverrides, alert, parameters));
                 continue;
             }
 
@@ -108,7 +112,7 @@ public sealed class EndpointCheckService
                 rows.Add(new EndpointCheckRow(check.Id, check.Name, check.Type, state.Target, state.Status, state.RerunRequested,
                     state.RerunRequested ? null : state.Value, state.RerunRequested ? string.Empty : state.Detail,
                     state.RerunRequested ? string.Empty : state.Error, state.LastResultAt, check.IntervalSeconds, check.Source, check.TemplateName,
-                    false, check.HasOverrides, alert));
+                    false, check.HasOverrides, alert, parameters));
             }
         }
 
@@ -135,7 +139,7 @@ public sealed class EndpointCheckService
         var o = check.Override;
         return new CheckOverrideView(d.Id, d.Name, d.Type, check.TemplateName, d.IntervalSeconds, d.WarningThreshold, d.CriticalThreshold,
             d.FailuresBeforeAlert, o?.Disabled == true, o?.IntervalSeconds, o?.OverrideThresholds == true, o?.WarningThreshold, o?.CriticalThreshold,
-            o?.FailuresBeforeAlert);
+            o?.FailuresBeforeAlert, CheckParameters.Parse(d.ParametersJson));
     }
 
     /// <summary>Switches a template check off or on again for this endpoint.</summary>
@@ -297,6 +301,11 @@ public sealed class EndpointCheckService
                 return ServiceResult<Guid>.NotFound("check");
             }
 
+            if (existing.Type != input.Type)
+            {
+                return ServiceResult<Guid>.Fail("The type of a check cannot change: its results and history belong to that type. Add a new check instead.");
+            }
+
             check = existing;
         }
         else
@@ -304,9 +313,23 @@ public sealed class EndpointCheckService
             check = new CheckDefinition { Id = Guid.NewGuid(), EndpointId = endpointId, ClientId = endpoint.ClientId, CreatedAt = now };
         }
 
-        var parameters = input.Parameters
-            .Where(p => MonitoringTemplateService.ParameterNames(input.Type).Contains(p.Key) && !string.IsNullOrWhiteSpace(p.Value))
-            .ToDictionary(p => p.Key, p => p.Value.Trim());
+        if (!Enum.IsDefined(input.Type))
+        {
+            return ServiceResult<Guid>.Fail("Choose a check type.");
+        }
+
+        var parameters = CheckCatalog.CleanParameters(input.Type, input.Parameters);
+        if (input.Type == CheckType.Script && await ScriptChecks.BindAsync(db, endpoint.ClientId, parameters, cancellationToken) is { } scriptProblem)
+        {
+            return ServiceResult<Guid>.Fail(scriptProblem);
+        }
+
+        if (!CheckCatalog.IsSupported(input.Type, parameters, endpoint.OsPlatform))
+        {
+            return ServiceResult<Guid>.Fail(input.Type == CheckType.Script
+                ? "The script's language does not run on this endpoint's operating system. Choose another script."
+                : $"{CheckCatalog.Get(input.Type).Label} checks run on {CheckCatalog.PlatformLabel(CheckCatalog.Get(input.Type).Platforms)}, not on this endpoint. Choose another check type.");
+        }
 
         check.Name = input.Name?.Trim() ?? string.Empty;
         check.Type = input.Type;
@@ -377,6 +400,16 @@ public sealed class EndpointCheckService
         await db.SaveChangesAsync(cancellationToken);
         await PublishStatusAsync(endpointId, cancellationToken);
         return ServiceResult.Ok();
+    }
+
+    /// <summary>The services the agent reported in the latest inventory, sorted by display name. Empty when there is no inventory.</summary>
+    public async Task<IReadOnlyList<ServiceOption>> GetServicesAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
+    {
+        caller.EnsureView();
+        await using var db = _dbFactory.Create(caller.Scope);
+        var json = await db.InventorySnapshots.AsNoTracking().Where(i => i.EndpointId == endpointId).Select(i => i.ServicesJson)
+            .FirstOrDefaultAsync(cancellationToken);
+        return ServiceOptions.Parse(json, _logger);
     }
 
     public async Task<EndpointTemplateLinks?> GetTemplateLinksAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)

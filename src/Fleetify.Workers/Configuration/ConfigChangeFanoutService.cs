@@ -59,6 +59,19 @@ public sealed class ConfigChangeFanoutService : WorkerLoop
     // A deleted monitoring template lost its site and endpoint links; only managed endpoints carry checks, so they are a safe superset.
     private const string InsertMonitoringTemplateDeleted = InsertPrefix + """ AND e."Tier" = 'Managed'""";
 
+    // Script checks carry the script in the signed configuration, so a new version, an approval or a rename re-signs every managed
+    // endpoint that has a check using the script. Checks that do not apply (class, platform, disabled) make a superset; the signer
+    // skips configurations that did not change.
+    private const string InsertScript = InsertPrefix + """
+         AND e."Tier" = 'Managed'
+         AND EXISTS (
+           SELECT 1 FROM "CheckDefinitions" d
+           WHERE d."Type" = 'Script' AND d."ParametersJson"->>'script' = @scopeId::text
+             AND (d."EndpointId" = e."Id"
+                  OR EXISTS (SELECT 1 FROM "SiteMonitoringTemplates" l WHERE l."SiteId" = e."SiteId" AND l."MonitoringTemplateId" = d."MonitoringTemplateId")
+                  OR EXISTS (SELECT 1 FROM "EndpointMonitoringTemplates" el WHERE el."EndpointId" = e."Id" AND el."MonitoringTemplateId" = d."MonitoringTemplateId")))
+        """;
+
     private readonly IFleetifyDbContextFactory _dbFactory;
     private readonly INotificationBus _bus;
     private IDisposable? _subscription;
@@ -168,6 +181,8 @@ public sealed class ConfigChangeFanoutService : WorkerLoop
                 var exists = await db.MonitoringTemplates.AsNoTracking().AnyAsync(t => t.Id == change.ScopeId, cancellationToken);
                 return exists ? InsertMonitoringTemplate : InsertMonitoringTemplateDeleted;
             }
+            case ConfigChangeScope.Script:
+                return InsertScript;
             default:
                 Logger.LogWarning("Configuration change {EventId} has unknown scope {Scope}; treating it as instance-wide", change.Id, change.Scope);
                 return InsertInstance;

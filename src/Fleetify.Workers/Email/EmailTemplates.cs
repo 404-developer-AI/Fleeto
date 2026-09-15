@@ -223,6 +223,52 @@ public static class EmailTemplates
         return new EmailContent(Subject($"The backup of {instanceFqdn} failed"), html, Footer(text));
     }
 
+    /// <summary>A stored credential reaches its end date within 30 days.</summary>
+    public static EmailContent CredentialExpiring(string instanceFqdn, string name, DateTime expiresAt, string stopsWorking, string nextStep, string settingsUrl)
+    {
+        var html = Layout($"""
+            <p style="margin:0 0 16px">{Enc(name)} of <strong>{Enc(instanceFqdn)}</strong> expires on {Enc(Date(expiresAt))}.</p>
+            <p style="margin:0 0 24px">After that date {Enc(stopsWorking)} stops. {Enc(nextStep)}</p>
+            {Button(settingsUrl, "Open settings")}
+            """);
+
+        var text = $"""
+            {name} of {instanceFqdn} expires on {Date(expiresAt)}.
+
+            After that date {stopsWorking} stops. {nextStep}
+
+            Open settings: {settingsUrl}
+            """;
+
+        return new EmailContent(Subject($"{name} of {instanceFqdn} expires on {Date(expiresAt)}"), html, Footer(text));
+    }
+
+    /// <summary>A stored credential has expired.</summary>
+    public static EmailContent CredentialExpired(string instanceFqdn, string name, DateTime expiredAt, string stopsWorking, string nextStep,
+        string settingsUrl, bool fallbackInUse)
+    {
+        var consequence = fallbackInUse
+            ? $"{Capitalize(stopsWorking)} has stopped; email now goes through SMTP until the credential is renewed."
+            : $"{Capitalize(stopsWorking)} has stopped.";
+        var html = Layout($"""
+            <p style="margin:0 0 16px">{Enc(name)} of <strong>{Enc(instanceFqdn)}</strong> expired on {Enc(Date(expiredAt))}.</p>
+            <p style="margin:0 0 24px">{Enc(consequence)} {Enc(nextStep)}</p>
+            {Button(settingsUrl, "Open settings")}
+            """);
+
+        var text = $"""
+            {name} of {instanceFqdn} expired on {Date(expiredAt)}.
+
+            {consequence} {nextStep}
+
+            Open settings: {settingsUrl}
+            """;
+
+        return new EmailContent(Subject($"{name} of {instanceFqdn} has expired"), html, Footer(text));
+    }
+
+    private static string Capitalize(string value) => value.Length == 0 ? value : char.ToUpperInvariant(value[0]) + value[1..];
+
     /// <summary>A short message to confirm that email delivery works. Public so the web can reuse the same text.</summary>
     public static EmailContent TestEmail(string instanceFqdn)
     {

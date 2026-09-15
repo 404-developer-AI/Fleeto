@@ -10,6 +10,9 @@
 **0.1.0** — implemented and tested on a development PC, waiting for the developer's local test.
 Not tagged yet. What is still open before the tag is listed under "Open before tagging 0.1.0".
 
+**0.2.0** — in progress since 2026-09-15, on top of the untagged 0.1.0. Pre-release `v0.2.0-alpha.1` (2026-09-15) is a
+test build for the first CI run and the first VPS install.
+
 Markers: [done] built and tested, [open] still to do.
 
 ## 0.0.x — Foundation
@@ -91,41 +94,66 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
 
 ## 0.2.0 — Full monitoring, jobs and API
 
-- Linux and macOS agents.
-- Complete check catalog, maintenance windows, escalation rules, webhook notifications.
-- Service checks by picking a service: besides typing the service name, choose from a list of the
+- [open] Linux and macOS agents.
+- [done] Complete check catalog (decided 2026-09-15), with a check only sent to endpoints whose platform runs it:
+  - network: ping to a host, TCP port reachable, HTTP(S) URL (status code, response time, certificate
+    expiry);
+  - system: process running, pending reboot, file or folder (exists, size, age), local certificate
+    expiring;
+  - Windows: event log (number of events per source and id within a window), Windows Security Center
+    (antivirus and firewall on);
+  - [done] script check: an approved library script whose exit code sets the status (with the script library).
+    Decided while building: approval follows the policy like jobs; where approval is required the check runs the
+    newest approved version, so a change waits for approval without stopping the check.
+- [done] Maintenance windows in the policy (recurring, feeding the maintenance mode rule): days, local start
+  time, duration, time zone and all endpoints, servers or workstations; occurrences stored ahead so the rule
+  stays a time comparison.
+- [done] Escalation rules as routing rules (decided 2026-09-15): per notification channel, which clients and
+  which severities it receives. No time-based escalation.
+- [done] Webhook notifications next to email: generic JSON signed with HMAC-SHA256, Slack and Microsoft Teams
+  (workflow adaptive card); per-channel retry and circuit breaker, test message, last delivery shown. Sent
+  only to public https addresses, checked at connect time.
+- [done] Service checks by picking a service (Windows services now; systemd and launchd with the Linux and macOS agents): besides typing the service name, choose from a list of the
   services on the endpoint. The agent reports its services (name, display name, start type, state) as
   part of the inventory; the check dialog on an endpoint offers them, and on a monitoring template it
   offers the services seen on the endpoints of the linked sites. Typing a name stays possible for a
   service that is not installed yet.
-- Email through Microsoft Graph (`sendMail` with application permission, limited to the sending
+- [done] Email through Microsoft Graph (`sendMail` with application permission, limited to the sending
   mailbox by an Exchange application access policy) as an alternative to SMTP, chosen in Settings,
   Email. Same outbox, retry and circuit breaker as SMTP. Client secret or certificate stored encrypted
-  in the database.
-- Expiring credentials: every stored secret with an end date (starting with the Graph client secret or
+  in the database (decided while building: the certificate is created by Fleeto and waits as pending
+  until the admin switches to it, so a renewal never interrupts sending).
+- [done] Expiring credentials: every stored secret with an end date (starting with the Graph client secret or
   certificate) carries that date. From 30 days before expiry the dashboard warns and admins get an
   email, repeated at 14, 7 and 1 days; after expiry the warning turns red and states what stopped
   working (email delivery) and the next step. An expired Graph secret cannot send its own warning, so
   the warning also shows in the UI and the email goes through SMTP when that is configured as well.
-- Check history per check of an endpoint: the last hour, day, week, month and year; a line chart for
-  numeric checks (CPU, memory, free disk space including storage growth, uptime) and a status
-  timeline for service checks. Hourly and daily rollups kept 13 months (TimescaleDB continuous
-  aggregates where installed, worker-maintained rollups otherwise).
-- Watchdog service (`fleetify-watchdog`, Windows first): a second service with its own certificate
+- [done] Check history per check of an endpoint: the last hour, day, week, month and year; a line chart for
+  numeric checks (CPU, memory, free disk space including storage growth, uptime, response times) and a
+  status timeline for yes/no checks. Hourly and daily rollups kept 13 months, maintained by the workers
+  in every setup (decided while building: exactly-once with the evaluation, same behaviour without
+  TimescaleDB).
+- [open] Watchdog service (`fleetify-watchdog`, Windows first): a second service with its own certificate
   for the same endpoint, always connected. Agent and watchdog restart each other; alerts "Agent
   service stopped" and "Watchdog stopped" on managed endpoints, separate from the offline alert.
   The watchdog installs agent updates and rolls back a failed one.
-- Maintenance mode per client, site and endpoint: started by hand, with an optional end time
+- [done] Maintenance mode per client, site and endpoint: started by hand, with an optional end time
   (1 hour, 4 hours, 24 hours, a chosen time, or until turned off). While an endpoint is in
   maintenance no alert opens or escalates; open alerts stay open and still resolve when their
   check recovers. Duplicate identity alerts are never suppressed. The clients panel shows per
   client and site whether all or some endpoints are in maintenance ("all" or "2/14"); the
-  endpoint list and detail show it per endpoint. Maintenance windows from the policy feed the
-  same rule.
-- Script library with versions and optional four-eyes approval per policy; signed remote
+  endpoint list and detail show it per endpoint, with a filter "In maintenance". [done] Maintenance
+  windows from the policy feed the same rule.
+- [done] Script library with versions and optional four-eyes approval per policy; signed remote
   execution with `ValidUntil`, output capture, job history including expired and refused jobs.
-- Agent self-update with update rings, installed only with a valid Steaan release signature.
-- Recovery for agents that were offline past their certificate expiry (for example a laptop
+  PowerShell and Batch on Windows, sh and bash on Linux and macOS, always as SYSTEM or root; running
+  as the logged-on user comes later (decided 2026-09-15). Decided while building: a script runs on one
+  endpoint at a time from the UI; running it on a selection of endpoints, with a notification to every
+  admin above a number of endpoints, and an output cap per policy come later.
+- [open] Agent self-update, installed only with a valid Steaan release signature. Three update rings chosen
+  in the policy (decided 2026-09-15): Preview (at once), Standard (after 7 days), Delayed (after 14
+  days); an admin can pause a release or release it to every ring at once.
+- [done] Recovery for agents that were offline past their certificate expiry (for example a laptop
   that stayed in a drawer for months):
   - Renewal with an expired certificate: the gateway accepts an expired but not revoked agent
     certificate for a limited period after expiry (for example 12 months), only for the renewal
@@ -135,7 +163,9 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
   - Re-enrollment onto the same endpoint: an agent that enrolls again with a new token can be
     linked to its existing endpoint (chosen by the technician, or matched by the agent's key or
     state), so checks, alerts, notes and audit history are kept instead of creating a new endpoint.
-- Public REST API `/api/v1`: API keys with scopes, read access to all core resources,
+    Decided while building: chosen by the technician only (Enroll again on the endpoint, a single-use
+    token bound to it); no automatic matching.
+- [open] Public REST API `/api/v1`: API keys with scopes, read access to all core resources,
   OpenAPI document with drift test, rate limiting, audit. Notes get an external ticket reference
   (for a servicedesk), set and read through the API.
 

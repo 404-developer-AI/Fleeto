@@ -1,0 +1,137 @@
+@* History of one check of an endpoint: the last hour, day, week, month or year. *@
+@inherits FleetoPageBase
+@inject CheckHistoryService HistorySvc
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">History of @Name@(string.IsNullOrEmpty(_target) ? "" : $" ({_target})")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <div class="d-flex align-center justify-space-between flex-wrap gap-2 mb-3">
+            <MudButtonGroup Variant="Variant.Outlined" Size="Size.Small" OverrideStyles="false">
+                @foreach (var range in Enum.GetValues<HistoryRange>())
+                {
+                    <MudButton Variant="@(range == _range ? Variant.Filled : Variant.Outlined)" Color="@(range == _range ? Color.Primary : Color.Default)"
+                               Size="Size.Small" OnClick="@(() => SetRangeAsync(range))">@RangeLabel(range)</MudButton>
+                }
+            </MudButtonGroup>
+            @if (_view is { Targets.Count: > 1 })
+            {
+                <MudSelect T="string" Value="_target" ValueChanged="SetTargetAsync" Label="Target" Variant="Variant.Outlined" Margin="Margin.Dense"
+                           Style="max-width:260px">
+                    @foreach (var t in _view.Targets)
+                    {
+                        <MudSelectItem T="string" Value="t">@(string.IsNullOrEmpty(t) ? "(default)" : t)</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+        </div>
+
+        <LoadState Loading="Loading" Failed="LoadFailed" NotFound="@(_view is null && !Loading)" What="check">
+            @if (_view is { } view)
+            {
+                @if (!view.Points.Any(p => p.HasData))
+                {
+                    <EmptyState Icon="@Icons.Material.Outlined.ShowChart" Title="No results in this period"
+                                Text="@(view.Range is HistoryRange.Hour or HistoryRange.Day ? "Results appear here as the agent reports them." : "Longer periods are built from hourly and daily summaries that start with this release.")" />
+                }
+                else if (view.Kind is ThresholdKind.Flag or ThresholdKind.ExitCode)
+                {
+                    <StatusTimeline View="view" />
+                }
+                else
+                {
+                    <HistoryChart View="view" />
+                    <div class="d-flex gap-3 mt-2 muted flex-wrap" style="font-size:0.75rem">
+                        <span><span class="history-legend history-legend-line"></span> Average</span>
+                        <span><span class="history-legend history-legend-band"></span> Lowest to highest</span>
+                        @if (view.WarningThreshold is not null)
+                        {
+                            <span><span class="history-legend history-legend-warning"></span> Warning threshold</span>
+                        }
+                        @if (view.CriticalThreshold is not null)
+                        {
+                            <span><span class="history-legend history-legend-critical"></span> Critical threshold</span>
+                        }
+                        @if (view.Points.Any(p => p.Errors + p.NoResponses > 0))
+                        {
+                            <span><span class="history-legend history-legend-problem"></span> @(view.Kind == ThresholdKind.Reachability ? "No response or could not run" : "Could not run")</span>
+                        }
+                    </div>
+                    <MudText Typo="Typo.caption" Class="muted d-block mt-2">@Summary(view)</MudText>
+                }
+            }
+        </LoadState>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public Guid EndpointId { get; set; }
+    [Parameter, EditorRequired] public Guid CheckId { get; set; }
+    [Parameter, EditorRequired] public string Name { get; set; } = string.Empty;
+    [Parameter] public string? Target { get; set; }
+
+    private HistoryRange _range = HistoryRange.Day;
+    private string? _target;
+    private CheckHistoryView? _view;
+
+    protected override async Task OnInitializedAsync()
+    {
+        base.OnInitialized();
+        _target = Target;
+        await ReloadAsync();
+    }
+
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        _view = await HistorySvc.GetAsync(caller, EndpointId, CheckId, _target, _range);
+        _target = _view?.Target ?? _target;
+    });
+
+    private async Task SetRangeAsync(HistoryRange range)
+    {
+        _range = range;
+        await ReloadAsync();
+    }
+
+    private async Task SetTargetAsync(string target)
+    {
+        _target = target;
+        await ReloadAsync();
+    }
+
+    private static string RangeLabel(HistoryRange range) => range switch
+    {
+        HistoryRange.Hour => "Hour",
+        HistoryRange.Day => "Day",
+        HistoryRange.Week => "Week",
+        HistoryRange.Month => "Month",
+        _ => "Year"
+    };
+
+    private static string Summary(CheckHistoryView view)
+    {
+        var withValues = view.Points.Where(p => p.Avg is not null).ToList();
+        if (withValues.Count == 0)
+        {
+            return "The check could not run or got no response in this period.";
+        }
+
+        var values = withValues.Sum(p => p.Values);
+        var avg = withValues.Sum(p => p.Avg!.Value * p.Values) / values;
+        var min = withValues.Min(p => p.Min!.Value);
+        var max = withValues.Max(p => p.Max!.Value);
+        string F(double v) => Ui.CheckValue(view.Type, v, view.Target, view.Parameters);
+        var text = $"{values} results. Average {F(avg)}, lowest {F(min)}, highest {F(max)}.";
+        var problems = view.Points.Sum(p => p.Errors + p.NoResponses);
+        return problems > 0 ? $"{text} {problems} without a value." : text;
+    }
+
+    private void Close() => MudDialog.Close();
+}

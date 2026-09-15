@@ -4,6 +4,8 @@
 @inject EndpointService EndpointSvc
 @inject EndpointCheckService CheckSvc
 @inject NoteService NoteSvc
+@inject JobService JobSvc
+@inject ScriptService ScriptSvc
 @inject IDialogService DialogService
 @inject TimeProvider Clock
 @inject LiveUpdates Live
@@ -29,6 +31,7 @@
                         {
                             <StatusChip Text="@($"{e.HeldAlertCount} on hold")" Kind="StatusKind.Neutral" />
                         }
+                        <MaintenanceChip Maintenance="e.Maintenance" SourceName="@MaintenanceSourceName(e)" />
                     </div>
                     <div class="muted endpoint-detail-subtitle">
                         @e.OsName · @Ui.ClassLabel(e.ClassOverride ?? e.DetectedClass) · [@e.ClientCode] @e.ClientName › @e.SiteName
@@ -55,6 +58,9 @@
                 <MudTabPanel Text="Notes" Icon="@Icons.Material.Outlined.StickyNote2">
                     @Notes(e)
                 </MudTabPanel>
+                <MudTabPanel Text="Jobs" Icon="@Icons.Material.Outlined.Terminal">
+                    @Jobs(e)
+                </MudTabPanel>
                 <MudTabPanel Text="History" Icon="@Icons.Material.Outlined.History">
                     @History()
                 </MudTabPanel>
@@ -68,7 +74,8 @@
     private const int ChecksTab = 1;
     private const int SoftwareTab = 2;
     private const int NotesTab = 3;
-    private const int HistoryTab = 4;
+    private const int JobsTab = 4;
+    private const int HistoryTab = 5;
 
     [Parameter, EditorRequired]
     public Guid EndpointId { get; set; }
@@ -89,6 +96,7 @@
     private EndpointChecksView? _checks;
     private NotePage? _notes;
     private List<NoteView> _noteItems = [];
+    private IReadOnlyList<JobListItem>? _jobs;
     private IReadOnlyList<AlertView> _alerts = [];
     private IReadOnlyList<EndpointEventView> _events = [];
     private IReadOnlyList<AuditEntryView> _audit = [];
@@ -102,6 +110,7 @@
         Live.EndpointStatusChanged += OnEndpointChange;
         Live.CheckResultsChanged += OnEndpointChange;
         Live.AlertChanged += OnAlertChange;
+        Live.JobsChanged += OnJobsChange;
     }
 
     protected override async Task OnParametersSetAsync()
@@ -154,6 +163,9 @@
                 _notes = await NoteSvc.ListAsync(caller, EndpointId);
                 _noteItems = _notes?.Items.ToList() ?? [];
                 break;
+            case JobsTab:
+                _jobs = await JobSvc.ListForEndpointAsync(caller, EndpointId);
+                break;
             case HistoryTab:
                 _alerts = await EndpointSvc.GetAlertsAsync(caller, EndpointId, 50);
                 _events = await EndpointSvc.GetEventsAsync(caller, EndpointId, 50);
@@ -179,6 +191,21 @@
     // Alert notifications carry the alert id, not the endpoint id.
     private void OnAlertChange(Guid _) => _refresh?.Trigger();
 
+    private void OnJobsChange(Guid id)
+    {
+        if (_tab == JobsTab && (id == EndpointId || id == Guid.Empty))
+        {
+            _refresh?.Trigger();
+        }
+    }
+
+    private static string MaintenanceSourceName(EndpointDetail e) => e.Maintenance?.Source switch
+    {
+        MaintenanceSource.Client => e.ClientCode,
+        MaintenanceSource.Site => e.SiteName,
+        _ => e.Hostname
+    };
+
     private static string AlertCountText(int count) => count == 1 ? "1 open alert" : $"{count} open alerts";
 
     private RenderFragment Summary(EndpointDetail e) => __builder =>
@@ -193,6 +220,26 @@
                         <MudSimpleTable Dense="true" Elevation="0" Class="detail-table">
                             <tbody>
                                 <tr><td class="muted">Connection</td><td>@(e.IsOnline ? "Online" : "Offline") · last seen <TimeText Value="e.LastSeenAt" /></td></tr>
+                                @if (e.Maintenance is { } maintenance)
+                                {
+                                    <tr>
+                                        <td class="muted">Maintenance</td>
+                                        <td>
+                                            @(maintenance.EndsAt is null ? "Until turned off" : $"Until {Time.Absolute(maintenance.EndsAt)}")
+                                            @if (maintenance.Source == MaintenanceSource.PolicyWindow)
+                                            {
+                                                <span> · maintenance window of policy @maintenance.SourceName</span>
+                                            }
+                                            else if (maintenance.Source != MaintenanceSource.Endpoint)
+                                            {
+                                                <span> · through @maintenance.Source.ToString().ToLowerInvariant() @MaintenanceSourceName(e)</span>
+                                            }
+                                            <div class="muted" style="font-size:0.75rem">
+                                                Started <TimeText Value="maintenance.StartedAt" />@(string.IsNullOrEmpty(maintenance.StartedByName) ? "" : $" by {maintenance.StartedByName}")@(string.IsNullOrEmpty(maintenance.Reason) ? "" : $" · {maintenance.Reason}")
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
                                 <tr><td class="muted">Operating system</td><td>@e.OsName @e.OsVersion (@e.Architecture)</td></tr>
                                 <tr>
                                     <td class="muted">Agent version</td>
@@ -361,7 +408,7 @@
                     <strong>@context.Name</strong>@(string.IsNullOrEmpty(context.Target) ? "" : $" ({context.Target})")
                     <div class="muted" style="font-size:0.75rem">@SourceText(context)@(context.HasOverrides ? " · adjusted for this endpoint" : "")</div>
                 </MudTd>
-                <MudTd>@(context.Status is null ? "-" : Ui.CheckValue(context.Type, context.Value))</MudTd>
+                <MudTd>@(context.Status is null ? "-" : Ui.CheckValue(context.Type, context.Value, context.Target, context.Parameters))</MudTd>
                 <MudTd>
                     @context.Detail
                     @if (!string.IsNullOrEmpty(context.Error))
@@ -370,7 +417,16 @@
                     }
                 </MudTd>
                 <MudTd>@Intervals.Describe(context.IntervalSeconds)</MudTd>
-                <MudTd><TimeText Value="context.LastResultAt" Never="-" /></MudTd>
+                <MudTd>
+                    @if (context.Status is not null)
+                    {
+                        <MudLink OnClick="@(() => ShowHistoryAsync(context))" Typo="Typo.body2" title="Show the history of this check"><TimeText Value="context.LastResultAt" Never="-" /></MudLink>
+                    }
+                    else
+                    {
+                        <TimeText Value="context.LastResultAt" Never="-" />
+                    }
+                </MudTd>
                 <MudTd>
                     <div class="d-flex flex-wrap gap-1">
                         <StatusChip Text="@RowStatusText(context)" Kind="@RowStatusKind(context)" />
@@ -385,6 +441,10 @@
                     <MudTd>
                         <MudMenu Icon="@Icons.Material.Outlined.MoreVert" Size="Size.Small" Dense="true" AriaLabel="Check actions"
                                  AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                            @if (context.Status is not null)
+                            {
+                                <MudMenuItem Icon="@Icons.Material.Outlined.ShowChart" OnClick="@(() => ShowHistoryAsync(context))">History</MudMenuItem>
+                            }
                             @if (!context.DisabledOnEndpoint)
                             {
                                 <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="@(() => RunCheckAsync(context, false))">Run now</MudMenuItem>
@@ -429,6 +489,99 @@
             </RowTemplate>
         </MudTable>
     };
+
+    private RenderFragment Jobs(EndpointDetail e) => __builder =>
+    {
+        if (_jobs is null)
+        {
+            return;
+        }
+
+        <div class="d-flex align-center justify-space-between flex-wrap gap-2 mb-2">
+            <MudText Typo="Typo.body2" Class="muted">Scripts run on this endpoint, newest first. Click a job for its output.</MudText>
+            @if (CanManage && e.Tier == EndpointTier.Managed)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PlayArrow" OnClick="@(() => RunScriptAsync(e))">Run script</MudButton>
+            }
+        </div>
+
+        if (_jobs.Count == 0)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.Terminal" Title="No jobs yet"
+                        Text="@(e.Tier == EndpointTier.Managed ? "Run a script from the library on this endpoint." : "Scripts run on managed endpoints. Switch this endpoint to managed from the endpoint list to use them.")" />
+            return;
+        }
+
+        <MudTable Items="_jobs" Dense="true" Hover="true" Elevation="0" OnRowClick="@((TableRowClickEventArgs<JobListItem> args) => ShowJobAsync(args.Item!))" RowStyle="cursor:pointer">
+            <HeaderContent>
+                <MudTh Style="width:170px">Started</MudTh>
+                <MudTh>Script</MudTh>
+                <MudTh>Result</MudTh>
+                <MudTh>Output</MudTh>
+                <MudTh Style="width:160px">By</MudTh>
+                @if (CanManage)
+                {
+                    <MudTh Style="width:52px"></MudTh>
+                }
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd><TimeText Value="context.StartedAt ?? context.CreatedAt" /></MudTd>
+                <MudTd>@context.ScriptName <span class="muted">v@(context.ScriptVersionNumber)</span></MudTd>
+                <MudTd>
+                    <StatusChip Text="@Ui.JobStateLabel(context.State, context.Result)" Kind="@Ui.JobStateKind(context.State)" />
+                    @if (context.ExitCode is { } exitCode)
+                    {
+                        <span class="muted ml-1">exit @exitCode</span>
+                    }
+                </MudTd>
+                <MudTd><span class="muted">@Ui.JobOutputLabel(context.OutputState, context.OutputTruncated)</span></MudTd>
+                <MudTd>@context.InitiatedByName</MudTd>
+                @if (CanManage)
+                {
+                    <MudTd @onclick:stopPropagation="true">
+                        @if (context.CanCancel)
+                        {
+                            <MudTooltip Text="Cancel"><MudIconButton Icon="@Icons.Material.Outlined.Cancel" Size="Size.Small" OnClick="@(() => CancelJobAsync(context))" /></MudTooltip>
+                        }
+                    </MudTd>
+                }
+            </RowTemplate>
+        </MudTable>
+    };
+
+    private async Task RunScriptAsync(EndpointDetail e)
+    {
+        IReadOnlyList<RunnableScript> scripts = [];
+        await LoadAsync(async caller => scripts = await JobSvc.ListRunnableScriptsAsync(caller, [e.Id]));
+        var parameters = new DialogParameters<RunScriptDialog>
+        {
+            { d => d.EndpointIds, new[] { e.Id } },
+            { d => d.TargetLabel, e.Hostname },
+            { d => d.Scripts, scripts },
+            { d => d.OnSubmit, (scriptId, validity) => RunAsync(caller => JobSvc.RunAsync(caller, scriptId, [e.Id], validity),
+                "The job was started. It runs as soon as the endpoint receives it.") }
+        };
+        var dialog = await DialogService.ShowAsync<RunScriptDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await LoadAsync(LoadTabAsync);
+        }
+    }
+
+    private async Task ShowJobAsync(JobListItem job)
+    {
+        var parameters = new DialogParameters<JobOutputDialog> { { d => d.JobId, job.Id }, { d => d.EndpointId, job.EndpointId } };
+        var dialog = await DialogService.ShowAsync<JobOutputDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
+        await dialog.Result;
+    }
+
+    private async Task CancelJobAsync(JobListItem job)
+    {
+        if (await RunAsync(caller => JobSvc.CancelAsync(caller, job.Id), "The job was cancelled."))
+        {
+            await LoadAsync(LoadTabAsync);
+        }
+    }
 
     private RenderFragment Notes(EndpointDetail e) => __builder =>
     {
@@ -705,6 +858,18 @@
         return !(await dialog.Result)!.Canceled;
     }
 
+    private async Task ShowHistoryAsync(EndpointCheckRow row)
+    {
+        var parameters = new DialogParameters<CheckHistoryDialog>
+        {
+            { d => d.EndpointId, EndpointId },
+            { d => d.CheckId, row.DefinitionId },
+            { d => d.Name, row.Name },
+            { d => d.Target, row.Target }
+        };
+        await DialogService.ShowAsync<CheckHistoryDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
+    }
+
     private async Task RunCheckAsync(EndpointCheckRow row, bool reset)
     {
         var result = await RunForValueAsync(caller => CheckSvc.RequestRunAsync(caller, EndpointId, row.DefinitionId, reset), null);
@@ -769,6 +934,9 @@
         {
             { d => d.Existing, existing },
             { d => d.ForEndpoint, true },
+            { d => d.EndpointPlatform, e.OsPlatform },
+            { d => d.LoadServices, () => LoadServicesAsync() },
+            { d => d.LoadScripts, () => LoadScriptsAsync(e.ClientId, e.OsPlatform) },
             {
                 d => d.OnSubmit, input => RunAsync(caller => CheckSvc.SaveEndpointCheckAsync(caller, EndpointId, checkId, input),
                     checkId is null ? $"The check was added to {e.Hostname}." : "The check was saved.")
@@ -779,6 +947,20 @@
         {
             await AfterActionAsync();
         }
+    }
+
+    private async Task<IReadOnlyList<ServiceOption>> LoadServicesAsync()
+    {
+        IReadOnlyList<ServiceOption> services = [];
+        await LoadAsync(async caller => services = await CheckSvc.GetServicesAsync(caller, EndpointId));
+        return services;
+    }
+
+    private async Task<IReadOnlyList<ScriptOption>> LoadScriptsAsync(Guid clientId, string platform)
+    {
+        IReadOnlyList<ScriptOption> scripts = [];
+        await LoadAsync(async caller => scripts = await ScriptSvc.ListForChecksAsync(caller, clientId, platform));
+        return scripts;
     }
 
     private async Task DeleteEndpointCheckAsync(EndpointCheckRow row)
@@ -897,6 +1079,7 @@
         Live.EndpointStatusChanged -= OnEndpointChange;
         Live.CheckResultsChanged -= OnEndpointChange;
         Live.AlertChanged -= OnAlertChange;
+        Live.JobsChanged -= OnJobsChange;
         _refresh?.Dispose();
         base.Dispose();
     }

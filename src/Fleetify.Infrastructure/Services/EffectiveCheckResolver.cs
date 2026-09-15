@@ -15,8 +15,10 @@ public static class EffectiveCheckResolver
     /// SQL condition that is true when check definition <c>d</c> applies to endpoint <c>e</c> (ignoring tier). Aliases:
     /// <c>d</c> = "CheckDefinitions", <c>e</c> = "Endpoints".
     /// </summary>
-    public const string AppliesSql = """
-        (d."Enabled" AND (
+    public static readonly string AppliesSql = """
+        (d."Enabled" AND
+        """ + CheckCatalog.PlatformSql + """
+         AND (
           (d."MonitoringTemplateId" IS NOT NULL
             AND (d."AppliesTo" = 'All' OR d."AppliesTo" = COALESCE(e."ClassOverride", e."DetectedClass"))
             AND (EXISTS (SELECT 1 FROM "SiteMonitoringTemplates" sl WHERE sl."SiteId" = e."SiteId" AND sl."MonitoringTemplateId" = d."MonitoringTemplateId")
@@ -27,10 +29,10 @@ public static class EffectiveCheckResolver
 
     public static Task<IReadOnlyList<EffectiveCheck>> LoadAsync(FleetifyDbContext db, Endpoint endpoint, bool includeDisabledOnEndpoint,
         CancellationToken cancellationToken) =>
-        LoadAsync(db, endpoint.Id, endpoint.SiteId, endpoint.EffectiveClass, includeDisabledOnEndpoint, cancellationToken);
+        LoadAsync(db, endpoint.Id, endpoint.SiteId, endpoint.EffectiveClass, endpoint.OsPlatform, includeDisabledOnEndpoint, cancellationToken);
 
     public static async Task<IReadOnlyList<EffectiveCheck>> LoadAsync(FleetifyDbContext db, Guid endpointId, Guid siteId, EndpointClass endpointClass,
-        bool includeDisabledOnEndpoint, CancellationToken cancellationToken)
+        string? osPlatform, bool includeDisabledOnEndpoint, CancellationToken cancellationToken)
     {
         var siteTemplates = await db.SiteMonitoringTemplates.AsNoTracking()
             .Where(l => l.SiteId == siteId)
@@ -77,6 +79,6 @@ public static class EffectiveCheckResolver
             }
         }
 
-        return EffectiveChecks.Resolve(endpointClass, candidates, overrides, includeDisabledOnEndpoint);
+        return EffectiveChecks.Resolve(endpointClass, candidates, overrides, includeDisabledOnEndpoint, osPlatform);
     }
 }

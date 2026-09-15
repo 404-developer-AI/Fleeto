@@ -17,12 +17,19 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/buffer"
 	"github.com/404-developer-AI/Fleeto/agent/internal/checks"
 	"github.com/404-developer-AI/Fleeto/agent/internal/inventory"
+	"github.com/404-developer-AI/Fleeto/agent/internal/jobs"
 	"github.com/404-developer-AI/Fleeto/agent/internal/keystore"
 	"github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1"
 	"github.com/404-developer-AI/Fleeto/agent/internal/safego"
 	"github.com/404-developer-AI/Fleeto/agent/internal/signedconfig"
 	"github.com/404-developer-AI/Fleeto/agent/internal/state"
 )
+
+// JobsDirName is the job spool inside the state directory.
+const JobsDirName = "jobs"
+
+// CheckScriptsDirName holds the scripts of script checks while they run.
+const CheckScriptsDirName = "check-scripts"
 
 // ErrRevoked is returned by Run when the gateway revoked the agent. The agent must be enrolled again.
 var ErrRevoked = errors.New("the agent certificate was revoked: enroll the agent again")
@@ -55,7 +62,12 @@ type Options struct {
 
 func (o *Options) setDefaults() {
 	if o.Collector == nil {
-		o.Collector = checks.SystemCollector{}
+		collector := checks.SystemCollector{}
+		if o.Store != nil {
+			collector.ScriptDir = filepath.Join(o.Store.Dir(), CheckScriptsDirName)
+			collector.Access = o.Store.Access()
+		}
+		o.Collector = collector
 	}
 	if o.Inventory == nil {
 		logger := o.Logger
@@ -96,6 +108,7 @@ type Agent struct {
 	key       keystore.Key
 	buffer    *buffer.Buffer
 	scheduler *checks.Scheduler
+	jobs      *jobs.Manager
 
 	resultsAdded chan struct{}
 
@@ -107,6 +120,7 @@ type Agent struct {
 
 	lastBufferError time.Time
 	nextRenewal     time.Time
+	nextRecovery    time.Time
 }
 
 // New loads the state, opens the identity key and the result buffer, and re-verifies the stored configuration.
@@ -153,6 +167,28 @@ func New(opts Options) (*Agent, error) {
 	}
 	a.scheduler = checks.NewScheduler(opts.Collector, a.storeResults, opts.Logger)
 	a.loadAppliedConfig()
+	manager, err := jobs.NewManager(jobs.Options{
+		Dir:    filepath.Join(opts.Store.Dir(), JobsDirName),
+		Access: opts.Store.Access(),
+		Logger: opts.Logger,
+		Now:    opts.Now,
+		Trust: func() signedconfig.Trust {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			return a.trust
+		},
+		Managed: func() bool {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			return a.config.GetTier() == agentv1.Tier_TIER_MANAGED
+		},
+	})
+	if err != nil {
+		_ = buf.Close()
+		_ = key.Close()
+		return nil, fmt.Errorf("open the job spool: %w", err)
+	}
+	a.jobs = manager
 	return a, nil
 }
 
@@ -179,6 +215,7 @@ func (a *Agent) loadAppliedConfig() {
 // Close releases the key and the buffer. Run must have returned.
 func (a *Agent) Close() error {
 	a.scheduler.Stop()
+	a.jobs.Close()
 	return errors.Join(a.buffer.Close(), a.key.Close())
 }
 

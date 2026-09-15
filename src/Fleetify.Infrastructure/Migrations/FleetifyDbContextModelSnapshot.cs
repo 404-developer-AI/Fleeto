@@ -439,6 +439,100 @@ namespace Fleetify.Infrastructure.Migrations
                     b.ToTable("CheckResults");
                 });
 
+            modelBuilder.Entity("Fleetify.Core.Entities.CheckResultDaily", b =>
+                {
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CheckDefinitionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Target")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime>("Bucket")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ErrorCount")
+                        .HasColumnType("integer");
+
+                    b.Property<double?>("MaxValue")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("MinValue")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("NoResponseCount")
+                        .HasColumnType("integer");
+
+                    b.Property<double>("SumValue")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("ValueCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("EndpointId", "CheckDefinitionId", "Target", "Bucket");
+
+                    b.HasIndex("Bucket");
+
+                    b.HasIndex("CheckDefinitionId");
+
+                    b.HasIndex("EndpointId", "ClientId");
+
+                    b.ToTable("CheckResultsDaily", (string)null);
+                });
+
+            modelBuilder.Entity("Fleetify.Core.Entities.CheckResultHourly", b =>
+                {
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CheckDefinitionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Target")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime>("Bucket")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ErrorCount")
+                        .HasColumnType("integer");
+
+                    b.Property<double?>("MaxValue")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("MinValue")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("NoResponseCount")
+                        .HasColumnType("integer");
+
+                    b.Property<double>("SumValue")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("ValueCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("EndpointId", "CheckDefinitionId", "Target", "Bucket");
+
+                    b.HasIndex("Bucket");
+
+                    b.HasIndex("CheckDefinitionId");
+
+                    b.HasIndex("EndpointId", "ClientId");
+
+                    b.ToTable("CheckResultsHourly", (string)null);
+                });
+
             modelBuilder.Entity("Fleetify.Core.Entities.CheckRunRequest", b =>
                 {
                     b.Property<Guid>("Id")
@@ -571,6 +665,23 @@ namespace Fleetify.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("MaintenanceEndsAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MaintenanceReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("MaintenanceStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MaintenanceStartedByName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("MaintenanceStartedByUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -586,7 +697,13 @@ namespace Fleetify.Infrastructure.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("Clients");
+                    b.HasIndex("MaintenanceEndsAt")
+                        .HasFilter("\"MaintenanceEndsAt\" IS NOT NULL");
+
+                    b.ToTable("Clients", t =>
+                        {
+                            t.HasCheckConstraint("CK_Clients_Maintenance", "\"MaintenanceEndsAt\" IS NULL OR \"MaintenanceStartedAt\" IS NOT NULL");
+                        });
                 });
 
             modelBuilder.Entity("Fleetify.Core.Entities.ClientTemplate", b =>
@@ -788,6 +905,23 @@ namespace Fleetify.Infrastructure.Migrations
                     b.Property<DateTime?>("LastSeenAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("MaintenanceEndsAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MaintenanceReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("MaintenanceStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MaintenanceStartedByName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("MaintenanceStartedByUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("OsName")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -832,13 +966,19 @@ namespace Fleetify.Infrastructure.Migrations
 
                     b.HasIndex("IsOnline");
 
+                    b.HasIndex("MaintenanceEndsAt")
+                        .HasFilter("\"MaintenanceEndsAt\" IS NOT NULL");
+
                     b.HasIndex("Tier");
 
                     b.HasIndex("ClientId", "SiteId");
 
                     b.HasIndex("SiteId", "ClientId");
 
-                    b.ToTable("Endpoints");
+                    b.ToTable("Endpoints", t =>
+                        {
+                            t.HasCheckConstraint("CK_Endpoints_Maintenance", "\"MaintenanceEndsAt\" IS NULL OR \"MaintenanceStartedAt\" IS NOT NULL");
+                        });
                 });
 
             modelBuilder.Entity("Fleetify.Core.Entities.EndpointCheckOverride", b =>
@@ -1016,6 +1156,9 @@ namespace Fleetify.Infrastructure.Migrations
                     b.Property<Guid?>("CreatedByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("EndpointId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1045,6 +1188,8 @@ namespace Fleetify.Infrastructure.Migrations
 
                     b.HasIndex("TokenHash")
                         .IsUnique();
+
+                    b.HasIndex("EndpointId", "ClientId");
 
                     b.HasIndex("SiteId", "ClientId");
 
@@ -1202,6 +1347,12 @@ namespace Fleetify.Infrastructure.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("ServicesJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasDefaultValueSql("'[]'::jsonb");
+
                     b.Property<string>("SoftwareJson")
                         .IsRequired()
                         .HasColumnType("jsonb");
@@ -1212,6 +1363,201 @@ namespace Fleetify.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("InventorySnapshots");
+                });
+
+            modelBuilder.Entity("Fleetify.Core.Entities.Job", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DeliveredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int?>("ExitCode")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("InitiatedByName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("InitiatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<long>("MaxOutputBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("OutputState")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<bool>("OutputTruncated")
+                        .HasColumnType("boolean");
+
+                    b.Property<byte[]>("Payload")
+                        .HasColumnType("bytea");
+
+                    b.Property<long>("ReceivedOutputBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("RefusalReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Result")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid?>("ScriptId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ScriptName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ScriptSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid?>("ScriptVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ScriptVersionNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("Signature")
+                        .HasColumnType("bytea");
+
+                    b.Property<DateTime?>("SignedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SigningKeyId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<long?>("StderrBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("StderrChunks")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("StderrSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long?>("StdoutBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("StdoutChunks")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("StdoutSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("TimeoutSeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("ValidUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BatchId");
+
+                    b.HasIndex("ScriptId");
+
+                    b.HasIndex("ScriptVersionId");
+
+                    b.HasIndex("EndpointId", "ClientId");
+
+                    b.HasIndex("EndpointId", "CreatedAt")
+                        .IsDescending(false, true);
+
+                    b.HasIndex("State", "EndpointId")
+                        .HasFilter("\"State\" IN ('PendingSignature', 'Queued', 'Running')");
+
+                    b.ToTable("Jobs", t =>
+                        {
+                            t.HasCheckConstraint("CK_Jobs_Signed", "\"State\" IN ('PendingSignature', 'Refused', 'Cancelled', 'Expired') OR \"Signature\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_Jobs_Validity", "\"ValidUntil\" > \"CreatedAt\" AND \"ValidUntil\" <= \"CreatedAt\" + interval '7 days 5 minutes'");
+                        });
+                });
+
+            modelBuilder.Entity("Fleetify.Core.Entities.JobOutputChunk", b =>
+                {
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Stream")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<long>("Sequence")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<byte[]>("Data")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<DateTime>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("JobId", "Stream", "Sequence");
+
+                    b.HasIndex("ReceivedAt");
+
+                    b.HasIndex("JobId", "ClientId");
+
+                    b.ToTable("JobOutputChunks", t =>
+                        {
+                            t.HasCheckConstraint("CK_JobOutputChunks_Size", "octet_length(\"Data\") BETWEEN 1 AND 65536");
+                        });
                 });
 
             modelBuilder.Entity("Fleetify.Core.Entities.License", b =>
@@ -1270,6 +1616,39 @@ namespace Fleetify.Infrastructure.Migrations
                         .HasFilter("\"IsActive\"");
 
                     b.ToTable("Licenses");
+                });
+
+            modelBuilder.Entity("Fleetify.Core.Entities.MaintenanceWindowOccurrence", b =>
+                {
+                    b.Property<Guid>("PolicyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("WindowIndex")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("StartsAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AppliesTo")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("EndsAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("PolicyId", "WindowIndex", "StartsAt");
+
+                    b.HasIndex("StartsAt", "EndsAt");
+
+                    b.ToTable("MaintenanceWindowOccurrences", t =>
+                        {
+                            t.HasCheckConstraint("CK_MaintenanceWindowOccurrences_Span", "\"EndsAt\" > \"StartsAt\"");
+                        });
                 });
 
             modelBuilder.Entity("Fleetify.Core.Entities.MonitoringTemplate", b =>
@@ -1362,11 +1741,19 @@ namespace Fleetify.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("AllClients")
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("Enabled")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("EncryptedWebhook")
+                        .HasMaxLength(8000)
+                        .HasColumnType("character varying(8000)");
 
                     b.Property<string>("MinimumSeverity")
                         .IsRequired()
@@ -1394,9 +1781,35 @@ namespace Fleetify.Infrastructure.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("WebhookFormat")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("WebhookHost")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
                     b.HasKey("Id");
 
-                    b.ToTable("NotificationChannels");
+                    b.ToTable("NotificationChannels", t =>
+                        {
+                            t.HasCheckConstraint("CK_NotificationChannels_Type", "(\"Type\" = 'Email' AND \"Recipients\" <> '' AND \"EncryptedWebhook\" IS NULL) OR (\"Type\" = 'Webhook' AND \"EncryptedWebhook\" IS NOT NULL AND \"WebhookFormat\" IS NOT NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("Fleetify.Core.Entities.NotificationChannelClient", b =>
+                {
+                    b.Property<Guid>("NotificationChannelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("NotificationChannelId", "ClientId");
+
+                    b.HasIndex("ClientId");
+
+                    b.ToTable("NotificationChannelClients");
                 });
 
             modelBuilder.Entity("Fleetify.Core.Entities.OutboxEmail", b =>
@@ -1453,6 +1866,51 @@ namespace Fleetify.Infrastructure.Migrations
                     b.ToTable("OutboxEmails");
                 });
 
+            modelBuilder.Entity("Fleetify.Core.Entities.OutboxWebhook", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("NotificationChannelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NextAttemptAt")
+                        .HasDatabaseName("IX_OutboxWebhooks_Pending")
+                        .HasFilter("\"SentAt\" IS NULL");
+
+                    b.HasIndex("NotificationChannelId", "CreatedAt");
+
+                    b.ToTable("OutboxWebhooks");
+                });
+
             modelBuilder.Entity("Fleetify.Core.Entities.Policy", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1481,6 +1939,12 @@ namespace Fleetify.Infrastructure.Migrations
                     b.Property<bool>("IsDefault")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("MaintenanceWindowsJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasDefaultValueSql("'[]'::jsonb");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -1493,6 +1957,9 @@ namespace Fleetify.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
+
+                    b.Property<bool>("ScriptApprovalRequired")
+                        .HasColumnType("boolean");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1509,6 +1976,112 @@ namespace Fleetify.Infrastructure.Migrations
                     NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("ClientId", "Name"), false);
 
                     b.ToTable("Policies");
+                });
+
+            modelBuilder.Entity("Fleetify.Core.Entities.Script", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CurrentVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClientId", "Name")
+                        .IsUnique();
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("ClientId", "Name"), false);
+
+                    b.ToTable("Scripts");
+                });
+
+            modelBuilder.Entity("Fleetify.Core.Entities.ScriptVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ApprovedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ApprovedByName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("ApprovedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ApprovedSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("AuthorName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("AuthorUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(262144)
+                        .HasColumnType("character varying(262144)");
+
+                    b.Property<Guid?>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ScriptId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("TimeoutSeconds")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ScriptId", "Number")
+                        .IsUnique();
+
+                    b.ToTable("ScriptVersions", t =>
+                        {
+                            t.HasCheckConstraint("CK_ScriptVersions_Approval", "(\"ApprovedAt\" IS NULL) = (\"ApprovedByUserId\" IS NULL) AND (\"ApprovedByUserId\" IS NULL OR \"ApprovedByUserId\" <> \"AuthorUserId\")");
+                        });
                 });
 
             modelBuilder.Entity("Fleetify.Core.Entities.Setting", b =>
@@ -1635,6 +2208,23 @@ namespace Fleetify.Infrastructure.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
+                    b.Property<DateTime?>("MaintenanceEndsAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MaintenanceReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("MaintenanceStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MaintenanceStartedByName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("MaintenanceStartedByUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -1647,10 +2237,16 @@ namespace Fleetify.Infrastructure.Migrations
 
                     b.HasIndex("ClientTemplateSiteId");
 
+                    b.HasIndex("MaintenanceEndsAt")
+                        .HasFilter("\"MaintenanceEndsAt\" IS NOT NULL");
+
                     b.HasIndex("ClientId", "Name")
                         .IsUnique();
 
-                    b.ToTable("Sites");
+                    b.ToTable("Sites", t =>
+                        {
+                            t.HasCheckConstraint("CK_Sites_Maintenance", "\"MaintenanceEndsAt\" IS NULL OR \"MaintenanceStartedAt\" IS NOT NULL");
+                        });
                 });
 
             modelBuilder.Entity("Fleetify.Core.Entities.SiteMonitoringTemplate", b =>
@@ -1976,6 +2572,38 @@ namespace Fleetify.Infrastructure.Migrations
                     b.Navigation("MonitoringTemplate");
                 });
 
+            modelBuilder.Entity("Fleetify.Core.Entities.CheckResultDaily", b =>
+                {
+                    b.HasOne("Fleetify.Core.Entities.CheckDefinition", null)
+                        .WithMany()
+                        .HasForeignKey("CheckDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleetify.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleetify.Core.Entities.CheckResultHourly", b =>
+                {
+                    b.HasOne("Fleetify.Core.Entities.CheckDefinition", null)
+                        .WithMany()
+                        .HasForeignKey("CheckDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleetify.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Fleetify.Core.Entities.CheckRunRequest", b =>
                 {
                     b.HasOne("Fleetify.Core.Entities.CheckDefinition", null)
@@ -2113,6 +2741,12 @@ namespace Fleetify.Infrastructure.Migrations
 
             modelBuilder.Entity("Fleetify.Core.Entities.EnrollmentToken", b =>
                 {
+                    b.HasOne("Fleetify.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
                     b.HasOne("Fleetify.Core.Entities.Site", null)
                         .WithMany()
                         .HasForeignKey("SiteId", "ClientId")
@@ -2141,6 +2775,45 @@ namespace Fleetify.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Fleetify.Core.Entities.Job", b =>
+                {
+                    b.HasOne("Fleetify.Core.Entities.Script", null)
+                        .WithMany()
+                        .HasForeignKey("ScriptId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Fleetify.Core.Entities.ScriptVersion", null)
+                        .WithMany()
+                        .HasForeignKey("ScriptVersionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Fleetify.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleetify.Core.Entities.JobOutputChunk", b =>
+                {
+                    b.HasOne("Fleetify.Core.Entities.Job", null)
+                        .WithMany()
+                        .HasForeignKey("JobId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleetify.Core.Entities.MaintenanceWindowOccurrence", b =>
+                {
+                    b.HasOne("Fleetify.Core.Entities.Policy", null)
+                        .WithMany()
+                        .HasForeignKey("PolicyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Fleetify.Core.Entities.MonitoringTemplate", b =>
                 {
                     b.HasOne("Fleetify.Core.Entities.Client", null)
@@ -2159,12 +2832,53 @@ namespace Fleetify.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Fleetify.Core.Entities.NotificationChannelClient", b =>
+                {
+                    b.HasOne("Fleetify.Core.Entities.Client", null)
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleetify.Core.Entities.NotificationChannel", null)
+                        .WithMany("Clients")
+                        .HasForeignKey("NotificationChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleetify.Core.Entities.OutboxWebhook", b =>
+                {
+                    b.HasOne("Fleetify.Core.Entities.NotificationChannel", null)
+                        .WithMany()
+                        .HasForeignKey("NotificationChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Fleetify.Core.Entities.Policy", b =>
                 {
                     b.HasOne("Fleetify.Core.Entities.Client", null)
                         .WithMany()
                         .HasForeignKey("ClientId")
                         .OnDelete(DeleteBehavior.Cascade);
+                });
+
+            modelBuilder.Entity("Fleetify.Core.Entities.Script", b =>
+                {
+                    b.HasOne("Fleetify.Core.Entities.Client", null)
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.Cascade);
+                });
+
+            modelBuilder.Entity("Fleetify.Core.Entities.ScriptVersion", b =>
+                {
+                    b.HasOne("Fleetify.Core.Entities.Script", null)
+                        .WithMany("Versions")
+                        .HasForeignKey("ScriptId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Fleetify.Core.Entities.Site", b =>
@@ -2293,6 +3007,16 @@ namespace Fleetify.Infrastructure.Migrations
             modelBuilder.Entity("Fleetify.Core.Entities.MonitoringTemplate", b =>
                 {
                     b.Navigation("Checks");
+                });
+
+            modelBuilder.Entity("Fleetify.Core.Entities.NotificationChannel", b =>
+                {
+                    b.Navigation("Clients");
+                });
+
+            modelBuilder.Entity("Fleetify.Core.Entities.Script", b =>
+                {
+                    b.Navigation("Versions");
                 });
 
             modelBuilder.Entity("Fleetify.Core.Entities.Site", b =>

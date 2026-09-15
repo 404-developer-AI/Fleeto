@@ -66,8 +66,10 @@ public sealed class AgentTlsOptions
     }
 
     /// <summary>
-    /// No certificate: accepted (enrollment). A certificate: accepted only when the chain built with the custom-root
-    /// policy above has no errors.
+    /// No certificate: accepted (enrollment). A certificate: accepted when the chain built with the custom-root policy above has
+    /// no errors, or when its only problem is that the agent certificate itself is outside its validity period (0.2.0): an
+    /// expired agent must still be able to prove its key for recovery. Every path decides again after the handshake: a session
+    /// needs a valid certificate on the allow list, recovery an expired one within the grace period.
     /// </summary>
     internal static bool ValidateClientCertificate(object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors errors)
     {
@@ -76,7 +78,31 @@ public sealed class AgentTlsOptions
             return true;
         }
 
-        return errors == SslPolicyErrors.None;
+        return errors == SslPolicyErrors.None || (errors == SslPolicyErrors.RemoteCertificateChainErrors && OnlyLeafTimeInvalid(chain));
+    }
+
+    /// <summary>True when the chain reaches a trusted root and its only error is the time validity of the leaf certificate.</summary>
+    internal static bool OnlyLeafTimeInvalid(X509Chain? chain)
+    {
+        if (chain is null || chain.ChainElements.Count < 2)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < chain.ChainElements.Count; i++)
+        {
+            foreach (var status in chain.ChainElements[i].ChainElementStatus)
+            {
+                if (status.Status == X509ChainStatusFlags.NoError || (i == 0 && status.Status == X509ChainStatusFlags.NotTimeValid))
+                {
+                    continue;
+                }
+
+                return false;
+            }
+        }
+
+        return chain.ChainStatus.All(s => s.Status is X509ChainStatusFlags.NoError or X509ChainStatusFlags.NotTimeValid);
     }
 
     private sealed record Cached(ServerCertificate Certificate, string CaSetKey, SslServerAuthenticationOptions Options);

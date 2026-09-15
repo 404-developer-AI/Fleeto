@@ -14,6 +14,18 @@ public static class SettingKeys
     /// <summary><see cref="SmtpSettings"/>, encrypted.</summary>
     public const string Smtp = "email.smtp";
 
+    /// <summary><see cref="EmailProvider"/> name, plain. Missing means SMTP.</summary>
+    public const string EmailProvider = "email.provider";
+
+    /// <summary><see cref="GraphMailSettings"/>, encrypted (client secret or certificate private key).</summary>
+    public const string Graph = "email.graph";
+
+    /// <summary>
+    /// Prefix of the expiry warnings already sent per credential: "&lt;expiry, ISO 8601&gt;|&lt;stage&gt;", so a renewed credential
+    /// starts over.
+    /// </summary>
+    public const string CredentialWarningPrefix = "credentials.warned.";
+
     /// <summary><see cref="BackupSettings"/>, encrypted (contains storage credentials).</summary>
     public const string Backup = "backup.settings";
 
@@ -44,6 +56,59 @@ public sealed record SmtpSettings
     public string? Password { get; init; }
     public string FromAddress { get; init; } = string.Empty;
     public string FromName { get; init; } = "Fleeto";
+}
+
+/// <summary>How email leaves the instance (0.2.0).</summary>
+public enum EmailProvider
+{
+    Smtp,
+    /// <summary>Microsoft Graph <c>sendMail</c>. SMTP, when configured as well, is used while the Graph credential has expired.</summary>
+    MicrosoftGraph
+}
+
+public enum GraphCredentialType
+{
+    ClientSecret,
+    /// <summary>A certificate created by Fleeto; only its public part leaves the instance.</summary>
+    Certificate
+}
+
+/// <summary>
+/// Microsoft Graph email: an app registration with the <c>Mail.Send</c> application permission, limited to the sending mailbox
+/// by an Exchange application access policy. Secrets and the certificate private key are write-only in the UI.
+/// </summary>
+public sealed record GraphMailSettings
+{
+    public string TenantId { get; init; } = string.Empty;
+    public string ClientId { get; init; } = string.Empty;
+    public string SenderAddress { get; init; } = string.Empty;
+    public GraphCredentialType CredentialType { get; init; } = GraphCredentialType.ClientSecret;
+
+    public string? ClientSecret { get; init; }
+
+    /// <summary>The end date entered with the secret; Entra ID does not reveal it to the application.</summary>
+    public DateTime? ClientSecretExpiresAt { get; init; }
+
+    /// <summary>The certificate in use: PKCS#12 without password, base64. Protected by the settings encryption.</summary>
+    public string? CertificatePfx { get; init; }
+    public string? CertificateThumbprint { get; init; }
+    public DateTime? CertificateExpiresAt { get; init; }
+
+    /// <summary>A new certificate that waits until the admin has uploaded it to the app registration and switches to it.</summary>
+    public string? PendingCertificatePfx { get; init; }
+    public string? PendingCertificateThumbprint { get; init; }
+    public DateTime? PendingCertificateExpiresAt { get; init; }
+
+    /// <summary>The expiry of the credential that is used to sign in, or null when there is none.</summary>
+    [JsonIgnore]
+    public DateTime? CredentialExpiresAt => CredentialType == GraphCredentialType.Certificate
+        ? CertificatePfx is null ? null : CertificateExpiresAt
+        : string.IsNullOrEmpty(ClientSecret) ? null : ClientSecretExpiresAt;
+
+    /// <summary>All values needed to request a token are present.</summary>
+    [JsonIgnore]
+    public bool IsComplete => !string.IsNullOrWhiteSpace(TenantId) && !string.IsNullOrWhiteSpace(ClientId) &&
+                              !string.IsNullOrWhiteSpace(SenderAddress) && CredentialExpiresAt is not null;
 }
 
 public enum BackupDestinationType

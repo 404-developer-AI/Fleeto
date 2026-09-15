@@ -196,6 +196,60 @@ public sealed class TestDatabase : IAsyncDisposable
         return license;
     }
 
+    /// <summary>A user with one role, two-factor on unless stated otherwise.</summary>
+    public async Task<Infrastructure.Identity.ApplicationUser> CreateUserAsync(string role, bool twoFactor = true, DateTimeOffset? lockoutEnd = null,
+        string? displayName = null)
+    {
+        await using var db = DbFactory.CreateSystem();
+        var roleId = await db.Roles.Where(r => r.NormalizedName == role.ToUpperInvariant()).Select(r => r.Id).SingleAsync();
+        var name = role.ToLowerInvariant() + "-" + Guid.NewGuid().ToString("N")[..8];
+        var user = new Infrastructure.Identity.ApplicationUser
+        {
+            Id = Guid.NewGuid(),
+            UserName = name,
+            NormalizedUserName = name.ToUpperInvariant(),
+            Email = name + "@test.example",
+            NormalizedEmail = (name + "@test.example").ToUpperInvariant(),
+            EmailConfirmed = true,
+            SecurityStamp = Guid.NewGuid().ToString(),
+            ConcurrencyStamp = Guid.NewGuid().ToString(),
+            DisplayName = displayName ?? role,
+            TwoFactorEnabled = twoFactor,
+            LockoutEnabled = true,
+            LockoutEnd = lockoutEnd,
+            CreatedAt = Time.GetUtcNow().UtcDateTime
+        };
+        db.Users.Add(user);
+        db.UserRoles.Add(new Microsoft.AspNetCore.Identity.IdentityUserRole<Guid> { UserId = user.Id, RoleId = roleId });
+        await db.SaveChangesAsync();
+        return user;
+    }
+
+    /// <summary>A library script with one version, optionally approved by <paramref name="approverId"/>.</summary>
+    public async Task<(Script Script, ScriptVersion Version)> CreateScriptAsync(Guid? clientId, Guid authorId, ScriptLanguage language = ScriptLanguage.PowerShell,
+        string body = "Write-Output 'hello'", Guid? approverId = null)
+    {
+        await using var db = DbFactory.CreateSystem();
+        var now = Time.GetUtcNow().UtcDateTime;
+        var script = new Script
+        {
+            Id = Guid.NewGuid(), ClientId = clientId, Name = "Script " + Guid.NewGuid().ToString("N")[..8], Language = language, CreatedAt = now, UpdatedAt = now
+        };
+        var sha = Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(body)));
+        var version = new ScriptVersion
+        {
+            Id = Guid.NewGuid(), ScriptId = script.Id, ClientId = clientId, Number = 1, Body = body, Sha256 = sha, TimeoutSeconds = 600,
+            AuthorUserId = authorId, AuthorName = "Author", CreatedAt = now,
+            ApprovedByUserId = approverId, ApprovedByName = approverId is null ? null : "Approver", ApprovedAt = approverId is null ? null : now,
+            ApprovedSha256 = approverId is null ? null : sha
+        };
+        script.CurrentVersionId = version.Id;
+        db.Scripts.Add(script);
+        db.ScriptVersions.Add(version);
+        await db.SaveChangesAsync();
+        return (script, version);
+    }
+
     public async ValueTask DisposeAsync()
     {
         await DataSource.DisposeAsync();

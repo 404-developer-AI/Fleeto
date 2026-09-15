@@ -61,6 +61,16 @@ public sealed class AgentConnectionHandler
         if (decision != AllowListDecision.Accepted || identity is null)
         {
             _metrics.ConnectionRefused();
+            if (certificate is not null && _allowList.AuthorizeRecovery(certificate, out _) == AllowListDecision.Accepted)
+            {
+                // Expired but recoverable: tell the agent to renew through /v1/recover instead of retrying forever.
+                context.Response.Headers[ProtocolLimits.CertificateStateHeader] = ProtocolLimits.CertificateExpiredValue;
+                _logger.LogInformation("Refused an agent session from {RemoteAddress}: the certificate expired and can be recovered", RemoteAddress(context));
+                await Problems.WriteAsync(context, StatusCodes.Status401Unauthorized, "Agent certificate expired",
+                    "The agent certificate has expired. The agent renews it through recovery and connects again.");
+                return;
+            }
+
             _logger.LogInformation("Refused an agent session from {RemoteAddress}: {Reason}", RemoteAddress(context),
                 certificate is null ? "no client certificate" : "certificate not on the allow list");
             await Problems.WriteAsync(context, StatusCodes.Status401Unauthorized, "Agent certificate not accepted",

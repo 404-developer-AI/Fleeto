@@ -117,6 +117,9 @@ public static class SignatureContexts
 {
     /// <summary>Must equal ProtocolLimits.ConfigSignatureContext and the Go agent constant.</summary>
     public const string AgentConfig = "fleetify-agent-config-v1";
+
+    /// <summary>Signed jobs (0.2.0); must equal the Go agent constant.</summary>
+    public const string Job = "fleetify-job-v1";
     public const string License = "fleetify-license-v1";
     public const string ReleaseManifest = "fleetify-release-manifest-v1";
 }

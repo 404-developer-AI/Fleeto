@@ -24,7 +24,13 @@
                     }
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd>@context.Name</MudTd>
+                    <MudTd>
+                        @context.Name
+                        @if (context.EndpointHostname is { } hostname)
+                        {
+                            <div class="muted" style="font-size:0.75rem">Enrolls @hostname again</div>
+                        }
+                    </MudTd>
                     <MudTd><TimeText Value="context.CreatedAt" /></MudTd>
                     <MudTd><TimeText Value="context.ExpiresAt" /></MudTd>
                     <MudTd>@context.UseCount of @(context.MaxUses?.ToString() ?? "unlimited")</MudTd>

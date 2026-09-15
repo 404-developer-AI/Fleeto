@@ -47,7 +47,8 @@ Semantic versioning `MAJOR.MINOR.PATCH`. The project starts at `0.0.0`.
 | Minor | `0.1.0` | Large release: a milestone from `MD-Files/ROADMAP.md`. |
 | Major | `1.0.0` | First production release. Afterwards only for breaking changes. |
 
-- Git tags are `vX.Y.Z`. Server and agent are released together under one version number.
+- Git tags are `vX.Y.Z`. Server and agent are released together under one version number. Test builds of a version
+  that is not finished use a pre-release tag `vX.Y.Z-alpha.N` (decided 2026-09-15, first one `v0.2.0-alpha.1`).
 - `MD-Files/CHANGELOG.md` follows the Keep a Changelog layout: an `Unreleased` section on top, then
   the two most recent released versions, newest first. Sections per version:
   Added, Changed, Fixed, Security, Removed (omit empty ones).

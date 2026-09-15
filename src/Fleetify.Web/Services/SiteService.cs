@@ -1,3 +1,4 @@
+using Fleetify.Core.Domain;
 using Fleetify.Core.Entities;
 using Fleetify.Infrastructure.Audit;
 using Fleetify.Infrastructure.Data;
@@ -20,7 +21,7 @@ public sealed record SiteDetail(Guid Id, string Name, string? Description, Guid 
 
 /// <summary>Site header data without its endpoints: cheap enough for every page load.</summary>
 public sealed record SiteSummary(Guid Id, string Name, string? Description, Guid ClientId, string ClientCode, string ClientName, bool FromTemplate,
-    string PolicyName, int MonitoringTemplateCount);
+    string PolicyName, int MonitoringTemplateCount, MaintenancePeriod Maintenance, MaintenancePeriod ClientMaintenance);
 
 /// <summary>Sites of a client: detail with endpoints, create, edit, delete, and the policy and monitoring template links.</summary>
 public sealed class SiteService
@@ -81,7 +82,10 @@ public sealed class SiteService
                 ClientName = s.Client.Name,
                 FromTemplate = s.ClientTemplateSiteId != null,
                 PolicyName = db.SitePolicies.Where(l => l.SiteId == s.Id).Select(l => l.Policy!.Name).FirstOrDefault(),
-                Templates = db.SiteMonitoringTemplates.Count(l => l.SiteId == s.Id)
+                Templates = db.SiteMonitoringTemplates.Count(l => l.SiteId == s.Id),
+                Maintenance = new MaintenancePeriod(s.MaintenanceStartedAt, s.MaintenanceEndsAt, s.MaintenanceStartedByName, s.MaintenanceReason),
+                ClientMaintenance = new MaintenancePeriod(s.Client.MaintenanceStartedAt, s.Client.MaintenanceEndsAt, s.Client.MaintenanceStartedByName,
+                    s.Client.MaintenanceReason)
             })
             .SingleOrDefaultAsync(cancellationToken);
         if (site is null)
@@ -93,7 +97,7 @@ public sealed class SiteService
                          ?? await db.Policies.AsNoTracking().Where(p => p.IsDefault).Select(p => p.Name).FirstOrDefaultAsync(cancellationToken)
                          ?? "Default policy";
         return new SiteSummary(site.Id, site.Name, site.Description, site.ClientId, site.Code, site.ClientName, site.FromTemplate, policyName,
-            site.Templates);
+            site.Templates, site.Maintenance, site.ClientMaintenance);
     }
 
     public async Task<IReadOnlyList<EndpointListItem>> ListEndpointsAsync(Caller caller, Guid siteId, CancellationToken cancellationToken = default)

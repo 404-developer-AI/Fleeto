@@ -98,7 +98,7 @@ public sealed class SigningRequestProcessor
             if (result.Status == ProcessStatus.RateLimited)
             {
                 rateLimited++;
-                if (result.Kind is SigningRequestKind.AgentEnrollment or SigningRequestKind.AgentRenewal)
+                if (result.Kind is SigningRequestKind.AgentEnrollment or SigningRequestKind.AgentRenewal or SigningRequestKind.AgentRecovery)
                 {
                     youngOnlyKinds.Add(result.Kind.Value);
                 }
@@ -146,7 +146,7 @@ public sealed class SigningRequestProcessor
             var age = now - request.CreatedAt;
             SigningOutcome outcome;
 
-            if (!_handlers.TryGetValue(kind, out var handler))
+            if (!_handlers.TryGetValue(kind, out ISigningRequestHandler? handler))
             {
                 outcome = SigningOutcome.Refused(UnknownKindReason);
             }
@@ -158,7 +158,8 @@ public sealed class SigningRequestProcessor
             }
             else if (!_rateLimiter.TryAcquire(kind, now))
             {
-                if (kind is SigningRequestKind.AgentEnrollment or SigningRequestKind.AgentRenewal && age > RateLimitedRefusalAge)
+                if (kind is SigningRequestKind.AgentEnrollment or SigningRequestKind.AgentRenewal or SigningRequestKind.AgentRecovery &&
+                    age > RateLimitedRefusalAge)
                 {
                     outcome = SigningOutcome.Refused(TooManyRequestsReason);
                 }
@@ -178,6 +179,13 @@ public sealed class SigningRequestProcessor
             request.Result = outcome.State == SigningRequestState.Completed ? outcome.Result : null;
             request.RefusalReason = outcome.RefusalReason is null ? null : Truncate(outcome.RefusalReason, 1000);
             request.CompletedAt = now;
+
+            if (outcome.State == SigningRequestState.Refused && handler is not null)
+            {
+                var refusalNotifications = await handler.OnRefusedAsync(new SigningContext(db, request, now), outcome.RefusalReason ?? string.Empty,
+                    cancellationToken);
+                outcome = outcome with { Notifications = refusalNotifications };
+            }
 
             if (outcome.State == SigningRequestState.Refused)
             {

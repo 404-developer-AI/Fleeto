@@ -156,6 +156,7 @@ public sealed class UserAdminService
         // A new security stamp makes open sessions pick up the new roles at the next validation.
         await users.UpdateSecurityStampAsync(user);
         var now = _time.GetUtcNow().UtcDateTime;
+        await AddApprovedScriptChangesAsync(db, user.Id, now, cancellationToken);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.RolesChanged, "User", user.Id.ToString(), null,
             new { user.Email, From = current, To = wanted }), now));
         await db.SaveChangesAsync(cancellationToken);
@@ -187,6 +188,7 @@ public sealed class UserAdminService
         // Signs out every session of the user within the security stamp validation interval.
         await users.UpdateSecurityStampAsync(user);
         var now = _time.GetUtcNow().UtcDateTime;
+        await AddApprovedScriptChangesAsync(db, user.Id, now, cancellationToken);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.TwoFactorReset, "User", user.Id.ToString(), null, new { user.Email }), now));
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -229,10 +231,25 @@ public sealed class UserAdminService
         }
 
         var now = _time.GetUtcNow().UtcDateTime;
+        await AddApprovedScriptChangesAsync(db, userId, now, cancellationToken);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.UserDeleted, "User", userId.ToString(), null, new { user.Email }), now));
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return ServiceResult.Ok();
+    }
+
+    /// <summary>
+    /// Script checks run the newest version approved by a current admin with two-factor authentication, so a change to an approver
+    /// re-signs the configurations that use the scripts they approved.
+    /// </summary>
+    private static async Task AddApprovedScriptChangesAsync(FleetifyDbContext db, Guid userId, DateTime now, CancellationToken cancellationToken)
+    {
+        var scriptIds = await db.ScriptVersions.IgnoreQueryFilters().AsNoTracking()
+            .Where(v => v.ApprovedByUserId == userId)
+            .Select(v => v.ScriptId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        db.ConfigChangeEvents.AddRange(scriptIds.Select(id => ScriptChecks.ChangeEvent(id, now)));
     }
 
     private static Task<int> CountAdminsAsync(FleetifyDbContext db, CancellationToken cancellationToken)

@@ -3,8 +3,9 @@
 > Technical reference for Fleeto (internal: Fleetify). Rules and priorities live in
 > `CLAUDE.md` in the repository root; this file describes how the system is put together.
 > Status: 0.0.x and 0.1.0 implemented (agent enrollment, gateway, signer, workers, web UI,
-> licensing, backups); later sections (jobs, scripts, remote control, public API, integrations)
-> are design. Sections marked *decision pending* point to the open decisions in `CLAUDE.md`.
+> licensing, backups); 0.2.0 in progress (maintenance mode, the check catalog, services in the inventory, the
+> check history, notification routing, webhooks, email through Microsoft Graph, expiring credential warnings and
+> policy maintenance windows, certificate recovery and enrolling again, the script library and jobs implemented); later sections (remote control, public API, integrations) are design. Sections marked *decision pending* point to the open decisions in `CLAUDE.md`.
 
 ## 1. Deployment topology
 
@@ -96,9 +97,10 @@ AuditEntry (append-only)
 | **Client** | `Id`, `Code` (unique, uppercase), `Name`, `CreatedAt`, `Maintenance` | Tenant boundary inside the instance. Every client-owned table carries its own `ClientId`, denormalized on purpose (see the rule below the table), and every query filters on it. |
 | **Site** | `Id`, `ClientId`, `Name`, `Description`, `Maintenance` | Groups endpoints. Holds the link to at most one policy (without one the instance default policy applies) and to any number of monitoring templates. Enrollment tokens belong to a site. |
 | **Endpoint** | `Id`, `ClientId`, `SiteId`, `Hostname`, `Class` (`workstation`/`server`), `ClassOverride`, `Tier` (`agent_only`/`managed`), `Os`, `AgentVersion`, `LastSeenAt`, `Source` (`agent`/`integration`), `Maintenance`, `PublicIpAddress?`, `PublicIpSeenAt?` | Endpoints without an agent exist only for hypervisor inventory (ESXi hosts and VMs from vCenter or Proxmox). `Tier` gates every feature server-side. `PublicIpAddress` is the address the gateway saw for the latest agent connection (personal data: only the latest value is kept, deleted with the endpoint). |
-| `Maintenance` (on Client, Site, Endpoint) | `StartedAt?`, `EndsAt?`, `StartedBy?`, `Reason?` | Maintenance mode (0.2.0), stored as nullable columns on each of the three tables. Active while `StartedAt` is set and `EndsAt` is null or in the future; nothing clears expired values, every query compares with the current time. See *Maintenance mode* in §4. |
+| `Maintenance` (on Client, Site, Endpoint) | `MaintenanceStartedAt?`, `MaintenanceEndsAt?`, `MaintenanceStartedByUserId?`, `MaintenanceStartedByName?`, `MaintenanceReason?` | Maintenance mode (0.2.0), stored as nullable columns on each of the three tables. Active while `MaintenanceStartedAt` is set and not in the future and `MaintenanceEndsAt` is null or in the future; ending by hand clears the columns, an end time that passes is left in place and every query compares with the current time. The reason is free text and personal data may appear in it: it is never copied into the audit log. See *Maintenance mode* in §4. |
 | **AgentCertificate** | `Id`, `ClientId`, `EndpointId`, `Fingerprint`, `IssuedAt`, `ExpiresAt`, `RevokedAt?`, `RevokedBy?`, `RevokedReason?` | One row per issued certificate, renewals included. The gateway refuses every certificate with `RevokedAt` set. |
-| **Policy** | `Id`, `ClientId?`, `Name`, settings | Agent behaviour: intervals, patch behaviour, update ring, script permissions and **script approval required**, remote control rules (consent, recording), maintenance windows. `ClientId` null = global. |
+| **Policy** | `Id`, `ClientId?`, `Name`, settings, `MaintenanceWindowsJson` | Agent behaviour: intervals, patch behaviour, update ring, script permissions and **script approval required**, remote control rules (consent, recording), maintenance windows. `ClientId` null = global. |
+| **MaintenanceWindowOccurrence** | `PolicyId`, `WindowIndex`, `StartsAt`, `EndsAt`, `AppliesTo`, `Name?` | Occurrences of the policy's maintenance windows (0.2.0), stored 8 days ahead (§4, Maintenance windows). Deleted with the policy. |
 | **MonitoringTemplate** | `Id`, `ClientId?`, `Name` | Named set of `CheckDefinition`s with thresholds and alert rules. `ClientId` null = global. |
 | **CheckDefinition** | `Id`, `ClientId?`, `MonitoringTemplateId?`, `EndpointId?`, `Type`, `Interval`, `Thresholds`, `FailuresBeforeAlert`, `AppliesToClass`, `Enabled` | Interval from seconds to monthly. Owned by exactly one of a monitoring template or one endpoint (check constraint). An endpoint-only check carries the endpoint's `ClientId` (composite foreign key) and runs whatever the endpoint class. |
 | **EndpointMonitoringTemplate** | `EndpointId`, `ClientId`, `MonitoringTemplateId`, `CreatedAt`, `CreatedBy?` | An extra monitoring template for one endpoint, on top of those of its site. Global or same-client templates only (constraint trigger). |
@@ -106,8 +108,8 @@ AuditEntry (append-only)
 | **CheckState** | `EndpointId`, `CheckDefinitionId`, `Target`, `ClientId`, `Status`, `Value?`, `ConsecutiveNonOk`, `LastResultAt`, `ResetAt?` | Current evaluated state per check and target, maintained by the workers. "Re-run requested" while `ResetAt` is later than `LastResultAt`. States of checks that no longer apply are removed on the hourly sweep. |
 | **CheckRunRequest** | `Id`, `ClientId`, `EndpointId`, `CheckDefinitionId`, `Reset`, `RequestedBy`, `RequestedAt`, `ExpiresAt`, `ResetAppliedAt?`, `DeliveredAt?`, `Outcome?` (`expired`, `not_applicable`, `not_managed`) | A technician's "Run now" or "Reset and run" (§4). Kept 7 days. |
 | **ClientTemplate** | `Id`, `Name`, sites with linked policies and templates | Blueprint used at client creation. Linked, not copied: later changes apply to every client using it; a technician can make an independent copy. |
-| **Script**, **ScriptVersion** | `Id`, `ClientId?`, `Name`; version: `ClientId?`, `Number`, `Body`, `Sha256`, `AuthorId`, `ApprovedBy?`, `ApprovedAt?` | Every edit creates a new version. A version needs approval by a second admin before it runs on a site whose policy requires approval. |
-| **Job** | `Id`, `ClientId`, `EndpointId`, `Type`, `Payload`, `ValidUntil`, `Signature`, `InitiatedBy`, `State` (`pending_signature`, `queued`, `running`, `succeeded`, `failed`, `expired`, `refused`, `lost`), `ExitCode`, `OutputState` (`none`, `receiving`, `complete`, `incomplete`), `OutputTruncated` | One row per endpoint. Idempotent by `Id`. Never delivered or executed after `ValidUntil`. `State` describes execution, `OutputState` describes the output; they move independently. |
+| **Script**, **ScriptVersion** | `Id`, `ClientId?`, `Name`, `Description`, `Language` (`PowerShell`, `Batch`, `Shell`, `Bash`), `CurrentVersionId`; version: `ClientId?`, `Number`, `Body`, `Sha256`, `TimeoutSeconds`, `AuthorUserId`, `ApprovedByUserId?`, `ApprovedAt?`, `ApprovedSha256?` | `ClientId` null = global, immutable (trigger); a version carries the client of its script (constraint trigger). Saving a changed body or timeout creates a new version; the language is fixed. A version is approved only when approver and author differ and `ApprovedSha256` equals `Sha256` (check constraint). |
+| **Job** | `Id`, `ClientId`, `EndpointId`, `BatchId`, `Type` (`Script`), snapshot of the script (`ScriptId?`, `ScriptVersionId?`, name, version number, `Language`, `ScriptSha256`, `TimeoutSeconds`, `MaxOutputBytes`), `ValidUntil`, `InitiatedByUserId`, `State` (`pending_signature`, `queued`, `running`, `succeeded`, `failed`, `expired`, `refused`, `lost`, `cancelled`), `RefusalReason?`, `Payload`, `Signature`, `SigningKeyId`, `DeliveredAt?`, `StartedAt?`, `CompletedAt?`, `Result?` (`exited`, `timed_out`, `refused`, `failed_to_start`, `interrupted`), `ExitCode?`, `OutputState` (`none`, `receiving`, `complete`, `incomplete`), `OutputTruncated`, per stream announced chunks, bytes and SHA-256 | One row per endpoint. Idempotent by `Id`. Never delivered or executed after `ValidUntil` (at most 7 days after creation, check constraint). `State` describes execution, `OutputState` describes the output; they move independently. The snapshot keeps the history readable after the script changes or is deleted. |
 | **JobOutputChunk** | `ClientId`, `JobId`, `Stream` (`stdout`/`stderr`), `Sequence`, `Data`, `ReceivedAt` | Unique on `JobId`, `Stream`, `Sequence`. Protocol in §4, Job output. |
 | **SigningRequest** | `Id`, `ClientId?`, `Kind` (`job`, `session_token`, `agent_csr`, `gateway_csr`, `policy`), `SubjectId`, `RequestedBy`, `State`, `RefusalReason?` | Written by web or gateway, processed by the signer. |
 | **License** | `Id`, `CustomerName`, `Fqdn`, `ManagedEndpointCount`, `ExpiresAt`, `SignedDocument` (encrypted) | One per instance. Verified offline with the Steaan license public key baked into the build. Grace period of 14 days after `ExpiresAt`. |
@@ -115,7 +117,11 @@ AuditEntry (append-only)
 | **RemoteSession** | `Id`, `ClientId`, `EndpointId`, `TechnicianId`, `Reason`, `StartedAt`, `EndedAt`, `ConsentGiven`, `BrowserKeyFingerprint`, `RecordingRef?` | Every session, whether it connected or not. |
 | **CheckResult** | `Time` (ingest), `ClientId`, `EndpointId`, `CheckDefinitionId`, `Status`, `Value`, `Payload` | TimescaleDB hypertable, compressed, retention policy. Deduplicated per endpoint and agent batch sequence number. |
 | **Alert** | `Id`, `ClientId`, `EndpointId`, `CheckDefinitionId`, `Severity`, `State`, `AcknowledgedBy`, `HeldUntil?`, `HeldAt?`, `HeldBy?`, timestamps | Deduplicated per endpoint and check. On hold while `HeldUntil` is in the future (§4, Alert hold). |
+| **InventorySnapshot** | `EndpointId`, `ClientId`, `ReceivedAt`, `Hash`, hardware facts, `DisksJson`, `NetworkInterfacesJson`, `SoftwareJson`, `ServicesJson` | Latest inventory, one row per endpoint. `ServicesJson` (0.2.0): name, display name, start type and state per service (at most 2,000), used to pick the service of a service check; for a monitoring template the services of the most recent 1,000 inventories of its endpoints are offered. |
+| **CheckResultHourly**, **CheckResultDaily** | `EndpointId`, `CheckDefinitionId`, `Target`, `Bucket`, `ClientId`, `MinValue?`, `MaxValue?`, `SumValue`, `ValueCount`, `ErrorCount`, `NoResponseCount` | Check history rollups (0.2.0), maintained by the workers with the evaluation, kept 13 months. Deleted with their endpoint or check. |
 | **Note** | `Id`, `ClientId`, `EndpointId`, `AuthorId`, `AuthorName`, `Body` (markdown, at most 20,000 characters), `CreatedAt`, `UpdatedAt`, `EditedAt?` | Endpoints only (site notes were dropped). Managed endpoints only. The author edits, an admin deletes. Searchable from 0.6.0. An external ticket reference follows with the public API. |
+| **NotificationChannel** | `Id`, `Name`, `Type` (`Email`, `Webhook`), `Recipients`, `WebhookFormat?` (`Generic`, `Slack`, `Teams`), `WebhookHost?`, `EncryptedWebhook?`, `MinimumSeverity`, `NotifyOnResolve`, `Enabled`, `AllClients` | Instance-wide, admins only. Routing (0.2.0): all clients or the clients in **NotificationChannelClient** (`NotificationChannelId`, `ClientId`, deleted with either side), plus minimum severity and resolves. `EncryptedWebhook` holds URL and signing secret, bound to the channel id (§5). The type cannot change. |
+| **OutboxEmail**, **OutboxWebhook** | `Id`, recipient or `NotificationChannelId`, `Category`, content or `Payload`, `Attempts`, `NextAttemptAt`, `SentAt?`, `LastError?` | Written in the transaction that changes the alert; delivered by the workers (§4, Alert notifications). Sent rows kept 30 days, given up rows 90 days. |
 | **Integration** | `Id`, `Type`, `EncryptedCredentials`, `Status` | Credentials are ciphertext, see §5. |
 | **IntegrationMapping** | `IntegrationId`, `ExternalTenantId`, `ClientId` | One external tenant (Action1 organization, Sophos tenant) maps to one client. |
 | **User**, **Role** | `Id`, `Email`, `PasswordHash` (Argon2id), `TotpSecret` (encrypted), roles | Roles: admin, technician, read-only. |
@@ -135,7 +141,8 @@ Three kinds of tables:
 
 - **Client-owned** (`ClientId` required): Site, Endpoint, AgentCertificate, Job,
   JobOutputChunk, Alert, Note, InventorySnapshot, RemoteSession, CheckResult, CheckState,
-  CheckRunRequest, EndpointMonitoringTemplate, EndpointCheckOverride, IntegrationMapping. Consistency by composite foreign key, as above. One documented
+  CheckRunRequest, EndpointMonitoringTemplate, EndpointCheckOverride, CheckResultHourly, CheckResultDaily,
+  IntegrationMapping. Consistency by composite foreign key, as above. One documented
   exception: CheckResult (the hypertable) has no foreign keys, for ingest speed and because
   compressed chunks and cascading deletes do not mix well. The gateway takes its ClientId from
   the endpoint row, and the workers purge results of deleted endpoints.
@@ -160,6 +167,33 @@ Three kinds of tables:
   integration for VM inventory.
 - **VMware ESXi gets no agent**: monitored agentless through the vCenter/ESXi API from the
   workers, like every other integration.
+- **Check catalog (0.2.0).** Every check type is described once in `CheckCatalog` (Core): label, platforms,
+  parameters with their validation, how the value is judged (flag, higher or lower is worse, reachability)
+  and its unit. Validation, evaluation, alert titles, the signed configuration and the check dialog all follow
+  it. Types: CPU, memory, free disk space, service, uptime, ping, TCP port, HTTP(S) URL (with a second result
+  for the certificate expiry), process, pending restart (Windows, Linux), file or folder (exists, missing,
+  size, age), certificate expiry (Windows store or file), event log (Windows) and antivirus and firewall
+  (Windows). Parameters end up in a signed configuration that runs as SYSTEM or root, so the server validates
+  them strictly (no URL credentials, no option-like host names, no XPath or path tricks) and the agent checks
+  them again. Network checks report -1 for no answer, which the server treats as critical; the agent never
+  sends a status. Event log checks count events and never send messages (personal data). A check of a type
+  an older agent does not know reports an error, shown as "could not run".
+- **Script check (0.2.0).** A check that runs a library script; the exit code is the value (0 OK, 1 warning,
+  any other code critical, judged by the server) and the first line of output, at most 200 characters, the
+  detail. The check stores the script id and the script's language, copied when the check is saved (a
+  script's language never changes), so the platform rule stays a rule on the check in C# and SQL. A global
+  monitoring template only uses global scripts, a client's template or endpoint also scripts of that client,
+  and a script that checks use cannot be deleted. The signer puts the script into the signed configuration
+  (`CheckSpec.script`): the current version, or where the endpoint's policy requires approval the newest
+  version approved by a current admin with two-factor authentication who did not write it, so a check keeps
+  running the approved body while a change waits for approval. A script of another client, a deleted script,
+  a policy without an approved version or more than 1 MiB of scripts in one configuration sends the check
+  without a script and with the reason, which the agent reports as "could not run". A new version, an
+  approval, a rename or a change to an approver's roles or two-factor authentication is a configuration
+  change with scope `Script`: every managed endpoint with a check using the script gets a new configuration.
+  The agent verifies the body hash and language, runs at most two script checks at a time with a timeout of
+  the version's timeout, at most 5 minutes and the interval (at least 60 seconds), in a protected directory it
+  removes afterwards.
 - Responsibilities: run local checks, stream results, execute signed jobs (scripts,
   installers such as the Action1 agent), send heartbeats, report inventory, self-update,
   serve remote control sessions (screen capture, input injection, clipboard sync).
@@ -191,6 +225,14 @@ Three kinds of tables:
   most cause extra runs. The agent bounds that: one manual run per check per 30 seconds, 20
   per minute in total, 100 ids per message; unknown ids and agent-only configurations start
   nothing. `InventoryRequest` follows the same reasoning.
+- **Jobs (0.2.0).** Signed jobs are verified and run by `internal/jobs`. Each job has a directory
+  in the protected state directory (`jobs/<id>`) holding the signed job, a started marker, the
+  output chunks and the completion; files are removed as their acks arrive, the directory when the
+  completion is acknowledged. Leftovers older than 7 days are removed, and at most 1,000 job
+  directories exist, so a flood of refused jobs cannot fill the disk. Scripts are written next to
+  the job (PowerShell with a UTF-8 byte order mark, Batch as `.cmd`) and run with
+  `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File`, `cmd.exe /d /s /c`,
+  `/bin/sh` or `/bin/bash`. Enrolling again removes the jobs of the previous enrollment.
 - **Watchdog service (0.2.0, design).** A second Windows service, `fleetify-watchdog`, a small
   separate binary from the same Go codebase, running as SYSTEM:
   - It has its own key (TPM-backed where available) and its own 90-day certificate for the same
@@ -246,6 +288,31 @@ HTTPS; tokens expire and are single-use by default to limit a leaked command.
 CSR over its existing mTLS connection → signer issues a new certificate only if the current
 one is not revoked → the old one expires on its own.
 
+**Certificate recovery (0.2.0).** An agent that was offline past its certificate's end date (a laptop
+in a drawer) notices the expiry on its own clock, or gets a 401 with `Fleeto-Certificate: expired` from
+`/v1/connect` → it posts a CSR for the same key to `POST /v1/recover` over mTLS with the expired
+certificate → the TLS handshake accepts a client certificate whose only chain problem is the leaf's own
+validity period (never another CA, never an expired CA); every path decides again afterwards: a session
+still needs a valid certificate → the gateway accepts the request only for a certificate on the allow
+list's expired set (never revoked, expired at most 365 days ago), chained to an instance CA at a moment it
+was valid, with the CSR key equal to the key the handshake proved → the signer checks on its own that the
+key belongs to the endpoint's most recently issued certificate, that it was never revoked, has expired and
+not longer than 365 days ago, then issues a new 90-day certificate and writes `certificate.recovered` →
+the agent stores it and connects. A refused recovery keeps the old certificate and retries hourly.
+Revoking the agent still stops a lost or stolen device, and an older copy of the identity can never come
+back once a newer certificate exists.
+
+**Enrolling again (0.2.0).** For an agent beyond recovery (more than a year offline, revoked by
+mistake, a reinstalled machine) a technician chooses Enroll again on the endpoint → web creates a
+single-use enrollment token bound to that endpoint, valid one day, and shows the install command once →
+the agent enrolls with it (an agent whose certificate expired or was revoked may enroll again without
+uninstalling) → the signer takes over the existing endpoint instead of creating one: every earlier
+certificate is revoked (live sessions drop), the batch sequences are cleared because the new agent state
+counts from 1, host name and OS facts are refreshed, and tier, site, checks, alerts, notes and history
+stay → `endpoint.enrolled_again` in the audit log. Decided while building: the technician chooses the
+endpoint; matching an unknown agent to an endpoint by key or state was left out, because an explicit,
+audited choice cannot attach a machine to the wrong endpoint.
+
 **Endpoint removal and agent revocation.** Technician deletes an endpoint or clicks Revoke
 agent (for a stolen laptop, a decommissioned machine, a suspected clone) → `RevokedAt` is
 set on all of its certificates and an audit entry is written → the revocation is published
@@ -292,6 +359,9 @@ in the workers and the Checks tab in web) with a SQL twin for set-based statemen
   to the endpoint itself, it matches the endpoint class, and no override disables it on the
   endpoint;
 - an endpoint-only check applies when it is enabled;
+- either kind applies only when its type runs on the endpoint's platform (`CheckCatalog.IsSupported`, SQL
+  twin `CheckCatalog.PlatformSql`), so a Windows event log check in a template linked to a mixed site never
+  reaches a Linux endpoint;
 - overrides replace the interval (signed into the configuration), thresholds and failures before
   alert (applied by the workers) for that endpoint only.
 Tier is applied on top by each caller. Every change (link, override, endpoint check) writes a
@@ -328,20 +398,68 @@ open after hold" email. Pages already treat a hold in the past as ended. The UI 
 snooze or mute (branding §6). Maintenance mode (below) is the tool for planned work on a whole
 endpoint, site or client.
 
-**Check history (0.2.0, design).** Per check of an endpoint, an overview of the last hour, day,
-week, month and year: a line chart for numeric checks (CPU, memory, free disk space, which shows
-storage growth, uptime) and a status timeline for the service check. The last hour and day are
-read from raw `CheckResult` rows (kept 30 days); week and longer read hourly and daily rollups
-(minimum, average, maximum and worst status per endpoint, check and target), kept 13 months.
-With TimescaleDB the rollups are continuous aggregates; without it the workers maintain rollup
-tables with a watermark, so local development works the same. Charts use MudChart; no new
-library.
+**Alert notifications (0.2.0).** An alert opens, escalates, resolves or leaves its hold → in the same
+transaction the notification service picks every channel that receives it: enabled, the alert's client
+among the channel's clients (or all clients), the severity at least the channel's minimum, and for a resolve
+only channels that want resolves (`NotificationRouting`, decided 2026-09-15: routing rules, no time-based
+escalation) → it adds one `OutboxEmail` per recipient and one `OutboxWebhook` per webhook channel, with the
+request body built there and stored → a database trigger wakes the delivery loops, which also poll every
+30 seconds. Both outboxes claim a batch by moving its next attempt ten minutes ahead, retry after 1, 5 and
+15 minutes, 1 hour and then every 6 hours, give up after 10 attempts (at once for a permanent refusal such
+as an invalid recipient or an HTTP 4xx other than 408, 425 and 429) and keep the last error. Email has one
+circuit breaker; webhooks have one per channel, so a receiver that is down does not hold up the others. A
+webhook is a POST with `X-Fleeto-Event`, `X-Fleeto-Delivery` (the outbox id, the same on every attempt, so a
+receiver can drop duplicates) and, for the generic format, `X-Fleeto-Signature: t=<unix seconds>,v1=<hex>`,
+HMAC-SHA256 over `<t>.<body>` with the channel's signing secret. Slack gets an incoming webhook message and
+Teams an adaptive card for a workflow; their URL is the secret. Notifications carry hostnames, client and
+site names, the alert title and detail and a link, never check output. A delivery whose channel was
+disabled or deleted before it went out is dropped. The notification channels page shows the last delivery
+per webhook channel and can send a test message.
+
+**Email delivery (0.2.0).** Settings, Email chooses SMTP or Microsoft Graph. Graph uses an app registration
+with the `Mail.Send` application permission, limited to the sending mailbox by an Exchange application
+access policy, and the client credentials flow: a client secret (its end date entered with it, since Entra
+ID does not reveal it) or, recommended, a certificate Fleeto creates (RSA 3072, two years). The certificate
+waits as pending until the admin has downloaded its public part, uploaded it to the app registration and
+switched to it, so sending never stops during a renewal; the private key never leaves the instance. The
+workers request one token per delivery pass and send HTML through `sendMail` without saving to Sent Items.
+While the Graph credential has expired and SMTP is configured as well, email goes through SMTP, so the
+warning about the expired credential still arrives. Graph can only be chosen when complete and must stay
+complete while chosen.
+
+**Expiring credentials (0.2.0).** Every stored credential in use that has an end date is listed by
+`ExpiringCredentials` (now the Graph client secret or certificate; Entra ID sign-in and integrations add
+theirs later). From 30 days before the end date the dashboard shows a warning to every user (the next step
+for admins), red after expiry with what stopped and whether a fallback is in use. The workers email the
+admins once per stage (30, 14, 7 and 1 days left, expired; a skipped stage sends only the most urgent) and
+remember the stage per credential together with its end date, in the same transaction as the emails, so a
+renewed credential starts over and nothing is sent twice.
+
+**Check history (0.2.0).** Per check of an endpoint, an overview of the last hour, day, week, month
+and year (History in the check menu, or a click on the time of the last result): a line chart for
+numeric checks (average as a line, lowest to highest as a band, thresholds as dashed lines, a red mark
+where the check could not run or got no response) and a status timeline for yes/no checks (service,
+process, pending restart, file, antivirus and firewall). The hour (1-minute buckets) and day (10-minute
+buckets) are read from raw `CheckResult` rows (kept 30 days); the week (hourly), month (6-hourly) and
+year (daily) from the rollup tables `CheckResultsHourly` and `CheckResultsDaily` (minimum, maximum, sum
+and count of values, errors and missing responses per endpoint, check, target and bucket), kept 13
+months. Decided while building: the workers maintain the rollups in both setups, inside the evaluation
+transaction that advances the per-endpoint cursor, so every result is counted exactly once and local
+development without TimescaleDB behaves the same as the VPS; continuous aggregates could not judge
+"no response" per check type. A result is placed at the agent's collection time when that lies at most 7
+days before and 5 minutes after ingest (buffered results of an agent that was offline land where they
+belong), otherwise at ingest time; ordering and evaluation keep using ingest time only. Every bucket of a
+range is returned, so a gap in the chart is a real gap. Charts are inline SVG drawn by a small component;
+no chart library.
 
 **Maintenance mode (0.2.0).** A technician puts a client, a site or one managed endpoint in
 maintenance, with an optional end time. An endpoint is in *effective maintenance* when its own,
-its site's or its client's maintenance is active; maintenance windows from the policy become a
-fourth source of the same rule later. One domain rule (`MaintenanceRules`) defines it, used by
-EF queries and by the raw SQL in workers. Effects:
+its site's or its client's maintenance is active, or a maintenance window of its policy runs (below). One domain rule (`MaintenanceRules`, with the EF Core predicate
+`EndpointInMaintenance`) defines it, and its SQL twin `MaintenanceSql.EndpointInMaintenance` serves
+the set-based statements in the workers; a test proves the three agree. When sources overlap, the one
+that lasts longest is shown (until turned off beats any end time). Endpoint maintenance is for managed
+endpoints only (an agent-only endpoint raises no alerts); clients and sites can always be put in
+maintenance. Effects:
 - Check evaluation keeps updating check states and failure counters, and still resolves alerts
   whose check recovers, but opens and escalates nothing. When maintenance ends, the next failing
   result opens the alert right away.
@@ -354,51 +472,92 @@ EF queries and by the raw SQL in workers. Effects:
   publish a resync. Maintenance on an endpoint cannot be ended at endpoint level while its site
   or client keeps it in maintenance.
 
-**Job.** Technician starts a script or patch action, picks the targets and a validity window
-(default 24 hours, maximum 7 days) → web writes one `Job` per endpoint in state
-`pending_signature` and a `SigningRequest` → signer reads the job from the database and
-checks: the initiator has the role for this job type, every target is managed, the script
-version is approved when the target site's policy requires approval, the validity window
-is within the maximum, the rate limit is not exceeded → signs the canonical payload
-(`JobId`, `InstanceId`, `EndpointId`, `Type`, `Payload`, `ValidUntil`, `InitiatedBy`) or
-refuses with a reason → gateway pushes the job to online agents and queues it for offline
-ones, and never delivers it after `ValidUntil` → agent verifies the instance signature,
-checks that `InstanceId` and `EndpointId` are its own and that `ValidUntil` has not passed
-(5 minutes clock tolerance), dedupes on `Job.Id` (ids are kept until their `ValidUntil`) →
-executes and streams output as chunks (below) → sends a completion message → audit entry
-written. A job that runs out of time is marked `expired` and shows in the job history.
+**Maintenance windows (0.2.0).** A policy holds up to 20 recurring windows: days of the week, a local
+start time, a duration (15 minutes to 7 days), an IANA time zone and whether they apply to all
+endpoints, servers or workstations. A running window is the fourth source of effective maintenance
+for the managed endpoints of the sites that use the policy (the site's linked policy, else the default
+policy), with the same effects as maintenance mode. Decided while building: occurrences are computed in
+C# only (`MaintenanceWindows.Occurrences`, with .NET time zone rules: a start time the clock skips starts
+after the jump, a start time that occurs twice starts at its first occurrence, the duration is elapsed
+time) and stored ahead in `MaintenanceWindowOccurrence` (policy, window, start and end in UTC, class) for
+8 days: web replaces them when a policy is saved, the workers recompute every policy every hour. So the
+rule stays a plain time comparison in C#, EF Core and SQL, and the agreement test covers it. The workers
+publish a resync when an occurrence starts or ends so open pages update. Windows are not audited per
+occurrence (they are scheduled); the policy change that creates them is.
+
+**Job.** An admin or technician runs a library script on a managed endpoint (Jobs tab of the endpoint or
+the right-click menu of the endpoint list) and picks a validity window (1 hour, 24 hours or 7 days) → web
+checks role, tier, platform, client and approval, and writes one `Job` per endpoint in state
+`pending_signature` with a snapshot of the current script version, a `SigningRequest` of kind `job` (only
+the web role may create one, origin trigger) and an audit entry, all in one transaction → the signer locks
+the job and checks again from the database: still `pending_signature` and within its validity window; the
+initiator exists, has 2FA, is not locked out and is admin or technician; the endpoint is managed with the
+license; the body of the stored version still has the snapshot hash and the language; the script is global
+or of the endpoint's client; the language runs on the endpoint's platform; and, when the policy of the
+endpoint's site (or the default policy) requires approval, the version is the script's current one and
+approved by an admin who is not its author → it signs a `JobPayload` (`JobId`, `InstanceId`, `EndpointId`,
+`Type`, `ValidUntil`, `InitiatedBy`, timeout, output cap, and the script: language, name, version, body,
+SHA-256) with the context `fleetify-job-v1` and sets `queued`, or sets `refused` with the reason → the
+gateway sends queued, signed, valid jobs to managed sessions when they connect, on a notification and in
+its 5-minute catch-up, and records `DeliveredAt` → the agent verifies the signature against the pinned
+key, that instance and endpoint are its own, that `ValidUntil` has not passed (5 minutes clock tolerance)
+and lies at most 7 days ahead, that its applied configuration is managed, the body hash and that the
+language runs on its operating system. It dedupes on `Job.Id` (a seen list kept until 7 days after the
+job's validity, plus the job directory) → it stores the signed job on disk, runs the script as SYSTEM or
+root and streams output as chunks (below) → it sends `JobCompletion`, and a refusal is a `JobCompletion`
+with result `refused` and the reason.
+
+A job that is not signed within 15 minutes becomes `refused` (the signer did not answer); a queued job whose
+`ValidUntil` passed more than 10 minutes ago becomes `expired`; both show in the job history. A job can be
+cancelled while it waits for its signature or is queued and not yet delivered; delivery and cancel are
+atomic, so a delivered job cannot be cancelled. Scripts run at most 4 at a time per agent, with a timeout
+from 30 seconds to 24 hours set per version (default 10 minutes); the whole process tree ends at the timeout
+(a job object on Windows, a process group on Linux and macOS). A job that was running when the agent
+stopped is reported as `interrupted` after the restart and becomes `lost`: it is never started again, since
+running it twice could be worse than not knowing. Running a script as the logged-on user comes later
+(decided 2026-09-15).
 
 **Job output.** Output is never one message. The agent writes stdout and stderr to disk and
 sends them as `JobOutputChunk` messages of at most 64 KiB, each carrying `JobId`, `Stream`
 (`stdout`/`stderr`) and a `Sequence` number per stream starting at 0 → the gateway stores
 each chunk idempotently (unique on `JobId`, `Stream`, `Sequence`; a duplicate is
 acknowledged and ignored) and acknowledges it after the write → the agent deletes a chunk
-from disk only after its ack and, after a reconnect, resends every unacknowledged chunk.
+from disk only after its ack and, after a reconnect, resends every unacknowledged message
+(started, chunks, completion). When the database write fails the gateway sends no ack, so
+the agent sends the message again on the next connection.
 When the process exits the agent sends `JobCompletion` with the exit code and, per stream,
 the final chunk count, total byte count and SHA-256. Execution state and output state are
 separate:
 
-- **Execution**: `JobCompletion` sets `State` to `succeeded` or `failed` from the exit code
-  at once, whatever the output looks like. A job that stays `running` without a
-  `JobCompletion` beyond its maximum runtime (set per job type) becomes `lost`: the result
-  is unknown, and the UI says so rather than guessing.
+- **Execution**: `JobCompletion` sets `State` at once, whatever the output looks like:
+  `succeeded` for exit code 0, `failed` for another exit code, a timeout or a script that
+  could not start, `refused` for an agent refusal and `lost` for `interrupted`. Only the
+  first completion counts. A job that stays `running` without a `JobCompletion` for 15
+  minutes beyond its timeout becomes `lost`: the result is unknown, and the UI says so rather
+  than guessing.
 - **Output**: `OutputState` is `receiving` while chunks arrive and becomes `complete` when
-  every chunk up to the announced counts is stored and the hashes match. While chunks are
-  missing, the gateway asks the agent for them on every reconnect. The agent keeps
-  unacknowledged output on disk for 7 days; when that passes, or the endpoint is removed,
-  without the output being complete, `OutputState` becomes `incomplete` for good and the UI
-  shows which part is missing. So a job can be `succeeded` with output `incomplete`.
+  every chunk up to the announced counts is stored and the byte counts and hashes match,
+  or `incomplete` when they do not. The agent keeps unacknowledged output on disk for 7
+  days and sends it again on every reconnect; when output is still not complete 7 days after
+  the completion, `OutputState` becomes `incomplete` for good. So a job can be `succeeded`
+  with output `incomplete`.
 
-Output per job is capped (default 50 MiB, configurable per policy); beyond the cap the
+Output per job is capped at 50 MiB (a constant for now, not per policy); beyond the cap the
 agent stops sending, records the truncation in `JobCompletion` (`OutputTruncated`) and the
-UI says so. Execution is never repeated to recover output.
+UI says so. The gateway also stops storing a job's chunks past the cap plus one chunk, so a
+hostile agent cannot fill the database. The UI shows the first 1 MiB per stream, updated live
+while a job runs. Execution is never repeated to recover output. Output is kept 90 days and
+the job history 13 months (retention).
 
 **Script approval.** When a site's policy has script approval required, jobs for its
-endpoints may only run library scripts whose current version is approved. An author saves
-a version → a different admin reviews the body and approves it after entering a fresh TOTP
-code → the approval is stored with the version's SHA-256 → any change creates a new
-version that needs approval again. Ad-hoc scripts are refused for those sites. The setting
-is off by default and recommended for server sites.
+endpoints may only run the current version of a library script, and only when it is approved. An
+author saves a version → a different admin reviews the body and approves it after entering a
+fresh TOTP code (a code is accepted once: the same code within 3 minutes is refused, a wrong code
+counts towards the account lockout and is audited) → the approval is stored with the version's
+SHA-256 → any change creates a new version that needs approval again. Jobs only run library
+scripts, so there are no ad-hoc scripts to refuse. The setting is off by default and recommended
+for server sites. Scripts live under Settings, Templates, Scripts: every user can read them,
+admins and technicians write them, admins approve.
 
 **Remote control session.** Technician clicks Remote control on a managed endpoint and
 enters a reason → the browser generates an ephemeral X25519 key pair → web writes a
@@ -453,7 +612,8 @@ Steaan, offline (hardware token, never on a VPS, never in CI secrets)
 Per instance, on the VPS
   root key (KEK)                     Docker secret, mounted in fleetify-web and fleetify-workers only
     └─ wraps → data keys (DEKs)      in the DB, one per purpose
-                  └─ encrypt →       integration credentials, SMTP, Action1, backup destination credentials,
+                  └─ encrypt →       integration credentials, SMTP, Microsoft Graph secret or certificate key,
+                                     webhook URLs and signing secrets, Action1, backup destination credentials,
                                      TOTP seeds, license document, remote control recordings
   signer key (KEK)                   Docker secret, mounted in fleetify-signer only
     └─ encrypts →                    instance signing key (ed25519): jobs, policies, check definitions, session tokens
@@ -501,7 +661,8 @@ container:
   signatures, request states and audit entries.
 - Before signing it enforces rules independently of web: initiator role, managed tier of
   every target (a fourth layer of tier enforcement), script approval, validity window, rate
-  limits. Bulk jobs above a configurable endpoint count notify every admin.
+  limits (3,000 jobs per minute). The UI runs a script on one endpoint at a time; notifying every
+  admin about bulk jobs arrives with running a script on a selection of endpoints.
 - Optional four-eyes approval for scripts per policy (see §4, Script approval).
 - **Accepted residual risk**: the signer decides on database content, and web can write to
   the database. An attacker with full control of web can create jobs that pass the checks
@@ -513,6 +674,12 @@ container:
 ### Agent identity and revocation
 
 - Per-agent certificates, 90 days, automatic renewal, TPM-backed keys where available (§3).
+- Recovery of an expired certificate (0.2.0, §4): the agent TLS port accepts an expired agent
+  certificate in the handshake, because only a certificate can prove the key; the allow list,
+  the recovery path and the signer each refuse it for anything but one renewal of a never
+  revoked, most recent certificate within 365 days after expiry. `AgentRecovery` signing requests
+  may only be created by the gateway role, and the origin trigger now refuses unknown kinds for
+  every container role.
 - Revocation uses an allow list in the database (`AgentCertificates`: issued, `RevokedAt` null,
   not expired), checked by the gateway on every handshake and pushed to live connections at
   once. No CRL or OCSP infrastructure. Deleting an endpoint removes its certificates, so it can
@@ -530,6 +697,14 @@ container:
   valid for one endpoint of one instance for a limited time and cannot be replayed elsewhere
   or weeks later.
 - Default validity 24 hours, maximum 7 days, enforced by the signer, the gateway and the agent.
+- The job carries the script body. The signer reads it from the stored version and checks its hash
+  against the snapshot web took, so the body that is signed is the body that was approved.
+- Agent-only endpoints get no jobs at any layer: web refuses to create them, the signer refuses to
+  sign them, the gateway sends jobs only to managed sessions and the agent refuses them unless its
+  applied signed configuration is managed.
+- Grants: web creates and cancels jobs and reads output; the signer only updates jobs; the gateway
+  updates jobs and inserts output chunks; the workers expire, mark lost and remove old rows. No
+  container but web writes scripts.
 
 ### Licensing
 
@@ -637,6 +812,12 @@ container:
   enrollment rate limit; it never grants an identity (mTLS does). Residual risk: a process on the
   VPS or a compromised container of the instance could forge the header and so the address it
   appears to come from. Off for local development.
+- **Outgoing requests to admin-entered URLs** (webhooks, 0.2.0) go only to public addresses: https
+  only, no credentials in the URL, no redirects, no proxy, and the workers check every address a host
+  name resolves to at connect time (`NetworkAddressPolicy`: no loopback, private, carrier-grade NAT,
+  link-local or cloud metadata, multicast or reserved ranges, also when embedded in IPv6), so a
+  webhook cannot reach the database, other containers or the host, also not through DNS rebinding.
+  Webhook URLs and signing secrets are write-only and never written to the audit log.
 - One database role per container with the minimum grants; the gateway has no access to
   encrypted secrets and does not mount the root key.
 - Every privileged action writes an `AuditEntry`; the table has no update or delete path.

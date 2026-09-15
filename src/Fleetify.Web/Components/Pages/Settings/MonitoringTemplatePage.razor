@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = FleetifyPolicies.Viewer)]
 @inherits FleetoPageBase
 @inject MonitoringTemplateService TemplateSvc
+@inject ScriptService ScriptSvc
 @inject IDialogService DialogService
 
 <PageTitle>@(_template?.Name ?? "Monitoring template") - Fleeto</PageTitle>
@@ -54,7 +55,10 @@
                         <strong>@context.Name</strong>
                         @foreach (var parameter in context.Parameters)
                         {
-                            <div class="muted" style="font-size:0.75rem">@parameter.Key: @parameter.Value</div>
+                            @if (Ui.ParameterText(context.Type, parameter.Key, parameter.Value, _scriptNames) is { } text)
+                            {
+                                <div class="muted" style="font-size:0.75rem">@text</div>
+                            }
                         }
                     </MudTd>
                     <MudTd>@Ui.CheckTypeLabel(context.Type)</MudTd>
@@ -82,6 +86,7 @@
     public Guid TemplateId { get; set; }
 
     private MonitoringTemplateDetail? _template;
+    private IReadOnlyDictionary<string, string> _scriptNames = new Dictionary<string, string>();
     private bool _notFound;
 
     protected override Task OnParametersSetAsync() => ReloadAsync();
@@ -90,29 +95,14 @@
     {
         _template = await TemplateSvc.GetAsync(caller, TemplateId);
         _notFound = _template is null;
+        if (_template?.Checks.Any(c => c.Type == CheckType.Script) == true)
+        {
+            _scriptNames = (await ScriptSvc.ListForChecksAsync(caller, _template.ClientId)).ToDictionary(s => s.Id.ToString("D"), s => s.Name);
+        }
     });
 
-    private static string Thresholds(CheckDefinitionView check)
-    {
-        if (check.Type == CheckType.ServiceRunning)
-        {
-            return check.WarningThreshold >= 1 ? "Stopped: warning" : "Stopped: critical";
-        }
-
-        var unit = Ui.ThresholdUnit(check.Type);
-        var parts = new List<string>();
-        if (check.WarningThreshold is { } warning)
-        {
-            parts.Add($"warning {warning:0.##}{(unit == "%" ? "%" : " " + unit)}");
-        }
-
-        if (check.CriticalThreshold is { } critical)
-        {
-            parts.Add($"critical {critical:0.##}{(unit == "%" ? "%" : " " + unit)}");
-        }
-
-        return parts.Count == 0 ? "-" : string.Join(", ", parts);
-    }
+    private static string Thresholds(CheckDefinitionView check) =>
+        Ui.ThresholdsText(check.Type, check.Parameters, check.WarningThreshold, check.CriticalThreshold);
 
     private async Task EditAsync()
     {
@@ -136,6 +126,8 @@
         var parameters = new DialogParameters<CheckDialog>
         {
             { d => d.Existing, check },
+            { d => d.LoadServices, () => LoadServicesAsync() },
+            { d => d.LoadScripts, () => LoadScriptsAsync(null) },
             {
                 d => d.OnSubmit, input => RunAsync(caller => TemplateSvc.SaveCheckAsync(caller, TemplateId, check?.Id, input),
                     check is null ? "The check was added. Linked endpoints receive it shortly." : "The check was saved. Linked endpoints receive the change shortly.")
@@ -146,6 +138,20 @@
         {
             await ReloadAsync();
         }
+    }
+
+    private async Task<IReadOnlyList<ServiceOption>> LoadServicesAsync()
+    {
+        IReadOnlyList<ServiceOption> services = [];
+        await LoadAsync(async caller => services = await TemplateSvc.GetServicesAsync(caller, TemplateId));
+        return services;
+    }
+
+    private async Task<IReadOnlyList<ScriptOption>> LoadScriptsAsync(string? platform)
+    {
+        IReadOnlyList<ScriptOption> scripts = [];
+        await LoadAsync(async caller => scripts = await ScriptSvc.ListForChecksAsync(caller, _template?.ClientId, platform));
+        return scripts;
     }
 
     private async Task SetEnabledAsync(CheckDefinitionView check, bool enabled)

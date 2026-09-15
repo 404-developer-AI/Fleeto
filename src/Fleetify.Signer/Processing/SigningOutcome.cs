@@ -31,4 +31,11 @@ public interface ISigningRequestHandler
     /// its writes through the context and returns a completed outcome. Exceptions mark the request Failed.
     /// </summary>
     Task<SigningOutcome> HandleAsync(SigningContext context, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Called after a refusal (by the handler, or by the processor for age or rate limit), once the handler's own writes are rolled
+    /// back, in the same transaction as the refusal. Lets a handler record the refusal on its subject, such as a job.
+    /// </summary>
+    Task<IReadOnlyList<PendingNotification>> OnRefusedAsync(SigningContext context, string reason, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<PendingNotification>>([]);
 }

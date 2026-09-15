@@ -1,6 +1,9 @@
 # Releasing Fleeto
 
-A release is a tagged commit `vX.Y.Z` that passes CI. Server images and the agent share the version number. CI builds
+A release is a tagged commit `vX.Y.Z` that passes CI. A pre-release for testing (`vX.Y.Z-alpha.N`, for example
+`v0.2.0-alpha.1`) goes through the same pipeline and signing; install.sh orders it below `X.Y.Z` (semantic versioning),
+so the final release is an update. Publish a pre-release as `releases/latest` only on a test release host, never where
+customers install from. Server images and the agent share the version number. CI builds
 and pushes the images and prepares the unsigned release files; a Steaan release manager signs them offline with the
 release key on the hardware token. No private key is ever available to CI, a runner or a VPS.
 
