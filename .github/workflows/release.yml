@@ -70,9 +70,9 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
           RELEASE_KEYS: ${{ vars.FLEETO_RELEASE_PUBLIC_KEYS }}
         run: |
-          docker buildx build --target agent --output type=local,dest=build/agent-binaries -f src/Fleeto.Web/Dockerfile \
+          docker buildx build --target agent-binaries --output "type=local,dest=$RUNNER_TEMP/agent-binaries" -f src/Fleeto.Web/Dockerfile \
             --build-arg FLEETO_VERSION="$VERSION" --build-arg FLEETO_RELEASE_PUBLIC_KEYS="$RELEASE_KEYS" .
-          (cd build/agent-binaries && sha256sum -c SHA256SUMS)
+          (cd "$RUNNER_TEMP/agent-binaries" && sha256sum -c SHA256SUMS)
 
       # One image manifest per component (provenance and SBOM attestations off), so the digest in the release
       # manifest is exactly what `docker pull <image>@<digest>` fetches on the VPS.
@@ -171,17 +171,17 @@ jobs:
           GATEWAY_DIGEST: ${{ steps.gateway.outputs.digest }}
         run: |
           list() { (cd "$1" && find . -type f -name 'fleeto-*' -print0 | sort -z | xargs -0 sha256sum); }
-          list build/agent-binaries > build/expected-binaries.txt
+          list "$RUNNER_TEMP/agent-binaries" > "$RUNNER_TEMP/expected-binaries.txt"
           for image in "fleeto-web@$WEB_DIGEST" "fleeto-gateway@$GATEWAY_DIGEST"; do
             id="$(docker create "$REGISTRY/$image")"
-            rm -rf build/image-binaries && mkdir -p build/image-binaries
-            docker cp "$id:/app/agent/." build/image-binaries/
+            rm -rf "$RUNNER_TEMP/image-binaries" && mkdir -p "$RUNNER_TEMP/image-binaries"
+            docker cp "$id:/app/agent/." "$RUNNER_TEMP/image-binaries/"
             docker rm "$id" >/dev/null
-            list build/image-binaries > build/actual-binaries.txt
-            diff -u build/expected-binaries.txt build/actual-binaries.txt \
+            list "$RUNNER_TEMP/image-binaries" > "$RUNNER_TEMP/actual-binaries.txt"
+            diff -u "$RUNNER_TEMP/expected-binaries.txt" "$RUNNER_TEMP/actual-binaries.txt" \
               || { echo "::error::The agent binaries in $image differ from the binaries listed in the manifest (the agent build is not reproducible)"; exit 1; }
           done
-          cat build/expected-binaries.txt
+          cat "$RUNNER_TEMP/expected-binaries.txt"
 
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
@@ -208,7 +208,7 @@ jobs:
             --image "workers=$WORKERS_DIGEST" --image "tool=$TOOL_DIGEST" --image "caddy=$CADDY_DIGEST" \
             --install-sh dist/releases/"$VERSION"/install.sh \
             --rollback "$ROLLBACK" \
-            --agent-binaries build/agent-binaries \
+            --agent-binaries "$RUNNER_TEMP/agent-binaries" \
             --out dist/releases/"$VERSION"/manifest.json
           (cd dist && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
           cat dist/releases/"$VERSION"/manifest.json

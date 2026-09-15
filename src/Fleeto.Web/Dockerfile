@@ -36,6 +36,11 @@ RUN pkg=github.com/404-developer-AI/Fleeto/agent/internal/version \
     done \
     && (cd /out && sha256sum windows-amd64/fleeto-agent.exe windows-amd64/fleeto-watchdog.exe > SHA256SUMS)
 
+# Only the agent binaries, for the release workflow: docker buildx build --target agent-binaries --output type=local,dest=<dir>.
+# (Exporting the agent stage itself would write its whole filesystem.) The runtime image does not use this stage.
+FROM scratch AS agent-binaries
+COPY --from=agent /out/ /
+
 # ---------------------------------------------------------------------------------------------------------------
 FROM ${DOTNET_SDK_IMAGE} AS build
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
