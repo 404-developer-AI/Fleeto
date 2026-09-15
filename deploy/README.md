@@ -173,13 +173,15 @@ A VPS installed before 0.2.1 uses the old internal name: `/opt/fleetify`, projec
 first update to 0.2.1 or later moves it (MD-Files/ARCHITECTURE.md §7, Rename to Fleeto):
 
 ```
-sudo /opt/fleetify/bin/install.sh --all          # the installed install.sh hands over to the new one, which moves the VPS
+sudo /opt/fleetify/bin/install.sh --all          # first attempt: the installed install.sh hands over to the new one
+sudo /opt/fleeto/bin/install.sh --all            # every later run, also a retry after a failed move
 ```
 
 - It asks once for confirmation (or `--yes`): every instance on the VPS is stopped while its data is copied, then updated.
   Plan it like an update of every instance at once; the copies need free disk space for the volumes (checked first).
 - The old layout stays untouched until an instance runs the new release; an instance whose update fails runs again from
-  `/opt/fleetify` and moves with the next run. Afterwards `/opt/fleetify` and the `fleetify-*` volumes are gone, and the
+  `/opt/fleetify` and moves with the next run. Once the host proxy has moved (the first attempt usually gets that far),
+  `/opt/fleetify/bin/install.sh` only points to `/opt/fleeto/bin/install.sh`, so retry with the latter. Afterwards `/opt/fleetify` and the `fleetify-*` volumes are gone, and the
   install.sh to use is `/opt/fleeto/bin/install.sh`. The pre-rename dump is in `/opt/fleeto/<instance>/backups/`.
 - Endpoints with a Fleetify agent (0.2.0) keep reporting but take no new configuration or jobs until the install command
   of their site is run again on them; it takes the agent over with its enrollment (no new endpoint, no token used).
