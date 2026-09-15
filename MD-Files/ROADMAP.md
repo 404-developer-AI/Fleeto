@@ -8,10 +8,14 @@
 ## Current
 
 **0.1.0** — implemented and tested on a development PC, waiting for the developer's local test.
-Not tagged yet. What is still open before the tag is listed under "Open before tagging 0.1.0".
+Not tagged yet; it gets a tag after all, as a historical marker on the last 0.1.0 commit (decided 2026-09-15). What is
+still open before the tag is listed under "Open before tagging 0.1.0".
 
-**0.2.0** — in progress since 2026-09-15, on top of the untagged 0.1.0. Pre-releases `v0.2.0-alpha.1` (2026-09-15, first CI
-run; its release build failed), `v0.2.0-alpha.2` (first published test build), `v0.2.0-alpha.3` (VPS behind NAT, first VPS install), `v0.2.0-alpha.4` (fixes from the first install) and `v0.2.0-alpha.5` (network MTU).
+**0.2.0** — every item built (2026-09-15); everything that was still open moved to 0.2.1 (decided 2026-09-15). Pre-releases `v0.2.0-alpha.1` (2026-09-15, first CI
+run; its release build failed), `v0.2.0-alpha.2` (first published test build), `v0.2.0-alpha.3` (VPS behind NAT, first VPS install), `v0.2.0-alpha.4` (fixes from the first install) and `v0.2.0-alpha.5` (network MTU). Installed on the first test VPS.
+
+**0.2.1** — planned: read-only public API, Servicedesk ticket reference on notes, agent self-update with update rings,
+watchdog, Linux agent, arm64 agents and the script features deferred from 0.2.0.
 
 Markers: [done] built and tested, [open] still to do.
 
@@ -84,7 +88,7 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
 
 ### Known limitations of 0.1.0
 
-- Linux and macOS agents are stubs (0.2.0).
+- Linux and macOS agents are stubs (the Linux agent follows in 0.2.1; macOS is not supported for now).
 - An agent offline past its certificate expiry (90 days, renewal from day 60) cannot reconnect and
   must be enrolled again as a new endpoint; recovery is planned for 0.2.0.
 - The web data protection key ring is stored unencrypted on its volume.
@@ -94,7 +98,6 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
 
 ## 0.2.0 — Full monitoring, jobs and API
 
-- [open] Linux and macOS agents.
 - [done] Complete check catalog (decided 2026-09-15), with a check only sent to endpoints whose platform runs it:
   - network: ping to a host, TCP port reachable, HTTP(S) URL (status code, response time, certificate
     expiry);
@@ -113,7 +116,7 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
 - [done] Webhook notifications next to email: generic JSON signed with HMAC-SHA256, Slack and Microsoft Teams
   (workflow adaptive card); per-channel retry and circuit breaker, test message, last delivery shown. Sent
   only to public https addresses, checked at connect time.
-- [done] Service checks by picking a service (Windows services now; systemd and launchd with the Linux and macOS agents): besides typing the service name, choose from a list of the
+- [done] Service checks by picking a service (Windows services now; systemd with the Linux agent in 0.2.1): besides typing the service name, choose from a list of the
   services on the endpoint. The agent reports its services (name, display name, start type, state) as
   part of the inventory; the check dialog on an endpoint offers them, and on a monitoring template it
   offers the services seen on the endpoints of the linked sites. Typing a name stays possible for a
@@ -133,10 +136,6 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
   status timeline for yes/no checks. Hourly and daily rollups kept 13 months, maintained by the workers
   in every setup (decided while building: exactly-once with the evaluation, same behaviour without
   TimescaleDB).
-- [open] Watchdog service (`fleetify-watchdog`, Windows first): a second service with its own certificate
-  for the same endpoint, always connected. Agent and watchdog restart each other; alerts "Agent
-  service stopped" and "Watchdog stopped" on managed endpoints, separate from the offline alert.
-  The watchdog installs agent updates and rolls back a failed one.
 - [done] Maintenance mode per client, site and endpoint: started by hand, with an optional end time
   (1 hour, 4 hours, 24 hours, a chosen time, or until turned off). While an endpoint is in
   maintenance no alert opens or escalates; open alerts stay open and still resolve when their
@@ -146,13 +145,9 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
   windows from the policy feed the same rule.
 - [done] Script library with versions and optional four-eyes approval per policy; signed remote
   execution with `ValidUntil`, output capture, job history including expired and refused jobs.
-  PowerShell and Batch on Windows, sh and bash on Linux and macOS, always as SYSTEM or root; running
-  as the logged-on user comes later (decided 2026-09-15). Decided while building: a script runs on one
-  endpoint at a time from the UI; running it on a selection of endpoints, with a notification to every
-  admin above a number of endpoints, and an output cap per policy come later.
-- [open] Agent self-update, installed only with a valid Steaan release signature. Three update rings chosen
-  in the policy (decided 2026-09-15): Preview (at once), Standard (after 7 days), Delayed (after 14
-  days); an admin can pause a release or release it to every ring at once.
+  PowerShell and Batch on Windows, sh and bash on Linux, always as SYSTEM or root (decided 2026-09-15). Decided
+  while building: a script runs on one endpoint at a time from the UI. Running a script on a selection of endpoints,
+  an output cap per policy and running as the logged-on user are planned for 0.2.1.
 - [done] Recovery for agents that were offline past their certificate expiry (for example a laptop
   that stayed in a drawer for months):
   - Renewal with an expired certificate: the gateway accepts an expired but not revoked agent
@@ -165,9 +160,48 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
     state), so checks, alerts, notes and audit history are kept instead of creating a new endpoint.
     Decided while building: chosen by the technician only (Enroll again on the endpoint, a single-use
     token bound to it); no automatic matching.
-- [open] Public REST API `/api/v1`: API keys with scopes, read access to all core resources,
-  OpenAPI document with drift test, rate limiting, audit. Notes get an external ticket reference
-  (for a servicedesk), set and read through the API.
+## 0.2.1 — API, agent updates, watchdog and Linux agent
+
+Everything that was still open for 0.2.0, moved here on 2026-09-15, with the developer's answers of that day.
+
+- [open] Public REST API `/api/v1`, **read-only** (decided 2026-09-15: no write access and none planned until there is
+  demand):
+  - API keys created in Settings: named, optionally limited to clients, revocable, shown once, format
+    `flt_<id>_<secret>` with a 256-bit secret stored as SHA-256;
+  - read access to clients, sites, endpoints (inventory and status), alerts, jobs, checks and notes (patch compliance follows with Action1 in 0.4.0);
+    keyset pagination, ISO 8601 timestamps in UTC;
+  - OpenAPI document served by the instance, kept in sync with the code by a test;
+  - rate limiting per key and an audit entry per call.
+- [open] Servicedesk ticket reference on notes (decided 2026-09-15): an integration with the **Steaan Servicedesk**,
+  configured in Settings, Integrations (URL and API credential, stored encrypted). Fleeto fetches the ticket number
+  through the Servicedesk API and shows it on the note as a clickable ticket number that opens the ticket in the
+  Servicedesk. How a note finds its ticket is worked out against the Servicedesk API when this is built.
+- [open] Agent self-update, installed only with a valid Steaan release signature:
+  - the release pipeline signs every agent binary with the release key (a signature next to the binary); the agent
+    verifies it against the release public keys compiled into it before installing;
+  - three update rings chosen in the policy (decided 2026-09-15): Preview (at once), Standard (after 7 days), Delayed
+    (after 14 days), **counted from the moment the instance installs the release** (decided 2026-09-15: the binaries
+    ship in the instance image);
+  - an admin can pause a release or release it to every ring at once;
+  - the watchdog installs the update and rolls back a failed one;
+  - Authenticode code signing of the Windows binaries comes later (decided 2026-09-15).
+- [open] Watchdog service `fleetify-watchdog` on **every supported platform**, Windows and Linux (decided 2026-09-15): a
+  second service with its own certificate for the same endpoint, always connected. Agent and watchdog restart each
+  other; alerts "Agent service stopped" and "Watchdog stopped" on managed endpoints, separate from the offline alert.
+- [open] Linux agent for **Ubuntu LTS (22.04, 24.04), Debian 12 and newer (including Proxmox VE hosts) and the RHEL
+  family (RHEL, Rocky Linux, AlmaLinux 8 and 9)** (decided 2026-09-15): systemd service, install command generated in
+  the UI, inventory, the check catalog on Linux, systemd services offered in the check dialog, key storage (TPM where
+  available, otherwise a root-only file), scripts in sh and bash as root.
+- [open] Agents for **amd64 and arm64** (decided 2026-09-15), on Windows and Linux, in the release pipeline and the install
+  command.
+- [open] Run a script on a selection of endpoints, with a notification to every admin above a configurable number of
+  endpoints (deferred from 0.2.0).
+- [open] Output cap for job output per policy instead of the fixed 50 MiB (deferred from 0.2.0).
+- [open] Run a script as the logged-on user instead of SYSTEM or root (deferred from 0.2.0).
+- [open] Remove the container images of the failed `v0.2.0-alpha.1` release from ghcr.io.
+- Not supported for now: **macOS** (decided 2026-09-15). A macOS agent needs signing and notarisation with an Apple
+  Developer account; there is none, so no macOS agent, watchdog, remote control or remote terminal until that changes
+  (see Later).
 
 ## 0.3.0 — Remote control
 
@@ -177,7 +211,7 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
 - Windows: console session as SYSTEM (login screen, UAC), active user session with banner,
   keyboard and mouse, two-way text clipboard, consent and recording per policy, session
   audit, reconnect and stuck-key protection.
-- macOS: Screen Recording and Accessibility permission flow, same feature set.
+- macOS: Screen Recording and Accessibility permission flow, same feature set, only once macOS is supported (see 0.2.1).
 - Linux: X11.
 - Remote terminal: an interactive terminal as SYSTEM (cmd and PowerShell on Windows, sh on Linux and
   macOS) in the browser, served by the watchdog so it also works when the agent is broken. Same
@@ -232,6 +266,9 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
 
 ## Later (not planned for 1.0)
 
+- macOS agent, watchdog, remote control and remote terminal: need an Apple Developer account for signing and notarisation
+  (not supported for now, decided 2026-09-15).
+- Write access in the public API: only when there is demand (decided 2026-09-15).
 - File transfer inside remote control; Wayland support on Linux.
 - Whitelabel beyond the FQDN: customer logo and product name in UI and email.
 - Steaan management server: central issue, renewal and revocation of licenses, fetched by
