@@ -174,9 +174,13 @@ var imageOption = new Option<string[]>("--image") { Description = "name=digest, 
 var installShOption = new Option<FileInfo>("--install-sh") { Description = "The install.sh of this release.", Required = true };
 var rollbackOption = new Option<string>("--rollback") { Description = "images (the previous release runs on the new schema) or restore.", DefaultValueFactory = _ => "images" };
 var manifestOutOption = new Option<FileInfo>("--out") { Description = "Manifest file to write.", Required = true };
-var releaseManifest = new Command("manifest", "Write a release manifest with image digests. Sign it with 'release sign'.")
+var agentBinariesOption = new Option<DirectoryInfo?>("--agent-binaries")
 {
-    versionOption, imageOption, installShOption, rollbackOption, manifestOutOption
+    Description = "Directory with the agent binaries laid out as <platform>-<architecture>/fleetify-{agent,watchdog}[.exe] (0.2.1)."
+};
+var releaseManifest = new Command("manifest", "Write a release manifest with image digests and agent binaries. Sign it with 'release sign'.")
+{
+    versionOption, imageOption, installShOption, rollbackOption, manifestOutOption, agentBinariesOption
 };
 releaseManifest.SetAction(parse =>
 {
@@ -200,13 +204,15 @@ releaseManifest.SetAction(parse =>
         images[parts[0]] = parts[1];
     }
 
+    var agentBinaries = parse.GetValue(agentBinariesOption) is { } binariesDirectory ? AgentBinaries(binariesDirectory) : [];
     var manifest = new
     {
         formatVersion = 1,
         version = parse.GetValue(versionOption),
         images,
         installShSha256 = KeyIds.Sha256Hex(File.ReadAllBytes(parse.GetValue(installShOption)!.FullName)),
-        rollback
+        rollback,
+        agentBinaries
     };
     var output = parse.GetValue(manifestOutOption)!;
     File.WriteAllText(output.FullName, JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }) + "\n");
@@ -214,6 +220,34 @@ releaseManifest.SetAction(parse =>
     return 0;
 });
 release.Subcommands.Add(releaseManifest);
+
+var agentVersionOption = new Option<string>("--version") { Description = "Release version of the agent binaries, e.g. 0.2.1.", Required = true };
+var agentBinariesRequiredOption = new Option<DirectoryInfo>("--agent-binaries")
+{
+    Description = "Directory with the agent binaries laid out as <platform>-<architecture>/fleetify-{agent,watchdog}[.exe].", Required = true
+};
+var agentManifestOutOption = new Option<FileInfo>("--out") { Description = "Manifest file to write.", Required = true };
+var releaseAgentManifest = new Command("agent-manifest",
+    "Write a manifest with only agent binaries, for local development of agent updates. install.sh never accepts it (no images).")
+{
+    agentVersionOption, agentBinariesRequiredOption, agentManifestOutOption
+};
+releaseAgentManifest.SetAction(parse =>
+{
+    var version = parse.GetValue(agentVersionOption)!;
+    if (!Fleetify.Core.Domain.SemanticVersion.TryParse(version, out _))
+    {
+        Console.Error.WriteLine($"'{version}' is not a semantic version.");
+        return 2;
+    }
+
+    var manifest = new { formatVersion = 1, version, agentBinaries = AgentBinaries(parse.GetValue(agentBinariesRequiredOption)!) };
+    var output = parse.GetValue(agentManifestOutOption)!;
+    File.WriteAllText(output.FullName, JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }) + "\n");
+    Console.WriteLine($"Agent manifest written: {output.FullName} ({manifest.agentBinaries.Count} binaries)");
+    return 0;
+});
+release.Subcommands.Add(releaseAgentManifest);
 root.Subcommands.Add(release);
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -285,6 +319,36 @@ static IHost BuildHost(string[] args)
     builder.Logging.AddSimpleConsole(o => o.SingleLine = true);
     builder.Services.AddFleetifyInfrastructure(builder.Configuration, FleetifyComponent.Tool);
     return builder.Build();
+}
+
+// The agent binaries of a release directory, in a stable order. Only the names the agent and the gateway accept are listed.
+static List<object> AgentBinaries(DirectoryInfo directory)
+{
+    var binaries = new List<object>();
+    foreach (var platformDirectory in directory.EnumerateDirectories().OrderBy(d => d.Name, StringComparer.Ordinal))
+    {
+        var parts = platformDirectory.Name.Split('-');
+        if (parts.Length != 2)
+        {
+            continue;
+        }
+
+        foreach (var component in new[] { "agent", "watchdog" })
+        {
+            var file = Fleetify.Core.Domain.ReleaseManifest.ExpectedFile(
+                component == "agent" ? Fleetify.Core.Entities.AgentComponent.Agent : Fleetify.Core.Entities.AgentComponent.Watchdog, parts[0], parts[1]);
+            var path = Path.Combine(directory.FullName, file);
+            if (!File.Exists(path))
+            {
+                continue;
+            }
+
+            var bytes = File.ReadAllBytes(path);
+            binaries.Add(new { component, platform = parts[0], architecture = parts[1], file, sha256 = KeyIds.Sha256Hex(bytes), size = (long)bytes.Length });
+        }
+    }
+
+    return binaries;
 }
 
 static byte[] ReadPrefixedKey(FileInfo file, string prefix)

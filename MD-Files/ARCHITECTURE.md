@@ -54,7 +54,7 @@ Inside one instance:
 |---|---|---|---|
 | **caddy** | VPS | Reverse proxy, automatic TLS | One per VPS, built with the layer4 module. Terminates TLS for the UI and API of every instance, so it holds the TLS private keys and ACME account for every FQDN on the VPS (see §5). Agent traffic to `agents.<fqdn>` is passed through by SNI to the instance gateway and never decrypted, so mTLS stays end to end between agent and gateway. In front of the passed-through connection Caddy sends a PROXY protocol v2 header with the agent's address (see §5, Other controls). |
 | **fleetify-web** | instance | Blazor Server UI and public REST API (.NET, MudBlazor) | Follows the Migrify project layout and conventions. Cannot sign anything an agent executes. |
-| **fleetify-gateway** | instance | Agent connection endpoint and remote control relay | Persistent WebSocket over mTLS for online state, command push and check results. Checks certificate revocation on every connection. Acks agent data only after it is written to Postgres. Target: 10,000 concurrent connections on modest hardware. Language: .NET (decided in 0.1.0). |
+| **fleetify-gateway** | instance | Agent connection endpoint and remote control relay | Persistent WebSocket over mTLS for online state, command push and check results. Checks certificate revocation on every connection. Acks agent data only after it is written to Postgres. Serves the agent and watchdog binaries of the current release for agent updates (0.2.1). Target: 10,000 concurrent connections on modest hardware. Language: .NET (decided in 0.1.0). |
 | **fleetify-signer** | instance | Signs everything that establishes trust with agents | Holds the instance signing key and the internal CA key, decrypted with its own signer key that no other container mounts. No listening port: it picks up signing requests from the database. Re-checks role, tier, script approval and validity window before signing. See §5. |
 | **fleetify-workers** | instance | Background jobs | Check evaluation, alerting, integration pollers, Action1 patch orchestration, retention cleanup, backups, license checks. |
 | **postgres** | instance | PostgreSQL 17 + TimescaleDB | The only durable store. Relational data plus hypertables for check results and metrics plus log storage with full-text search. One database role per container with only the grants that container needs. LISTEN/NOTIFY carries cross-container notifications (ids only); every subscriber also catches up from the tables, so a lost notification delays work and never loses it. No Valkey: the signer may only talk to the database, so database notifications are needed anyway. |
@@ -75,7 +75,7 @@ customer can be moved to another VPS by copying one directory and one backup.
 Client 1──* Site 1──* Endpoint 1──* CheckResult (hypertable)
                 │         │
                 │         ├──* Job, Alert, Note, InventorySnapshot, RemoteSession, CheckState, CheckRunRequest
-                │         ├──* AgentCertificate
+                │         ├──* AgentCertificate (role agent or watchdog), EndpointComponentState
                 │         ├──* CheckDefinition (endpoint-only checks)
                 │         ├──* EndpointCheckOverride ──> CheckDefinition (of a template)
                 │         └──* EndpointMonitoringTemplate ──> MonitoringTemplate
@@ -87,7 +87,8 @@ ClientTemplate 1──* ClientTemplateSite ──* (MonitoringTemplate | Policy)
 
 Job 1──* JobOutputChunk
 Script 1──* ScriptVersion       SigningRequest (signer work queue)
-License (one per instance)      ApiKey *──> User
+License (one per instance)      ApiKey 1──* ApiKeyClient ──> Client
+AgentRelease (current release offered to agents)
 User *──* Role                  Integration 1──* IntegrationMapping ──> Client
 AuditEntry (append-only)
 ```
@@ -96,10 +97,11 @@ AuditEntry (append-only)
 |---|---|---|
 | **Client** | `Id`, `Code` (unique, uppercase), `Name`, `CreatedAt`, `Maintenance` | Tenant boundary inside the instance. Every client-owned table carries its own `ClientId`, denormalized on purpose (see the rule below the table), and every query filters on it. |
 | **Site** | `Id`, `ClientId`, `Name`, `Description`, `Maintenance` | Groups endpoints. Holds the link to at most one policy (without one the instance default policy applies) and to any number of monitoring templates. Enrollment tokens belong to a site. |
-| **Endpoint** | `Id`, `ClientId`, `SiteId`, `Hostname`, `Class` (`workstation`/`server`), `ClassOverride`, `Tier` (`agent_only`/`managed`), `Os`, `AgentVersion`, `LastSeenAt`, `Source` (`agent`/`integration`), `Maintenance`, `PublicIpAddress?`, `PublicIpSeenAt?` | Endpoints without an agent exist only for hypervisor inventory (ESXi hosts and VMs from vCenter or Proxmox). `Tier` gates every feature server-side. `PublicIpAddress` is the address the gateway saw for the latest agent connection (personal data: only the latest value is kept, deleted with the endpoint). |
+| **Endpoint** | `Id`, `ClientId`, `SiteId`, `Hostname`, `Class` (`workstation`/`server`), `ClassOverride`, `Tier` (`agent_only`/`managed`), `Os`, `AgentVersion`, `LastSeenAt`, `Source` (`agent`/`integration`), `Maintenance`, `PublicIpAddress?`, `PublicIpSeenAt?`, `WatchdogOnline`, `WatchdogVersion`, `WatchdogLastSeenAt?` | Endpoints without an agent exist only for hypervisor inventory (ESXi hosts and VMs from vCenter or Proxmox). `Tier` gates every feature server-side. `IsOnline` and the watchdog columns (0.2.1) are maintained separately for the agent and the watchdog session. `PublicIpAddress` is the address the gateway saw for the latest agent connection (personal data: only the latest value is kept, deleted with the endpoint). |
 | `Maintenance` (on Client, Site, Endpoint) | `MaintenanceStartedAt?`, `MaintenanceEndsAt?`, `MaintenanceStartedByUserId?`, `MaintenanceStartedByName?`, `MaintenanceReason?` | Maintenance mode (0.2.0), stored as nullable columns on each of the three tables. Active while `MaintenanceStartedAt` is set and not in the future and `MaintenanceEndsAt` is null or in the future; ending by hand clears the columns, an end time that passes is left in place and every query compares with the current time. The reason is free text and personal data may appear in it: it is never copied into the audit log. See *Maintenance mode* in §4. |
-| **AgentCertificate** | `Id`, `ClientId`, `EndpointId`, `Fingerprint`, `IssuedAt`, `ExpiresAt`, `RevokedAt?`, `RevokedBy?`, `RevokedReason?` | One row per issued certificate, renewals included. The gateway refuses every certificate with `RevokedAt` set. |
-| **Policy** | `Id`, `ClientId?`, `Name`, settings, `MaintenanceWindowsJson` | Agent behaviour: intervals, patch behaviour, update ring, script permissions and **script approval required**, remote control rules (consent, recording), maintenance windows. `ClientId` null = global. |
+| **AgentCertificate** | `Id`, `ClientId`, `EndpointId`, `Role` (`agent`/`watchdog`), `Fingerprint`, `IssuedAt`, `ExpiresAt`, `RevokedAt?`, `RevokedBy?`, `RevokedReason?` | One row per issued certificate, renewals included. The gateway refuses every certificate with `RevokedAt` set. `Role` (0.2.1) decides which session the certificate may open; a renewal keeps it. |
+| **EndpointComponentState** | `EndpointId`, `Component` (`agent`/`watchdog`), `ClientId`, `InstalledVersion`, `ServiceState`, `ServiceDetail`, `ServiceStateAt?`, `UpdateVersion`, `UpdateState?`, `UpdateDetail`, `UpdateAt?` | Per endpoint and component (0.2.1): the service state its peer reports and the latest update report (`downloading`, `installing`, `installed`, `failed`, `rolled_back`). Written by the gateway, deleted with the endpoint. |
+| **Policy** | `Id`, `ClientId?`, `Name`, settings, `UpdateRing` (`preview`/`standard`/`delayed`, default `standard`), `MaintenanceWindowsJson` | Agent behaviour: intervals, patch behaviour, update ring (0.2.1, §4 Agent update), script permissions and **script approval required**, remote control rules (consent, recording), maintenance windows. `ClientId` null = global. |
 | **MaintenanceWindowOccurrence** | `PolicyId`, `WindowIndex`, `StartsAt`, `EndsAt`, `AppliesTo`, `Name?` | Occurrences of the policy's maintenance windows (0.2.0), stored 8 days ahead (§4, Maintenance windows). Deleted with the policy. |
 | **MonitoringTemplate** | `Id`, `ClientId?`, `Name` | Named set of `CheckDefinition`s with thresholds and alert rules. `ClientId` null = global. |
 | **CheckDefinition** | `Id`, `ClientId?`, `MonitoringTemplateId?`, `EndpointId?`, `Type`, `Interval`, `Thresholds`, `FailuresBeforeAlert`, `AppliesToClass`, `Enabled` | Interval from seconds to monthly. Owned by exactly one of a monitoring template or one endpoint (check constraint). An endpoint-only check carries the endpoint's `ClientId` (composite foreign key) and runs whatever the endpoint class. |
@@ -111,15 +113,16 @@ AuditEntry (append-only)
 | **Script**, **ScriptVersion** | `Id`, `ClientId?`, `Name`, `Description`, `Language` (`PowerShell`, `Batch`, `Shell`, `Bash`), `CurrentVersionId`; version: `ClientId?`, `Number`, `Body`, `Sha256`, `TimeoutSeconds`, `AuthorUserId`, `ApprovedByUserId?`, `ApprovedAt?`, `ApprovedSha256?` | `ClientId` null = global, immutable (trigger); a version carries the client of its script (constraint trigger). Saving a changed body or timeout creates a new version; the language is fixed. A version is approved only when approver and author differ and `ApprovedSha256` equals `Sha256` (check constraint). |
 | **Job** | `Id`, `ClientId`, `EndpointId`, `BatchId`, `Type` (`Script`), snapshot of the script (`ScriptId?`, `ScriptVersionId?`, name, version number, `Language`, `ScriptSha256`, `TimeoutSeconds`, `MaxOutputBytes`), `ValidUntil`, `InitiatedByUserId`, `State` (`pending_signature`, `queued`, `running`, `succeeded`, `failed`, `expired`, `refused`, `lost`, `cancelled`), `RefusalReason?`, `Payload`, `Signature`, `SigningKeyId`, `DeliveredAt?`, `StartedAt?`, `CompletedAt?`, `Result?` (`exited`, `timed_out`, `refused`, `failed_to_start`, `interrupted`), `ExitCode?`, `OutputState` (`none`, `receiving`, `complete`, `incomplete`), `OutputTruncated`, per stream announced chunks, bytes and SHA-256 | One row per endpoint. Idempotent by `Id`. Never delivered or executed after `ValidUntil` (at most 7 days after creation, check constraint). `State` describes execution, `OutputState` describes the output; they move independently. The snapshot keeps the history readable after the script changes or is deleted. |
 | **JobOutputChunk** | `ClientId`, `JobId`, `Stream` (`stdout`/`stderr`), `Sequence`, `Data`, `ReceivedAt` | Unique on `JobId`, `Stream`, `Sequence`. Protocol in §4, Job output. |
-| **SigningRequest** | `Id`, `ClientId?`, `Kind` (`job`, `session_token`, `agent_csr`, `gateway_csr`, `policy`), `SubjectId`, `RequestedBy`, `State`, `RefusalReason?` | Written by web or gateway, processed by the signer. |
+| **SigningRequest** | `Id`, `ClientId?`, `Kind` (`job`, `session_token`, `agent_csr`, `gateway_csr`, `policy`, `watchdog_certificate`), `SubjectId`, `RequestedBy`, `State`, `RefusalReason?` | Written by web or gateway, processed by the signer. |
 | **License** | `Id`, `CustomerName`, `Fqdn`, `ManagedEndpointCount`, `ExpiresAt`, `SignedDocument` (encrypted) | One per instance. Verified offline with the Steaan license public key baked into the build. Grace period of 14 days after `ExpiresAt`. |
-| **ApiKey** | `Id`, `Name`, `Prefix`, `KeyHash`, `Scope` (`read`/`read_write`), `ClientIds?`, `CreatedBy`, `LastUsedAt`, `RevokedAt` | Plaintext shown once at creation. Format in §6. |
+| **AgentRelease** | `Version`, `ManifestSha256`, `InstalledAt`, `IsCurrent`, `PausedAt?`, `PausedByUserId?`, `PausedByName?`, `ReleasedToAllAt?`, `ReleasedToAllByUserId?`, `ReleasedToAllByName?` | One row per release the gateway loaded (0.2.1). `InstalledAt` starts the ring delays; at most one `IsCurrent` (unique filtered index). Paused and released to all by admins in Settings, Agent updates, each audited. |
+| **ApiKey** | `Id`, `Name`, `SecretHash`, `AllClients`, `CreatedByUserId`, `CreatedByName`, `CreatedAt`, `ExpiresAt?`, `LastUsedAt?`, `RevokedAt?`, `RevokedByUserId?`, `RevokedByName?` | Public API key (0.2.1), read-only. The id is part of the token; only the SHA-256 of the secret is stored (check constraint: 64 hex characters) and the token is shown once. Limited to the clients in **ApiKeyClient** (`ApiKeyId`, `ClientId`, deleted with either side) when `AllClients` is false, so a key whose clients are all deleted sees nothing. Never deleted: revoked keys stay for the audit trail. Web only (grants). Format in §6. |
 | **RemoteSession** | `Id`, `ClientId`, `EndpointId`, `TechnicianId`, `Reason`, `StartedAt`, `EndedAt`, `ConsentGiven`, `BrowserKeyFingerprint`, `RecordingRef?` | Every session, whether it connected or not. |
 | **CheckResult** | `Time` (ingest), `ClientId`, `EndpointId`, `CheckDefinitionId`, `Status`, `Value`, `Payload` | TimescaleDB hypertable, compressed, retention policy. Deduplicated per endpoint and agent batch sequence number. |
 | **Alert** | `Id`, `ClientId`, `EndpointId`, `CheckDefinitionId`, `Severity`, `State`, `AcknowledgedBy`, `HeldUntil?`, `HeldAt?`, `HeldBy?`, timestamps | Deduplicated per endpoint and check. On hold while `HeldUntil` is in the future (§4, Alert hold). |
 | **InventorySnapshot** | `EndpointId`, `ClientId`, `ReceivedAt`, `Hash`, hardware facts, `DisksJson`, `NetworkInterfacesJson`, `SoftwareJson`, `ServicesJson` | Latest inventory, one row per endpoint. `ServicesJson` (0.2.0): name, display name, start type and state per service (at most 2,000), used to pick the service of a service check; for a monitoring template the services of the most recent 1,000 inventories of its endpoints are offered. |
 | **CheckResultHourly**, **CheckResultDaily** | `EndpointId`, `CheckDefinitionId`, `Target`, `Bucket`, `ClientId`, `MinValue?`, `MaxValue?`, `SumValue`, `ValueCount`, `ErrorCount`, `NoResponseCount` | Check history rollups (0.2.0), maintained by the workers with the evaluation, kept 13 months. Deleted with their endpoint or check. |
-| **Note** | `Id`, `ClientId`, `EndpointId`, `AuthorId`, `AuthorName`, `Body` (markdown, at most 20,000 characters), `CreatedAt`, `UpdatedAt`, `EditedAt?` | Endpoints only (site notes were dropped). Managed endpoints only. The author edits, an admin deletes. Searchable from 0.6.0. An external ticket reference follows with the public API. |
+| **Note** | `Id`, `ClientId`, `EndpointId`, `AuthorId`, `AuthorName`, `Body` (markdown, at most 20,000 characters), `CreatedAt`, `UpdatedAt`, `EditedAt?` | Endpoints only (site notes were dropped). Managed endpoints only. The author edits, an admin deletes. Searchable from 0.6.0. A Servicedesk ticket reference is not yet scheduled (ROADMAP, Not yet scheduled). |
 | **NotificationChannel** | `Id`, `Name`, `Type` (`Email`, `Webhook`), `Recipients`, `WebhookFormat?` (`Generic`, `Slack`, `Teams`), `WebhookHost?`, `EncryptedWebhook?`, `MinimumSeverity`, `NotifyOnResolve`, `Enabled`, `AllClients` | Instance-wide, admins only. Routing (0.2.0): all clients or the clients in **NotificationChannelClient** (`NotificationChannelId`, `ClientId`, deleted with either side), plus minimum severity and resolves. `EncryptedWebhook` holds URL and signing secret, bound to the channel id (§5). The type cannot change. |
 | **OutboxEmail**, **OutboxWebhook** | `Id`, recipient or `NotificationChannelId`, `Category`, content or `Payload`, `Attempts`, `NextAttemptAt`, `SentAt?`, `LastError?` | Written in the transaction that changes the alert; delivered by the workers (§4, Alert notifications). Sent rows kept 30 days, given up rows 90 days. |
 | **Integration** | `Id`, `Type`, `EncryptedCredentials`, `Status` | Credentials are ciphertext, see §5. |
@@ -142,7 +145,7 @@ Three kinds of tables:
 - **Client-owned** (`ClientId` required): Site, Endpoint, AgentCertificate, Job,
   JobOutputChunk, Alert, Note, InventorySnapshot, RemoteSession, CheckResult, CheckState,
   CheckRunRequest, EndpointMonitoringTemplate, EndpointCheckOverride, CheckResultHourly, CheckResultDaily,
-  IntegrationMapping. Consistency by composite foreign key, as above. One documented
+  EndpointComponentState, IntegrationMapping. Consistency by composite foreign key, as above. One documented
   exception: CheckResult (the hypertable) has no foreign keys, for ingest speed and because
   compressed chunks and cascading deletes do not mix well. The gateway takes its ClientId from
   the endpoint row, and the workers purge results of deleted endpoints.
@@ -155,7 +158,7 @@ Three kinds of tables:
   `ClientId` are equal, null included. Tests cover both directions. An endpoint-only
   CheckDefinition has no template parent; its `ClientId` is required and kept equal to the
   endpoint's by a composite foreign key.
-- **Instance-wide** (no `ClientId`): users, roles, API keys, client templates, license,
+- **Instance-wide** (no `ClientId`): users, roles, API keys, client templates, license, agent releases,
   integrations, and SigningRequest and AuditEntry rows that concern no client (their
   `ClientId` is null).
 
@@ -235,21 +238,32 @@ Three kinds of tables:
   the job (PowerShell with a UTF-8 byte order mark, Batch as `.cmd`) and run with
   `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File`, `cmd.exe /d /s /c`,
   `/bin/sh` or `/bin/bash`. Enrolling again removes the jobs of the previous enrollment.
-- **Watchdog service (0.2.0, design).** A second Windows service, `fleetify-watchdog`, a small
-  separate binary from the same Go codebase, running as SYSTEM:
-  - It has its own key (TPM-backed where available) and its own 90-day certificate for the same
-    endpoint, marked with the role *watchdog*, issued at install and renewed like the agent's.
-    The gateway keeps one session per certificate, so agent and watchdog are both connected
-    at all times without triggering the duplicate identity rule; revoking or deleting the
-    endpoint revokes both certificates.
-  - The watchdog watches the agent service and restarts it after a crash or stop; the agent
-    watches the watchdog the same way. Each reports the other's state in its heartbeat.
-  - When the watchdog is online but the agent service is not running and cannot be started,
-    the endpoint gets the alert "Agent service stopped" (separate from the offline alert, which
-    means both are gone). When the agent reports the watchdog stopped and cannot restart it,
-    the alert is "Watchdog stopped". Both alerts are for managed endpoints only.
-  - The watchdog installs agent updates and rolls back to the previous binary when the new one
-    does not come up; both binaries are installed only with a valid Steaan release signature.
+- **Watchdog service (0.2.1).** A second Windows service, `fleetify-watchdog`, a small separate binary
+  (`cmd/fleetify-watchdog`) from the same Go codebase, running as SYSTEM with its own state directory. On Linux the
+  watchdog follows with the Linux agent service; until then a Linux agent runs without one.
+  - **Identity.** Its own key (platform key store `Fleetify Watchdog Identity`, TPM-backed where available) and its own
+    90-day certificate for the same endpoint with the role *watchdog* (`AgentCertificate.Role`). The agent creates the key
+    and sends the CSR over its own session (`WatchdogCertificateRequest`); the signer issues it only for an endpoint with a
+    valid agent certificate, only for a key that differs from every agent key, at most 3 times a day, and revokes earlier
+    watchdog certificates of the endpoint. The watchdog renews its certificate over its own session like the agent does;
+    when it is missing or expires within 7 days, the agent requests a new one. Revoking or deleting the endpoint revokes both.
+  - **Sessions.** The gateway keeps one agent session and one watchdog session per endpoint (the role comes from the
+    allow list in the database, never from the agent), so both are connected without triggering the duplicate identity
+    rule. A watchdog session only sends heartbeats, update reports and renewals; it never receives configurations, jobs or
+    requests, and a watchdog certificate cannot recover an expired certificate.
+  - **Supervision.** Every 30 seconds each service checks the other: a stopped service is started again with a backoff
+    (30 seconds, doubling up to 10 minutes), a disabled service is left alone and reported, and supervision pauses while the
+    binary is being replaced. The marker file `uninstalling` in the data directory stops both from restarting or installing
+    each other during an uninstall. Each reports the other's service state in its heartbeat (`PeerStatus`).
+  - **Health.** Each service writes `health.json` in its state directory (version, process id, connected, connected
+    at). An installer uses it to decide whether a new version came up.
+  - **Alerts.** "Agent service stopped" (`AgentStopped`) when the watchdog is online and the agent has not connected for
+    the offline alert delay of the policy, with the severity of the offline alert; "Watchdog stopped" (`WatchdogStopped`,
+    warning) when the agent is online and a watchdog that connected before has not. The offline alert means both are
+    gone. All three are for managed endpoints only and respect maintenance.
+  - **Updates.** The watchdog installs agent updates; the agent installs a missing watchdog and updates the watchdog once
+    it runs the release itself. Both install a binary only when the release manifest that lists it carries a valid Steaan
+    release signature (§4, Agent update).
 - **Remote terminal (0.3.0, design).** An interactive terminal as SYSTEM or root (cmd and PowerShell on
   Windows, sh on Linux), served by the watchdog so it also works when the agent is
   broken. Same trust model as remote control: a single-use session token from the signer bound
@@ -330,6 +344,36 @@ again with a new token.
 live connection is refused → the endpoint gets an alert "Duplicate agent identity" → the
 technician revokes the certificate and enrolls the copies again, each with its own
 identity.
+
+**Agent update (0.2.1).** `install.sh` places the release manifest it verified, with its signature, in the instance
+directory; the gateway reads it read-only (`Gateway:ReleaseDirectory`), verifies the signature against the release keys it
+was built with, checks every listed binary in its image (`Gateway:AgentBinariesDirectory`) against size and SHA-256, and
+records the release as current (`AgentRelease`, audited as `agent_release.installed`) → every agent and watchdog session
+gets an `UpdateOffer` with the manifest bytes, the signature and `update_allowed`: whether the ring of the endpoint's
+policy (site policy, else the default policy) allows the release now. Preview installs at once, Standard 7 days and
+Delayed 14 days after the release was installed on the instance; an admin can pause the release (nobody installs it,
+installations already running finish) or release it to all rings at once (Settings, Agent updates). Offers are
+re-evaluated when a release loads, when an admin changes a control (notification `fleetify_agent_releases`) and every
+5 minutes, which also picks up a passed ring delay and a changed policy ring for live sessions.
+→ the endpoint verifies the manifest against the release keys compiled into it and ignores the offer unless the version
+is strictly newer than the installed one, allowed, not rolled back before on this endpoint and not waiting for a retry. It
+waits a random 0 to 10 minutes per version, so a release does not reach every endpoint in the same second.
+→ it downloads `GET /v1/releases/<version>/<file>` over mTLS (the gateway serves only files of the current manifest, at
+most 20 downloads at a time and 12 per endpoint per hour, answering 503 or 429 with `Retry-After`), checks size and
+SHA-256, and asks the staged binary for its version (`version --short`), which must equal the manifest version; a binary
+that does not is skipped for good.
+→ it writes `update-journal.json`, stops the target service, keeps the previous binary, puts the new one in place (hash
+checked again), starts the service and waits for `health.json` of the target to report the new version with a gateway
+connection made after the start: 5 minutes, not counting time the installer itself has no connection, at most 30.
+→ healthy: the journal is removed and `installed` is reported. Not healthy: the previous binary is restored and started,
+`rolled_back` is reported and that version is never tried again on this endpoint (`update-state.json`). Any other failure
+leaves the old version running and is retried after an hour. After a crash or power loss mid-replacement the service
+restores the previous binary at its next start from the journal.
+→ the watchdog installs the agent this way. The agent installs a missing watchdog from the offered release when the ring
+allows it or the agent already runs that release (without the random delay: it is a repair), and updates the watchdog
+only once it runs the release itself, so a new watchdog never supervises an older agent it was not released with. Every
+step is reported (`UpdateStatus`) and shown per component on the endpoint detail and, for failures, in Settings, Agent
+updates.
 
 **Switching an endpoint to managed.** Technician switches the tier from the right-click menu of
 the endpoint list, for one endpoint or in bulk → web checks the license pool (`ManagedEndpointCount` minus endpoints already managed)
@@ -589,11 +633,15 @@ and circuit breaker → results are translated into the same check/alert model a
 data → hypervisor hosts and VMs that exist only in Proxmox or vCenter are created with
 `Source = integration` under the mapped client and site.
 
-**API call.** Client sends `Authorization: Bearer <api key>` → web splits prefix and secret,
-looks the key up by its id, compares the SHA-256 of the secret in constant time, checks
-revocation, scope and client restriction → applies the same role and license checks as the
-UI → rate limiter per key → response with keyset pagination → audit entry for every write
-and for reads of personal data.
+**API call** (0.2.1). Rate limiter per client address (before anything else, so key guessing is capped) → client
+sends `Authorization: Bearer <api key>` (only that header counts; a session cookie never authenticates an API call) →
+web parses `flt_<id>_<secret>`, reads the key by its id on every call (so revocation is immediate), compares the SHA-256
+of the secret in constant time (a wrong secret for an existing key writes an `api_key.authentication_failed` audit entry)
+and checks revocation and expiry → rate limiter per key (token bucket, applied after authentication so nobody can use up
+another key's budget) → the endpoint runs as a `Caller` with the read-only role, the key's client scope and actor type
+`ApiKey`, through the same context factory, global query filters, tier rules and, where the shape fits, the same
+application services as the UI → an `api.request` audit entry (method, path, query, status) is written before the
+response leaves; when it cannot be written the data is withheld with a 500.
 
 **Backup.** Nightly, worker runs `pg_dump` per instance and WAL is archived continuously →
 each file is encrypted on the VPS (ephemeral X25519 with the backup public key, HKDF,
@@ -650,6 +698,17 @@ Two keys with two jobs, strictly separated:
 - The **instance signing key** belongs to one instance. It can sign jobs for that instance's
   managed endpoints and nothing else: it cannot sign binaries, and no other instance's agents
   trust it.
+- **Agent updates (0.2.1).** The binaries carry no signature of their own: the signed release manifest lists each binary
+  with its SHA-256 and size, and the agent and watchdog install one only after verifying that manifest against the release
+  keys compiled into them. The instance distributes but adds no trust, so a compromised instance can withhold an update,
+  hold back a ring or pause a release, and never install a binary of its own. Downgrades are refused (strictly newer
+  versions only), so an attacker cannot push an older signed release with a known flaw; a rolled back version is not tried
+  again. The release workflow builds the binaries reproducibly and fails when those in the web and gateway images differ
+  from the ones listed in the manifest. Authenticode signing of the Windows binaries is a separate, later step and does not
+  replace this check.
+- **Accepted risk:** a release that installs and connects but misbehaves later is not rolled back automatically; pausing
+  the release stops it from spreading, and a fixed release has to be newer. An endpoint whose agent and watchdog are both
+  broken needs the install command again.
 
 ### The signer
 
@@ -690,6 +749,9 @@ container:
   platform key store do not support ed25519 certificates in TLS. Every application signature
   (configurations, licenses, releases) is ed25519.
 - A certificate connecting twice at the same time is refused and raises an alert (§4).
+- Watchdog certificates (0.2.1, §3) are separate certificates with the role *watchdog*: the gateway lets them open only a
+  watchdog session, the recovery path refuses them, and `WatchdogCertificate` signing requests may only be created by the
+  gateway role (origin trigger).
 - The gateway has no persistent private key: at start it generates one in memory and gets a
   24-hour server certificate for `agents.<fqdn>` from the signer, renewed well before expiry.
 
@@ -837,22 +899,39 @@ container:
 
 ## 6. Public API
 
-- Base path `/api/v1` on the instance FQDN. JSON only. OpenAPI 3 document at
-  `/api/v1/openapi.json`, generated from the code and verified by a test that fails when the
-  document and the controllers diverge.
-- Authentication: `Authorization: Bearer <api key>`. Keys are created in Settings, scoped
-  `read` or `read_write`, optionally restricted to a list of clients, revocable, shown once.
-- Key format: `flt_<id>_<secret>`, where the secret is 32 random bytes (256 bits) from a
-  cryptographic random generator. Only the SHA-256 of the secret is stored, which is enough
-  because the input is long and random. The fixed `flt_` prefix lets secret scanners, ours
-  and GitHub's, recognise a leaked key.
-- Resources in v1: clients, sites, endpoints (with inventory, status, tier), alerts, checks
-  and results, jobs, patch compliance, notes, audit entries (read-only), license usage.
-- Conventions: keyset pagination (`cursor`, `limit`), ISO 8601 UTC timestamps, `ETag` on
-  single resources, problem+json errors with cause and next step, rate limit headers.
+Built in 0.2.1, **read-only** (decided 2026-09-15). The contract for integrators is `API.md`; features not in the API yet
+are on `API-WAITLIST.md`, which every feature commit keeps up to date (CLAUDE.md, Public API).
+
+- Base path `/api/v1` on the instance FQDN, served by fleetify-web (`src/Fleetify.Web/Api`). JSON only, `GET` only.
+- OpenAPI 3.1 document at `/api/v1/openapi.json`, generated at runtime from the minimal API endpoints
+  (`Microsoft.AspNetCore.OpenApi`), anonymous and rate limited per address. A test compares its operations with the
+  `### GET /api/v1/...` sections of `API.md` in both directions, so an endpoint cannot ship undocumented and the
+  documentation cannot describe an endpoint that does not exist.
+- Authentication: `Authorization: Bearer <api key>`. Keys are created by admins in Settings, API keys: named, all
+  clients or chosen clients, expiring after 30 days, 90 days, 1 year or never, revocable, shown once.
+- Key format: `flt_<id>_<secret>`, where the secret is 32 random bytes (256 bits) from a cryptographic random generator.
+  Only the SHA-256 of the secret is stored, which is enough because the input is long and random. The fixed `flt_` prefix
+  lets secret scanners, ours and GitHub's, recognise a leaked key.
+- A key acts as the read-only role within its client scope: other clients are invisible (lists leave them out, single
+  objects are 404), and managed-only data (checks, notes) of agent-only endpoints answers 409 `endpoint_not_managed`.
+- Resources in v1: clients, sites, endpoints (status, inventory, checks, notes), alerts, jobs (with output). Patch
+  compliance follows with Action1 (0.4.0); everything else is on the waiting list.
+- Response contract: separate types (`PublicApiModels.cs`) with explicit maps from the entities, so a renamed C# member
+  can never change a field name or value. camelCase fields, snake_case enumeration values, ISO 8601 UTC timestamps,
+  explicit nulls. A test walks every value of every mapped enumeration.
+- Keyset pagination (`limit` up to 200, opaque `cursor`, `nextCursor`); an invalid cursor is a 400, never a silent
+  restart at page one. The job list has its own index on `(CreatedAt, Id)`.
+- Errors are problem details with a stable `code`, `title` (cause) and `detail` (next step). API paths bypass the HTML
+  status code pages; an empty error response (unknown path, wrong method, a parameter of the wrong type) gets a problem
+  body. `Cache-Control: no-store` on every response (personal data).
+- Rate limits: 300 requests per minute per address (IPv6 per /64) before authentication, 120 per minute per key after;
+  both configurable (`PublicApi` section). 429 with `Retry-After`.
+- Audit: one `api.request` entry per authenticated call (key id and name as actor, route pattern as target, method, path,
+  query, status, address); `api_key.created`, `api_key.revoked` and `api_key.authentication_failed` for key changes and
+  wrong secrets. Audit details never contain the key or its hash. Volume is bounded by the per-key rate limit.
 - Field names are stable from 1.0.0; breaking changes mean `/api/v2`.
-- The Blazor UI calls the same application services as the API, so a capability missing in
-  the API is a bug, not a design choice.
+- Not built from the earlier plan: `read_write` keys (write access waits for demand), `ETag` on single resources and
+  rate-limit headers other than `Retry-After`; audit entries and license usage as resources (on the waiting list).
 
 ## 7. Install and update flow
 
@@ -885,9 +964,11 @@ code, so a root compromise of a VPS exposes the code (not the keys); tokens expi
 pair per VPS (`deploy/README.md`, GitHub tokens).
 
 **Release manifest.** Every release carries a manifest listing the version, the image
-digests of every container and the hash of `install.sh`, signed with the release key outside CI
-(`deploy/sign-release.ps1`). `install.sh` verifies the manifest, pulls images by digest only
-(never by tag) and replaces itself only with a version whose hash is in a verified manifest.
+digests of every container, the hash of `install.sh` and (0.2.1) every agent and watchdog binary with its SHA-256 and
+size (`agentBinaries`), signed with the release key outside CI (`deploy/sign-release.ps1`). `install.sh` verifies the
+manifest, pulls images by digest only (never by tag) and replaces itself only with a version whose hash is in a verified
+manifest. It copies the verified manifest and its signature to `/opt/fleetify/<instance>/release/` (mounted read-only in
+the gateway, restored with the previous release on a rollback), so the gateway can offer that release to agents.
 
 First run on a VPS: install Docker → install the host-level Caddy (pinned version with the
 layer4 module, admin API on a local socket) with an empty routing table → create
@@ -937,9 +1018,9 @@ runs on the migrated schema, so migrations follow **expand/contract**:
   `--yes`), and on a failed update restores the pre-update backup together with the previous
   images instead of swapping images only.
 
-Agents self-update from their instance, staged by update ring from the site policy. The
-instance only distributes the binaries; the agent installs one only when its signature
-verifies against a Steaan release public key compiled into the agent.
+Agents self-update from their instance (0.2.1), staged by the update ring of the site policy: see §4, Agent update. The
+instance only distributes the binaries; the agent and watchdog install one only when the release manifest that lists it
+verifies against a Steaan release public key compiled into them.
 
 ## 8. Repository layout
 
@@ -950,7 +1031,7 @@ verifies against a Steaan release public key compiled into the agent.
 /src/Fleetify.Core/            domain model, enums, pure domain rules (tiers, licensing, check evaluation), interfaces
 /src/Fleetify.Protocol/        agent protocol v1 (agent.proto) and generated C#
 /src/Fleetify.Infrastructure/  EF Core model and migrations, grants, crypto, CA, licensing, notifications, shared services
-/src/Fleetify.Web/             Blazor Server UI (public REST API from 0.2.0)
+/src/Fleetify.Web/             Blazor Server UI and the read-only public REST API (Api/, 0.2.1)
 /src/Fleetify.Gateway/         agent endpoint (.NET): enrollment, mTLS WebSocket sessions, ingest; remote control relay later
 /src/Fleetify.Signer/          signing service: instance signing key, internal CA, signing rules
 /src/Fleetify.Workers/         background jobs: config fan-out, check evaluation, alerts, email, license, backups, retention

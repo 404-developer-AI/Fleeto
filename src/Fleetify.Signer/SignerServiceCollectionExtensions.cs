@@ -21,6 +21,7 @@ public static class SignerServiceCollectionExtensions
         services.AddSingleton<ISigningRequestHandler, GatewayCertificateHandler>();
         services.AddSingleton<ISigningRequestHandler, AgentConfigHandler>();
         services.AddSingleton<ISigningRequestHandler, JobHandler>();
+        services.AddSingleton<ISigningRequestHandler, WatchdogCertificateHandler>();
 
         services.AddSingleton<SigningRequestProcessor>();
         services.AddHostedService<SigningService>();

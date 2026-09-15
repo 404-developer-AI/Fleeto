@@ -13,8 +13,9 @@ build (decided 2026-09-15). What was listed as open before the tag stays a check
 **0.2.0** — every item built (2026-09-15); everything that was still open moved to 0.2.1 (decided 2026-09-15). Pre-releases `v0.2.0-alpha.1` (2026-09-15, first CI
 run; its release build failed), `v0.2.0-alpha.2` (first published test build), `v0.2.0-alpha.3` (VPS behind NAT, first VPS install), `v0.2.0-alpha.4` (fixes from the first install) and `v0.2.0-alpha.5` (network MTU). `v0.2.0-alpha.5` runs on the first test VPS.
 
-**0.2.1** — planned: read-only public API, Servicedesk ticket reference on notes, agent self-update with update rings,
-watchdog, Linux agent, arm64 agents, the script features deferred from 0.2.0 and the icon for the installed web app.
+**0.2.1** — in progress (started 2026-09-15): the read-only public API, agent self-update with update rings and the
+Windows watchdog are built; still open are the Linux agent (with its watchdog), arm64 agents, the script features deferred
+from 0.2.0 and the icon for the installed web app. The Servicedesk ticket reference on notes moved to "Not yet scheduled" (decided 2026-09-15).
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
 2026-09-15, see Later).
@@ -186,33 +187,48 @@ production release.
 
 Everything that was still open for 0.2.0, moved here on 2026-09-15, with the developer's answers of that day.
 
-- [open] Public REST API `/api/v1`, **read-only** (decided 2026-09-15: no write access and none planned until there is
+- [done] Public REST API `/api/v1`, **read-only** (decided 2026-09-15: no write access and none planned until there is
   demand):
   - API keys created in Settings: named, optionally limited to clients, revocable, shown once, format
-    `flt_<id>_<secret>` with a 256-bit secret stored as SHA-256;
+    `flt_<id>_<secret>` with a 256-bit secret stored as SHA-256; decided while building: optionally expiring (30 days,
+    90 days, 1 year or never) and created by admins only;
   - read access to clients, sites, endpoints (inventory and status), alerts, jobs, checks and notes (patch compliance follows with Action1 in 0.4.0);
     keyset pagination, ISO 8601 timestamps in UTC;
   - OpenAPI document served by the instance, kept in sync with the code by a test;
-  - rate limiting per key and an audit entry per call.
-- [open] Servicedesk ticket reference on notes (decided 2026-09-15): an integration with the **Steaan Servicedesk**,
-  configured in Settings, Integrations (URL and API credential, stored encrypted). Fleeto fetches the ticket number
-  through the Servicedesk API and shows it on the note as a clickable ticket number that opens the ticket in the
-  Servicedesk. How a note finds its ticket is worked out against the Servicedesk API when this is built.
-- [open] Agent self-update, installed only with a valid Steaan release signature:
-  - the release pipeline signs every agent binary with the release key (a signature next to the binary); the agent
-    verifies it against the release public keys compiled into it before installing;
+  - rate limiting per key and an audit entry per call; decided while building: also a rate limit per address before the
+    key is checked, and no response when the audit entry cannot be written;
+  - `MD-Files/API.md` documents the whole API for integrators and `MD-Files/API-WAITLIST.md` lists every feature not in
+    the API yet, both kept up to date in the same commit as a change (decided 2026-09-15); a test compares `API.md`
+    with the OpenAPI document.
+- [open] Ik zie heel veel "fleetify" terug komen, maar dat mag nergens gebruikt worden het is fleeto. (graag overal aanpassen waar nodig, ook roadmap, en andere md's)
+- [done] Agent self-update, installed only with a valid Steaan release signature:
+  - decided while building: the signed release manifest lists every agent and watchdog binary with its SHA-256 and size
+    instead of a signature file next to each binary; the agent verifies the manifest against the release public keys
+    compiled into it and the download against the listed hash. Same trust, one signature per release, and the manifest
+    was already signed outside CI;
   - three update rings chosen in the policy (decided 2026-09-15): Preview (at once), Standard (after 7 days), Delayed
     (after 14 days), **counted from the moment the instance installs the release** (decided 2026-09-15: the binaries
-    ship in the instance image);
-  - an admin can pause a release or release it to every ring at once;
-  - the watchdog installs the update and rolls back a failed one;
+    ship in the instance image; decided while building: in the gateway image too, which serves the downloads, and
+    `install.sh` hands the verified manifest to the gateway);
+  - an admin can pause a release or release it to every ring at once (Settings, Agent updates, with the rollout per
+    ring and the failed updates);
+  - the watchdog installs the update and rolls back a failed one; decided while building: an update counts as
+    succeeded only when the new version connects to the gateway within 5 minutes, a rolled back version is never
+    retried on that endpoint, older versions are never installed, a random delay of up to 10 minutes spreads the
+    downloads, and the gateway limits downloads (20 at a time, 12 per endpoint per hour);
+  - the agent installs a missing watchdog and updates the watchdog once it runs the new release itself;
   - Authenticode code signing of the Windows binaries comes later (decided 2026-09-15).
-- [open] Watchdog service `fleetify-watchdog` on **every supported platform**, Windows and Linux (decided 2026-09-15): a
-  second service with its own certificate for the same endpoint, always connected. Agent and watchdog restart each
-  other; alerts "Agent service stopped" and "Watchdog stopped" on managed endpoints, separate from the offline alert.
+- [done] Watchdog service on **every supported platform**, Windows and Linux (decided 2026-09-15): a second service
+  with its own certificate for the same endpoint, always connected. Agent and watchdog restart each other; alerts
+  "Agent service stopped" and "Watchdog stopped" on managed endpoints, separate from the offline alert. Built for
+  Windows as `fleetify-watchdog`; decided while building: the Linux watchdog is built with the Linux agent (below),
+  since the Linux agent has no service yet. Also decided while building: the agent requests the watchdog certificate
+  over its own session (the signer checks that the endpoint has a valid agent certificate and that the watchdog key
+  differs), "Watchdog stopped" only for an endpoint whose watchdog connected before, and a watchdog session never
+  receives configurations or jobs.
 - [open] Linux agent for **Ubuntu LTS (22.04, 24.04), Debian 12 and newer (including Proxmox VE hosts) and the RHEL
-  family (RHEL, Rocky Linux, AlmaLinux 8 and 9)** (decided 2026-09-15): systemd service, install command generated in
-  the UI, inventory, the check catalog on Linux, systemd services offered in the check dialog, key storage (TPM where
+  family (RHEL, Rocky Linux, AlmaLinux 8 and 9)** (decided 2026-09-15): systemd service and the watchdog as a second
+  systemd service (service control, supervision and self-update on Linux), install command generated in the UI, inventory, the check catalog on Linux, systemd services offered in the check dialog, key storage (TPM where
   available, otherwise a root-only file), scripts in sh and bash as root.
 - [open] Agents for **amd64 and arm64** (decided 2026-09-15), on Windows and Linux, in the release pipeline and the install
   command.
@@ -286,6 +302,22 @@ Everything that was still open for 0.2.0, moved here on 2026-09-15, with the dev
 - Product name, trademark and domain checks done.
 - Pricing per managed endpoint decided.
 - API field names frozen.
+
+## Not yet scheduled
+
+Wanted, but not in a version yet: the version is chosen once the open questions are answered.
+
+- Servicedesk ticket reference on notes (moved out of 0.2.1 on 2026-09-15). **Not yet scheduled**: the developer works out
+  with the Servicedesk team how both products should work together before anything is built. Starting point from
+  2026-09-15, to be confirmed in that alignment:
+  - an integration with the **Steaan Servicedesk**, configured in Settings, Integrations (URL and API credential, stored
+    encrypted);
+  - Fleeto fetches the ticket number through the Servicedesk API and shows it on the note as a clickable ticket number
+    that opens the ticket in the Servicedesk;
+  - open questions for the alignment: how a note finds its ticket (and whether the Servicedesk creates or links notes),
+    whether the link goes one way or both ways (ticket to endpoint, alerts to tickets), which API the Servicedesk offers
+    and how it authenticates, and how this relates to the Ticksy hook for alert-to-ticket under Later.
+  - When built: the ticket reference on notes goes into the public API or onto `API-WAITLIST.md` in the same commit.
 
 ## Later (not planned for 1.0)
 

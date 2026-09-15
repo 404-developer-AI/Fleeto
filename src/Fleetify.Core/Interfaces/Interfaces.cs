@@ -91,6 +91,9 @@ public static class NotificationChannels
     /// applied (the gateway delivers the request).
     /// </summary>
     public const string CheckRunRequests = "fleetify_check_run_requests";
+
+    /// <summary>Payload: agent release version. A release was paused, resumed or released to all rings (0.2.1).</summary>
+    public const string AgentReleases = "fleetify_agent_releases";
 }
 
 /// <summary>Writes audit entries. The table is append-only; there is no update or delete.</summary>
@@ -185,6 +188,16 @@ public static class AuditActions
     public const string AlertResolvedManually = "alert.resolved_manually";
     public const string AlertHeld = "alert.held";
     public const string AlertHoldEnded = "alert.hold_ended";
+
+    public const string AgentReleaseInstalled = "agent_release.installed";
+    public const string AgentReleasePaused = "agent_release.paused";
+    public const string AgentReleaseResumed = "agent_release.resumed";
+    public const string AgentReleaseReleasedToAll = "agent_release.released_to_all";
+
+    public const string ApiKeyCreated = "api_key.created";
+    public const string ApiKeyRevoked = "api_key.revoked";
+    public const string ApiKeyAuthenticationFailed = "api_key.authentication_failed";
+    public const string ApiRequest = "api.request";
 
     public const string LicenseLoaded = "license.loaded";
     public const string SettingsChanged = "settings.changed";

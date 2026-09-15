@@ -4,7 +4,8 @@ using Npgsql;
 namespace Fleetify.Gateway.Sessions;
 
 /// <summary>
-/// Writes LastSeenAt for every endpoint that sent something since the previous flush, every 10 seconds in one statement.
+/// Writes LastSeenAt (and WatchdogLastSeenAt, 0.2.1) for every endpoint that sent something since the previous flush, every 10 seconds in
+/// one statement per service.
 /// A heartbeat only touches memory, so 10,000 agents cost one UPDATE per flush instead of hundreds per second.
 /// </summary>
 public sealed class LastSeenFlusher : BackgroundService
@@ -41,7 +42,44 @@ public sealed class LastSeenFlusher : BackgroundService
             }
 
             await FlushAsync(stoppingToken);
+            await FlushWatchdogsAsync(stoppingToken);
         }
+    }
+
+    /// <summary>Flushes the watchdog sessions once, like <see cref="FlushAsync"/>.</summary>
+    internal async Task<int> FlushWatchdogsAsync(CancellationToken cancellationToken)
+    {
+        var pending = new List<(AgentSession Session, long Ticks)>();
+        foreach (var session in _sessions.WatchdogSessions)
+        {
+            if (session.TryGetUnflushedLastSeen(out var ticks))
+            {
+                pending.Add((session, ticks));
+            }
+        }
+
+        if (pending.Count == 0)
+        {
+            return 0;
+        }
+
+        try
+        {
+            await _store.FlushWatchdogLastSeenAsync(pending.Select(p => p.Session.EndpointId).ToArray(),
+                pending.Select(p => new DateTime(p.Ticks, DateTimeKind.Utc)).ToArray(), cancellationToken);
+        }
+        catch (Exception ex) when (ex is NpgsqlException or TimeoutException)
+        {
+            _logger.LogWarning(ex, "Could not write watchdog last-seen times for {Count} endpoints; retrying with the next flush", pending.Count);
+            return 0;
+        }
+
+        foreach (var (session, ticks) in pending)
+        {
+            session.MarkFlushed(ticks);
+        }
+
+        return pending.Count;
     }
 
     /// <summary>Flushes once. Failures are logged; the values stay unflushed and go out with the next flush.</summary>

@@ -918,6 +918,19 @@ set_instance_version() {
     sed "s/^FLEETIFY_VERSION=.*/FLEETIFY_VERSION=$version/" "$conf" | write_file_atomic "$conf" 0600
 }
 
+# write_release_manifest <instance dir>: the manifest of the loaded release and its signature, both verified by load_manifest, for the
+# gateway to offer agent updates. Agents verify the signature again against the release keys compiled into them.
+write_release_manifest() {
+    local dir="$1" source="$WORK_DIR/manifest-$MANIFEST_VERSION.json"
+    [[ -n "$MANIFEST_VERSION" && -f "$source" && -f "$source.sig" ]] \
+        || die "The verified release manifest is not available to hand to the gateway." "Run install.sh again."
+    install -d -m 0755 -o root -g root "$dir/release"
+    install -m 0644 -o root -g root "$source" "$dir/release/manifest.json.new"
+    install -m 0644 -o root -g root "$source.sig" "$dir/release/manifest.json.sig.new"
+    mv -f "$dir/release/manifest.json.sig.new" "$dir/release/manifest.json.sig"
+    mv -f "$dir/release/manifest.json.new" "$dir/release/manifest.json"
+}
+
 write_instance_templates() {
     local dir="$1"
     install -d -m 0700 -o root -g root "$dir/postgres"
@@ -932,6 +945,8 @@ write_instance_templates() {
 create_instance_directories() {
     local dir="$1"
     install -d -m 0700 -o root -g root "$dir" "$dir/secrets" "$dir/backups" "$dir/state"
+    # Read by the gateway (uid 10001) through a read-only bind mount; nothing in it is secret.
+    install -d -m 0755 -o root -g root "$dir/release"
     # WAL spool shared by postgres (owner) and the workers (group); setgid keeps the group on new files.
     install -d -m 2770 -o "$POSTGRES_UID" -g "$APP_GID" "$dir/wal-spool"
     install -d -m 0700 -o "$APP_UID" -g "$APP_GID" "$dir/work"
@@ -1354,6 +1369,7 @@ install_instance() {
         agent_port="$AGENT_PORT"
     fi
     write_instance_templates "$dir"
+    write_release_manifest "$dir"
     write_instance_conf "$instance" "$fqdn" "$version" installing "$web_port" "$agent_port"
     ok "web on 127.0.0.1:$web_port, gateway on 127.0.0.1:$agent_port"
 
@@ -1417,6 +1433,7 @@ update_instance() {
         cp -a "$dir/state/previous/compose.yml" "$dir/state/previous/instance.conf" "$dir/"
         rm -rf -- "$dir/postgres"
         cp -a "$dir/state/previous/postgres" "$dir/"
+        restore_previous_release_manifest "$dir"
         installed_version="$(conf_get "$dir/instance.conf" FLEETIFY_VERSION)"
     fi
     is_version "$installed_version" || die "instance.conf of $instance has no valid installed version." "Check $dir/instance.conf."
@@ -1445,12 +1462,14 @@ update_instance() {
     rm -rf -- "$dir/state/previous"
     install -d -m 0700 "$dir/state/previous"
     cp -a "$dir/compose.yml" "$dir/instance.conf" "$dir/postgres" "$dir/state/previous/"
+    [[ -d "$dir/release" ]] && cp -a "$dir/release" "$dir/state/previous/"
     rollback_mode="$MANIFEST_ROLLBACK"
 
     local web_port agent_port
     web_port="$(conf_get "$dir/instance.conf" WEB_PORT)"
     agent_port="$(conf_get "$dir/instance.conf" AGENT_PORT)"
     write_instance_templates "$dir"
+    write_release_manifest "$dir"
     # The recorded version changes only after the health check passes.
     write_instance_conf "$instance" "$fqdn" "$installed_version" updating "$web_port" "$agent_port"
 
@@ -1483,6 +1502,15 @@ update_instance() {
     ok "$fqdn runs Fleeto $version"
 }
 
+# restore_previous_release_manifest <instance dir>: the release manifest of the previous version, so its gateway offers its own release.
+restore_previous_release_manifest() {
+    local dir="$1"
+    if [[ -d "$dir/state/previous/release" ]]; then
+        rm -rf -- "$dir/release"
+        cp -a "$dir/state/previous/release" "$dir/"
+    fi
+}
+
 # rollback_instance <instance> <previous version> <failed version> <rollback mode> <backup file> <reason>; never returns.
 rollback_instance() {
     local instance="$1" previous_version="$2" failed_version="$3" mode="$4" backup_file="$5" reason="$6" dir
@@ -1503,6 +1531,7 @@ rollback_instance() {
     cp -a "$dir/state/previous/compose.yml" "$dir/state/previous/instance.conf" "$dir/"
     rm -rf -- "$dir/postgres"
     cp -a "$dir/state/previous/postgres" "$dir/"
+    restore_previous_release_manifest "$dir"
     set_instance_state "$instance" rolled-back
     recreate_networks_if_diverged "$instance" || true
 

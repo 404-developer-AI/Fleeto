@@ -28,6 +28,8 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 | `MD-Files/CHANGELOG.md` | Unreleased changes plus the two most recent released versions. |
 | `MD-Files/CHANGELOG-ARCHIVE.md` | Every released version older than the two in `MD-Files/CHANGELOG.md`. |
 | `MD-Files/branding-fleeto.md` | Names, colors, typography, vocabulary, tone of voice. |
+| `MD-Files/API.md` | The public REST API as a contract for integrators: authentication, conventions, errors and every endpoint. |
+| `MD-Files/API-WAITLIST.md` | Features that are not in the public API yet, added in the same commit as the feature. |
 
 ## Priorities (in this order)
 
@@ -188,16 +190,28 @@ Screen takeover is built into Fleeto: no external tool, no third-party account.
 Every instance exposes a versioned REST API (`/api/v1`) so the customer can pull data out of
 Fleeto into other tools.
 
-- Authentication with **API keys** created in Settings: named, scoped (read-only or
-  read-write, optionally limited to clients), revocable, shown once at creation and stored
-  hashed. Format `flt_<id>_<secret>` with a 256-bit random secret, so SHA-256 is a sufficient
-  hash and secret scanners recognise leaked keys. Every call is rate limited and audited.
-- Read access to clients, sites, endpoints (with inventory and status), alerts, jobs, checks,
-  patch compliance and notes. Write access to the same objects where a technician could do it
-  in the UI, with the same license and role checks.
+- Authentication with **API keys** created in Settings by an admin: named, optionally limited to
+  clients, optionally expiring, revocable, shown once at creation and stored hashed. Format
+  `flt_<id>_<secret>` with a 256-bit random secret, so SHA-256 is a sufficient hash and secret
+  scanners recognise leaked keys. Every call is rate limited and audited.
+- **Read-only** (decided 2026-09-15): read access to clients, sites, endpoints (with inventory and
+  status), alerts, jobs, checks and notes, with the same client scope and license checks as the UI;
+  patch compliance follows with Action1. Write access only when there is demand.
 - OpenAPI document served by the instance, kept in sync with the code by a test. Keyset
   pagination, ISO 8601 timestamps in UTC, stable field names once 1.0.0 ships.
-- The UI uses the same API where practical so it cannot drift from what customers get.
+- The API reuses the application services of the UI where their shape fits, so it cannot drift
+  from what the UI shows.
+- **API documentation is part of the API** (decided 2026-09-15, very important):
+  `MD-Files/API.md` documents the whole public API (authentication, conventions, errors, rate
+  limits, and every endpoint with its parameters, response fields, allowed values and an example)
+  so completely that another developer or an AI can build an integration from that file alone,
+  without reading the code. Every API change updates `MD-Files/API.md` in the same commit; a test
+  fails when an endpoint in the OpenAPI document is missing from it, or documented but not built.
+- **API waiting list** (decided 2026-09-15, very important): every feature that adds or changes
+  data or actions in Fleeto and is not in the public API gets an entry in
+  `MD-Files/API-WAITLIST.md` **in the same commit as the feature**, even when the API work comes
+  much later. When the API part is built, the entry moves from the waiting list into
+  `MD-Files/API.md`. A feature is not done until it is in the API or on the waiting list.
 
 ## Patch management: Action1
 
@@ -238,8 +252,9 @@ customers never install Fleeto themselves.
   instances on this VPS.
 - Agents are installed with a one-line command generated in the UI (it carries the instance
   FQDN, the site enrollment token and the instance CA fingerprint) and self-update from the
-  server, staged by update ring per policy. The server only distributes binaries; the agent
-  installs one only if it is signed with the Steaan release key.
+  server, staged by update ring per policy (0.2.1). The server only distributes binaries; the agent
+  installs one only if the release manifest signed with the Steaan release key lists its SHA-256, and
+  never an older version.
 
 ## Architecture in one paragraph
 
@@ -252,8 +267,8 @@ key and internal CA, no listening port), **fleetify-workers** (checks, alerting,
 pollers, patch orchestration, retention, backups) and **postgres** (PostgreSQL 17 +
 TimescaleDB, the only durable store; its LISTEN/NOTIFY carries cross-container notifications, never
 the only copy of anything). Agents are one Go codebase, one static binary per platform; from
-0.2.0 a second service, the **watchdog**, with its own certificate, keeps the agent running and
-serves the remote terminal (0.3.0).
+0.2.1 a second service, the **watchdog**, with its own certificate, keeps the agent running, installs
+agent updates and serves the remote terminal (0.3.0).
 No Valkey: the signer may only talk to the database, so database notifications are needed anyway, and one
 mechanism is simpler on a single VPS. Valkey can return behind `INotificationBus` if scale demands it.
 Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
@@ -361,7 +376,7 @@ check/alert model as agent data (one alert pipeline, not two), credentials encry
 - Watchdog service that keeps the agent running and alerts when it cannot
 - Patch compliance and deployment through Action1
 - Log and event search
-- **Notes**: markdown notes on managed endpoints, with author + timestamp, searchable, included in the audit trail (without the body); an external ticket reference through the API
+- **Notes**: markdown notes on managed endpoints, with author + timestamp, searchable, included in the audit trail (without the body); a Servicedesk ticket reference follows later (not yet scheduled, see `MD-Files/ROADMAP.md`)
 - Users, roles (admin / technician / read-only), 2FA
 - Public REST API with scoped API keys and OpenAPI document
 - Integrations: Action1, Sophos, Veeam, Proxmox, vCenter
@@ -374,7 +389,8 @@ home-grown patch engine, file transfer inside remote control. Note them, do not 
 - Namespaces, images, env vars, service names: **Fleetify**. User-visible text: **Fleeto**. Run the grep check from `MD-Files/branding-fleeto.md` §7 before every release.
 - UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, monitoring template, client template, integration, note, remote control session, API key).
 - Follow the Migrify codebase conventions where they exist (project layout, EF Core patterns, MudBlazor usage, email templates).
-- Tests: unit tests for domain logic, integration tests against real PostgreSQL in CI, the cross-client tests from Security, license-tier enforcement tests, signer rule tests (refused roles, tiers, unapproved scripts, expired jobs), certificate revocation tests, and the load-test scenario. New features without tests are not done.
+- Tests: unit tests for domain logic, integration tests against real PostgreSQL in CI, the cross-client tests from Security, license-tier enforcement tests, signer rule tests (refused roles, tiers, unapproved scripts, expired jobs), certificate revocation tests, and the load-test scenario. New features without tests are not done, and neither are new features
+  that are not in `MD-Files/API.md` or on `MD-Files/API-WAITLIST.md` (see Public API).
 - CI on GitHub Actions: build, tests, vulnerability scan, secret scan, the Fleetify grep check. A release is a tagged commit that passes CI.
 
 ## Open decisions (revisit before building)

@@ -70,6 +70,10 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
     public DbSet<DataKey> DataKeys => Set<DataKey>();
     public DbSet<License> Licenses => Set<License>();
     public DbSet<SetupToken> SetupTokens => Set<SetupToken>();
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+    public DbSet<AgentRelease> AgentReleases => Set<AgentRelease>();
+    public DbSet<EndpointComponentState> EndpointComponentStates => Set<EndpointComponentState>();
+    public DbSet<ApiKeyClient> ApiKeyClients => Set<ApiKeyClient>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
     public DbSet<NotificationChannel> NotificationChannels => Set<NotificationChannel>();
     public DbSet<NotificationChannelClient> NotificationChannelClients => Set<NotificationChannelClient>();
@@ -126,6 +130,7 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
             entity.Property(e => e.Tier).HasConversion<string>().HasMaxLength(20);
             entity.Property(e => e.Source).HasConversion<string>().HasMaxLength(20);
             entity.Property(e => e.PublicIpAddress).HasMaxLength(64);
+            entity.Property(e => e.WatchdogVersion).HasMaxLength(50).HasDefaultValue(string.Empty);
             entity.Ignore(e => e.EffectiveClass);
             MaintenanceColumns(entity);
             entity.HasAlternateKey(e => new { e.Id, e.ClientId });
@@ -150,6 +155,7 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
             entity.Property(c => c.PublicKeyFingerprint).HasMaxLength(64);
             entity.Property(c => c.SerialNumber).HasMaxLength(64);
             entity.Property(c => c.RevokedReason).HasMaxLength(500);
+            entity.Property(c => c.Role).HasConversion<string>().HasMaxLength(20).HasDefaultValue(AgentComponent.Agent).HasSentinel((AgentComponent)(-1));
             entity.HasIndex(c => c.Fingerprint).IsUnique();
             entity.HasIndex(c => c.EndpointId);
             EndpointChild(entity, c => new { c.EndpointId, c.ClientId });
@@ -205,6 +211,7 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
             entity.Property(p => p.Description).HasMaxLength(1000);
             entity.Property(p => p.OfflineAlertSeverity).HasConversion<string>().HasMaxLength(20);
             entity.Property(p => p.MaintenanceWindowsJson).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
+            entity.Property(p => p.UpdateRing).HasConversion<string>().HasMaxLength(20).HasDefaultValue(UpdateRing.Standard).HasSentinel((UpdateRing)(-1));
             entity.HasIndex(p => new { p.ClientId, p.Name }).IsUnique().AreNullsDistinct(false);
             entity.HasIndex(p => p.IsDefault).IsUnique().HasFilter("\"IsDefault\"");
             // A client-specific policy is deleted with its client.
@@ -445,6 +452,8 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
             entity.HasIndex(j => new { j.EndpointId, j.CreatedAt }).IsDescending(false, true);
             entity.HasIndex(j => new { j.State, j.EndpointId }).HasFilter("\"State\" IN ('PendingSignature', 'Queued', 'Running')");
             entity.HasIndex(j => j.BatchId);
+            // Public API: the job list across endpoints, newest first, with keyset pagination (0.2.1).
+            entity.HasIndex(j => new { j.CreatedAt, j.Id }).IsDescending(true, true);
             entity.ToTable(t =>
             {
                 t.HasCheckConstraint("CK_Jobs_Validity", "\"ValidUntil\" > \"CreatedAt\" AND \"ValidUntil\" <= \"CreatedAt\" + interval '7 days 5 minutes'");
@@ -578,6 +587,49 @@ public class FleetifyDbContext : IdentityDbContext<ApplicationUser, ApplicationR
         {
             entity.Property(t => t.TokenHash).HasMaxLength(64);
             entity.HasIndex(t => t.TokenHash).IsUnique();
+        });
+
+        builder.Entity<AgentRelease>(entity =>
+        {
+            entity.HasKey(r => r.Version);
+            entity.Property(r => r.Version).HasMaxLength(50);
+            entity.Property(r => r.ManifestSha256).HasMaxLength(64);
+            entity.Property(r => r.PausedByName).HasMaxLength(200);
+            entity.Property(r => r.ReleasedToAllByName).HasMaxLength(200);
+            entity.HasIndex(r => r.IsCurrent).IsUnique().HasFilter("\"IsCurrent\"").HasDatabaseName("IX_AgentReleases_Current");
+        });
+
+        builder.Entity<EndpointComponentState>(entity =>
+        {
+            entity.HasKey(c => new { c.EndpointId, c.Component });
+            entity.Property(c => c.Component).HasConversion<string>().HasMaxLength(20);
+            entity.Property(c => c.InstalledVersion).HasMaxLength(50);
+            entity.Property(c => c.ServiceState).HasConversion<string>().HasMaxLength(20);
+            entity.Property(c => c.ServiceDetail).HasMaxLength(500);
+            entity.Property(c => c.UpdateVersion).HasMaxLength(50);
+            entity.Property(c => c.UpdateState).HasConversion<string>().HasMaxLength(20);
+            entity.Property(c => c.UpdateDetail).HasMaxLength(500);
+            EndpointChild(entity, c => new { c.EndpointId, c.ClientId });
+            ClientOwned(entity);
+        });
+
+        builder.Entity<ApiKey>(entity =>
+        {
+            entity.Property(k => k.Name).HasMaxLength(ApiKey.MaxNameLength);
+            entity.Property(k => k.SecretHash).HasMaxLength(64);
+            entity.Property(k => k.CreatedByName).HasMaxLength(200);
+            entity.Property(k => k.RevokedByName).HasMaxLength(200);
+            entity.Property(k => k.AllClients).HasDefaultValue(true).ValueGeneratedNever();
+            entity.HasIndex(k => k.CreatedAt);
+            entity.HasMany(k => k.Clients).WithOne().HasForeignKey(c => c.ApiKeyId).OnDelete(DeleteBehavior.Cascade);
+            entity.ToTable(t => t.HasCheckConstraint("CK_ApiKeys_SecretHash", "\"SecretHash\" ~ '^[0-9a-f]{64}$'"));
+        });
+
+        builder.Entity<ApiKeyClient>(entity =>
+        {
+            entity.HasKey(c => new { c.ApiKeyId, c.ClientId });
+            entity.HasIndex(c => c.ClientId);
+            entity.HasOne<Client>().WithMany().HasForeignKey(c => c.ClientId).OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<AuditEntry>(entity =>

@@ -1,4 +1,5 @@
 using System.Security.Cryptography.X509Certificates;
+using Fleetify.Core.Entities;
 using Fleetify.Core.Interfaces;
 using Fleetify.Infrastructure.Security;
 using Fleetify.Protocol;
@@ -15,8 +16,9 @@ public enum AllowListDecision
     Refused
 }
 
-/// <summary>The identity of an accepted agent certificate.</summary>
-public sealed record AgentIdentity(Guid EndpointId, string Fingerprint, string PublicKeyFingerprint, DateTime ExpiresAt);
+/// <summary>The identity of an accepted agent or watchdog certificate. The role comes from the database, never from the certificate.</summary>
+public sealed record AgentIdentity(Guid EndpointId, string Fingerprint, string PublicKeyFingerprint, DateTime ExpiresAt,
+    AgentComponent Role = AgentComponent.Agent);
 
 /// <summary>An expired, never revoked agent certificate that may renew itself through recovery (0.2.0).</summary>
 public sealed record ExpiredAgentIdentity(Guid EndpointId, Guid ClientId, string Fingerprint, string PublicKeyFingerprint, DateTime ExpiredAt);
@@ -119,7 +121,7 @@ public sealed class CertificateAllowList : BackgroundService
         }
 
         identity = new AgentIdentity(entry.EndpointId, fingerprint, InternalCertificateAuthority.PublicKeyFingerprint(certificate),
-            entry.ExpiresAt < certificate.NotAfter.ToUniversalTime() ? entry.ExpiresAt : certificate.NotAfter.ToUniversalTime());
+            entry.ExpiresAt < certificate.NotAfter.ToUniversalTime() ? entry.ExpiresAt : certificate.NotAfter.ToUniversalTime(), entry.Role);
         return AllowListDecision.Accepted;
     }
 
@@ -146,7 +148,9 @@ public sealed class CertificateAllowList : BackgroundService
         var notAfter = certificate.NotAfter.ToUniversalTime();
         var fingerprint = KeyIds.Sha256Hex(certificate.RawDataMemory.Span);
         // A certificate that was still valid at the last reload and expired since is found among the valid entries.
-        if (!(snapshot.Expired.TryGetValue(fingerprint, out var entry) || snapshot.Entries.TryGetValue(fingerprint, out entry)) || entry.ExpiresAt > now || now - entry.ExpiresAt > ProtocolLimits.RecoveryGrace ||
+        // Agent certificates only: a watchdog never recovers; the agent gives it a new certificate (0.2.1).
+        if (!(snapshot.Expired.TryGetValue(fingerprint, out var entry) || snapshot.Entries.TryGetValue(fingerprint, out entry)) || entry.Role != AgentComponent.Agent ||
+            entry.ExpiresAt > now || now - entry.ExpiresAt > ProtocolLimits.RecoveryGrace ||
             notAfter > now || InternalCertificateAuthority.EndpointIdFromCertificate(certificate) != entry.EndpointId)
         {
             return AllowListDecision.Refused;
@@ -188,7 +192,7 @@ public sealed class CertificateAllowList : BackgroundService
     /// Adds a certificate fleetify-signer just issued and returned through this gateway (read from the signing request
     /// row, never from the agent). The next reload replaces it with the database state, so a revocation still wins.
     /// </summary>
-    public void AddIssued(byte[] certificateDer, Guid endpointId)
+    public void AddIssued(byte[] certificateDer, Guid endpointId, AgentComponent role = AgentComponent.Agent)
     {
         using var certificate = X509CertificateLoader.LoadCertificate(certificateDer);
         if (InternalCertificateAuthority.EndpointIdFromCertificate(certificate) != endpointId)
@@ -197,7 +201,7 @@ public sealed class CertificateAllowList : BackgroundService
         }
 
         var fingerprint = KeyIds.Sha256Hex(certificateDer);
-        _recent[fingerprint] = (new Entry(endpointId, certificate.NotAfter.ToUniversalTime(), Guid.Empty), System.Diagnostics.Stopwatch.GetTimestamp());
+        _recent[fingerprint] = (new Entry(endpointId, certificate.NotAfter.ToUniversalTime(), Guid.Empty, role), System.Diagnostics.Stopwatch.GetTimestamp());
     }
 
     private bool TryGetEntry(Snapshot snapshot, string fingerprint, out Entry entry)
@@ -230,7 +234,7 @@ public sealed class CertificateAllowList : BackgroundService
                 BatchCommands =
                 {
                     new NpgsqlBatchCommand("""
-                        SELECT "Fingerprint", "EndpointId", "ExpiresAt", "ClientId" FROM "AgentCertificates"
+                        SELECT "Fingerprint", "EndpointId", "ExpiresAt", "ClientId", "Role" FROM "AgentCertificates"
                         WHERE "RevokedAt" IS NULL AND "ExpiresAt" > $1
                         """)
                     {
@@ -251,7 +255,8 @@ public sealed class CertificateAllowList : BackgroundService
             {
                 while (await reader.ReadAsync(cancellationToken))
                 {
-                    var entry = new Entry(reader.GetGuid(1), DateTime.SpecifyKind(reader.GetDateTime(2), DateTimeKind.Utc), reader.GetGuid(3));
+                    var entry = new Entry(reader.GetGuid(1), DateTime.SpecifyKind(reader.GetDateTime(2), DateTimeKind.Utc), reader.GetGuid(3),
+                        Enum.TryParse<AgentComponent>(reader.GetString(4), out var role) ? role : AgentComponent.Agent);
                     (entry.ExpiresAt > now ? entries : expired)[reader.GetString(0)] = entry;
                 }
 
@@ -346,7 +351,7 @@ public sealed class CertificateAllowList : BackgroundService
         return collection;
     }
 
-    private readonly record struct Entry(Guid EndpointId, DateTime ExpiresAt, Guid ClientId);
+    private readonly record struct Entry(Guid EndpointId, DateTime ExpiresAt, Guid ClientId, AgentComponent Role);
 
     private sealed record Snapshot(Dictionary<string, Entry> Entries, Dictionary<string, Entry> Expired, X509Certificate2Collection CaCertificates,
         string CaSetKey, DateTime LoadedAt);

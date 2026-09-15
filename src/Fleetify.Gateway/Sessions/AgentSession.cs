@@ -28,7 +28,9 @@ public sealed class AgentSession : IDisposable
     private long _lastReceiveTicks;
     private long _sendStartedTicks;
     private int _renewalInFlight;
+    private int _watchdogCertificateInFlight;
     private int _agentOnlyWarned;
+    private int _ring = (int)UpdateRing.Standard;
 
     public AgentSession(AgentIdentity identity, string remoteAddress, int sendQueueCapacity, DateTime now)
     {
@@ -47,6 +49,12 @@ public sealed class AgentSession : IDisposable
     public Guid Id { get; } = Guid.NewGuid();
     public AgentIdentity Identity { get; }
     public Guid EndpointId => Identity.EndpointId;
+
+    /// <summary>True for the watchdog of the endpoint (0.2.1); its certificate role decides, never its Hello.</summary>
+    public bool IsWatchdog => Identity.Role == AgentComponent.Watchdog;
+
+    /// <summary>The service this session is: agent or watchdog.</summary>
+    public AgentComponent Component => Identity.Role;
     public string RemoteAddress { get; }
 
     /// <summary>Address of the agent as stored on the endpoint (Public IP); null when unknown.</summary>
@@ -74,6 +82,19 @@ public sealed class AgentSession : IDisposable
         get => (EndpointTier)Volatile.Read(ref _tier);
         internal set => Volatile.Write(ref _tier, (int)value);
     }
+
+    /// <summary>Effective update ring of the endpoint, as last read from the database (0.2.1).</summary>
+    public UpdateRing Ring
+    {
+        get => (UpdateRing)Volatile.Read(ref _ring);
+        internal set => Volatile.Write(ref _ring, (int)value);
+    }
+
+    /// <summary>Release version and permission of the last UpdateOffer sent on this connection; null before the first.</summary>
+    internal (string Version, bool Allowed)? LastOffer { get; set; }
+
+    /// <summary>The peer status last stored for this connection, so an unchanged heartbeat writes nothing.</summary>
+    internal string? LastPeerStatus { get; set; }
 
     /// <summary>Heartbeat interval from the last delivered configuration; used for idle detection.</summary>
     public int HeartbeatSeconds { get; internal set; } = ProtocolLimits.DefaultHeartbeatSeconds;
@@ -271,6 +292,10 @@ public sealed class AgentSession : IDisposable
     internal bool TryBeginRenewal() => Interlocked.CompareExchange(ref _renewalInFlight, 1, 0) == 0;
 
     internal void EndRenewal() => Interlocked.Exchange(ref _renewalInFlight, 0);
+
+    internal bool TryBeginWatchdogCertificate() => Interlocked.CompareExchange(ref _watchdogCertificateInFlight, 1, 0) == 0;
+
+    internal void EndWatchdogCertificate() => Interlocked.Exchange(ref _watchdogCertificateInFlight, 0);
 
     /// <summary>
     /// True the first time a job is offered to this connection; a job is delivered once per connection and again after a reconnect.

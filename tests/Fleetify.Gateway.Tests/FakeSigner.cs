@@ -87,6 +87,7 @@ public sealed class FakeSigner : IAsyncDisposable
                     Id = request.Id, SubjectId = request.SubjectId, Payload = RecoverRequest.Parser.ParseFrom(request.Payload).CsrDer.ToByteArray()
                 }, cancellationToken),
                 SigningRequestKind.AgentEnrollment => await EnrollAsync(request, cancellationToken),
+                SigningRequestKind.WatchdogCertificate => await RenewAsync(request, cancellationToken, AgentComponent.Watchdog),
                 _ => null
             };
 
@@ -95,13 +96,13 @@ public sealed class FakeSigner : IAsyncDisposable
         }
     }
 
-    private async Task<byte[]?> RenewAsync(SigningRequest request, CancellationToken cancellationToken)
+    private async Task<byte[]?> RenewAsync(SigningRequest request, CancellationToken cancellationToken, AgentComponent role = AgentComponent.Agent)
     {
         await using var db = _fixture.Database.DbFactory.CreateSystem();
         var endpoint = db.Endpoints.Single(e => e.Id == request.SubjectId);
         var issued = InternalCertificateAuthority.IssueAgentCertificate(_fixture.Ca.CertificateDer, _fixture.Ca.PrivateKeyPkcs8,
             request.Payload, endpoint.Id, _fixture.Database.InstanceId, DateTime.UtcNow);
-        Record(db, endpoint, issued);
+        Record(db, endpoint, issued, role);
         await db.SaveChangesAsync(cancellationToken);
         return issued.CertificateDer;
     }
@@ -135,7 +136,8 @@ public sealed class FakeSigner : IAsyncDisposable
         }.ToByteArray();
     }
 
-    private static void Record(Infrastructure.Data.FleetifyDbContext db, Endpoint endpoint, InternalCertificateAuthority.IssuedCertificate issued) =>
+    private static void Record(Infrastructure.Data.FleetifyDbContext db, Endpoint endpoint, InternalCertificateAuthority.IssuedCertificate issued,
+        AgentComponent role = AgentComponent.Agent) =>
         db.AgentCertificates.Add(new AgentCertificate
         {
             Id = Guid.NewGuid(),
@@ -145,7 +147,8 @@ public sealed class FakeSigner : IAsyncDisposable
             PublicKeyFingerprint = issued.PublicKeyFingerprint,
             SerialNumber = issued.SerialNumber,
             IssuedAt = issued.NotBefore,
-            ExpiresAt = issued.NotAfter
+            ExpiresAt = issued.NotAfter,
+            Role = role
         });
 
     private async Task CompleteAsync(Guid id, SigningRequestState state, byte[]? result, string? refusal, CancellationToken cancellationToken)

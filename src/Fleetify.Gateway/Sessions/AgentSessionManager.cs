@@ -3,6 +3,7 @@ using Fleetify.Core.Entities;
 using Fleetify.Core.Interfaces;
 using Fleetify.Gateway.Data;
 using Fleetify.Gateway.Diagnostics;
+using Fleetify.Gateway.Releases;
 using Fleetify.Gateway.Signing;
 using Fleetify.Gateway.Tls;
 using Fleetify.Infrastructure.Security;
@@ -19,11 +20,12 @@ namespace Fleetify.Gateway.Sessions;
 /// Owns every live agent session: acceptance (Hello, duplicate identity), message handling, configuration delivery with
 /// tier enforcement, revocation, idle and expiry checks, and the online state in the database.
 /// <para>
-/// One session per endpoint. A second connection for an endpoint that already has a live session is a clone unless the
-/// live session fails to answer a Ping, in which case it was a dropped connection and is replaced.
+/// One agent session and one watchdog session per endpoint (0.2.1), told apart by the role of the certificate. A second connection for
+/// the same endpoint and role while a live session exists is a clone unless the live session fails to answer a Ping, in which case it
+/// was a dropped connection and is replaced. A watchdog session only carries heartbeats, certificate renewal and updates.
 /// </para>
 /// </summary>
-public sealed class AgentSessionManager : BackgroundService
+public sealed partial class AgentSessionManager : BackgroundService
 {
     private const int StripeCount = 256;
     private static readonly TimeSpan SweepInterval = TimeSpan.FromSeconds(10);
@@ -34,6 +36,7 @@ public sealed class AgentSessionManager : BackgroundService
         "The agent certificate was revoked or the endpoint was deleted. Enroll the agent again with a new token.";
 
     private readonly ConcurrentDictionary<Guid, AgentSession> _sessions = new();
+    private readonly ConcurrentDictionary<Guid, AgentSession> _watchdogs = new();
     private readonly SemaphoreSlim[] _stripes = Enumerable.Range(0, StripeCount).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
     private readonly GatewayStore _store;
     private readonly INotificationBus _bus;
@@ -44,6 +47,7 @@ public sealed class AgentSessionManager : BackgroundService
     private readonly GatewayOptions _options;
     private readonly ILogger<AgentSessionManager> _logger;
     private readonly IHostApplicationLifetime? _lifetime;
+    private readonly ReleaseCatalog? _releases;
     private readonly List<IDisposable> _subscriptions = [];
     private long _lastIngestWarningTicks;
     private volatile bool _ready;
@@ -51,7 +55,7 @@ public sealed class AgentSessionManager : BackgroundService
 
     public AgentSessionManager(GatewayStore store, INotificationBus bus, CertificateAllowList allowList, SigningRequestClient signing,
         GatewayMetrics metrics, TimeProvider time, IOptions<GatewayOptions> options, ILogger<AgentSessionManager> logger,
-        IHostApplicationLifetime? lifetime = null)
+        IHostApplicationLifetime? lifetime = null, ReleaseCatalog? releases = null)
     {
         _store = store;
         _bus = bus;
@@ -62,8 +66,14 @@ public sealed class AgentSessionManager : BackgroundService
         _options = options.Value;
         _logger = logger;
         _lifetime = lifetime;
+        _releases = releases;
 
         _allowList.Reloaded += OnAllowListReloaded;
+        if (_releases is not null)
+        {
+            _releases.Changed += EvaluateOffers;
+        }
+
         _subscriptions.Add(_bus.Subscribe(NotificationChannels.EndpointConfig, OnEndpointConfigAsync));
         _subscriptions.Add(_bus.Subscribe(NotificationChannels.EndpointStatus, OnEndpointStatusAsync));
         _subscriptions.Add(_bus.Subscribe(NotificationChannels.CheckRunRequests, OnCheckRunRequestAsync));
@@ -79,6 +89,12 @@ public sealed class AgentSessionManager : BackgroundService
 
     internal ICollection<AgentSession> Sessions => _sessions.Values;
 
+    internal ICollection<AgentSession> WatchdogSessions => _watchdogs.Values;
+
+    public int WatchdogCount => _watchdogs.Count;
+
+    public bool TryGetWatchdogSession(Guid endpointId, out AgentSession? session) => _watchdogs.TryGetValue(endpointId, out session);
+
     // ---------------------------------------------------------------------------------------------------------------
     // Lifecycle of one session
     // ---------------------------------------------------------------------------------------------------------------
@@ -93,6 +109,17 @@ public sealed class AgentSessionManager : BackgroundService
         if (_stopping)
         {
             session.Close(DisconnectCode.ServerShutdown, "The gateway is restarting. Reconnect in a moment.");
+            return false;
+        }
+
+        if (session.IsWatchdog)
+        {
+            return await OpenWatchdogAsync(session, hello, cancellationToken);
+        }
+
+        if (hello.Component == Component.Watchdog)
+        {
+            session.Close(DisconnectCode.ProtocolError, "A watchdog must connect with its own watchdog certificate.");
             return false;
         }
 
@@ -152,6 +179,7 @@ public sealed class AgentSessionManager : BackgroundService
 
                 session.ClientId = start.ClientId;
                 session.Tier = start.Tier;
+                session.Ring = start.Ring;
                 session.TryAdvanceConfigVersion(DbText.ClampToLong(hello.ConfigVersion));
                 session.MarkReceived(now);
                 _metrics.ConnectionAccepted();
@@ -175,6 +203,8 @@ public sealed class AgentSessionManager : BackgroundService
                 {
                     session.Send(new ServerMessage { InventoryRequest = new InventoryRequest() });
                 }
+
+                SendOffer(session, force: true);
 
                 _logger.LogDebug("Endpoint {EndpointId} connected from {RemoteAddress}", endpointId, session.RemoteAddress);
                 break;
@@ -209,6 +239,12 @@ public sealed class AgentSessionManager : BackgroundService
         if (_stopping)
         {
             // Shutdown marks every session offline in one statement.
+            return;
+        }
+
+        if (session.IsWatchdog)
+        {
+            await CloseWatchdogAsync(session);
             return;
         }
 
@@ -276,9 +312,22 @@ public sealed class AgentSessionManager : BackgroundService
     public async Task HandleAsync(AgentSession session, AgentMessage message, CancellationToken cancellationToken)
     {
         session.MarkReceived(_time.GetUtcNow().UtcDateTime);
+        if (session.IsWatchdog)
+        {
+            await HandleWatchdogAsync(session, message, cancellationToken);
+            return;
+        }
+
         switch (message.BodyCase)
         {
             case AgentMessage.BodyOneofCase.Heartbeat:
+                await SavePeerStatusAsync(session, message.Heartbeat, cancellationToken);
+                break;
+            case AgentMessage.BodyOneofCase.WatchdogCertificate:
+                StartWatchdogCertificate(session, message.WatchdogCertificate);
+                break;
+            case AgentMessage.BodyOneofCase.UpdateStatus:
+                await SaveUpdateStatusAsync(session, message.UpdateStatus, cancellationToken);
                 break;
             case AgentMessage.BodyOneofCase.Pong:
                 session.OnPong(message.Pong.Nonce);
@@ -468,8 +517,8 @@ public sealed class AgentSessionManager : BackgroundService
         {
             case SigningOutcomeState.Completed when outcome.Result is not null:
                 // The new certificate must be on the allow list before the agent reconnects with it.
-                _allowList.AddIssued(outcome.Result, session.EndpointId);
-                _logger.LogInformation("Endpoint {EndpointId}: certificate renewed", session.EndpointId);
+                _allowList.AddIssued(outcome.Result, session.EndpointId, session.Component);
+                _logger.LogInformation("Endpoint {EndpointId}: {Component} certificate renewed", session.EndpointId, session.Component);
                 return new ServerMessage { RenewCertificate = new RenewCertificateResponse { CertificateDer = ByteString.CopyFrom(outcome.Result) } };
             case SigningOutcomeState.Refused:
                 _logger.LogWarning("Endpoint {EndpointId}: certificate renewal refused: {Reason}", session.EndpointId, outcome.RefusalReason);
@@ -798,18 +847,19 @@ public sealed class AgentSessionManager : BackgroundService
 
     internal async Task RefreshTiersAsync(CancellationToken cancellationToken)
     {
-        var sessions = _sessions.Values.ToArray();
+        var sessions = _sessions.Values.Concat(_watchdogs.Values).ToArray();
         if (sessions.Length == 0)
         {
             return;
         }
 
-        var tiers = await _store.ReadTiersAsync(sessions.Select(s => s.EndpointId).ToArray(), cancellationToken);
+        var facts = await _store.ReadSessionFactsAsync(sessions.Select(s => s.EndpointId).Distinct().ToArray(), cancellationToken);
         foreach (var session in sessions)
         {
-            if (tiers.TryGetValue(session.EndpointId, out var tier))
+            if (facts.TryGetValue(session.EndpointId, out var fact))
             {
-                session.Tier = tier;
+                session.Tier = fact.Tier;
+                session.Ring = fact.Ring;
             }
         }
     }
@@ -827,10 +877,15 @@ public sealed class AgentSessionManager : BackgroundService
                 CloseIfNoLongerAllowed(session);
             }
 
+            if (_watchdogs.TryGetValue(endpointId, out var watchdog))
+            {
+                CloseIfNoLongerAllowed(watchdog);
+            }
+
             return;
         }
 
-        foreach (var session in _sessions.Values)
+        foreach (var session in _sessions.Values.Concat(_watchdogs.Values))
         {
             CloseIfNoLongerAllowed(session);
         }
@@ -849,7 +904,7 @@ public sealed class AgentSessionManager : BackgroundService
     internal void Sweep()
     {
         var now = _time.GetUtcNow().UtcDateTime;
-        foreach (var session in _sessions.Values)
+        foreach (var session in _sessions.Values.Concat(_watchdogs.Values))
         {
             if (session.IsClosing)
             {
@@ -905,6 +960,7 @@ public sealed class AgentSessionManager : BackgroundService
                 try
                 {
                     await RefreshTiersAsync(stoppingToken);
+                    EvaluateOffers();
                     await CatchUpConfigsAsync(stoppingToken);
                     await DeliverRunRequestsAsync(_sessions.Keys.ToArray(), stoppingToken);
                     await DeliverJobsAsync(_sessions.Keys.ToArray(), stoppingToken);
@@ -950,7 +1006,7 @@ public sealed class AgentSessionManager : BackgroundService
     private void BeginShutdown()
     {
         _stopping = true;
-        foreach (var session in _sessions.Values)
+        foreach (var session in _sessions.Values.Concat(_watchdogs.Values))
         {
             session.Close(DisconnectCode.ServerShutdown, "The gateway is restarting. Reconnect in a moment.");
         }
@@ -960,7 +1016,21 @@ public sealed class AgentSessionManager : BackgroundService
     {
         BeginShutdown();
         var ids = _sessions.Keys.ToArray();
+        var watchdogIds = _watchdogs.Keys.ToArray();
         _sessions.Clear();
+        _watchdogs.Clear();
+        if (watchdogIds.Length > 0)
+        {
+            try
+            {
+                await _store.MarkWatchdogsOfflineAsync(watchdogIds, _time.GetUtcNow().UtcDateTime, cancellationToken);
+            }
+            catch (Exception ex) when (ex is NpgsqlException or TimeoutException or OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Could not mark {Count} watchdogs offline at shutdown; the next start does it", watchdogIds.Length);
+            }
+        }
+
         if (ids.Length > 0)
         {
             try
@@ -980,6 +1050,11 @@ public sealed class AgentSessionManager : BackgroundService
     public override void Dispose()
     {
         _allowList.Reloaded -= OnAllowListReloaded;
+        if (_releases is not null)
+        {
+            _releases.Changed -= EvaluateOffers;
+        }
+
         foreach (var subscription in _subscriptions)
         {
             subscription.Dispose();

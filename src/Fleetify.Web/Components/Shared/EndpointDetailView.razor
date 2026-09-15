@@ -70,6 +70,9 @@
 </LoadState>
 
 @code {
+    private static EndpointComponentView? Component(EndpointDetail endpoint, AgentComponent component) =>
+        endpoint.Components?.FirstOrDefault(c => c.Component == component);
+
     private const int SummaryTab = 0;
     private const int ChecksTab = 1;
     private const int SoftwareTab = 2;
@@ -245,9 +248,54 @@
                                     <td class="muted">Agent version</td>
                                     <td>
                                         @e.AgentVersion
-                                        @if (e.AgentVersion != FleetifyVersion.Current)
+                                        @if (SemanticVersion.IsOlder(e.AgentVersion, e.ReleaseVersion ?? FleetifyVersion.Current))
                                         {
                                             <span class="ml-1"><StatusChip Text="Out of date" Kind="StatusKind.Warning" /></span>
+                                        }
+                                        @if (Component(e, AgentComponent.Agent) is { UpdateState: { } agentUpdate } agentState)
+                                        {
+                                            <div class="muted" style="font-size:0.75rem">
+                                                @Ui.UpdateStateLabel(agentUpdate) @agentState.UpdateVersion <TimeText Value="agentState.UpdateAt" />@(string.IsNullOrEmpty(agentState.UpdateDetail) ? "" : $" · {agentState.UpdateDetail}")
+                                            </div>
+                                        }
+                                        @if (!e.IsOnline && Component(e, AgentComponent.Agent) is { ServiceState: not ComponentServiceState.Unknown } agentService)
+                                        {
+                                            <div class="muted" style="font-size:0.75rem">
+                                                The watchdog reports the agent service as @Ui.ServiceStateLabel(agentService.ServiceState).ToLowerInvariant()@(string.IsNullOrEmpty(agentService.ServiceDetail) ? "" : $": {agentService.ServiceDetail}")
+                                            </div>
+                                        }
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td class="muted">Watchdog</td>
+                                    <td>
+                                        @if (string.IsNullOrEmpty(e.WatchdogVersion))
+                                        {
+                                            <span class="muted">Not installed yet: the agent installs it with the next release offer</span>
+                                        }
+                                        else
+                                        {
+                                            @e.WatchdogVersion
+                                            <span class="ml-1"><StatusChip Text="@(e.WatchdogOnline ? "Online" : "Offline")" Kind="@(e.WatchdogOnline ? StatusKind.Ok : StatusKind.Neutral)" /></span>
+                                            @if (!e.WatchdogOnline && e.WatchdogLastSeenAt is { } watchdogSeen)
+                                            {
+                                                <span class="muted ml-1" style="font-size:0.75rem">last seen <TimeText Value="watchdogSeen" /></span>
+                                            }
+                                        }
+                                        @if (Component(e, AgentComponent.Watchdog) is { } watchdogState)
+                                        {
+                                            @if (!e.WatchdogOnline && watchdogState.ServiceState != ComponentServiceState.Unknown)
+                                            {
+                                                <div class="muted" style="font-size:0.75rem">
+                                                    The agent reports the watchdog service as @Ui.ServiceStateLabel(watchdogState.ServiceState).ToLowerInvariant()@(string.IsNullOrEmpty(watchdogState.ServiceDetail) ? "" : $": {watchdogState.ServiceDetail}")
+                                                </div>
+                                            }
+                                            @if (watchdogState.UpdateState is { } watchdogUpdate)
+                                            {
+                                                <div class="muted" style="font-size:0.75rem">
+                                                    @Ui.UpdateStateLabel(watchdogUpdate) @watchdogState.UpdateVersion <TimeText Value="watchdogState.UpdateAt" />@(string.IsNullOrEmpty(watchdogState.UpdateDetail) ? "" : $" · {watchdogState.UpdateDetail}")
+                                                </div>
+                                            }
                                         }
                                     </td>
                                 </tr>

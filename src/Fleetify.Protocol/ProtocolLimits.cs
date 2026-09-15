@@ -37,4 +37,10 @@ public static class ProtocolLimits
     /// <summary>Public PEM bundle of the instance CA certificates, fetched by the agent before enrollment.</summary>
     public const string CaPath = "/v1/ca";
     public const string ProtobufContentType = "application/x-protobuf";
+
+    /// <summary>Agent binaries of the current release, fetched with an agent or watchdog certificate (0.2.1).</summary>
+    public const string ReleasesPath = "/v1/releases";
+
+    /// <summary>Largest agent binary a release manifest may list; the agent refuses anything larger.</summary>
+    public const long MaxAgentBinaryBytes = 128L * 1024 * 1024;
 }

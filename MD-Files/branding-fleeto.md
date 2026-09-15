@@ -110,7 +110,7 @@ User-visible text says Fleeto; the following use **Fleetify** and must not be re
 - CSS bundle and token prefix `--fl-`
 - Environment variables and secret names (`FLEETIFY_ROOT_KEY_FILE`, ...)
 - Log file names `fleetify-{Date}.log`
-- Agent service names on endpoints (`fleetify-agent`, and `fleetify-watchdog` from 0.2.0)
+- Agent service names on endpoints (`fleetify-agent`, and `fleetify-watchdog` from 0.2.1)
 
 Check: `grep -rn "Fleetify" src/**/*.razor` should return identifiers only, never a string a customer can see.
 

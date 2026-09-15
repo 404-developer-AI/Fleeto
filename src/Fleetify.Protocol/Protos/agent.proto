@@ -12,6 +12,9 @@
 //               RecoverRequest (0.2.0). Only for a certificate that expired at most 365 days ago and was never revoked;
 //               200 with RecoverResponse, or a problem+json error (401 refused, 429, 503 retry). /v1/connect answers 401
 //               with the header "Fleeto-Certificate: expired" when such a certificate tries to open a session.
+//   Release:    HTTPS GET https://<agent host>/v1/releases/<version>/<file> with an agent or watchdog client certificate (mTLS,
+//               0.2.1): one agent binary named in the release manifest of UpdateOffer. 200 application/octet-stream, 404 when
+//               the file is not part of the current release, 503 with Retry-After when too many downloads run at once.
 //   Session:    WebSocket wss://<agent host>/v1/connect with the agent client certificate (mTLS).
 //               Every binary WebSocket message is exactly one AgentMessage (agent to server) or ServerMessage
 //               (server to agent). The WebSocket frame is the length prefix. Maximum message size 4 MiB.
@@ -19,6 +22,16 @@
 // Signatures (ed25519, instance signing key) cover "fleetify-agent-config-v1" || 0x00 || payload, where payload
 // is the exact serialized bytes carried in SignedConfig.payload. The agent never re-serializes before verifying.
 // Jobs (0.2.0) use the context "fleetify-job-v1" the same way over SignedJob.payload.
+//
+// Watchdog (0.2.1): the second service on an endpoint connects to the same /v1/connect with its own certificate (role watchdog,
+// issued through WatchdogCertificateRequest over the agent session). A watchdog session only exchanges Hello, HelloAck, Heartbeat,
+// Ping, Pong, certificate renewal, UpdateOffer, UpdateStatus and Disconnect; the gateway ignores anything else it sends and never
+// sends it configurations, jobs, check run or inventory requests.
+//
+// Updates (0.2.1): UpdateOffer carries the release manifest of the instance with its Steaan release signature (ed25519 over the
+// exact manifest bytes, without a context prefix, the same signature install.sh verifies). The receiver verifies it against the
+// release public keys compiled into its binary, installs only binaries named in it with the listed SHA-256 and size, and never
+// a version lower than or equal to the installed one. The agent installs and updates the watchdog; the watchdog updates the agent.
 syntax = "proto3";
 
 package fleetify.agent.v1;
@@ -96,6 +109,9 @@ message AgentMessage {
     JobStarted job_started = 8;
     JobOutput job_output = 9;
     JobCompletion job_completion = 10;
+    // 0.2.1
+    WatchdogCertificateRequest watchdog_certificate = 11;
+    UpdateStatus update_status = 12;
   }
 }
 
@@ -111,6 +127,9 @@ message ServerMessage {
     RunChecksNow run_checks_now = 8;
     SignedJob job = 9;
     JobAck job_ack = 10;
+    // 0.2.1
+    UpdateOffer update_offer = 11;
+    WatchdogCertificateResponse watchdog_certificate = 12;
   }
 }
 
@@ -123,6 +142,15 @@ message Hello {
   uint64 config_version = 4;
   // Hash of the last inventory the agent sent; the server requests a new report when it differs from its copy.
   string inventory_hash = 5;
+  // Which service this is (0.2.1). Unspecified means agent (older agents). Must match the role of the certificate.
+  Component component = 6;
+}
+
+// The two Fleeto services on an endpoint (0.2.1).
+enum Component {
+  COMPONENT_UNSPECIFIED = 0;
+  COMPONENT_AGENT = 1;
+  COMPONENT_WATCHDOG = 2;
 }
 
 message HelloAck {
@@ -134,6 +162,28 @@ message HelloAck {
 
 message Heartbeat {
   google.protobuf.Timestamp agent_time = 1;
+  // The state of the other service on the endpoint as this service sees it (0.2.1): the watchdog as seen by the agent, the agent
+  // as seen by the watchdog. Sent with the first heartbeat of a session and whenever it changes.
+  PeerStatus peer = 2;
+}
+
+message PeerStatus {
+  // Version of the installed binary; empty when unknown or not installed.
+  string version = 1;
+  ServiceState state = 2;
+  // Why the service is not running, e.g. the error of the last start attempt. Free text, at most 500 characters.
+  string detail = 3;
+}
+
+enum ServiceState {
+  SERVICE_STATE_UNSPECIFIED = 0;
+  SERVICE_STATE_RUNNING = 1;
+  SERVICE_STATE_STOPPED = 2;
+  SERVICE_STATE_STARTING = 3;
+  SERVICE_STATE_STOPPING = 4;
+  // Start type disabled by an administrator on the endpoint: never started by the other service.
+  SERVICE_STATE_DISABLED = 5;
+  SERVICE_STATE_NOT_INSTALLED = 6;
 }
 
 // Liveness probe, e.g. when a second connection with the same certificate arrives.
@@ -491,6 +541,56 @@ message JobAck {
   JobAckKind kind = 2;
   JobStream stream = 3;
   uint64 sequence = 4;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Watchdog certificate and updates (0.2.1)
+// ---------------------------------------------------------------------------------------------------------------
+
+// Sent by the agent (never by the watchdog) to get a certificate for the watchdog of the same endpoint. The key is the watchdog's
+// own key and must differ from the agent key. A new watchdog certificate revokes the earlier watchdog certificates of the endpoint.
+message WatchdogCertificateRequest {
+  // PKCS#10, ECDSA P-256, DER, signed with the watchdog key.
+  bytes csr_der = 1;
+}
+
+message WatchdogCertificateResponse {
+  // Watchdog certificate, DER. Valid 90 days; the watchdog renews it over its own session.
+  bytes certificate_der = 1;
+  // Non-empty when refused; the agent retries later.
+  string error = 2;
+}
+
+// The current release of the instance, sent after HelloAck and whenever update_allowed changes.
+message UpdateOffer {
+  // The release manifest (manifest.json of the GitHub release), exact bytes.
+  bytes manifest = 1;
+  // Raw 64-byte ed25519 Steaan release signature over manifest.
+  bytes signature = 2;
+  // True when the update ring of the endpoint has reached this release and the release is not paused. A missing watchdog may be
+  // installed from the release either way; a newer version only replaces an installed binary when this is true.
+  bool update_allowed = 3;
+}
+
+// Progress of installing a component, reported by the service that installs it.
+message UpdateStatus {
+  Component component = 1;
+  // The version being installed.
+  string version = 2;
+  UpdateState state = 3;
+  // Cause of a failure or rollback. Free text, at most 500 characters.
+  string detail = 4;
+}
+
+enum UpdateState {
+  UPDATE_STATE_UNSPECIFIED = 0;
+  UPDATE_STATE_DOWNLOADING = 1;
+  UPDATE_STATE_INSTALLING = 2;
+  UPDATE_STATE_INSTALLED = 3;
+  // Not installed: download, verification or preparation failed. The installed version keeps running.
+  UPDATE_STATE_FAILED = 4;
+  // Installed but the new version did not start or connect; the previous version was restored. Not retried for this version.
+  UPDATE_STATE_ROLLED_BACK = 5;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

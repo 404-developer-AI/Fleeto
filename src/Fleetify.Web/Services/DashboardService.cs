@@ -41,7 +41,9 @@ public sealed class DashboardService
     {
         caller.EnsureView();
         await using var db = _dbFactory.Create(caller.Scope);
-        var version = FleetifyVersion.Current;
+        // Out of date means older than the agent release this instance offers (0.2.1), or than the server when none is loaded.
+        var version = await db.AgentReleases.AsNoTracking().Where(r => r.IsCurrent).Select(r => r.Version).FirstOrDefaultAsync(cancellationToken)
+                      ?? FleetifyVersion.Current;
 
         var online = await db.Endpoints.CountAsync(e => e.IsOnline, cancellationToken);
         var total = await db.Endpoints.CountAsync(cancellationToken);
@@ -50,7 +52,9 @@ public sealed class DashboardService
         var active = db.Alerts.Where(a => a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now));
         var critical = await active.CountAsync(a => a.Severity == AlertSeverity.Critical, cancellationToken);
         var warning = await active.CountAsync(a => a.Severity == AlertSeverity.Warning, cancellationToken);
-        var outOfDate = await db.Endpoints.CountAsync(e => e.Source == EndpointSource.Agent && e.AgentVersion != version, cancellationToken);
+        var outOfDate = (await db.Endpoints.AsNoTracking().Where(e => e.Source == EndpointSource.Agent).GroupBy(e => e.AgentVersion)
+                .Select(g => new { Version = g.Key, Count = g.Count() }).ToListAsync(cancellationToken))
+            .Where(v => SemanticVersion.IsOlder(v.Version, version)).Sum(v => v.Count);
 
         var openAlerts = await AlertService.Project(db, active.AsNoTracking()
                 .OrderByDescending(a => a.OpenedAt).ThenByDescending(a => a.Id)

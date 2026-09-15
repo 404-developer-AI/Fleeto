@@ -11,12 +11,13 @@ namespace Fleetify.Web.Services;
 
 public sealed record PolicyListItem(Guid Id, string Name, string? Description, Guid? ClientId, string? ClientCode, bool IsDefault,
     int HeartbeatIntervalSeconds, int InventoryIntervalSeconds, int OfflineAlertAfterMinutes, AlertSeverity OfflineAlertSeverity, int SiteCount,
-    int ClientTemplateSiteCount, IReadOnlyList<MaintenanceWindow> MaintenanceWindows, bool ScriptApprovalRequired = false);
+    int ClientTemplateSiteCount, IReadOnlyList<MaintenanceWindow> MaintenanceWindows, bool ScriptApprovalRequired = false,
+    UpdateRing UpdateRing = UpdateRing.Standard);
 
 /// <param name="MaintenanceWindows">Recurring maintenance windows (0.2.0). Null keeps the current windows when updating, none when creating.</param>
 public sealed record PolicyInput(string? Name, string? Description, int HeartbeatIntervalSeconds, int InventoryIntervalSeconds,
     int OfflineAlertAfterMinutes, AlertSeverity OfflineAlertSeverity, IReadOnlyList<MaintenanceWindow>? MaintenanceWindows = null,
-    bool? ScriptApprovalRequired = null);
+    bool? ScriptApprovalRequired = null, UpdateRing? UpdateRing = null);
 
 /// <summary>Policies (global or per client). Linked, not copied: a change applies at once to every site that uses the policy.</summary>
 public sealed class PolicyService
@@ -48,7 +49,7 @@ public sealed class PolicyService
                     db.Clients.Where(c => c.Id == p.ClientId).Select(c => c.Code).FirstOrDefault(),
                     p.IsDefault, p.HeartbeatIntervalSeconds, p.InventoryIntervalSeconds, p.OfflineAlertAfterMinutes, p.OfflineAlertSeverity,
                     db.SitePolicies.Count(l => l.PolicyId == p.Id),
-                    db.ClientTemplateSites.Count(s => s.PolicyId == p.Id), Array.Empty<MaintenanceWindow>(), p.ScriptApprovalRequired),
+                    db.ClientTemplateSites.Count(s => s.PolicyId == p.Id), Array.Empty<MaintenanceWindow>(), p.ScriptApprovalRequired, p.UpdateRing),
                 p.MaintenanceWindowsJson
             })
             .ToListAsync(cancellationToken);
@@ -147,7 +148,7 @@ public sealed class PolicyService
 
         var input = new PolicyInput(name, source.Description, source.HeartbeatIntervalSeconds, source.InventoryIntervalSeconds,
             source.OfflineAlertAfterMinutes, source.OfflineAlertSeverity, MaintenanceWindowSchedule.Parse(source.MaintenanceWindowsJson),
-            source.ScriptApprovalRequired);
+            source.ScriptApprovalRequired, source.UpdateRing);
         var created = await CreateAsync(caller, targetClientId, input, cancellationToken);
         if (created.Success)
         {
@@ -216,6 +217,11 @@ public sealed class PolicyService
             policy.ScriptApprovalRequired = approval;
         }
 
+        if (input.UpdateRing is { } ring)
+        {
+            policy.UpdateRing = ring;
+        }
+
         policy.UpdatedAt = now;
     }
 
@@ -227,11 +233,17 @@ public sealed class PolicyService
         policy.OfflineAlertAfterMinutes,
         OfflineAlertSeverity = policy.OfflineAlertSeverity.ToString(),
         policy.ScriptApprovalRequired,
+        UpdateRing = policy.UpdateRing.ToString(),
         MaintenanceWindows = MaintenanceWindowSchedule.Parse(policy.MaintenanceWindowsJson).Select(MaintenanceWindows.Describe).ToList()
     };
 
     internal static string? Validate(PolicyInput input)
     {
+        if (input.UpdateRing is { } ring && !Enum.IsDefined(ring))
+        {
+            return "Choose the Preview, Standard or Delayed update ring.";
+        }
+
         var name = ServiceSupport.Clean(input.Name);
         if (name is null || name.Length > 100)
         {

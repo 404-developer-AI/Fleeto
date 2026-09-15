@@ -145,6 +145,10 @@ func (a *Agent) runSession(ctx context.Context) (sessionOutcome, error) {
 	}
 	defer conn.CloseNow()
 	conn.SetReadLimit(MaxMessageBytes)
+	defer func() {
+		a.connected.Store(false)
+		a.writeHealth(false)
+	}()
 
 	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -219,10 +223,17 @@ func (s *session) loop() (sessionOutcome, error) {
 
 	for {
 		var err error
+		// Queued messages go out only on an accepted session.
+		var outbox chan *agentv1.AgentMessage
+		if s.acked {
+			outbox = a.outbox
+		}
 		select {
 		case <-s.ctx.Done():
 			_ = s.conn.Close(websocket.StatusGoingAway, "agent stopping")
 			return s.outcome(), nil
+		case msg := <-outbox:
+			err = s.send(msg)
 		case err := <-s.readErr:
 			return s.outcome(), fmt.Errorf("connection lost: %w", err)
 		case <-helloTimer.C:
@@ -246,9 +257,7 @@ func (s *session) loop() (sessionOutcome, error) {
 		case <-flush.C:
 			err = s.maybeSendBatch()
 		case <-s.heartbeat.C:
-			err = s.send(&agentv1.AgentMessage{Body: &agentv1.AgentMessage_Heartbeat{
-				Heartbeat: &agentv1.Heartbeat{AgentTime: timestamppb.New(a.opts.Now())},
-			}})
+			err = s.sendHeartbeat()
 		case <-s.inventoryTimer.C:
 			s.startInventory(false)
 			s.inventoryTimer.Reset(s.inventoryInterval())
@@ -300,6 +309,15 @@ func (s *session) sendJobMessages() error {
 	return nil
 }
 
+// sendHeartbeat sends a heartbeat with the state of the watchdog service (0.2.1) and refreshes the health file.
+func (s *session) sendHeartbeat() error {
+	a := s.a
+	a.writeHealthConnected()
+	return s.send(&agentv1.AgentMessage{Body: &agentv1.AgentMessage_Heartbeat{
+		Heartbeat: &agentv1.Heartbeat{AgentTime: timestamppb.New(a.opts.Now()), Peer: a.peer.Load()},
+	}})
+}
+
 func (s *session) sendHello() error {
 	a := s.a
 	a.mu.Lock()
@@ -312,6 +330,7 @@ func (s *session) sendHello() error {
 		Os:            a.opts.OSInfo(s.ctx),
 		ConfigVersion: applied,
 		InventoryHash: hash,
+		Component:     agentv1.Component_COMPONENT_AGENT,
 	}}})
 }
 
@@ -352,6 +371,16 @@ func (s *session) handle(msg *agentv1.ServerMessage) (sessionOutcome, bool, erro
 		return 0, false, nil
 	case *agentv1.ServerMessage_Disconnect:
 		return s.handleDisconnect(body.Disconnect)
+	case *agentv1.ServerMessage_UpdateOffer:
+		if a.watchdog != nil {
+			a.watchdog.offer(body.UpdateOffer)
+		}
+		return 0, false, nil
+	case *agentv1.ServerMessage_WatchdogCertificate:
+		if a.watchdog != nil {
+			a.watchdog.certificateResponse(body.WatchdogCertificate)
+		}
+		return 0, false, nil
 	default:
 		a.logger.Warn("ignored an unknown message from the gateway")
 		return 0, false, nil
@@ -372,6 +401,13 @@ func (s *session) handleHelloAck(ack *agentv1.HelloAck) error {
 	s.heartbeat.Reset(s.heartbeatInterval())
 	if !first {
 		return nil
+	}
+	a.connected.Store(true)
+	a.writeHealth(true)
+	if a.peer.Load() != nil {
+		if err := s.sendHeartbeat(); err != nil {
+			return err
+		}
 	}
 	if ack.GetServerTime() != nil {
 		skew := a.opts.Now().Sub(ack.GetServerTime().AsTime())

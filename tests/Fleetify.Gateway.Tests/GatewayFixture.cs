@@ -3,6 +3,7 @@ using System.Security.Cryptography.X509Certificates;
 using Fleetify.Core.Entities;
 using Fleetify.Gateway.Data;
 using Fleetify.Gateway.Diagnostics;
+using Fleetify.Gateway.Releases;
 using Fleetify.Gateway.Sessions;
 using Fleetify.Gateway.Signing;
 using Fleetify.Gateway.Tls;
@@ -58,7 +59,7 @@ public sealed class GatewayFixture : IAsyncLifetime
 
     /// <summary>Issues an agent certificate for the endpoint and records it like the signer does.</summary>
     public async Task<AgentCredential> IssueAsync(Endpoint endpoint, Guid? sanEndpointId = null, DateTime? revokedAt = null,
-        DateTime? expiresAt = null)
+        DateTime? expiresAt = null, AgentComponent role = AgentComponent.Agent)
     {
         var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var csr = new CertificateRequest("CN=agent", key, HashAlgorithmName.SHA256).CreateSigningRequest();
@@ -77,7 +78,8 @@ public sealed class GatewayFixture : IAsyncLifetime
             SerialNumber = issued.SerialNumber,
             IssuedAt = issued.NotBefore,
             ExpiresAt = expiresAt ?? issued.NotAfter,
-            RevokedAt = revokedAt
+            RevokedAt = revokedAt,
+            Role = role
         });
         await db.SaveChangesAsync();
         return new AgentCredential(issued, key);
@@ -100,8 +102,8 @@ public sealed record AgentCredential(InternalCertificateAuthority.IssuedCertific
     /// <summary>Certificate with private key, usable as a TLS client certificate on every platform.</summary>
     public X509Certificate2 ClientCertificate() => TestCertificates.WithKey(Issued.CertificateDer, Key);
 
-    public AgentIdentity Identity(Guid endpointId) =>
-        new(endpointId, Issued.Fingerprint, Issued.PublicKeyFingerprint, Issued.NotAfter);
+    public AgentIdentity Identity(Guid endpointId, AgentComponent role = AgentComponent.Agent) =>
+        new(endpointId, Issued.Fingerprint, Issued.PublicKeyFingerprint, Issued.NotAfter, role);
 
     public byte[] Csr() => new CertificateRequest("CN=agent", Key, HashAlgorithmName.SHA256).CreateSigningRequest();
 }
@@ -135,9 +137,21 @@ public sealed class GatewayHarness : IDisposable
         Store = new GatewayStore(database.DataSource);
         AllowList = new CertificateAllowList(database.DataSource, database.Bus, database.Time, NullLogger<CertificateAllowList>.Instance);
         Signing = new SigningRequestClient(database.DataSource, database.Bus, database.Time, options);
+        ReleaseDirectory = Directory.CreateTempSubdirectory("fleeto-release-").FullName;
+        BinariesDirectory = Directory.CreateTempSubdirectory("fleeto-binaries-").FullName;
+        options.Value.ReleaseDirectory = ReleaseDirectory;
+        options.Value.AgentBinariesDirectory = BinariesDirectory;
+        Releases = new ReleaseCatalog(Store, database.Bus, database.Time, options, NullLogger<ReleaseCatalog>.Instance, [ReleaseKey.Public]);
         Manager = new AgentSessionManager(Store, database.Bus, AllowList, Signing, Metrics, database.Time, options,
-            NullLogger<AgentSessionManager>.Instance);
+            NullLogger<AgentSessionManager>.Instance, releases: Releases);
     }
+
+    /// <summary>The release key the catalog of this harness trusts.</summary>
+    public static (byte[] Private, byte[] Public) ReleaseKey { get; } = Ed25519.GenerateKeyPair();
+
+    public string ReleaseDirectory { get; }
+    public string BinariesDirectory { get; }
+    public ReleaseCatalog Releases { get; }
 
     public TestDatabase Database { get; }
     public GatewayOptions Options { get; }
@@ -196,6 +210,16 @@ public sealed class GatewayHarness : IDisposable
     public void Dispose()
     {
         Manager.Dispose();
+        Releases.Dispose();
+        try
+        {
+            Directory.Delete(ReleaseDirectory, true);
+            Directory.Delete(BinariesDirectory, true);
+        }
+        catch (IOException)
+        {
+        }
+
         Signing.Dispose();
         AllowList.Dispose();
     }

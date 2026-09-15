@@ -36,6 +36,16 @@
             Jobs on the endpoints of sites with this policy then run only library scripts whose current version another admin approved.
             Recommended for servers.
         </MudText>
+        <MudSelect T="UpdateRing" @bind-Value="_updateRing" Label="Agent updates" Variant="Variant.Outlined" Class="mt-4 mb-1">
+            @foreach (var ring in Enum.GetValues<UpdateRing>())
+            {
+                <MudSelectItem T="UpdateRing" Value="ring">@Ui.UpdateRingLabel(ring)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+            When the agents of the linked sites install a new Fleeto release, counted from the moment this instance installed it. Applies to
+            agent-only endpoints too.
+        </MudText>
         <MaintenanceWindowEditor Windows="_windows" DefaultTimeZone="@TimeZoneOptions.IanaId(Time.Zone)" />
     </DialogContent>
     <DialogActions>
@@ -61,6 +71,7 @@
     private AlertSeverity _offlineSeverity = AlertSeverity.Critical;
     private List<MaintenanceWindowEditor.WindowModel> _windows = [];
     private bool _scriptApproval;
+    private UpdateRing _updateRing = UpdateRing.Standard;
     private bool _busy;
 
     protected override void OnInitialized()
@@ -75,6 +86,7 @@
             _offlineSeverity = p.OfflineAlertSeverity;
             _windows = p.MaintenanceWindows.Select(MaintenanceWindowEditor.WindowModel.From).ToList();
             _scriptApproval = p.ScriptApprovalRequired;
+            _updateRing = p.UpdateRing;
         }
     }
 
@@ -86,7 +98,7 @@
         try
         {
             var input = new PolicyInput(_name, _description, _heartbeat, _inventoryMinutes * 60, _offlineMinutes, _offlineSeverity,
-                _windows.Select(w => w.ToWindow()).ToList(), _scriptApproval);
+                _windows.Select(w => w.ToWindow()).ToList(), _scriptApproval, _updateRing);
             if (await OnSubmit(_clientId, input))
             {
                 MudDialog.Close(DialogResult.Ok(true));

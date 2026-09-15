@@ -37,10 +37,10 @@ const retryDelay = 30 * time.Second
 // RunAgent runs the enrolled agent from stateDir until ctx is cancelled. Start failures (a key store that is not
 // ready yet during boot, a damaged state file) are logged and retried; a revoked agent stays idle so the service
 // does not restart in a loop.
-func RunAgent(ctx context.Context, stateDir string, access platform.Access, logger *slog.Logger) {
+func RunAgent(ctx context.Context, stateDir string, access platform.Access, logger *slog.Logger, watchdog *agent.WatchdogOptions) {
 	store := state.NewStore(stateDir, access)
 	for ctx.Err() == nil {
-		a, err := agent.New(agent.Options{Store: store, Logger: logger})
+		a, err := agent.New(agent.Options{Store: store, Logger: logger, Watchdog: watchdog})
 		if err != nil {
 			if errors.Is(err, state.ErrNotEnrolled) {
 				logger.Error("the agent is not enrolled; run the install command from the site page again")

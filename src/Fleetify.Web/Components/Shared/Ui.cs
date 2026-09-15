@@ -29,6 +29,40 @@ public static class Ui
 
     public static string ClassLabel(EndpointClass endpointClass) => endpointClass == EndpointClass.Server ? "Server" : "Workstation";
 
+    public static string UpdateRingLabel(UpdateRing ring) => ring switch
+    {
+        UpdateRing.Preview => "Preview ring (at once)",
+        UpdateRing.Delayed => "Delayed ring (after 14 days)",
+        _ => "Standard ring (after 7 days)"
+    };
+
+    public static string ServiceStateLabel(ComponentServiceState state) => state switch
+    {
+        ComponentServiceState.Running => "Running",
+        ComponentServiceState.Stopped => "Stopped",
+        ComponentServiceState.Starting => "Starting",
+        ComponentServiceState.Stopping => "Stopping",
+        ComponentServiceState.Disabled => "Disabled",
+        ComponentServiceState.NotInstalled => "Not installed",
+        _ => "Unknown"
+    };
+
+    public static string UpdateStateLabel(ComponentUpdateState state) => state switch
+    {
+        ComponentUpdateState.Downloading => "Downloading",
+        ComponentUpdateState.Installing => "Installing",
+        ComponentUpdateState.Installed => "Installed",
+        ComponentUpdateState.Failed => "Update failed",
+        _ => "Rolled back"
+    };
+
+    public static StatusKind UpdateStateKind(ComponentUpdateState state) => state switch
+    {
+        ComponentUpdateState.Installed => StatusKind.Ok,
+        ComponentUpdateState.Failed or ComponentUpdateState.RolledBack => StatusKind.Warning,
+        _ => StatusKind.Active
+    };
+
     public static StatusKind CheckKind(CheckStatus status) => status switch
     {
         CheckStatus.Ok => StatusKind.Ok,

@@ -34,6 +34,10 @@ public class DatabaseRuleTests
     [InlineData("fleetify_gateway", "Job", false)]
     [InlineData("fleetify_workers", "Job", false)]
     [InlineData("fleetify_workers", "SomethingNew", false)]
+    [InlineData("fleetify_gateway", "WatchdogCertificate", true)]
+    [InlineData("fleetify_web", "WatchdogCertificate", false)]
+    [InlineData("fleetify_signer", "WatchdogCertificate", false)]
+    [InlineData("fleetify_workers", "WatchdogCertificate", false)]
     public async Task Signing_request_kind_is_restricted_to_the_right_role(string role, string kind, bool allowed)
     {
         await EnsureRolesAsync();

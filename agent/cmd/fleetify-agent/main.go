@@ -39,7 +39,7 @@ Usage:
   fleetify-agent install --server <host:port> --token <fet_...> --ca-fingerprint <sha256 hex>
   fleetify-agent uninstall
   fleetify-agent status [--state-dir <dir>]
-  fleetify-agent version
+  fleetify-agent version [--short]
   fleetify-agent run                      (started by the service manager)
   fleetify-agent run --foreground --state-dir <dir> [--key-store file|cng]
                      [--server <host:port> --token <fet_...> --ca-fingerprint <sha256 hex>]
@@ -68,6 +68,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "status":
 		return cmdStatus(args[1:], stdout, stderr)
 	case "version", "--version", "-v":
+		if len(args) > 1 && args[1] == "--short" {
+			// Read by the watchdog before it installs a binary: only the version, nothing else.
+			fmt.Fprintln(stdout, version.Version)
+			return exitOK
+		}
 		return cmdVersion(stdout)
 	case "run":
 		return cmdRun(args[1:], stderr)

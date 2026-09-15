@@ -168,6 +168,10 @@ services:
       Gateway__ProxyProtocol__TrustedNetworks__0: 172.16.0.0/12
       Gateway__ProxyProtocol__TrustedNetworks__1: 10.210.0.0/16
       Gateway__ProxyProtocol__TrustedNetworks__2: 192.168.0.0/16
+    volumes:
+      # The signed release manifest install.sh verified for this release (0.2.1): the gateway offers it to agents, which verify it
+      # again against the release keys compiled into them. Directory 0755 and files 0644 root on the host, read-only here.
+      - ./release:/app/release:ro
     ports:
       # Loopback only; the host Caddy passes agents.<fqdn> through to this port by SNI.
       - "127.0.0.1:${AGENT_PORT:?AGENT_PORT must be set in instance.conf}:8443"

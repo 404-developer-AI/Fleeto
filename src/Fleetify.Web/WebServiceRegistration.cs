@@ -74,6 +74,8 @@ public static class WebServiceRegistration
         services.AddSingleton<ScriptService>();
         services.AddSingleton<JobService>();
         services.AddSingleton<AuditQueryService>();
+        services.AddSingleton<ApiKeyService>();
+        services.AddSingleton<AgentUpdateService>();
         return services;
     }
 }

@@ -98,6 +98,15 @@ public class Endpoint
     /// <summary>Server time of the last message from the agent (never agent time).</summary>
     public DateTime? LastSeenAt { get; set; }
 
+    /// <summary>True while the watchdog has a live connection to the gateway (0.2.1). <see cref="IsOnline"/> stays the agent.</summary>
+    public bool WatchdogOnline { get; set; }
+
+    /// <summary>Version the watchdog reported when it last connected; empty until it ever connected.</summary>
+    public string WatchdogVersion { get; set; } = string.Empty;
+
+    /// <summary>Server time of the last message from the watchdog.</summary>
+    public DateTime? WatchdogLastSeenAt { get; set; }
+
     public DateTime EnrolledAt { get; set; }
 
     /// <summary>Version of the latest signed configuration issued for this endpoint.</summary>
@@ -155,6 +164,10 @@ public class AgentCertificate
     public string PublicKeyFingerprint { get; set; } = string.Empty;
 
     public string SerialNumber { get; set; } = string.Empty;
+
+    /// <summary>Which service holds the key (0.2.1). One watchdog certificate is valid per endpoint at a time.</summary>
+    public AgentComponent Role { get; set; } = AgentComponent.Agent;
+
     public DateTime IssuedAt { get; set; }
     public DateTime ExpiresAt { get; set; }
     public DateTime? RevokedAt { get; set; }

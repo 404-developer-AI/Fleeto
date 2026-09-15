@@ -29,13 +29,35 @@ public class WebFixtureBase : IAsyncLifetime
     }
 
     public TestDatabase Database { get; private set; } = null!;
-    public ServiceProvider Services { get; private set; } = null!;
+    public IServiceProvider Services { get; private set; } = null!;
     public CapturingLoggerProvider Logs { get; } = new();
 
     public async Task InitializeAsync()
     {
         Database = await TestDatabase.CreateAsync(_databaseName);
+        Services = await BuildServicesAsync();
+    }
+
+    public virtual async Task DisposeAsync()
+    {
+        if (Services is IAsyncDisposable disposable)
+        {
+            await disposable.DisposeAsync();
+        }
+
+        await Database.DisposeAsync();
+    }
+
+    protected virtual Task<IServiceProvider> BuildServicesAsync()
+    {
         var services = new ServiceCollection();
+        AddServices(services);
+        return Task.FromResult<IServiceProvider>(services.BuildServiceProvider());
+    }
+
+    /// <summary>The web services as Program registers them, on the test database's shared infrastructure.</summary>
+    protected void AddServices(IServiceCollection services)
+    {
         services.AddLogging(logging => logging.AddProvider(Logs).SetMinimumLevel(LogLevel.Trace));
         services.AddDataProtection().UseEphemeralDataProtectionProvider();
         services.AddSingleton<TimeProvider>(Database.Time);
@@ -51,13 +73,6 @@ public class WebFixtureBase : IAsyncLifetime
             .AddRoles<ApplicationRole>()
             .AddFleetifyIdentityStores();
         services.AddFleetifyWebServices();
-        Services = services.BuildServiceProvider();
-    }
-
-    public async Task DisposeAsync()
-    {
-        await Services.DisposeAsync();
-        await Database.DisposeAsync();
     }
 
     /// <summary>A caller with the given roles and scope, as CurrentUser would build it.</summary>

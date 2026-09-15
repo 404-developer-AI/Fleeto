@@ -76,6 +76,102 @@ public class SetupToken
     public DateTime CreatedAt { get; set; }
 }
 
+/// <summary>
+/// A key for the public REST API (0.2.1), read-only. The token is <c>flt_&lt;Id&gt;_&lt;secret&gt;</c>; only the SHA-256 of the secret
+/// is stored. Revoked keys stay for the audit trail and are never deleted.
+/// </summary>
+public class ApiKey
+{
+    public const int MaxNameLength = 100;
+
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Lowercase hex SHA-256 of the secret part of the token.</summary>
+    public string SecretHash { get; set; } = string.Empty;
+
+    /// <summary>True: every client, also clients created later. False: only the clients in <see cref="Clients"/>.</summary>
+    public bool AllClients { get; set; } = true;
+
+    public List<ApiKeyClient> Clients { get; set; } = [];
+
+    /// <summary>No foreign key to the user: the key and its history stay readable after the account is deleted.</summary>
+    public Guid CreatedByUserId { get; set; }
+
+    public string CreatedByName { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+
+    /// <summary>Null means the key does not expire.</summary>
+    public DateTime? ExpiresAt { get; set; }
+
+    /// <summary>Updated at most once a minute; every call is in the audit log.</summary>
+    public DateTime? LastUsedAt { get; set; }
+
+    public DateTime? RevokedAt { get; set; }
+    public Guid? RevokedByUserId { get; set; }
+    public string? RevokedByName { get; set; }
+
+    public bool IsUsable(DateTime now) => RevokedAt is null && (ExpiresAt is null || ExpiresAt > now);
+}
+
+/// <summary>A client an API key with <see cref="ApiKey.AllClients"/> false may read. Deleted with the client or the key.</summary>
+public class ApiKeyClient
+{
+    public Guid ApiKeyId { get; set; }
+    public Guid ClientId { get; set; }
+}
+
+/// <summary>
+/// A release of the agent binaries the instance offers to its endpoints (0.2.1). Recorded by the gateway the first time it loads a
+/// verified release manifest; the update rings count from <see cref="InstalledAt"/>. Rows of earlier releases stay for history.
+/// </summary>
+public class AgentRelease
+{
+    public string Version { get; set; } = string.Empty;
+
+    /// <summary>Lowercase hex SHA-256 of the signed manifest bytes the gateway loaded.</summary>
+    public string ManifestSha256 { get; set; } = string.Empty;
+
+    /// <summary>When this instance first loaded the release.</summary>
+    public DateTime InstalledAt { get; set; }
+
+    /// <summary>The release the gateway offers now. Exactly one row at most.</summary>
+    public bool IsCurrent { get; set; }
+
+    /// <summary>While set, no endpoint starts installing this release.</summary>
+    public DateTime? PausedAt { get; set; }
+
+    public Guid? PausedByUserId { get; set; }
+    public string? PausedByName { get; set; }
+
+    /// <summary>When an admin released it to every ring, ahead of the ring delays.</summary>
+    public DateTime? ReleasedToAllAt { get; set; }
+
+    public Guid? ReleasedToAllByUserId { get; set; }
+    public string? ReleasedToAllByName { get; set; }
+}
+
+/// <summary>
+/// The last reported state of one Fleeto service on an endpoint (0.2.1): its service state as the other service sees it, and the
+/// last update of it as reported by the service that installs it. Written by the gateway, deleted with the endpoint.
+/// </summary>
+public class EndpointComponentState
+{
+    public Guid EndpointId { get; set; }
+    public AgentComponent Component { get; set; }
+    public Guid ClientId { get; set; }
+
+    public string InstalledVersion { get; set; } = string.Empty;
+    public ComponentServiceState ServiceState { get; set; } = ComponentServiceState.Unknown;
+    public string ServiceDetail { get; set; } = string.Empty;
+    public DateTime? ServiceStateAt { get; set; }
+
+    public string UpdateVersion { get; set; } = string.Empty;
+    public ComponentUpdateState? UpdateState { get; set; }
+    public string UpdateDetail { get; set; } = string.Empty;
+    public DateTime? UpdateAt { get; set; }
+}
+
 /// <summary>Append-only audit trail. No update or delete path in code or database grants.</summary>
 public class AuditEntry
 {

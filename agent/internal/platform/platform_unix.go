@@ -27,6 +27,25 @@ func ProgramDir() string {
 // BinaryName is the file name of the agent executable.
 const BinaryName = "fleetify-agent"
 
+// WatchdogBinaryName is the file name of the watchdog executable (0.2.1).
+const WatchdogBinaryName = "fleetify-watchdog"
+
+// WatchdogStateDir is the state directory of the watchdog service.
+func WatchdogStateDir() string {
+	if runtime.GOOS == "darwin" {
+		return "/Library/Application Support/Fleetify/Watchdog"
+	}
+	return "/var/lib/fleetify-watchdog"
+}
+
+// DataDir holds the markers shared by agent and watchdog.
+func DataDir() string {
+	if runtime.GOOS == "darwin" {
+		return "/Library/Application Support/Fleetify"
+	}
+	return "/var/lib/fleetify"
+}
+
 // IsElevated reports whether the process runs as root.
 func IsElevated() bool {
 	return os.Geteuid() == 0

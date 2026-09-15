@@ -25,6 +25,7 @@ const (
 // DailyFile is an io.Writer that writes to <dir>/fleetify-agent-YYYYMMDD.log (local date) and rotates at midnight.
 type DailyFile struct {
 	dir     string
+	prefix  string
 	now     func() time.Time
 	mu      sync.Mutex
 	day     string
@@ -37,7 +38,15 @@ func NewDailyFile(dir string) (*DailyFile, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create log directory %s: %w", dir, err)
 	}
-	return &DailyFile{dir: dir, now: time.Now}, nil
+	return &DailyFile{dir: dir, prefix: filePrefix, now: time.Now}, nil
+}
+
+// WatchdogPrefix names the log files of the watchdog: fleetify-watchdog-YYYYMMDD.log (0.2.1).
+const WatchdogPrefix = "fleetify-watchdog-"
+
+// NewNamed builds a logger like New with another file name prefix.
+func NewNamed(dir, prefix string, console bool, level slog.Level) (*slog.Logger, io.Closer, error) {
+	return newLogger(dir, prefix, console, level)
 }
 
 // Write appends p to the file of the current day. Write errors (a full disk) are swallowed after reporting once a
@@ -52,7 +61,7 @@ func (d *DailyFile) Write(p []byte) (int, error) {
 			_ = d.file.Close()
 			d.file = nil
 		}
-		f, err := os.OpenFile(filepath.Join(d.dir, filePrefix+day+fileSuffix), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		f, err := os.OpenFile(filepath.Join(d.dir, d.prefix+day+fileSuffix), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 		if err != nil {
 			d.reportError(now, err)
 			return len(p), nil
@@ -96,10 +105,10 @@ func (d *DailyFile) prune(now time.Time) {
 	cutoff := now.Add(-Retention)
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasPrefix(name, filePrefix) || !strings.HasSuffix(name, fileSuffix) {
+		if e.IsDir() || !strings.HasPrefix(name, d.prefix) || !strings.HasSuffix(name, fileSuffix) {
 			continue
 		}
-		day, err := time.ParseInLocation("20060102", strings.TrimSuffix(strings.TrimPrefix(name, filePrefix), fileSuffix), now.Location())
+		day, err := time.ParseInLocation("20060102", strings.TrimSuffix(strings.TrimPrefix(name, d.prefix), fileSuffix), now.Location())
 		if err != nil {
 			continue
 		}
@@ -112,10 +121,15 @@ func (d *DailyFile) prune(now time.Time) {
 
 // New builds the agent logger. When console is true, records also go to stderr (foreground mode).
 func New(dir string, console bool, level slog.Level) (*slog.Logger, io.Closer, error) {
+	return newLogger(dir, filePrefix, console, level)
+}
+
+func newLogger(dir, prefix string, console bool, level slog.Level) (*slog.Logger, io.Closer, error) {
 	file, err := NewDailyFile(dir)
 	if err != nil {
 		return nil, nil, err
 	}
+	file.prefix = prefix
 	var w io.Writer = file
 	if console {
 		w = io.MultiWriter(file, os.Stderr)

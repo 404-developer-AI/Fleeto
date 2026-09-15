@@ -42,11 +42,12 @@ public static class DatabaseGrants
             ["EnrollmentTokens"] = Grants(web: ReadWrite, gateway: Read, signer: "SELECT, UPDATE", workers: "SELECT, DELETE"),
             ["InventorySnapshots"] = Grants(web: Read, gateway: "SELECT, INSERT, UPDATE", workers: Read),
 
-            ["Policies"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+            // The gateway reads the update ring of the policy (0.2.1).
+            ["Policies"] = Grants(web: ReadWrite, gateway: Read, signer: Read, workers: Read),
             ["MonitoringTemplates"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["CheckDefinitions"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["SiteMonitoringTemplates"] = Grants(web: ReadWrite, signer: Read, workers: Read),
-            ["SitePolicies"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+            ["SitePolicies"] = Grants(web: ReadWrite, gateway: Read, signer: Read, workers: Read),
             // Maintenance window occurrences: written by web when a policy is saved and by the workers every hour.
             ["MaintenanceWindowOccurrences"] = Grants(web: ReadWrite, workers: ReadWrite),
             ["EndpointMonitoringTemplates"] = Grants(web: ReadWrite, signer: Read, workers: Read),
@@ -86,6 +87,13 @@ public static class DatabaseGrants
             ["DataKeys"] = Grants(web: Read, workers: Read),
             ["Licenses"] = Grants(web: "SELECT, INSERT, UPDATE", signer: Read, workers: Read),
             ["SetupTokens"] = Grants(web: "SELECT, UPDATE"),
+            // Public API keys (0.2.1): created, revoked and checked by web only. Never deleted, so revoked keys stay traceable.
+            ["ApiKeys"] = Grants(web: "SELECT, INSERT, UPDATE"),
+            ["ApiKeyClients"] = Grants(web: "SELECT, INSERT"),
+            // Agent releases (0.2.1): the gateway records the release it loads and marks it current; web pauses or releases it to all.
+            ["AgentReleases"] = Grants(web: "SELECT, UPDATE", gateway: "SELECT, INSERT, UPDATE", workers: Read),
+            // Service and update state of agent and watchdog as the endpoint reports it; written by the gateway only.
+            ["EndpointComponentStates"] = Grants(web: Read, gateway: "SELECT, INSERT, UPDATE", workers: Read),
             ["AuditEntries"] = Grants(web: "SELECT, INSERT", gateway: "INSERT", signer: "INSERT", workers: "SELECT, INSERT"),
             ["NotificationChannels"] = Grants(web: ReadWrite, workers: Read),
             ["OutboxEmails"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),

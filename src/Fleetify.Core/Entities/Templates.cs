@@ -31,6 +31,9 @@ public class Policy
     /// </summary>
     public bool ScriptApprovalRequired { get; set; }
 
+    /// <summary>When the endpoints of the linked sites get a new agent release (0.2.1). Applies to agent-only endpoints too.</summary>
+    public UpdateRing UpdateRing { get; set; } = UpdateRing.Standard;
+
     /// <summary>Policy this one was copied from; the copy is independent.</summary>
     public Guid? CopiedFromId { get; set; }
 

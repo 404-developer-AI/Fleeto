@@ -63,6 +63,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The agent and watchdog binaries (0.2.1), built from the same Dockerfile stage the web and gateway images use. Their SHA-256
+      # goes into the signed manifest; agents install a binary only when it matches. The images are checked against these files below.
+      - name: Agent binaries for the manifest
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          RELEASE_KEYS: ${{ vars.FLEETIFY_RELEASE_PUBLIC_KEYS }}
+        run: |
+          docker buildx build --target agent --output type=local,dest=build/agent-binaries -f src/Fleetify.Web/Dockerfile \
+            --build-arg FLEETIFY_VERSION="$VERSION" --build-arg FLEETIFY_RELEASE_PUBLIC_KEYS="$RELEASE_KEYS" .
+          (cd build/agent-binaries && sha256sum -c SHA256SUMS)
+
       # One image manifest per component (provenance and SBOM attestations off), so the digest in the release
       # manifest is exactly what `docker pull <image>@<digest>` fetches on the VPS.
       - name: web
@@ -93,6 +104,7 @@ jobs:
           sbom: false
           tags: ${{ env.REGISTRY }}/fleetify-gateway:${{ steps.meta.outputs.version }}
           build-args: |
+            FLEETIFY_VERSION=${{ steps.meta.outputs.version }}
             FLEETIFY_LICENSE_PUBLIC_KEYS=${{ vars.FLEETIFY_LICENSE_PUBLIC_KEYS }}
             FLEETIFY_RELEASE_PUBLIC_KEYS=${{ vars.FLEETIFY_RELEASE_PUBLIC_KEYS }}
 
@@ -153,6 +165,24 @@ jobs:
           sbom: false
           tags: ${{ env.REGISTRY }}/fleetify-caddy:${{ steps.meta.outputs.version }}
 
+      - name: Check the agent binaries in the web and gateway images
+        env:
+          WEB_DIGEST: ${{ steps.web.outputs.digest }}
+          GATEWAY_DIGEST: ${{ steps.gateway.outputs.digest }}
+        run: |
+          list() { (cd "$1" && find . -type f -name 'fleetify-*' -print0 | sort -z | xargs -0 sha256sum); }
+          list build/agent-binaries > build/expected-binaries.txt
+          for image in "fleetify-web@$WEB_DIGEST" "fleetify-gateway@$GATEWAY_DIGEST"; do
+            id="$(docker create "$REGISTRY/$image")"
+            rm -rf build/image-binaries && mkdir -p build/image-binaries
+            docker cp "$id:/app/agent/." build/image-binaries/
+            docker rm "$id" >/dev/null
+            list build/image-binaries > build/actual-binaries.txt
+            diff -u build/expected-binaries.txt build/actual-binaries.txt \
+              || { echo "::error::The agent binaries in $image differ from the binaries listed in the manifest (the agent build is not reproducible)"; exit 1; }
+          done
+          cat build/expected-binaries.txt
+
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.x
@@ -178,6 +208,7 @@ jobs:
             --image "workers=$WORKERS_DIGEST" --image "tool=$TOOL_DIGEST" --image "caddy=$CADDY_DIGEST" \
             --install-sh dist/releases/"$VERSION"/install.sh \
             --rollback "$ROLLBACK" \
+            --agent-binaries build/agent-binaries \
             --out dist/releases/"$VERSION"/manifest.json
           (cd dist && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
           cat dist/releases/"$VERSION"/manifest.json

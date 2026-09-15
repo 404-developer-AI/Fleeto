@@ -98,7 +98,8 @@ public sealed class SigningRequestProcessor
             if (result.Status == ProcessStatus.RateLimited)
             {
                 rateLimited++;
-                if (result.Kind is SigningRequestKind.AgentEnrollment or SigningRequestKind.AgentRenewal or SigningRequestKind.AgentRecovery)
+                if (result.Kind is SigningRequestKind.AgentEnrollment or SigningRequestKind.AgentRenewal or SigningRequestKind.AgentRecovery or
+                    SigningRequestKind.WatchdogCertificate)
                 {
                     youngOnlyKinds.Add(result.Kind.Value);
                 }

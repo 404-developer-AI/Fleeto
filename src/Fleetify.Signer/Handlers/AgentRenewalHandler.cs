@@ -10,9 +10,9 @@ using Endpoint = Fleetify.Core.Entities.Endpoint;
 namespace Fleetify.Signer.Handlers;
 
 /// <summary>
-/// Certificate renewal. The new certificate keeps the key of a current (not revoked, not expired) certificate of
-/// the same endpoint, so a revoked or stolen-then-revoked identity can never renew; at most one certificate per
-/// endpoint per 24 hours.
+/// Certificate renewal of an agent or a watchdog (0.2.1). The new certificate keeps the key and the role of a current (not revoked, not
+/// expired) certificate of the same endpoint, so a revoked or stolen-then-revoked identity can never renew; at most one certificate per
+/// endpoint and role per 24 hours.
 /// </summary>
 public sealed class AgentRenewalHandler : ISigningRequestHandler
 {
@@ -86,7 +86,7 @@ public sealed class AgentRenewalHandler : ISigningRequestHandler
             return SigningOutcome.Refused(NoCurrentCertificateReason);
         }
 
-        if (certificates.Any(c => c.IssuedAt > now - MinimumInterval))
+        if (certificates.Any(c => c.Role == current.Role && c.IssuedAt > now - MinimumInterval))
         {
             return SigningOutcome.Refused(TooSoonReason);
         }
@@ -100,6 +100,7 @@ public sealed class AgentRenewalHandler : ISigningRequestHandler
             Fingerprint = issued.Fingerprint,
             PublicKeyFingerprint = issued.PublicKeyFingerprint,
             SerialNumber = issued.SerialNumber,
+            Role = current.Role,
             IssuedAt = now,
             ExpiresAt = issued.NotAfter
         });
@@ -109,6 +110,7 @@ public sealed class AgentRenewalHandler : ISigningRequestHandler
             new
             {
                 endpoint.Hostname,
+                Role = current.Role.ToString(),
                 PreviousCertificateFingerprint = current.Fingerprint,
                 CertificateFingerprint = issued.Fingerprint,
                 issued.SerialNumber,
@@ -116,7 +118,7 @@ public sealed class AgentRenewalHandler : ISigningRequestHandler
             }), now, cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
-        _logger.LogInformation("Renewed the certificate of endpoint {EndpointId} until {ExpiresAt:yyyy-MM-dd}", endpointId, issued.NotAfter);
+        _logger.LogInformation("Renewed the {Role} certificate of endpoint {EndpointId} until {ExpiresAt:yyyy-MM-dd}", current.Role, endpointId, issued.NotAfter);
         return SigningOutcome.Completed(issued.CertificateDer);
     }
 }

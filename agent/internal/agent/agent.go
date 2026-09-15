@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -23,6 +24,7 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/safego"
 	"github.com/404-developer-AI/Fleeto/agent/internal/signedconfig"
 	"github.com/404-developer-AI/Fleeto/agent/internal/state"
+	"github.com/404-developer-AI/Fleeto/agent/internal/update"
 )
 
 // JobsDirName is the job spool inside the state directory.
@@ -58,6 +60,9 @@ type Options struct {
 	HandshakeTimeout         time.Duration
 	WriteTimeout             time.Duration
 	Now                      func() time.Time
+
+	// Watchdog makes the agent install, supervise and update the watchdog (0.2.1). Nil in foreground development mode.
+	Watchdog *WatchdogOptions
 }
 
 func (o *Options) setDefaults() {
@@ -112,6 +117,12 @@ type Agent struct {
 
 	resultsAdded chan struct{}
 
+	// outbox holds messages from background work (update reports, the watchdog certificate request) for the next accepted session.
+	outbox    chan *agentv1.AgentMessage
+	connected atomic.Bool
+	peer      atomic.Pointer[agentv1.PeerStatus]
+	watchdog  *watchdogManager
+
 	mu             sync.Mutex
 	st             *state.State
 	trust          signedconfig.Trust
@@ -160,6 +171,7 @@ func New(opts Options) (*Agent, error) {
 		key:          key,
 		buffer:       buf,
 		resultsAdded: make(chan struct{}, 1),
+		outbox:       make(chan *agentv1.AgentMessage, 64),
 		st:           st,
 		trust: signedconfig.Trust{
 			SigningKey: signingKey, KeyID: st.SigningKeyID, InstanceID: st.InstanceID, EndpointID: st.EndpointID,
@@ -189,6 +201,16 @@ func New(opts Options) (*Agent, error) {
 		return nil, fmt.Errorf("open the job spool: %w", err)
 	}
 	a.jobs = manager
+	if opts.Watchdog != nil {
+		watchdog, err := newWatchdogManager(a, *opts.Watchdog)
+		if err != nil {
+			manager.Close()
+			_ = buf.Close()
+			_ = key.Close()
+			return nil, fmt.Errorf("prepare the watchdog: %w", err)
+		}
+		a.watchdog = watchdog
+	}
 	return a, nil
 }
 
@@ -241,6 +263,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.scheduler.Apply(cfg)
 	}
 	defer a.scheduler.Stop()
+	if a.watchdog != nil {
+		// A replacement of the watchdog binary that a crash interrupted is undone first.
+		update.Recover(a.store.Dir(), a.logger)
+		watchdogCtx, stopWatchdog := context.WithCancel(ctx)
+		defer stopWatchdog()
+		safego.Go(a.logger, "watchdog manager", func() { a.watchdog.run(watchdogCtx) })
+	}
 
 	bo := backoff.New(a.opts.BackoffBase, a.opts.BackoffMax)
 	for {

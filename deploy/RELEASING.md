@@ -25,12 +25,14 @@ and publishes the release. No private key is ever available to CI, a runner or a
 
 `.github/workflows/release.yml` builds the six images for linux/amd64 and pushes them to
 `ghcr.io/404-developer-ai/fleetify-{web,gateway,signer,workers,tool,caddy}:X.Y.Z` with the public keys compiled in.
-The packages stay private; VPSes pull them with a read-only token. It captures the image digests and creates a **draft**
+The packages stay private; VPSes pull them with a read-only token. Before the images it builds the agent stage on its own
+(`build/agent-binaries`: `fleetify-agent.exe` and `fleetify-watchdog.exe`), and after pushing it copies the binaries out of
+the web and gateway images and fails when they differ from that build. It captures the image digests and creates a **draft**
 GitHub release `vX.Y.Z` (marked pre-release for `-alpha.N` versions) with:
 
 ```
 install.sh        bundled: version, release public keys (PEM), embedded templates
-manifest.json     fleetify-tool release manifest: version, image digests, install.sh SHA-256, rollback
+manifest.json     fleetify-tool release manifest: version, image digests, install.sh SHA-256, rollback, agent binaries
 SHA256SUMS
 ```
 
@@ -47,8 +49,9 @@ pwsh deploy/sign-release.ps1 -Version X.Y.Z -Key <path>/release-signing.key
 The script:
 
 1. downloads `install.sh`, `manifest.json` and `SHA256SUMS` from the draft and checks the hashes;
-2. shows the manifest (rollback mode and the six digests) and checks that it names this version and that install.sh has
-   the hash it lists. Compare the digests with the Release workflow log before confirming;
+2. shows the manifest (rollback mode, the six digests and the SHA-256 of every agent binary) and checks that it names this
+   version, that install.sh has the hash it lists and that it lists agent binaries. Compare the digests and hashes with the
+   Release workflow log before confirming;
 3. checks that the key's public half is the first key in `FLEETIFY_RELEASE_PUBLIC_KEYS`, so the install.sh of this
    release accepts the signatures;
 4. signs both files (`fleetify-tool release sign`; the signature is the raw 64-byte ed25519 signature in `<file>.sig`),
@@ -64,7 +67,18 @@ Then run `install.sh --check` on a test VPS, update a test instance, and only th
 
 ## Agent binaries
 
-The Windows agent binary is built inside the web image with the release public keys and the version compiled in, so
-its integrity on the way to an instance is covered by the image digest in the signed manifest. Signing the agent
-binary itself for self-update (a `.sig` next to the binary) is not part of this pipeline yet; see the known gaps in the
-deployment report.
+The Windows agent and watchdog are built with the release public keys and the version compiled in, reproducibly
+(`-trimpath`, no VCS stamp, empty build id, pinned Go image), in the same Dockerfile stage of the web image (enrollment
+downloads) and the gateway image (agent updates, 0.2.1). The signed manifest lists each binary with its SHA-256 and size
+under `agentBinaries`; the binaries themselves carry no separate signature.
+
+- install.sh copies the manifest and its signature it verified to `/opt/fleetify/<instance>/release/` (restored with the
+  previous release on a rollback). The gateway reads them read-only and offers them to agents.
+- An agent or watchdog installs a binary only when the manifest signature verifies against the release keys compiled
+  into it, the version is newer than the installed one, and the downloaded file has the listed size and SHA-256. A
+  compromised instance can therefore withhold an update but never push a binary of its own.
+- Authenticode signing of the Windows binaries is planned separately (0.2.1 roadmap); it does not replace this check.
+
+For local development, `pwsh tools/dev/build-agent.ps1 -Sign [-Version 0.2.1-dev.2]` builds both binaries into
+`agent/dist/windows-amd64/` and writes `agent/dist/manifest.json(.sig)` signed with the development release key; the
+development gateway serves that directory.

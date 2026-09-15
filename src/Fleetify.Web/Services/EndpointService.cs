@@ -16,7 +16,13 @@ public sealed record EndpointDetail(
     string OsPlatform, string OsName, string OsVersion, string Architecture, string AgentVersion,
     DateTime EnrolledAt, DateTime? LastSeenAt, long ConfigVersion, long AppliedConfigVersion,
     int ActiveCertificates, DateTime? CertificateExpiresAt, int OpenAlertCount, int HeldAlertCount, IReadOnlyList<SiteOption> ClientSites,
-    string? PublicIpAddress, DateTime? PublicIpSeenAt, EffectiveMaintenance? Maintenance, bool OwnMaintenanceActive);
+    string? PublicIpAddress, DateTime? PublicIpSeenAt, EffectiveMaintenance? Maintenance, bool OwnMaintenanceActive,
+    bool WatchdogOnline = false, string WatchdogVersion = "", DateTime? WatchdogLastSeenAt = null,
+    IReadOnlyList<EndpointComponentView>? Components = null, string? ReleaseVersion = null);
+
+/// <summary>What an endpoint reports about one of its Fleeto services (0.2.1): its service state as the other service sees it, and its last update.</summary>
+public sealed record EndpointComponentView(AgentComponent Component, ComponentServiceState ServiceState, string ServiceDetail, DateTime? ServiceStateAt,
+    string UpdateVersion, ComponentUpdateState? UpdateState, string UpdateDetail, DateTime? UpdateAt);
 
 public sealed record SiteOption(Guid Id, string Name);
 
@@ -244,12 +250,18 @@ public sealed class EndpointService
         var sites = await db.Sites.AsNoTracking().Where(s => s.ClientId == e.ClientId).OrderBy(s => s.Name)
             .Select(s => new SiteOption(s.Id, s.Name)).ToListAsync(cancellationToken);
 
+        var components = await db.EndpointComponentStates.AsNoTracking().Where(c => c.EndpointId == e.Id).OrderBy(c => c.Component)
+            .Select(c => new EndpointComponentView(c.Component, c.ServiceState, c.ServiceDetail, c.ServiceStateAt, c.UpdateVersion, c.UpdateState, c.UpdateDetail,
+                c.UpdateAt))
+            .ToListAsync(cancellationToken);
+        var releaseVersion = await db.AgentReleases.AsNoTracking().Where(r => r.IsCurrent).Select(r => r.Version).FirstOrDefaultAsync(cancellationToken);
+
         return new EndpointDetail(e.Id, e.Hostname, e.ClientId, endpoint.ClientCode ?? string.Empty, endpoint.ClientName ?? string.Empty, e.SiteId,
             endpoint.SiteName, e.IsOnline, e.Tier, e.Source, e.DetectedClass, e.ClassOverride, e.OsPlatform, e.OsName, e.OsVersion, e.Architecture,
             e.AgentVersion, e.EnrolledAt, e.LastSeenAt, e.ConfigVersion, e.AppliedConfigVersion, endpoint.ActiveCertificates,
             endpoint.CertificateExpiresAt, endpoint.OpenAlerts, endpoint.HeldAlerts, sites, e.PublicIpAddress, e.PublicIpSeenAt,
             MaintenanceRules.Effective(e.Maintenance, endpoint.Site, endpoint.Client, now, MaintenanceWindowSchedule.PeriodFor(windows, e.SiteId, e.EffectiveClass)),
-            e.Maintenance.IsActive(now));
+            e.Maintenance.IsActive(now), e.WatchdogOnline, e.WatchdogVersion, e.WatchdogLastSeenAt, components, releaseVersion);
     }
 
     public async Task<InventoryView?> GetInventoryAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)

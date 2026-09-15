@@ -105,7 +105,54 @@ public enum AlertKind
 {
     Check,
     Offline,
-    DuplicateIdentity
+    DuplicateIdentity,
+    /// <summary>The watchdog is online but the agent is not: its service is stopped, or it runs without connecting (0.2.1).</summary>
+    AgentStopped,
+    /// <summary>The agent is online but its watchdog is not (0.2.1).</summary>
+    WatchdogStopped
+}
+
+/// <summary>The Fleeto services on an endpoint (0.2.1). Also the role of an agent certificate. Stored by name.</summary>
+public enum AgentComponent
+{
+    Agent,
+    Watchdog
+}
+
+/// <summary>
+/// When the endpoints of a site get a new agent release, counted from the moment the instance installed it (decided 2026-09-15). An
+/// admin can pause a release or release it to every ring at once.
+/// </summary>
+public enum UpdateRing
+{
+    /// <summary>At once.</summary>
+    Preview,
+    /// <summary>7 days after the instance installed the release.</summary>
+    Standard,
+    /// <summary>14 days after the instance installed the release.</summary>
+    Delayed
+}
+
+/// <summary>State of a Fleeto service on an endpoint, as reported by the other service (0.2.1).</summary>
+public enum ComponentServiceState
+{
+    Unknown,
+    Running,
+    Stopped,
+    Starting,
+    Stopping,
+    Disabled,
+    NotInstalled
+}
+
+/// <summary>Progress of installing a component, as reported by the service that installs it (0.2.1).</summary>
+public enum ComponentUpdateState
+{
+    Downloading,
+    Installing,
+    Installed,
+    Failed,
+    RolledBack
 }
 
 /// <summary>How a link between a site and a policy or monitoring template came to exist.</summary>
@@ -130,7 +177,12 @@ public enum SigningRequestKind
     /// <summary>Renewal of an expired, never revoked agent certificate within the recovery grace period (0.2.0).</summary>
     AgentRecovery,
     /// <summary>A job for one endpoint (0.2.0). SubjectId is the job id; only web may request it.</summary>
-    Job
+    Job,
+    /// <summary>
+    /// Certificate for the watchdog of an endpoint (0.2.1), requested by the gateway for a live agent session. SubjectId is the endpoint
+    /// id, the payload the CSR of the watchdog key.
+    /// </summary>
+    WatchdogCertificate
 }
 
 public enum SigningRequestState

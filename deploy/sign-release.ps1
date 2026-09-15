@@ -75,7 +75,14 @@ Write-Host ''
 Write-Host "Release $tag$(if ($release.isPrerelease) { ' (pre-release)' })" -ForegroundColor Cyan
 Write-Host "  rollback mode: $($manifest.rollback)"
 foreach ($image in $manifest.images.PSObject.Properties) { Write-Host ("  {0,-8} {1}" -f $image.Name, $image.Value) }
-Write-Host '  Compare the digests with the Release workflow log (gh run view <run id> --log) before you continue.'
+# Agent binaries (0.2.1): endpoints install a binary only when it matches this hash in the signed manifest.
+if ($manifest.PSObject.Properties.Name -contains 'agentBinaries') {
+    foreach ($binary in $manifest.agentBinaries) { Write-Host ("  {0,-8} {1} {2}" -f $binary.component, $binary.file, $binary.sha256) }
+}
+if (-not ($manifest.PSObject.Properties.Name -contains 'agentBinaries') -or @($manifest.agentBinaries).Count -eq 0) {
+    Fail 'The manifest lists no agent binaries, so agents of this release could not be updated.' 'Do not sign it: rerun the Release workflow.'
+}
+Write-Host '  Compare the digests and binary hashes with the Release workflow log (gh run view <run id> --log) before you continue.'
 $answer = Read-Host 'Do the digests match the Release workflow log? [y/N]'
 if ($answer -notmatch '^[Yy]') { Fail 'Signing cancelled: the digests were not confirmed.' 'Nothing was signed or uploaded; the release stays a draft.' }
 

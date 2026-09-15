@@ -8,7 +8,7 @@ using NpgsqlTypes;
 namespace Fleetify.Gateway.Data;
 
 /// <summary>What the gateway needs to know about an endpoint when its session opens.</summary>
-public sealed record SessionStart(Guid ClientId, EndpointTier Tier, StoredConfig? NewerConfig, string? InventoryHash);
+public sealed record SessionStart(Guid ClientId, EndpointTier Tier, StoredConfig? NewerConfig, string? InventoryHash, UpdateRing Ring = UpdateRing.Standard);
 
 /// <summary>A check run request that may be delivered to its agent now.</summary>
 public sealed record DeliverableRunRequest(Guid Id, Guid EndpointId, Guid CheckDefinitionId);
@@ -45,7 +45,7 @@ public sealed partial class GatewayStore
     public async Task<int> MarkAllOfflineAsync(DateTime now, CancellationToken cancellationToken)
     {
         await using var command = _dataSource.CreateCommand("""
-            UPDATE "Endpoints" SET "IsOnline" = false, "UpdatedAt" = $1 WHERE "IsOnline"
+            UPDATE "Endpoints" SET "IsOnline" = false, "WatchdogOnline" = false, "UpdatedAt" = $1 WHERE "IsOnline" OR "WatchdogOnline"
             """);
         command.Parameters.Add(new NpgsqlParameter<DateTime> { TypedValue = now });
         return await command.ExecuteNonQueryAsync(cancellationToken);
@@ -64,16 +64,17 @@ public sealed partial class GatewayStore
 
         Guid clientId;
         EndpointTier tier;
+        UpdateRing ring;
         await using (var update = new NpgsqlCommand("""
-            UPDATE "Endpoints" SET
+            UPDATE "Endpoints" e SET
               "IsOnline" = true, "LastSeenAt" = @now, "AgentVersion" = @agentVersion, "Hostname" = @hostname,
               "OsPlatform" = @osPlatform, "OsName" = @osName, "OsVersion" = @osVersion, "Architecture" = @architecture,
               "DetectedClass" = @detectedClass, "UpdatedAt" = @now,
               "PublicIpAddress" = COALESCE(@publicIp, "PublicIpAddress"),
               "PublicIpSeenAt" = CASE WHEN @publicIp IS NULL THEN "PublicIpSeenAt" ELSE @now END
             WHERE "Id" = @id
-            RETURNING "ClientId", "Tier"
-            """, connection, transaction))
+            RETURNING "ClientId", "Tier",
+            """ + " " + EffectiveRingSql, connection, transaction))
         {
             update.Parameters.Add(new NpgsqlParameter<Guid>("id", endpointId));
             update.Parameters.Add(new NpgsqlParameter<DateTime>("now", now));
@@ -88,6 +89,7 @@ public sealed partial class GatewayStore
 
             clientId = reader.GetGuid(0);
             tier = Enum.Parse<EndpointTier>(reader.GetString(1));
+            ring = ParseRing(reader.GetString(2));
         }
 
         await using var batch = new NpgsqlBatch(connection, transaction)
@@ -142,7 +144,7 @@ public sealed partial class GatewayStore
         }
 
         await transaction.CommitAsync(cancellationToken);
-        return new SessionStart(clientId, tier, config, inventoryHash);
+        return new SessionStart(clientId, tier, config, inventoryHash, ring);
     }
 
     /// <summary>Marks one endpoint offline and records a Disconnected event.</summary>

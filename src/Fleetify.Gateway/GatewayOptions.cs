@@ -38,6 +38,18 @@ public sealed class GatewayOptions
     /// <summary>Messages queued for one agent before the gateway gives up on it (the agent is not reading).</summary>
     public int SendQueueCapacity { get; set; } = 256;
 
+    /// <summary>
+    /// Directory with the signed release manifest (manifest.json and manifest.json.sig) of the release the instance runs, placed by
+    /// install.sh (0.2.1). Relative paths are relative to the application directory.
+    /// </summary>
+    public string ReleaseDirectory { get; set; } = "/app/release";
+
+    /// <summary>Directory with the agent binaries of the image, laid out as in the manifest (windows-amd64/fleetify-agent.exe).</summary>
+    public string AgentBinariesDirectory { get; set; } = "/app/agent";
+
+    /// <summary>Agent binary downloads served at the same time; more get 503 with Retry-After.</summary>
+    public int MaxConcurrentDownloads { get; set; } = 20;
+
     /// <summary>PROXY protocol v2 from the host proxy on the agent port, so the gateway sees agent addresses.</summary>
     public ProxyProtocolOptions ProxyProtocol { get; set; } = new();
 

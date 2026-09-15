@@ -28,6 +28,7 @@
             <MudTh>Heartbeat</MudTh>
             <MudTh>Inventory</MudTh>
             <MudTh>Offline alert</MudTh>
+            <MudTh>Agent updates</MudTh>
             <MudTh>Maintenance windows</MudTh>
             <MudTh>Used by</MudTh>
             @if (CanManage)
@@ -55,6 +56,7 @@
             <MudTd>@Intervals.Describe(context.HeartbeatIntervalSeconds)</MudTd>
             <MudTd>@Intervals.Describe(context.InventoryIntervalSeconds)</MudTd>
             <MudTd>@(context.OfflineAlertAfterMinutes == 0 ? "Off" : $"{context.OfflineAlertSeverity} after {context.OfflineAlertAfterMinutes} min")</MudTd>
+            <MudTd>@Ui.UpdateRingLabel(context.UpdateRing)</MudTd>
             <MudTd>
                 @if (context.MaintenanceWindows.Count == 0)
                 {

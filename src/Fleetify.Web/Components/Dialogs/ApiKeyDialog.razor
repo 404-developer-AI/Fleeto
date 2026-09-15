@@ -1,0 +1,77 @@
+@* Create an API key: name, which clients it may read and when it expires. The key itself is shown once afterwards. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">New API key</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="muted mb-3">
+            API keys read clients, sites, endpoints, alerts, jobs, checks and notes through the public API. They cannot change anything.
+        </MudText>
+        <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" MaxLength="100" AutoFocus="true" Class="mb-3"
+                      HelperText="Where the key is used, for example PSA sync." />
+
+        <MudRadioGroup T="bool" @bind-Value="_allClients" Class="mb-2">
+            <MudRadio T="bool" Value="true" Color="Color.Primary">All clients</MudRadio>
+            <MudRadio T="bool" Value="false" Color="Color.Primary">Chosen clients</MudRadio>
+        </MudRadioGroup>
+        @if (!_allClients)
+        {
+            <MudSelect T="Guid" MultiSelection="true" @bind-SelectedValues="_clientIds" Label="Clients" Variant="Variant.Outlined" Class="mb-3"
+                       ToStringFunc="ClientLabel" MaxHeight="320" HelperText="The key sees nothing of other clients. Clients created later are not added automatically.">
+                @foreach (var client in Clients)
+                {
+                    <MudSelectItem T="Guid" Value="client.Id">@client.Code · @client.Name</MudSelectItem>
+                }
+            </MudSelect>
+        }
+
+        <MudSelect T="int" @bind-Value="_validityIndex" Label="Expires after" Variant="Variant.Outlined" Class="mb-3">
+            @for (var i = 0; i < ApiKeyService.Validities.Count; i++)
+            {
+                var index = i;
+                <MudSelectItem T="int" Value="index">@ApiKeyService.Validities[index].Label</MudSelectItem>
+            }
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">Create</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public IReadOnlyList<ClientOption> Clients { get; set; } = [];
+    [Parameter] public Func<ApiKeyInput, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+
+    private string? _name;
+    private bool _allClients = true;
+    private IReadOnlyCollection<Guid> _clientIds = new HashSet<Guid>();
+
+    // One year by default: long enough for an integration, short enough that a forgotten key does not live forever.
+    private int _validityIndex = 2;
+    private bool _busy;
+
+    private string ClientLabel(Guid id) => Clients.FirstOrDefault(c => c.Id == id) is { } client ? client.Code : string.Empty;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            var input = new ApiKeyInput(_name, _allClients, _clientIds.ToList(), ApiKeyService.Validities[_validityIndex].Validity);
+            if (await OnSubmit(input))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

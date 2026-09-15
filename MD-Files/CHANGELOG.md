@@ -13,8 +13,30 @@ Implementation of 0.0.x (foundation) and 0.1.0 (first usable release), to be rel
 that started on 2026-09-15 on top of it (entries starting with "0.2.0:"). Pre-release `0.2.0-alpha.1` (2026-09-15) is a
 test build of this state for the first CI run; its release build failed on the Caddy image. `0.2.0-alpha.2` was published for the
 first VPS install; `0.2.0-alpha.3` adds support for a VPS behind NAT, `0.2.0-alpha.4` fixes what the first install found, and `0.2.0-alpha.5` sets the network MTU. Pre-releases are not releases, so their entries stay here.
+Work on 0.2.1, which holds everything still open for 0.2.0, has entries starting with "0.2.1:".
 
 ### Added
+
+- 0.2.1: Read-only public REST API at `/api/v1`: clients, sites, endpoints with status, inventory (hardware, disks, network,
+  software, services), checks and notes, alerts and jobs with their output. Keyset pagination, camelCase JSON with snake_case
+  values and UTC timestamps, problem details with a stable error code, an OpenAPI 3.1 document at `/api/v1/openapi.json`.
+  Agent-only endpoints answer checks and notes with `endpoint_not_managed`; a key limited to clients sees nothing of other
+  clients.
+- 0.2.1: API keys under Settings, API keys (admins): a name, all clients or chosen clients, an expiry of 30 days, 90 days, 1 year
+  or none, shown once, revocable, with the last use.
+- 0.2.1: `MD-Files/API.md`, the complete API contract for integrators, and `MD-Files/API-WAITLIST.md`, the features that are not
+  in the API yet. A test fails when the OpenAPI document and `API.md` list different endpoints.
+- 0.2.1: Agent self-update with update rings. Each policy chooses Preview (at once), Standard (7 days) or Delayed (14 days) after
+  the instance installed the release. Settings, Agent updates (admins) shows the release, when each ring gets it, how many agents
+  run it and which updates failed, and lets an admin pause the release or release it to all rings. The endpoint detail shows the
+  installed version, service state and latest update of the agent and the watchdog.
+- 0.2.1: Watchdog service `fleetify-watchdog` on Windows: a second service with its own certificate that keeps the agent running
+  and installs agent updates, rolling back a version that does not connect within 5 minutes. The agent installs a missing
+  watchdog, keeps it running and updates it. New alerts "Agent service stopped" (the watchdog is online, the agent is not) and
+  "Watchdog stopped" on managed endpoints; the offline alert now opens only when both are gone.
+- 0.2.1: The gateway image carries the agent and watchdog binaries and serves them to enrolled endpoints; `install.sh` hands the
+  verified release manifest to the gateway. `tools/dev/build-agent.ps1` builds both binaries and, with `-Sign`, a signed
+  development manifest.
 
 - 0.2.0: Maintenance mode for a client, a site or a managed endpoint, started from the client and site settings menus and
   the right-click menu of the endpoint list, for 1, 4 or 24 hours, until a chosen time or until turned off, with an
@@ -131,6 +153,13 @@ first VPS install; `0.2.0-alpha.3` adds support for a VPS behind NAT, `0.2.0-alp
 
 ### Changed
 
+- 0.2.1: The release manifest lists every agent and watchdog binary with its SHA-256 and size (`agentBinaries`). The release
+  workflow builds them reproducibly, checks that the web and gateway images contain the same binaries, and
+  `deploy/sign-release.ps1` refuses a manifest without them.
+- 0.2.1: The watchdog is a separate program (`fleetify-watchdog.exe`) next to the agent; uninstalling the agent removes the
+  watchdog service, its key and its state as well.
+- 0.2.1: The Servicedesk ticket reference on notes is no longer planned for 0.2.1 but listed as not yet scheduled on the roadmap
+  (decided 2026-09-15): how Fleeto and the Servicedesk work together is aligned with the Servicedesk team first.
 - 0.2.0: macOS is not supported for now (decided 2026-09-15): the UI names Windows and Linux as the platforms of checks
   and scripts.
 - 0.2.0: The Docker networks of an instance use the MTU of the VPS uplink (detected by install.sh, 1280 to 1500), so containers
@@ -193,6 +222,18 @@ first VPS install; `0.2.0-alpha.3` adds support for a VPS behind NAT, `0.2.0-alp
 
 ### Security
 
+- 0.2.1: Agents and watchdogs install a binary only when the release manifest that lists it verifies against the Steaan release
+  keys compiled into them and the download matches the listed SHA-256, size and version. Older versions are never installed and a
+  rolled back version is never retried, so a compromised instance can hold an update back but never install a binary of its own.
+  Downloads need a valid agent or watchdog certificate and are limited to 20 at a time and 12 per endpoint per hour.
+- 0.2.1: Watchdog certificates carry the role *watchdog*, taken from the database: they open only a watchdog session, which receives
+  no configurations or jobs, and cannot recover an expired certificate. The signer issues one only at the request of the gateway, for
+  an endpoint with a valid agent certificate, for a key different from the agent's, at most 3 a day, and revokes the previous one.
+- 0.2.1: API keys are `flt_<id>_<secret>` with a 256-bit secret; only its SHA-256 is stored and compared in constant time, and the
+  key is read on every call, so a revoked or expired key stops working at once. Only the `Authorization` header authenticates an
+  API call, never a session cookie. Rate limits per address (before the key is checked) and per key (after), an audit entry for
+  every call and for a wrong secret of an existing key, and no data is sent when the audit entry cannot be written. API
+  responses are never cached.
 - 0.2.0: Jobs are signed per endpoint with the context `fleetify-job-v1` and carry the script body; a job is never run twice
   on an agent, and a job interrupted by an agent stop is reported as lost instead of run again. Only the web role can request
   job signatures (database trigger). A script approval code is accepted once and a wrong code counts towards the lockout.

@@ -25,6 +25,8 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/platform"
 	"github.com/404-developer-AI/Fleeto/agent/internal/safego"
 	"github.com/404-developer-AI/Fleeto/agent/internal/state"
+	"github.com/404-developer-AI/Fleeto/agent/internal/svcctl"
+	"github.com/404-developer-AI/Fleeto/agent/internal/update"
 )
 
 // stopTimeout is how long the service waits for the agent to stop before it reports stopped anyway.
@@ -60,7 +62,9 @@ func (h *handler) Execute(_ []string, requests <-chan svc.ChangeRequest, status 
 	go func() {
 		defer wg.Done()
 		defer safego.Recover(logger, "service")
-		RunAgent(ctx, stateDir, platform.AccessSystem, logger)
+		RunAgent(ctx, stateDir, platform.AccessSystem, logger, &agent.WatchdogOptions{
+			StateDir: platform.WatchdogStateDir(), ProgramDir: platform.ProgramDir(), Controller: svcctl.New(),
+		})
 	}()
 
 	status <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
@@ -269,12 +273,39 @@ func waitForState(s *mgr.Service, want svc.State, timeout time.Duration) error {
 	}
 }
 
-// Uninstall stops and deletes the service, deletes the identity key, the state and the program files.
+// Uninstall stops and deletes the watchdog and the agent service, deletes both identity keys, the state and the program files. A marker
+// in the data directory tells both services not to restart or reinstall each other meanwhile.
 func Uninstall(out io.Writer) error {
 	if !platform.IsElevated() {
 		return fmt.Errorf("uninstalling the agent requires administrator rights: %s", platform.ElevationHint)
 	}
 	var errs []error
+	marker := filepath.Join(platform.DataDir(), update.UninstallMarkerName)
+	if err := os.MkdirAll(platform.DataDir(), 0o755); err == nil {
+		_ = os.WriteFile(marker, []byte(time.Now().UTC().Format(time.RFC3339)), 0o600)
+	}
+	defer os.Remove(marker)
+
+	// The watchdog first: while it runs it would start the agent again.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if err := svcctl.Delete(ctx, agent.WatchdogServiceName, time.Minute); err != nil {
+		errs = append(errs, fmt.Errorf("remove the watchdog service: %w", err))
+	} else {
+		fmt.Fprintln(out, "Watchdog service removed")
+	}
+	watchdogDir := platform.WatchdogStateDir()
+	watchdogKey := state.KeyRef{Kind: keystore.KindCNG, Name: agent.WatchdogKeyName, Machine: true}
+	if st, err := state.NewStore(watchdogDir, platform.AccessSystem).Load(); err == nil {
+		watchdogKey = st.Key
+	}
+	if err := keystore.Delete(watchdogDir, watchdogKey); err != nil {
+		errs = append(errs, fmt.Errorf("delete the watchdog key: %w", err))
+	}
+	if err := os.RemoveAll(watchdogDir); err != nil {
+		errs = append(errs, fmt.Errorf("delete %s: %w", watchdogDir, err))
+	}
+
 	m, err := mgr.Connect()
 	if err != nil {
 		return fmt.Errorf("cannot open the service manager: %w", err)

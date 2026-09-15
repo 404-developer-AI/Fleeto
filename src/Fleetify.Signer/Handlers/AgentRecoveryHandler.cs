@@ -93,7 +93,8 @@ public sealed class AgentRecoveryHandler : ISigningRequestHandler
         }
 
         var latest = await db.AgentCertificates.IgnoreQueryFilters().AsNoTracking()
-            .Where(c => c.EndpointId == endpointId)
+            // Agent certificates only: a watchdog never recovers, the agent gives it a new certificate (0.2.1).
+            .Where(c => c.EndpointId == endpointId && c.Role == AgentComponent.Agent)
             .OrderByDescending(c => c.IssuedAt).ThenByDescending(c => c.ExpiresAt)
             .FirstOrDefaultAsync(cancellationToken);
         if (latest is null || latest.RevokedAt is not null || !SecureCompare.HexEquals(latest.PublicKeyFingerprint, csrKeyFingerprint) ||

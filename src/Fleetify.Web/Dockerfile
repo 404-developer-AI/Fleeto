@@ -25,12 +25,16 @@ RUN go mod download && go mod verify
 COPY agent/ ./
 ARG FLEETIFY_VERSION=0.0.0-dev
 ARG FLEETIFY_RELEASE_PUBLIC_KEYS=""
+# The agent and the watchdog (0.2.1). Reproducible (-trimpath, no VCS stamp, pinned toolchain): the release workflow builds this stage on
+# its own to list the SHA-256 of each binary in the signed manifest, then checks the binaries in the web and gateway images against it.
 RUN pkg=github.com/404-developer-AI/Fleeto/agent/internal/version \
     && mkdir -p /out/windows-amd64 \
-    && GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false \
-        -ldflags "-s -w -X ${pkg}.Version=${FLEETIFY_VERSION} -X '${pkg}.ReleasePublicKeys=${FLEETIFY_RELEASE_PUBLIC_KEYS}'" \
-        -o /out/windows-amd64/fleetify-agent.exe ./cmd/fleetify-agent \
-    && (cd /out && sha256sum windows-amd64/fleetify-agent.exe > SHA256SUMS)
+    && for component in agent watchdog; do \
+        GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false \
+            -ldflags "-s -w -buildid= -X ${pkg}.Version=${FLEETIFY_VERSION} -X '${pkg}.ReleasePublicKeys=${FLEETIFY_RELEASE_PUBLIC_KEYS}'" \
+            -o /out/windows-amd64/fleetify-${component}.exe ./cmd/fleetify-${component}; \
+    done \
+    && (cd /out && sha256sum windows-amd64/fleetify-agent.exe windows-amd64/fleetify-watchdog.exe > SHA256SUMS)
 
 # ---------------------------------------------------------------------------------------------------------------
 FROM ${DOTNET_SDK_IMAGE} AS build

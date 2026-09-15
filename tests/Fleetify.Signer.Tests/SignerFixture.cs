@@ -99,7 +99,8 @@ public sealed class SignerFixture : IAsyncLifetime
             new AgentRecoveryHandler(ring, NullLogger<AgentRecoveryHandler>.Instance),
             new GatewayCertificateHandler(ring, NullLogger<GatewayCertificateHandler>.Instance),
             new AgentConfigHandler(configSigner),
-            new JobHandler(ring, Database.Licenses, NullLogger<JobHandler>.Instance)
+            new JobHandler(ring, Database.Licenses, NullLogger<JobHandler>.Instance),
+            new WatchdogCertificateHandler(ring, NullLogger<WatchdogCertificateHandler>.Instance)
         ];
         return new SigningRequestProcessor(SignerDbFactory, ring, handlers, rateLimiter ?? new SigningRateLimiter(), Database.Bus,
             Database.Time, NullLogger<SigningRequestProcessor>.Instance);

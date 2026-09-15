@@ -31,6 +31,19 @@ func ProgramDir() string {
 // BinaryName is the file name of the agent executable.
 const BinaryName = "fleetify-agent.exe"
 
+// WatchdogBinaryName is the file name of the watchdog executable, installed next to the agent (0.2.1).
+const WatchdogBinaryName = "fleetify-watchdog.exe"
+
+// WatchdogStateDir is C:\ProgramData\Fleetify\Watchdog.
+func WatchdogStateDir() string {
+	return filepath.Join(filepath.Dir(DefaultStateDir()), "Watchdog")
+}
+
+// DataDir is C:\ProgramData\Fleetify, the parent of the agent and watchdog state directories.
+func DataDir() string {
+	return filepath.Dir(DefaultStateDir())
+}
+
 // IsElevated reports whether the process runs with an elevated (administrator) token.
 func IsElevated() bool {
 	return windows.GetCurrentProcessToken().IsElevated()

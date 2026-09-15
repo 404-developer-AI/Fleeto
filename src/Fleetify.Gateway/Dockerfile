@@ -1,11 +1,37 @@
 # syntax=docker/dockerfile:1
 #
 # fleetify-gateway: agent endpoint (HTTPS 8443, TLS passed through untouched by the host Caddy) and health endpoint
-# (HTTP 8081, container-internal). Build context: repository root.
+# (HTTP 8081, container-internal). It also carries the agent and watchdog binaries it serves for agent updates (/app/agent, 0.2.1), built
+# exactly as in the web image. Build context: repository root.
 #
 # Base images are pinned by digest; bump tag and digest together.
 ARG DOTNET_SDK_IMAGE=mcr.microsoft.com/dotnet/sdk:10.0@sha256:2fa828c68761b1b8c23d7662dc134421b9d3b59fe1425fdbc80804e390cdb24d
 ARG DOTNET_ASPNET_IMAGE=mcr.microsoft.com/dotnet/aspnet:10.0@sha256:6a94333d37514e385650a3c81a55e5350b67253dbe136e9cf17e499c35606a8c
+ARG GOLANG_IMAGE=golang:1.27.1@sha256:f44f6e88636cfb311f9ebace870ded69d943f227bb3cb27d32ffd84ea18c43ea
+
+# ---------------------------------------------------------------------------------------------------------------
+# Agent binaries: must stay identical to the agent stage of src/Fleetify.Web/Dockerfile (the release workflow compares both images).
+FROM ${GOLANG_IMAGE} AS agent
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+WORKDIR /src/agent
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-mod=readonly
+COPY agent/go.mod agent/go.sum ./
+RUN go mod download && go mod verify
+COPY agent/ ./
+ARG FLEETIFY_VERSION=0.0.0-dev
+ARG FLEETIFY_RELEASE_PUBLIC_KEYS=""
+# The agent and the watchdog (0.2.1). Reproducible (-trimpath, no VCS stamp, pinned toolchain): the release workflow builds this stage on
+# its own to list the SHA-256 of each binary in the signed manifest, then checks the binaries in the web and gateway images against it.
+RUN pkg=github.com/404-developer-AI/Fleeto/agent/internal/version \
+    && mkdir -p /out/windows-amd64 \
+    && for component in agent watchdog; do \
+        GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false \
+            -ldflags "-s -w -buildid= -X ${pkg}.Version=${FLEETIFY_VERSION} -X '${pkg}.ReleasePublicKeys=${FLEETIFY_RELEASE_PUBLIC_KEYS}'" \
+            -o /out/windows-amd64/fleetify-${component}.exe ./cmd/fleetify-${component}; \
+    done \
+    && (cd /out && sha256sum windows-amd64/fleetify-agent.exe windows-amd64/fleetify-watchdog.exe > SHA256SUMS)
+
+# ---------------------------------------------------------------------------------------------------------------
 
 FROM ${DOTNET_SDK_IMAGE} AS build
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -43,6 +69,7 @@ RUN apt-get update \
     && useradd --system --uid 10001 --gid 10001 --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin fleetify
 WORKDIR /app
 COPY --from=build --chown=root:root /app/ /app/
+COPY --from=agent --chown=root:root /out/ /app/agent/
 
 # Kestrel endpoints come from the Gateway configuration section, not from ASPNETCORE_URLS / ASPNETCORE_HTTP_PORTS.
 ENV ASPNETCORE_ENVIRONMENT=Production \
@@ -53,7 +80,9 @@ ENV ASPNETCORE_ENVIRONMENT=Production \
     Fleetify__Database__Name=fleetify \
     Gateway__ListenAddress=0.0.0.0 \
     Gateway__AgentPort=8443 \
-    Gateway__HealthPort=8081
+    Gateway__HealthPort=8081 \
+    Gateway__AgentBinariesDirectory=/app/agent \
+    Gateway__ReleaseDirectory=/app/release
 
 USER 10001:10001
 EXPOSE 8443

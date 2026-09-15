@@ -6,10 +6,11 @@ namespace Fleetify.Web.Security;
 
 /// <summary>
 /// The signed-in user performing an operation, resolved from the database (not only from the cookie), so a
-/// deleted, locked or demoted user loses access in an open circuit as well.
+/// deleted, locked or demoted user loses access in an open circuit as well. A public API call runs as a caller too: the API key
+/// id as <see cref="UserId"/>, the read-only role and the key's client scope, with <see cref="ActorType"/> ApiKey.
 /// </summary>
 public sealed record Caller(Guid UserId, string Name, string Email, IReadOnlyCollection<string> Roles, IClientScope Scope,
-    string? IpAddress = null)
+    string? IpAddress = null, AuditActorType ActorType = AuditActorType.User)
 {
     public bool IsAdmin => Roles.Contains(FleetifyRoles.Admin);
 
@@ -21,7 +22,7 @@ public sealed record Caller(Guid UserId, string Name, string Email, IReadOnlyCol
     public Actor ToActor() => new(UserId, Name, Scope, IpAddress);
 
     public AuditRecord Audit(string action, string targetType, string targetId, Guid? clientId, object? details = null) =>
-        new(action, targetType, targetId, clientId, AuditActorType.User, UserId.ToString(), Name, details, IpAddress);
+        new(action, targetType, targetId, clientId, ActorType, UserId.ToString(), Name, details, IpAddress);
 }
 
 /// <summary>Thrown when a caller without the required role reaches a service method.</summary>

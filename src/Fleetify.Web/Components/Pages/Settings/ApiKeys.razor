@@ -1,0 +1,167 @@
+@page "/settings/api-keys"
+@attribute [Authorize(Policy = FleetifyPolicies.Admin)]
+@inherits FleetoPageBase
+@inject ApiKeyService ApiKeySvc
+@inject ClientService ClientSvc
+@inject IDialogService DialogService
+
+<PageTitle>API keys - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">API keys</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            Keys for the read-only public API at /api/v1. Every call is rate limited and written to the audit log. The OpenAPI document is at /api/v1/openapi.json.
+        </MudText>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="CreateAsync">New API key</MudButton>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_keys.Count == 0)
+    {
+        <EmptyState Icon="@Icons.Material.Outlined.Key" Title="No API keys"
+                    Text="Create a key to read Fleeto data from another tool, such as a PSA or a reporting script." />
+    }
+    else
+    {
+        <MudTable Items="_keys" Hover="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>Name</MudTh>
+                <MudTh>Key</MudTh>
+                <MudTh>Clients</MudTh>
+                <MudTh>Created</MudTh>
+                <MudTh>Expires</MudTh>
+                <MudTh>Last used</MudTh>
+                <MudTh>State</MudTh>
+                <MudTh Style="width:60px"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd><strong>@context.Name</strong></MudTd>
+                <MudTd><code>@context.DisplayPrefix</code></MudTd>
+                <MudTd>@ClientsText(context)</MudTd>
+                <MudTd><TimeText Value="context.CreatedAt" /> <span class="muted">by @context.CreatedByName</span></MudTd>
+                <MudTd>
+                    @if (context.ExpiresAt is { } expires)
+                    {
+                        <TimeText Value="expires" />
+                    }
+                    else
+                    {
+                        <span class="muted">Never</span>
+                    }
+                </MudTd>
+                <MudTd>
+                    @if (context.LastUsedAt is { } used)
+                    {
+                        <TimeText Value="used" />
+                    }
+                    else
+                    {
+                        <span class="muted">Not used yet</span>
+                    }
+                </MudTd>
+                <MudTd>
+                    @switch (context.State)
+                    {
+                        case ApiKeyState.Active:
+                            <StatusChip Text="Active" Kind="StatusKind.Ok" />
+                            break;
+                        case ApiKeyState.Expired:
+                            <StatusChip Text="Expired" Kind="StatusKind.Neutral" />
+                            break;
+                        default:
+                            <StatusChip Text="Revoked" Kind="StatusKind.Neutral" />
+                            <div class="muted" style="font-size:0.8125rem">by @context.RevokedByName</div>
+                            break;
+                    }
+                </MudTd>
+                <MudTd>
+                    @if (context.State != ApiKeyState.Revoked)
+                    {
+                        <MudTooltip Text="Revoke"><MudIconButton Icon="@Icons.Material.Outlined.Block" Size="Size.Small" Color="Color.Error" OnClick="@(() => RevokeAsync(context))" /></MudTooltip>
+                    }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</LoadState>
+
+@code {
+    private IReadOnlyList<ApiKeyView> _keys = [];
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private Task ReloadAsync() => LoadAsync(async caller => _keys = await ApiKeySvc.ListAsync(caller));
+
+    private static string ClientsText(ApiKeyView key) => key switch
+    {
+        { AllClients: true } => "All clients",
+        { Clients.Count: 0 } => "No clients left",
+        { Clients.Count: <= 3 } => string.Join(", ", key.Clients.Select(c => c.Code)),
+        _ => $"{key.Clients.Count} clients"
+    };
+
+    private async Task CreateAsync()
+    {
+        IReadOnlyList<ClientOption> clients = [];
+        if (!await RunAsync(async caller =>
+            {
+                clients = await ClientSvc.ListOptionsAsync(caller);
+                return ServiceResult.Ok();
+            }, null))
+        {
+            return;
+        }
+
+        string? token = null;
+        var parameters = new DialogParameters<ApiKeyDialog>
+        {
+            { d => d.Clients, clients },
+            {
+                d => d.OnSubmit, async input =>
+                {
+                    var result = await RunForValueAsync(caller => ApiKeySvc.CreateAsync(caller, input), "The API key was created.");
+                    token = result?.Value?.Token;
+                    return result is not null;
+                }
+            }
+        };
+        var dialog = await DialogService.ShowAsync<ApiKeyDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if ((await dialog.Result)!.Canceled)
+        {
+            return;
+        }
+
+        if (token is not null)
+        {
+            var secretParameters = new DialogParameters<SecretShownOnceDialog>
+            {
+                { d => d.Title, "API key" },
+                { d => d.Message, "Send it with every request as the header Authorization: Bearer followed by the key. Store it where the other tool keeps its secrets." },
+                { d => d.Secret, token }
+            };
+            var secretDialog = await DialogService.ShowAsync<SecretShownOnceDialog>(null, secretParameters,
+                new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false });
+            await secretDialog.Result;
+            token = null;
+        }
+
+        await ReloadAsync();
+    }
+
+    private async Task RevokeAsync(ApiKeyView key)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Revoke API key {key.Name}" },
+            { d => d.Message, "The key stops working on its next request. A revoked key cannot be restored; create a new key if the tool still needs access." },
+            { d => d.ConfirmText, "Revoke" }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => ApiKeySvc.RevokeAsync(caller, key.Id), "The API key was revoked."))
+        {
+            await ReloadAsync();
+        }
+    }
+}

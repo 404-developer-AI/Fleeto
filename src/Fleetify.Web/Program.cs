@@ -6,6 +6,7 @@ using Fleetify.Infrastructure.Hosting;
 using Fleetify.Infrastructure.Identity;
 using Fleetify.Web;
 using Fleetify.Web.Account;
+using Fleetify.Web.Api;
 using Fleetify.Web.Components;
 using Fleetify.Web.Security;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -113,6 +114,9 @@ builder.Services.AddRateLimiter(options =>
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 30, Window = TimeSpan.FromMinutes(10), QueueLimit = 0 }));
 });
 
+// After AddRateLimiter: API rejections are answered as problem details, everything else as above.
+builder.Services.AddFleetifyPublicApi(builder.Configuration);
+
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddMudServices();
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
@@ -168,6 +172,7 @@ if (!app.Configuration.GetValue<bool>("ReverseProxy:Enabled"))
 
 app.UseFleetifySecurityHeaders();
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+app.UseFleetifyPublicApiProblems();
 app.UseRouting();
 app.UseRateLimiter();
 app.UseAuthentication();
@@ -178,6 +183,7 @@ app.UseAntiforgery();
 app.MapStaticAssets();
 app.MapAccountEndpoints();
 app.MapOperationalEndpoints();
+app.MapFleetifyPublicApi();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
