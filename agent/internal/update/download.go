@@ -82,7 +82,7 @@ func Download(ctx context.Context, client *http.Client, server, version string, 
 	if !equalHex(hex.EncodeToString(hash.Sum(nil)), b.SHA256) {
 		return fail(fmt.Errorf("the downloaded %s does not match the SHA-256 in the signed manifest", b.File))
 	}
-	if err := platform.ProtectFile(tmp, access); err != nil {
+	if err := platform.ProtectExecutable(tmp, access); err != nil {
 		return fail(err)
 	}
 	if err := os.Rename(tmp, dest); err != nil {

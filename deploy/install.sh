@@ -1730,7 +1730,8 @@ migrate_legacy_vps() {
         status=$?
         set -e
         if [[ "$status" -ne 0 ]]; then
-            for instance in "${copied[@]}"; do fall_back_to_legacy_instance "$instance" || true; done
+            local copy
+            for copy in "${copied[@]}"; do fall_back_to_legacy_instance "$copy" || true; done
             die "Moving the instances to the Fleeto layout failed; every instance runs again from $LEGACY_ROOT." \
                 "Read the output above, fix the cause and run install.sh again."
         fi

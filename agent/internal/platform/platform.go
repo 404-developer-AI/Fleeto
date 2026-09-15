@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // Access says who may read a protected directory or file.
@@ -28,6 +29,21 @@ func EnsureProtectedDir(dir string, access Access) error {
 // ProtectFile restricts an existing file to the given access.
 func ProtectFile(path string, access Access) error {
 	return protect(path, access, false)
+}
+
+// ProtectExecutable restricts an existing program file to the given access and keeps it executable for its owner (0700 outside
+// Windows, where ProtectFile would leave 0600 and the program could not run).
+func ProtectExecutable(path string, access Access) error {
+	if err := protect(path, access, false); err != nil {
+		return err
+	}
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	if err := os.Chmod(path, 0o700); err != nil {
+		return fmt.Errorf("make %s executable: %w", path, err)
+	}
+	return nil
 }
 
 // WriteFileAtomic writes data to a temporary file in the same directory, flushes it and renames it over path, so a
