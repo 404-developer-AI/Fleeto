@@ -830,6 +830,49 @@ allocate_ports() {
 }
 
 # write_instance_conf <instance> <fqdn> <version> <state> <web port> <agent port>; images from the loaded manifest.
+# host_network_mtu: the MTU of the interface the default route leaves through (a 1400 link, a tunnel), between 1280 and
+# 1500. Containers on a Docker network with a larger MTU than the uplink send packets the uplink cannot carry; that only
+# works while every hop returns "packet too big", so the instance networks use this MTU instead.
+host_network_mtu() {
+    local device mtu
+    device="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }')"
+    mtu="$(cat "/sys/class/net/${device:-none}/mtu" 2>/dev/null || true)"
+    if [[ ! "$mtu" =~ ^[0-9]{3,5}$ ]]; then
+        printf '1500'
+        return 0
+    fi
+    if ((mtu > 1500)); then mtu=1500; fi
+    if ((mtu < 1280)); then mtu=1280; fi
+    printf '%s' "$mtu"
+}
+
+# instance_networks_diverge <instance>: true when an existing network of the instance has another MTU than instance.conf.
+instance_networks_diverge() {
+    local instance="$1" expected network actual
+    expected="$(conf_get "$(instance_dir "$instance")/instance.conf" NETWORK_MTU)"
+    expected="${expected:-1500}"
+    for network in internal edge egress; do
+        actual="$(docker network inspect --format '{{ index .Options "com.docker.network.driver.mtu" }}' "fleetify-${instance}_$network" 2>/dev/null)" \
+            || continue
+        if [[ -z "$actual" || "$actual" == "<no value>" ]]; then
+            actual=1500
+        fi
+        if [[ "$actual" != "$expected" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# recreate_networks_if_diverged <instance>: Docker cannot change the MTU of an existing network, so when it differs from
+# instance.conf the instance is stopped and its networks removed (volumes stay); the next start creates them anew.
+recreate_networks_if_diverged() {
+    local instance="$1"
+    instance_networks_diverge "$instance" || return 0
+    step "Recreating the networks of $instance with MTU $(conf_get "$(instance_dir "$instance")/instance.conf" NETWORK_MTU)"
+    dc_instance "$instance" down --timeout 30 --remove-orphans >/dev/null
+}
+
 write_instance_conf() {
     local instance="$1" fqdn="$2" version="$3" state="$4" web_port="$5" agent_port="$6" dir edge_egress="false" memory="1GB" cpus="2"
     dir="$(instance_dir "$instance")"
@@ -852,6 +895,8 @@ AGENT_PORT=$agent_port
 EDGE_EGRESS=$edge_egress
 POSTGRES_MEMORY=$memory
 POSTGRES_CPUS=$cpus
+# MTU of the instance networks, detected from the uplink of this VPS on every install and update.
+NETWORK_MTU=$(host_network_mtu)
 POSTGRES_IMAGE=$POSTGRES_IMAGE
 TOOL_IMAGE=${MANIFEST_IMAGES[tool]}
 SIGNER_IMAGE=${MANIFEST_IMAGES[signer]}
@@ -1312,6 +1357,7 @@ install_instance() {
     write_instance_conf "$instance" "$fqdn" "$version" installing "$web_port" "$agent_port"
     ok "web on 127.0.0.1:$web_port, gateway on 127.0.0.1:$agent_port"
 
+    recreate_networks_if_diverged "$instance"
     step "Starting PostgreSQL"
     wait_for_postgres "$instance"
 
@@ -1408,6 +1454,13 @@ update_instance() {
     # The recorded version changes only after the health check passes.
     write_instance_conf "$instance" "$fqdn" "$installed_version" updating "$web_port" "$agent_port"
 
+    if instance_networks_diverge "$instance"; then
+        if ! recreate_networks_if_diverged "$instance"; then
+            rollback_instance "$instance" "$installed_version" "$version" "$rollback_mode" "$backup_file" "its networks could not be recreated"
+        fi
+        wait_for_postgres "$instance"
+    fi
+
     step "Running database migrations"
     if ! run_migrator "$instance"; then
         rollback_instance "$instance" "$installed_version" "$version" "$rollback_mode" "$backup_file" "the migrations failed"
@@ -1451,6 +1504,7 @@ rollback_instance() {
     rm -rf -- "$dir/postgres"
     cp -a "$dir/state/previous/postgres" "$dir/"
     set_instance_state "$instance" rolled-back
+    recreate_networks_if_diverged "$instance" || true
 
     if dc_instance "$instance" up -d --remove-orphans >/dev/null 2>&1 && wait_for_instance_health "$instance"; then
         append_history "$instance" "rolled back to $previous_version"

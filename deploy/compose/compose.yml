@@ -244,17 +244,26 @@ services:
       migrator:
         condition: service_completed_successfully
 
+# NETWORK_MTU is the MTU of the VPS uplink (install.sh, host_network_mtu): a container must never send packets larger than
+# the uplink carries, for example on a 1400 link. Docker cannot change it on an existing network; install.sh recreates
+# the networks when it changes.
 networks:
   internal:
     internal: true
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: "${NETWORK_MTU:-1500}"
   edge:
     driver: bridge
     driver_opts:
       # No outbound NAT: published ports still work, but web and the gateway cannot open connections to the
       # internet. Set EDGE_EGRESS=true in instance.conf only if a feature of web needs outbound access.
       com.docker.network.bridge.enable_ip_masquerade: "${EDGE_EGRESS:-false}"
+      com.docker.network.driver.mtu: "${NETWORK_MTU:-1500}"
   egress:
     driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: "${NETWORK_MTU:-1500}"
 
 volumes:
   postgres-data:

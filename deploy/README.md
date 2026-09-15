@@ -25,6 +25,11 @@ which installs and updates instances. Design background: `MD-Files/ARCHITECTURE.
   may differ from the address the VPS uses outbound. Use a plain port forward that keeps the client address, so agents
   are shown with their own public address. install.sh asks once to confirm such an address and stores it in
   `/opt/fleetify/public-addresses`.
+- Any uplink MTU from 1280 to 1500 works (a 1400 link, a tunnel): install.sh reads the MTU of the interface of the default
+  route on every install and update, stores it as `NETWORK_MTU` in `instance.conf` and creates the instance networks with
+  it, so containers never send larger packets than the uplink carries and nothing depends on "packet too big" messages
+  or MSS clamping. When it changes, the next update recreates the networks (the instance restarts; volumes stay). The
+  host proxy uses the host network and so the uplink MTU already.
 - Outbound HTTPS to `api.github.com` and GitHub's download hosts (`*.githubusercontent.com`), `ghcr.io`, Docker Hub,
   `download.docker.com`, the Ubuntu mirrors, Let's Encrypt, and the backup storage and SMTP server of each instance.
 - If `/etc/docker/daemon.json` already exists, install.sh leaves it alone. Add a `default-address-pools` entry

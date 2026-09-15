@@ -12,7 +12,7 @@ When a third released version is added, the oldest entry moves to the top of
 Implementation of 0.0.x (foundation) and 0.1.0 (first usable release), to be released as 0.1.0, and work on 0.2.0
 that started on 2026-09-15 on top of it (entries starting with "0.2.0:"). Pre-release `0.2.0-alpha.1` (2026-09-15) is a
 test build of this state for the first CI run; its release build failed on the Caddy image. `0.2.0-alpha.2` was published for the
-first VPS install; `0.2.0-alpha.3` adds support for a VPS behind NAT, and `0.2.0-alpha.4` fixes what the first install found. Pre-releases are not releases, so their entries stay here.
+first VPS install; `0.2.0-alpha.3` adds support for a VPS behind NAT, `0.2.0-alpha.4` fixes what the first install found, and `0.2.0-alpha.5` sets the network MTU. Pre-releases are not releases, so their entries stay here.
 
 ### Added
 
@@ -131,6 +131,9 @@ first VPS install; `0.2.0-alpha.3` adds support for a VPS behind NAT, and `0.2.0
 
 ### Changed
 
+- 0.2.0: The Docker networks of an instance use the MTU of the VPS uplink (detected by install.sh, 1280 to 1500), so containers
+  work on a 1400 link without relying on "packet too big" messages or MSS clamping. An update recreates the networks when
+  the MTU changed.
 - 0.2.0: The web image contains the Blazor framework script again (`_framework/blazor.web.js`): the image restored the web project
   before its .razor files were copied, so the SDK left the script out and no page became interactive. The image build now
   fails when the script is missing. install.sh validates the proxy configuration with the capabilities of the running

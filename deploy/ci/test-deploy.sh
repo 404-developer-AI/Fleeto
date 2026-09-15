@@ -175,6 +175,38 @@ for case in own unconfirmed answered stored; do
 done
 pass "the DNS check accepts a forwarded public address only once it is confirmed, and suggests it for missing records"
 
+# --- 3c. Network MTU ------------------------------------------------------------------------------------------------
+cat >"$work/mtu.sh" <<'EOF'
+source "$REPO/deploy/install.sh"
+set +e
+trap - ERR
+mkdir -p "$FLEETIFY_ROOT/mtu-example"
+printf 'NETWORK_MTU=1400\n' >"$FLEETIFY_ROOT/mtu-example/instance.conf"
+# Docker stand-in: the networks report the MTU in $NETWORK_OPTION ("" when a network has no MTU option).
+docker() {
+    [[ "$1 $2" == "network inspect" ]] || return 1
+    [[ "${!#}" == *_egress && -n "$NO_EGRESS" ]] && return 1
+    printf '%s\n' "$NETWORK_OPTION"
+}
+case "$CASE" in
+    same) NETWORK_OPTION=1400 instance_networks_diverge mtu-example && exit 30 ;;
+    default) NETWORK_OPTION="<no value>" instance_networks_diverge mtu-example || exit 31 ;;
+    missing) NETWORK_OPTION=1400 NO_EGRESS=1 instance_networks_diverge mtu-example && exit 32 ;;
+    unset)
+        printf 'FLEETIFY_FQDN=mtu.example\n' >"$FLEETIFY_ROOT/mtu-example/instance.conf"
+        NETWORK_OPTION="" instance_networks_diverge mtu-example && exit 33
+        ;;
+esac
+mtu="$(host_network_mtu)"
+[[ "$mtu" =~ ^[0-9]+$ ]] && ((mtu >= 1280 && mtu <= 1500)) || exit 34
+exit 0
+EOF
+for case in same default missing unset; do
+    mkdir -p "$work/mtu-$case"
+    FLEETIFY_ROOT="$work/mtu-$case" REPO="$repo_root" CASE="$case" bash "$work/mtu.sh" || fail "network MTU check, case $case (exit $?)"
+done
+pass "install.sh detects the uplink MTU and recreates instance networks only when their MTU differs"
+
 # --- 4. Caddyfile generation -----------------------------------------------------------------------------------------
 mkdir -p "$work/root/rmm-a-example" "$work/root/rmm-b-example" "$work/empty" "$work/caddy-two" "$work/caddy-empty"
 printf 'FLEETIFY_INSTANCE=rmm-a-example\nFLEETIFY_FQDN=rmm.a.example\nWEB_PORT=20000\nAGENT_PORT=20001\n' >"$work/root/rmm-a-example/instance.conf"
@@ -207,6 +239,7 @@ done
 cp "$repo_root/deploy/compose/compose.yml" "$instance/compose.yml"
 cat >>"$instance/instance.conf" <<CONF
 FLEETIFY_VERSION=9.9.9
+NETWORK_MTU=1400
 POSTGRES_IMAGE=timescale/timescaledb:2.30.0-pg17@sha256:3113d12b78392c064aa7475caf7a52b447b29ddd4f9bfd23526733fcb03e3459
 TOOL_IMAGE=ghcr.io/404-developer-ai/fleetify-tool@$digest
 SIGNER_IMAGE=ghcr.io/404-developer-ai/fleetify-signer@$digest
@@ -217,6 +250,7 @@ CONF
 docker compose --project-name fleetify-rmm-a-example --project-directory "$instance" --env-file "$instance/instance.conf" \
     -f "$instance/compose.yml" config >"$work/rendered.yml" || fail "docker compose rejected compose.yml"
 grep -q '127.0.0.1' "$work/rendered.yml" || fail "published ports are not bound to loopback"
+[[ "$(grep -c 'com.docker.network.driver.mtu: "1400"' "$work/rendered.yml")" -eq 3 ]] || fail "the instance networks do not use NETWORK_MTU"
 if grep -q 'docker.sock' "$work/rendered.yml"; then fail "Docker socket mounted"; fi
 pass "instance compose.yml renders with docker compose"
 

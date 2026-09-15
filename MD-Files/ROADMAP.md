@@ -11,7 +11,7 @@
 Not tagged yet. What is still open before the tag is listed under "Open before tagging 0.1.0".
 
 **0.2.0** — in progress since 2026-09-15, on top of the untagged 0.1.0. Pre-releases `v0.2.0-alpha.1` (2026-09-15, first CI
-run; its release build failed), `v0.2.0-alpha.2` (first published test build) `v0.2.0-alpha.3` (VPS behind NAT, first VPS install) and `v0.2.0-alpha.4` (fixes from the first install).
+run; its release build failed), `v0.2.0-alpha.2` (first published test build), `v0.2.0-alpha.3` (VPS behind NAT, first VPS install), `v0.2.0-alpha.4` (fixes from the first install) and `v0.2.0-alpha.5` (network MTU).
 
 Markers: [done] built and tested, [open] still to do.
 
