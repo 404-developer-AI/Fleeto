@@ -37,6 +37,8 @@ readonly CREDENTIALS_DIR="$FLEETIFY_ROOT/credentials"
 readonly RELEASES_TOKEN_FILE="$CREDENTIALS_DIR/github-releases.token"
 readonly PACKAGES_TOKEN_FILE="$CREDENTIALS_DIR/github-packages.token"
 readonly PACKAGES_USER_FILE="$CREDENTIALS_DIR/github-packages.user"
+# Public addresses a firewall or NAT forwards to this VPS (TCP 80 and 443), confirmed once by the operator.
+readonly PUBLIC_ADDRESSES_FILE="$FLEETIFY_ROOT/public-addresses"
 readonly CADDY_DIR="$FLEETIFY_ROOT/caddy"
 readonly INSTALLED_SCRIPT="$FLEETIFY_ROOT/bin/install.sh"
 # PostgreSQL 17 with TimescaleDB, pinned by digest. This script is covered by the signed manifest, so this pin is too.
@@ -938,17 +940,43 @@ resolve_addresses() {
     } | { grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$|^[0-9a-fA-F:]+:[0-9a-fA-F:.]*$' || true; } | tr 'A-F' 'a-f' | sort -u
 }
 
+# detected_host_addresses: the addresses on this VPS's interfaces and the public addresses it is seen with outbound.
+detected_host_addresses() {
+    ip -o addr show scope global 2>/dev/null | awk '{ split($4, a, "/"); print a[1] }'
+    # A VPS behind 1:1 NAT has no public address on its interfaces; ask for the public one as well.
+    if curl -4 --silent --fail --max-time 5 https://api.ipify.org 2>/dev/null; then echo; fi
+    if curl -6 --silent --fail --max-time 5 https://api6.ipify.org 2>/dev/null; then echo; fi
+}
+
+# stored_public_addresses: inbound addresses of a firewall or NAT in front of this VPS, confirmed earlier.
+stored_public_addresses() {
+    if [[ -f "$PUBLIC_ADDRESSES_FILE" ]]; then
+        grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$|^[0-9a-f:]+:[0-9a-f:.]*$' "$PUBLIC_ADDRESSES_FILE" || true
+    fi
+}
+
 host_addresses() {
-    {
-        ip -o addr show scope global 2>/dev/null | awk '{ split($4, a, "/"); print a[1] }'
-        # A VPS behind 1:1 NAT has no public address on its interfaces; ask for the public one as well.
-        if curl -4 --silent --fail --max-time 5 https://api.ipify.org 2>/dev/null; then echo; fi
-        if curl -6 --silent --fail --max-time 5 https://api6.ipify.org 2>/dev/null; then echo; fi
-    } | { grep -v '^$' || true; } | tr 'A-F' 'a-f' | sort -u
+    { detected_host_addresses; stored_public_addresses; } | { grep -v '^$' || true; } | tr 'A-F' 'a-f' | sort -u
+}
+
+# confirm_forwarded_address <address> <name>: asks whether a firewall or NAT forwards TCP 80 and 443 on an address that
+# is not on this VPS (inbound and outbound addresses often differ behind a firewall). A confirmed address is stored, so
+# later runs do not ask again. Never assumed without an interactive answer: a wrong record means no certificates.
+confirm_forwarded_address() {
+    local address="$1" name="$2" answer
+    [[ -t 0 ]] || return 1
+    info "$name resolves to $address, which is not an address of this VPS."
+    info "Behind a firewall or NAT that is expected when it forwards TCP 80 and 443 on $address to this VPS"
+    info "(a plain port forward that keeps the client address, so agents are shown with their own address)."
+    read -r -p "    Does a firewall or NAT forward TCP 80 and 443 on $address to this VPS? [y/N] " answer
+    [[ "$answer" =~ ^[Yy]([Ee][Ss])?$ ]] || return 1
+    ensure_fleetify_root
+    { stored_public_addresses; printf '%s\n' "$address"; } | sort -u | write_file_atomic "$PUBLIC_ADDRESSES_FILE" 0600
+    ok "$address stored as a forwarded public address of this VPS ($PUBLIC_ADDRESSES_FILE)"
 }
 
 check_dns() {
-    local fqdn="$1" name address problems=() host_ips resolved
+    local fqdn="$1" name address problems=() host_ips resolved name_ok
     step "Checking DNS for $fqdn and agents.$fqdn"
     host_ips="$(host_addresses)"
     for name in "$fqdn" "agents.$fqdn"; do
@@ -957,12 +985,19 @@ check_dns() {
             problems+=("$name has no A or AAAA record")
             continue
         fi
+        name_ok=true
         while read -r address; do
-            if ! grep -qxF "$address" <<<"$host_ips"; then
-                problems+=("$name resolves to $address, which is not an address of this VPS")
+            if grep -qxF "$address" <<<"$host_ips"; then
+                continue
+            fi
+            if confirm_forwarded_address "$address" "$name"; then
+                host_ips="$(printf '%s\n%s\n' "$host_ips" "$address" | sort -u)"
+            else
+                problems+=("$name resolves to $address, which is not an address of this VPS and not confirmed as forwarded to it")
+                name_ok=false
             fi
         done <<<"$resolved"
-        if [[ ${#problems[@]} -eq 0 ]]; then
+        if $name_ok; then
             ok "$name -> $(tr '\n' ' ' <<<"$resolved")"
         fi
     done
@@ -970,14 +1005,16 @@ check_dns() {
         local problem
         for problem in "${problems[@]}"; do error "$problem"; done
         local ipv4 ipv6
-        ipv4="$(grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$' <<<"$host_ips" | grep -Ev '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)' | head -n 1 || true)"
+        # Suggest the forwarded public address when there is one, otherwise this VPS's own public address.
+        ipv4="$( { stored_public_addresses; printf '%s\n' "$host_ips"; } | grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$' | grep -Ev '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)' | head -n 1 || true)"
         ipv6="$(grep ':' <<<"$host_ips" | grep -Ev '^(fe80|fc|fd)' | head -n 1 || true)"
         printf '\n       Create these DNS records, wait until they resolve, and run install.sh again:\n' >&2
         printf '         %-40s A     %s\n' "$fqdn" "${ipv4:-<public IPv4 of this VPS>}" "agents.$fqdn" "${ipv4:-<public IPv4 of this VPS>}" >&2
         if [[ -n "$ipv6" ]]; then
             printf '         %-40s AAAA  %s\n' "$fqdn" "$ipv6" "agents.$fqdn" "$ipv6" >&2
         fi
-        printf '       Remove any record that points elsewhere.\n' >&2
+        printf '       Remove any record that points elsewhere. Behind a firewall or NAT, use the address it forwards TCP 80 and 443 on\n' >&2
+        printf '       and run install.sh interactively to confirm that address once.\n' >&2
         exit 1
     fi
 }

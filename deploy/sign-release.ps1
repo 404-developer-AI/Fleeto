@@ -75,7 +75,9 @@ Write-Host ''
 Write-Host "Release $tag$(if ($release.isPrerelease) { ' (pre-release)' })" -ForegroundColor Cyan
 Write-Host "  rollback mode: $($manifest.rollback)"
 foreach ($image in $manifest.images.PSObject.Properties) { Write-Host ("  {0,-8} {1}" -f $image.Name, $image.Value) }
-Write-Host '  Compare the digests with the Release workflow log before you continue.'
+Write-Host '  Compare the digests with the Release workflow log (gh run view <run id> --log) before you continue.'
+$answer = Read-Host 'Do the digests match the Release workflow log? [y/N]'
+if ($answer -notmatch '^[Yy]') { Fail 'Signing cancelled: the digests were not confirmed.' 'Nothing was signed or uploaded; the release stays a draft.' }
 
 # 3. The key must be the one the builds trust.
 $publicKeyValue = (Get-Content $PublicKey -Raw).Trim()

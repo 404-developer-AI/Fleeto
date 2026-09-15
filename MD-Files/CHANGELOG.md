@@ -11,8 +11,8 @@ When a third released version is added, the oldest entry moves to the top of
 
 Implementation of 0.0.x (foundation) and 0.1.0 (first usable release), to be released as 0.1.0, and work on 0.2.0
 that started on 2026-09-15 on top of it (entries starting with "0.2.0:"). Pre-release `0.2.0-alpha.1` (2026-09-15) is a
-test build of this state for the first CI run; its release build failed on the Caddy image. `0.2.0-alpha.2` is the test
-build for the first VPS install. Pre-releases are not releases, so their entries stay here.
+test build of this state for the first CI run; its release build failed on the Caddy image. `0.2.0-alpha.2` was published for the
+first VPS install; `0.2.0-alpha.3` adds support for a VPS behind NAT. Pre-releases are not releases, so their entries stay here.
 
 ### Added
 
@@ -131,6 +131,10 @@ build for the first VPS install. Pre-releases are not releases, so their entries
 
 ### Changed
 
+- 0.2.0: install.sh supports a VPS behind a firewall or NAT whose inbound public address differs from its outbound one: it asks
+  once whether a firewall forwards TCP 80 and 443 on the address the DNS records use, stores a confirmed address and
+  suggests it for missing records. deploy/README.md describes downloading install.sh from the release directly on the VPS,
+  and deploy/sign-release.ps1 asks to confirm the image digests before signing.
 - 0.2.0: Releases come from GitHub Releases of the private repository instead of a public release host, because Steaan runs
   every instance. install.sh asks once for a fine-grained token (release files) and a classic `read:packages` token
   (images), checks and stores them root-only, warns before they expire, and keeps the registry login only while it runs.

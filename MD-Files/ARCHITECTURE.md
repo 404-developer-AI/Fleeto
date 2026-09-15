@@ -857,9 +857,9 @@ container:
 `install.sh` is the only supported way to install or update the server. It operates per
 instance; a VPS can hold several. Steaan runs every instance (SaaS, decided 2026-09-15), so
 releases are GitHub Releases of the private repository and the images are private packages on
-ghcr.io. `install.sh` is never piped from `curl` into a shell: a Steaan workstation downloads it
-from the release, it is copied to the VPS with `steaan-release.pub`, its signature is checked,
-and only then run.
+ghcr.io. `install.sh` is never piped from `curl` into a shell: it is downloaded from the release
+with the release token, its signature is checked against the release public key taken from the
+key ceremony record (never from GitHub), and only then run (`deploy/README.md`, First install).
 
 ```
 openssl pkeyutl -verify -rawin -pubin -inkey steaan-release.pub -in install.sh -sigfile install.sh.sig
@@ -892,7 +892,8 @@ layer4 module, admin API on a local socket) with an empty routing table → crea
 `/opt/fleetify/`.
 
 New instance: ask for or take the FQDN → check that both the FQDN and `agents.<fqdn>`
-resolve to this VPS (fail early with the DNS records to create) → derive the instance name
+resolve to this VPS (fail early with the DNS records to create; an address that is not on the VPS
+counts only after the operator confirms once that a firewall or NAT forwards TCP 80 and 443 on it) → derive the instance name
 from the FQDN → create `/opt/fleetify/<instance>/` with Compose files → generate the root
 key, signer key and DB passwords into `/opt/fleetify/<instance>/secrets/` (see Keys for
 ownership and modes; never part of a backup) → verify the release manifest and pull images by

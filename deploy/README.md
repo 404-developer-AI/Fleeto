@@ -21,6 +21,10 @@ which installs and updates instances. Design background: `MD-Files/ARCHITECTURE.
 - Ubuntu 24.04 or 22.04, amd64, root access, a public IPv4 address (IPv6 optional).
 - Inbound TCP 80 and 443 open (80 for certificate issuance and redirects; 443 for the web UI, the API and agents).
   Nothing else needs to be reachable from outside: every instance port is bound to 127.0.0.1.
+- Behind a firewall or NAT the DNS records point to the public address that forwards TCP 80 and 443 to the VPS, which
+  may differ from the address the VPS uses outbound. Use a plain port forward that keeps the client address, so agents
+  are shown with their own public address. install.sh asks once to confirm such an address and stores it in
+  `/opt/fleetify/public-addresses`.
 - Outbound HTTPS to `api.github.com` and GitHub's download hosts (`*.githubusercontent.com`), `ghcr.io`, Docker Hub,
   `download.docker.com`, the Ubuntu mirrors, Let's Encrypt, and the backup storage and SMTP server of each instance.
 - If `/etc/docker/daemon.json` already exists, install.sh leaves it alone. Add a `default-address-pools` entry
@@ -75,20 +79,35 @@ once per VPS for two read-only tokens and stores them in `/opt/fleetify/credenti
 
 ## First install
 
-On a Steaan workstation with the GitHub CLI, download the release's install.sh and copy it to the VPS together with the
-release public key (`steaan-release.pub`, from the key ceremony; for test keys it is written by `release keygen`):
+Download install.sh from the release directly on the VPS, as root, with the release token (it goes to curl in a
+root-only header file, never on a command line or in the shell history):
 
-```
-gh release download v0.2.0-alpha.2 --repo 404-developer-AI/Fleeto --pattern 'install.sh*'
-scp install.sh install.sh.sig steaan-release.pub root@<vps>:
+```bash
+mkdir -p /root/fleeto && cd /root/fleeto
+apt-get update && apt-get install -y curl jq openssl
+read -rsp 'Release token: ' GH_TOKEN; echo
+(umask 077; printf 'Authorization: Bearer %s\n' "$GH_TOKEN" > .auth); unset GH_TOKEN
+api=https://api.github.com/repos/404-developer-AI/Fleeto
+curl -fsSL -H @.auth -H 'Accept: application/vnd.github+json' "$api/releases/tags/v<version>" > release.json
+for name in install.sh install.sh.sig; do
+  url=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .url' release.json)
+  curl -fsSL -H @.auth -H 'Accept: application/octet-stream' -o "$name" "$url"
+done
+rm -f .auth release.json
 ```
 
-On the VPS:
+Build the Steaan release public key from its base64 form, taken from the key ceremony record and never from GitHub
+(whoever could change the release could change a key published next to it), and verify the script:
 
-```
+```bash
+{ printf '\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00'; printf '%s' '<base64 release public key>' | base64 -d; } \
+  | openssl pkey -pubin -inform DER -out steaan-release.pub
 openssl pkeyutl -verify -rawin -pubin -inkey steaan-release.pub -in install.sh -sigfile install.sh.sig
-sudo bash install.sh
+bash install.sh
 ```
+
+The prefix bytes are the fixed DER header of an ed25519 public key. From a workstation with the GitHub CLI,
+`gh release download v<version> --repo 404-developer-AI/Fleeto --pattern 'install.sh*'` and `scp` work as well.
 
 install.sh asks for the FQDN of the instance and for the two GitHub tokens. The first run on a VPS installs the required
 packages, Docker Engine (from Docker's apt repository, key fingerprint checked) and the host proxy. For the instance it

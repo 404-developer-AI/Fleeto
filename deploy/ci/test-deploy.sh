@@ -134,6 +134,39 @@ if bash -c "source '$repo_root/deploy/install.sh'; set +e; trap - ERR; (load_rel
 fi
 pass "the unbundled install.sh refuses to verify releases"
 
+# --- 3b. DNS check behind a firewall or NAT -------------------------------------------------------------------------
+cat >"$work/dns.sh" <<'EOF'
+source "$REPO/deploy/install.sh"
+set +e
+trap - ERR
+detected_host_addresses() { printf '172.16.10.81\n172.32.0.178\n'; }
+resolve_addresses() {
+    case "$1" in
+        rmm.nat.example | agents.rmm.nat.example) printf '172.32.0.189\n' ;;
+        rmm.half.example) printf '172.32.0.189\n' ;;
+        rmm.own.example | agents.rmm.own.example) printf '172.32.0.178\n' ;;
+    esac
+}
+case "$CASE" in
+    own) ( check_dns rmm.own.example ) >/dev/null 2>&1 || exit 20 ;;
+    unconfirmed) ( check_dns rmm.nat.example </dev/null ) >/dev/null 2>&1 && exit 21 ;;
+    stored)
+        printf '172.32.0.189\n' >"$FLEETIFY_ROOT/public-addresses"
+        ( check_dns rmm.nat.example ) >/dev/null 2>&1 || exit 22
+        output="$( ( check_dns rmm.half.example ) 2>&1 )" && exit 23
+        grep -q 'agents.rmm.half.example has no A or AAAA record' <<<"$output" || exit 24
+        grep -qE 'agents.rmm.half.example +A +172.32.0.189' <<<"$output" || exit 25
+        ;;
+esac
+exit 0
+EOF
+for case in own unconfirmed stored; do
+    mkdir -p "$work/dns-$case"
+    FLEETIFY_ROOT="$work/dns-$case" REPO="$repo_root" CASE="$case" bash "$work/dns.sh" </dev/null \
+        || fail "DNS check behind NAT, case $case (exit $?)"
+done
+pass "the DNS check accepts a forwarded public address only once it is confirmed, and suggests it for missing records"
+
 # --- 4. Caddyfile generation -----------------------------------------------------------------------------------------
 mkdir -p "$work/root/rmm-a-example" "$work/root/rmm-b-example" "$work/empty" "$work/caddy-two" "$work/caddy-empty"
 printf 'FLEETIFY_INSTANCE=rmm-a-example\nFLEETIFY_FQDN=rmm.a.example\nWEB_PORT=20000\nAGENT_PORT=20001\n' >"$work/root/rmm-a-example/instance.conf"
