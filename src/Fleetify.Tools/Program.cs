@@ -150,6 +150,25 @@ releaseSign.SetAction(parse =>
 });
 release.Subcommands.Add(releaseSign);
 
+var publicKeyOption = new Option<FileInfo>("--public-key") { Description = "Release public key file (release-signing.pub, base64).", Required = true };
+var verifyFileOption = new Option<FileInfo>("--file") { Description = "Signed file; the signature is read from <file>.sig.", Required = true };
+var releaseVerify = new Command("verify", "Verify a release signature, as install.sh does, before publishing.") { publicKeyOption, verifyFileOption };
+releaseVerify.SetAction(parse =>
+{
+    var publicKey = Convert.FromBase64String(File.ReadAllText(parse.GetValue(publicKeyOption)!.FullName).Trim());
+    var file = parse.GetValue(verifyFileOption)!;
+    var signature = File.ReadAllBytes(file.FullName + ".sig");
+    if (publicKey.Length != 32 || signature.Length != 64 || !Ed25519.VerifyRaw(publicKey, File.ReadAllBytes(file.FullName), signature))
+    {
+        Console.Error.WriteLine($"The signature of {file.Name} does not verify with key {KeyIds.For(publicKey)}.");
+        return 1;
+    }
+
+    Console.WriteLine($"Signature of {file.Name} verified with key {KeyIds.For(publicKey)}.");
+    return 0;
+});
+release.Subcommands.Add(releaseVerify);
+
 var versionOption = new Option<string>("--version") { Description = "Release version, e.g. 0.1.0.", Required = true };
 var imageOption = new Option<string[]>("--image") { Description = "name=digest, repeatable, e.g. web=sha256:...", Required = true, AllowMultipleArgumentsPerToken = true };
 var installShOption = new Option<FileInfo>("--install-sh") { Description = "The install.sh of this release.", Required = true };

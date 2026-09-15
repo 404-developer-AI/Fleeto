@@ -21,8 +21,8 @@ which installs and updates instances. Design background: `MD-Files/ARCHITECTURE.
 - Ubuntu 24.04 or 22.04, amd64, root access, a public IPv4 address (IPv6 optional).
 - Inbound TCP 80 and 443 open (80 for certificate issuance and redirects; 443 for the web UI, the API and agents).
   Nothing else needs to be reachable from outside: every instance port is bound to 127.0.0.1.
-- Outbound HTTPS to `get.fleeto.app`, `ghcr.io`, Docker Hub, `download.docker.com`, the Ubuntu mirrors, Let's
-  Encrypt, and the backup storage and SMTP server of each instance.
+- Outbound HTTPS to `api.github.com` and GitHub's download hosts (`*.githubusercontent.com`), `ghcr.io`, Docker Hub,
+  `download.docker.com`, the Ubuntu mirrors, Let's Encrypt, and the backup storage and SMTP server of each instance.
 - If `/etc/docker/daemon.json` already exists, install.sh leaves it alone. Add a `default-address-pools` entry
   yourself when you plan more than about 10 instances (each instance uses three Docker networks), and add that range
   to `ReverseProxy__KnownNetworks` in the web service if it is not 172.16.0.0/12, 10.210.0.0/16 or 192.168.0.0/16.
@@ -53,18 +53,46 @@ agents.rmm.customer.example   A     <public IPv4 of the VPS>
 
 install.sh checks both names and prints the exact records to create when they are missing or wrong.
 
+## GitHub tokens
+
+Steaan runs every instance, and releases are GitHub Releases of the private repository (`RELEASING.md`). install.sh asks
+once per VPS for two read-only tokens and stores them in `/opt/fleetify/credentials/` (0700 root, files 0600):
+
+| Token | Create at | Settings | Used for |
+|---|---|---|---|
+| Release token | GitHub, Settings, Developer settings, Fine-grained tokens | Repository access: only `404-developer-AI/Fleeto`; Permissions: Contents read-only (Metadata read-only is added automatically) | The list of releases, `manifest.json`, `install.sh` and their signatures |
+| Packages token | GitHub, Settings, Developer settings, Tokens (classic) | Only the `read:packages` scope | Pulling the images from ghcr.io (GitHub Packages accepts no fine-grained tokens) |
+
+- install.sh checks both when they are entered: the release token must read the releases, the packages token must have
+  `read:packages` (it warns about any extra scope). It warns 30 days before a token expires; replace tokens with
+  `sudo /opt/fleetify/bin/install.sh --github-tokens`.
+- The registry login exists only while install.sh runs (a Docker config in its temporary directory); no registry
+  credential stays on disk.
+- Residual risk: the release token can read the repository contents, so whoever controls the VPS as root can read the
+  source code. Use tokens that expire, one pair per VPS, and revoke them when a VPS is retired.
+- Signatures still decide: a release file or image that is not covered by a manifest signed with the Steaan release key
+  is never used, whatever GitHub serves.
+
 ## First install
 
+On a Steaan workstation with the GitHub CLI, download the release's install.sh and copy it to the VPS together with the
+release public key (`steaan-release.pub`, from the key ceremony; for test keys it is written by `release keygen`):
+
 ```
-curl -fsSLO https://get.fleeto.app/install.sh
-curl -fsSLO https://get.fleeto.app/install.sh.sig
-openssl pkeyutl -verify -rawin -pubin -inkey steaan-release.pub -in install.sh -sigfile install.sh.sig
-sudo bash install.sh --fqdn rmm.customer.example
+gh release download v0.2.0-alpha.2 --repo 404-developer-AI/Fleeto --pattern 'install.sh*'
+scp install.sh install.sh.sig steaan-release.pub root@<vps>:
 ```
 
-`steaan-release.pub` comes from the Fleeto website or the customer documentation, never from the same place as the
-script. The first run on a VPS installs the required packages, Docker Engine (from Docker's apt repository, key
-fingerprint checked) and the host proxy. For the instance it then:
+On the VPS:
+
+```
+openssl pkeyutl -verify -rawin -pubin -inkey steaan-release.pub -in install.sh -sigfile install.sh.sig
+sudo bash install.sh
+```
+
+install.sh asks for the FQDN of the instance and for the two GitHub tokens. The first run on a VPS installs the required
+packages, Docker Engine (from Docker's apt repository, key fingerprint checked) and the host proxy. For the instance it
+then:
 
 1. checks DNS, verifies the release manifest and pulls every image by digest;
 2. creates `/opt/fleetify/<instance>/` and generates `root.key`, `signer.key` and one database password per role;
@@ -157,6 +185,5 @@ backup destination.
 - Validate locally without Docker: `bash deploy/ci/test-deploy.sh`, `bash deploy/ci/branding-check.sh`,
   `shellcheck deploy/install.sh deploy/ci/*.sh` and `shellcheck --shell=sh deploy/postgres/*.sh deploy/postgres/init/*.sh`.
 - `deploy/install.sh` in a checkout contains a placeholder instead of the release public keys and refuses to install
-  anything. Build a bundle with your own development release key to test on a scratch VPS:
-  `deploy/ci/bundle-install.sh --version <x.y.z> --release-public-keys <base64 public key> --out dist/install.sh`, and
-  serve a matching signed manifest (see `RELEASING.md`) through `FLEETIFY_RELEASE_BASE_URL`.
+  anything. Test on a scratch VPS with a pre-release built and signed with test keys (`RELEASING.md`);
+  `FLEETIFY_RELEASE_REPOSITORY=<owner>/<repo>` points install.sh at the releases of another repository, such as a fork.

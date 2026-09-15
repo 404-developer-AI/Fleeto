@@ -58,8 +58,8 @@ Semantic versioning `MAJOR.MINOR.PATCH`. The project starts at `0.0.0`.
 
 ## Deployment model: one instance per customer
 
-A **customer** is an IT team or MSP that buys Fleeto from Steaan. Every customer gets its
-own **instance**: a separate Docker Compose stack with its own database, root key, secrets,
+A **customer** is an IT team or MSP that buys Fleeto from Steaan as a service: Steaan runs the
+instances (SaaS). Every customer gets its own **instance**: a separate Docker Compose stack with its own database, root key, secrets,
 licenses, users and FQDN. Instances never share data. Several instances can run on one
 VPS; a host-level reverse proxy routes each FQDN to its instance.
 
@@ -212,12 +212,17 @@ rather than a home-grown fallback. See the open decisions for what still has to 
 ## Install and update
 
 One script does both, on a fresh or an existing Ubuntu VPS: `install.sh`. It works per
-instance; a VPS can hold several.
+instance; a VPS can hold several. Steaan runs every instance (SaaS, decided 2026-09-15):
+customers never install Fleeto themselves.
 
-- **Never `curl | sudo bash`.** `install.sh` is downloaded with its signature and verified
-  against the Steaan release public key before it runs. Every release publishes a manifest
-  with image digests, signed with the release key; `install.sh` verifies it and pulls images
-  by digest only.
+- **Releases are GitHub Releases** of the private repository; images are private packages on
+  ghcr.io. `install.sh` asks once per VPS for two read-only tokens (fine-grained Contents
+  read-only for the release files, classic `read:packages` for the images) and stores them
+  root-only. There is no public release host.
+- **Never `curl | sudo bash`.** `install.sh` is downloaded from the release with its signature
+  and verified against the Steaan release public key before it runs. Every release carries a
+  manifest with image digests, signed with the release key outside CI; `install.sh` verifies it
+  and pulls images by digest only.
 - First run on a VPS: installs Docker and the host-level reverse proxy.
 - New instance: asks for the **FQDN** (or takes `--fqdn rmm.customer.example`), checks that
   the FQDN and `agents.<fqdn>` resolve to this VPS, generates the root key, signer key and

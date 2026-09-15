@@ -11,7 +11,8 @@ When a third released version is added, the oldest entry moves to the top of
 
 Implementation of 0.0.x (foundation) and 0.1.0 (first usable release), to be released as 0.1.0, and work on 0.2.0
 that started on 2026-09-15 on top of it (entries starting with "0.2.0:"). Pre-release `0.2.0-alpha.1` (2026-09-15) is a
-test build of this state for the first CI run and the first VPS install; it is not a release, so its entries stay here.
+test build of this state for the first CI run; its release build failed on the Caddy image. `0.2.0-alpha.2` is the test
+build for the first VPS install. Pre-releases are not releases, so their entries stay here.
 
 ### Added
 
@@ -130,6 +131,12 @@ test build of this state for the first CI run and the first VPS install; it is n
 
 ### Changed
 
+- 0.2.0: Releases come from GitHub Releases of the private repository instead of a public release host, because Steaan runs
+  every instance. install.sh asks once for a fine-grained token (release files) and a classic `read:packages` token
+  (images), checks and stores them root-only, warns before they expire, and keeps the registry login only while it runs.
+  It installs the newest published release, and pre-releases only on a VPS that runs one or while no release exists.
+  The release workflow creates a draft release; `deploy/sign-release.ps1` checks, signs, verifies and publishes it.
+  `fleetify-tool release verify` checks a signature. The signed `latest` pointer is gone.
 - 0.2.0: Pre-release versions (`0.2.0-alpha.1`): the release workflow, the install.sh bundler and install.sh accept them, and
   install.sh orders them by semantic versioning, so `0.2.0-alpha.1` updates to `0.2.0`.
 - 0.2.0: The signing request origin trigger refuses signing request kinds it does not know for every container role.

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Deployment self-test, run in CI (and locally where possible):
 #   1. bundles install.sh with a throwaway release key and checks the embedded templates,
-#   2. signs a fake "latest" pointer and manifest and checks that install.sh accepts them and rejects tampering,
+#   2. serves a signed manifest as a fake GitHub release and checks that install.sh picks the right release, accepts a
+#      correctly signed manifest and rejects tampering,
 #   3. checks that an unbundled install.sh refuses to verify anything,
 #   4. generates the host Caddyfile for two fake instances (and for none),
 #   5. with Docker: validates both Caddyfiles with the fleetify-caddy image and renders the instance Compose file.
@@ -30,32 +31,70 @@ bash "$repo_root/deploy/ci/bundle-install.sh" --version 9.9.9 --release-public-k
 grep -qx 'readonly INSTALLER_VERSION="9.9.9"' "$work/site/install.sh" || fail "version not set in bundle"
 pass "bundle-install.sh produced a bundle with embedded key and templates"
 
-# --- 2. Signed pointer and manifest ----------------------------------------------------------------------------------
+# --- 2. Fake GitHub release with a signed manifest ------------------------------------------------------------------
 sign() { openssl pkeyutl -sign -rawin -inkey "$work/release.key" -in "$1" -out "$1.sig"; }
-mkdir -p "$work/site/releases/9.9.9"
-printf '9.9.9\n' >"$work/site/releases/latest"
+mkdir -p "$work/site/assets" "$work/site/api" "$work/no-instances" "$work/pre-instance/test-example"
 digest="sha256:$(printf '%064d' 7)"
 jq -n --arg d "$digest" --arg h "$(sha256sum "$work/site/install.sh" | cut -c1-64)" \
     '{formatVersion: 1, version: "9.9.9", images: {caddy: $d, gateway: $d, signer: $d, tool: $d, web: $d, workers: $d}, installShSha256: $h, rollback: "images"}' \
-    >"$work/site/releases/9.9.9/manifest.json"
-sign "$work/site/releases/latest"
-sign "$work/site/releases/9.9.9/manifest.json"
+    >"$work/site/assets/manifest.json"
+sign "$work/site/assets/manifest.json"
+asset() { jq -n --arg name "$1" '{name: $name, url: ("https://api.github.com/repos/404-developer-AI/Fleeto/releases/assets/" + $name)}'; }
+jq -n --argjson a "$(asset manifest.json)" --argjson b "$(asset manifest.json.sig)" '{tag_name: "v9.9.9", assets: [$a, $b]}' \
+    >"$work/site/api/release-9.9.9.json"
+# Drafts, tags that are not versions and older releases never win; a pre-release only counts on a VPS that runs one.
+jq -n '[{tag_name: "v9.9.8", prerelease: false, draft: false}, {tag_name: "v9.9.9", prerelease: false, draft: false},
+        {tag_name: "v9.10.0-alpha.1", prerelease: true, draft: false}, {tag_name: "v10.0.0", prerelease: false, draft: true},
+        {tag_name: "nightly", prerelease: false, draft: false}]' >"$work/site/api/releases.json"
+jq -n '[{tag_name: "v9.9.9-alpha.2", prerelease: true, draft: false}, {tag_name: "v9.9.9-alpha.10", prerelease: true, draft: false}]' \
+    >"$work/site/api/pre-releases.json"
+printf 'FLEETIFY_FQDN=test.example\nFLEETIFY_VERSION=9.9.9-alpha.1\n' >"$work/pre-instance/test-example/instance.conf"
 
-cat >"$work/verify.sh" <<'EOF'
+cat >"$work/github.sh" <<'EOF'
 source "$SITE/install.sh"
 set +e
 trap - ERR
-download() { cp "$SITE/${1#https://get.fleeto.app/}" "$2"; }
+# GitHub stand-in: API paths map to files in $SITE; the token is never needed.
+ensure_github_credentials() { :; }
+github_request() {
+    local url="$2" output="$3"
+    : >"$output.headers"
+    case "$url" in
+        *"/releases?per_page=100") cp "$SITE/api/${RELEASE_LIST:-releases.json}" "$output" ;;
+        *"/releases/tags/v9.9.9") cp "$SITE/api/release-9.9.9.json" "$output" ;;
+        *"/releases/assets/"*) cp "$SITE/assets/${url##*/}" "$output" ;;
+        *) printf 404; return 0 ;;
+    esac
+    printf 200
+}
+EOF
+
+cat >"$work/verify.sh" <<'EOF'
+source "$WORK/github.sh"
 resolve_latest_version || exit 10
-[[ "$LATEST_VERSION" == "9.9.9" ]] || exit 11
+[[ "$LATEST_VERSION" == "9.9.9" && "$NEWER_PRE_RELEASE" == "9.10.0-alpha.1" ]] || exit 11
 ( load_manifest 9.9.9 >/dev/null ) || exit 12
 load_manifest 9.9.9 >/dev/null
 [[ "${MANIFEST_IMAGES[web]}" == "ghcr.io/404-developer-ai/fleetify-web@$DIGEST" ]] || exit 13
 [[ "$(sha256_of "$SITE/install.sh")" == "$MANIFEST_INSTALL_SH_SHA256" ]] || exit 14
+( load_manifest 9.9.8 >/dev/null 2>&1 ) && exit 15
 exit 0
 EOF
-SITE="$work/site" DIGEST="$digest" bash "$work/verify.sh" >/dev/null 2>&1 || fail "install.sh did not accept a correctly signed release (exit $?)"
-pass "install.sh accepts a correctly signed pointer and manifest"
+FLEETIFY_ROOT="$work/no-instances" WORK="$work" SITE="$work/site" DIGEST="$digest" bash "$work/verify.sh" >/dev/null 2>&1 \
+    || fail "install.sh did not accept a correctly signed release (exit $?)"
+pass "install.sh picks the newest release from GitHub and accepts its signed manifest"
+
+cat >"$work/pre-release.sh" <<'EOF'
+source "$WORK/github.sh"
+resolve_latest_version || exit 10
+[[ "$LATEST_VERSION" == "$EXPECTED" ]] || { echo "latest $LATEST_VERSION, expected $EXPECTED" >&2; exit 11; }
+exit 0
+EOF
+FLEETIFY_ROOT="$work/pre-instance" WORK="$work" SITE="$work/site" EXPECTED=9.10.0-alpha.1 bash "$work/pre-release.sh" \
+    || fail "a VPS that runs a pre-release does not follow newer pre-releases"
+FLEETIFY_ROOT="$work/no-instances" WORK="$work" SITE="$work/site" RELEASE_LIST=pre-releases.json EXPECTED=9.9.9-alpha.10 bash "$work/pre-release.sh" \
+    || fail "without any release install.sh does not offer the newest pre-release"
+pass "pre-releases count only on a VPS that runs one or while no release exists"
 
 cat >"$work/versions.sh" <<'EOF'
 source "$SITE/install.sh"
@@ -81,12 +120,12 @@ EOF
 SITE="$work/site" bash "$work/versions.sh" || fail "install.sh compares or validates versions wrongly (exit $?)"
 pass "install.sh orders releases and pre-releases by semantic versioning"
 
-cp "$work/site/releases/9.9.9/manifest.json" "$work/manifest.orig"
-sed -i 's/"images"/"rollback": "restore", "images"/' "$work/site/releases/9.9.9/manifest.json"
-if SITE="$work/site" DIGEST="$digest" bash "$work/verify.sh" >/dev/null 2>&1; then
+cp "$work/site/assets/manifest.json" "$work/manifest.orig"
+sed -i 's/"images"/"rollback": "restore", "images"/' "$work/site/assets/manifest.json"
+if FLEETIFY_ROOT="$work/no-instances" WORK="$work" SITE="$work/site" DIGEST="$digest" bash "$work/verify.sh" >/dev/null 2>&1; then
     fail "install.sh accepted a tampered manifest"
 fi
-cp "$work/manifest.orig" "$work/site/releases/9.9.9/manifest.json"
+cp "$work/manifest.orig" "$work/site/assets/manifest.json"
 pass "install.sh rejects a tampered manifest"
 
 # --- 3. Unbundled script refuses ------------------------------------------------------------------------------------

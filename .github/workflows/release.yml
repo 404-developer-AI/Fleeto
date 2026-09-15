@@ -1,6 +1,7 @@
-# Release build for tags vX.Y.Z and pre-release tags vX.Y.Z-alpha.N: builds and pushes the images, captures their digests and produces the UNSIGNED
-# release manifest and install.sh as workflow artifacts. Signing happens offline with the Steaan hardware token and
-# never in CI (MD-Files/ARCHITECTURE.md section 5); see deploy/RELEASING.md for the manual steps.
+# Release build for tags vX.Y.Z and pre-release tags vX.Y.Z-alpha.N: builds and pushes the images, captures their digests,
+# and creates a DRAFT GitHub release with the UNSIGNED manifest and install.sh (also kept as a workflow artifact). Signing
+# happens outside CI with the Steaan release key (MD-Files/ARCHITECTURE.md section 5): deploy/sign-release.ps1 signs,
+# uploads the signatures and publishes the release; see deploy/RELEASING.md.
 #
 # Repository variables (public keys only, never private keys):
 #   FLEETIFY_LICENSE_PUBLIC_KEYS   semicolon-separated base64 ed25519 license public keys (current first)
@@ -30,7 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
-      contents: read
+      # contents: write only to create the draft release; nothing is pushed to the repository.
+      contents: write
       packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -177,7 +179,6 @@ jobs:
             --install-sh dist/releases/"$VERSION"/install.sh \
             --rollback "$ROLLBACK" \
             --out dist/releases/"$VERSION"/manifest.json
-          printf '%s\n' "$VERSION" > dist/releases/latest
           (cd dist && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
           cat dist/releases/"$VERSION"/manifest.json
           cat dist/SHA256SUMS
@@ -188,3 +189,14 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 30
+
+      - name: Draft GitHub release with the unsigned files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          prerelease=()
+          [[ "$VERSION" == *-* ]] && prerelease=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" --draft "${prerelease[@]}" --verify-tag --title "Fleeto $VERSION" \
+            --notes "Draft with unsigned files. Sign and publish with deploy/sign-release.ps1 (deploy/RELEASING.md); install.sh only uses published releases with valid signatures." \
+            dist/releases/"$VERSION"/install.sh dist/releases/"$VERSION"/manifest.json dist/SHA256SUMS

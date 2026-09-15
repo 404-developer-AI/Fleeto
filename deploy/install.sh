@@ -2,17 +2,18 @@
 # =====================================================================================================================
 # Fleeto install.sh: installs and updates Fleeto instances on an Ubuntu VPS (22.04 or 24.04, amd64). Run as root.
 #
-# Never pipe this script from curl into a shell. Download it, verify its signature with the Steaan release public
-# key (published on the Fleeto website and in the customer documentation), and only then run it:
+# Steaan runs every instance (SaaS). Releases are GitHub Releases of the private Fleeto repository. Never pipe this script
+# from curl into a shell. Download it from the release, verify its signature with the Steaan release public key and only
+# then run it (deploy/README.md, First install):
 #
-#   curl -fsSLO https://get.fleeto.app/install.sh
-#   curl -fsSLO https://get.fleeto.app/install.sh.sig
+#   gh release download v<version> --repo 404-developer-AI/Fleeto --pattern 'install.sh*'     (on a Steaan workstation)
+#   scp install.sh install.sh.sig steaan-release.pub root@<vps>:                               (to the VPS)
 #   openssl pkeyutl -verify -rawin -pubin -inkey steaan-release.pub -in install.sh -sigfile install.sh.sig
-#   sudo bash install.sh --fqdn rmm.customer.example
+#   sudo bash install.sh
 #
-# After that first manual check the script verifies everything itself: every release manifest, the "latest" pointer
-# and every newer install.sh are checked against the release public keys embedded below before they are used, and
-# container images are pulled by digest only (MD-Files/ARCHITECTURE.md section 7).
+# After that first manual check the script verifies everything itself: every release manifest and every newer install.sh
+# are checked against the release public keys embedded below before they are used, and container images are pulled by
+# digest only (MD-Files/ARCHITECTURE.md section 7).
 #
 # Usage: install.sh --help
 # =====================================================================================================================
@@ -24,10 +25,18 @@ umask 077
 # ---------------------------------------------------------------------------------------------------------------------
 # Replaced with the release version by deploy/ci/bundle-install.sh.
 readonly INSTALLER_VERSION="0.0.0-dev"
-# Release downloads: <base>/releases/latest(.sig), <base>/releases/<version>/manifest.json(.sig) and install.sh.
-readonly RELEASE_BASE_URL="${FLEETIFY_RELEASE_BASE_URL:-https://get.fleeto.app}"
+# Releases are the published GitHub Releases v<version> of this repository, each with the assets install.sh(.sig) and
+# manifest.json(.sig). The repository and its images are private, so install.sh asks once for two read-only tokens.
+readonly RELEASE_REPOSITORY="${FLEETIFY_RELEASE_REPOSITORY:-404-developer-AI/Fleeto}"
+readonly GITHUB_API_URL="https://api.github.com"
 readonly REGISTRY="ghcr.io/404-developer-ai"
 readonly FLEETIFY_ROOT="${FLEETIFY_ROOT:-/opt/fleetify}"
+# GitHub tokens, readable by root only: a fine-grained token with Contents: read-only on RELEASE_REPOSITORY (release
+# files) and a classic token with only read:packages (images on ghcr.io; GitHub Packages accepts no fine-grained tokens).
+readonly CREDENTIALS_DIR="$FLEETIFY_ROOT/credentials"
+readonly RELEASES_TOKEN_FILE="$CREDENTIALS_DIR/github-releases.token"
+readonly PACKAGES_TOKEN_FILE="$CREDENTIALS_DIR/github-packages.token"
+readonly PACKAGES_USER_FILE="$CREDENTIALS_DIR/github-packages.user"
 readonly CADDY_DIR="$FLEETIFY_ROOT/caddy"
 readonly INSTALLED_SCRIPT="$FLEETIFY_ROOT/bin/install.sh"
 # PostgreSQL 17 with TimescaleDB, pinned by digest. This script is covered by the signed manifest, so this pin is too.
@@ -86,7 +95,7 @@ template() {
     elif [[ -f "$SCRIPT_DIR/$name" ]]; then
         cat "$SCRIPT_DIR/$name"
     else
-        die "Template $name is missing from this install.sh." "Download a release build of install.sh from $RELEASE_BASE_URL."
+        die "Template $name is missing from this install.sh." "Download install.sh from a Fleeto release on GitHub (deploy/README.md, First install)."
     fi
 }
 
@@ -138,6 +147,7 @@ ARG_CHECK=false
 ARG_LIST=false
 ARG_ALL=false
 ARG_YES=false
+ARG_GITHUB_TOKENS=false
 ORIGINAL_ARGS=("$@")
 
 usage() {
@@ -151,12 +161,16 @@ Usage:
   install.sh --check                          Same, for every instance on this VPS
   install.sh --list                           List the instances on this VPS
   install.sh --all [--version <x.y.z>]        Update every instance on this VPS
+  install.sh --github-tokens                  Enter or replace the GitHub tokens used to download releases
   install.sh --help                           Show this help
 
 Options:
   --yes     Do not ask for confirmation (needed for releases that can only roll back by restoring a backup)
 
 Without --fqdn and without a command, install.sh asks for the FQDN.
+
+Releases: the newest published release, and pre-releases (x.y.z-alpha.n) only when no release exists yet or an instance
+on this VPS already runs a pre-release. Use --version for any other published version.
 
 DNS records needed before a new install (both pointing to this VPS):
   <name>          A/AAAA   web UI and API
@@ -175,6 +189,7 @@ parse_args() {
             --list) ARG_LIST=true; shift ;;
             --all) ARG_ALL=true; shift ;;
             --yes | -y) ARG_YES=true; shift ;;
+            --github-tokens) ARG_GITHUB_TOKENS=true; shift ;;
             --help | -h) usage; exit 0 ;;
             *) die "Unknown argument '$1'." "Run install.sh --help to see the supported commands." ;;
         esac
@@ -182,6 +197,9 @@ parse_args() {
 
     if [[ -n "$ARG_VERSION" ]] && ! is_version "$ARG_VERSION"; then
         die "'$ARG_VERSION' is not a valid version." "Use the form MAJOR.MINOR.PATCH with an optional pre-release, for example 0.2.0 or 0.2.0-alpha.1."
+    fi
+    if $ARG_GITHUB_TOKENS && { $ARG_LIST || $ARG_CHECK || $ARG_ALL || [[ -n "$ARG_FQDN" || -n "$ARG_VERSION" ]]; }; then
+        die "--github-tokens cannot be combined with other commands." "Run install.sh --github-tokens on its own."
     fi
     if $ARG_LIST && { $ARG_CHECK || $ARG_ALL || [[ -n "$ARG_FQDN" ]]; }; then
         die "--list cannot be combined with other commands." "Run install.sh --list on its own."
@@ -278,12 +296,148 @@ make_work_dir() {
 
 download() {
     local url="$1" output="$2"
-    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-        --connect-timeout 15 --max-time 300 --retry 3 --retry-delay 2 \
-        --output "$output" "$url"
+    curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2         --connect-timeout 15 --max-time 300 --retry 3 --retry-delay 2         --output "$output" "$url"
 }
 
 sha256_of() { sha256sum "$1" | awk '{ print $1 }'; }
+
+# ---------------------------------------------------------------------------------------------------------------------
+# GitHub access
+# ---------------------------------------------------------------------------------------------------------------------
+# github_request <token file> <url> <output> [accept]: GET with the token and print the HTTP status ("000" when GitHub
+# could not be reached). The response headers are written to <output>.headers. The token goes to curl in a header file,
+# never on a command line, and curl does not send it on to the storage host a download redirects to.
+github_request() {
+    local token_file="$1" url="$2" output="$3" accept="${4:-application/vnd.github+json}" header_file status
+    make_work_dir
+    header_file="$(mktemp "$WORK_DIR/auth.XXXXXXXX")"
+    printf 'Authorization: Bearer %s\n' "$(<"$token_file")" >"$header_file"
+    status="$(curl --silent --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
+        --connect-timeout 15 --max-time 300 --retry 3 --retry-delay 2 \
+        --header @"$header_file" --header "Accept: $accept" --header "X-GitHub-Api-Version: 2022-11-28" \
+        --dump-header "$output.headers" --output "$output" --write-out '%{http_code}' "$url")" || status="000"
+    rm -f -- "$header_file"
+    printf '%s' "${status: -3}"
+}
+
+# header_value <headers file> <name>: the value of the last header with that name (case-insensitive).
+header_value() {
+    tr -d '\r' <"$1" | awk -v name="$(tr '[:upper:]' '[:lower:]' <<<"$2")" '
+        { split($0, parts, ":"); if (tolower(parts[1]) == name) { value = substr($0, length(parts[1]) + 2); sub(/^ +/, "", value) } }
+        END { print value }'
+}
+
+# github_failure <status> <what>: stops with the cause and the next step for a failed GitHub request.
+github_failure() {
+    local status="$1" what="$2"
+    case "$status" in
+        000) die "Could not reach GitHub to download $what." "Check the outbound HTTPS connection of this VPS to api.github.com and try again." ;;
+        401) die "GitHub refused the release token while downloading $what: it expired or was revoked." "Create a new token and run install.sh --github-tokens." ;;
+        403 | 404) die "GitHub answered $status for $what: it does not exist, is not published yet, or the release token has no access to $RELEASE_REPOSITORY." \
+            "Check that the release is published (deploy/RELEASING.md) and that the token may read the repository; replace it with install.sh --github-tokens." ;;
+        *) die "GitHub answered $status for $what." "Try again later; if it persists, check https://www.githubstatus.com." ;;
+    esac
+}
+
+# warn_token_expiry <headers file> <label>: warns when a token expires within 30 days.
+warn_token_expiry() {
+    local expires expires_at
+    expires="$(header_value "$1" github-authentication-token-expiration)"
+    [[ -n "$expires" ]] || return 0
+    expires_at="$(date -d "$expires" +%s 2>/dev/null)" || return 0
+    if ((expires_at - $(date +%s) < 30 * 86400)); then
+        warn "The GitHub $2 expires on $expires. Create a new one before then and run install.sh --github-tokens."
+    fi
+}
+
+# ensure_github_credentials [replace]: asks for the two read-only GitHub tokens when they are missing (or when replacing),
+# checks what each one can do, and stores them readable by root only.
+ensure_github_credentials() {
+    local replace="${1:-false}" releases packages status scopes extra login
+    if ! $replace && [[ -s "$RELEASES_TOKEN_FILE" && -s "$PACKAGES_TOKEN_FILE" && -s "$PACKAGES_USER_FILE" ]]; then
+        return 0
+    fi
+    [[ -t 0 ]] || die "install.sh has no GitHub tokens to download Fleeto releases." "Run install.sh --github-tokens once in an interactive session."
+    make_work_dir
+    step "GitHub access for Fleeto releases"
+    info "The Fleeto repository and its images are private. install.sh needs two read-only tokens (deploy/README.md, GitHub tokens):"
+    info "  1. a fine-grained token for $RELEASE_REPOSITORY with only Contents: read-only (release files);"
+    info "  2. a classic token with only the read:packages scope (container images on ghcr.io)."
+    info "Input is hidden."
+
+    read -r -s -p "    Release token: " releases
+    printf '\n'
+    [[ "$releases" =~ ^[A-Za-z0-9_]{20,255}$ ]] || die "That is not a GitHub token." "Copy the whole token (a fine-grained token starts with github_pat_) and run install.sh --github-tokens."
+    printf '%s' "$releases" >"$WORK_DIR/candidate-releases.token"
+    status="$(github_request "$WORK_DIR/candidate-releases.token" "$GITHUB_API_URL/repos/$RELEASE_REPOSITORY/releases?per_page=1" "$WORK_DIR/check-releases.json")"
+    [[ "$status" == 200 ]] || die "The release token cannot read the releases of $RELEASE_REPOSITORY (GitHub answered $status)." \
+        "Give the token access to that repository with Contents: read-only, then run install.sh --github-tokens."
+    warn_token_expiry "$WORK_DIR/check-releases.json.headers" "release token"
+
+    read -r -s -p "    Packages token: " packages
+    printf '\n'
+    [[ "$packages" =~ ^[A-Za-z0-9_]{20,255}$ ]] || die "That is not a GitHub token." "Copy the whole classic token (it starts with ghp_) and run install.sh --github-tokens."
+    printf '%s' "$packages" >"$WORK_DIR/candidate-packages.token"
+    status="$(github_request "$WORK_DIR/candidate-packages.token" "$GITHUB_API_URL/user" "$WORK_DIR/check-user.json")"
+    [[ "$status" == 200 ]] || die "GitHub refused the packages token (it answered $status)." "Create a classic token with only read:packages and run install.sh --github-tokens."
+    scopes="$(header_value "$WORK_DIR/check-user.json.headers" x-oauth-scopes)"
+    scopes="${scopes// /}"
+    [[ ",$scopes," == *",read:packages,"* ]] || die "The packages token has no read:packages scope (scopes: ${scopes:-none}); fine-grained tokens cannot read ghcr.io." \
+        "Create a classic token with only read:packages and run install.sh --github-tokens."
+    extra="$(tr ',' '\n' <<<"$scopes" | grep -vx 'read:packages' | paste -sd, - || true)"
+    if [[ -n "$extra" ]]; then
+        warn "The packages token also has the scopes $extra. install.sh only needs read:packages; fewer scopes limit the damage if this VPS is ever compromised."
+    fi
+    warn_token_expiry "$WORK_DIR/check-user.json.headers" "packages token"
+    login="$(jq -r '.login // empty' "$WORK_DIR/check-user.json")"
+    [[ "$login" =~ ^[A-Za-z0-9-]{1,39}$ ]] || die "GitHub did not return the user of the packages token." "Try again; if it persists, create a new classic token."
+
+    install -d -m 0700 -o root -g root "$CREDENTIALS_DIR"
+    printf '%s' "$releases" | write_file_atomic "$RELEASES_TOKEN_FILE" 0600
+    printf '%s' "$packages" | write_file_atomic "$PACKAGES_TOKEN_FILE" 0600
+    printf '%s' "$login" | write_file_atomic "$PACKAGES_USER_FILE" 0600
+    rm -f -- "$WORK_DIR"/candidate-*.token
+    ok "GitHub tokens checked and stored in $CREDENTIALS_DIR (root only)"
+}
+
+# github_api <path> <output>: GET api.github.com<path> with the release token; prints the HTTP status. Callers run
+# ensure_github_credentials first: it may ask for input, which cannot happen inside a command substitution.
+github_api() {
+    github_request "$RELEASES_TOKEN_FILE" "$GITHUB_API_URL$1" "$2"
+}
+
+# release_asset <version> <asset name> <output>: downloads one asset of the published release v<version>.
+release_asset() {
+    local version="$1" name="$2" output="$3" release status url
+    ensure_github_credentials
+    make_work_dir
+    release="$WORK_DIR/release-$version.json"
+    if [[ ! -s "$release" ]]; then
+        status="$(github_api "/repos/$RELEASE_REPOSITORY/releases/tags/v$version" "$release")"
+        if [[ "$status" != 200 ]]; then
+            rm -f -- "$release"
+            github_failure "$status" "release v$version"
+        fi
+    fi
+    url="$(jq -r --arg name "$name" '[.assets[]? | select(.name == $name) | .url][0] // ""' "$release")"
+    [[ "$url" == "$GITHUB_API_URL/repos/$RELEASE_REPOSITORY/releases/assets/"* ]] \
+        || die "Release v$version has no file $name." "Sign and publish the release as described in deploy/RELEASING.md."
+    status="$(github_request "$RELEASES_TOKEN_FILE" "$url" "$output" application/octet-stream)"
+    [[ "$status" == 200 ]] || github_failure "$status" "$name of release v$version"
+}
+
+# The registry login lives in this run's work directory only, so no registry credential stays on disk after install.sh.
+REGISTRY_LOGGED_IN=false
+registry_login() {
+    $REGISTRY_LOGGED_IN && return 0
+    ensure_github_credentials
+    make_work_dir
+    export DOCKER_CONFIG="$WORK_DIR/docker"
+    install -d -m 0700 "$DOCKER_CONFIG"
+    docker login ghcr.io --username "$(<"$PACKAGES_USER_FILE")" --password-stdin <"$PACKAGES_TOKEN_FILE" >/dev/null 2>&1 \
+        || die "ghcr.io refused the packages token: it expired, was revoked or lacks read:packages." "Create a classic token with only read:packages and run install.sh --github-tokens."
+    REGISTRY_LOGGED_IN=true
+}
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Release verification
@@ -296,7 +450,7 @@ load_release_keys() {
     local placeholder="STEAAN_RELEASE_""PUBLIC_KEY_PEM"
     if release_public_keys_pem | grep -qx "$placeholder"; then
         die "This install.sh has no Steaan release public key embedded, so it cannot verify releases and will not install or update anything." \
-            "Download the signed release build from $RELEASE_BASE_URL/install.sh and verify it as described at the top of this file."
+            "Download the signed install.sh from a Fleeto release on GitHub and verify it as described at the top of this file."
     fi
     KEYS_DIR="$WORK_DIR/keys"
     mkdir -p "$KEYS_DIR"
@@ -320,23 +474,60 @@ verify_signature() {
     return 1
 }
 
-# fetch_verified <url> <output>: downloads <url> and <url>.sig and verifies the signature.
-fetch_verified() {
-    local url="$1" output="$2"
-    download "$url" "$output" || die "Could not download $url." "Check the outbound HTTPS connection of this VPS and try again."
-    download "$url.sig" "$output.sig" || die "Could not download $url.sig." "Check the outbound HTTPS connection of this VPS and try again."
+# fetch_verified_asset <version> <asset name> <output>: downloads an asset and its .sig and verifies the signature.
+fetch_verified_asset() {
+    local version="$1" name="$2" output="$3"
+    release_asset "$version" "$name" "$output"
+    release_asset "$version" "$name.sig" "$output.sig"
     verify_signature "$output" "$output.sig" \
-        || die "The signature of $url does not verify against the Steaan release public keys. The download was not used." \
-            "Do not continue. Report this to Steaan support; it can mean the download was tampered with."
+        || die "The signature of $name in release v$version does not verify against the Steaan release public keys. The download was not used." \
+            "Do not continue: it can mean the release was tampered with. Check the release on GitHub with the Steaan release manager."
 }
 
+# running_pre_release: true when an instance on this VPS runs a pre-release.
+running_pre_release() {
+    local instance installed
+    while read -r instance; do
+        installed="$(conf_get "$(instance_dir "$instance")/instance.conf" FLEETIFY_VERSION)"
+        [[ "$installed" == *-* ]] && return 0
+    done < <(list_instances)
+    return 1
+}
+
+# The version to install or update to: the newest published release. A pre-release counts only when no release exists yet
+# or an instance on this VPS runs a pre-release, so a test VPS follows pre-releases and a production VPS never does. The
+# list comes from the GitHub API; what it names is only used after its manifest verifies.
 LATEST_VERSION=""
+NEWER_PRE_RELEASE=""
 resolve_latest_version() {
     [[ -n "$LATEST_VERSION" ]] && return 0
+    ensure_github_credentials
     make_work_dir
-    fetch_verified "$RELEASE_BASE_URL/releases/latest" "$WORK_DIR/latest"
-    LATEST_VERSION="$(head -n 1 "$WORK_DIR/latest" | tr -d '[:space:]')"
-    is_version "$LATEST_VERSION" || die "The latest-release pointer does not contain a valid version." "Report this to Steaan support."
+    local file="$WORK_DIR/releases.json" status tag prerelease version stable="" pre=""
+    status="$(github_api "/repos/$RELEASE_REPOSITORY/releases?per_page=100" "$file")"
+    [[ "$status" == 200 ]] || github_failure "$status" "the list of Fleeto releases"
+    warn_token_expiry "$file.headers" "release token"
+    while IFS=$'\t' read -r tag prerelease; do
+        version="${tag#v}"
+        if [[ "$tag" != v* ]] || ! is_version "$version"; then
+            continue
+        fi
+        if [[ "$prerelease" == "true" || "$version" == *-* ]]; then
+            if [[ -z "$pre" ]] || version_lt "$pre" "$version"; then pre="$version"; fi
+        elif [[ -z "$stable" ]] || version_lt "$stable" "$version"; then
+            stable="$version"
+        fi
+    done < <(jq -r '.[] | select(.draft == false) | [.tag_name, (.prerelease | tostring)] | @tsv' "$file")
+
+    LATEST_VERSION="$stable"
+    if [[ -n "$pre" ]] && { [[ -z "$stable" ]] || version_lt "$stable" "$pre"; }; then
+        if [[ -z "$stable" ]] || running_pre_release; then
+            LATEST_VERSION="$pre"
+        else
+            NEWER_PRE_RELEASE="$pre"
+        fi
+    fi
+    [[ -n "$LATEST_VERSION" ]] || die "$RELEASE_REPOSITORY has no published Fleeto release." "Publish a signed release first (deploy/RELEASING.md)."
 }
 
 # Manifest of the target release, loaded by load_manifest.
@@ -351,7 +542,7 @@ load_manifest() {
     make_work_dir
     file="$WORK_DIR/manifest-$version.json"
     step "Verifying the release manifest for Fleeto $version"
-    fetch_verified "$RELEASE_BASE_URL/releases/$version/manifest.json" "$file"
+    fetch_verified_asset "$version" manifest.json "$file"
 
     jq -e 'type == "object" and .formatVersion == 1' "$file" >/dev/null \
         || die "The manifest for $version has an unsupported format." "Update install.sh to the latest release first."
@@ -398,8 +589,7 @@ ensure_installer_for_release() {
 
     step "Switching to the install.sh of Fleeto $version"
     candidate="$WORK_DIR/install-$version.sh"
-    download "$RELEASE_BASE_URL/releases/$version/install.sh" "$candidate" \
-        || die "Could not download install.sh for $version." "Check the outbound HTTPS connection of this VPS and try again."
+    release_asset "$version" install.sh "$candidate"
     [[ "$(sha256_of "$candidate")" == "$MANIFEST_INSTALL_SH_SHA256" ]] \
         || die "The downloaded install.sh for $version does not match the hash in its signed manifest. It was not used." \
             "Report this to Steaan support."
@@ -424,6 +614,9 @@ pull_image() {
     if docker image inspect "$ref" >/dev/null 2>&1; then
         info "present: $ref"
         return 0
+    fi
+    if [[ "$ref" == "$REGISTRY/"* ]]; then
+        registry_login
     fi
     for attempt in 1 2 3; do
         if docker pull --quiet "$ref" >/dev/null; then
@@ -1253,6 +1446,15 @@ command_check() {
         mapfile -t instances < <(list_instances)
     fi
     info "Latest release: $LATEST_VERSION (this install.sh: $INSTALLER_VERSION)"
+    if [[ -n "$NEWER_PRE_RELEASE" ]]; then
+        info "Pre-release $NEWER_PRE_RELEASE is available; install it on a test VPS with --version $NEWER_PRE_RELEASE."
+    fi
+    local check="$WORK_DIR/check-packages-user.json"
+    if [[ "$(github_request "$PACKAGES_TOKEN_FILE" "$GITHUB_API_URL/user" "$check")" == 200 ]]; then
+        warn_token_expiry "$check.headers" "packages token"
+    else
+        warn "GitHub refused the packages token; image pulls will fail. Replace it with install.sh --github-tokens."
+    fi
     for instance in "${instances[@]}"; do
         conf="$(instance_dir "$instance")/instance.conf"
         installed="$(conf_get "$conf" FLEETIFY_VERSION)"
@@ -1305,6 +1507,11 @@ main() {
     require_root "$@"
     require_supported_os
     ensure_packages
+
+    if $ARG_GITHUB_TOKENS; then
+        ensure_github_credentials true
+        return 0
+    fi
 
     if $ARG_CHECK; then
         command_check "$ARG_FQDN"
