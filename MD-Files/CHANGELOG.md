@@ -13,7 +13,9 @@ Implementation of 0.0.x (foundation) and 0.1.0 (first usable release), to be rel
 that started on 2026-09-15 on top of it (entries starting with "0.2.0:"). Pre-release `0.2.0-alpha.1` (2026-09-15) is a
 test build of this state for the first CI run; its release build failed on the Caddy image. `0.2.0-alpha.2` was published for the
 first VPS install; `0.2.0-alpha.3` adds support for a VPS behind NAT, `0.2.0-alpha.4` fixes what the first install found, and `0.2.0-alpha.5` sets the network MTU. Pre-releases are not releases, so their entries stay here.
-Work on 0.2.1, which holds everything still open for 0.2.0, has entries starting with "0.2.1:".
+Work on 0.2.1, which holds everything still open for 0.2.0, has entries starting with "0.2.1:". Pre-release `0.2.1-alpha.1`
+(2026-09-15) is the first test build of it: public API, agent self-update and watchdog, and the rename to Fleeto with the
+move of the test VPS from the Fleetify layout.
 
 ### Added
 
