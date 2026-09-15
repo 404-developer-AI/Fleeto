@@ -1,0 +1,47 @@
+@inherits LayoutComponentBase
+@layout MainLayout
+
+@* Settings workspace: the settings pages on the left, the selected page on the right. *@
+<div class="settings-workspace">
+    <aside class="client-panel">
+        <div class="client-panel-head">
+            <span class="settings-panel-title">
+                <MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" />
+                <span>Settings</span>
+            </span>
+        </div>
+        <nav class="client-panel-list" aria-label="Settings">
+            <div class="settings-group-title">Templates</div>
+            @Item("/settings/client-templates", Icons.Material.Outlined.AccountTree, "Client templates")
+            @Item("/settings/monitoring-templates", Icons.Material.Outlined.Rule, "Monitoring templates")
+            @Item("/settings/policies", Icons.Material.Outlined.Tune, "Policies")
+            @Item("/settings/scripts", Icons.Material.Outlined.Terminal, "Scripts")
+            <AuthorizeView Policy="@FleetoPolicies.Admin">
+                <div class="settings-group-title">Administration</div>
+                @Item("/settings/users", Icons.Material.Outlined.People, "Users")
+                @Item("/settings/licensing", Icons.Material.Outlined.WorkspacePremium, "Licensing")
+                @Item("/settings/email", Icons.Material.Outlined.Email, "Email")
+                @Item("/settings/notification-channels", Icons.Material.Outlined.Campaign, "Notification channels")
+                @Item("/settings/api-keys", Icons.Material.Outlined.Key, "API keys")
+                @Item("/settings/agent-updates", Icons.Material.Outlined.SystemUpdateAlt, "Agent updates")
+                @Item("/settings/backups", Icons.Material.Outlined.Backup, "Backups")
+                @Item("/settings/audit-log", Icons.Material.Outlined.History, "Audit log")
+                @Item("/settings/instance", Icons.Material.Outlined.Dns, "Instance")
+            </AuthorizeView>
+        </nav>
+    </aside>
+
+    <section class="workspace-main">
+        @Body
+    </section>
+</div>
+
+@code {
+    private static RenderFragment Item(string href, string icon, string label) => __builder =>
+    {
+        <NavLink href="@href" Match="NavLinkMatch.Prefix" class="settings-link" ActiveClass="selected">
+            <MudIcon Icon="@icon" Size="Size.Small" Class="settings-link-icon" />
+            <span class="client-name">@label</span>
+        </NavLink>
+    };
+}

@@ -1,6 +1,6 @@
 # Fleeto
 
-Remote monitoring and management (RMM) by Steaan. Internal code name: Fleetify.
+Remote monitoring and management (RMM) by Steaan.
 
 Status: 0.1.0, first usable release (not yet tagged). Windows agent, enrollment with mTLS, agent-only and managed
 endpoints with licensing, checks and alerts, dashboard, backups. See [`MD-Files/ROADMAP.md`](MD-Files/ROADMAP.md).
@@ -36,11 +36,15 @@ Docker is only used on the VPS and in CI. Locally every component runs as a plai
 pwsh tools/dev/setup-dev.ps1          # asks for the password of the PostgreSQL user 'postgres'
 ```
 
-The script is idempotent. It creates, outside the repository, `%LOCALAPPDATA%\Fleetify\dev` with the root key,
-signer key and database passwords (readable only by you), the PostgreSQL roles and the database `fleetify_dev`,
+The script is idempotent. It creates, outside the repository, `%LOCALAPPDATA%\Fleeto\dev` with the root key,
+signer key and database passwords (readable only by you), the PostgreSQL roles and the database `fleeto_dev`,
 development license and release signing keys, a development license for `localhost`, and
 `Directory.Build.local.props` (public keys only, gitignored). It then builds the solution, applies the migrations and
 prints a one-time setup link for the first admin.
+
+A setup from before the rename to Fleeto (0.2.1) is moved by the same script: `%LOCALAPPDATA%\Fleetify\dev`, the database
+`fleetify_dev` and the `fleetify_*` roles get the Fleeto names and keep their data. Old `fleetify_test_*` databases are no
+longer used and can be dropped.
 
 ### Run
 
@@ -58,35 +62,35 @@ Then:
 
 1. Open the setup link from `setup-dev.ps1` and create the first admin. Two-factor authentication is mandatory; keep
    an authenticator app at hand. A new link: run `setup-dev.ps1` again while no admin exists.
-2. Settings, Licensing: load `%LOCALAPPDATA%\Fleetify\dev\dev-license.txt` (25 managed endpoints for `localhost`).
+2. Settings, Licensing: load `%LOCALAPPDATA%\Fleeto\dev\dev-license.txt` (25 managed endpoints for `localhost`).
 3. Create a client, a site and an enrollment token on the site page. The install command is shown once.
 4. Build the agent: `pwsh tools/dev/build-agent.ps1`.
 5. Run the agent on this PC. Either paste the install command in an elevated PowerShell (installs the Windows service
-   `fleetify-agent`), or run it without admin rights in the foreground:
+   `fleeto-agent`), or run it without admin rights in the foreground:
 
    ```powershell
-   agent\dist\windows-amd64\fleetify-agent.exe run --foreground --state-dir .\agent-dev --key-store file `
+   agent\dist\windows-amd64\fleeto-agent.exe run --foreground --state-dir .\agent-dev --key-store file `
        --server localhost:7200 --token fet_... --ca-fingerprint <fingerprint from the install command>
    ```
 
-   `fleetify-agent.exe status --state-dir .\agent-dev` shows the enrollment state. Remove the service again with
-   `fleetify-agent.exe uninstall` (elevated).
+   `fleeto-agent.exe status --state-dir .\agent-dev` shows the enrollment state. Remove the service again with
+   `fleeto-agent.exe uninstall` (elevated).
 6. Switch the endpoint to managed and link a monitoring template to the site to see checks and alerts.
 
-Emails are written to `%LOCALAPPDATA%\Fleetify\dev\emails` until SMTP is configured in Settings, Email.
+Emails are written to `%LOCALAPPDATA%\Fleeto\dev\emails` until SMTP is configured in Settings, Email.
 
-To start over with an empty instance, drop the database `fleetify_dev` and run `setup-dev.ps1` again.
+To start over with an empty instance, drop the database `fleeto_dev` and run `setup-dev.ps1` again.
 
 ### Tests
 
 ```powershell
-dotnet test Fleetify.slnx                     # needs the local PostgreSQL; creates and drops fleetify_test_* databases
+dotnet test Fleeto.slnx                     # needs the local PostgreSQL; creates and drops fleeto_test_* databases
 cd agent; go test ./...; go vet ./...
 ```
 
-The .NET integration tests connect as the superuser from `FLEETIFY_TEST_ADMIN_CONNECTION`
+The .NET integration tests connect as the superuser from `FLEETO_TEST_ADMIN_CONNECTION`
 (default `Host=localhost;Username=postgres;Password=postgres`). Load test: see the top of
-`tests/Fleetify.LoadTest/Program.cs`.
+`tests/Fleeto.LoadTest/Program.cs`.
 
 ## Ground rules
 

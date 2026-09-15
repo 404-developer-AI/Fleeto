@@ -1,10 +1,10 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-    Regenerates the Go protocol code of the Fleeto agent from src/Fleetify.Protocol/Protos/agent.proto.
+    Regenerates the Go protocol code of the Fleeto agent from src/Fleeto.Protocol/Protos/agent.proto.
 
 .DESCRIPTION
-    Uses protoc from the Grpc.Tools NuGet package (already restored for Fleetify.Protocol) and protoc-gen-go,
+    Uses protoc from the Grpc.Tools NuGet package (already restored for Fleeto.Protocol) and protoc-gen-go,
     which is installed with `go install` when it is missing. The generated file is committed:
     agent/internal/protocol/agentv1/agent.pb.go. Run this after every change to agent.proto.
 #>
@@ -19,7 +19,7 @@ Set-StrictMode -Version Latest
 
 $agentDir = $PSScriptRoot
 $repoRoot = Split-Path -Parent $agentDir
-$protoDir = Join-Path $repoRoot 'src/Fleetify.Protocol/Protos'
+$protoDir = Join-Path $repoRoot 'src/Fleeto.Protocol/Protos'
 $outDir = Join-Path $agentDir 'internal/protocol/agentv1'
 
 $goBin = 'C:\Program Files\Go\bin'
@@ -32,7 +32,7 @@ $toolsRoot = Join-Path $nuget "grpc.tools/$GrpcToolsVersion"
 $protoc = Join-Path $toolsRoot 'tools/windows_x64/protoc.exe'
 $include = Join-Path $toolsRoot 'build/native/include'
 if (-not (Test-Path $protoc)) {
-    throw "protoc was not found at $protoc. Restore src/Fleetify.Protocol first (dotnet restore) and run this script again."
+    throw "protoc was not found at $protoc. Restore src/Fleeto.Protocol first (dotnet restore) and run this script again."
 }
 
 if (-not (Get-Command protoc-gen-go -ErrorAction SilentlyContinue)) {

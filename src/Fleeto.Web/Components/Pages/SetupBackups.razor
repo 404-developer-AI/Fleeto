@@ -1,0 +1,28 @@
+@page "/setup/backups"
+@attribute [Authorize(Policy = FleetoPolicies.Admin)]
+@inherits FleetoPageBase
+
+@* Last, skippable step of the first-admin setup. Skipping leaves the warning tile on the dashboard. *@
+
+<PageTitle>Set up backups - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Set up backups</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            Last step. Until a destination is configured, backups exist on this server only. You can also do this later in Settings, Backups.
+        </MudText>
+    </div>
+</div>
+
+<div class="fl-panel pa-4" style="max-width:680px">
+    <BackupForm SaveText="Save and continue" OnSaved="Continue">
+        <SecondaryContent>
+            <MudButton Variant="Variant.Text" OnClick="Continue">Skip for now</MudButton>
+        </SecondaryContent>
+    </BackupForm>
+</div>
+
+@code {
+    private void Continue() => Navigation.NavigateTo("/");
+}

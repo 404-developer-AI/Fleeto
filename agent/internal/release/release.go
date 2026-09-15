@@ -3,7 +3,7 @@
 // The manifest is the manifest.json of a GitHub release, signed with the offline Steaan release key: a raw ed25519 signature over the
 // exact bytes, the same signature install.sh verifies. The agent trusts only the release public keys compiled into its own binary, so a
 // compromised instance or gateway can offer nothing that was not released by Steaan. Versions follow the rules of the server
-// (Fleetify.Core SemanticVersion) and install.sh: a pre-release orders below its release.
+// (Fleeto.Core SemanticVersion) and install.sh: a pre-release orders below its release.
 package release
 
 import (
@@ -51,7 +51,7 @@ var (
 	ErrSignature = errors.New("the release manifest is not signed with a trusted Steaan release key")
 
 	versionPattern = regexp.MustCompile(`^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z.-]+)?$`)
-	filePattern    = regexp.MustCompile(`^[a-z0-9]{1,16}-[a-z0-9]{1,16}/fleetify-(agent|watchdog)(\.exe)?$`)
+	filePattern    = regexp.MustCompile(`^[a-z0-9]{1,16}-[a-z0-9]{1,16}/fleeto-(agent|watchdog)(\.exe)?$`)
 	shaPattern     = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
@@ -112,13 +112,13 @@ func Parse(manifest []byte) (*Manifest, error) {
 	return m, nil
 }
 
-// ExpectedFile is the only file name a binary may have: <platform>-<architecture>/fleetify-<component>[.exe].
+// ExpectedFile is the only file name a binary may have: <platform>-<architecture>/fleeto-<component>[.exe].
 func ExpectedFile(component, platform, architecture string) string {
 	suffix := ""
 	if platform == "windows" {
 		suffix = ".exe"
 	}
-	return platform + "-" + architecture + "/fleetify-" + component + suffix
+	return platform + "-" + architecture + "/fleeto-" + component + suffix
 }
 
 // Binary returns the binary of component for platform and architecture (runtime.GOOS and runtime.GOARCH).

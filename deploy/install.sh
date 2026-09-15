@@ -27,26 +27,36 @@ umask 077
 readonly INSTALLER_VERSION="0.0.0-dev"
 # Releases are the published GitHub Releases v<version> of this repository, each with the assets install.sh(.sig) and
 # manifest.json(.sig). The repository and its images are private, so install.sh asks once for two read-only tokens.
-readonly RELEASE_REPOSITORY="${FLEETIFY_RELEASE_REPOSITORY:-404-developer-AI/Fleeto}"
+readonly RELEASE_REPOSITORY="${FLEETO_RELEASE_REPOSITORY:-404-developer-AI/Fleeto}"
 readonly GITHUB_API_URL="https://api.github.com"
 readonly REGISTRY="ghcr.io/404-developer-ai"
-readonly FLEETIFY_ROOT="${FLEETIFY_ROOT:-/opt/fleetify}"
+readonly FLEETO_ROOT="${FLEETO_ROOT:-/opt/fleeto}"
 # GitHub tokens, readable by root only: a fine-grained token with Contents: read-only on RELEASE_REPOSITORY (release
 # files) and a classic token with only read:packages (images on ghcr.io; GitHub Packages accepts no fine-grained tokens).
-readonly CREDENTIALS_DIR="$FLEETIFY_ROOT/credentials"
+readonly CREDENTIALS_DIR="$FLEETO_ROOT/credentials"
 readonly RELEASES_TOKEN_FILE="$CREDENTIALS_DIR/github-releases.token"
 readonly PACKAGES_TOKEN_FILE="$CREDENTIALS_DIR/github-packages.token"
 readonly PACKAGES_USER_FILE="$CREDENTIALS_DIR/github-packages.user"
 # Public addresses a firewall or NAT forwards to this VPS (TCP 80 and 443), confirmed once by the operator.
-readonly PUBLIC_ADDRESSES_FILE="$FLEETIFY_ROOT/public-addresses"
-readonly CADDY_DIR="$FLEETIFY_ROOT/caddy"
-readonly INSTALLED_SCRIPT="$FLEETIFY_ROOT/bin/install.sh"
+readonly PUBLIC_ADDRESSES_FILE="$FLEETO_ROOT/public-addresses"
+readonly CADDY_DIR="$FLEETO_ROOT/caddy"
+# The layout before the internal rename from Fleetify to Fleeto (0.2.1); install.sh moves a VPS from it once (migrate_legacy_vps).
+readonly LEGACY_ROOT="${FLEETO_LEGACY_ROOT:-/opt/fleetify}"
+readonly LEGACY_PREFIX="fleetify"
+# Where instance functions look; with_legacy_layout points them at the old layout while a VPS moves.
+INSTANCES_ROOT="$FLEETO_ROOT"
+PROJECT_PREFIX="fleeto"
+CONF_PREFIX="FLEETO"
+DB_NAME="fleeto"
+readonly INSTALLED_SCRIPT="$FLEETO_ROOT/bin/install.sh"
 # PostgreSQL 17 with TimescaleDB, pinned by digest. This script is covered by the signed manifest, so this pin is too.
 readonly POSTGRES_IMAGE="timescale/timescaledb:2.30.0-pg17@sha256:3113d12b78392c064aa7475caf7a52b447b29ddd4f9bfd23526733fcb03e3459"
-# Images every release manifest must list (ghcr.io/404-developer-ai/fleetify-<name>@<digest>).
+# Images every release manifest must list (ghcr.io/404-developer-ai/fleeto-<name>@<digest>).
 readonly RELEASE_IMAGES=(web gateway signer workers tool caddy)
 # Long-running services of an instance, in health-check order.
 readonly INSTANCE_SERVICES=(postgres signer gateway workers web)
+# Named volumes of an instance (deploy/compose/compose.yml).
+readonly INSTANCE_VOLUMES=(postgres-data web-keys web-logs)
 # Container identities (Dockerfiles and deploy/compose/compose.yml).
 readonly APP_UID=10001
 readonly APP_GID=10001
@@ -69,22 +79,22 @@ readonly SCRIPT_PATH SCRIPT_DIR
 # to install or update anything, because it cannot verify a release.
 # ---------------------------------------------------------------------------------------------------------------------
 release_public_keys_pem() {
-    cat <<'FLEETIFY_RELEASE_PUBLIC_KEYS'
+    cat <<'FLEETO_RELEASE_PUBLIC_KEYS'
 STEAAN_RELEASE_PUBLIC_KEY_PEM
-FLEETIFY_RELEASE_PUBLIC_KEYS
+FLEETO_RELEASE_PUBLIC_KEYS
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Embedded templates. In a release build the block between the markers holds one function per file below; in a
 # repository checkout the files are read from the deploy/ directory next to this script.
 # ---------------------------------------------------------------------------------------------------------------------
-# >>> fleetify-bundle: templates
-# <<< fleetify-bundle: templates
+# >>> fleeto-bundle: templates
+# <<< fleeto-bundle: templates
 
 # shellcheck disable=SC2034 # read by deploy/ci/bundle-install.sh, which embeds these files
 readonly TEMPLATE_FILES=(
     "compose/compose.yml"
-    "postgres/init/10-fleetify-roles.sh"
+    "postgres/init/10-fleeto-roles.sh"
     "postgres/archive-wal.sh"
     "caddy/compose.yml"
 )
@@ -292,7 +302,7 @@ require_supported_os() {
 
 make_work_dir() {
     if [[ -z "$WORK_DIR" ]]; then
-        WORK_DIR="$(mktemp -d /tmp/fleetify-install.XXXXXXXX)"
+        WORK_DIR="$(mktemp -d /tmp/fleeto-install.XXXXXXXX)"
     fi
 }
 
@@ -488,11 +498,12 @@ fetch_verified_asset() {
 
 # running_pre_release: true when an instance on this VPS runs a pre-release.
 running_pre_release() {
-    local instance installed
-    while read -r instance; do
-        installed="$(conf_get "$(instance_dir "$instance")/instance.conf" FLEETIFY_VERSION)"
+    local conf installed
+    while read -r conf; do
+        installed="$(conf_get "$conf" FLEETO_VERSION)"
+        installed="${installed:-$(conf_get "$conf" FLEETIFY_VERSION)}"
         [[ "$installed" == *-* ]] && return 0
-    done < <(list_instances)
+    done < <(routed_instance_confs)
     return 1
 }
 
@@ -563,7 +574,7 @@ load_manifest() {
         digest="$(jq -r --arg name "$name" '.images[$name] // ""' "$file")"
         [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] \
             || die "The manifest for $version has no valid image digest for '$name'." "Report this to Steaan support."
-        MANIFEST_IMAGES[$name]="$REGISTRY/fleetify-$name@$digest"
+        MANIFEST_IMAGES[$name]="$REGISTRY/fleeto-$name@$digest"
     done
     MANIFEST_VERSION="$version"
     ok "Manifest for $version verified (rollback mode: $MANIFEST_ROLLBACK)"
@@ -571,12 +582,12 @@ load_manifest() {
 
 # The install.sh that applies a release must be the one listed in its verified manifest: templates and pins in this
 # script belong to that release. When this script differs, download the listed one, check its hash, install it in
-# /opt/fleetify/bin and hand over to it with the same arguments.
+# /opt/fleeto/bin and hand over to it with the same arguments.
 ensure_installer_for_release() {
     local version="$1" own_hash candidate
     own_hash="$(sha256_of "$SCRIPT_PATH")"
-    mkdir -p "$FLEETIFY_ROOT/bin"
-    chmod 0700 "$FLEETIFY_ROOT/bin"
+    mkdir -p "$FLEETO_ROOT/bin"
+    chmod 0700 "$FLEETO_ROOT/bin"
 
     if [[ "$own_hash" == "$MANIFEST_INSTALL_SH_SHA256" ]]; then
         if [[ "$SCRIPT_PATH" != "$INSTALLED_SCRIPT" ]] && { [[ ! -f "$INSTALLED_SCRIPT" ]] || [[ "$(sha256_of "$INSTALLED_SCRIPT")" != "$own_hash" ]]; }; then
@@ -585,7 +596,8 @@ ensure_installer_for_release() {
         return 0
     fi
 
-    if [[ "${FLEETIFY_HANDOFF:-}" == "1" ]]; then
+    # FLEETIFY_HANDOFF: handed over by an install.sh from before the rename to Fleeto.
+    if [[ "${FLEETO_HANDOFF:-}" == "1" || "${FLEETIFY_HANDOFF:-}" == "1" ]]; then
         die "The install.sh handed over to does not match the manifest for $version." "Report this to Steaan support."
     fi
 
@@ -598,7 +610,7 @@ ensure_installer_for_release() {
     install -m 0700 -o root -g root "$candidate" "$INSTALLED_SCRIPT"
     ok "install.sh $version verified and installed as $INSTALLED_SCRIPT"
     cleanup
-    exec env FLEETIFY_HANDOFF=1 bash "$INSTALLED_SCRIPT" "${ORIGINAL_ARGS[@]}" --version "$version"
+    exec env FLEETO_HANDOFF=1 bash "$INSTALLED_SCRIPT" "${ORIGINAL_ARGS[@]}" --version "$version"
 }
 
 pull_release_images() {
@@ -711,19 +723,19 @@ JSON
     ok "wrote /etc/docker/daemon.json (address pool 10.210.0.0/16 in /24 networks, log rotation, live restore)"
 }
 
-ensure_fleetify_root() {
-    install -d -m 0700 -o root -g root "$FLEETIFY_ROOT" "$FLEETIFY_ROOT/bin"
+ensure_fleeto_root() {
+    install -d -m 0700 -o root -g root "$FLEETO_ROOT" "$FLEETO_ROOT/bin"
 }
 
 acquire_lock() {
-    ensure_fleetify_root
+    ensure_fleeto_root
     # fd 9 stays open (and locked) across the exec into a newer install.sh.
-    exec 9>"$FLEETIFY_ROOT/.install.lock"
+    exec 9>"$FLEETO_ROOT/.install.lock"
     flock -n 9 || die "Another install.sh run is in progress on this VPS." "Wait for it to finish and run install.sh again."
 }
 
 dc_caddy() {
-    docker compose --project-name fleetify-caddy --project-directory "$CADDY_DIR" \
+    docker compose --project-name fleeto-caddy --project-directory "$CADDY_DIR" \
         --env-file "$CADDY_DIR/caddy.conf" -f "$CADDY_DIR/compose.yml" "$@"
 }
 
@@ -752,13 +764,13 @@ CONF
     pull_image "$image"
     if $changed || ! caddy_running; then
         dc_caddy up -d --remove-orphans >/dev/null
-        wait_for_container_health fleetify-caddy 90 || die "The host proxy did not become healthy." "Check 'docker logs fleetify-caddy' and run install.sh again."
+        wait_for_container_health fleeto-caddy 90 || die "The host proxy did not become healthy." "Check 'docker logs fleeto-caddy' and run install.sh again."
         ok "host proxy running"
     fi
 }
 
 caddy_running() {
-    [[ "$(docker inspect -f '{{.State.Running}}' fleetify-caddy 2>/dev/null || true)" == "true" ]]
+    [[ "$(docker inspect -f '{{.State.Running}}' fleeto-caddy 2>/dev/null || true)" == "true" ]]
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -786,12 +798,12 @@ validate_fqdn() {
 }
 
 instance_name_for() { printf '%s' "${1//./-}"; }
-instance_dir() { printf '%s/%s' "$FLEETIFY_ROOT" "$1"; }
+instance_dir() { printf '%s/%s' "$INSTANCES_ROOT" "$1"; }
 
 # All instance directories (those with an instance.conf), sorted.
 list_instances() {
     local conf
-    for conf in "$FLEETIFY_ROOT"/*/instance.conf; do
+    for conf in "$INSTANCES_ROOT"/*/instance.conf; do
         [[ -f "$conf" ]] || continue
         basename "$(dirname "$conf")"
     done | sort
@@ -801,13 +813,13 @@ dc_instance() {
     local instance="$1" dir
     shift
     dir="$(instance_dir "$instance")"
-    docker compose --project-name "fleetify-$instance" --project-directory "$dir" \
+    docker compose --project-name "$PROJECT_PREFIX-$instance" --project-directory "$dir" \
         --env-file "$dir/instance.conf" -f "$dir/compose.yml" "$@"
 }
 
 port_in_use() {
     local port="$1" conf
-    for conf in "$FLEETIFY_ROOT"/*/instance.conf; do
+    for conf in "$FLEETO_ROOT"/*/instance.conf; do
         [[ -f "$conf" ]] || continue
         if [[ "$(conf_get "$conf" WEB_PORT)" == "$port" || "$(conf_get "$conf" AGENT_PORT)" == "$port" ]]; then
             return 0
@@ -852,7 +864,7 @@ instance_networks_diverge() {
     expected="$(conf_get "$(instance_dir "$instance")/instance.conf" NETWORK_MTU)"
     expected="${expected:-1500}"
     for network in internal edge egress; do
-        actual="$(docker network inspect --format '{{ index .Options "com.docker.network.driver.mtu" }}' "fleetify-${instance}_$network" 2>/dev/null)" \
+        actual="$(docker network inspect --format '{{ index .Options "com.docker.network.driver.mtu" }}' "fleeto-${instance}_$network" 2>/dev/null)" \
             || continue
         if [[ -z "$actual" || "$actual" == "<no value>" ]]; then
             actual=1500
@@ -885,11 +897,11 @@ write_instance_conf() {
     write_file_atomic "$dir/instance.conf" 0600 <<CONF
 # Fleeto instance configuration, written by install.sh. It contains NO secrets: secrets are files in ./secrets/.
 # Used as the Compose --env-file for interpolation only. Edit only EDGE_EGRESS, POSTGRES_MEMORY and POSTGRES_CPUS.
-FLEETIFY_INSTANCE=$instance
-FLEETIFY_FQDN=$fqdn
-FLEETIFY_VERSION=$version
-FLEETIFY_STATE=$state
-FLEETIFY_ROLLBACK=$MANIFEST_ROLLBACK
+FLEETO_INSTANCE=$instance
+FLEETO_FQDN=$fqdn
+FLEETO_VERSION=$version
+FLEETO_STATE=$state
+FLEETO_ROLLBACK=$MANIFEST_ROLLBACK
 WEB_PORT=$web_port
 AGENT_PORT=$agent_port
 EDGE_EGRESS=$edge_egress
@@ -909,13 +921,13 @@ CONF
 set_instance_state() {
     local instance="$1" state="$2" conf
     conf="$(instance_dir "$instance")/instance.conf"
-    sed "s/^FLEETIFY_STATE=.*/FLEETIFY_STATE=$state/" "$conf" | write_file_atomic "$conf" 0600
+    sed "s/^FLEETO_STATE=.*/FLEETO_STATE=$state/" "$conf" | write_file_atomic "$conf" 0600
 }
 
 set_instance_version() {
     local instance="$1" version="$2" conf
     conf="$(instance_dir "$instance")/instance.conf"
-    sed "s/^FLEETIFY_VERSION=.*/FLEETIFY_VERSION=$version/" "$conf" | write_file_atomic "$conf" 0600
+    sed "s/^FLEETO_VERSION=.*/FLEETO_VERSION=$version/" "$conf" | write_file_atomic "$conf" 0600
 }
 
 # write_release_manifest <instance dir>: the manifest of the loaded release and its signature, both verified by load_manifest, for the
@@ -938,7 +950,7 @@ write_instance_templates() {
     install -d -m 0755 -o root -g root "$dir/postgres/init"
     template "compose/compose.yml" | write_file_atomic "$dir/compose.yml" 0600
     # Read by the postgres user inside the container.
-    template "postgres/init/10-fleetify-roles.sh" | write_file_atomic "$dir/postgres/init/10-fleetify-roles.sh" 0755
+    template "postgres/init/10-fleeto-roles.sh" | write_file_atomic "$dir/postgres/init/10-fleeto-roles.sh" 0755
     template "postgres/archive-wal.sh" | write_file_atomic "$dir/postgres/archive-wal.sh" 0755
 }
 
@@ -1034,7 +1046,7 @@ confirm_forwarded_address() {
     info "(a plain port forward that keeps the client address, so agents are shown with their own address)."
     read -r -p "    Does a firewall or NAT forward TCP 80 and 443 on $address to this VPS? [y/N] " answer
     [[ "$answer" =~ ^[Yy]([Ee][Ss])?$ ]] || return 1
-    ensure_fleetify_root
+    ensure_fleeto_root
     { stored_public_addresses; printf '%s\n' "$address"; } | sort -u | write_file_atomic "$PUBLIC_ADDRESSES_FILE" 0600
     ok "$address stored as a forwarded public address of this VPS ($PUBLIC_ADDRESSES_FILE)"
 }
@@ -1094,12 +1106,33 @@ check_dns() {
 # protocol v2 header so the gateway learns the agent's address (it trusts the header only from the Docker networks the
 # published port is reached through). Every other
 # connection falls through to Caddy's own TLS, which terminates HTTPS per FQDN with automatic certificates.
+# routed_instance_confs: instance.conf of every instance the proxy routes: the Fleeto instances and, while a VPS moves, the instances
+# still in the old layout (same loopback ports, so their routes do not change).
+routed_instance_confs() {
+    local instance
+    for instance in $(list_instances); do
+        printf '%s\n' "$(instance_dir "$instance")/instance.conf"
+    done
+    if [[ -d "$LEGACY_ROOT" ]]; then
+        for instance in $(list_legacy_instances); do
+            [[ -f "$(instance_dir "$instance")/instance.conf" ]] || printf '%s\n' "$LEGACY_ROOT/$instance/instance.conf"
+        done
+    fi
+}
+
+# conf_fqdn <instance.conf>: the FQDN from an instance.conf of either layout.
+conf_fqdn() {
+    local value
+    value="$(conf_get "$1" FLEETO_FQDN)"
+    printf '%s' "${value:-$(conf_get "$1" FLEETIFY_FQDN)}"
+}
+
 generate_caddyfile() {
     local instance conf fqdn web_port agent_port matcher
     local -a instances=()
-    mapfile -t instances < <(list_instances)
+    mapfile -t instances < <(routed_instance_confs)
 
-    printf '# Generated by install.sh from %s/*/instance.conf. Do not edit: install.sh overwrites this file.\n' "$FLEETIFY_ROOT"
+    printf '# Generated by install.sh from %s/*/instance.conf. Do not edit: install.sh overwrites this file.\n' "$FLEETO_ROOT"
     printf '{\n'
     printf '\t# Admin API on a unix socket inside the container only, never on TCP.\n'
     printf '\tadmin unix//run/caddy/admin.sock\n'
@@ -1107,9 +1140,9 @@ generate_caddyfile() {
         printf '\n\tservers :443 {\n'
         printf '\t\tlistener_wrappers {\n'
         printf '\t\t\tlayer4 {\n'
-        for instance in "${instances[@]}"; do
-            conf="$(instance_dir "$instance")/instance.conf"
-            fqdn="$(conf_get "$conf" FLEETIFY_FQDN)"
+        for conf in "${instances[@]}"; do
+            instance="$(basename "$(dirname "$conf")")"
+            fqdn="$(conf_fqdn "$conf")"
             agent_port="$(conf_get "$conf" AGENT_PORT)"
             validate_generated_values "$instance" "$fqdn" "$agent_port"
             matcher="agents_${instance//-/_}"
@@ -1130,9 +1163,9 @@ generate_caddyfile() {
     printf '# Container health check (loopback only).\n'
     printf 'http://127.0.0.1:2020 {\n\tbind 127.0.0.1\n\trespond "ok" 200\n}\n'
 
-    for instance in "${instances[@]}"; do
-        conf="$(instance_dir "$instance")/instance.conf"
-        fqdn="$(conf_get "$conf" FLEETIFY_FQDN)"
+    for conf in "${instances[@]}"; do
+        instance="$(basename "$(dirname "$conf")")"
+        fqdn="$(conf_fqdn "$conf")"
         web_port="$(conf_get "$conf" WEB_PORT)"
         validate_generated_values "$instance" "$fqdn" "$web_port"
         printf '\n# Instance %s\n' "$instance"
@@ -1181,16 +1214,16 @@ update_caddy_routes() {
     if ! caddy_running; then
         dc_caddy up -d >/dev/null
     fi
-    if docker exec fleetify-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile --address unix//run/caddy/admin.sock >/dev/null 2>"$WORK_DIR/caddy-reload.log"; then
+    if docker exec fleeto-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile --address unix//run/caddy/admin.sock >/dev/null 2>"$WORK_DIR/caddy-reload.log"; then
         ok "proxy routes reloaded"
         return 0
     fi
     cat "$WORK_DIR/caddy-reload.log" >&2
     if [[ -f "$previous" ]]; then
         write_file_atomic "$CADDY_DIR/config/Caddyfile" 0600 <"$previous"
-        docker exec fleetify-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile --address unix//run/caddy/admin.sock >/dev/null 2>&1 || true
+        docker exec fleeto-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile --address unix//run/caddy/admin.sock >/dev/null 2>&1 || true
     fi
-    die "The host proxy refused the new routes; the previous routes were restored." "Check 'docker logs fleetify-caddy' and run install.sh again."
+    die "The host proxy refused the new routes; the previous routes were restored." "Check 'docker logs fleeto-caddy' and run install.sh again."
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1214,7 +1247,7 @@ wait_for_container_health() {
 instance_health_problems() {
     local instance="$1" dir service container_id status fqdn web_port agent_port
     dir="$(instance_dir "$instance")"
-    fqdn="$(conf_get "$dir/instance.conf" FLEETIFY_FQDN)"
+    fqdn="$(conf_get "$dir/instance.conf" "${CONF_PREFIX}_FQDN")"
     web_port="$(conf_get "$dir/instance.conf" WEB_PORT)"
     agent_port="$(conf_get "$dir/instance.conf" AGENT_PORT)"
     for service in "${INSTANCE_SERVICES[@]}"; do
@@ -1280,7 +1313,7 @@ run_migrator() {
     return 0
 }
 
-dc_hint() { printf 'docker compose -p fleetify-%s --env-file %s/instance.conf -f %s/compose.yml' "$1" "$(instance_dir "$1")" "$(instance_dir "$1")"; }
+dc_hint() { printf 'docker compose -p %s-%s --env-file %s/instance.conf -f %s/compose.yml' "$PROJECT_PREFIX" "$1" "$(instance_dir "$1")" "$(instance_dir "$1")"; }
 
 setup_link_of() {
     dc_instance "$1" logs --no-color --no-log-prefix migrator 2>/dev/null \
@@ -1288,14 +1321,14 @@ setup_link_of() {
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Database backup and restore (pre-update safety copy; the nightly off-VPS backup is done by fleetify-workers)
+# Database backup and restore (pre-update safety copy; the nightly off-VPS backup is done by fleeto-workers)
 # ---------------------------------------------------------------------------------------------------------------------
 backup_database() {
     local instance="$1" label="$2" dir file
     dir="$(instance_dir "$instance")/backups"
     file="$dir/$label-$(date -u +%Y%m%dT%H%M%SZ).dump"
     step "Backing up the database of $instance"
-    if ! dc_instance "$instance" exec -T postgres pg_dump --username=postgres --dbname=fleetify --format=custom >"$file.partial"; then
+    if ! dc_instance "$instance" exec -T postgres pg_dump --username=postgres --dbname="$DB_NAME" --format=custom >"$file.partial"; then
         rm -f "$file.partial"
         die "The pre-update backup of $instance failed; nothing was changed." "Check '$(dc_hint "$instance") logs postgres' and free disk space, then run install.sh again."
     fi
@@ -1314,21 +1347,21 @@ restore_database() {
     log="$(instance_dir "$instance")/backups/restore-$(date -u +%Y%m%dT%H%M%SZ).log"
     step "Restoring the database of $instance from $(basename "$file")"
     dc_instance "$instance" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username=postgres --dbname=postgres >/dev/null <<'SQL'
-DROP DATABASE IF EXISTS fleetify WITH (FORCE);
-CREATE DATABASE fleetify OWNER fleetify_migrator ENCODING 'UTF8';
-REVOKE ALL ON DATABASE fleetify FROM PUBLIC;
-GRANT CONNECT ON DATABASE fleetify TO fleetify_migrator, fleetify_web, fleetify_gateway, fleetify_signer, fleetify_workers, fleetify_backup;
+DROP DATABASE IF EXISTS fleeto WITH (FORCE);
+CREATE DATABASE fleeto OWNER fleeto_migrator ENCODING 'UTF8';
+REVOKE ALL ON DATABASE fleeto FROM PUBLIC;
+GRANT CONNECT ON DATABASE fleeto TO fleeto_migrator, fleeto_web, fleeto_gateway, fleeto_signer, fleeto_workers, fleeto_backup;
 SQL
-    dc_instance "$instance" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username=postgres --dbname=fleetify >/dev/null <<'SQL'
-ALTER SCHEMA public OWNER TO fleetify_migrator;
+    dc_instance "$instance" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username=postgres --dbname=fleeto >/dev/null <<'SQL'
+ALTER SCHEMA public OWNER TO fleeto_migrator;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 SELECT timescaledb_pre_restore();
 SQL
     local restore_status=0
-    dc_instance "$instance" exec -T postgres pg_restore --username=postgres --dbname=fleetify --no-password <"$file" >"$log" 2>&1 || restore_status=$?
+    dc_instance "$instance" exec -T postgres pg_restore --username=postgres --dbname=fleeto --no-password <"$file" >"$log" 2>&1 || restore_status=$?
     chmod 0600 "$log"
-    dc_instance "$instance" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username=postgres --dbname=fleetify \
+    dc_instance "$instance" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username=postgres --dbname=fleeto \
         -c 'SELECT timescaledb_post_restore();' >/dev/null
     if [[ "$restore_status" -ne 0 ]]; then
         warn "pg_restore reported errors (exit code $restore_status); details in $log."
@@ -1346,7 +1379,7 @@ install_instance() {
     dir="$(instance_dir "$instance")"
 
     if [[ -f "$dir/instance.conf" ]]; then
-        existing_fqdn="$(conf_get "$dir/instance.conf" FLEETIFY_FQDN)"
+        existing_fqdn="$(conf_get "$dir/instance.conf" FLEETO_FQDN)"
         [[ "$existing_fqdn" == "$fqdn" ]] \
             || die "Instance name $instance is already used by $existing_fqdn." "Choose an FQDN that does not map to the same name (dots become dashes)."
     fi
@@ -1410,10 +1443,335 @@ print_key_ceremony_reminder() {
     printf '    %sKey ceremony, do this today:%s\n' "$C_BOLD" "$C_RESET"
     info "1. Copy $dir/secrets/root.key and signer.key to offline storage (two copies, separate places)."
     info "   Without them no backup of this instance can ever be restored."
-    info "2. On an offline machine, create the backup key pair: fleetify-tool backup keygen --out <folder>"
+    info "2. On an offline machine, create the backup key pair: fleeto-tool backup keygen --out <folder>"
     info "   Keep backup.key offline; paste the public key into Settings, Backups during first-admin setup."
     info "3. Configure the backup destination in Settings, Backups. Until then backups exist on this VPS only."
     info "See deploy/README.md (Key ceremony) for the full procedure."
+}
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Moving a VPS from the Fleetify layout (0.2.1)
+# ---------------------------------------------------------------------------------------------------------------------
+# Until 0.2.1 Fleeto was installed under its internal name Fleetify: /opt/fleetify, Compose projects fleetify-<instance> and
+# fleetify-caddy, database fleetify with login roles fleetify_*. The images of this release only run under the Fleeto names, so
+# install.sh moves a VPS once, every instance at the same time (MD-Files/ARCHITECTURE.md section 7, Rename to Fleeto):
+#   1. each instance: pre-rename backup, stop, copy of its directory and volumes to the Fleeto names, database and roles renamed in
+#      the copy. The old instance stays untouched; if a copy fails, every instance starts again from the old layout;
+#   2. the host proxy: same, with its certificates, so no certificate is requested again;
+#   3. each instance is updated to the release. An instance whose update fails is started again from the old layout and moves
+#      with the next install.sh run; one that succeeds loses its old copy.
+
+LEGACY_FALLBACK_INSTANCE=""
+MIGRATED_INSTANCES=()
+
+# Instances in the old layout that have not moved yet, sorted.
+list_legacy_instances() {
+    local conf
+    for conf in "$LEGACY_ROOT"/*/instance.conf; do
+        [[ -f "$conf" && ! -e "$(dirname "$conf")/.moved-to-fleeto" ]] || continue
+        basename "$(dirname "$conf")"
+    done | sort
+}
+
+legacy_vps() {
+    [[ -d "$LEGACY_ROOT" ]] || return 1
+    [[ -n "$(list_legacy_instances)" || -f "$LEGACY_ROOT/caddy/caddy.conf" ]]
+}
+
+# with_legacy_layout <command...>: runs an instance function (dc_instance, wait_for_instance_health, ...) against the old layout.
+with_legacy_layout() {
+    local INSTANCES_ROOT="$LEGACY_ROOT" PROJECT_PREFIX="$LEGACY_PREFIX" CONF_PREFIX="FLEETIFY" DB_NAME="fleetify"
+    "$@"
+}
+
+# adopt_legacy_settings: the GitHub tokens and confirmed public addresses of a VPS in the old layout, copied (never moved) before anything
+# needs them, so the first run after the rename asks for nothing new.
+adopt_legacy_settings() {
+    [[ -d "$LEGACY_ROOT" ]] || return 0
+    install -d -m 0700 -o root -g root "$FLEETO_ROOT"
+    if [[ -d "$LEGACY_ROOT/credentials" && ! -e "$CREDENTIALS_DIR" ]]; then
+        cp -a "$LEGACY_ROOT/credentials" "$CREDENTIALS_DIR"
+    fi
+    if [[ -f "$LEGACY_ROOT/public-addresses" && ! -e "$PUBLIC_ADDRESSES_FILE" ]]; then
+        cp -a "$LEGACY_ROOT/public-addresses" "$PUBLIC_ADDRESSES_FILE"
+    fi
+}
+
+volume_exists() { docker volume inspect "$1" >/dev/null 2>&1; }
+
+# copy_volume <from> <to> <compose project> <compose volume>: a new volume with the labels Compose expects, filled with a copy.
+copy_volume() {
+    local from="$1" to="$2" project="$3" volume="$4"
+    if ! volume_exists "$from"; then
+        info "volume $from does not exist; nothing to copy"
+        return 0
+    fi
+    ! volume_exists "$to" || die "Volume $to already exists." "Remove it after checking that it holds nothing needed, then run install.sh again."
+    docker volume create --label "com.docker.compose.project=$project" --label "com.docker.compose.volume=$volume" "$to" >/dev/null
+    docker run --rm --network none --user 0:0 --entrypoint sh -v "$from:/from:ro" -v "$to:/to" "$POSTGRES_IMAGE" -c 'cp -a /from/. /to/'
+    ok "copied volume $from to $to"
+}
+
+# require_space_for_volumes <volume...>: the copies need as much space as the volumes use, plus a margin.
+require_space_for_volumes() {
+    local volume size needed=0 available root
+    for volume in "$@"; do
+        volume_exists "$volume" || continue
+        size="$(docker run --rm --network none --user 0:0 --entrypoint du -v "$volume:/v:ro" "$POSTGRES_IMAGE" -sk /v | awk '{ print $1 }')"
+        needed=$((needed + ${size:-0}))
+    done
+    root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /var/lib/docker)"
+    available="$(df -Pk "$root" | awk 'NR == 2 { print $4 }')"
+    ((available > needed + needed / 10 + 1048576)) \
+        || die "Moving to the Fleeto layout copies $((needed / 1024)) MB of volumes, but $root has $((available / 1024)) MB free." \
+            "Free disk space (at least $((needed / 1024 + needed / 10240 + 1024)) MB) and run install.sh again; nothing was changed."
+}
+
+# discard_moved_copy <instance>: removes the Fleeto copy of an instance whose move did not finish. The old layout is not touched.
+discard_moved_copy() {
+    local instance="$1" dir volume
+    dir="$(instance_dir "$instance")"
+    if [[ -f "$dir/compose.yml" && -f "$dir/instance.conf" ]]; then
+        dc_instance "$instance" down --timeout 30 --remove-orphans >/dev/null 2>&1 || true
+    fi
+    for volume in "${INSTANCE_VOLUMES[@]}"; do
+        docker volume rm "fleeto-${instance}_$volume" >/dev/null 2>&1 || true
+    done
+    if [[ -f "$dir/state/history.log" && -d "$LEGACY_ROOT/$instance/state" ]]; then
+        cp "$dir/state/history.log" "$LEGACY_ROOT/$instance/state/move-to-fleeto-$(date -u +%Y%m%dT%H%M%SZ).log" 2>/dev/null || true
+    fi
+    rm -rf -- "$dir"
+}
+
+# rename_database_and_roles <instance>: in the copied volume, database fleetify becomes fleeto and every fleetify_* role its fleeto_*
+# counterpart; the passwords are set again from the secret files (SCRAM survives a rename, but a set password is certain).
+rename_database_and_roles() {
+    local instance="$1"
+    dc_instance "$instance" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username=postgres --dbname=postgres >/dev/null <<'SQL'
+\set QUIET on
+SELECT 'ALTER DATABASE fleetify RENAME TO fleeto'
+WHERE EXISTS (SELECT 1 FROM pg_database WHERE datname = 'fleetify') AND NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'fleeto')
+\gexec
+SELECT format('ALTER ROLE %I RENAME TO %I', rolname, 'fleeto_' || substr(rolname, 10))
+FROM pg_roles
+WHERE rolname IN ('fleetify_migrator', 'fleetify_web', 'fleetify_gateway', 'fleetify_signer', 'fleetify_workers', 'fleetify_backup')
+\gexec
+\set migrator_password `cat /run/secrets/db-migrator.password`
+\set web_password `cat /run/secrets/db-web.password`
+\set gateway_password `cat /run/secrets/db-gateway.password`
+\set signer_password `cat /run/secrets/db-signer.password`
+\set workers_password `cat /run/secrets/db-workers.password`
+\set backup_password `cat /run/secrets/db-backup.password`
+ALTER ROLE fleeto_migrator PASSWORD :'migrator_password';
+ALTER ROLE fleeto_web PASSWORD :'web_password';
+ALTER ROLE fleeto_gateway PASSWORD :'gateway_password';
+ALTER ROLE fleeto_signer PASSWORD :'signer_password';
+ALTER ROLE fleeto_workers PASSWORD :'workers_password';
+ALTER ROLE fleeto_backup PASSWORD :'backup_password';
+SQL
+    ok "database and roles renamed to fleeto"
+}
+
+# copy_legacy_instance <instance>: step 1 for one instance. Leaves the Fleeto copy stopped, at the installed version.
+copy_legacy_instance() {
+    local instance="$1" legacy_dir dir volume version
+    legacy_dir="$LEGACY_ROOT/$instance"
+    dir="$(instance_dir "$instance")"
+    version="$(conf_get "$legacy_dir/instance.conf" FLEETIFY_VERSION)"
+    step "Moving $instance to $dir"
+    discard_moved_copy "$instance"
+
+    with_legacy_layout wait_for_postgres "$instance"
+    with_legacy_layout backup_database "$instance" "pre-rename-$version"
+    with_legacy_layout dc_instance "$instance" down --timeout 30 --remove-orphans >/dev/null
+    ok "stopped ${LEGACY_PREFIX}-$instance"
+
+    cp -a "$legacy_dir" "$dir"
+    rm -rf -- "$dir/state/previous" "$dir/postgres/init/10-fleetify-roles.sh"
+    sed 's/^FLEETIFY_/FLEETO_/' "$legacy_dir/instance.conf" | write_file_atomic "$dir/instance.conf" 0600
+    for volume in "${INSTANCE_VOLUMES[@]}"; do
+        copy_volume "${LEGACY_PREFIX}-${instance}_$volume" "fleeto-${instance}_$volume" "fleeto-$instance" "$volume"
+    done
+    write_instance_templates "$dir"
+    wait_for_postgres "$instance"
+    rename_database_and_roles "$instance"
+    dc_instance "$instance" stop postgres >/dev/null
+    append_history "$instance" "moved from $legacy_dir (Fleetify layout, $version)"
+}
+
+# fall_back_to_legacy_instance <instance>: stops and removes the Fleeto copy and starts the instance again from the old layout.
+fall_back_to_legacy_instance() {
+    local instance="$1"
+    warn "Starting $instance again from $LEGACY_ROOT/$instance."
+    discard_moved_copy "$instance"
+    with_legacy_layout dc_instance "$instance" up -d --remove-orphans >/dev/null 2>&1 && with_legacy_layout wait_for_instance_health "$instance"
+}
+
+legacy_instance_running() {
+    [[ -n "$(with_legacy_layout dc_instance "$1" ps --status running -q web 2>/dev/null)" ]]
+}
+
+dc_legacy_caddy() {
+    docker compose --project-name "${LEGACY_PREFIX}-caddy" --project-directory "$LEGACY_ROOT/caddy" \
+        --env-file "$LEGACY_ROOT/caddy/caddy.conf" -f "$LEGACY_ROOT/caddy/compose.yml" "$@"
+}
+
+# move_legacy_caddy <version>: step 2. Returns non-zero with the old proxy running again when the new one does not come up.
+move_legacy_caddy() {
+    local version="$1" volume status=0
+    [[ -f "$LEGACY_ROOT/caddy/caddy.conf" ]] || return 0
+    if caddy_running; then
+        return 0
+    fi
+    step "Moving the host proxy to $CADDY_DIR (certificates included)"
+    require_space_for_volumes "${LEGACY_PREFIX}-caddy_caddy-data" "${LEGACY_PREFIX}-caddy_caddy-config"
+    dc_legacy_caddy down --timeout 30 >/dev/null 2>&1 || true
+    rm -rf -- "$CADDY_DIR"
+    cp -a "$LEGACY_ROOT/caddy" "$CADDY_DIR"
+    for volume in caddy-data caddy-config; do
+        docker volume rm "fleeto-caddy_$volume" >/dev/null 2>&1 || true
+        copy_volume "${LEGACY_PREFIX}-caddy_$volume" "fleeto-caddy_$volume" fleeto-caddy "$volume"
+    done
+    generate_caddyfile | write_file_atomic "$CADDY_DIR/config/Caddyfile" 0600
+    set +e
+    (
+        set -e
+        ensure_caddy "$version"
+        caddy_running || dc_caddy up -d >/dev/null
+        wait_for_container_health fleeto-caddy 90
+    )
+    status=$?
+    set -e
+    if [[ "$status" -ne 0 ]]; then
+        dc_caddy down --timeout 30 >/dev/null 2>&1 || true
+        dc_legacy_caddy up -d >/dev/null 2>&1 || true
+        return 1
+    fi
+    ok "host proxy runs as fleeto-caddy"
+}
+
+# The installed install.sh of the old layout must never start the old proxy or stacks again next to the new ones.
+disable_legacy_installer() {
+    [[ -d "$LEGACY_ROOT/bin" ]] || return 0
+    write_file_atomic "$LEGACY_ROOT/bin/install.sh" 0700 <<STUB
+#!/usr/bin/env bash
+echo "Error: this VPS was moved to the Fleeto layout; this install.sh no longer works." >&2
+echo "       Run $INSTALLED_SCRIPT instead." >&2
+exit 1
+STUB
+}
+
+# finish_legacy_instance <instance>: the instance runs the release under the Fleeto names; its old copy goes.
+finish_legacy_instance() {
+    local instance="$1" volume
+    : >"$LEGACY_ROOT/$instance/.moved-to-fleeto"
+    for volume in "${INSTANCE_VOLUMES[@]}"; do
+        docker volume rm "${LEGACY_PREFIX}-${instance}_$volume" >/dev/null 2>&1 || warn "Volume ${LEGACY_PREFIX}-${instance}_$volume could not be removed; remove it by hand."
+    done
+    rm -rf -- "${LEGACY_ROOT:?}/$instance"
+}
+
+# remove_legacy_root: once no instance is left in the old layout, the old proxy volumes and /opt/fleetify go.
+remove_legacy_root() {
+    [[ -z "$(list_legacy_instances)" ]] || return 0
+    local volume
+    for volume in caddy-data caddy-config; do
+        docker volume rm "${LEGACY_PREFIX}-caddy_$volume" >/dev/null 2>&1 || true
+    done
+    rm -rf -- "${LEGACY_ROOT:?}"
+    ok "removed $LEGACY_ROOT; this VPS uses the Fleeto layout"
+}
+
+# migrate_legacy_vps <version>: moves every instance and the host proxy (see the start of this section). Dies when any instance
+# could not be moved; the others run the release.
+migrate_legacy_vps() {
+    local version="$1" instance status volume
+    local -a instances=() copied=() failures=() volumes=()
+    legacy_vps || return 0
+    # An instance that already runs this release under the Fleeto names, but whose old copy was not removed (install.sh stopped in
+    # between), is only cleaned up.
+    for instance in $(list_legacy_instances); do
+        local conf
+        conf="$(instance_dir "$instance")/instance.conf"
+        if [[ -f "$conf" && "$(conf_get "$conf" FLEETO_STATE)" == ok && "$(conf_get "$conf" FLEETO_VERSION)" == "$version" ]]; then
+            finish_legacy_instance "$instance"
+            MIGRATED_INSTANCES+=("$instance")
+        fi
+    done
+    mapfile -t instances < <(list_legacy_instances)
+
+    step "Moving this VPS from the Fleetify layout to Fleeto"
+    info "Fleeto was installed under its internal name Fleetify. Release $version uses the Fleeto names:"
+    info "$LEGACY_ROOT becomes $FLEETO_ROOT, Compose projects fleetify-* become fleeto-*, database fleetify becomes fleeto."
+    if [[ ${#instances[@]} -gt 0 ]]; then
+        info "Every instance on this VPS moves and is updated to $version now: ${instances[*]}."
+        info "Each is stopped while its data is copied; the old copy stays until the instance runs $version."
+    fi
+    confirm "Move this VPS to the Fleeto layout and update every instance to $version?" \
+        || die "Nothing was changed." "Run install.sh again when a short interruption of every instance on this VPS is acceptable."
+
+    exec 8>"$LEGACY_ROOT/.install.lock"
+    flock -n 8 || die "An install.sh from before the rename is running on this VPS." "Wait for it to finish and run install.sh again."
+
+    pull_release_images
+    for instance in "${instances[@]}"; do
+        for volume in "${INSTANCE_VOLUMES[@]}"; do volumes+=("${LEGACY_PREFIX}-${instance}_$volume"); done
+    done
+    require_space_for_volumes "${volumes[@]}"
+
+    # 1. Copies. Any failure puts every instance back on the old layout.
+    for instance in "${instances[@]}"; do
+        copied+=("$instance")
+        set +e
+        (
+            set -e
+            copy_legacy_instance "$instance"
+        )
+        status=$?
+        set -e
+        if [[ "$status" -ne 0 ]]; then
+            for instance in "${copied[@]}"; do fall_back_to_legacy_instance "$instance" || true; done
+            die "Moving the instances to the Fleeto layout failed; every instance runs again from $LEGACY_ROOT." \
+                "Read the output above, fix the cause and run install.sh again."
+        fi
+    done
+
+    # 2. Host proxy.
+    if ! move_legacy_caddy "$version"; then
+        for instance in "${instances[@]}"; do fall_back_to_legacy_instance "$instance" || true; done
+        die "The host proxy did not start under the Fleeto names; the old proxy and every instance run again from $LEGACY_ROOT." \
+            "Check 'docker logs fleeto-caddy' and run install.sh again."
+    fi
+    disable_legacy_installer
+
+    # 3. Updates.
+    for instance in "${instances[@]}"; do
+        LEGACY_FALLBACK_INSTANCE="$instance"
+        set +e
+        (
+            set -e
+            update_instance "$instance" "$version"
+        )
+        status=$?
+        set -e
+        LEGACY_FALLBACK_INSTANCE=""
+        if [[ "$status" -eq 0 ]]; then
+            finish_legacy_instance "$instance"
+            MIGRATED_INSTANCES+=("$instance")
+        else
+            failures+=("$instance")
+            if ! legacy_instance_running "$instance"; then
+                fall_back_to_legacy_instance "$instance" || warn "$instance did not start again from $LEGACY_ROOT; see the output above."
+            fi
+        fi
+    done
+    remove_legacy_root
+    if [[ ${#failures[@]} -gt 0 ]]; then
+        update_caddy_routes
+        die "These instances could not move to Fleeto $version and run again from $LEGACY_ROOT: ${failures[*]}." \
+            "Send the output above to Steaan support; install.sh moves them with its next run."
+    fi
+    ok "This VPS uses the Fleeto layout; every instance runs Fleeto $version"
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1424,17 +1782,17 @@ LAST_BACKUP_FILE=""
 update_instance() {
     local instance="$1" version="$2" dir fqdn installed_version rollback_mode
     dir="$(instance_dir "$instance")"
-    fqdn="$(conf_get "$dir/instance.conf" FLEETIFY_FQDN)"
-    installed_version="$(conf_get "$dir/instance.conf" FLEETIFY_VERSION)"
+    fqdn="$(conf_get "$dir/instance.conf" FLEETO_FQDN)"
+    installed_version="$(conf_get "$dir/instance.conf" FLEETO_VERSION)"
 
-    if [[ "$(conf_get "$dir/instance.conf" FLEETIFY_STATE)" == "updating" && -d "$dir/state/previous" ]]; then
+    if [[ "$(conf_get "$dir/instance.conf" FLEETO_STATE)" == "updating" && -d "$dir/state/previous" ]]; then
         # An earlier run stopped halfway through an update: start again from the configuration before it.
         warn "An earlier update of $fqdn was interrupted; restoring its previous configuration first."
         cp -a "$dir/state/previous/compose.yml" "$dir/state/previous/instance.conf" "$dir/"
         rm -rf -- "$dir/postgres"
         cp -a "$dir/state/previous/postgres" "$dir/"
         restore_previous_release_manifest "$dir"
-        installed_version="$(conf_get "$dir/instance.conf" FLEETIFY_VERSION)"
+        installed_version="$(conf_get "$dir/instance.conf" FLEETO_VERSION)"
     fi
     is_version "$installed_version" || die "instance.conf of $instance has no valid installed version." "Check $dir/instance.conf."
     if version_lt "$version" "$installed_version"; then
@@ -1443,7 +1801,7 @@ update_instance() {
     fi
 
     step "Updating $fqdn from $installed_version to $version"
-    if [[ "$MANIFEST_ROLLBACK" == "restore" ]]; then
+    if [[ "$MANIFEST_ROLLBACK" == "restore" && "$LEGACY_FALLBACK_INSTANCE" != "$instance" ]]; then
         warn "Release $version changes the database in a way the previous release cannot run on."
         warn "If the update fails, install.sh restores the pre-update backup: changes made during the update are lost."
         confirm "Update $fqdn to $version?" || die "Update of $fqdn cancelled; nothing was changed." ""
@@ -1518,6 +1876,16 @@ rollback_instance() {
     error "Update of $instance to $failed_version failed: $reason. Rolling back to $previous_version."
     append_history "$instance" "update $previous_version -> $failed_version failed ($reason); rolling back"
 
+    if [[ "$LEGACY_FALLBACK_INSTANCE" == "$instance" ]]; then
+        # The instance is moving from the Fleetify layout, which is untouched: it runs again from there.
+        if fall_back_to_legacy_instance "$instance"; then
+            die "The update to $failed_version failed ($reason); $instance runs $previous_version again from $LEGACY_ROOT/$instance." \
+                "Send the log lines above to Steaan support before trying again."
+        fi
+        die "Starting $instance again from $LEGACY_ROOT/$instance did not bring it back to health." \
+            "Contact Steaan support with the output above. The pre-rename backup is in $LEGACY_ROOT/$instance/backups."
+    fi
+
     dc_instance "$instance" stop --timeout 30 web gateway workers signer >/dev/null 2>&1 || true
 
     if [[ "$mode" == "restore" ]]; then
@@ -1553,6 +1921,9 @@ command_list() {
     local instance conf running total=${#INSTANCE_SERVICES[@]}
     local -a instances=()
     mapfile -t instances < <(list_instances)
+    if legacy_vps; then
+        warn "This VPS still uses the Fleetify layout ($LEGACY_ROOT: $(list_legacy_instances | tr '\n' ' ')). The next update moves it to Fleeto."
+    fi
     if [[ ${#instances[@]} -eq 0 ]]; then
         info "No Fleeto instances on this VPS. Install one with: install.sh --fqdn <name>"
         return 0
@@ -1564,8 +1935,8 @@ command_list() {
         if command -v docker >/dev/null 2>&1; then
             running="$(dc_instance "$instance" ps --status running --services 2>/dev/null | grep -cxE "$(IFS='|'; echo "${INSTANCE_SERVICES[*]}")" || true)"
         fi
-        printf '%-40s %-34s %-9s %-16s %s/%s\n' "$(conf_get "$conf" FLEETIFY_FQDN)" "$instance" \
-            "$(conf_get "$conf" FLEETIFY_VERSION)" "$(conf_get "$conf" FLEETIFY_STATE)" "$running" "$total"
+        printf '%-40s %-34s %-9s %-16s %s/%s\n' "$(conf_get "$conf" FLEETO_FQDN)" "$instance" \
+            "$(conf_get "$conf" FLEETO_VERSION)" "$(conf_get "$conf" FLEETO_STATE)" "$running" "$total"
     done
 }
 
@@ -1582,6 +1953,9 @@ command_check() {
         mapfile -t instances < <(list_instances)
     fi
     info "Latest release: $LATEST_VERSION (this install.sh: $INSTALLER_VERSION)"
+    if legacy_vps; then
+        warn "This VPS still uses the Fleetify layout ($LEGACY_ROOT). Updating moves every instance to Fleeto: install.sh --all"
+    fi
     if [[ -n "$NEWER_PRE_RELEASE" ]]; then
         info "Pre-release $NEWER_PRE_RELEASE is available; install it on a test VPS with --version $NEWER_PRE_RELEASE."
     fi
@@ -1593,11 +1967,11 @@ command_check() {
     fi
     for instance in "${instances[@]}"; do
         conf="$(instance_dir "$instance")/instance.conf"
-        installed="$(conf_get "$conf" FLEETIFY_VERSION)"
+        installed="$(conf_get "$conf" FLEETO_VERSION)"
         if is_version "$installed" && version_lt "$installed" "$LATEST_VERSION"; then
-            info "$(conf_get "$conf" FLEETIFY_FQDN): $installed installed, update available. Run: install.sh --fqdn $(conf_get "$conf" FLEETIFY_FQDN)"
+            info "$(conf_get "$conf" FLEETO_FQDN): $installed installed, update available. Run: install.sh --fqdn $(conf_get "$conf" FLEETO_FQDN)"
         else
-            info "$(conf_get "$conf" FLEETIFY_FQDN): $installed installed, up to date."
+            info "$(conf_get "$conf" FLEETO_FQDN): $installed installed, up to date."
         fi
     done
 }
@@ -1643,6 +2017,7 @@ main() {
     require_root "$@"
     require_supported_os
     ensure_packages
+    adopt_legacy_settings
 
     if $ARG_GITHUB_TOKENS; then
         ensure_github_credentials true
@@ -1677,6 +2052,17 @@ main() {
     load_manifest "$version"
     ensure_installer_for_release "$version"
 
+    if legacy_vps; then
+        # Every instance moves and is updated at once; only a new instance (--fqdn of a name not on this VPS) remains to be done.
+        ensure_docker
+        migrate_legacy_vps "$version"
+        $ARG_ALL && return 0
+        local moved
+        for moved in "${MIGRATED_INSTANCES[@]}"; do
+            [[ "$moved" == "$(instance_name_for "$ARG_FQDN")" ]] && return 0
+        done
+    fi
+
     if $ARG_ALL; then
         ensure_docker
         command_all "$version"
@@ -1686,7 +2072,7 @@ main() {
     local instance conf
     instance="$(instance_name_for "$ARG_FQDN")"
     conf="$(instance_dir "$instance")/instance.conf"
-    if [[ -f "$conf" && "$(conf_get "$conf" FLEETIFY_STATE)" != "installing" ]]; then
+    if [[ -f "$conf" && "$(conf_get "$conf" FLEETO_STATE)" != "installing" ]]; then
         ensure_docker
         update_instance "$instance" "$version"
     else

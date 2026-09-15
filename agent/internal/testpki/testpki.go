@@ -32,7 +32,7 @@ func NewCA(name string) (*CA, error) {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial(),
-		Subject:               pkix.Name{CommonName: name, Organization: []string{"Fleetify"}},
+		Subject:               pkix.Name{CommonName: name, Organization: []string{"Fleeto"}},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(24 * time.Hour),
 		IsCA:                  true,
@@ -73,7 +73,7 @@ func (ca *CA) ServerCertificate(names ...string) (tls.Certificate, error) {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber: serial(),
-		Subject:      pkix.Name{CommonName: names[0], Organization: []string{"Fleetify"}},
+		Subject:      pkix.Name{CommonName: names[0], Organization: []string{"Fleeto"}},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(24 * time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
@@ -102,11 +102,11 @@ func (ca *CA) IssueAgent(csrDER []byte, endpointID, instanceID string, notBefore
 	if err := csr.CheckSignature(); err != nil {
 		return nil, err
 	}
-	endpointURI, _ := url.Parse("urn:fleetify:endpoint:" + endpointID)
-	instanceURI, _ := url.Parse("urn:fleetify:instance:" + instanceID)
+	endpointURI, _ := url.Parse("urn:fleeto:endpoint:" + endpointID)
+	instanceURI, _ := url.Parse("urn:fleeto:instance:" + instanceID)
 	tmpl := &x509.Certificate{
 		SerialNumber: serial(),
-		Subject:      pkix.Name{CommonName: endpointID, Organization: []string{"Fleetify"}},
+		Subject:      pkix.Name{CommonName: endpointID, Organization: []string{"Fleeto"}},
 		NotBefore:    notBefore,
 		NotAfter:     notBefore.Add(lifetime),
 		KeyUsage:     x509.KeyUsageDigitalSignature,

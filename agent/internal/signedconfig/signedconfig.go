@@ -18,7 +18,7 @@ import (
 )
 
 // Context is the domain separation prefix; it must equal SignatureContexts.AgentConfig on the server.
-const Context = "fleetify-agent-config-v1"
+const Context = "fleeto-agent-config-v1"
 
 // MaxPayloadBytes bounds the payload the agent parses. A config is far smaller; the WebSocket limit is 4 MiB.
 const MaxPayloadBytes = 1 << 20

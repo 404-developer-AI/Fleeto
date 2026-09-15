@@ -1,0 +1,614 @@
+// Agent protocol v1 between the Fleeto agent and fleeto-gateway.
+//
+// Transport:
+//   CA:         HTTPS GET https://<agent host>/v1/ca returns the instance CA certificates as a PEM bundle. The agent
+//               fetches it without sending anything secret, picks the CA whose SHA-256 (of the DER) equals the
+//               fingerprint from the install command, and refuses to continue if none matches. (TLS stacks do not send
+//               a self-signed root in the handshake, so the CA cannot be taken from the chain.)
+//   Enrollment: HTTPS POST https://<agent host>/v1/enroll, body EnrollRequest, Content-Type application/x-protobuf,
+//               over a connection verified normally against that CA as the only root, for the agent host name.
+//               200 with EnrollResponse, or a problem+json error (400 invalid, 401 token refused, 429, 503 retry).
+//   Recovery:   HTTPS POST https://<agent host>/v1/recover with the expired agent client certificate (mTLS), body
+//               RecoverRequest (0.2.0). Only for a certificate that expired at most 365 days ago and was never revoked;
+//               200 with RecoverResponse, or a problem+json error (401 refused, 429, 503 retry). /v1/connect answers 401
+//               with the header "Fleeto-Certificate: expired" when such a certificate tries to open a session.
+//   Release:    HTTPS GET https://<agent host>/v1/releases/<version>/<file> with an agent or watchdog client certificate (mTLS,
+//               0.2.1): one agent binary named in the release manifest of UpdateOffer. 200 application/octet-stream, 404 when
+//               the file is not part of the current release, 503 with Retry-After when too many downloads run at once.
+//   Session:    WebSocket wss://<agent host>/v1/connect with the agent client certificate (mTLS).
+//               Every binary WebSocket message is exactly one AgentMessage (agent to server) or ServerMessage
+//               (server to agent). The WebSocket frame is the length prefix. Maximum message size 4 MiB.
+//
+// Signatures (ed25519, instance signing key) cover "fleeto-agent-config-v1" || 0x00 || payload, where payload
+// is the exact serialized bytes carried in SignedConfig.payload. The agent never re-serializes before verifying.
+// Jobs (0.2.0) use the context "fleeto-job-v1" the same way over SignedJob.payload.
+//
+// Watchdog (0.2.1): the second service on an endpoint connects to the same /v1/connect with its own certificate (role watchdog,
+// issued through WatchdogCertificateRequest over the agent session). A watchdog session only exchanges Hello, HelloAck, Heartbeat,
+// Ping, Pong, certificate renewal, UpdateOffer, UpdateStatus and Disconnect; the gateway ignores anything else it sends and never
+// sends it configurations, jobs, check run or inventory requests.
+//
+// Updates (0.2.1): UpdateOffer carries the release manifest of the instance with its Steaan release signature (ed25519 over the
+// exact manifest bytes, without a context prefix, the same signature install.sh verifies). The receiver verifies it against the
+// release public keys compiled into its binary, installs only binaries named in it with the listed SHA-256 and size, and never
+// a version lower than or equal to the installed one. The agent installs and updates the watchdog; the watchdog updates the agent.
+syntax = "proto3";
+
+package fleeto.agent.v1;
+
+option csharp_namespace = "Fleeto.Protocol.Agent.V1";
+option go_package = "github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1;agentv1";
+
+import "google/protobuf/timestamp.proto";
+
+// ---------------------------------------------------------------------------------------------------------------
+// Enrollment
+// ---------------------------------------------------------------------------------------------------------------
+
+message EnrollRequest {
+  // The enrollment token from the install command: fet_<id>_<secret>.
+  string token = 1;
+  // PKCS#10 certificate signing request, ECDSA P-256, DER.
+  bytes csr_der = 2;
+  string hostname = 3;
+  OsInfo os = 4;
+  string agent_version = 5;
+}
+
+message EnrollResponse {
+  string endpoint_id = 1;
+  string instance_id = 2;
+  // Agent certificate, DER. Valid 90 days.
+  bytes certificate_der = 3;
+  // Instance CA certificate, DER. The agent pins it.
+  bytes ca_certificate_der = 4;
+  // Raw 32-byte ed25519 public key of the instance signing key. The agent pins it.
+  bytes instance_signing_public_key = 5;
+  string instance_signing_key_id = 6;
+}
+
+// Renewal of an expired certificate (0.2.0). The CSR must use the key of the expired certificate the TLS connection
+// authenticated with.
+message RecoverRequest {
+  bytes csr_der = 1;
+  string hostname = 2;
+  string agent_version = 3;
+}
+
+message RecoverResponse {
+  // New agent certificate for the same endpoint and key, DER. Valid 90 days.
+  bytes certificate_der = 1;
+}
+
+message OsInfo {
+  // windows, linux or darwin.
+  string platform = 1;
+  // Product name, e.g. "Windows 11 Pro" or "Windows Server 2022 Standard".
+  string name = 2;
+  // Version and build, e.g. "10.0.26200".
+  string version = 3;
+  // True for server editions.
+  bool is_server = 4;
+  // amd64 or arm64.
+  string architecture = 5;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Session envelopes
+// ---------------------------------------------------------------------------------------------------------------
+
+message AgentMessage {
+  oneof body {
+    Hello hello = 1;
+    Heartbeat heartbeat = 2;
+    InventoryReport inventory = 3;
+    CheckResultBatch check_results = 4;
+    RenewCertificateRequest renew_certificate = 5;
+    ConfigApplied config_applied = 6;
+    Pong pong = 7;
+    JobStarted job_started = 8;
+    JobOutput job_output = 9;
+    JobCompletion job_completion = 10;
+    // 0.2.1
+    WatchdogCertificateRequest watchdog_certificate = 11;
+    UpdateStatus update_status = 12;
+  }
+}
+
+message ServerMessage {
+  oneof body {
+    HelloAck hello_ack = 1;
+    BatchAck batch_ack = 2;
+    SignedConfig config = 3;
+    RenewCertificateResponse renew_certificate = 4;
+    Ping ping = 5;
+    Disconnect disconnect = 6;
+    InventoryRequest inventory_request = 7;
+    RunChecksNow run_checks_now = 8;
+    SignedJob job = 9;
+    JobAck job_ack = 10;
+    // 0.2.1
+    UpdateOffer update_offer = 11;
+    WatchdogCertificateResponse watchdog_certificate = 12;
+  }
+}
+
+// First message after the WebSocket opens. The server closes the connection if anything else comes first.
+message Hello {
+  string agent_version = 1;
+  string hostname = 2;
+  OsInfo os = 3;
+  // Version of the signed configuration currently applied, 0 when none.
+  uint64 config_version = 4;
+  // Hash of the last inventory the agent sent; the server requests a new report when it differs from its copy.
+  string inventory_hash = 5;
+  // Which service this is (0.2.1). Unspecified means agent (older agents). Must match the role of the certificate.
+  Component component = 6;
+}
+
+// The two Fleeto services on an endpoint (0.2.1).
+enum Component {
+  COMPONENT_UNSPECIFIED = 0;
+  COMPONENT_AGENT = 1;
+  COMPONENT_WATCHDOG = 2;
+}
+
+message HelloAck {
+  string endpoint_id = 1;
+  google.protobuf.Timestamp server_time = 2;
+  // Interval for Heartbeat messages until a signed configuration says otherwise.
+  uint32 heartbeat_interval_seconds = 3;
+}
+
+message Heartbeat {
+  google.protobuf.Timestamp agent_time = 1;
+  // The state of the other service on the endpoint as this service sees it (0.2.1): the watchdog as seen by the agent, the agent
+  // as seen by the watchdog. Sent with the first heartbeat of a session and whenever it changes.
+  PeerStatus peer = 2;
+}
+
+message PeerStatus {
+  // Version of the installed binary; empty when unknown or not installed.
+  string version = 1;
+  ServiceState state = 2;
+  // Why the service is not running, e.g. the error of the last start attempt. Free text, at most 500 characters.
+  string detail = 3;
+}
+
+enum ServiceState {
+  SERVICE_STATE_UNSPECIFIED = 0;
+  SERVICE_STATE_RUNNING = 1;
+  SERVICE_STATE_STOPPED = 2;
+  SERVICE_STATE_STARTING = 3;
+  SERVICE_STATE_STOPPING = 4;
+  // Start type disabled by an administrator on the endpoint: never started by the other service.
+  SERVICE_STATE_DISABLED = 5;
+  SERVICE_STATE_NOT_INSTALLED = 6;
+}
+
+// Liveness probe, e.g. when a second connection with the same certificate arrives.
+message Ping {
+  uint64 nonce = 1;
+}
+
+message Pong {
+  uint64 nonce = 1;
+}
+
+message InventoryRequest {}
+
+// Asks the agent to run checks of its applied signed configuration now, outside their interval (a technician clicked
+// "Run now" or "Reset"). Not signed: it can only start checks the agent already verified in a signed configuration, never
+// add or change one, and the agent rate-limits it per check and in total. Unknown ids are ignored. Older agents ignore
+// the whole message.
+message RunChecksNow {
+  // CheckSpec ids; at most 100 are honoured.
+  repeated string check_ids = 1;
+  // Id of the request in the server database, for logs.
+  string request_id = 2;
+}
+
+message InventoryReport {
+  // Hex SHA-256 over the deterministic serialization of inventory, computed by the agent.
+  string hash = 1;
+  Inventory inventory = 2;
+}
+
+message Inventory {
+  string hostname = 1;
+  OsInfo os = 2;
+  string manufacturer = 3;
+  string model = 4;
+  string serial_number = 5;
+  string cpu_model = 6;
+  uint32 cpu_cores = 7;
+  uint32 cpu_logical_processors = 8;
+  uint64 memory_total_bytes = 9;
+  repeated Disk disks = 10;
+  repeated NetworkInterface network_interfaces = 11;
+  repeated SoftwareItem software = 12;
+  google.protobuf.Timestamp boot_time = 13;
+  string domain = 14;
+  // User name of the interactive console session, empty when nobody is logged on. Personal data.
+  string logged_on_user = 15;
+  // Services on the endpoint (Windows services, systemd units, launchd jobs), for picking a service in a check. 0.2.0.
+  repeated ServiceItem services = 16;
+}
+
+message ServiceItem {
+  // The name a service check uses: the Windows service name, the systemd unit name or the launchd label.
+  string name = 1;
+  string display_name = 2;
+  // automatic, automatic_delayed, manual, disabled, or empty when unknown.
+  string start_type = 3;
+  // running, stopped, starting, stopping, paused, or empty when unknown.
+  string state = 4;
+}
+
+message Disk {
+  string mount = 1;
+  string filesystem = 2;
+  uint64 total_bytes = 3;
+  uint64 free_bytes = 4;
+}
+
+message NetworkInterface {
+  string name = 1;
+  string mac_address = 2;
+  repeated string ip_addresses = 3;
+}
+
+message SoftwareItem {
+  string name = 1;
+  string version = 2;
+  string publisher = 3;
+  // As reported by the OS, e.g. "20260114". Free text.
+  string install_date = 4;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Check results
+// ---------------------------------------------------------------------------------------------------------------
+
+// A batch of results. The agent keeps the batch on disk until it receives a BatchAck with the same sequence.
+// Sequence numbers are per endpoint, start at 1 and increase by one per batch; they survive agent restarts.
+// Resending an acknowledged sequence is harmless: the server acknowledges it again without storing it twice.
+// At most 500 results per batch.
+message CheckResultBatch {
+  uint64 sequence = 1;
+  repeated CheckResult results = 2;
+}
+
+message CheckResult {
+  // CheckSpec.id from the signed configuration.
+  string check_id = 1;
+  // Configuration version the check ran under.
+  uint64 config_version = 2;
+  google.protobuf.Timestamp collected_at = 3;
+  double value = 4;
+  // Instance of the check, e.g. "C:" for a disk check over every drive; empty when not applicable.
+  string target = 5;
+  // Human-readable detail, e.g. "12.3 GB free of 237 GB".
+  string detail = 6;
+  // Non-empty when the check could not run; value is then meaningless.
+  string error = 7;
+}
+
+// Sent only after the batch is committed to PostgreSQL.
+message BatchAck {
+  uint64 sequence = 1;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Certificates
+// ---------------------------------------------------------------------------------------------------------------
+
+// Sent when two thirds of the certificate lifetime has passed. Same key pair as the current certificate.
+message RenewCertificateRequest {
+  bytes csr_der = 1;
+}
+
+message RenewCertificateResponse {
+  bytes certificate_der = 1;
+  // Non-empty when the renewal was refused; the agent keeps its current certificate and retries later.
+  string error = 2;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Signed configuration
+// ---------------------------------------------------------------------------------------------------------------
+
+message SignedConfig {
+  // Serialized AgentConfig.
+  bytes payload = 1;
+  // ed25519 over "fleeto-agent-config-v1" || 0x00 || payload.
+  bytes signature = 2;
+  string key_id = 3;
+}
+
+// The agent accepts a configuration only when the signature verifies against the pinned instance signing key,
+// instance_id and endpoint_id equal its own, and version is higher than the applied version.
+message AgentConfig {
+  string instance_id = 1;
+  string endpoint_id = 2;
+  uint64 version = 3;
+  google.protobuf.Timestamp issued_at = 4;
+  Tier tier = 5;
+  uint32 heartbeat_interval_seconds = 6;
+  uint32 inventory_interval_seconds = 7;
+  // Always empty for TIER_AGENT_ONLY; the agent ignores checks on an agent-only configuration anyway.
+  repeated CheckSpec checks = 8;
+}
+
+enum Tier {
+  TIER_UNSPECIFIED = 0;
+  TIER_AGENT_ONLY = 1;
+  TIER_MANAGED = 2;
+}
+
+message CheckSpec {
+  // CheckDefinition id.
+  string id = 1;
+  CheckType type = 2;
+  uint32 interval_seconds = 3;
+  // Type-specific parameters, validated by the server (CheckCatalog) and checked again by the agent:
+  //   CHECK_TYPE_DISK_FREE: "drive" ("C:", "/var" or "*").
+  //   CHECK_TYPE_SERVICE_RUNNING: "service".
+  //   CHECK_TYPE_CPU_USAGE: optional "sample_seconds" (default 60, at most the interval).
+  //   CHECK_TYPE_PING: "host", optional "count" (1-10, default 3).
+  //   CHECK_TYPE_TCP_PORT: "host", "port", optional "timeout_seconds" (1-60, default 5).
+  //   CHECK_TYPE_HTTP: "url", optional "expected_status" (default "200-399"), "contains", "timeout_seconds" (default 10),
+  //     "ignore_certificate_errors" ("true"/"false"); certificate thresholds are applied by the server only.
+  //   CHECK_TYPE_PROCESS_RUNNING: "process".
+  //   CHECK_TYPE_FILE: "path", "condition" (exists, missing, size, age).
+  //   CHECK_TYPE_CERTIFICATE_EXPIRY: "location" (store, path), "store" (LocalMachine\Name) or "path", optional "subject".
+  //   CHECK_TYPE_EVENT_LOG: "log", optional "source", "event_ids" (comma-separated), "level" (critical, error, warning, any),
+  //     "window_minutes" (1-1440, default 60).
+  //   CHECK_TYPE_SECURITY_CENTER: "component" (antivirus, firewall).
+  //   CHECK_TYPE_SCRIPT: "script" (script id), "timeout_seconds" (5-300, at most the interval); the script itself is in `script`.
+  //     Without `script` the check cannot run and "unavailable" says why (deleted, not approved, another client).
+  map<string, string> parameters = 4;
+  // CHECK_TYPE_SCRIPT only: the library script version to run, covered by the configuration signature (0.2.0).
+  ScriptJob script = 5;
+}
+
+enum CheckType {
+  CHECK_TYPE_UNSPECIFIED = 0;
+  // value: average CPU usage in percent over the sample window.
+  CHECK_TYPE_CPU_USAGE = 1;
+  // value: physical memory in use, in percent.
+  CHECK_TYPE_MEMORY_USAGE = 2;
+  // value: free space in percent. One result per drive, target = drive.
+  CHECK_TYPE_DISK_FREE = 3;
+  // value: 1 running, 0 not running. target = service name. error when the service does not exist.
+  CHECK_TYPE_SERVICE_RUNNING = 4;
+  // value: days since boot, with decimals.
+  CHECK_TYPE_UPTIME = 5;
+  // value: average round-trip time in milliseconds; -1 when no echo reply arrived. target = host.
+  CHECK_TYPE_PING = 6;
+  // value: milliseconds to open the connection; -1 when it failed. target = host:port.
+  CHECK_TYPE_TCP_PORT = 7;
+  // value: response time in milliseconds; -1 when the request failed, the status was unexpected or the text was missing
+  // (detail says why). For an https URL a second result with target "certificate": days until the leaf certificate
+  // expires (negative when expired).
+  CHECK_TYPE_HTTP = 8;
+  // value: number of running processes with the name (case-insensitive, with or without .exe).
+  CHECK_TYPE_PROCESS_RUNNING = 9;
+  // value: 1 when no restart is pending, 0 when one is (detail lists the reasons).
+  CHECK_TYPE_PENDING_REBOOT = 10;
+  // exists/missing: 1 when the condition holds, 0 otherwise; size: megabytes (a folder counts every file in it);
+  // age: hours since the last change (for a folder, of its newest file). target = path.
+  CHECK_TYPE_FILE = 11;
+  // value: days until the certificate expires, negative when expired. One result per certificate, target = its subject
+  // common name and short thumbprint. A certificate replaced by a newer one with the same subject is left out.
+  CHECK_TYPE_CERTIFICATE_EXPIRY = 12;
+  // Windows only. value: number of matching events within the window. Messages are never sent (they may hold personal data).
+  CHECK_TYPE_EVENT_LOG = 13;
+  // Windows only. value: 1 when the protection is on (antivirus: on and up to date), 0 otherwise. target = product or
+  // firewall profile.
+  CHECK_TYPE_SECURITY_CENTER = 14;
+  // value: the exit code of the script (0 OK, 1 warning, other critical, judged by the server). detail: the first line of output.
+  // error when the script timed out, could not start or is unavailable (0.2.0).
+  CHECK_TYPE_SCRIPT = 15;
+}
+
+message ConfigApplied {
+  uint64 config_version = 1;
+  // Non-empty when the agent refused the configuration (bad signature, wrong endpoint, old version).
+  string error = 2;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Jobs (0.2.0)
+// ---------------------------------------------------------------------------------------------------------------
+
+// A job signed by fleeto-signer. The gateway delivers it while it is queued and valid, again after every reconnect; the
+// agent verifies the signature against the pinned instance signing key, the instance and endpoint ids, ValidUntil (5 minutes
+// clock tolerance) and its own managed tier, runs a job id at most once, and refuses everything else with a JobCompletion.
+message SignedJob {
+  // Serialized JobPayload.
+  bytes payload = 1;
+  bytes signature = 2;
+  string key_id = 3;
+}
+
+message JobPayload {
+  string job_id = 1;
+  string instance_id = 2;
+  string endpoint_id = 3;
+  JobType type = 4;
+  google.protobuf.Timestamp valid_until = 5;
+  // Display name of the technician, for the endpoint's log.
+  string initiated_by = 6;
+  uint32 timeout_seconds = 7;
+  // The agent sends at most this much output (both streams together) and marks the rest truncated.
+  uint64 max_output_bytes = 8;
+  ScriptJob script = 9;
+}
+
+enum JobType {
+  JOB_TYPE_UNSPECIFIED = 0;
+  JOB_TYPE_SCRIPT = 1;
+}
+
+message ScriptJob {
+  ScriptLanguage language = 1;
+  string name = 2;
+  uint32 version = 3;
+  // UTF-8 script body, exactly as signed.
+  string body = 4;
+  // Lowercase hex SHA-256 of body; the agent checks it before running.
+  string sha256 = 5;
+}
+
+enum ScriptLanguage {
+  SCRIPT_LANGUAGE_UNSPECIFIED = 0;
+  // Windows PowerShell, run as SYSTEM.
+  SCRIPT_LANGUAGE_POWERSHELL = 1;
+  // cmd.exe batch file, run as SYSTEM.
+  SCRIPT_LANGUAGE_BATCH = 2;
+  // /bin/sh, run as root.
+  SCRIPT_LANGUAGE_SHELL = 3;
+  // /bin/bash, run as root.
+  SCRIPT_LANGUAGE_BASH = 4;
+}
+
+// The agent started the job. Sent until acknowledged.
+message JobStarted {
+  string job_id = 1;
+  google.protobuf.Timestamp started_at = 2;
+}
+
+enum JobStream {
+  JOB_STREAM_UNSPECIFIED = 0;
+  JOB_STREAM_STDOUT = 1;
+  JOB_STREAM_STDERR = 2;
+}
+
+// One piece of output, at most 64 KiB. Sequences start at 0 per stream. The agent keeps a chunk on disk until it is
+// acknowledged and resends it after a reconnect; the server stores each (job, stream, sequence) once.
+message JobOutput {
+  string job_id = 1;
+  JobStream stream = 2;
+  uint64 sequence = 3;
+  bytes data = 4;
+}
+
+enum JobResult {
+  JOB_RESULT_UNSPECIFIED = 0;
+  // The process exited; exit_code is set.
+  JOB_RESULT_EXITED = 1;
+  // Killed after timeout_seconds.
+  JOB_RESULT_TIMED_OUT = 2;
+  // Not run: signature, addressing, validity, tier or language refused. error says why.
+  JOB_RESULT_REFUSED = 3;
+  // The interpreter could not be started. error says why.
+  JOB_RESULT_FAILED_TO_START = 4;
+  // The agent stopped while the job ran; whether it finished is unknown. It is never run again.
+  JOB_RESULT_INTERRUPTED = 5;
+}
+
+message JobStreamSummary {
+  // Number of chunks sent for the stream.
+  uint64 chunks = 1;
+  uint64 bytes = 2;
+  // Lowercase hex SHA-256 over the concatenated data of the sent chunks.
+  string sha256 = 3;
+}
+
+// The job ended. Sent until acknowledged, also before every output chunk is acknowledged.
+message JobCompletion {
+  string job_id = 1;
+  JobResult result = 2;
+  int32 exit_code = 3;
+  string error = 4;
+  JobStreamSummary stdout = 5;
+  JobStreamSummary stderr = 6;
+  bool output_truncated = 7;
+  google.protobuf.Timestamp finished_at = 8;
+}
+
+enum JobAckKind {
+  JOB_ACK_KIND_UNSPECIFIED = 0;
+  JOB_ACK_KIND_STARTED = 1;
+  JOB_ACK_KIND_OUTPUT = 2;
+  JOB_ACK_KIND_COMPLETION = 3;
+}
+
+// Sent only after the message is committed to PostgreSQL (or is known to be stored already).
+message JobAck {
+  string job_id = 1;
+  JobAckKind kind = 2;
+  JobStream stream = 3;
+  uint64 sequence = 4;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Watchdog certificate and updates (0.2.1)
+// ---------------------------------------------------------------------------------------------------------------
+
+// Sent by the agent (never by the watchdog) to get a certificate for the watchdog of the same endpoint. The key is the watchdog's
+// own key and must differ from the agent key. A new watchdog certificate revokes the earlier watchdog certificates of the endpoint.
+message WatchdogCertificateRequest {
+  // PKCS#10, ECDSA P-256, DER, signed with the watchdog key.
+  bytes csr_der = 1;
+}
+
+message WatchdogCertificateResponse {
+  // Watchdog certificate, DER. Valid 90 days; the watchdog renews it over its own session.
+  bytes certificate_der = 1;
+  // Non-empty when refused; the agent retries later.
+  string error = 2;
+}
+
+// The current release of the instance, sent after HelloAck and whenever update_allowed changes.
+message UpdateOffer {
+  // The release manifest (manifest.json of the GitHub release), exact bytes.
+  bytes manifest = 1;
+  // Raw 64-byte ed25519 Steaan release signature over manifest.
+  bytes signature = 2;
+  // True when the update ring of the endpoint has reached this release and the release is not paused. A missing watchdog may be
+  // installed from the release either way; a newer version only replaces an installed binary when this is true.
+  bool update_allowed = 3;
+}
+
+// Progress of installing a component, reported by the service that installs it.
+message UpdateStatus {
+  Component component = 1;
+  // The version being installed.
+  string version = 2;
+  UpdateState state = 3;
+  // Cause of a failure or rollback. Free text, at most 500 characters.
+  string detail = 4;
+}
+
+enum UpdateState {
+  UPDATE_STATE_UNSPECIFIED = 0;
+  UPDATE_STATE_DOWNLOADING = 1;
+  UPDATE_STATE_INSTALLING = 2;
+  UPDATE_STATE_INSTALLED = 3;
+  // Not installed: download, verification or preparation failed. The installed version keeps running.
+  UPDATE_STATE_FAILED = 4;
+  // Installed but the new version did not start or connect; the previous version was restored. Not retried for this version.
+  UPDATE_STATE_ROLLED_BACK = 5;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Disconnect
+// ---------------------------------------------------------------------------------------------------------------
+
+message Disconnect {
+  DisconnectCode code = 1;
+  string reason = 2;
+}
+
+enum DisconnectCode {
+  DISCONNECT_CODE_UNSPECIFIED = 0;
+  // Certificate revoked or endpoint deleted. The agent stops reconnecting and reports that it needs enrollment.
+  DISCONNECT_CODE_REVOKED = 1;
+  // Another live connection uses the same certificate.
+  DISCONNECT_CODE_DUPLICATE_IDENTITY = 2;
+  // Gateway shutting down; reconnect with backoff.
+  DISCONNECT_CODE_SERVER_SHUTDOWN = 3;
+  DISCONNECT_CODE_PROTOCOL_ERROR = 4;
+}

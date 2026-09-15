@@ -4,8 +4,8 @@
 #   2. serves a signed manifest as a fake GitHub release and checks that install.sh picks the right release, accepts a
 #      correctly signed manifest and rejects tampering,
 #   3. checks that an unbundled install.sh refuses to verify anything,
-#   4. generates the host Caddyfile for two fake instances (and for none),
-#   5. with Docker: validates both Caddyfiles with the fleetify-caddy image and renders the instance Compose file.
+#   4. generates the host Caddyfile for two fake instances (and for none), and moves a fake VPS from the Fleetify layout,
+#   5. with Docker: validates both Caddyfiles with the fleeto-caddy image and renders the instance Compose file.
 #
 # Usage: deploy/ci/test-deploy.sh [--caddy-image <image>]   (without --caddy-image the Docker steps are skipped)
 set -Eeuo pipefail
@@ -48,7 +48,7 @@ jq -n '[{tag_name: "v9.9.8", prerelease: false, draft: false}, {tag_name: "v9.9.
         {tag_name: "nightly", prerelease: false, draft: false}]' >"$work/site/api/releases.json"
 jq -n '[{tag_name: "v9.9.9-alpha.2", prerelease: true, draft: false}, {tag_name: "v9.9.9-alpha.10", prerelease: true, draft: false}]' \
     >"$work/site/api/pre-releases.json"
-printf 'FLEETIFY_FQDN=test.example\nFLEETIFY_VERSION=9.9.9-alpha.1\n' >"$work/pre-instance/test-example/instance.conf"
+printf 'FLEETO_FQDN=test.example\nFLEETO_VERSION=9.9.9-alpha.1\n' >"$work/pre-instance/test-example/instance.conf"
 
 cat >"$work/github.sh" <<'EOF'
 source "$SITE/install.sh"
@@ -75,12 +75,12 @@ resolve_latest_version || exit 10
 [[ "$LATEST_VERSION" == "9.9.9" && "$NEWER_PRE_RELEASE" == "9.10.0-alpha.1" ]] || exit 11
 ( load_manifest 9.9.9 >/dev/null ) || exit 12
 load_manifest 9.9.9 >/dev/null
-[[ "${MANIFEST_IMAGES[web]}" == "ghcr.io/404-developer-ai/fleetify-web@$DIGEST" ]] || exit 13
+[[ "${MANIFEST_IMAGES[web]}" == "ghcr.io/404-developer-ai/fleeto-web@$DIGEST" ]] || exit 13
 [[ "$(sha256_of "$SITE/install.sh")" == "$MANIFEST_INSTALL_SH_SHA256" ]] || exit 14
 ( load_manifest 9.9.8 >/dev/null 2>&1 ) && exit 15
 exit 0
 EOF
-FLEETIFY_ROOT="$work/no-instances" WORK="$work" SITE="$work/site" DIGEST="$digest" bash "$work/verify.sh" >/dev/null 2>&1 \
+FLEETO_ROOT="$work/no-instances" WORK="$work" SITE="$work/site" DIGEST="$digest" bash "$work/verify.sh" >/dev/null 2>&1 \
     || fail "install.sh did not accept a correctly signed release (exit $?)"
 pass "install.sh picks the newest release from GitHub and accepts its signed manifest"
 
@@ -90,9 +90,9 @@ resolve_latest_version || exit 10
 [[ "$LATEST_VERSION" == "$EXPECTED" ]] || { echo "latest $LATEST_VERSION, expected $EXPECTED" >&2; exit 11; }
 exit 0
 EOF
-FLEETIFY_ROOT="$work/pre-instance" WORK="$work" SITE="$work/site" EXPECTED=9.10.0-alpha.1 bash "$work/pre-release.sh" \
+FLEETO_ROOT="$work/pre-instance" WORK="$work" SITE="$work/site" EXPECTED=9.10.0-alpha.1 bash "$work/pre-release.sh" \
     || fail "a VPS that runs a pre-release does not follow newer pre-releases"
-FLEETIFY_ROOT="$work/no-instances" WORK="$work" SITE="$work/site" RELEASE_LIST=pre-releases.json EXPECTED=9.9.9-alpha.10 bash "$work/pre-release.sh" \
+FLEETO_ROOT="$work/no-instances" WORK="$work" SITE="$work/site" RELEASE_LIST=pre-releases.json EXPECTED=9.9.9-alpha.10 bash "$work/pre-release.sh" \
     || fail "without any release install.sh does not offer the newest pre-release"
 pass "pre-releases count only on a VPS that runs one or while no release exists"
 
@@ -122,7 +122,7 @@ pass "install.sh orders releases and pre-releases by semantic versioning"
 
 cp "$work/site/assets/manifest.json" "$work/manifest.orig"
 sed -i 's/"images"/"rollback": "restore", "images"/' "$work/site/assets/manifest.json"
-if FLEETIFY_ROOT="$work/no-instances" WORK="$work" SITE="$work/site" DIGEST="$digest" bash "$work/verify.sh" >/dev/null 2>&1; then
+if FLEETO_ROOT="$work/no-instances" WORK="$work" SITE="$work/site" DIGEST="$digest" bash "$work/verify.sh" >/dev/null 2>&1; then
     fail "install.sh accepted a tampered manifest"
 fi
 cp "$work/manifest.orig" "$work/site/assets/manifest.json"
@@ -153,13 +153,13 @@ case "$CASE" in
     answered)
         # The operator answers the question on stdin: once for the address both names use, then it is stored.
         is_interactive() { true; }
-        ensure_fleetify_root() { :; }
+        ensure_fleeto_root() { :; }
         ( check_dns rmm.nat.example <<<"y" ) >/dev/null 2>&1 || exit 26
-        grep -qx '172.32.0.189' "$FLEETIFY_ROOT/public-addresses" || exit 27
+        grep -qx '172.32.0.189' "$FLEETO_ROOT/public-addresses" || exit 27
         ( check_dns rmm.nat.example </dev/null ) >/dev/null 2>&1 || exit 28
         ;;
     stored)
-        printf '172.32.0.189\n' >"$FLEETIFY_ROOT/public-addresses"
+        printf '172.32.0.189\n' >"$FLEETO_ROOT/public-addresses"
         ( check_dns rmm.nat.example ) >/dev/null 2>&1 || exit 22
         output="$( ( check_dns rmm.half.example ) 2>&1 )" && exit 23
         grep -q 'agents.rmm.half.example has no A or AAAA record' <<<"$output" || exit 24
@@ -170,7 +170,7 @@ exit 0
 EOF
 for case in own unconfirmed answered stored; do
     mkdir -p "$work/dns-$case"
-    FLEETIFY_ROOT="$work/dns-$case" REPO="$repo_root" CASE="$case" bash "$work/dns.sh" </dev/null \
+    FLEETO_ROOT="$work/dns-$case" REPO="$repo_root" CASE="$case" bash "$work/dns.sh" </dev/null \
         || fail "DNS check behind NAT, case $case (exit $?)"
 done
 pass "the DNS check accepts a forwarded public address only once it is confirmed, and suggests it for missing records"
@@ -180,8 +180,8 @@ cat >"$work/mtu.sh" <<'EOF'
 source "$REPO/deploy/install.sh"
 set +e
 trap - ERR
-mkdir -p "$FLEETIFY_ROOT/mtu-example"
-printf 'NETWORK_MTU=1400\n' >"$FLEETIFY_ROOT/mtu-example/instance.conf"
+mkdir -p "$FLEETO_ROOT/mtu-example"
+printf 'NETWORK_MTU=1400\n' >"$FLEETO_ROOT/mtu-example/instance.conf"
 # Docker stand-in: the networks report the MTU in $NETWORK_OPTION ("" when a network has no MTU option).
 docker() {
     [[ "$1 $2" == "network inspect" ]] || return 1
@@ -193,7 +193,7 @@ case "$CASE" in
     default) NETWORK_OPTION="<no value>" instance_networks_diverge mtu-example || exit 31 ;;
     missing) NETWORK_OPTION=1400 NO_EGRESS=1 instance_networks_diverge mtu-example && exit 32 ;;
     unset)
-        printf 'FLEETIFY_FQDN=mtu.example\n' >"$FLEETIFY_ROOT/mtu-example/instance.conf"
+        printf 'FLEETO_FQDN=mtu.example\n' >"$FLEETO_ROOT/mtu-example/instance.conf"
         NETWORK_OPTION="" instance_networks_diverge mtu-example && exit 33
         ;;
 esac
@@ -203,16 +203,113 @@ exit 0
 EOF
 for case in same default missing unset; do
     mkdir -p "$work/mtu-$case"
-    FLEETIFY_ROOT="$work/mtu-$case" REPO="$repo_root" CASE="$case" bash "$work/mtu.sh" || fail "network MTU check, case $case (exit $?)"
+    FLEETO_ROOT="$work/mtu-$case" REPO="$repo_root" CASE="$case" bash "$work/mtu.sh" || fail "network MTU check, case $case (exit $?)"
 done
 pass "install.sh detects the uplink MTU and recreates instance networks only when their MTU differs"
 
+# --- 3d. Moving a VPS from the Fleetify layout ---------------------------------------------------------------------
+# Docker is a stand-in that records every call; the steps are checked for what they change on disk and what they ask Docker to do.
+cat >"$work/legacy.sh" <<'EOF'
+source "$REPO/deploy/install.sh"
+set +e
+trap - ERR
+install() { local args=() skip=false a; for a in "$@"; do if $skip; then skip=false; elif [[ "$a" == -o || "$a" == -g ]]; then skip=true; else args+=("$a"); fi; done; command install "${args[@]}"; }
+docker() {
+    printf '%s\n' "$*" >>"$CALLS"
+    case "$1 $2" in
+        "volume inspect") [[ " ${EXISTING_VOLUMES:-} " == *" $3 "* ]]; return ;;
+    esac
+    [[ "$*" == *"exec -T postgres psql"* ]] && cat >>"$SQL"
+    return 0
+}
+wait_for_postgres() { :; }
+wait_for_instance_health() { printf 'health %s-%s\n' "$PROJECT_PREFIX" "$1" >>"$CALLS"; }
+backup_database() { printf 'backup %s %s\n' "$DB_NAME" "$2" >>"$CALLS"; }
+legacy_root="$FLEETO_LEGACY_ROOT"
+mkdir -p "$legacy_root/rmm-a-example/secrets" "$legacy_root/rmm-a-example/state/previous" "$legacy_root/rmm-a-example/postgres/init" "$legacy_root/credentials"
+printf 'FLEETIFY_INSTANCE=rmm-a-example\nFLEETIFY_FQDN=rmm.a.example\nFLEETIFY_VERSION=0.2.0-alpha.5\nFLEETIFY_STATE=ok\nWEB_PORT=20000\nAGENT_PORT=20001\n' \
+    >"$legacy_root/rmm-a-example/instance.conf"
+printf 'secret' >"$legacy_root/rmm-a-example/secrets/root.key"
+printf 'old' >"$legacy_root/rmm-a-example/postgres/init/10-fleetify-roles.sh"
+printf 'token' >"$legacy_root/credentials/github-releases.token"
+printf '172.32.0.189\n' >"$legacy_root/public-addresses"
+
+case "$CASE" in
+    settings)
+        adopt_legacy_settings
+        [[ "$(cat "$FLEETO_ROOT/credentials/github-releases.token")" == token ]] || exit 40
+        grep -qx '172.32.0.189' "$FLEETO_ROOT/public-addresses" || exit 41
+        printf 'new' >"$FLEETO_ROOT/credentials/github-releases.token"
+        adopt_legacy_settings
+        [[ "$(cat "$FLEETO_ROOT/credentials/github-releases.token")" == new ]] || exit 42
+        running_pre_release || exit 43
+        legacy_vps || exit 44
+        ;;
+    routes)
+        mkdir -p "$FLEETO_ROOT/rmm-b-example" "$legacy_root/rmm-c-example"
+        printf 'FLEETO_FQDN=rmm.b.example\nWEB_PORT=20002\nAGENT_PORT=20003\n' >"$FLEETO_ROOT/rmm-b-example/instance.conf"
+        printf 'FLEETIFY_FQDN=rmm.c.example\nWEB_PORT=20004\nAGENT_PORT=20005\n' >"$legacy_root/rmm-c-example/instance.conf"
+        mkdir -p "$FLEETO_ROOT/rmm-a-example"
+        cp "$legacy_root/rmm-a-example/instance.conf" "$FLEETO_ROOT/rmm-a-example/instance.conf"
+        sed -i 's/^FLEETIFY_/FLEETO_/' "$FLEETO_ROOT/rmm-a-example/instance.conf"
+        caddyfile="$(generate_caddyfile)"
+        for fqdn in rmm.a.example rmm.b.example rmm.c.example; do
+            [[ "$(grep -c "^$fqdn {" <<<"$caddyfile")" == 1 ]] || { echo "$fqdn routed $(grep -c "^$fqdn {" <<<"$caddyfile") times" >&2; exit 45; }
+            grep -q "tls sni agents.$fqdn" <<<"$caddyfile" || exit 46
+        done
+        ;;
+    copy)
+        EXISTING_VOLUMES="fleetify-rmm-a-example_postgres-data fleetify-rmm-a-example_web-keys"
+        ( copy_legacy_instance rmm-a-example ) >/dev/null || exit 50
+        dir="$FLEETO_ROOT/rmm-a-example"
+        grep -qx 'FLEETO_VERSION=0.2.0-alpha.5' "$dir/instance.conf" || exit 51
+        grep -q '^FLEETIFY_' "$dir/instance.conf" && exit 52
+        [[ "$(cat "$dir/secrets/root.key")" == secret && -f "$dir/compose.yml" && -f "$dir/postgres/init/10-fleeto-roles.sh" ]] || exit 53
+        [[ -e "$dir/postgres/init/10-fleetify-roles.sh" || -e "$dir/state/previous" ]] && exit 54
+        [[ -f "$legacy_root/rmm-a-example/postgres/init/10-fleetify-roles.sh" ]] || exit 55
+        grep -q '^backup fleetify pre-rename-0.2.0-alpha.5$' "$CALLS" || exit 56
+        grep -q -- '--project-name fleetify-rmm-a-example .* down' "$CALLS" || exit 57
+        grep -q 'volume create --label com.docker.compose.project=fleeto-rmm-a-example --label com.docker.compose.volume=postgres-data fleeto-rmm-a-example_postgres-data' "$CALLS" || exit 58
+        grep -q 'volume create .*web-logs' "$CALLS" && exit 59
+        grep -q 'ALTER DATABASE fleetify RENAME TO fleeto' "$SQL" || exit 60
+        grep -q "ALTER ROLE fleeto_gateway PASSWORD :'gateway_password'" "$SQL" || exit 61
+        [[ "$(grep -n -- 'fleetify-rmm-a-example .* down' "$CALLS" | cut -d: -f1)" -lt "$(grep -n 'volume create' "$CALLS" | head -1 | cut -d: -f1)" ]] || exit 62
+        ;;
+    fallback)
+        ( copy_legacy_instance rmm-a-example ) >/dev/null || exit 70
+        : >"$CALLS"
+        LEGACY_FALLBACK_INSTANCE=rmm-a-example
+        ( rollback_instance rmm-a-example 0.2.0-alpha.5 9.9.9 restore "" "the health check failed" ) >/dev/null 2>&1 && exit 71
+        [[ -d "$FLEETO_ROOT/rmm-a-example" ]] && exit 72
+        grep -q -- '--project-name fleeto-rmm-a-example .* down' "$CALLS" || exit 73
+        grep -q -- '--project-name fleetify-rmm-a-example .* up -d' "$CALLS" || exit 74
+        grep -q '^health fleetify-rmm-a-example$' "$CALLS" || exit 75
+        grep -q 'pg_restore\|DROP DATABASE' "$CALLS" && exit 76
+        [[ -f "$legacy_root/rmm-a-example/instance.conf" ]] || exit 77
+        ;;
+    finish)
+        finish_legacy_instance rmm-a-example
+        [[ -e "$legacy_root/rmm-a-example" ]] && exit 80
+        grep -q 'volume rm fleetify-rmm-a-example_postgres-data' "$CALLS" || exit 81
+        remove_legacy_root >/dev/null
+        [[ -e "$legacy_root" ]] && exit 82
+        ;;
+esac
+exit 0
+EOF
+for case in settings routes copy fallback finish; do
+    mkdir -p "$work/move-$case/fleeto"
+    FLEETO_ROOT="$work/move-$case/fleeto" FLEETO_LEGACY_ROOT="$work/move-$case/fleetify" CALLS="$work/move-$case/calls" SQL="$work/move-$case/sql" \
+        REPO="$repo_root" CASE="$case" bash "$work/legacy.sh" </dev/null || fail "moving from the Fleetify layout, case $case (exit $?)"
+done
+pass "install.sh moves a VPS from the Fleetify layout: settings, routes, copies with renamed database, fallback and cleanup"
+
 # --- 4. Caddyfile generation -----------------------------------------------------------------------------------------
 mkdir -p "$work/root/rmm-a-example" "$work/root/rmm-b-example" "$work/empty" "$work/caddy-two" "$work/caddy-empty"
-printf 'FLEETIFY_INSTANCE=rmm-a-example\nFLEETIFY_FQDN=rmm.a.example\nWEB_PORT=20000\nAGENT_PORT=20001\n' >"$work/root/rmm-a-example/instance.conf"
-printf 'FLEETIFY_INSTANCE=rmm-b-example\nFLEETIFY_FQDN=rmm.b.example\nWEB_PORT=20002\nAGENT_PORT=20003\n' >"$work/root/rmm-b-example/instance.conf"
-FLEETIFY_ROOT="$work/root" bash -c "source '$repo_root/deploy/install.sh'; generate_caddyfile" >"$work/caddy-two/Caddyfile"
-FLEETIFY_ROOT="$work/empty" bash -c "source '$repo_root/deploy/install.sh'; generate_caddyfile" >"$work/caddy-empty/Caddyfile"
+printf 'FLEETO_INSTANCE=rmm-a-example\nFLEETO_FQDN=rmm.a.example\nWEB_PORT=20000\nAGENT_PORT=20001\n' >"$work/root/rmm-a-example/instance.conf"
+printf 'FLEETO_INSTANCE=rmm-b-example\nFLEETO_FQDN=rmm.b.example\nWEB_PORT=20002\nAGENT_PORT=20003\n' >"$work/root/rmm-b-example/instance.conf"
+FLEETO_ROOT="$work/root" bash -c "source '$repo_root/deploy/install.sh'; generate_caddyfile" >"$work/caddy-two/Caddyfile"
+FLEETO_ROOT="$work/empty" bash -c "source '$repo_root/deploy/install.sh'; generate_caddyfile" >"$work/caddy-empty/Caddyfile"
 grep -q 'tls sni agents.rmm.b.example' "$work/caddy-two/Caddyfile" || fail "SNI route missing"
 grep -q 'proxy 127.0.0.1:20003' "$work/caddy-two/Caddyfile" || fail "gateway upstream missing"
 grep -q 'proxy_protocol v2' "$work/caddy-two/Caddyfile" || fail "PROXY protocol towards the gateway missing"
@@ -229,7 +326,7 @@ for config in caddy-two caddy-empty; do
     # The same validation install.sh runs, with the same container restrictions as the running proxy.
     bash -c "source '$repo_root/deploy/install.sh'; caddy_adapt '$caddy_image' '$work/$config'" || fail "caddy adapt rejected $config"
 done
-pass "fleetify-caddy image adapts both generated Caddyfiles under the restrictions of the running proxy"
+pass "fleeto-caddy image adapts both generated Caddyfiles under the restrictions of the running proxy"
 
 instance="$work/root/rmm-a-example"
 mkdir -p "$instance/secrets"
@@ -238,16 +335,16 @@ for file in root.key signer.key db-postgres.password db-migrator.password db-web
 done
 cp "$repo_root/deploy/compose/compose.yml" "$instance/compose.yml"
 cat >>"$instance/instance.conf" <<CONF
-FLEETIFY_VERSION=9.9.9
+FLEETO_VERSION=9.9.9
 NETWORK_MTU=1400
 POSTGRES_IMAGE=timescale/timescaledb:2.30.0-pg17@sha256:3113d12b78392c064aa7475caf7a52b447b29ddd4f9bfd23526733fcb03e3459
-TOOL_IMAGE=ghcr.io/404-developer-ai/fleetify-tool@$digest
-SIGNER_IMAGE=ghcr.io/404-developer-ai/fleetify-signer@$digest
-GATEWAY_IMAGE=ghcr.io/404-developer-ai/fleetify-gateway@$digest
-WORKERS_IMAGE=ghcr.io/404-developer-ai/fleetify-workers@$digest
-WEB_IMAGE=ghcr.io/404-developer-ai/fleetify-web@$digest
+TOOL_IMAGE=ghcr.io/404-developer-ai/fleeto-tool@$digest
+SIGNER_IMAGE=ghcr.io/404-developer-ai/fleeto-signer@$digest
+GATEWAY_IMAGE=ghcr.io/404-developer-ai/fleeto-gateway@$digest
+WORKERS_IMAGE=ghcr.io/404-developer-ai/fleeto-workers@$digest
+WEB_IMAGE=ghcr.io/404-developer-ai/fleeto-web@$digest
 CONF
-docker compose --project-name fleetify-rmm-a-example --project-directory "$instance" --env-file "$instance/instance.conf" \
+docker compose --project-name fleeto-rmm-a-example --project-directory "$instance" --env-file "$instance/instance.conf" \
     -f "$instance/compose.yml" config >"$work/rendered.yml" || fail "docker compose rejected compose.yml"
 grep -q '127.0.0.1' "$work/rendered.yml" || fail "published ports are not bound to loopback"
 [[ "$(grep -c 'com.docker.network.driver.mtu: "1400"' "$work/rendered.yml")" -eq 3 ]] || fail "the instance networks do not use NETWORK_MTU"
@@ -256,6 +353,6 @@ pass "instance compose.yml renders with docker compose"
 
 cp "$repo_root/deploy/caddy/compose.yml" "$work/caddy-compose.yml"
 printf 'CADDY_IMAGE=%s\n' "$caddy_image" >"$work/caddy.conf"
-docker compose --project-name fleetify-caddy --env-file "$work/caddy.conf" -f "$work/caddy-compose.yml" config >/dev/null \
+docker compose --project-name fleeto-caddy --env-file "$work/caddy.conf" -f "$work/caddy-compose.yml" config >/dev/null \
     || fail "docker compose rejected caddy/compose.yml"
 pass "host proxy compose.yml renders with docker compose"

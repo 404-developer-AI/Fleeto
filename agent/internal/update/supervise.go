@@ -14,7 +14,7 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/svcctl"
 )
 
-// UninstallMarkerName is written in platform.DataDir while fleetify-agent uninstall runs: the agent and the watchdog then stop starting
+// UninstallMarkerName is written in platform.DataDir while fleeto-agent uninstall runs: the agent and the watchdog then stop starting
 // and installing each other.
 const UninstallMarkerName = "uninstalling"
 

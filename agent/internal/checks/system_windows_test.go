@@ -40,8 +40,8 @@ func TestServiceRunning(t *testing.T) {
 	if len(ms) != 1 || ms[0].Value != 1 || ms[0].Target != "RpcSs" || ms[0].Error != "" {
 		t.Fatalf("expected RpcSs running, got %+v", ms)
 	}
-	ms = collect(t, &agentv1.CheckSpec{Type: agentv1.CheckType_CHECK_TYPE_SERVICE_RUNNING, Parameters: map[string]string{"service": "FleetifyDoesNotExist"}})
-	if len(ms) != 1 || ms[0].Error != "Service FleetifyDoesNotExist does not exist" {
+	ms = collect(t, &agentv1.CheckSpec{Type: agentv1.CheckType_CHECK_TYPE_SERVICE_RUNNING, Parameters: map[string]string{"service": "FleetoDoesNotExist"}})
+	if len(ms) != 1 || ms[0].Error != "Service FleetoDoesNotExist does not exist" {
 		t.Fatalf("expected a missing service error, got %+v", ms)
 	}
 }

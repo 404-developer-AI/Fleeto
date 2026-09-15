@@ -1,4 +1,4 @@
-// Package watchdog is the runtime of fleetify-watchdog (0.2.1): the second service on an endpoint. It keeps the agent service running,
+// Package watchdog is the runtime of fleeto-watchdog (0.2.1): the second service on an endpoint. It keeps the agent service running,
 // installs agent updates from verified releases and rolls them back when the new version does not come up, and holds its own gateway
 // session with its own certificate, so the instance can tell a stopped agent from an endpoint that is gone. The agent gave it its
 // identity; the watchdog renews its certificate itself.
@@ -40,9 +40,9 @@ import (
 
 const (
 	// ServiceName is the watchdog service.
-	ServiceName = "fleetify-watchdog"
+	ServiceName = "fleeto-watchdog"
 	// AgentServiceName is the agent service the watchdog supervises.
-	AgentServiceName = "fleetify-agent"
+	AgentServiceName = "fleeto-agent"
 
 	connectPath      = "/v1/connect"
 	maxMessageBytes  = 4 * 1024 * 1024

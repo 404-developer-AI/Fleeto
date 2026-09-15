@@ -113,7 +113,11 @@ func Install(ctx context.Context, opts InstallOptions, out io.Writer) (err error
 	defer m.Disconnect()
 	if s, err := m.OpenService(Name); err == nil {
 		s.Close()
-		return errors.New("the Fleeto Agent service is already installed; run 'fleetify-agent uninstall' first to install it again")
+		return errors.New("the Fleeto Agent service is already installed; run 'fleeto-agent uninstall' first to install it again")
+	}
+	// An agent from before the rename to Fleeto (0.2.1) is taken over with its enrollment.
+	if taken, err := takeOverLegacyAgent(ctx, m, opts, out); err != nil || taken {
+		return err
 	}
 
 	var rollback []func()
@@ -178,6 +182,19 @@ func Install(ctx context.Context, opts InstallOptions, out io.Writer) (err error
 	fmt.Fprintf(out, "Enrolled as endpoint %s (key store: %s)\n", st.EndpointID, describeKey(st.Key))
 
 	// 4. Service: LocalSystem, automatic start, restart on failure.
+	s, err := createAndStartService(m, exePath, &rollback)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	logger.Info("service installed and started", "endpointId", st.EndpointID)
+	fmt.Fprintf(out, "The %s service is running.\n", DisplayName)
+	return nil
+}
+
+// createAndStartService creates the agent service (LocalSystem, automatic start, restart on failure) and waits until it runs. Removing
+// the service is appended to rollback as soon as it exists.
+func createAndStartService(m *mgr.Mgr, exePath string, rollback *[]func()) (*mgr.Service, error) {
 	s, err := m.CreateService(Name, exePath, mgr.Config{
 		DisplayName:      DisplayName,
 		Description:      Description,
@@ -186,11 +203,11 @@ func Install(ctx context.Context, opts InstallOptions, out io.Writer) (err error
 		ServiceStartName: "LocalSystem",
 	}, "run")
 	if err != nil {
-		return fmt.Errorf("create the service: %w", err)
+		return nil, fmt.Errorf("create the service: %w", err)
 	}
-	defer s.Close()
-	rollback = append(rollback, func() {
+	*rollback = append(*rollback, func() {
 		_, _ = s.Control(svc.Stop)
+		_ = waitForState(s, svc.Stopped, 30*time.Second)
 		_ = s.Delete()
 	})
 	if err := s.SetRecoveryActions([]mgr.RecoveryAction{
@@ -198,20 +215,18 @@ func Install(ctx context.Context, opts InstallOptions, out io.Writer) (err error
 		{Type: mgr.ServiceRestart, Delay: 30 * time.Second},
 		{Type: mgr.ServiceRestart, Delay: 60 * time.Second},
 	}, uint32((24 * time.Hour).Seconds())); err != nil {
-		return fmt.Errorf("set the service recovery actions: %w", err)
+		return nil, fmt.Errorf("set the service recovery actions: %w", err)
 	}
 	if err := s.SetRecoveryActionsOnNonCrashFailures(true); err != nil {
-		return fmt.Errorf("set the service recovery actions: %w", err)
+		return nil, fmt.Errorf("set the service recovery actions: %w", err)
 	}
 	if err := s.Start(); err != nil {
-		return fmt.Errorf("start the service: %w", err)
+		return nil, fmt.Errorf("start the service: %w", err)
 	}
 	if err := waitForState(s, svc.Running, 30*time.Second); err != nil {
-		return err
+		return nil, err
 	}
-	logger.Info("service installed and started", "endpointId", st.EndpointID)
-	fmt.Fprintf(out, "The %s service is running.\n", DisplayName)
-	return nil
+	return s, nil
 }
 
 func describeKey(ref state.KeyRef) string {

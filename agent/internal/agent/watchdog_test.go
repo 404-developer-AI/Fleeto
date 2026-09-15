@@ -24,9 +24,9 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/svcctl"
 )
 
-// The test binary doubles as a release binary: run with FLEETIFY_PROBE_VERSION set and "version --short", it prints that version.
+// The test binary doubles as a release binary: run with FLEETO_PROBE_VERSION set and "version --short", it prints that version.
 func TestMain(m *testing.M) {
-	if v := os.Getenv("FLEETIFY_PROBE_VERSION"); v != "" && len(os.Args) >= 3 && os.Args[1] == "version" && os.Args[2] == "--short" {
+	if v := os.Getenv("FLEETO_PROBE_VERSION"); v != "" && len(os.Args) >= 3 && os.Args[1] == "version" && os.Args[2] == "--short" {
 		fmt.Println(v)
 		os.Exit(0)
 	}
@@ -76,7 +76,7 @@ func TestTheAgentInstallsAMissingWatchdogFromAVerifiedRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("FLEETIFY_PROBE_VERSION", "0.2.1")
+	t.Setenv("FLEETO_PROBE_VERSION", "0.2.1")
 	sum := sha256.Sum256(binary)
 	file := release.ExpectedFile(release.ComponentWatchdog, runtime.GOOS, runtime.GOARCH)
 	var downloads sync.WaitGroup

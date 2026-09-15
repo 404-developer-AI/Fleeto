@@ -4,13 +4,15 @@
     Sets up a local Fleeto development instance on Windows without Docker.
 
 .DESCRIPTION
-    Idempotent; safe to run again after pulling new code (it applies new migrations).
-      1. Creates %LOCALAPPDATA%\Fleetify\dev with secrets (root key, signer key, database passwords) readable only
+    Idempotent; safe to run again after pulling new code (it applies new migrations). A setup from before the internal rename
+    to Fleeto (0.2.1) is moved: %LOCALAPPDATA%\Fleetify\dev becomes %LOCALAPPDATA%\Fleeto\dev, and the database fleetify_dev
+    and the fleetify_* roles are renamed, so the local instance keeps its data and keys.
+      1. Creates %LOCALAPPDATA%\Fleeto\dev with secrets (root key, signer key, database passwords) readable only
          by the current user. Nothing is written to the repository except Directory.Build.local.props, which holds
          public keys only and is gitignored.
       2. Creates the PostgreSQL roles and the database (needs the PostgreSQL superuser once).
       3. Creates development license and release signing keys and a development license for the local FQDN.
-      4. Builds the solution and runs fleetify-tool migrate, which prints the first-admin setup link.
+      4. Builds the solution and runs fleeto-tool migrate, which prints the first-admin setup link.
 
 .EXAMPLE
     pwsh tools/dev/setup-dev.ps1
@@ -22,7 +24,7 @@ param(
     [int]$PgPort = 5432,
     [string]$PgSuperUser = 'postgres',
     [string]$PgSuperPassword,
-    [string]$Database = 'fleetify_dev',
+    [string]$Database = 'fleeto_dev',
     [string]$Fqdn = 'localhost',
     [int]$WebPort = 7100,
     [int]$AgentPort = 7200
@@ -30,7 +32,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$devRoot = Join-Path $env:LOCALAPPDATA 'Fleetify\dev'
+$devRoot = Join-Path $env:LOCALAPPDATA 'Fleeto\dev'
 $secrets = Join-Path $devRoot 'secrets'
 $keys = Join-Path $devRoot 'keys'
 
@@ -53,6 +55,18 @@ function Invoke-Psql([string]$db, [string]$sql, [switch]$Scalar) {
 }
 
 # ---------------------------------------------------------------------------------------------------------------
+# A development setup from before the rename to Fleeto (0.2.1) keeps its secrets and keys: the folder moves.
+$legacyDevRoot = Join-Path $env:LOCALAPPDATA 'Fleetify\dev'
+if ((Test-Path $legacyDevRoot) -and -not (Test-Path $devRoot)) {
+    Write-Step "Moving $legacyDevRoot to $devRoot"
+    New-Item -ItemType Directory -Force (Split-Path $devRoot) | Out-Null
+    Move-Item -Path $legacyDevRoot -Destination $devRoot
+    $legacyParent = Split-Path $legacyDevRoot
+    if (-not (Get-ChildItem $legacyParent -Force -ErrorAction SilentlyContinue)) { Remove-Item $legacyParent }
+    Write-Ok 'secrets and development keys moved'
+}
+
+# ---------------------------------------------------------------------------------------------------------------
 Write-Step "Secrets in $secrets"
 New-Item -ItemType Directory -Force $secrets, $keys | Out-Null
 # Only the current user may read the development secrets.
@@ -61,12 +75,12 @@ icacls $devRoot /inheritance:r /grant:r "$($env:USERNAME):(OI)(CI)F" | Out-Null
 New-SecretFile (Join-Path $secrets 'root.key') { [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)) }
 New-SecretFile (Join-Path $secrets 'signer.key') { [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)) }
 $roles = [ordered]@{
-    fleetify_migrator = 'db-migrator.password'
-    fleetify_web      = 'db-web.password'
-    fleetify_gateway  = 'db-gateway.password'
-    fleetify_signer   = 'db-signer.password'
-    fleetify_workers  = 'db-workers.password'
-    fleetify_backup   = 'db-backup.password'
+    fleeto_migrator = 'db-migrator.password'
+    fleeto_web      = 'db-web.password'
+    fleeto_gateway  = 'db-gateway.password'
+    fleeto_signer   = 'db-signer.password'
+    fleeto_workers  = 'db-workers.password'
+    fleeto_backup   = 'db-backup.password'
 }
 foreach ($file in $roles.Values) {
     New-SecretFile (Join-Path $secrets $file) { [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(24)).ToLowerInvariant() }
@@ -91,6 +105,27 @@ if (-not $PgSuperPassword) {
 }
 $env:PGPASSWORD = $PgSuperPassword
 
+# Roles and database from before the rename to Fleeto (0.2.1) are renamed; their passwords are set again below. The migrations then
+# rename the functions and triggers (migration RenameToFleeto).
+$legacyRoles = @(Invoke-Psql 'postgres' "SELECT rolname FROM pg_roles WHERE rolname IN ('fleetify_migrator', 'fleetify_web', 'fleetify_gateway', 'fleetify_signer', 'fleetify_workers', 'fleetify_backup');" -Scalar | Where-Object { $_ })
+foreach ($legacyRole in $legacyRoles) {
+    $newRole = 'fleeto_' + $legacyRole.Substring('fleetify_'.Length)
+    if (Invoke-Psql 'postgres' "SELECT 1 FROM pg_roles WHERE rolname = '$newRole';" -Scalar) {
+        Write-Warning "Both $legacyRole and $newRole exist; $legacyRole is left alone. Drop it when nothing uses it."
+        continue
+    }
+    Invoke-Psql 'postgres' "ALTER ROLE $legacyRole RENAME TO $newRole;" | Out-Null
+    Write-Ok "renamed role $legacyRole to $newRole"
+}
+$legacyDatabase = $Database -replace '^fleeto', 'fleetify'
+if ($legacyDatabase -ne $Database -and
+    (Invoke-Psql 'postgres' "SELECT 1 FROM pg_database WHERE datname = '$legacyDatabase';" -Scalar) -and
+    -not (Invoke-Psql 'postgres' "SELECT 1 FROM pg_database WHERE datname = '$Database';" -Scalar)) {
+    Invoke-Psql 'postgres' "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$legacyDatabase';" | Out-Null
+    Invoke-Psql 'postgres' "ALTER DATABASE $legacyDatabase RENAME TO $Database;" | Out-Null
+    Write-Ok "renamed database $legacyDatabase to $Database"
+}
+
 $roleSql = foreach ($role in $roles.Keys) {
     $password = (Get-Content (Join-Path $secrets $roles[$role]) -Raw).Trim()
     "DO `$`$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$role') THEN CREATE ROLE $role LOGIN PASSWORD '$password'; ELSE ALTER ROLE $role LOGIN PASSWORD '$password'; END IF; END `$`$;"
@@ -100,16 +135,16 @@ Write-Ok 'roles are up to date'
 
 $exists = Invoke-Psql 'postgres' "SELECT 1 FROM pg_database WHERE datname = '$Database';" -Scalar
 if (-not $exists) {
-    Invoke-Psql 'postgres' "CREATE DATABASE $Database OWNER fleetify_migrator ENCODING 'UTF8';" | Out-Null
+    Invoke-Psql 'postgres' "CREATE DATABASE $Database OWNER fleeto_migrator ENCODING 'UTF8';" | Out-Null
     Write-Ok "created database $Database"
 }
 
-$appRoles = ($roles.Keys | Where-Object { $_ -ne 'fleetify_migrator' }) -join ', '
+$appRoles = ($roles.Keys | Where-Object { $_ -ne 'fleeto_migrator' }) -join ', '
 Invoke-Psql $Database @"
-ALTER SCHEMA public OWNER TO fleetify_migrator;
+ALTER SCHEMA public OWNER TO fleeto_migrator;
 REVOKE ALL ON DATABASE $Database FROM PUBLIC;
-GRANT CONNECT ON DATABASE $Database TO fleetify_migrator, $appRoles;
-GRANT pg_read_all_data TO fleetify_backup;
+GRANT CONNECT ON DATABASE $Database TO fleeto_migrator, $appRoles;
+GRANT pg_read_all_data TO fleeto_backup;
 DO `$`$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb') THEN
     CREATE EXTENSION IF NOT EXISTS timescaledb;
@@ -124,7 +159,7 @@ Remove-Item Env:PGPASSWORD
 Write-Step "Development signing keys in $keys"
 Push-Location $repo
 try {
-    $tool = @('run', '--project', 'src/Fleetify.Tools', '--')
+    $tool = @('run', '--project', 'src/Fleeto.Tools', '--')
     if (-not (Test-Path (Join-Path $keys 'license-signing.key'))) {
         dotnet @tool license keygen --out $keys | Out-Host
         if ($LASTEXITCODE -ne 0) { throw 'license keygen failed' }
@@ -140,8 +175,8 @@ try {
 <Project>
   <!-- Written by tools/dev/setup-dev.ps1. Development PUBLIC keys only; gitignored. -->
   <PropertyGroup>
-    <FleetifyLicensePublicKeys>$licensePub</FleetifyLicensePublicKeys>
-    <FleetifyReleasePublicKeys>$releasePub</FleetifyReleasePublicKeys>
+    <FleetoLicensePublicKeys>$licensePub</FleetoLicensePublicKeys>
+    <FleetoReleasePublicKeys>$releasePub</FleetoReleasePublicKeys>
   </PropertyGroup>
 </Project>
 "@ | Set-Content -Path (Join-Path $repo 'Directory.Build.local.props') -Encoding utf8
@@ -156,14 +191,14 @@ try {
 
     # -----------------------------------------------------------------------------------------------------------
     Write-Step 'Build'
-    dotnet build Fleetify.slnx -v q | Out-Host
+    dotnet build Fleeto.slnx -v q | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'build failed' }
 
     Write-Step 'Migrate and initialise the instance'
-    $env:Fleetify__Database__Name = $Database
-    $env:Fleetify__Database__Host = $PgHost
-    $env:Fleetify__Database__Port = "$PgPort"
-    dotnet run --project src/Fleetify.Tools --no-build -- migrate --fqdn $Fqdn --agent-host $Fqdn --agent-port $AgentPort --web-url "https://$($Fqdn):$WebPort" | Out-Host
+    $env:Fleeto__Database__Name = $Database
+    $env:Fleeto__Database__Host = $PgHost
+    $env:Fleeto__Database__Port = "$PgPort"
+    dotnet run --project src/Fleeto.Tools --no-build -- migrate --fqdn $Fqdn --agent-host $Fqdn --agent-port $AgentPort --web-url "https://$($Fqdn):$WebPort" | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'migrate failed' }
 }
 finally {

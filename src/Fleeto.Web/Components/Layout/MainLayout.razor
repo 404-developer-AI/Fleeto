@@ -1,0 +1,265 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject TwoFactorGate TwoFactorGate
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+@inject TimeDisplay TimeDisplay
+@inject IJSRuntime JS
+@inject CurrentUser CurrentUser
+
+<MudThemeProvider Theme="@FleetoTheme.Theme" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudDrawer Open="_navOpen" OpenChanged="SetNavOpenAsync" Variant="DrawerVariant.Mini" OpenMiniOnHover="false" Elevation="0"
+               Class="@($"app-sidebar {(_navOpen ? "" : "collapsed")}")">
+        <div class="sidebar-top">
+            <a href="/" class="sidebar-logo" title="Fleeto">
+                <FleetoMark Size="32" />
+                @if (_navOpen)
+                {
+                    <span class="sidebar-logo-text">Fleeto</span>
+                }
+            </a>
+        </div>
+
+        <MudNavMenu Class="px-2">
+            <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.Dashboard" title="Dashboard">Dashboard</MudNavLink>
+            <MudNavLink Href="/clients" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Business" title="Clients"
+                        Class="@(IsClientsArea ? "active" : "")">Clients</MudNavLink>
+            <MudNavLink Href="/alerts" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.NotificationsActive" title="Alerts">Alerts</MudNavLink>
+        </MudNavMenu>
+
+        <MudSpacer />
+
+        @* Sidebar footer: collapse button, then a hairline and the status (live dot, version, date and time) with the settings,
+           profile and create buttons beside it. Collapsed, the buttons stack above the collapse button and the status shrinks
+           to the dot and the time. *@
+        <div class="sidebar-bottom @(_navOpen ? "" : "collapsed")">
+            @if (!_navOpen)
+            {
+                <div class="sidebar-actions stacked">@SidebarActions</div>
+            }
+
+            @if (_navOpen)
+            {
+                <button type="button" class="sidebar-collapse" @onclick="() => SetNavOpenAsync(false)">
+                    <MudIcon Icon="@Icons.Material.Outlined.ChevronLeft" Class="sidebar-collapse-icon" />
+                    <span>Collapse</span>
+                </button>
+            }
+            else
+            {
+                <MudTooltip Text="Expand navigation" Placement="Placement.Right" RootClass="d-block">
+                    <button type="button" class="sidebar-collapse" aria-label="Expand navigation" @onclick="() => SetNavOpenAsync(true)">
+                        <MudIcon Icon="@Icons.Material.Outlined.ChevronRight" Class="sidebar-collapse-icon" />
+                    </button>
+                </MudTooltip>
+            }
+
+            <div class="sidebar-footer">
+                <SidebarStatus Collapsed="@(!_navOpen)" />
+                @if (_navOpen)
+                {
+                    <div class="sidebar-actions">@SidebarActions</div>
+                }
+            </div>
+
+            <AuthorizeView>
+                @* The profile menu submits this form: signing out is a POST with an antiforgery token. *@
+                <form id="fleeto-sign-out" method="post" action="/api/account/logout" class="d-none">
+                    <AntiforgeryToken />
+                </form>
+            </AuthorizeView>
+        </div>
+    </MudDrawer>
+
+    <MudMainContent>
+        <LicenseBanner />
+        <div class="content-area">
+            <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pa-0">
+                @if (_allowed)
+                {
+                    @Body
+                }
+                else
+                {
+                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                }
+            </MudContainer>
+        </div>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    private const string NavOpenKey = "fleeto.nav.open";
+
+    private bool _allowed;
+    private Caller? _caller;
+    private bool _navOpen = true;
+
+    private bool IsClientsArea => IsUnder("/clients") || IsUnder("/sites") || IsUnder("/endpoints");
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        // Layout gate: a session without completed two-factor setup never renders a page body. The middleware already refuses
+        // such sessions at the HTTP level; this covers navigation inside a circuit.
+        if (state.User.Identity?.IsAuthenticated == true && await TwoFactorGate.RequiresSetupAsync(state.User))
+        {
+            Navigation.NavigateTo("/account/setup-2fa", forceLoad: true);
+            return;
+        }
+
+        _allowed = true;
+        if (state.User.Identity?.IsAuthenticated == true)
+        {
+            try
+            {
+                _caller = await CurrentUser.GetAsync();
+            }
+            catch (Exception)
+            {
+                // The profile menu falls back to the sign-in name; pages resolve the caller themselves.
+            }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            TimeDisplay.SetZone(await JS.InvokeAsync<string>("fleeto.timeZone"));
+        }
+        catch (JSException)
+        {
+            // Unknown browser zone: the server zone stays in use.
+        }
+        catch (InvalidOperationException)
+        {
+            // Static rendering: no JavaScript connection.
+        }
+
+        try
+        {
+            // A per-browser preference, not account data: kept in local storage.
+            if (await JS.InvokeAsync<string?>("fleeto.getPreference", NavOpenKey) == "false")
+            {
+                _navOpen = false;
+                StateHasChanged();
+            }
+        }
+        catch (JSException)
+        {
+            // No local storage: the navigation stays expanded.
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    private async Task SetNavOpenAsync(bool open)
+    {
+        _navOpen = open;
+        try
+        {
+            await JS.InvokeVoidAsync("fleeto.setPreference", NavOpenKey, open ? "true" : "false");
+        }
+        catch (JSException)
+        {
+            // The preference is not remembered; the navigation still toggles.
+        }
+    }
+
+    private async Task SignOutAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("fleeto.submitForm", "fleeto-sign-out");
+        }
+        catch (JSException)
+        {
+            Navigation.NavigateTo("/account/login", forceLoad: true);
+        }
+    }
+
+    // Settings, profile and create: beside the status when the navigation is open, stacked above the collapse button when not.
+    private RenderFragment SidebarActions => __builder =>
+    {
+        var tooltip = _navOpen ? Placement.Top : Placement.Right;
+        var anchor = _navOpen ? Origin.TopRight : Origin.BottomRight;
+        var transform = _navOpen ? Origin.BottomRight : Origin.BottomLeft;
+        <AuthorizeView Policy="@FleetoPolicies.Viewer">
+            <MudTooltip Text="Settings" Placement="tooltip">
+                <a href="/settings/client-templates" class="sidebar-square @(IsUnder("/settings") ? "active" : "")" aria-label="Settings">
+                    <MudIcon Icon="@Icons.Material.Outlined.Settings" Class="sidebar-square-icon" />
+                </a>
+            </MudTooltip>
+        </AuthorizeView>
+        <AuthorizeView>
+            <Authorized>
+                <MudMenu AnchorOrigin="anchor" TransformOrigin="transform" aria-label="Profile">
+                    <ActivatorContent Context="menuContext">
+                        <MudTooltip Text="@(_caller?.Email ?? "Profile")" Placement="tooltip">
+                            <button type="button" class="sidebar-square" aria-label="Profile" @onclick="menuContext.ToggleAsync">
+                                <MudIcon Icon="@Icons.Material.Outlined.AccountCircle" Class="sidebar-square-icon" />
+                            </button>
+                        </MudTooltip>
+                    </ActivatorContent>
+                    <ChildContent>
+                        <div class="profile-menu-header">
+                            <div class="profile-menu-name">@(_caller?.Name ?? context.User.Identity?.Name)</div>
+                            @if (_caller is { } caller)
+                            {
+                                <div class="profile-menu-detail">@caller.Email</div>
+                                <div class="profile-menu-role">@RoleText(caller)</div>
+                            }
+                        </div>
+                        <MudDivider />
+                        <MudMenuItem Icon="@Icons.Material.Outlined.Logout" OnClick="SignOutAsync">Sign out</MudMenuItem>
+                    </ChildContent>
+                </MudMenu>
+            </Authorized>
+        </AuthorizeView>
+        <AuthorizeView Policy="@FleetoPolicies.Technician">
+            <MudMenu AnchorOrigin="anchor" TransformOrigin="transform" aria-label="Create">
+                <ActivatorContent Context="menuContext">
+                    <MudTooltip Text="Create" Placement="tooltip">
+                        <button type="button" class="sidebar-square primary" aria-label="Create" @onclick="menuContext.ToggleAsync">
+                            <MudIcon Icon="@Icons.Material.Outlined.Add" Class="sidebar-square-icon" />
+                        </button>
+                    </MudTooltip>
+                </ActivatorContent>
+                <ChildContent>
+                    <MudMenuItem Icon="@Icons.Material.Outlined.Business" Href="/clients?new=true">New client</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Outlined.AccountTree" Href="/settings/client-templates?new=true">New client template</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Outlined.Rule" Href="/settings/monitoring-templates?new=true">New monitoring template</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Outlined.Tune" Href="/settings/policies?new=true">New policy</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Outlined.Terminal" Href="/settings/scripts?new=true">New script</MudMenuItem>
+                    <AuthorizeView Policy="@FleetoPolicies.Admin" Context="adminContext">
+                        <MudDivider />
+                        <MudMenuItem Icon="@Icons.Material.Outlined.PersonAdd" Href="/settings/users?new=true">New user</MudMenuItem>
+                    </AuthorizeView>
+                </ChildContent>
+            </MudMenu>
+        </AuthorizeView>
+    };
+
+    private static string RoleText(Caller caller) =>
+        caller.IsAdmin ? "Admin" : caller.CanManage ? "Technician" : "Read-only";
+
+    private bool IsUnder(string prefix) =>
+        ("/" + Navigation.ToBaseRelativePath(Navigation.Uri)).StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+}

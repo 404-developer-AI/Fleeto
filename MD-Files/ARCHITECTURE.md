@@ -1,6 +1,6 @@
 # Fleeto — Architecture
 
-> Technical reference for Fleeto (internal: Fleetify). Rules and priorities live in
+> Technical reference for Fleeto. Rules and priorities live in
 > `CLAUDE.md` in the repository root; this file describes how the system is put together.
 > Status: 0.0.x and 0.1.0 implemented (agent enrollment, gateway, signer, workers, web UI,
 > licensing, backups); 0.2.0 in progress (maintenance mode, the check catalog, services in the inventory, the
@@ -22,10 +22,10 @@ Instances share nothing else: separate Docker networks, volumes and secret files
                      │     │ customer A                        │ customer B                  │
                      │     ▼                                   ▼                             │
 [browser, API] ───►  │  ┌─ instance A ───────────────┐   ┌─ instance B ───────────────┐     │
-                     │  │ fleetify-web               │   │ fleetify-web               │     │
-[agents] ──mTLS──►   │  │ fleetify-gateway           │   │ fleetify-gateway           │     │
-                     │  │ fleetify-signer            │   │ fleetify-signer            │     │
-                     │  │ fleetify-workers           │   │ fleetify-workers           │     │
+                     │  │ fleeto-web               │   │ fleeto-web               │     │
+[agents] ──mTLS──►   │  │ fleeto-gateway           │   │ fleeto-gateway           │     │
+                     │  │ fleeto-signer            │   │ fleeto-signer            │     │
+                     │  │ fleeto-workers           │   │ fleeto-workers           │     │
                      │  │ postgres + TimescaleDB     │   │ postgres + TimescaleDB     │     │
                      │  └────────────────────────────┘   └────────────────────────────┘     │
                      └──────────────────────────────────────────────────────────────────────┘
@@ -37,26 +37,26 @@ Instances share nothing else: separate Docker networks, volumes and secret files
 Inside one instance:
 
 ```
-[agents] --mTLS WebSocket (SNI passthrough)--> [fleetify-gateway] --batch write, then ack--> [postgres + TimescaleDB]
+[agents] --mTLS WebSocket (SNI passthrough)--> [fleeto-gateway] --batch write, then ack--> [postgres + TimescaleDB]
                                                   │        │                                        ^      ^   ^
-                                                  │        └─ NOTIFY (postgres) ─> [fleetify-workers] ─┘       │   │
+                                                  │        └─ NOTIFY (postgres) ─> [fleeto-workers] ─┘       │   │
                                                   └── remote control relay (ciphertext only)                   │   │
 [integrations: Action1, Sophos, Veeam, Proxmox, vCenter] --> [poller workers] ─────────────────────────────────┘   │
                                                                                                                    │
-[browser, API clients] --HTTPS--> [caddy] --> [fleetify-web: Blazor Server UI + public REST API] <─────────────────┤
+[browser, API clients] --HTTPS--> [caddy] --> [fleeto-web: Blazor Server UI + public REST API] <─────────────────┤
                                                      ^                                                             │
                                                      +-- LISTEN/NOTIFY (postgres) for live status                  │
                                                                                                                    │
-                                              [fleetify-signer] ── LISTEN/NOTIFY, no listening port ───────────────┘
+                                              [fleeto-signer] ── LISTEN/NOTIFY, no listening port ───────────────┘
 ```
 
 | Container | Scope | Role | Notes |
 |---|---|---|---|
 | **caddy** | VPS | Reverse proxy, automatic TLS | One per VPS, built with the layer4 module. Terminates TLS for the UI and API of every instance, so it holds the TLS private keys and ACME account for every FQDN on the VPS (see §5). Agent traffic to `agents.<fqdn>` is passed through by SNI to the instance gateway and never decrypted, so mTLS stays end to end between agent and gateway. In front of the passed-through connection Caddy sends a PROXY protocol v2 header with the agent's address (see §5, Other controls). |
-| **fleetify-web** | instance | Blazor Server UI and public REST API (.NET, MudBlazor) | Follows the Migrify project layout and conventions. Cannot sign anything an agent executes. |
-| **fleetify-gateway** | instance | Agent connection endpoint and remote control relay | Persistent WebSocket over mTLS for online state, command push and check results. Checks certificate revocation on every connection. Acks agent data only after it is written to Postgres. Serves the agent and watchdog binaries of the current release for agent updates (0.2.1). Target: 10,000 concurrent connections on modest hardware. Language: .NET (decided in 0.1.0). |
-| **fleetify-signer** | instance | Signs everything that establishes trust with agents | Holds the instance signing key and the internal CA key, decrypted with its own signer key that no other container mounts. No listening port: it picks up signing requests from the database. Re-checks role, tier, script approval and validity window before signing. See §5. |
-| **fleetify-workers** | instance | Background jobs | Check evaluation, alerting, integration pollers, Action1 patch orchestration, retention cleanup, backups, license checks. |
+| **fleeto-web** | instance | Blazor Server UI and public REST API (.NET, MudBlazor) | Follows the Migrify project layout and conventions. Cannot sign anything an agent executes. |
+| **fleeto-gateway** | instance | Agent connection endpoint and remote control relay | Persistent WebSocket over mTLS for online state, command push and check results. Checks certificate revocation on every connection. Acks agent data only after it is written to Postgres. Serves the agent and watchdog binaries of the current release for agent updates (0.2.1). Target: 10,000 concurrent connections on modest hardware. Language: .NET (decided in 0.1.0). |
+| **fleeto-signer** | instance | Signs everything that establishes trust with agents | Holds the instance signing key and the internal CA key, decrypted with its own signer key that no other container mounts. No listening port: it picks up signing requests from the database. Re-checks role, tier, script approval and validity window before signing. See §5. |
+| **fleeto-workers** | instance | Background jobs | Check evaluation, alerting, integration pollers, Action1 patch orchestration, retention cleanup, backups, license checks. |
 | **postgres** | instance | PostgreSQL 17 + TimescaleDB | The only durable store. Relational data plus hypertables for check results and metrics plus log storage with full-text search. One database role per container with only the grants that container needs. LISTEN/NOTIFY carries cross-container notifications (ids only); every subscriber also catches up from the tables, so a lost notification delays work and never loses it. No Valkey: the signer may only talk to the database, so database notifications are needed anyway. |
 
 Rationale for one database engine: operational simplicity on a single VPS beats a
@@ -238,10 +238,10 @@ Three kinds of tables:
   the job (PowerShell with a UTF-8 byte order mark, Batch as `.cmd`) and run with
   `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File`, `cmd.exe /d /s /c`,
   `/bin/sh` or `/bin/bash`. Enrolling again removes the jobs of the previous enrollment.
-- **Watchdog service (0.2.1).** A second Windows service, `fleetify-watchdog`, a small separate binary
-  (`cmd/fleetify-watchdog`) from the same Go codebase, running as SYSTEM with its own state directory. On Linux the
+- **Watchdog service (0.2.1).** A second Windows service, `fleeto-watchdog`, a small separate binary
+  (`cmd/fleeto-watchdog`) from the same Go codebase, running as SYSTEM with its own state directory. On Linux the
   watchdog follows with the Linux agent service; until then a Linux agent runs without one.
-  - **Identity.** Its own key (platform key store `Fleetify Watchdog Identity`, TPM-backed where available) and its own
+  - **Identity.** Its own key (platform key store `Fleeto Watchdog Identity`, TPM-backed where available) and its own
     90-day certificate for the same endpoint with the role *watchdog* (`AgentCertificate.Role`). The agent creates the key
     and sends the CSR over its own session (`WatchdogCertificateRequest`); the signer issues it only for an endpoint with a
     valid agent certificate, only for a key that differs from every agent key, at most 3 times a day, and revokes earlier
@@ -275,7 +275,7 @@ Three kinds of tables:
 - Reconnect with exponential backoff plus jitter.
 - Wire format: protobuf over the WebSocket, one message per binary WebSocket frame (the frame is
   the length prefix), results batched. Never one HTTP request per check result. Contract:
-  `src/Fleetify.Protocol/Protos/agent.proto`.
+  `src/Fleeto.Protocol/Protos/agent.proto`.
 - Endpoint class detection: Windows Server / Linux without a desktop session / ESXi guests
   flagged as servers → `server`; everything else → `workstation`. The technician can override.
 
@@ -353,7 +353,7 @@ gets an `UpdateOffer` with the manifest bytes, the signature and `update_allowed
 policy (site policy, else the default policy) allows the release now. Preview installs at once, Standard 7 days and
 Delayed 14 days after the release was installed on the instance; an admin can pause the release (nobody installs it,
 installations already running finish) or release it to all rings at once (Settings, Agent updates). Offers are
-re-evaluated when a release loads, when an admin changes a control (notification `fleetify_agent_releases`) and every
+re-evaluated when a release loads, when an admin changes a control (notification `fleeto_agent_releases`) and every
 5 minutes, which also picks up a passed ring delay and a changed policy ring for live sessions.
 → the endpoint verifies the manifest against the release keys compiled into it and ignores the offer unless the version
 is strictly newer than the installed one, allowed, not rolled back before on this endpoint and not waiting for a retry. It
@@ -543,7 +543,7 @@ or of the endpoint's client; the language runs on the endpoint's platform; and, 
 endpoint's site (or the default policy) requires approval, the version is the script's current one and
 approved by an admin who is not its author → it signs a `JobPayload` (`JobId`, `InstanceId`, `EndpointId`,
 `Type`, `ValidUntil`, `InitiatedBy`, timeout, output cap, and the script: language, name, version, body,
-SHA-256) with the context `fleetify-job-v1` and sets `queued`, or sets `refused` with the reason → the
+SHA-256) with the context `fleeto-job-v1` and sets `queued`, or sets `refused` with the reason → the
 gateway sends queued, signed, valid jobs to managed sessions when they connect, on a notification and in
 its 5-minute catch-up, and records `DeliveredAt` → the agent verifies the signature against the pinned
 key, that instance and endpoint are its own, that `ValidUntil` has not passed (5 minutes clock tolerance)
@@ -660,12 +660,12 @@ Steaan, offline (hardware token, never on a VPS, never in CI secrets)
   └─ license signing key (ed25519)   signs license documents
 
 Per instance, on the VPS
-  root key (KEK)                     Docker secret, mounted in fleetify-web and fleetify-workers only
+  root key (KEK)                     Docker secret, mounted in fleeto-web and fleeto-workers only
     └─ wraps → data keys (DEKs)      in the DB, one per purpose
                   └─ encrypt →       integration credentials, SMTP, Microsoft Graph secret or certificate key,
                                      webhook URLs and signing secrets, Action1, backup destination credentials,
                                      TOTP seeds, license document, remote control recordings
-  signer key (KEK)                   Docker secret, mounted in fleetify-signer only
+  signer key (KEK)                   Docker secret, mounted in fleeto-signer only
     └─ encrypts →                    instance signing key (ed25519): jobs, policies, check definitions, session tokens
                                      internal CA key: agent certificates, gateway server certificate
   backup public key (X25519)         in the DB; used for key agreement only (see Backups); private half offline
@@ -716,7 +716,7 @@ Whoever holds the instance signing key can run code as SYSTEM or root on every m
 endpoint of that customer. That is inherent to an RMM, so the key sits in its own minimal
 container:
 
-- **fleetify-signer** is the only container that mounts the signer key. It has no
+- **fleeto-signer** is the only container that mounts the signer key. It has no
   listening port and no outbound network access; it watches the database (LISTEN/NOTIFY)
   for `SigningRequest` rows. Its database role reads what it needs to decide and writes only
   signatures, request states and audit entries.
@@ -902,7 +902,7 @@ container:
 Built in 0.2.1, **read-only** (decided 2026-09-15). The contract for integrators is `API.md`; features not in the API yet
 are on `API-WAITLIST.md`, which every feature commit keeps up to date (CLAUDE.md, Public API).
 
-- Base path `/api/v1` on the instance FQDN, served by fleetify-web (`src/Fleetify.Web/Api`). JSON only, `GET` only.
+- Base path `/api/v1` on the instance FQDN, served by fleeto-web (`src/Fleeto.Web/Api`). JSON only, `GET` only.
 - OpenAPI 3.1 document at `/api/v1/openapi.json`, generated at runtime from the minimal API endpoints
   (`Microsoft.AspNetCore.OpenApi`), anonymous and rate limited per address. A test compares its operations with the
   `### GET /api/v1/...` sections of `API.md` in both directions, so an endpoint cannot ship undocumented and the
@@ -956,7 +956,7 @@ After the first run `install.sh` carries the release public keys itself.
 **Release source and access.** `install.sh` reads the published releases through the GitHub API
 with a fine-grained token (Contents read-only on the repository) and pulls images with a classic
 token that has only `read:packages`; both are asked once and stored root-only under
-`/opt/fleetify/credentials/`, the registry login lives only in the run's temporary directory. The
+`/opt/fleeto/credentials/`, the registry login lives only in the run's temporary directory. The
 newest published release is the target; a pre-release only when no release exists yet or an
 instance on the VPS already runs a pre-release. The API decides nothing on its own: what it names
 is used only after its manifest verifies. Residual risk: the release token can read the source
@@ -967,18 +967,18 @@ pair per VPS (`deploy/README.md`, GitHub tokens).
 digests of every container, the hash of `install.sh` and (0.2.1) every agent and watchdog binary with its SHA-256 and
 size (`agentBinaries`), signed with the release key outside CI (`deploy/sign-release.ps1`). `install.sh` verifies the
 manifest, pulls images by digest only (never by tag) and replaces itself only with a version whose hash is in a verified
-manifest. It copies the verified manifest and its signature to `/opt/fleetify/<instance>/release/` (mounted read-only in
+manifest. It copies the verified manifest and its signature to `/opt/fleeto/<instance>/release/` (mounted read-only in
 the gateway, restored with the previous release on a rollback), so the gateway can offer that release to agents.
 
 First run on a VPS: install Docker → install the host-level Caddy (pinned version with the
 layer4 module, admin API on a local socket) with an empty routing table → create
-`/opt/fleetify/`.
+`/opt/fleeto/`.
 
 New instance: ask for or take the FQDN → check that both the FQDN and `agents.<fqdn>`
 resolve to this VPS (fail early with the DNS records to create; an address that is not on the VPS
 counts only after the operator confirms once that a firewall or NAT forwards TCP 80 and 443 on it) → derive the instance name
-from the FQDN → create `/opt/fleetify/<instance>/` with Compose files → generate the root
-key, signer key and DB passwords into `/opt/fleetify/<instance>/secrets/` (see Keys for
+from the FQDN → create `/opt/fleeto/<instance>/` with Compose files → generate the root
+key, signer key and DB passwords into `/opt/fleeto/<instance>/secrets/` (see Keys for
 ownership and modes; never part of a backup) → verify the release manifest and pull images by
 digest → run migrations → start the stack → the signer creates the instance signing key and
 internal CA → regenerate the host Caddyfile from all instances: the layer4 module runs as a
@@ -1022,31 +1022,65 @@ Agents self-update from their instance (0.2.1), staged by the update ring of the
 instance only distributes the binaries; the agent and watchdog install one only when the release manifest that lists it
 verifies against a Steaan release public key compiled into them.
 
+**Rename to Fleeto (0.2.1).** Until 0.2.1 the code, images, database and endpoint services used the internal name Fleetify.
+Everything now uses Fleeto (decided 2026-09-15, `MD-Files/branding-fleeto.md` §7). Installations from before the rename move
+once, without losing data or enrollments; the release is marked `rollback: restore`, because the previous release cannot
+run under the new names.
+
+- **VPS** (`install.sh`, section *Moving a VPS from the Fleetify layout*). The first run of a new install.sh copies the GitHub
+  tokens and confirmed public addresses from `/opt/fleetify`. Updating then moves the whole VPS at once, after confirmation
+  (`--yes`), because every instance's images only run under the new names:
+  1. per instance: a pre-rename `pg_dump`, stop, copy of its directory to `/opt/fleeto/<instance>` (`instance.conf` keys
+     `FLEETIFY_*` become `FLEETO_*`) and of its volumes to `fleeto-<instance>_*`, then, in the copy, database `fleetify`
+     becomes `fleeto` and every `fleetify_*` role its `fleeto_*` counterpart (SCRAM passwords survive a rename; they are set
+     again from the secret files anyway). A failure puts every instance back on the untouched old layout;
+  2. the host proxy moves to `fleeto-caddy` with a copy of its volumes, so no certificate is requested again; its routes
+     keep instances that are still in the old layout reachable (same loopback ports). The old install.sh is replaced by a stub;
+  3. each instance is updated to the release. The migrator renames the database functions and triggers (migration
+     `RenameToFleeto`, generic from the catalog, also for the role and channel names in function bodies and trigger
+     arguments), rewraps the data keys with the new associated data label and has every endpoint configuration signed
+     again. An instance whose update fails runs again from the old layout and moves with the next run; one that succeeds
+     loses its old copy, and `/opt/fleetify` goes once no instance is left in it.
+- **Endpoints.** Agents from before the rename cannot update themselves (self-update arrives with this release). Until they are
+  replaced they stay connected and keep their last configuration, but refuse new configurations and jobs, which are signed
+  with the new contexts. Running the install command of the site again takes such an agent over without enrolling again,
+  when it is enrolled with the same gateway and instance CA as the command: the service `fleetify-agent` is stopped, the state
+  directory moves from `C:\ProgramData\Fleetify\Agent` to `C:\ProgramData\Fleeto\Agent` (the identity key stays in the key
+  store under its old name, which the state records), the `fleeto-agent` service is created and started, and only then are
+  the old service, a legacy watchdog with its key and the old program files removed. The install token is not used. A revoked
+  agent, or one of another instance, is refused with the next step (`fleetify-agent uninstall`).
+- **Data read under the old names**, never written: agent certificates with `urn:fleetify:endpoint:` (until renewed), license
+  documents signed with `fleetify-license-v1`, backup files encrypted with the old HKDF salt, and key files with the old
+  prefixes. `LegacyNames` holds these names; the branding check allows the old name only in the migration files. They are
+  removed once no installation from before 0.2.1 exists.
+- **Development** (`tools/dev/setup-dev.ps1`): moves `%LOCALAPPDATA%\Fleetify\dev`, renames the database `fleetify_dev` and the
+  roles, and runs the migrations as above.
+
 ## 8. Repository layout
 
 ```
 /CLAUDE.md                     rules, priorities, conventions, product model
 /MD-Files/                     the rest of the documentation set (this folder)
-/Fleetify.slnx                 solution; Directory.Build.props and Directory.Packages.props hold shared settings
-/src/Fleetify.Core/            domain model, enums, pure domain rules (tiers, licensing, check evaluation), interfaces
-/src/Fleetify.Protocol/        agent protocol v1 (agent.proto) and generated C#
-/src/Fleetify.Infrastructure/  EF Core model and migrations, grants, crypto, CA, licensing, notifications, shared services
-/src/Fleetify.Web/             Blazor Server UI and the read-only public REST API (Api/, 0.2.1)
-/src/Fleetify.Gateway/         agent endpoint (.NET): enrollment, mTLS WebSocket sessions, ingest; remote control relay later
-/src/Fleetify.Signer/          signing service: instance signing key, internal CA, signing rules
-/src/Fleetify.Workers/         background jobs: config fan-out, check evaluation, alerts, email, license, backups, retention
-/src/Fleetify.Tools/           fleetify-tool: migrate, license, release and backup key utilities
+/Fleeto.slnx                 solution; Directory.Build.props and Directory.Packages.props hold shared settings
+/src/Fleeto.Core/            domain model, enums, pure domain rules (tiers, licensing, check evaluation), interfaces
+/src/Fleeto.Protocol/        agent protocol v1 (agent.proto) and generated C#
+/src/Fleeto.Infrastructure/  EF Core model and migrations, grants, crypto, CA, licensing, notifications, shared services
+/src/Fleeto.Web/             Blazor Server UI and the read-only public REST API (Api/, 0.2.1)
+/src/Fleeto.Gateway/         agent endpoint (.NET): enrollment, mTLS WebSocket sessions, ingest; remote control relay later
+/src/Fleeto.Signer/          signing service: instance signing key, internal CA, signing rules
+/src/Fleeto.Workers/         background jobs: config fan-out, check evaluation, alerts, email, license, backups, retention
+/src/Fleeto.Tools/           fleeto-tool: migrate, license, release and backup key utilities
 /agent/                        Go agent (one module, per-platform builds)
-/tests/Fleetify.Testing/       shared test fixture: a real PostgreSQL database per test project
-/tests/Fleetify.*.Tests/       unit and integration tests per component, cross-client and tier enforcement tests
-/tests/Fleetify.LoadTest/      simulator for 10,000 agents
+/tests/Fleeto.Testing/       shared test fixture: a real PostgreSQL database per test project
+/tests/Fleeto.*.Tests/       unit and integration tests per component, cross-client and tier enforcement tests
+/tests/Fleeto.LoadTest/      simulator for 10,000 agents
 /tools/dev/                    local development without Docker: setup-dev.ps1, start-dev.ps1, build-agent.ps1
 /deploy/                       Compose stack, host Caddy, install.sh (Dockerfiles live next to each project)
 /.github/workflows/            CI: build, test, vulnerability scan, secret scan, branding grep
 ```
 
 The gateway is .NET (decided for 0.1.0): it shares the domain model, EF Core and tier
-enforcement with the rest of the server. `Fleetify.LoadTest` provides the 10,000-connection evidence.
+enforcement with the rest of the server. `Fleeto.LoadTest` provides the 10,000-connection evidence.
 
 ## 9. Integrations
 

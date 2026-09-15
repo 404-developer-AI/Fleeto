@@ -25,7 +25,7 @@ import (
 
 const (
 	// Context is the domain separation prefix; it must equal SignatureContexts.Job on the server.
-	Context = "fleetify-job-v1"
+	Context = "fleeto-job-v1"
 	// MaxPayloadBytes bounds what the agent parses: a script of 256 KiB plus the envelope.
 	MaxPayloadBytes = 512 * 1024
 	// ClockTolerance is how far past ValidUntil a job is still accepted.

@@ -36,8 +36,8 @@ func TestEventLogCheckCountsEventsOfARealLog(t *testing.T) {
 	if len(m) != 1 || m[0].Error != "" || m[0].Value < 0 {
 		t.Fatalf("event log: %+v", m)
 	}
-	missing := run(t, agentv1.CheckType_CHECK_TYPE_EVENT_LOG, map[string]string{"log": "Fleetify-Does-Not-Exist", "level": "any"})
-	if missing[0].Error == "" || !strings.Contains(missing[0].Error, "Fleetify-Does-Not-Exist") {
+	missing := run(t, agentv1.CheckType_CHECK_TYPE_EVENT_LOG, map[string]string{"log": "Fleeto-Does-Not-Exist", "level": "any"})
+	if missing[0].Error == "" || !strings.Contains(missing[0].Error, "Fleeto-Does-Not-Exist") {
 		t.Fatalf("missing log: %+v", missing)
 	}
 }

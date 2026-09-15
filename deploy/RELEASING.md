@@ -16,23 +16,24 @@ and publishes the release. No private key is ever available to CI, a runner or a
 2. Set `deploy/release-rollback`:
    - `images` when the previous release runs on the new schema (expand/contract followed; the default);
    - `restore` when it does not. install.sh then asks for confirmation and restores the pre-update dump on failure.
-3. Make sure the repository variables `FLEETIFY_LICENSE_PUBLIC_KEYS` and `FLEETIFY_RELEASE_PUBLIC_KEYS` hold the
+3. Make sure the repository variables `FLEETO_LICENSE_PUBLIC_KEYS` and `FLEETO_RELEASE_PUBLIC_KEYS` (named
+   `FLEETIFY_*` before 0.2.1) hold the
    public keys (semicolon-separated base64, current key first, then standby keys). Test keys for a test VPS are made
-   with `fleetify-tool release keygen` and `license keygen`; production keys live on a hardware token.
+   with `fleeto-tool release keygen` and `license keygen`; production keys live on a hardware token.
 4. Merge to `main`, wait for CI, then tag: `git tag -a vX.Y.Z -m "Fleeto X.Y.Z" && git push origin vX.Y.Z`.
 
 ## 2. What the release workflow produces
 
 `.github/workflows/release.yml` builds the six images for linux/amd64 and pushes them to
-`ghcr.io/404-developer-ai/fleetify-{web,gateway,signer,workers,tool,caddy}:X.Y.Z` with the public keys compiled in.
+`ghcr.io/404-developer-ai/fleeto-{web,gateway,signer,workers,tool,caddy}:X.Y.Z` with the public keys compiled in.
 The packages stay private; VPSes pull them with a read-only token. Before the images it builds the agent stage on its own
-(`build/agent-binaries`: `fleetify-agent.exe` and `fleetify-watchdog.exe`), and after pushing it copies the binaries out of
+(`build/agent-binaries`: `fleeto-agent.exe` and `fleeto-watchdog.exe`), and after pushing it copies the binaries out of
 the web and gateway images and fails when they differ from that build. It captures the image digests and creates a **draft**
 GitHub release `vX.Y.Z` (marked pre-release for `-alpha.N` versions) with:
 
 ```
 install.sh        bundled: version, release public keys (PEM), embedded templates
-manifest.json     fleetify-tool release manifest: version, image digests, install.sh SHA-256, rollback, agent binaries
+manifest.json     fleeto-tool release manifest: version, image digests, install.sh SHA-256, rollback, agent binaries
 SHA256SUMS
 ```
 
@@ -52,10 +53,10 @@ The script:
 2. shows the manifest (rollback mode, the six digests and the SHA-256 of every agent binary) and checks that it names this
    version, that install.sh has the hash it lists and that it lists agent binaries. Compare the digests and hashes with the
    Release workflow log before confirming;
-3. checks that the key's public half is the first key in `FLEETIFY_RELEASE_PUBLIC_KEYS`, so the install.sh of this
+3. checks that the key's public half is the first key in `FLEETO_RELEASE_PUBLIC_KEYS`, so the install.sh of this
    release accepts the signatures;
-4. signs both files (`fleetify-tool release sign`; the signature is the raw 64-byte ed25519 signature in `<file>.sig`),
-   verifies them (`fleetify-tool release verify`), uploads `install.sh.sig` and `manifest.json.sig` and, after
+4. signs both files (`fleeto-tool release sign`; the signature is the raw 64-byte ed25519 signature in `<file>.sig`),
+   verifies them (`fleeto-tool release verify`), uploads `install.sh.sig` and `manifest.json.sig` and, after
    confirmation, publishes the release.
 
 With a hardware token, sign through OpenSSL instead and upload the signatures with `gh release upload`:
@@ -72,7 +73,7 @@ The Windows agent and watchdog are built with the release public keys and the ve
 downloads) and the gateway image (agent updates, 0.2.1). The signed manifest lists each binary with its SHA-256 and size
 under `agentBinaries`; the binaries themselves carry no separate signature.
 
-- install.sh copies the manifest and its signature it verified to `/opt/fleetify/<instance>/release/` (restored with the
+- install.sh copies the manifest and its signature it verified to `/opt/fleeto/<instance>/release/` (restored with the
   previous release on a rollback). The gateway reads them read-only and offers them to agents.
 - An agent or watchdog installs a binary only when the manifest signature verifies against the release keys compiled
   into it, the version is newer than the installed one, and the downloaded file has the listed size and SHA-256. A

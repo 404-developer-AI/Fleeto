@@ -16,13 +16,13 @@ import (
 )
 
 const (
-	filePrefix = "fleetify-agent-"
+	filePrefix = "fleeto-agent-"
 	fileSuffix = ".log"
 	// Retention is how long log files are kept.
 	Retention = 7 * 24 * time.Hour
 )
 
-// DailyFile is an io.Writer that writes to <dir>/fleetify-agent-YYYYMMDD.log (local date) and rotates at midnight.
+// DailyFile is an io.Writer that writes to <dir>/fleeto-agent-YYYYMMDD.log (local date) and rotates at midnight.
 type DailyFile struct {
 	dir     string
 	prefix  string
@@ -41,8 +41,8 @@ func NewDailyFile(dir string) (*DailyFile, error) {
 	return &DailyFile{dir: dir, prefix: filePrefix, now: time.Now}, nil
 }
 
-// WatchdogPrefix names the log files of the watchdog: fleetify-watchdog-YYYYMMDD.log (0.2.1).
-const WatchdogPrefix = "fleetify-watchdog-"
+// WatchdogPrefix names the log files of the watchdog: fleeto-watchdog-YYYYMMDD.log (0.2.1).
+const WatchdogPrefix = "fleeto-watchdog-"
 
 // NewNamed builds a logger like New with another file name prefix.
 func NewNamed(dir, prefix string, console bool, level slog.Level) (*slog.Logger, io.Closer, error) {
@@ -93,7 +93,7 @@ func (d *DailyFile) reportError(now time.Time, err error) {
 		return
 	}
 	d.lastErr = now
-	fmt.Fprintf(os.Stderr, "fleetify-agent: cannot write log file: %v\n", err)
+	fmt.Fprintf(os.Stderr, "fleeto-agent: cannot write log file: %v\n", err)
 }
 
 // prune removes log files whose date is older than the retention period.

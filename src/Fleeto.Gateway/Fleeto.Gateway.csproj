@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!--
+    fleeto-gateway: the agent endpoint. Enrollment over HTTPS, then one mTLS WebSocket per agent for heartbeats,
+    inventory, check results, certificate renewal and signed configuration delivery (ARCHITECTURE.md §1, §4).
+  -->
+  <PropertyGroup>
+    <AssemblyName>Fleeto.Gateway</AssemblyName>
+    <RootNamespace>Fleeto.Gateway</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Fleeto.Infrastructure\Fleeto.Infrastructure.csproj" />
+    <ProjectReference Include="..\Fleeto.Protocol\Fleeto.Protocol.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Fleeto.Gateway.Tests" />
+  </ItemGroup>
+</Project>

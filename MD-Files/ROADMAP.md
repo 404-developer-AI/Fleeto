@@ -13,8 +13,8 @@ build (decided 2026-09-15). What was listed as open before the tag stays a check
 **0.2.0** — every item built (2026-09-15); everything that was still open moved to 0.2.1 (decided 2026-09-15). Pre-releases `v0.2.0-alpha.1` (2026-09-15, first CI
 run; its release build failed), `v0.2.0-alpha.2` (first published test build), `v0.2.0-alpha.3` (VPS behind NAT, first VPS install), `v0.2.0-alpha.4` (fixes from the first install) and `v0.2.0-alpha.5` (network MTU). `v0.2.0-alpha.5` runs on the first test VPS.
 
-**0.2.1** — in progress (started 2026-09-15): the read-only public API, agent self-update with update rings and the
-Windows watchdog are built; still open are the Linux agent (with its watchdog), arm64 agents, the script features deferred
+**0.2.1** — in progress (started 2026-09-15): the read-only public API, agent self-update with update rings, the
+Windows watchdog and the rename to Fleeto everywhere are built; still open are the Linux agent (with its watchdog), arm64 agents, the script features deferred
 from 0.2.0 and the icon for the installed web app. The Servicedesk ticket reference on notes moved to "Not yet scheduled" (decided 2026-09-15).
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
@@ -37,7 +37,7 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
   Local development without Docker (`tools/dev`); the Compose stack is for the VPS.
 - [done] Root key, envelope encryption, encrypted settings, append-only audit log, one database role
   per container with least-privilege grants.
-- [done] `Fleetify.Signer`: signer key, instance signing key, internal CA, signing requests over
+- [done] `Fleeto.Signer`: signer key, instance signing key, internal CA, signing requests over
   LISTEN/NOTIFY, signing rules with tests, role check on who may request which signature.
 - [done] Release signing tooling: release key, signed release manifest with image digests, signed
   `install.sh` (verifiable with openssl). [done] Test keys for the first VPS (2026-09-15). [open] Production key on a
@@ -50,7 +50,7 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
 - [done] `install.sh` first version (signature and manifest verification, Docker, DNS check, host
   Caddy with SNI passthrough, update with rollback, `--version`, `--check`, `--list`, `--all`).
   [done] First install and updates on a real VPS (2026-09-15, see 0.2.0, Deployment).
-- [done] Load-test simulator (`Fleetify.LoadTest`).
+- [done] Load-test simulator (`Fleeto.LoadTest`).
 
 ## 0.1.0 — First usable release
 
@@ -96,7 +96,7 @@ production release.
 3. [done] First install on a VPS (2026-09-15, one instance behind NAT). [open] Two instances on one VPS; restore of a
    backup onto a fresh VPS.
 4. [open] Load test at 10,000 simulated agents.
-5. [done] Repository variables `FLEETIFY_LICENSE_PUBLIC_KEYS` and `FLEETIFY_RELEASE_PUBLIC_KEYS` set, with test keys
+5. [done] Repository variables `FLEETO_LICENSE_PUBLIC_KEYS` and `FLEETO_RELEASE_PUBLIC_KEYS` set, with test keys
    (2026-09-15). [open] Key ceremony document and production keys (release, license) on hardware tokens.
 
 ### Known limitations of 0.1.0
@@ -200,7 +200,19 @@ Everything that was still open for 0.2.0, moved here on 2026-09-15, with the dev
   - `MD-Files/API.md` documents the whole API for integrators and `MD-Files/API-WAITLIST.md` lists every feature not in
     the API yet, both kept up to date in the same commit as a change (decided 2026-09-15); a test compares `API.md`
     with the OpenAPI document.
-- [open] Ik zie heel veel "fleetify" terug komen, maar dat mag nergens gebruikt worden het is fleeto. (graag overal aanpassen waar nodig, ook roadmap, en andere md's)
+- [done] **Fleeto everywhere** (decided 2026-09-15): the internal name Fleetify is no longer used, in code, images, database,
+  services on endpoints and documents alike, with a migration path for everything installed before
+  (`MD-Files/ARCHITECTURE.md` §7, Rename to Fleeto). Decided while building:
+  - a VPS moves as a whole with its next update: copies of every instance directory and volume under the new names, database
+    and roles renamed in the copy, the host proxy with its certificates; the old layout stays until an instance runs the new
+    release, and an instance whose update fails runs again from it;
+  - endpoints keep their enrollment: the install command of the site takes a Fleetify agent over (same gateway and instance
+    CA only), because 0.2.0 agents cannot update themselves;
+  - data signed or encrypted under the old names stays readable (certificates until renewed, licenses, backups, key files);
+    wrapped data keys are rewrapped and every endpoint configuration is signed again by the migration;
+  - the CSS prefix `--fl-` stays; the old `fleetify-*` packages on ghcr.io and the `FLEETIFY_*` repository variables are
+    replaced by `fleeto-*` and `FLEETO_*`;
+  - the release is marked `rollback: restore`.
 - [done] Agent self-update, installed only with a valid Steaan release signature:
   - decided while building: the signed release manifest lists every agent and watchdog binary with its SHA-256 and size
     instead of a signature file next to each binary; the agent verifies the manifest against the release public keys
@@ -221,7 +233,7 @@ Everything that was still open for 0.2.0, moved here on 2026-09-15, with the dev
 - [done] Watchdog service on **every supported platform**, Windows and Linux (decided 2026-09-15): a second service
   with its own certificate for the same endpoint, always connected. Agent and watchdog restart each other; alerts
   "Agent service stopped" and "Watchdog stopped" on managed endpoints, separate from the offline alert. Built for
-  Windows as `fleetify-watchdog`; decided while building: the Linux watchdog is built with the Linux agent (below),
+  Windows as `fleeto-watchdog`; decided while building: the Linux watchdog is built with the Linux agent (below),
   since the Linux agent has no service yet. Also decided while building: the agent requests the watchdog certificate
   over its own session (the signer checks that the endpoint has a valid agent certificate and that the watchdog key
   differs), "Watchdog stopped" only for an endpoint whose watchdog connected before, and a watchdog session never

@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- fleeto-web: Blazor Server UI (MudBlazor) and, from 0.2.1, the public REST API. -->
+  <PropertyGroup>
+    <RootNamespace>Fleeto.Web</RootNamespace>
+    <AssemblyName>Fleeto.Web</AssemblyName>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <!--
+      The SDK adds the package with the Blazor framework scripts (_framework/blazor.web.js) only when restore sees .razor
+      files. The Dockerfile restores from the project files alone (for layer caching), so without this the image had no
+      blazor.web.js and no page could become interactive.
+    -->
+    <RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Fleeto.Infrastructure\Fleeto.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="MudBlazor" />
+    <PackageReference Include="QRCoder" />
+    <PackageReference Include="Markdig" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="NetEscapades.Extensions.Logging.RollingFile" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Fleeto.Web.Tests" />
+  </ItemGroup>
+</Project>

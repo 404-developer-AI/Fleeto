@@ -30,7 +30,7 @@ Work on 0.2.1, which holds everything still open for 0.2.0, has entries starting
   the instance installed the release. Settings, Agent updates (admins) shows the release, when each ring gets it, how many agents
   run it and which updates failed, and lets an admin pause the release or release it to all rings. The endpoint detail shows the
   installed version, service state and latest update of the agent and the watchdog.
-- 0.2.1: Watchdog service `fleetify-watchdog` on Windows: a second service with its own certificate that keeps the agent running
+- 0.2.1: Watchdog service `fleeto-watchdog` on Windows: a second service with its own certificate that keeps the agent running
   and installs agent updates, rolling back a version that does not connect within 5 minutes. The agent installs a missing
   watchdog, keeps it running and updates it. New alerts "Agent service stopped" (the watchdog is online, the agent is not) and
   "Watchdog stopped" on managed endpoints; the offline alert now opens only when both are gone.
@@ -85,15 +85,15 @@ Work on 0.2.1, which holds everything still open for 0.2.0, has entries starting
   deleted.
 - 0.2.0: Services in the inventory (Windows): name, display name, start type and state. The check dialog suggests them for a
   service check, from the endpoint or, for a monitoring template, from the endpoints that run it; typing a name still works.
-- .NET 10 solution: `Fleetify.Core`, `Fleetify.Protocol` (agent protocol v1), `Fleetify.Infrastructure`,
-  `Fleetify.Web`, `Fleetify.Gateway`, `Fleetify.Signer`, `Fleetify.Workers`, `Fleetify.Tools`
-  (`fleetify-tool`), per-component test projects against a real PostgreSQL, and `Fleetify.LoadTest`.
+- .NET 10 solution: `Fleeto.Core`, `Fleeto.Protocol` (agent protocol v1), `Fleeto.Infrastructure`,
+  `Fleeto.Web`, `Fleeto.Gateway`, `Fleeto.Signer`, `Fleeto.Workers`, `Fleeto.Tools`
+  (`fleeto-tool`), per-component test projects against a real PostgreSQL, and `Fleeto.LoadTest`.
 - PostgreSQL 17 schema with migrations: client-scoped tables with composite foreign keys and
   consistency triggers, append-only audit log, notification triggers, TimescaleDB hypertable when
   installed, least-privilege grants per container role.
 - Envelope encryption with a root key and per-purpose data keys; signer key for the instance
   signing key and internal CA; Argon2id passwords; encrypted TOTP keys and hashed recovery codes.
-- Go agent for Windows (`fleetify-agent`): Windows service install, enrollment with CA fingerprint
+- Go agent for Windows (`fleeto-agent`): Windows service install, enrollment with CA fingerprint
   pinning, TPM-backed or software CNG key, mTLS WebSocket session, signed configuration, CPU,
   memory, disk, service and uptime checks with jitter, on-disk result buffer, inventory, renewal,
   revocation handling. Linux and macOS compile as stubs.
@@ -122,7 +122,7 @@ Work on 0.2.1, which holds everything still open for 0.2.0, has entries starting
   `build-agent.ps1`.
 - Git repository with `.gitignore` (secrets, IDE, .NET, Go), `.gitattributes` (LF, shell
   scripts always LF), `.editorconfig` and `README.md`.
-- `fleetify-signer` container in the design: sole holder of the instance signing key and
+- `fleeto-signer` container in the design: sole holder of the instance signing key and
   internal CA, no listening port, enforces signing rules independently of web.
 - Optional four-eyes script approval per policy.
 - License grace period of 14 days after expiry.
@@ -153,10 +153,22 @@ Work on 0.2.1, which holds everything still open for 0.2.0, has entries starting
 
 ### Changed
 
+- 0.2.1: **Fleeto is the only name.** The internal name Fleetify is gone from code, images (`ghcr.io/404-developer-ai/fleeto-*`),
+  Compose projects and volumes, `/opt/fleeto`, the database `fleeto` with roles `fleeto_*`, notification channels, signature
+  contexts (`fleeto-job-v1`, `fleeto-agent-config-v1`, `fleeto-license-v1`), key file prefixes, certificates, the agent and
+  watchdog services (`fleeto-agent`, `fleeto-watchdog`) and their folders, and the repository variables (`FLEETO_*`).
+  Sign-in cookies have new names, so everyone signs in again once.
+- 0.2.1: Migration from the Fleetify names. install.sh moves a VPS with its next update: every instance and the host proxy
+  are copied to the new names (database and roles renamed, certificates kept) and updated, with the old layout left
+  untouched until each instance runs the release and used again for an instance whose update fails. The migration
+  `RenameToFleeto` renames database functions and triggers, `fleeto-tool migrate` rewraps the data keys, and every endpoint
+  configuration is signed again. The install command takes a Fleetify agent over with its enrollment. setup-dev.ps1 moves a
+  development setup. Certificates, licenses, backups and key files from before the rename stay valid.
+- 0.2.1: The branding check fails on the old name outside the migration files; `deploy/release-rollback` is `restore`.
 - 0.2.1: The release manifest lists every agent and watchdog binary with its SHA-256 and size (`agentBinaries`). The release
   workflow builds them reproducibly, checks that the web and gateway images contain the same binaries, and
   `deploy/sign-release.ps1` refuses a manifest without them.
-- 0.2.1: The watchdog is a separate program (`fleetify-watchdog.exe`) next to the agent; uninstalling the agent removes the
+- 0.2.1: The watchdog is a separate program (`fleeto-watchdog.exe`) next to the agent; uninstalling the agent removes the
   watchdog service, its key and its state as well.
 - 0.2.1: The Servicedesk ticket reference on notes is no longer planned for 0.2.1 but listed as not yet scheduled on the roadmap
   (decided 2026-09-15): how Fleeto and the Servicedesk work together is aligned with the Servicedesk team first.
@@ -178,7 +190,7 @@ Work on 0.2.1, which holds everything still open for 0.2.0, has entries starting
   (images), checks and stores them root-only, warns before they expire, and keeps the registry login only while it runs.
   It installs the newest published release, and pre-releases only on a VPS that runs one or while no release exists.
   The release workflow creates a draft release; `deploy/sign-release.ps1` checks, signs, verifies and publishes it.
-  `fleetify-tool release verify` checks a signature. The signed `latest` pointer is gone.
+  `fleeto-tool release verify` checks a signature. The signed `latest` pointer is gone.
 - 0.2.0: Pre-release versions (`0.2.0-alpha.1`): the release workflow, the install.sh bundler and install.sh accept them, and
   install.sh orders them by semantic versioning, so `0.2.0-alpha.1` updates to `0.2.0`.
 - 0.2.0: The signing request origin trigger refuses signing request kinds it does not know for every container role.
@@ -234,7 +246,7 @@ Work on 0.2.1, which holds everything still open for 0.2.0, has entries starting
   API call, never a session cookie. Rate limits per address (before the key is checked) and per key (after), an audit entry for
   every call and for a wrong secret of an existing key, and no data is sent when the audit entry cannot be written. API
   responses are never cached.
-- 0.2.0: Jobs are signed per endpoint with the context `fleetify-job-v1` and carry the script body; a job is never run twice
+- 0.2.0: Jobs are signed per endpoint with the context `fleeto-job-v1` and carry the script body; a job is never run twice
   on an agent, and a job interrupted by an agent stop is reported as lost instead of run again. Only the web role can request
   job signatures (database trigger). A script approval code is accepted once and a wrong code counts towards the lockout.
 - Separate Steaan release signing key (offline, hardware token) for agent binaries,

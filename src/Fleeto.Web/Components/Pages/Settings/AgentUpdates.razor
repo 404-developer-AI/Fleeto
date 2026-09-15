@@ -1,0 +1,191 @@
+@page "/settings/agent-updates"
+@attribute [Authorize(Policy = FleetoPolicies.Admin)]
+@inherits FleetoPageBase
+@inject AgentUpdateService UpdateSvc
+@inject IDialogService DialogService
+
+<PageTitle>Agent updates - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Agent updates</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            The Fleeto release this instance offers to its agents. Each site follows the update ring of its policy, counted from the moment this
+            instance installed the release. The watchdog installs agent updates and restores the previous version when a new one does not come up.
+        </MudText>
+    </div>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_overview?.Release is not { } release)
+    {
+        <EmptyState Icon="@Icons.Material.Outlined.SystemUpdateAlt" Title="No agent release installed"
+                    Text="This instance has not loaded a signed agent release yet, so agents are not updated. install.sh installs the release with every update of the instance." />
+    }
+    else
+    {
+        <MudPaper Elevation="0" Class="pa-4 mb-4" Outlined="true">
+            <div class="d-flex flex-wrap align-center gap-4">
+                <div>
+                    <MudText Typo="Typo.h6">Fleeto @release.Version</MudText>
+                    <MudText Typo="Typo.body2" Class="muted">Installed on this instance <TimeText Value="release.InstalledAt" /></MudText>
+                </div>
+                <div>
+                    @if (release.PausedAt is not null)
+                    {
+                        <StatusChip Text="Paused" Kind="StatusKind.Warning" />
+                        <span class="muted ml-1" style="font-size:0.8125rem">by @release.PausedByName <TimeText Value="release.PausedAt.Value" /></span>
+                    }
+                    else if (release.ReleasedToAllAt is not null)
+                    {
+                        <StatusChip Text="Released to every ring" Kind="StatusKind.Active" />
+                        <span class="muted ml-1" style="font-size:0.8125rem">by @release.ReleasedToAllByName <TimeText Value="release.ReleasedToAllAt.Value" /></span>
+                    }
+                    else
+                    {
+                        <StatusChip Text="Following the update rings" Kind="StatusKind.Ok" />
+                    }
+                </div>
+                <MudSpacer />
+                @if (release.PausedAt is null)
+                {
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Pause" OnClick="PauseAsync">Pause</MudButton>
+                    @if (release.ReleasedToAllAt is null)
+                    {
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.FastForward" OnClick="ReleaseToAllAsync">Release to every ring</MudButton>
+                    }
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PlayArrow" OnClick="ResumeAsync">Resume</MudButton>
+                }
+            </div>
+        </MudPaper>
+
+        <MudTable Items="_overview.Rings" Elevation="0" Dense="true" Class="mb-4">
+            <HeaderContent>
+                <MudTh>Update ring</MudTh>
+                <MudTh>Endpoints</MudTh>
+                <MudTh>Gets this release</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@Ui.UpdateRingLabel(context.Ring)</MudTd>
+                <MudTd>@context.Endpoints</MudTd>
+                <MudTd>
+                    @if (release.PausedAt is not null)
+                    {
+                        <span class="muted">Paused</span>
+                    }
+                    else if (context.Available)
+                    {
+                        <StatusChip Text="Now" Kind="StatusKind.Ok" />
+                    }
+                    else
+                    {
+                        <TimeText Value="context.AvailableAt" />
+                    }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+
+        <div class="d-flex flex-wrap gap-4 mb-4">
+            <MudPaper Elevation="0" Outlined="true" Class="pa-3">
+                <MudText Typo="Typo.caption" Class="muted">Agents on @release.Version</MudText>
+                <MudText Typo="Typo.h5">@_overview.AgentsCurrent</MudText>
+            </MudPaper>
+            <MudPaper Elevation="0" Outlined="true" Class="pa-3">
+                <MudText Typo="Typo.caption" Class="muted">Agents on an older version</MudText>
+                <MudText Typo="Typo.h5">@_overview.AgentsOlder</MudText>
+            </MudPaper>
+            @if (_overview.AgentsOther > 0)
+            {
+                <MudPaper Elevation="0" Outlined="true" Class="pa-3">
+                    <MudText Typo="Typo.caption" Class="muted">Agents on another version</MudText>
+                    <MudText Typo="Typo.h5">@_overview.AgentsOther</MudText>
+                </MudPaper>
+            }
+            <MudPaper Elevation="0" Outlined="true" Class="pa-3">
+                <MudText Typo="Typo.caption" Class="muted">Watchdogs online</MudText>
+                <MudText Typo="Typo.h5">@_overview.WatchdogsOnline <span class="muted" style="font-size:0.875rem">of @_overview.WatchdogsInstalled installed</span></MudText>
+            </MudPaper>
+        </div>
+
+        <MudText Typo="Typo.h6" Class="mb-2">Updates that did not succeed</MudText>
+        @if (_overview.Problems.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted">No endpoint reported a failed or rolled back update of @release.Version.</MudText>
+        }
+        else
+        {
+            <MudTable Items="_overview.Problems" Hover="true" Elevation="0" Dense="true">
+                <HeaderContent>
+                    <MudTh>Endpoint</MudTh>
+                    <MudTh>Service</MudTh>
+                    <MudTh>State</MudTh>
+                    <MudTh>Cause</MudTh>
+                    <MudTh>When</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd><a href="@($"/endpoints/{context.EndpointId}")">@context.Hostname</a> <span class="muted">@context.ClientCode</span></MudTd>
+                    <MudTd>@(context.Component == AgentComponent.Agent ? "Agent" : "Watchdog")</MudTd>
+                    <MudTd><StatusChip Text="@Ui.UpdateStateLabel(context.State)" Kind="@Ui.UpdateStateKind(context.State)" /></MudTd>
+                    <MudTd style="font-size:0.8125rem">@context.Detail</MudTd>
+                    <MudTd>@if (context.At is { } at) { <TimeText Value="at" /> }</MudTd>
+                </RowTemplate>
+            </MudTable>
+            @if (_overview.Problems.Count >= AgentUpdateService.MaxProblems)
+            {
+                <MudText Typo="Typo.caption" Class="muted">The @AgentUpdateService.MaxProblems most recent are shown.</MudText>
+            }
+        }
+    }
+</LoadState>
+
+@code {
+    private AgentUpdateOverview? _overview;
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private Task ReloadAsync() => LoadAsync(async caller => _overview = await UpdateSvc.GetAsync(caller));
+
+    private async Task PauseAsync()
+    {
+        if (await ConfirmAsync("Pause this release",
+                "Endpoints that have not started installing it wait until you resume. Endpoints that already installed it keep it.", "Pause") &&
+            await RunAsync(caller => UpdateSvc.PauseAsync(caller, _overview!.Release!.Version), "The release is paused."))
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task ResumeAsync()
+    {
+        if (await RunAsync(caller => UpdateSvc.ResumeAsync(caller, _overview!.Release!.Version), "The release follows the update rings again."))
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task ReleaseToAllAsync()
+    {
+        if (await ConfirmAsync("Release to every ring",
+                "Every endpoint may install this release now, also in the Standard and Delayed rings. Downloads are spread over time.", "Release") &&
+            await RunAsync(caller => UpdateSvc.ReleaseToAllAsync(caller, _overview!.Release!.Version), "The release is released to every ring."))
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task<bool> ConfirmAsync(string title, string message, string confirm)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, title },
+            { d => d.Message, message },
+            { d => d.ConfirmText, confirm },
+            { d => d.ConfirmColor, Color.Primary }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        return !(await dialog.Result)!.Canceled;
+    }
+}

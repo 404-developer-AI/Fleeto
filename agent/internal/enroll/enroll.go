@@ -264,7 +264,7 @@ func Enroll(ctx context.Context, req Request) (*Result, error) {
 	}
 	httpReq.Header.Set("Content-Type", ContentType)
 	httpReq.Header.Set("Accept", ContentType+", application/problem+json")
-	httpReq.Header.Set("User-Agent", "fleetify-agent/"+req.AgentVersion)
+	httpReq.Header.Set("User-Agent", "fleeto-agent/"+req.AgentVersion)
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
@@ -350,7 +350,7 @@ func ValidateAgentCertificate(der []byte, ca *x509.Certificate, key crypto.Signe
 	}); err != nil {
 		return nil, fmt.Errorf("the issued agent certificate does not chain to the instance CA: %w", err)
 	}
-	want := "urn:fleetify:endpoint:" + strings.ToLower(endpointID)
+	want := "urn:fleeto:endpoint:" + strings.ToLower(endpointID)
 	for _, uri := range cert.URIs {
 		if strings.EqualFold(uri.String(), want) {
 			return cert, nil

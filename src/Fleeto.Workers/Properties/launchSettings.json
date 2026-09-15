@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Fleeto.Workers": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

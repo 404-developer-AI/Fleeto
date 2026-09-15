@@ -1,0 +1,40 @@
+@inject Fleeto.Infrastructure.Licensing.LicenseService Licenses
+@inject TimeDisplay TimeDisplay
+@inject ILogger<LicenseBanner> Logger
+
+@if (_status is { } status && Message(status) is { } message)
+{
+    <MudAlert Severity="@(status.State is LicenseState.Expired or LicenseState.Missing ? Severity.Warning : Severity.Info)"
+              Square="true" Dense="true" Class="mb-0">
+        @message
+        <AuthorizeView Policy="@FleetoPolicies.Admin">
+            <MudLink Href="/settings/licensing" Class="ml-2" Typo="Typo.body2">Go to Settings, Licensing</MudLink>
+        </AuthorizeView>
+    </MudAlert>
+}
+
+@code {
+    private LicenseStatus? _status;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _status = await Licenses.GetStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            // The banner is informational; a failure must not break every page.
+            Logger.LogWarning(ex, "The license status could not be read for the banner");
+        }
+    }
+
+    private string? Message(LicenseStatus status) => status.State switch
+    {
+        LicenseState.Missing => "No license is loaded. Every endpoint behaves as agent-only until a license is loaded.",
+        LicenseState.ExpiringSoon => $"The license expires on {TimeDisplay.Absolute(status.ExpiresAt)}. Load a renewed license before then.",
+        LicenseState.GracePeriod => $"The license has expired. Managed endpoints keep working until {TimeDisplay.Absolute(status.GraceEndsAt)}. Load a new license before then.",
+        LicenseState.Expired => "The license and its grace period have ended. Every endpoint behaves as agent-only until a new license is loaded. Nothing has been deleted.",
+        _ => null
+    };
+}

@@ -27,9 +27,9 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/svcctl"
 )
 
-// The test binary doubles as a release binary: run with FLEETIFY_PROBE_VERSION set and "version --short", it prints that version.
+// The test binary doubles as a release binary: run with FLEETO_PROBE_VERSION set and "version --short", it prints that version.
 func TestMain(m *testing.M) {
-	if v := os.Getenv("FLEETIFY_PROBE_VERSION"); v != "" && len(os.Args) >= 3 && os.Args[1] == "version" && os.Args[2] == "--short" {
+	if v := os.Getenv("FLEETO_PROBE_VERSION"); v != "" && len(os.Args) >= 3 && os.Args[1] == "version" && os.Args[2] == "--short" {
 		fmt.Println(v)
 		os.Exit(0)
 	}
@@ -104,14 +104,14 @@ func readFile(t *testing.T, path string) string {
 
 func TestInstallReplacesTheBinaryWhenTheNewVersionComesUp(t *testing.T) {
 	dir := t.TempDir()
-	exe := filepath.Join(dir, "fleetify-agent.exe")
+	exe := filepath.Join(dir, "fleeto-agent.exe")
 	writeFile(t, exe, "old binary")
 	staged := filepath.Join(dir, "staged")
 	sha, size := writeFile(t, staged, "new binary")
 	controller := &fakeController{state: svcctl.StateRunning}
 
 	outcome, err := Install(context.Background(), InstallRequest{
-		Controller: controller, Service: "fleetify-agent", Exe: exe, Staged: staged, SHA256: sha, Size: size, Version: "0.2.2",
+		Controller: controller, Service: "fleeto-agent", Exe: exe, Staged: staged, SHA256: sha, Size: size, Version: "0.2.2",
 		JournalDir: dir, Access: platform.AccessCurrentUser, Logger: discard(),
 		Healthy: func(context.Context, time.Time) error { return nil },
 	})
@@ -131,14 +131,14 @@ func TestInstallReplacesTheBinaryWhenTheNewVersionComesUp(t *testing.T) {
 
 func TestInstallRollsBackWhenTheNewVersionDoesNotComeUp(t *testing.T) {
 	dir := t.TempDir()
-	exe := filepath.Join(dir, "fleetify-agent.exe")
+	exe := filepath.Join(dir, "fleeto-agent.exe")
 	writeFile(t, exe, "old binary")
 	staged := filepath.Join(dir, "staged")
 	sha, size := writeFile(t, staged, "broken binary")
 	controller := &fakeController{state: svcctl.StateRunning}
 
 	outcome, err := Install(context.Background(), InstallRequest{
-		Controller: controller, Service: "fleetify-agent", Exe: exe, Staged: staged, SHA256: sha, Size: size, Version: "0.2.2",
+		Controller: controller, Service: "fleeto-agent", Exe: exe, Staged: staged, SHA256: sha, Size: size, Version: "0.2.2",
 		JournalDir: dir, Access: platform.AccessCurrentUser, Logger: discard(),
 		Healthy: func(context.Context, time.Time) error { return ErrNotHealthy },
 	})
@@ -155,7 +155,7 @@ func TestInstallRollsBackWhenTheNewVersionDoesNotComeUp(t *testing.T) {
 
 func TestInstallRefusesAStagedBinaryThatChanged(t *testing.T) {
 	dir := t.TempDir()
-	exe := filepath.Join(dir, "fleetify-agent.exe")
+	exe := filepath.Join(dir, "fleeto-agent.exe")
 	writeFile(t, exe, "old binary")
 	staged := filepath.Join(dir, "staged")
 	sha, size := writeFile(t, staged, "new binary")
@@ -163,7 +163,7 @@ func TestInstallRefusesAStagedBinaryThatChanged(t *testing.T) {
 	controller := &fakeController{state: svcctl.StateRunning}
 
 	outcome, err := Install(context.Background(), InstallRequest{
-		Controller: controller, Service: "fleetify-agent", Exe: exe, Staged: staged, SHA256: sha, Size: size, Version: "0.2.2",
+		Controller: controller, Service: "fleeto-agent", Exe: exe, Staged: staged, SHA256: sha, Size: size, Version: "0.2.2",
 		JournalDir: dir, Access: platform.AccessCurrentUser, Logger: discard(),
 	})
 	if outcome != Failed || err == nil || controller.stops != 0 || readFile(t, exe) != "old binary" {
@@ -173,14 +173,14 @@ func TestInstallRefusesAStagedBinaryThatChanged(t *testing.T) {
 
 func TestInstallLeavesTheServiceRunningWhenItCannotStop(t *testing.T) {
 	dir := t.TempDir()
-	exe := filepath.Join(dir, "fleetify-agent.exe")
+	exe := filepath.Join(dir, "fleeto-agent.exe")
 	writeFile(t, exe, "old binary")
 	staged := filepath.Join(dir, "staged")
 	sha, size := writeFile(t, staged, "new binary")
 	controller := &fakeController{state: svcctl.StateRunning, stopErr: errors.New("access denied")}
 
 	outcome, _ := Install(context.Background(), InstallRequest{
-		Controller: controller, Service: "fleetify-agent", Exe: exe, Staged: staged, SHA256: sha, Size: size, Version: "0.2.2",
+		Controller: controller, Service: "fleeto-agent", Exe: exe, Staged: staged, SHA256: sha, Size: size, Version: "0.2.2",
 		JournalDir: dir, Access: platform.AccessCurrentUser, Logger: discard(),
 	})
 	if outcome != Failed || readFile(t, exe) != "old binary" {
@@ -193,9 +193,9 @@ func TestInstallLeavesTheServiceRunningWhenItCannotStop(t *testing.T) {
 
 func TestRecoverRestoresThePreviousBinaryAfterACrash(t *testing.T) {
 	dir := t.TempDir()
-	exe := filepath.Join(dir, "fleetify-agent.exe")
+	exe := filepath.Join(dir, "fleeto-agent.exe")
 	writeFile(t, exe+".previous", "old binary")
-	data, _ := json.Marshal(Journal{Service: "fleetify-agent", Exe: exe, Previous: exe + ".previous", Version: "0.2.2"})
+	data, _ := json.Marshal(Journal{Service: "fleeto-agent", Exe: exe, Previous: exe + ".previous", Version: "0.2.2"})
 	if err := os.WriteFile(filepath.Join(dir, JournalFileName), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestDownloadChecksSizeAndHash(t *testing.T) {
 	var status = http.StatusOK
 	var body = content
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/releases/0.2.2/windows-amd64/fleetify-agent.exe" {
+		if r.URL.Path != "/v1/releases/0.2.2/windows-amd64/fleeto-agent.exe" {
 			http.NotFound(w, r)
 			return
 		}
@@ -228,7 +228,7 @@ func TestDownloadChecksSizeAndHash(t *testing.T) {
 	}))
 	defer server.Close()
 	host := strings.TrimPrefix(server.URL, "https://")
-	b := release.Binary{Component: "agent", Platform: "windows", Architecture: "amd64", File: "windows-amd64/fleetify-agent.exe",
+	b := release.Binary{Component: "agent", Platform: "windows", Architecture: "amd64", File: "windows-amd64/fleeto-agent.exe",
 		SHA256: hex.EncodeToString(sum[:]), Size: int64(len(content))}
 	dest := filepath.Join(t.TempDir(), "staged.exe")
 
@@ -296,7 +296,7 @@ func TestWaitHealthyDoesNotCountTimeWithoutAConnection(t *testing.T) {
 func TestSupervisorStartsAStoppedServiceButRespectsDisabled(t *testing.T) {
 	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
 	controller := &fakeController{state: svcctl.StateStopped}
-	s := &Supervisor{Controller: controller, Service: "fleetify-agent", Exe: "x", Logger: discard(), Now: func() time.Time { return now },
+	s := &Supervisor{Controller: controller, Service: "fleeto-agent", Exe: "x", Logger: discard(), Now: func() time.Time { return now },
 		Probe: func(context.Context, string) (string, error) { return "0.2.1", nil }}
 
 	status := s.Check(context.Background())
@@ -341,7 +341,7 @@ func TestUpdaterInstallsAVerifiedNewerReleaseAndSkipsARolledBackOne(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("FLEETIFY_PROBE_VERSION", "0.2.2")
+	t.Setenv("FLEETO_PROBE_VERSION", "0.2.2")
 	sum := sha256.Sum256(binary)
 	file := release.ExpectedFile("agent", runtime.GOOS, runtime.GOARCH)
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -373,7 +373,7 @@ func TestUpdaterInstallsAVerifiedNewerReleaseAndSkipsARolledBackOne(t *testing.T
 		}
 	}
 	u := NewUpdater(UpdaterOptions{
-		Target: Target{Component: "agent", Service: "fleetify-agent", Exe: exe, HealthDir: healthDir}, Keys: []ed25519.PublicKey{pub},
+		Target: Target{Component: "agent", Service: "fleeto-agent", Exe: exe, HealthDir: healthDir}, Keys: []ed25519.PublicKey{pub},
 		StateDir: dir, Access: platform.AccessCurrentUser, Controller: controller, Logger: discard(), MaxDelay: -1,
 		Client: func() (*http.Client, string, error) {
 			return server.Client(), strings.TrimPrefix(server.URL, "https://"), nil
@@ -427,7 +427,7 @@ func TestUpdaterInstallsAVerifiedNewerReleaseAndSkipsARolledBackOne(t *testing.T
 
 	// Never a downgrade or reinstall of the same version.
 	u2 := NewUpdater(UpdaterOptions{
-		Target: Target{Component: "agent", Service: "fleetify-agent", Exe: exe, HealthDir: healthDir}, Keys: []ed25519.PublicKey{pub},
+		Target: Target{Component: "agent", Service: "fleeto-agent", Exe: exe, HealthDir: healthDir}, Keys: []ed25519.PublicKey{pub},
 		StateDir: t.TempDir(), Access: platform.AccessCurrentUser, Controller: controller, Logger: discard(), MaxDelay: -1,
 		Client: func() (*http.Client, string, error) {
 			return server.Client(), strings.TrimPrefix(server.URL, "https://"), nil

@@ -6,7 +6,7 @@
     Runs on a Steaan workstation with the release private key, never in CI or on a VPS (deploy/RELEASING.md):
       1. downloads install.sh, manifest.json and SHA256SUMS from the draft release and checks the hashes;
       2. shows the manifest and checks that it names this version and that install.sh has the hash it lists;
-      3. checks that the public key next to the private key is the first key in FLEETIFY_RELEASE_PUBLIC_KEYS, so the
+      3. checks that the public key next to the private key is the first key in FLEETO_RELEASE_PUBLIC_KEYS, so the
          signatures verify in the install.sh of this release;
       4. signs both files, verifies the signatures, uploads them and, after confirmation, publishes the release.
 
@@ -88,18 +88,18 @@ if ($answer -notmatch '^[Yy]') { Fail 'Signing cancelled: the digests were not c
 
 # 3. The key must be the one the builds trust.
 $publicKeyValue = (Get-Content $PublicKey -Raw).Trim()
-$trusted = (gh variable get FLEETIFY_RELEASE_PUBLIC_KEYS --repo $Repository)
-if ($LASTEXITCODE -ne 0) { Fail 'Could not read the repository variable FLEETIFY_RELEASE_PUBLIC_KEYS.' 'Check gh auth status and your access to the repository.' }
+$trusted = (gh variable get FLEETO_RELEASE_PUBLIC_KEYS --repo $Repository)
+if ($LASTEXITCODE -ne 0) { Fail 'Could not read the repository variable FLEETO_RELEASE_PUBLIC_KEYS.' 'Check gh auth status and your access to the repository.' }
 if (($trusted.Trim() -split ';')[0].Trim() -ne $publicKeyValue) {
-    Fail 'This release key is not the first key in FLEETIFY_RELEASE_PUBLIC_KEYS, so install.sh would reject the signatures.' 'Use the matching release key, or set the variable and build a new release.'
+    Fail 'This release key is not the first key in FLEETO_RELEASE_PUBLIC_KEYS, so install.sh would reject the signatures.' 'Use the matching release key, or set the variable and build a new release.'
 }
 
 # 4. Sign, verify, upload, publish.
 Push-Location $repoRoot
 try {
     foreach ($file in @($installSh, $manifestPath)) {
-        Invoke-Checked "Signing $(Split-Path -Leaf $file)" { dotnet run --project src/Fleetify.Tools -c Release -- release sign --key $Key --file $file }
-        Invoke-Checked "Verifying $(Split-Path -Leaf $file)" { dotnet run --project src/Fleetify.Tools -c Release -- release verify --public-key $PublicKey --file $file }
+        Invoke-Checked "Signing $(Split-Path -Leaf $file)" { dotnet run --project src/Fleeto.Tools -c Release -- release sign --key $Key --file $file }
+        Invoke-Checked "Verifying $(Split-Path -Leaf $file)" { dotnet run --project src/Fleeto.Tools -c Release -- release verify --public-key $PublicKey --file $file }
     }
 }
 finally {

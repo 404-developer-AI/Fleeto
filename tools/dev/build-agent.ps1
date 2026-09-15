@@ -1,11 +1,11 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-    Builds the Fleeto agent and watchdog for Windows amd64: agent/dist/windows-amd64/fleetify-{agent,watchdog}.exe.
+    Builds the Fleeto agent and watchdog for Windows amd64: agent/dist/windows-amd64/fleeto-{agent,watchdog}.exe.
 
 .DESCRIPTION
     The version comes from <Version> in Directory.Build.props, so server and agent share one version number.
-    The Steaan release public keys come from FleetifyReleasePublicKeys in Directory.Build.local.props when that file
+    The Steaan release public keys come from FleetoReleasePublicKeys in Directory.Build.local.props when that file
     exists (development keys written by setup-dev.ps1), or from -ReleasePublicKeys (CI). Public keys only.
     The build is static (CGO_ENABLED=0) and reproducible-friendly (-trimpath, empty build id), as in the Dockerfiles.
     With -Sign it also writes agent/dist/manifest.json with the hashes of both binaries and signs it with the development release
@@ -56,12 +56,12 @@ if (-not $ReleasePublicKeys) {
     $localProps = Join-Path $repoRoot 'Directory.Build.local.props'
     if (Test-Path $localProps) {
         [xml] $local = Get-Content $localProps -Raw
-        $ReleasePublicKeys = @($local.Project.PropertyGroup | ForEach-Object { $_.FleetifyReleasePublicKeys } | Where-Object { $_ })[0]
+        $ReleasePublicKeys = @($local.Project.PropertyGroup | ForEach-Object { $_.FleetoReleasePublicKeys } | Where-Object { $_ })[0]
     }
 }
 $ReleasePublicKeys = if ($ReleasePublicKeys) { $ReleasePublicKeys.Trim() } else { '' }
 if ($ReleasePublicKeys -and $ReleasePublicKeys -notmatch '^[A-Za-z0-9+/=;]+$') {
-    throw 'FleetifyReleasePublicKeys must be base64 keys separated by semicolons.'
+    throw 'FleetoReleasePublicKeys must be base64 keys separated by semicolons.'
 }
 if (-not $ReleasePublicKeys) { Write-Warning 'No release public keys found: building a development agent without them.' }
 
@@ -76,9 +76,9 @@ $env:GOARCH = 'amd64'
 Push-Location $agentDir
 try {
     foreach ($component in 'agent', 'watchdog') {
-        $outFile = Join-Path $Output "fleetify-$component.exe"
-        & $goExe build -trimpath -buildvcs=false -ldflags $ldflags -o $outFile "./cmd/fleetify-$component"
-        if ($LASTEXITCODE -ne 0) { throw "go build of fleetify-$component failed with exit code $LASTEXITCODE." }
+        $outFile = Join-Path $Output "fleeto-$component.exe"
+        & $goExe build -trimpath -buildvcs=false -ldflags $ldflags -o $outFile "./cmd/fleeto-$component"
+        if ($LASTEXITCODE -ne 0) { throw "go build of fleeto-$component failed with exit code $LASTEXITCODE." }
         $outFiles += $outFile
     }
 }
@@ -96,14 +96,14 @@ foreach ($outFile in $outFiles) {
 if ($Sign) {
     # The manifest describes <platform>-<architecture>/<file> relative to its own directory, the layout the gateway serves.
     $distDir = Split-Path -Parent (Resolve-Path $Output)
-    $key = Join-Path $env:LOCALAPPDATA 'Fleetify/dev/keys/release-signing.key'
+    $key = Join-Path $env:LOCALAPPDATA 'Fleeto/dev/keys/release-signing.key'
     if (-not (Test-Path $key)) { throw "The development release key $key does not exist. Run tools/dev/setup-dev.ps1 first." }
     $manifest = Join-Path $distDir 'manifest.json'
     Push-Location $repoRoot
     try {
-        dotnet run --project src/Fleetify.Tools -- release agent-manifest --version $version --agent-binaries $distDir --out $manifest
+        dotnet run --project src/Fleeto.Tools -- release agent-manifest --version $version --agent-binaries $distDir --out $manifest
         if ($LASTEXITCODE -ne 0) { throw "release agent-manifest failed with exit code $LASTEXITCODE." }
-        dotnet run --project src/Fleetify.Tools -- release sign --key $key --file $manifest
+        dotnet run --project src/Fleeto.Tools -- release sign --key $key --file $manifest
         if ($LASTEXITCODE -ne 0) { throw "release sign failed with exit code $LASTEXITCODE." }
     }
     finally {

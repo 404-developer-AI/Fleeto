@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    fleeto-workers: background work of an instance without a listening port. Configuration fan-out, check
+    evaluation and alerting, endpoint health, the email outbox, license monitoring, backups and retention
+    (ARCHITECTURE.md §1 and §4).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>fleeto-workers</AssemblyName>
+    <RootNamespace>Fleeto.Workers</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Fleeto.Infrastructure\Fleeto.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="MailKit" />
+    <PackageReference Include="AWSSDK.S3" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="appsettings.Development.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Fleeto.Workers.Tests" />
+  </ItemGroup>
+</Project>

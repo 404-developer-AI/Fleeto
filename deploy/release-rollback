@@ -1,4 +1,4 @@
 # Rollback mode of the NEXT release, read by .github/workflows/release.yml (MD-Files/ARCHITECTURE.md section 7).
 # images:  the previous release runs on the new schema (expand/contract followed); a failed update swaps images back.
 # restore: the previous release cannot run on the new schema; a failed update restores the pre-update backup.
-images
+restore

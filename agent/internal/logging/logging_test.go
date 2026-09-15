@@ -16,8 +16,8 @@ func TestDailyFileRotatesAndPrunesOldFiles(t *testing.T) {
 	defer d.Close()
 
 	now := time.Date(2026, 9, 14, 10, 0, 0, 0, time.Local)
-	old := filepath.Join(dir, "fleetify-agent-20260901.log")
-	recent := filepath.Join(dir, "fleetify-agent-20260910.log")
+	old := filepath.Join(dir, "fleeto-agent-20260901.log")
+	recent := filepath.Join(dir, "fleeto-agent-20260910.log")
 	for _, p := range []string{old, recent} {
 		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
@@ -39,7 +39,7 @@ func TestDailyFileRotatesAndPrunesOldFiles(t *testing.T) {
 	if _, err := os.Stat(recent); err != nil {
 		t.Errorf("expected %s to be kept: %v", recent, err)
 	}
-	for _, name := range []string{"fleetify-agent-20260914.log", "fleetify-agent-20260915.log"} {
+	for _, name := range []string{"fleeto-agent-20260914.log", "fleeto-agent-20260915.log"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("expected %s: %v", name, err)
 		}

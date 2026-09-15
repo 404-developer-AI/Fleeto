@@ -10,36 +10,36 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// DefaultStateDir is C:\ProgramData\Fleetify\Agent.
+// DefaultStateDir is C:\ProgramData\Fleeto\Agent.
 func DefaultStateDir() string {
 	base := os.Getenv("ProgramData")
 	if base == "" {
 		base = `C:\ProgramData`
 	}
-	return filepath.Join(base, "Fleetify", "Agent")
+	return filepath.Join(base, "Fleeto", "Agent")
 }
 
-// ProgramDir is C:\Program Files\Fleetify\Agent.
+// ProgramDir is C:\Program Files\Fleeto\Agent.
 func ProgramDir() string {
 	base := os.Getenv("ProgramFiles")
 	if base == "" {
 		base = `C:\Program Files`
 	}
-	return filepath.Join(base, "Fleetify", "Agent")
+	return filepath.Join(base, "Fleeto", "Agent")
 }
 
 // BinaryName is the file name of the agent executable.
-const BinaryName = "fleetify-agent.exe"
+const BinaryName = "fleeto-agent.exe"
 
 // WatchdogBinaryName is the file name of the watchdog executable, installed next to the agent (0.2.1).
-const WatchdogBinaryName = "fleetify-watchdog.exe"
+const WatchdogBinaryName = "fleeto-watchdog.exe"
 
-// WatchdogStateDir is C:\ProgramData\Fleetify\Watchdog.
+// WatchdogStateDir is C:\ProgramData\Fleeto\Watchdog.
 func WatchdogStateDir() string {
 	return filepath.Join(filepath.Dir(DefaultStateDir()), "Watchdog")
 }
 
-// DataDir is C:\ProgramData\Fleetify, the parent of the agent and watchdog state directories.
+// DataDir is C:\ProgramData\Fleeto, the parent of the agent and watchdog state directories.
 func DataDir() string {
 	return filepath.Dir(DefaultStateDir())
 }

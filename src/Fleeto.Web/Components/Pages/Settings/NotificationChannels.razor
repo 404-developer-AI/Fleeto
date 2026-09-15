@@ -1,0 +1,201 @@
+@page "/settings/notification-channels"
+@attribute [Authorize(Policy = FleetoPolicies.Admin)]
+@inherits FleetoPageBase
+@inject NotificationChannelService ChannelSvc
+@inject IDialogService DialogService
+
+<PageTitle>Notification channels - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Notification channels</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            Where alert notifications are sent, and which clients and severities each channel receives. Email is delivered with the settings under Email.
+        </MudText>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="@(() => EditAsync(null))">New channel</MudButton>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_channels.Count == 0)
+    {
+        <EmptyState Icon="@Icons.Material.Outlined.Mail" Title="No notification channels"
+                    Text="Alerts are visible in Fleeto, but nobody is notified. Create an email or webhook channel to send alerts to your team." />
+    }
+    else
+    {
+        <MudTable Items="_channels" Hover="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>Name</MudTh>
+                <MudTh>Sends to</MudTh>
+                <MudTh>Clients</MudTh>
+                <MudTh>Minimum severity</MudTh>
+                <MudTh>On resolve</MudTh>
+                <MudTh>Enabled</MudTh>
+                <MudTh Style="width:150px"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd><strong>@context.Name</strong></MudTd>
+                <MudTd>
+                    @if (context.Type == NotificationChannelType.Email)
+                    {
+                        @context.Recipients
+                    }
+                    else
+                    {
+                        <div>@FormatLabel(context.WebhookFormat) webhook · @context.WebhookHost</div>
+                        @if (context.LastDelivery is { } last)
+                        {
+                            <div class="muted" style="font-size:0.8125rem">
+                                @if (last.Delivered)
+                                {
+                                    <span>Last delivered <TimeText Value="last.At" /></span>
+                                }
+                                else
+                                {
+                                    <StatusChip Text="@(last.GivenUp ? "Delivery failed" : "Retrying")" Kind="@(last.GivenUp ? StatusKind.Error : StatusKind.Warning)" />
+                                    <span> @last.Error</span>
+                                }
+                            </div>
+                        }
+                    }
+                </MudTd>
+                <MudTd>@ClientsText(context)</MudTd>
+                <MudTd>@context.MinimumSeverity</MudTd>
+                <MudTd>@(context.NotifyOnResolve ? "Yes" : "No")</MudTd>
+                <MudTd><StatusChip Text="@(context.Enabled ? "Enabled" : "Disabled")" Kind="@(context.Enabled ? StatusKind.Ok : StatusKind.Neutral)" /></MudTd>
+                <MudTd Style="white-space:nowrap">
+                    <MudTooltip Text="Edit"><MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="@(() => EditAsync(context))" /></MudTooltip>
+                    @if (context.Type == NotificationChannelType.Webhook)
+                    {
+                        <MudMenu Icon="@Icons.Material.Outlined.MoreVert" Size="Size.Small" Dense="true" AriaLabel="More actions">
+                            <MudMenuItem OnClick="@(() => TestAsync(context))">Send test message</MudMenuItem>
+                            @if (context.WebhookFormat == WebhookFormat.Generic)
+                            {
+                                <MudMenuItem OnClick="@(() => RotateAsync(context))">Create new signing secret</MudMenuItem>
+                            }
+                        </MudMenu>
+                    }
+                    <MudTooltip Text="Delete"><MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context))" /></MudTooltip>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</LoadState>
+
+@code {
+    private IReadOnlyList<NotificationChannelView> _channels = [];
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private Task ReloadAsync() => LoadAsync(async caller => _channels = await ChannelSvc.ListAsync(caller));
+
+    private static string FormatLabel(WebhookFormat? format) => format switch
+    {
+        WebhookFormat.Slack => "Slack",
+        WebhookFormat.Teams => "Teams",
+        _ => "Generic"
+    };
+
+    private static string ClientsText(NotificationChannelView channel) => channel switch
+    {
+        { AllClients: true } => "All clients",
+        { Clients.Count: 0 } => "No clients left",
+        { Clients.Count: <= 3 } => string.Join(", ", channel.Clients.Select(c => c.Code)),
+        _ => $"{channel.Clients.Count} clients"
+    };
+
+    private async Task EditAsync(NotificationChannelView? channel)
+    {
+        IReadOnlyList<ChannelClient> clients = [];
+        if (!await RunAsync(async caller =>
+            {
+                clients = await ChannelSvc.ListClientsAsync(caller);
+                return ServiceResult.Ok();
+            }, null))
+        {
+            return;
+        }
+
+        string? secret = null;
+        var parameters = new DialogParameters<NotificationChannelDialog>
+        {
+            { d => d.Existing, channel },
+            { d => d.Clients, clients },
+            {
+                d => d.OnSubmit, async input =>
+                {
+                    var result = await RunForValueAsync(caller => ChannelSvc.SaveAsync(caller, channel?.Id, input), "The notification channel was saved.");
+                    secret = result?.Value?.SigningSecret;
+                    return result is not null;
+                }
+            }
+        };
+        var dialog = await DialogService.ShowAsync<NotificationChannelDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if ((await dialog.Result)!.Canceled)
+        {
+            return;
+        }
+
+        if (secret is not null)
+        {
+            await ShowSecretAsync(secret);
+        }
+
+        await ReloadAsync();
+    }
+
+    private async Task ShowSecretAsync(string secret)
+    {
+        var parameters = new DialogParameters<SecretShownOnceDialog>
+        {
+            { d => d.Title, "Signing secret" },
+            { d => d.Message, "Verify the X-Fleeto-Signature header of every request with this secret." },
+            { d => d.Secret, secret }
+        };
+        var dialog = await DialogService.ShowAsync<SecretShownOnceDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        await dialog.Result;
+    }
+
+    private async Task TestAsync(NotificationChannelView channel)
+    {
+        if (await RunAsync(caller => ChannelSvc.SendTestAsync(caller, channel.Id), "A test message was queued. It is normally delivered within a minute."))
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task RotateAsync(NotificationChannelView channel)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Create a new signing secret for {channel.Name}" },
+            { d => d.Message, "The current secret stops working at once. Requests signed with the new secret fail verification until the receiver uses it." }
+        };
+        var confirm = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if ((await confirm.Result)!.Canceled)
+        {
+            return;
+        }
+
+        var result = await RunForValueAsync(caller => ChannelSvc.RotateSigningSecretAsync(caller, channel.Id), null);
+        if (result?.Value is { } secret)
+        {
+            await ShowSecretAsync(secret);
+        }
+    }
+
+    private async Task DeleteAsync(NotificationChannelView channel)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Delete notification channel {channel.Name}" },
+            { d => d.Message, "It no longer receives alert notifications from Fleeto. Notifications that were not delivered yet are dropped." }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => ChannelSvc.DeleteAsync(caller, channel.Id), "The notification channel was deleted."))
+        {
+            await ReloadAsync();
+        }
+    }
+}

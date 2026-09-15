@@ -1,0 +1,38 @@
+@page "/endpoints/{EndpointId:guid}"
+@attribute [Authorize(Policy = FleetoPolicies.Viewer)]
+@inherits FleetoPageBase
+@inject EndpointService EndpointSvc
+
+@* The endpoint detail on its own page, for links from alerts and emails. The same view appears below the endpoint list in Clients. *@
+<PageTitle>@(_hostname ?? "Endpoint") - Fleeto</PageTitle>
+
+@if (_breadcrumb is { } crumb)
+{
+    <MudBreadcrumbs Items="crumb" Class="px-0 pt-0 pb-3 fl-breadcrumbs" />
+}
+<EndpointDetailView EndpointId="EndpointId" OnChanged="LoadHeaderAsync" />
+
+@code {
+    [Parameter]
+    public Guid EndpointId { get; set; }
+
+    private string? _hostname;
+    private List<BreadcrumbItem>? _breadcrumb;
+
+    protected override Task OnParametersSetAsync() => LoadHeaderAsync();
+
+    private Task LoadHeaderAsync() => LoadAsync(async caller =>
+    {
+        if (await EndpointSvc.GetAsync(caller, EndpointId) is { } e)
+        {
+            _hostname = e.Hostname;
+            _breadcrumb =
+            [
+                new BreadcrumbItem("Clients", "/clients"),
+                new BreadcrumbItem($"[{e.ClientCode}] {e.ClientName}", $"/clients/{e.ClientId}"),
+                new BreadcrumbItem(e.SiteName, $"/sites/{e.SiteId}"),
+                new BreadcrumbItem(e.Hostname, null, disabled: true)
+            ];
+        }
+    });
+}

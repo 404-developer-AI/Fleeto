@@ -1,4 +1,4 @@
-// Agent protocol v1 between the Fleeto agent and fleetify-gateway.
+// Agent protocol v1 between the Fleeto agent and fleeto-gateway.
 //
 // Transport:
 //   CA:         HTTPS GET https://<agent host>/v1/ca returns the instance CA certificates as a PEM bundle. The agent
@@ -19,9 +19,9 @@
 //               Every binary WebSocket message is exactly one AgentMessage (agent to server) or ServerMessage
 //               (server to agent). The WebSocket frame is the length prefix. Maximum message size 4 MiB.
 //
-// Signatures (ed25519, instance signing key) cover "fleetify-agent-config-v1" || 0x00 || payload, where payload
+// Signatures (ed25519, instance signing key) cover "fleeto-agent-config-v1" || 0x00 || payload, where payload
 // is the exact serialized bytes carried in SignedConfig.payload. The agent never re-serializes before verifying.
-// Jobs (0.2.0) use the context "fleetify-job-v1" the same way over SignedJob.payload.
+// Jobs (0.2.0) use the context "fleeto-job-v1" the same way over SignedJob.payload.
 //
 // Watchdog (0.2.1): the second service on an endpoint connects to the same /v1/connect with its own certificate (role watchdog,
 // issued through WatchdogCertificateRequest over the agent session). A watchdog session only exchanges Hello, HelloAck, Heartbeat,
@@ -1564,7 +1564,7 @@ type Hello struct {
 	// Hash of the last inventory the agent sent; the server requests a new report when it differs from its copy.
 	InventoryHash string `protobuf:"bytes,5,opt,name=inventory_hash,json=inventoryHash,proto3" json:"inventory_hash,omitempty"`
 	// Which service this is (0.2.1). Unspecified means agent (older agents). Must match the role of the certificate.
-	Component     Component `protobuf:"varint,6,opt,name=component,proto3,enum=fleetify.agent.v1.Component" json:"component,omitempty"`
+	Component     Component `protobuf:"varint,6,opt,name=component,proto3,enum=fleeto.agent.v1.Component" json:"component,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1760,7 +1760,7 @@ type PeerStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Version of the installed binary; empty when unknown or not installed.
 	Version string       `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
-	State   ServiceState `protobuf:"varint,2,opt,name=state,proto3,enum=fleetify.agent.v1.ServiceState" json:"state,omitempty"`
+	State   ServiceState `protobuf:"varint,2,opt,name=state,proto3,enum=fleeto.agent.v1.ServiceState" json:"state,omitempty"`
 	// Why the service is not running, e.g. the error of the last start attempt. Free text, at most 500 characters.
 	Detail        string `protobuf:"bytes,3,opt,name=detail,proto3" json:"detail,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2788,7 +2788,7 @@ type SignedConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Serialized AgentConfig.
 	Payload []byte `protobuf:"bytes,1,opt,name=payload,proto3" json:"payload,omitempty"`
-	// ed25519 over "fleetify-agent-config-v1" || 0x00 || payload.
+	// ed25519 over "fleeto-agent-config-v1" || 0x00 || payload.
 	Signature     []byte `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
 	KeyId         string `protobuf:"bytes,3,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2854,7 +2854,7 @@ type AgentConfig struct {
 	EndpointId               string                 `protobuf:"bytes,2,opt,name=endpoint_id,json=endpointId,proto3" json:"endpoint_id,omitempty"`
 	Version                  uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
 	IssuedAt                 *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=issued_at,json=issuedAt,proto3" json:"issued_at,omitempty"`
-	Tier                     Tier                   `protobuf:"varint,5,opt,name=tier,proto3,enum=fleetify.agent.v1.Tier" json:"tier,omitempty"`
+	Tier                     Tier                   `protobuf:"varint,5,opt,name=tier,proto3,enum=fleeto.agent.v1.Tier" json:"tier,omitempty"`
 	HeartbeatIntervalSeconds uint32                 `protobuf:"varint,6,opt,name=heartbeat_interval_seconds,json=heartbeatIntervalSeconds,proto3" json:"heartbeat_interval_seconds,omitempty"`
 	InventoryIntervalSeconds uint32                 `protobuf:"varint,7,opt,name=inventory_interval_seconds,json=inventoryIntervalSeconds,proto3" json:"inventory_interval_seconds,omitempty"`
 	// Always empty for TIER_AGENT_ONLY; the agent ignores checks on an agent-only configuration anyway.
@@ -2953,7 +2953,7 @@ type CheckSpec struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// CheckDefinition id.
 	Id              string    `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Type            CheckType `protobuf:"varint,2,opt,name=type,proto3,enum=fleetify.agent.v1.CheckType" json:"type,omitempty"`
+	Type            CheckType `protobuf:"varint,2,opt,name=type,proto3,enum=fleeto.agent.v1.CheckType" json:"type,omitempty"`
 	IntervalSeconds uint32    `protobuf:"varint,3,opt,name=interval_seconds,json=intervalSeconds,proto3" json:"interval_seconds,omitempty"`
 	// Type-specific parameters, validated by the server (CheckCatalog) and checked again by the agent:
 	//   CHECK_TYPE_DISK_FREE: "drive" ("C:", "/var" or "*").
@@ -3096,7 +3096,7 @@ func (x *ConfigApplied) GetError() string {
 	return ""
 }
 
-// A job signed by fleetify-signer. The gateway delivers it while it is queued and valid, again after every reconnect; the
+// A job signed by fleeto-signer. The gateway delivers it while it is queued and valid, again after every reconnect; the
 // agent verifies the signature against the pinned instance signing key, the instance and endpoint ids, ValidUntil (5 minutes
 // clock tolerance) and its own managed tier, runs a job id at most once, and refuses everything else with a JobCompletion.
 type SignedJob struct {
@@ -3165,7 +3165,7 @@ type JobPayload struct {
 	JobId      string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
 	InstanceId string                 `protobuf:"bytes,2,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
 	EndpointId string                 `protobuf:"bytes,3,opt,name=endpoint_id,json=endpointId,proto3" json:"endpoint_id,omitempty"`
-	Type       JobType                `protobuf:"varint,4,opt,name=type,proto3,enum=fleetify.agent.v1.JobType" json:"type,omitempty"`
+	Type       JobType                `protobuf:"varint,4,opt,name=type,proto3,enum=fleeto.agent.v1.JobType" json:"type,omitempty"`
 	ValidUntil *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=valid_until,json=validUntil,proto3" json:"valid_until,omitempty"`
 	// Display name of the technician, for the endpoint's log.
 	InitiatedBy    string `protobuf:"bytes,6,opt,name=initiated_by,json=initiatedBy,proto3" json:"initiated_by,omitempty"`
@@ -3272,7 +3272,7 @@ func (x *JobPayload) GetScript() *ScriptJob {
 
 type ScriptJob struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
-	Language ScriptLanguage         `protobuf:"varint,1,opt,name=language,proto3,enum=fleetify.agent.v1.ScriptLanguage" json:"language,omitempty"`
+	Language ScriptLanguage         `protobuf:"varint,1,opt,name=language,proto3,enum=fleeto.agent.v1.ScriptLanguage" json:"language,omitempty"`
 	Name     string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Version  uint32                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
 	// UTF-8 script body, exactly as signed.
@@ -3406,7 +3406,7 @@ func (x *JobStarted) GetStartedAt() *timestamppb.Timestamp {
 type JobOutput struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	JobId         string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	Stream        JobStream              `protobuf:"varint,2,opt,name=stream,proto3,enum=fleetify.agent.v1.JobStream" json:"stream,omitempty"`
+	Stream        JobStream              `protobuf:"varint,2,opt,name=stream,proto3,enum=fleeto.agent.v1.JobStream" json:"stream,omitempty"`
 	Sequence      uint64                 `protobuf:"varint,3,opt,name=sequence,proto3" json:"sequence,omitempty"`
 	Data          []byte                 `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -3537,7 +3537,7 @@ func (x *JobStreamSummary) GetSha256() string {
 type JobCompletion struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	JobId           string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	Result          JobResult              `protobuf:"varint,2,opt,name=result,proto3,enum=fleetify.agent.v1.JobResult" json:"result,omitempty"`
+	Result          JobResult              `protobuf:"varint,2,opt,name=result,proto3,enum=fleeto.agent.v1.JobResult" json:"result,omitempty"`
 	ExitCode        int32                  `protobuf:"varint,3,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
 	Error           string                 `protobuf:"bytes,4,opt,name=error,proto3" json:"error,omitempty"`
 	Stdout          *JobStreamSummary      `protobuf:"bytes,5,opt,name=stdout,proto3" json:"stdout,omitempty"`
@@ -3638,8 +3638,8 @@ func (x *JobCompletion) GetFinishedAt() *timestamppb.Timestamp {
 type JobAck struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	JobId         string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	Kind          JobAckKind             `protobuf:"varint,2,opt,name=kind,proto3,enum=fleetify.agent.v1.JobAckKind" json:"kind,omitempty"`
-	Stream        JobStream              `protobuf:"varint,3,opt,name=stream,proto3,enum=fleetify.agent.v1.JobStream" json:"stream,omitempty"`
+	Kind          JobAckKind             `protobuf:"varint,2,opt,name=kind,proto3,enum=fleeto.agent.v1.JobAckKind" json:"kind,omitempty"`
+	Stream        JobStream              `protobuf:"varint,3,opt,name=stream,proto3,enum=fleeto.agent.v1.JobStream" json:"stream,omitempty"`
 	Sequence      uint64                 `protobuf:"varint,4,opt,name=sequence,proto3" json:"sequence,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3872,10 +3872,10 @@ func (x *UpdateOffer) GetUpdateAllowed() bool {
 // Progress of installing a component, reported by the service that installs it.
 type UpdateStatus struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
-	Component Component              `protobuf:"varint,1,opt,name=component,proto3,enum=fleetify.agent.v1.Component" json:"component,omitempty"`
+	Component Component              `protobuf:"varint,1,opt,name=component,proto3,enum=fleeto.agent.v1.Component" json:"component,omitempty"`
 	// The version being installed.
 	Version string      `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
-	State   UpdateState `protobuf:"varint,3,opt,name=state,proto3,enum=fleetify.agent.v1.UpdateState" json:"state,omitempty"`
+	State   UpdateState `protobuf:"varint,3,opt,name=state,proto3,enum=fleeto.agent.v1.UpdateState" json:"state,omitempty"`
 	// Cause of a failure or rollback. Free text, at most 500 characters.
 	Detail        string `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -3942,7 +3942,7 @@ func (x *UpdateStatus) GetDetail() string {
 
 type Disconnect struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Code          DisconnectCode         `protobuf:"varint,1,opt,name=code,proto3,enum=fleetify.agent.v1.DisconnectCode" json:"code,omitempty"`
+	Code          DisconnectCode         `protobuf:"varint,1,opt,name=code,proto3,enum=fleeto.agent.v1.DisconnectCode" json:"code,omitempty"`
 	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3996,12 +3996,12 @@ var File_agent_proto protoreflect.FileDescriptor
 
 const file_agent_proto_rawDesc = "" +
 	"\n" +
-	"\vagent.proto\x12\x11fleetify.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xaa\x01\n" +
+	"\vagent.proto\x12\x0ffleeto.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa8\x01\n" +
 	"\rEnrollRequest\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12\x17\n" +
 	"\acsr_der\x18\x02 \x01(\fR\x06csrDer\x12\x1a\n" +
-	"\bhostname\x18\x03 \x01(\tR\bhostname\x12)\n" +
-	"\x02os\x18\x04 \x01(\v2\x19.fleetify.agent.v1.OsInfoR\x02os\x12#\n" +
+	"\bhostname\x18\x03 \x01(\tR\bhostname\x12'\n" +
+	"\x02os\x18\x04 \x01(\v2\x17.fleeto.agent.v1.OsInfoR\x02os\x12#\n" +
 	"\ragent_version\x18\x05 \x01(\tR\fagentVersion\"\x9f\x02\n" +
 	"\x0eEnrollResponse\x12\x1f\n" +
 	"\vendpoint_id\x18\x01 \x01(\tR\n" +
@@ -4023,62 +4023,62 @@ const file_agent_proto_rawDesc = "" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\tR\aversion\x12\x1b\n" +
 	"\tis_server\x18\x04 \x01(\bR\bisServer\x12\"\n" +
-	"\farchitecture\x18\x05 \x01(\tR\farchitecture\"\xe3\x06\n" +
-	"\fAgentMessage\x120\n" +
-	"\x05hello\x18\x01 \x01(\v2\x18.fleetify.agent.v1.HelloH\x00R\x05hello\x12<\n" +
-	"\theartbeat\x18\x02 \x01(\v2\x1c.fleetify.agent.v1.HeartbeatH\x00R\theartbeat\x12B\n" +
-	"\tinventory\x18\x03 \x01(\v2\".fleetify.agent.v1.InventoryReportH\x00R\tinventory\x12J\n" +
-	"\rcheck_results\x18\x04 \x01(\v2#.fleetify.agent.v1.CheckResultBatchH\x00R\fcheckResults\x12Y\n" +
-	"\x11renew_certificate\x18\x05 \x01(\v2*.fleetify.agent.v1.RenewCertificateRequestH\x00R\x10renewCertificate\x12I\n" +
-	"\x0econfig_applied\x18\x06 \x01(\v2 .fleetify.agent.v1.ConfigAppliedH\x00R\rconfigApplied\x12-\n" +
-	"\x04pong\x18\a \x01(\v2\x17.fleetify.agent.v1.PongH\x00R\x04pong\x12@\n" +
-	"\vjob_started\x18\b \x01(\v2\x1d.fleetify.agent.v1.JobStartedH\x00R\n" +
-	"jobStarted\x12=\n" +
+	"\farchitecture\x18\x05 \x01(\tR\farchitecture\"\xcb\x06\n" +
+	"\fAgentMessage\x12.\n" +
+	"\x05hello\x18\x01 \x01(\v2\x16.fleeto.agent.v1.HelloH\x00R\x05hello\x12:\n" +
+	"\theartbeat\x18\x02 \x01(\v2\x1a.fleeto.agent.v1.HeartbeatH\x00R\theartbeat\x12@\n" +
+	"\tinventory\x18\x03 \x01(\v2 .fleeto.agent.v1.InventoryReportH\x00R\tinventory\x12H\n" +
+	"\rcheck_results\x18\x04 \x01(\v2!.fleeto.agent.v1.CheckResultBatchH\x00R\fcheckResults\x12W\n" +
+	"\x11renew_certificate\x18\x05 \x01(\v2(.fleeto.agent.v1.RenewCertificateRequestH\x00R\x10renewCertificate\x12G\n" +
+	"\x0econfig_applied\x18\x06 \x01(\v2\x1e.fleeto.agent.v1.ConfigAppliedH\x00R\rconfigApplied\x12+\n" +
+	"\x04pong\x18\a \x01(\v2\x15.fleeto.agent.v1.PongH\x00R\x04pong\x12>\n" +
+	"\vjob_started\x18\b \x01(\v2\x1b.fleeto.agent.v1.JobStartedH\x00R\n" +
+	"jobStarted\x12;\n" +
 	"\n" +
-	"job_output\x18\t \x01(\v2\x1c.fleetify.agent.v1.JobOutputH\x00R\tjobOutput\x12I\n" +
+	"job_output\x18\t \x01(\v2\x1a.fleeto.agent.v1.JobOutputH\x00R\tjobOutput\x12G\n" +
 	"\x0ejob_completion\x18\n" +
-	" \x01(\v2 .fleetify.agent.v1.JobCompletionH\x00R\rjobCompletion\x12b\n" +
-	"\x14watchdog_certificate\x18\v \x01(\v2-.fleetify.agent.v1.WatchdogCertificateRequestH\x00R\x13watchdogCertificate\x12F\n" +
-	"\rupdate_status\x18\f \x01(\v2\x1f.fleetify.agent.v1.UpdateStatusH\x00R\fupdateStatusB\x06\n" +
-	"\x04body\"\xc5\x06\n" +
-	"\rServerMessage\x12:\n" +
-	"\thello_ack\x18\x01 \x01(\v2\x1b.fleetify.agent.v1.HelloAckH\x00R\bhelloAck\x12:\n" +
-	"\tbatch_ack\x18\x02 \x01(\v2\x1b.fleetify.agent.v1.BatchAckH\x00R\bbatchAck\x129\n" +
-	"\x06config\x18\x03 \x01(\v2\x1f.fleetify.agent.v1.SignedConfigH\x00R\x06config\x12Z\n" +
-	"\x11renew_certificate\x18\x04 \x01(\v2+.fleetify.agent.v1.RenewCertificateResponseH\x00R\x10renewCertificate\x12-\n" +
-	"\x04ping\x18\x05 \x01(\v2\x17.fleetify.agent.v1.PingH\x00R\x04ping\x12?\n" +
+	" \x01(\v2\x1e.fleeto.agent.v1.JobCompletionH\x00R\rjobCompletion\x12`\n" +
+	"\x14watchdog_certificate\x18\v \x01(\v2+.fleeto.agent.v1.WatchdogCertificateRequestH\x00R\x13watchdogCertificate\x12D\n" +
+	"\rupdate_status\x18\f \x01(\v2\x1d.fleeto.agent.v1.UpdateStatusH\x00R\fupdateStatusB\x06\n" +
+	"\x04body\"\xad\x06\n" +
+	"\rServerMessage\x128\n" +
+	"\thello_ack\x18\x01 \x01(\v2\x19.fleeto.agent.v1.HelloAckH\x00R\bhelloAck\x128\n" +
+	"\tbatch_ack\x18\x02 \x01(\v2\x19.fleeto.agent.v1.BatchAckH\x00R\bbatchAck\x127\n" +
+	"\x06config\x18\x03 \x01(\v2\x1d.fleeto.agent.v1.SignedConfigH\x00R\x06config\x12X\n" +
+	"\x11renew_certificate\x18\x04 \x01(\v2).fleeto.agent.v1.RenewCertificateResponseH\x00R\x10renewCertificate\x12+\n" +
+	"\x04ping\x18\x05 \x01(\v2\x15.fleeto.agent.v1.PingH\x00R\x04ping\x12=\n" +
 	"\n" +
-	"disconnect\x18\x06 \x01(\v2\x1d.fleetify.agent.v1.DisconnectH\x00R\n" +
-	"disconnect\x12R\n" +
-	"\x11inventory_request\x18\a \x01(\v2#.fleetify.agent.v1.InventoryRequestH\x00R\x10inventoryRequest\x12G\n" +
-	"\x0erun_checks_now\x18\b \x01(\v2\x1f.fleetify.agent.v1.RunChecksNowH\x00R\frunChecksNow\x120\n" +
-	"\x03job\x18\t \x01(\v2\x1c.fleetify.agent.v1.SignedJobH\x00R\x03job\x124\n" +
+	"disconnect\x18\x06 \x01(\v2\x1b.fleeto.agent.v1.DisconnectH\x00R\n" +
+	"disconnect\x12P\n" +
+	"\x11inventory_request\x18\a \x01(\v2!.fleeto.agent.v1.InventoryRequestH\x00R\x10inventoryRequest\x12E\n" +
+	"\x0erun_checks_now\x18\b \x01(\v2\x1d.fleeto.agent.v1.RunChecksNowH\x00R\frunChecksNow\x12.\n" +
+	"\x03job\x18\t \x01(\v2\x1a.fleeto.agent.v1.SignedJobH\x00R\x03job\x122\n" +
 	"\ajob_ack\x18\n" +
-	" \x01(\v2\x19.fleetify.agent.v1.JobAckH\x00R\x06jobAck\x12C\n" +
-	"\fupdate_offer\x18\v \x01(\v2\x1e.fleetify.agent.v1.UpdateOfferH\x00R\vupdateOffer\x12c\n" +
-	"\x14watchdog_certificate\x18\f \x01(\v2..fleetify.agent.v1.WatchdogCertificateResponseH\x00R\x13watchdogCertificateB\x06\n" +
-	"\x04body\"\xfd\x01\n" +
+	" \x01(\v2\x17.fleeto.agent.v1.JobAckH\x00R\x06jobAck\x12A\n" +
+	"\fupdate_offer\x18\v \x01(\v2\x1c.fleeto.agent.v1.UpdateOfferH\x00R\vupdateOffer\x12a\n" +
+	"\x14watchdog_certificate\x18\f \x01(\v2,.fleeto.agent.v1.WatchdogCertificateResponseH\x00R\x13watchdogCertificateB\x06\n" +
+	"\x04body\"\xf9\x01\n" +
 	"\x05Hello\x12#\n" +
 	"\ragent_version\x18\x01 \x01(\tR\fagentVersion\x12\x1a\n" +
-	"\bhostname\x18\x02 \x01(\tR\bhostname\x12)\n" +
-	"\x02os\x18\x03 \x01(\v2\x19.fleetify.agent.v1.OsInfoR\x02os\x12%\n" +
+	"\bhostname\x18\x02 \x01(\tR\bhostname\x12'\n" +
+	"\x02os\x18\x03 \x01(\v2\x17.fleeto.agent.v1.OsInfoR\x02os\x12%\n" +
 	"\x0econfig_version\x18\x04 \x01(\x04R\rconfigVersion\x12%\n" +
-	"\x0einventory_hash\x18\x05 \x01(\tR\rinventoryHash\x12:\n" +
-	"\tcomponent\x18\x06 \x01(\x0e2\x1c.fleetify.agent.v1.ComponentR\tcomponent\"\xa6\x01\n" +
+	"\x0einventory_hash\x18\x05 \x01(\tR\rinventoryHash\x128\n" +
+	"\tcomponent\x18\x06 \x01(\x0e2\x1a.fleeto.agent.v1.ComponentR\tcomponent\"\xa6\x01\n" +
 	"\bHelloAck\x12\x1f\n" +
 	"\vendpoint_id\x18\x01 \x01(\tR\n" +
 	"endpointId\x12;\n" +
 	"\vserver_time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"serverTime\x12<\n" +
-	"\x1aheartbeat_interval_seconds\x18\x03 \x01(\rR\x18heartbeatIntervalSeconds\"y\n" +
+	"\x1aheartbeat_interval_seconds\x18\x03 \x01(\rR\x18heartbeatIntervalSeconds\"w\n" +
 	"\tHeartbeat\x129\n" +
 	"\n" +
-	"agent_time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\tagentTime\x121\n" +
-	"\x04peer\x18\x02 \x01(\v2\x1d.fleetify.agent.v1.PeerStatusR\x04peer\"u\n" +
+	"agent_time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\tagentTime\x12/\n" +
+	"\x04peer\x18\x02 \x01(\v2\x1b.fleeto.agent.v1.PeerStatusR\x04peer\"s\n" +
 	"\n" +
 	"PeerStatus\x12\x18\n" +
-	"\aversion\x18\x01 \x01(\tR\aversion\x125\n" +
-	"\x05state\x18\x02 \x01(\x0e2\x1f.fleetify.agent.v1.ServiceStateR\x05state\x12\x16\n" +
+	"\aversion\x18\x01 \x01(\tR\aversion\x123\n" +
+	"\x05state\x18\x02 \x01(\x0e2\x1d.fleeto.agent.v1.ServiceStateR\x05state\x12\x16\n" +
 	"\x06detail\x18\x03 \x01(\tR\x06detail\"\x1c\n" +
 	"\x04Ping\x12\x14\n" +
 	"\x05nonce\x18\x01 \x01(\x04R\x05nonce\"\x1c\n" +
@@ -4088,28 +4088,28 @@ const file_agent_proto_rawDesc = "" +
 	"\fRunChecksNow\x12\x1b\n" +
 	"\tcheck_ids\x18\x01 \x03(\tR\bcheckIds\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x02 \x01(\tR\trequestId\"a\n" +
+	"request_id\x18\x02 \x01(\tR\trequestId\"_\n" +
 	"\x0fInventoryReport\x12\x12\n" +
-	"\x04hash\x18\x01 \x01(\tR\x04hash\x12:\n" +
-	"\tinventory\x18\x02 \x01(\v2\x1c.fleetify.agent.v1.InventoryR\tinventory\"\xc2\x05\n" +
+	"\x04hash\x18\x01 \x01(\tR\x04hash\x128\n" +
+	"\tinventory\x18\x02 \x01(\v2\x1a.fleeto.agent.v1.InventoryR\tinventory\"\xb8\x05\n" +
 	"\tInventory\x12\x1a\n" +
-	"\bhostname\x18\x01 \x01(\tR\bhostname\x12)\n" +
-	"\x02os\x18\x02 \x01(\v2\x19.fleetify.agent.v1.OsInfoR\x02os\x12\"\n" +
+	"\bhostname\x18\x01 \x01(\tR\bhostname\x12'\n" +
+	"\x02os\x18\x02 \x01(\v2\x17.fleeto.agent.v1.OsInfoR\x02os\x12\"\n" +
 	"\fmanufacturer\x18\x03 \x01(\tR\fmanufacturer\x12\x14\n" +
 	"\x05model\x18\x04 \x01(\tR\x05model\x12#\n" +
 	"\rserial_number\x18\x05 \x01(\tR\fserialNumber\x12\x1b\n" +
 	"\tcpu_model\x18\x06 \x01(\tR\bcpuModel\x12\x1b\n" +
 	"\tcpu_cores\x18\a \x01(\rR\bcpuCores\x124\n" +
 	"\x16cpu_logical_processors\x18\b \x01(\rR\x14cpuLogicalProcessors\x12,\n" +
-	"\x12memory_total_bytes\x18\t \x01(\x04R\x10memoryTotalBytes\x12-\n" +
+	"\x12memory_total_bytes\x18\t \x01(\x04R\x10memoryTotalBytes\x12+\n" +
 	"\x05disks\x18\n" +
-	" \x03(\v2\x17.fleetify.agent.v1.DiskR\x05disks\x12R\n" +
-	"\x12network_interfaces\x18\v \x03(\v2#.fleetify.agent.v1.NetworkInterfaceR\x11networkInterfaces\x12;\n" +
-	"\bsoftware\x18\f \x03(\v2\x1f.fleetify.agent.v1.SoftwareItemR\bsoftware\x127\n" +
+	" \x03(\v2\x15.fleeto.agent.v1.DiskR\x05disks\x12P\n" +
+	"\x12network_interfaces\x18\v \x03(\v2!.fleeto.agent.v1.NetworkInterfaceR\x11networkInterfaces\x129\n" +
+	"\bsoftware\x18\f \x03(\v2\x1d.fleeto.agent.v1.SoftwareItemR\bsoftware\x127\n" +
 	"\tboot_time\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\bbootTime\x12\x16\n" +
 	"\x06domain\x18\x0e \x01(\tR\x06domain\x12$\n" +
-	"\x0elogged_on_user\x18\x0f \x01(\tR\floggedOnUser\x12:\n" +
-	"\bservices\x18\x10 \x03(\v2\x1e.fleetify.agent.v1.ServiceItemR\bservices\"y\n" +
+	"\x0elogged_on_user\x18\x0f \x01(\tR\floggedOnUser\x128\n" +
+	"\bservices\x18\x10 \x03(\v2\x1c.fleeto.agent.v1.ServiceItemR\bservices\"y\n" +
 	"\vServiceItem\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x1d\n" +
@@ -4134,10 +4134,10 @@ const file_agent_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x1c\n" +
 	"\tpublisher\x18\x03 \x01(\tR\tpublisher\x12!\n" +
-	"\finstall_date\x18\x04 \x01(\tR\vinstallDate\"h\n" +
+	"\finstall_date\x18\x04 \x01(\tR\vinstallDate\"f\n" +
 	"\x10CheckResultBatch\x12\x1a\n" +
-	"\bsequence\x18\x01 \x01(\x04R\bsequence\x128\n" +
-	"\aresults\x18\x02 \x03(\v2\x1e.fleetify.agent.v1.CheckResultR\aresults\"\xea\x01\n" +
+	"\bsequence\x18\x01 \x01(\x04R\bsequence\x126\n" +
+	"\aresults\x18\x02 \x03(\v2\x1c.fleeto.agent.v1.CheckResultR\aresults\"\xea\x01\n" +
 	"\vCheckResult\x12\x19\n" +
 	"\bcheck_id\x18\x01 \x01(\tR\acheckId\x12%\n" +
 	"\x0econfig_version\x18\x02 \x01(\x04R\rconfigVersion\x12=\n" +
@@ -4156,26 +4156,26 @@ const file_agent_proto_rawDesc = "" +
 	"\fSignedConfig\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\fR\tsignature\x12\x15\n" +
-	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\x81\x03\n" +
+	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\xfd\x02\n" +
 	"\vAgentConfig\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x12\x1f\n" +
 	"\vendpoint_id\x18\x02 \x01(\tR\n" +
 	"endpointId\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x127\n" +
-	"\tissued_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\bissuedAt\x12+\n" +
-	"\x04tier\x18\x05 \x01(\x0e2\x17.fleetify.agent.v1.TierR\x04tier\x12<\n" +
+	"\tissued_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\bissuedAt\x12)\n" +
+	"\x04tier\x18\x05 \x01(\x0e2\x15.fleeto.agent.v1.TierR\x04tier\x12<\n" +
 	"\x1aheartbeat_interval_seconds\x18\x06 \x01(\rR\x18heartbeatIntervalSeconds\x12<\n" +
-	"\x1ainventory_interval_seconds\x18\a \x01(\rR\x18inventoryIntervalSeconds\x124\n" +
-	"\x06checks\x18\b \x03(\v2\x1c.fleetify.agent.v1.CheckSpecR\x06checks\"\xbb\x02\n" +
+	"\x1ainventory_interval_seconds\x18\a \x01(\rR\x18inventoryIntervalSeconds\x122\n" +
+	"\x06checks\x18\b \x03(\v2\x1a.fleeto.agent.v1.CheckSpecR\x06checks\"\xb5\x02\n" +
 	"\tCheckSpec\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x120\n" +
-	"\x04type\x18\x02 \x01(\x0e2\x1c.fleetify.agent.v1.CheckTypeR\x04type\x12)\n" +
-	"\x10interval_seconds\x18\x03 \x01(\rR\x0fintervalSeconds\x12L\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12.\n" +
+	"\x04type\x18\x02 \x01(\x0e2\x1a.fleeto.agent.v1.CheckTypeR\x04type\x12)\n" +
+	"\x10interval_seconds\x18\x03 \x01(\rR\x0fintervalSeconds\x12J\n" +
 	"\n" +
-	"parameters\x18\x04 \x03(\v2,.fleetify.agent.v1.CheckSpec.ParametersEntryR\n" +
-	"parameters\x124\n" +
-	"\x06script\x18\x05 \x01(\v2\x1c.fleetify.agent.v1.ScriptJobR\x06script\x1a=\n" +
+	"parameters\x18\x04 \x03(\v2*.fleeto.agent.v1.CheckSpec.ParametersEntryR\n" +
+	"parameters\x122\n" +
+	"\x06script\x18\x05 \x01(\v2\x1a.fleeto.agent.v1.ScriptJobR\x06script\x1a=\n" +
 	"\x0fParametersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"L\n" +
@@ -4185,23 +4185,23 @@ const file_agent_proto_rawDesc = "" +
 	"\tSignedJob\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\fR\tsignature\x12\x15\n" +
-	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\xfe\x02\n" +
+	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\xfa\x02\n" +
 	"\n" +
 	"JobPayload\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x1f\n" +
 	"\vinstance_id\x18\x02 \x01(\tR\n" +
 	"instanceId\x12\x1f\n" +
 	"\vendpoint_id\x18\x03 \x01(\tR\n" +
-	"endpointId\x12.\n" +
-	"\x04type\x18\x04 \x01(\x0e2\x1a.fleetify.agent.v1.JobTypeR\x04type\x12;\n" +
+	"endpointId\x12,\n" +
+	"\x04type\x18\x04 \x01(\x0e2\x18.fleeto.agent.v1.JobTypeR\x04type\x12;\n" +
 	"\vvalid_until\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"validUntil\x12!\n" +
 	"\finitiated_by\x18\x06 \x01(\tR\vinitiatedBy\x12'\n" +
 	"\x0ftimeout_seconds\x18\a \x01(\rR\x0etimeoutSeconds\x12(\n" +
-	"\x10max_output_bytes\x18\b \x01(\x04R\x0emaxOutputBytes\x124\n" +
-	"\x06script\x18\t \x01(\v2\x1c.fleetify.agent.v1.ScriptJobR\x06script\"\xa4\x01\n" +
-	"\tScriptJob\x12=\n" +
-	"\blanguage\x18\x01 \x01(\x0e2!.fleetify.agent.v1.ScriptLanguageR\blanguage\x12\x12\n" +
+	"\x10max_output_bytes\x18\b \x01(\x04R\x0emaxOutputBytes\x122\n" +
+	"\x06script\x18\t \x01(\v2\x1a.fleeto.agent.v1.ScriptJobR\x06script\"\xa2\x01\n" +
+	"\tScriptJob\x12;\n" +
+	"\blanguage\x18\x01 \x01(\x0e2\x1f.fleeto.agent.v1.ScriptLanguageR\blanguage\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\rR\aversion\x12\x12\n" +
 	"\x04body\x18\x04 \x01(\tR\x04body\x12\x16\n" +
@@ -4210,30 +4210,30 @@ const file_agent_proto_rawDesc = "" +
 	"JobStarted\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x129\n" +
 	"\n" +
-	"started_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\"\x88\x01\n" +
+	"started_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\"\x86\x01\n" +
 	"\tJobOutput\x12\x15\n" +
-	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x124\n" +
-	"\x06stream\x18\x02 \x01(\x0e2\x1c.fleetify.agent.v1.JobStreamR\x06stream\x12\x1a\n" +
+	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x122\n" +
+	"\x06stream\x18\x02 \x01(\x0e2\x1a.fleeto.agent.v1.JobStreamR\x06stream\x12\x1a\n" +
 	"\bsequence\x18\x03 \x01(\x04R\bsequence\x12\x12\n" +
 	"\x04data\x18\x04 \x01(\fR\x04data\"X\n" +
 	"\x10JobStreamSummary\x12\x16\n" +
 	"\x06chunks\x18\x01 \x01(\x04R\x06chunks\x12\x14\n" +
 	"\x05bytes\x18\x02 \x01(\x04R\x05bytes\x12\x16\n" +
-	"\x06sha256\x18\x03 \x01(\tR\x06sha256\"\xf1\x02\n" +
+	"\x06sha256\x18\x03 \x01(\tR\x06sha256\"\xeb\x02\n" +
 	"\rJobCompletion\x12\x15\n" +
-	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x124\n" +
-	"\x06result\x18\x02 \x01(\x0e2\x1c.fleetify.agent.v1.JobResultR\x06result\x12\x1b\n" +
+	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x122\n" +
+	"\x06result\x18\x02 \x01(\x0e2\x1a.fleeto.agent.v1.JobResultR\x06result\x12\x1b\n" +
 	"\texit_code\x18\x03 \x01(\x05R\bexitCode\x12\x14\n" +
-	"\x05error\x18\x04 \x01(\tR\x05error\x12;\n" +
-	"\x06stdout\x18\x05 \x01(\v2#.fleetify.agent.v1.JobStreamSummaryR\x06stdout\x12;\n" +
-	"\x06stderr\x18\x06 \x01(\v2#.fleetify.agent.v1.JobStreamSummaryR\x06stderr\x12)\n" +
+	"\x05error\x18\x04 \x01(\tR\x05error\x129\n" +
+	"\x06stdout\x18\x05 \x01(\v2!.fleeto.agent.v1.JobStreamSummaryR\x06stdout\x129\n" +
+	"\x06stderr\x18\x06 \x01(\v2!.fleeto.agent.v1.JobStreamSummaryR\x06stderr\x12)\n" +
 	"\x10output_truncated\x18\a \x01(\bR\x0foutputTruncated\x12;\n" +
 	"\vfinished_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"finishedAt\"\xa4\x01\n" +
+	"finishedAt\"\xa0\x01\n" +
 	"\x06JobAck\x12\x15\n" +
-	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x121\n" +
-	"\x04kind\x18\x02 \x01(\x0e2\x1d.fleetify.agent.v1.JobAckKindR\x04kind\x124\n" +
-	"\x06stream\x18\x03 \x01(\x0e2\x1c.fleetify.agent.v1.JobStreamR\x06stream\x12\x1a\n" +
+	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12/\n" +
+	"\x04kind\x18\x02 \x01(\x0e2\x1b.fleeto.agent.v1.JobAckKindR\x04kind\x122\n" +
+	"\x06stream\x18\x03 \x01(\x0e2\x1a.fleeto.agent.v1.JobStreamR\x06stream\x12\x1a\n" +
 	"\bsequence\x18\x04 \x01(\x04R\bsequence\"5\n" +
 	"\x1aWatchdogCertificateRequest\x12\x17\n" +
 	"\acsr_der\x18\x01 \x01(\fR\x06csrDer\"\\\n" +
@@ -4243,15 +4243,15 @@ const file_agent_proto_rawDesc = "" +
 	"\vUpdateOffer\x12\x1a\n" +
 	"\bmanifest\x18\x01 \x01(\fR\bmanifest\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\fR\tsignature\x12%\n" +
-	"\x0eupdate_allowed\x18\x03 \x01(\bR\rupdateAllowed\"\xb2\x01\n" +
-	"\fUpdateStatus\x12:\n" +
-	"\tcomponent\x18\x01 \x01(\x0e2\x1c.fleetify.agent.v1.ComponentR\tcomponent\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\tR\aversion\x124\n" +
-	"\x05state\x18\x03 \x01(\x0e2\x1e.fleetify.agent.v1.UpdateStateR\x05state\x12\x16\n" +
-	"\x06detail\x18\x04 \x01(\tR\x06detail\"[\n" +
+	"\x0eupdate_allowed\x18\x03 \x01(\bR\rupdateAllowed\"\xae\x01\n" +
+	"\fUpdateStatus\x128\n" +
+	"\tcomponent\x18\x01 \x01(\x0e2\x1a.fleeto.agent.v1.ComponentR\tcomponent\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\x122\n" +
+	"\x05state\x18\x03 \x01(\x0e2\x1c.fleeto.agent.v1.UpdateStateR\x05state\x12\x16\n" +
+	"\x06detail\x18\x04 \x01(\tR\x06detail\"Y\n" +
 	"\n" +
-	"Disconnect\x125\n" +
-	"\x04code\x18\x01 \x01(\x0e2!.fleetify.agent.v1.DisconnectCodeR\x04code\x12\x16\n" +
+	"Disconnect\x123\n" +
+	"\x04code\x18\x01 \x01(\x0e2\x1f.fleeto.agent.v1.DisconnectCodeR\x04code\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason*S\n" +
 	"\tComponent\x12\x19\n" +
 	"\x15COMPONENT_UNSPECIFIED\x10\x00\x12\x13\n" +
@@ -4325,7 +4325,7 @@ const file_agent_proto_rawDesc = "" +
 	"\x17DISCONNECT_CODE_REVOKED\x10\x01\x12&\n" +
 	"\"DISCONNECT_CODE_DUPLICATE_IDENTITY\x10\x02\x12#\n" +
 	"\x1fDISCONNECT_CODE_SERVER_SHUTDOWN\x10\x03\x12\"\n" +
-	"\x1eDISCONNECT_CODE_PROTOCOL_ERROR\x10\x04BiZJgithub.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1;agentv1\xaa\x02\x1aFleetify.Protocol.Agent.V1b\x06proto3"
+	"\x1eDISCONNECT_CODE_PROTOCOL_ERROR\x10\x04BgZJgithub.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1;agentv1\xaa\x02\x18Fleeto.Protocol.Agent.V1b\x06proto3"
 
 var (
 	file_agent_proto_rawDescOnce sync.Once
@@ -4342,125 +4342,125 @@ func file_agent_proto_rawDescGZIP() []byte {
 var file_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 11)
 var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
 var file_agent_proto_goTypes = []any{
-	(Component)(0),                      // 0: fleetify.agent.v1.Component
-	(ServiceState)(0),                   // 1: fleetify.agent.v1.ServiceState
-	(Tier)(0),                           // 2: fleetify.agent.v1.Tier
-	(CheckType)(0),                      // 3: fleetify.agent.v1.CheckType
-	(JobType)(0),                        // 4: fleetify.agent.v1.JobType
-	(ScriptLanguage)(0),                 // 5: fleetify.agent.v1.ScriptLanguage
-	(JobStream)(0),                      // 6: fleetify.agent.v1.JobStream
-	(JobResult)(0),                      // 7: fleetify.agent.v1.JobResult
-	(JobAckKind)(0),                     // 8: fleetify.agent.v1.JobAckKind
-	(UpdateState)(0),                    // 9: fleetify.agent.v1.UpdateState
-	(DisconnectCode)(0),                 // 10: fleetify.agent.v1.DisconnectCode
-	(*EnrollRequest)(nil),               // 11: fleetify.agent.v1.EnrollRequest
-	(*EnrollResponse)(nil),              // 12: fleetify.agent.v1.EnrollResponse
-	(*RecoverRequest)(nil),              // 13: fleetify.agent.v1.RecoverRequest
-	(*RecoverResponse)(nil),             // 14: fleetify.agent.v1.RecoverResponse
-	(*OsInfo)(nil),                      // 15: fleetify.agent.v1.OsInfo
-	(*AgentMessage)(nil),                // 16: fleetify.agent.v1.AgentMessage
-	(*ServerMessage)(nil),               // 17: fleetify.agent.v1.ServerMessage
-	(*Hello)(nil),                       // 18: fleetify.agent.v1.Hello
-	(*HelloAck)(nil),                    // 19: fleetify.agent.v1.HelloAck
-	(*Heartbeat)(nil),                   // 20: fleetify.agent.v1.Heartbeat
-	(*PeerStatus)(nil),                  // 21: fleetify.agent.v1.PeerStatus
-	(*Ping)(nil),                        // 22: fleetify.agent.v1.Ping
-	(*Pong)(nil),                        // 23: fleetify.agent.v1.Pong
-	(*InventoryRequest)(nil),            // 24: fleetify.agent.v1.InventoryRequest
-	(*RunChecksNow)(nil),                // 25: fleetify.agent.v1.RunChecksNow
-	(*InventoryReport)(nil),             // 26: fleetify.agent.v1.InventoryReport
-	(*Inventory)(nil),                   // 27: fleetify.agent.v1.Inventory
-	(*ServiceItem)(nil),                 // 28: fleetify.agent.v1.ServiceItem
-	(*Disk)(nil),                        // 29: fleetify.agent.v1.Disk
-	(*NetworkInterface)(nil),            // 30: fleetify.agent.v1.NetworkInterface
-	(*SoftwareItem)(nil),                // 31: fleetify.agent.v1.SoftwareItem
-	(*CheckResultBatch)(nil),            // 32: fleetify.agent.v1.CheckResultBatch
-	(*CheckResult)(nil),                 // 33: fleetify.agent.v1.CheckResult
-	(*BatchAck)(nil),                    // 34: fleetify.agent.v1.BatchAck
-	(*RenewCertificateRequest)(nil),     // 35: fleetify.agent.v1.RenewCertificateRequest
-	(*RenewCertificateResponse)(nil),    // 36: fleetify.agent.v1.RenewCertificateResponse
-	(*SignedConfig)(nil),                // 37: fleetify.agent.v1.SignedConfig
-	(*AgentConfig)(nil),                 // 38: fleetify.agent.v1.AgentConfig
-	(*CheckSpec)(nil),                   // 39: fleetify.agent.v1.CheckSpec
-	(*ConfigApplied)(nil),               // 40: fleetify.agent.v1.ConfigApplied
-	(*SignedJob)(nil),                   // 41: fleetify.agent.v1.SignedJob
-	(*JobPayload)(nil),                  // 42: fleetify.agent.v1.JobPayload
-	(*ScriptJob)(nil),                   // 43: fleetify.agent.v1.ScriptJob
-	(*JobStarted)(nil),                  // 44: fleetify.agent.v1.JobStarted
-	(*JobOutput)(nil),                   // 45: fleetify.agent.v1.JobOutput
-	(*JobStreamSummary)(nil),            // 46: fleetify.agent.v1.JobStreamSummary
-	(*JobCompletion)(nil),               // 47: fleetify.agent.v1.JobCompletion
-	(*JobAck)(nil),                      // 48: fleetify.agent.v1.JobAck
-	(*WatchdogCertificateRequest)(nil),  // 49: fleetify.agent.v1.WatchdogCertificateRequest
-	(*WatchdogCertificateResponse)(nil), // 50: fleetify.agent.v1.WatchdogCertificateResponse
-	(*UpdateOffer)(nil),                 // 51: fleetify.agent.v1.UpdateOffer
-	(*UpdateStatus)(nil),                // 52: fleetify.agent.v1.UpdateStatus
-	(*Disconnect)(nil),                  // 53: fleetify.agent.v1.Disconnect
-	nil,                                 // 54: fleetify.agent.v1.CheckSpec.ParametersEntry
+	(Component)(0),                      // 0: fleeto.agent.v1.Component
+	(ServiceState)(0),                   // 1: fleeto.agent.v1.ServiceState
+	(Tier)(0),                           // 2: fleeto.agent.v1.Tier
+	(CheckType)(0),                      // 3: fleeto.agent.v1.CheckType
+	(JobType)(0),                        // 4: fleeto.agent.v1.JobType
+	(ScriptLanguage)(0),                 // 5: fleeto.agent.v1.ScriptLanguage
+	(JobStream)(0),                      // 6: fleeto.agent.v1.JobStream
+	(JobResult)(0),                      // 7: fleeto.agent.v1.JobResult
+	(JobAckKind)(0),                     // 8: fleeto.agent.v1.JobAckKind
+	(UpdateState)(0),                    // 9: fleeto.agent.v1.UpdateState
+	(DisconnectCode)(0),                 // 10: fleeto.agent.v1.DisconnectCode
+	(*EnrollRequest)(nil),               // 11: fleeto.agent.v1.EnrollRequest
+	(*EnrollResponse)(nil),              // 12: fleeto.agent.v1.EnrollResponse
+	(*RecoverRequest)(nil),              // 13: fleeto.agent.v1.RecoverRequest
+	(*RecoverResponse)(nil),             // 14: fleeto.agent.v1.RecoverResponse
+	(*OsInfo)(nil),                      // 15: fleeto.agent.v1.OsInfo
+	(*AgentMessage)(nil),                // 16: fleeto.agent.v1.AgentMessage
+	(*ServerMessage)(nil),               // 17: fleeto.agent.v1.ServerMessage
+	(*Hello)(nil),                       // 18: fleeto.agent.v1.Hello
+	(*HelloAck)(nil),                    // 19: fleeto.agent.v1.HelloAck
+	(*Heartbeat)(nil),                   // 20: fleeto.agent.v1.Heartbeat
+	(*PeerStatus)(nil),                  // 21: fleeto.agent.v1.PeerStatus
+	(*Ping)(nil),                        // 22: fleeto.agent.v1.Ping
+	(*Pong)(nil),                        // 23: fleeto.agent.v1.Pong
+	(*InventoryRequest)(nil),            // 24: fleeto.agent.v1.InventoryRequest
+	(*RunChecksNow)(nil),                // 25: fleeto.agent.v1.RunChecksNow
+	(*InventoryReport)(nil),             // 26: fleeto.agent.v1.InventoryReport
+	(*Inventory)(nil),                   // 27: fleeto.agent.v1.Inventory
+	(*ServiceItem)(nil),                 // 28: fleeto.agent.v1.ServiceItem
+	(*Disk)(nil),                        // 29: fleeto.agent.v1.Disk
+	(*NetworkInterface)(nil),            // 30: fleeto.agent.v1.NetworkInterface
+	(*SoftwareItem)(nil),                // 31: fleeto.agent.v1.SoftwareItem
+	(*CheckResultBatch)(nil),            // 32: fleeto.agent.v1.CheckResultBatch
+	(*CheckResult)(nil),                 // 33: fleeto.agent.v1.CheckResult
+	(*BatchAck)(nil),                    // 34: fleeto.agent.v1.BatchAck
+	(*RenewCertificateRequest)(nil),     // 35: fleeto.agent.v1.RenewCertificateRequest
+	(*RenewCertificateResponse)(nil),    // 36: fleeto.agent.v1.RenewCertificateResponse
+	(*SignedConfig)(nil),                // 37: fleeto.agent.v1.SignedConfig
+	(*AgentConfig)(nil),                 // 38: fleeto.agent.v1.AgentConfig
+	(*CheckSpec)(nil),                   // 39: fleeto.agent.v1.CheckSpec
+	(*ConfigApplied)(nil),               // 40: fleeto.agent.v1.ConfigApplied
+	(*SignedJob)(nil),                   // 41: fleeto.agent.v1.SignedJob
+	(*JobPayload)(nil),                  // 42: fleeto.agent.v1.JobPayload
+	(*ScriptJob)(nil),                   // 43: fleeto.agent.v1.ScriptJob
+	(*JobStarted)(nil),                  // 44: fleeto.agent.v1.JobStarted
+	(*JobOutput)(nil),                   // 45: fleeto.agent.v1.JobOutput
+	(*JobStreamSummary)(nil),            // 46: fleeto.agent.v1.JobStreamSummary
+	(*JobCompletion)(nil),               // 47: fleeto.agent.v1.JobCompletion
+	(*JobAck)(nil),                      // 48: fleeto.agent.v1.JobAck
+	(*WatchdogCertificateRequest)(nil),  // 49: fleeto.agent.v1.WatchdogCertificateRequest
+	(*WatchdogCertificateResponse)(nil), // 50: fleeto.agent.v1.WatchdogCertificateResponse
+	(*UpdateOffer)(nil),                 // 51: fleeto.agent.v1.UpdateOffer
+	(*UpdateStatus)(nil),                // 52: fleeto.agent.v1.UpdateStatus
+	(*Disconnect)(nil),                  // 53: fleeto.agent.v1.Disconnect
+	nil,                                 // 54: fleeto.agent.v1.CheckSpec.ParametersEntry
 	(*timestamppb.Timestamp)(nil),       // 55: google.protobuf.Timestamp
 }
 var file_agent_proto_depIdxs = []int32{
-	15, // 0: fleetify.agent.v1.EnrollRequest.os:type_name -> fleetify.agent.v1.OsInfo
-	18, // 1: fleetify.agent.v1.AgentMessage.hello:type_name -> fleetify.agent.v1.Hello
-	20, // 2: fleetify.agent.v1.AgentMessage.heartbeat:type_name -> fleetify.agent.v1.Heartbeat
-	26, // 3: fleetify.agent.v1.AgentMessage.inventory:type_name -> fleetify.agent.v1.InventoryReport
-	32, // 4: fleetify.agent.v1.AgentMessage.check_results:type_name -> fleetify.agent.v1.CheckResultBatch
-	35, // 5: fleetify.agent.v1.AgentMessage.renew_certificate:type_name -> fleetify.agent.v1.RenewCertificateRequest
-	40, // 6: fleetify.agent.v1.AgentMessage.config_applied:type_name -> fleetify.agent.v1.ConfigApplied
-	23, // 7: fleetify.agent.v1.AgentMessage.pong:type_name -> fleetify.agent.v1.Pong
-	44, // 8: fleetify.agent.v1.AgentMessage.job_started:type_name -> fleetify.agent.v1.JobStarted
-	45, // 9: fleetify.agent.v1.AgentMessage.job_output:type_name -> fleetify.agent.v1.JobOutput
-	47, // 10: fleetify.agent.v1.AgentMessage.job_completion:type_name -> fleetify.agent.v1.JobCompletion
-	49, // 11: fleetify.agent.v1.AgentMessage.watchdog_certificate:type_name -> fleetify.agent.v1.WatchdogCertificateRequest
-	52, // 12: fleetify.agent.v1.AgentMessage.update_status:type_name -> fleetify.agent.v1.UpdateStatus
-	19, // 13: fleetify.agent.v1.ServerMessage.hello_ack:type_name -> fleetify.agent.v1.HelloAck
-	34, // 14: fleetify.agent.v1.ServerMessage.batch_ack:type_name -> fleetify.agent.v1.BatchAck
-	37, // 15: fleetify.agent.v1.ServerMessage.config:type_name -> fleetify.agent.v1.SignedConfig
-	36, // 16: fleetify.agent.v1.ServerMessage.renew_certificate:type_name -> fleetify.agent.v1.RenewCertificateResponse
-	22, // 17: fleetify.agent.v1.ServerMessage.ping:type_name -> fleetify.agent.v1.Ping
-	53, // 18: fleetify.agent.v1.ServerMessage.disconnect:type_name -> fleetify.agent.v1.Disconnect
-	24, // 19: fleetify.agent.v1.ServerMessage.inventory_request:type_name -> fleetify.agent.v1.InventoryRequest
-	25, // 20: fleetify.agent.v1.ServerMessage.run_checks_now:type_name -> fleetify.agent.v1.RunChecksNow
-	41, // 21: fleetify.agent.v1.ServerMessage.job:type_name -> fleetify.agent.v1.SignedJob
-	48, // 22: fleetify.agent.v1.ServerMessage.job_ack:type_name -> fleetify.agent.v1.JobAck
-	51, // 23: fleetify.agent.v1.ServerMessage.update_offer:type_name -> fleetify.agent.v1.UpdateOffer
-	50, // 24: fleetify.agent.v1.ServerMessage.watchdog_certificate:type_name -> fleetify.agent.v1.WatchdogCertificateResponse
-	15, // 25: fleetify.agent.v1.Hello.os:type_name -> fleetify.agent.v1.OsInfo
-	0,  // 26: fleetify.agent.v1.Hello.component:type_name -> fleetify.agent.v1.Component
-	55, // 27: fleetify.agent.v1.HelloAck.server_time:type_name -> google.protobuf.Timestamp
-	55, // 28: fleetify.agent.v1.Heartbeat.agent_time:type_name -> google.protobuf.Timestamp
-	21, // 29: fleetify.agent.v1.Heartbeat.peer:type_name -> fleetify.agent.v1.PeerStatus
-	1,  // 30: fleetify.agent.v1.PeerStatus.state:type_name -> fleetify.agent.v1.ServiceState
-	27, // 31: fleetify.agent.v1.InventoryReport.inventory:type_name -> fleetify.agent.v1.Inventory
-	15, // 32: fleetify.agent.v1.Inventory.os:type_name -> fleetify.agent.v1.OsInfo
-	29, // 33: fleetify.agent.v1.Inventory.disks:type_name -> fleetify.agent.v1.Disk
-	30, // 34: fleetify.agent.v1.Inventory.network_interfaces:type_name -> fleetify.agent.v1.NetworkInterface
-	31, // 35: fleetify.agent.v1.Inventory.software:type_name -> fleetify.agent.v1.SoftwareItem
-	55, // 36: fleetify.agent.v1.Inventory.boot_time:type_name -> google.protobuf.Timestamp
-	28, // 37: fleetify.agent.v1.Inventory.services:type_name -> fleetify.agent.v1.ServiceItem
-	33, // 38: fleetify.agent.v1.CheckResultBatch.results:type_name -> fleetify.agent.v1.CheckResult
-	55, // 39: fleetify.agent.v1.CheckResult.collected_at:type_name -> google.protobuf.Timestamp
-	55, // 40: fleetify.agent.v1.AgentConfig.issued_at:type_name -> google.protobuf.Timestamp
-	2,  // 41: fleetify.agent.v1.AgentConfig.tier:type_name -> fleetify.agent.v1.Tier
-	39, // 42: fleetify.agent.v1.AgentConfig.checks:type_name -> fleetify.agent.v1.CheckSpec
-	3,  // 43: fleetify.agent.v1.CheckSpec.type:type_name -> fleetify.agent.v1.CheckType
-	54, // 44: fleetify.agent.v1.CheckSpec.parameters:type_name -> fleetify.agent.v1.CheckSpec.ParametersEntry
-	43, // 45: fleetify.agent.v1.CheckSpec.script:type_name -> fleetify.agent.v1.ScriptJob
-	4,  // 46: fleetify.agent.v1.JobPayload.type:type_name -> fleetify.agent.v1.JobType
-	55, // 47: fleetify.agent.v1.JobPayload.valid_until:type_name -> google.protobuf.Timestamp
-	43, // 48: fleetify.agent.v1.JobPayload.script:type_name -> fleetify.agent.v1.ScriptJob
-	5,  // 49: fleetify.agent.v1.ScriptJob.language:type_name -> fleetify.agent.v1.ScriptLanguage
-	55, // 50: fleetify.agent.v1.JobStarted.started_at:type_name -> google.protobuf.Timestamp
-	6,  // 51: fleetify.agent.v1.JobOutput.stream:type_name -> fleetify.agent.v1.JobStream
-	7,  // 52: fleetify.agent.v1.JobCompletion.result:type_name -> fleetify.agent.v1.JobResult
-	46, // 53: fleetify.agent.v1.JobCompletion.stdout:type_name -> fleetify.agent.v1.JobStreamSummary
-	46, // 54: fleetify.agent.v1.JobCompletion.stderr:type_name -> fleetify.agent.v1.JobStreamSummary
-	55, // 55: fleetify.agent.v1.JobCompletion.finished_at:type_name -> google.protobuf.Timestamp
-	8,  // 56: fleetify.agent.v1.JobAck.kind:type_name -> fleetify.agent.v1.JobAckKind
-	6,  // 57: fleetify.agent.v1.JobAck.stream:type_name -> fleetify.agent.v1.JobStream
-	0,  // 58: fleetify.agent.v1.UpdateStatus.component:type_name -> fleetify.agent.v1.Component
-	9,  // 59: fleetify.agent.v1.UpdateStatus.state:type_name -> fleetify.agent.v1.UpdateState
-	10, // 60: fleetify.agent.v1.Disconnect.code:type_name -> fleetify.agent.v1.DisconnectCode
+	15, // 0: fleeto.agent.v1.EnrollRequest.os:type_name -> fleeto.agent.v1.OsInfo
+	18, // 1: fleeto.agent.v1.AgentMessage.hello:type_name -> fleeto.agent.v1.Hello
+	20, // 2: fleeto.agent.v1.AgentMessage.heartbeat:type_name -> fleeto.agent.v1.Heartbeat
+	26, // 3: fleeto.agent.v1.AgentMessage.inventory:type_name -> fleeto.agent.v1.InventoryReport
+	32, // 4: fleeto.agent.v1.AgentMessage.check_results:type_name -> fleeto.agent.v1.CheckResultBatch
+	35, // 5: fleeto.agent.v1.AgentMessage.renew_certificate:type_name -> fleeto.agent.v1.RenewCertificateRequest
+	40, // 6: fleeto.agent.v1.AgentMessage.config_applied:type_name -> fleeto.agent.v1.ConfigApplied
+	23, // 7: fleeto.agent.v1.AgentMessage.pong:type_name -> fleeto.agent.v1.Pong
+	44, // 8: fleeto.agent.v1.AgentMessage.job_started:type_name -> fleeto.agent.v1.JobStarted
+	45, // 9: fleeto.agent.v1.AgentMessage.job_output:type_name -> fleeto.agent.v1.JobOutput
+	47, // 10: fleeto.agent.v1.AgentMessage.job_completion:type_name -> fleeto.agent.v1.JobCompletion
+	49, // 11: fleeto.agent.v1.AgentMessage.watchdog_certificate:type_name -> fleeto.agent.v1.WatchdogCertificateRequest
+	52, // 12: fleeto.agent.v1.AgentMessage.update_status:type_name -> fleeto.agent.v1.UpdateStatus
+	19, // 13: fleeto.agent.v1.ServerMessage.hello_ack:type_name -> fleeto.agent.v1.HelloAck
+	34, // 14: fleeto.agent.v1.ServerMessage.batch_ack:type_name -> fleeto.agent.v1.BatchAck
+	37, // 15: fleeto.agent.v1.ServerMessage.config:type_name -> fleeto.agent.v1.SignedConfig
+	36, // 16: fleeto.agent.v1.ServerMessage.renew_certificate:type_name -> fleeto.agent.v1.RenewCertificateResponse
+	22, // 17: fleeto.agent.v1.ServerMessage.ping:type_name -> fleeto.agent.v1.Ping
+	53, // 18: fleeto.agent.v1.ServerMessage.disconnect:type_name -> fleeto.agent.v1.Disconnect
+	24, // 19: fleeto.agent.v1.ServerMessage.inventory_request:type_name -> fleeto.agent.v1.InventoryRequest
+	25, // 20: fleeto.agent.v1.ServerMessage.run_checks_now:type_name -> fleeto.agent.v1.RunChecksNow
+	41, // 21: fleeto.agent.v1.ServerMessage.job:type_name -> fleeto.agent.v1.SignedJob
+	48, // 22: fleeto.agent.v1.ServerMessage.job_ack:type_name -> fleeto.agent.v1.JobAck
+	51, // 23: fleeto.agent.v1.ServerMessage.update_offer:type_name -> fleeto.agent.v1.UpdateOffer
+	50, // 24: fleeto.agent.v1.ServerMessage.watchdog_certificate:type_name -> fleeto.agent.v1.WatchdogCertificateResponse
+	15, // 25: fleeto.agent.v1.Hello.os:type_name -> fleeto.agent.v1.OsInfo
+	0,  // 26: fleeto.agent.v1.Hello.component:type_name -> fleeto.agent.v1.Component
+	55, // 27: fleeto.agent.v1.HelloAck.server_time:type_name -> google.protobuf.Timestamp
+	55, // 28: fleeto.agent.v1.Heartbeat.agent_time:type_name -> google.protobuf.Timestamp
+	21, // 29: fleeto.agent.v1.Heartbeat.peer:type_name -> fleeto.agent.v1.PeerStatus
+	1,  // 30: fleeto.agent.v1.PeerStatus.state:type_name -> fleeto.agent.v1.ServiceState
+	27, // 31: fleeto.agent.v1.InventoryReport.inventory:type_name -> fleeto.agent.v1.Inventory
+	15, // 32: fleeto.agent.v1.Inventory.os:type_name -> fleeto.agent.v1.OsInfo
+	29, // 33: fleeto.agent.v1.Inventory.disks:type_name -> fleeto.agent.v1.Disk
+	30, // 34: fleeto.agent.v1.Inventory.network_interfaces:type_name -> fleeto.agent.v1.NetworkInterface
+	31, // 35: fleeto.agent.v1.Inventory.software:type_name -> fleeto.agent.v1.SoftwareItem
+	55, // 36: fleeto.agent.v1.Inventory.boot_time:type_name -> google.protobuf.Timestamp
+	28, // 37: fleeto.agent.v1.Inventory.services:type_name -> fleeto.agent.v1.ServiceItem
+	33, // 38: fleeto.agent.v1.CheckResultBatch.results:type_name -> fleeto.agent.v1.CheckResult
+	55, // 39: fleeto.agent.v1.CheckResult.collected_at:type_name -> google.protobuf.Timestamp
+	55, // 40: fleeto.agent.v1.AgentConfig.issued_at:type_name -> google.protobuf.Timestamp
+	2,  // 41: fleeto.agent.v1.AgentConfig.tier:type_name -> fleeto.agent.v1.Tier
+	39, // 42: fleeto.agent.v1.AgentConfig.checks:type_name -> fleeto.agent.v1.CheckSpec
+	3,  // 43: fleeto.agent.v1.CheckSpec.type:type_name -> fleeto.agent.v1.CheckType
+	54, // 44: fleeto.agent.v1.CheckSpec.parameters:type_name -> fleeto.agent.v1.CheckSpec.ParametersEntry
+	43, // 45: fleeto.agent.v1.CheckSpec.script:type_name -> fleeto.agent.v1.ScriptJob
+	4,  // 46: fleeto.agent.v1.JobPayload.type:type_name -> fleeto.agent.v1.JobType
+	55, // 47: fleeto.agent.v1.JobPayload.valid_until:type_name -> google.protobuf.Timestamp
+	43, // 48: fleeto.agent.v1.JobPayload.script:type_name -> fleeto.agent.v1.ScriptJob
+	5,  // 49: fleeto.agent.v1.ScriptJob.language:type_name -> fleeto.agent.v1.ScriptLanguage
+	55, // 50: fleeto.agent.v1.JobStarted.started_at:type_name -> google.protobuf.Timestamp
+	6,  // 51: fleeto.agent.v1.JobOutput.stream:type_name -> fleeto.agent.v1.JobStream
+	7,  // 52: fleeto.agent.v1.JobCompletion.result:type_name -> fleeto.agent.v1.JobResult
+	46, // 53: fleeto.agent.v1.JobCompletion.stdout:type_name -> fleeto.agent.v1.JobStreamSummary
+	46, // 54: fleeto.agent.v1.JobCompletion.stderr:type_name -> fleeto.agent.v1.JobStreamSummary
+	55, // 55: fleeto.agent.v1.JobCompletion.finished_at:type_name -> google.protobuf.Timestamp
+	8,  // 56: fleeto.agent.v1.JobAck.kind:type_name -> fleeto.agent.v1.JobAckKind
+	6,  // 57: fleeto.agent.v1.JobAck.stream:type_name -> fleeto.agent.v1.JobStream
+	0,  // 58: fleeto.agent.v1.UpdateStatus.component:type_name -> fleeto.agent.v1.Component
+	9,  // 59: fleeto.agent.v1.UpdateStatus.state:type_name -> fleeto.agent.v1.UpdateState
+	10, // 60: fleeto.agent.v1.Disconnect.code:type_name -> fleeto.agent.v1.DisconnectCode
 	61, // [61:61] is the sub-list for method output_type
 	61, // [61:61] is the sub-list for method input_type
 	61, // [61:61] is the sub-list for extension type_name

@@ -26,13 +26,13 @@ import (
 
 // Names of the watchdog service (0.2.1).
 const (
-	WatchdogServiceName = "fleetify-watchdog"
+	WatchdogServiceName = "fleeto-watchdog"
 	WatchdogDisplayName = "Fleeto Watchdog"
 	WatchdogDescription = "Fleeto Watchdog: keeps the Fleeto Agent running and installs its updates."
 	// WatchdogKeyName is the CNG key name of the watchdog identity.
-	WatchdogKeyName = "Fleetify Watchdog Identity"
+	WatchdogKeyName = "Fleeto Watchdog Identity"
 	// AgentServiceName is the service name of the agent, supervised by the watchdog.
-	AgentServiceName = "fleetify-agent"
+	AgentServiceName = "fleeto-agent"
 
 	watchdogCertificateWait = 2 * time.Minute
 	supervisionInterval     = 30 * time.Second

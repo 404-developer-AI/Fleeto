@@ -14,7 +14,7 @@ import (
 
 const (
 	// Name is the service name.
-	Name = "fleetify-agent"
+	Name = "fleeto-agent"
 	// DisplayName is shown in the Services console.
 	DisplayName = "Fleeto Agent"
 	// Description is shown in the Services console.
@@ -22,7 +22,7 @@ const (
 )
 
 // ErrUnsupported is returned on platforms without service support yet.
-var ErrUnsupported = errors.New("installing the agent as a service is not supported on this platform yet; use 'fleetify-agent run --foreground' for now")
+var ErrUnsupported = errors.New("installing the agent as a service is not supported on this platform yet; use 'fleeto-agent run --foreground' for now")
 
 // InstallOptions holds the install command arguments.
 type InstallOptions struct {

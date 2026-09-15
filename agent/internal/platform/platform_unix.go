@@ -11,39 +11,39 @@ import (
 // DefaultStateDir is the state directory of the agent service.
 func DefaultStateDir() string {
 	if runtime.GOOS == "darwin" {
-		return "/Library/Application Support/Fleetify/Agent"
+		return "/Library/Application Support/Fleeto/Agent"
 	}
-	return "/var/lib/fleetify-agent"
+	return "/var/lib/fleeto-agent"
 }
 
 // ProgramDir is where the agent binary is installed.
 func ProgramDir() string {
 	if runtime.GOOS == "darwin" {
-		return "/Library/Fleetify/Agent"
+		return "/Library/Fleeto/Agent"
 	}
-	return "/opt/fleetify-agent"
+	return "/opt/fleeto-agent"
 }
 
 // BinaryName is the file name of the agent executable.
-const BinaryName = "fleetify-agent"
+const BinaryName = "fleeto-agent"
 
 // WatchdogBinaryName is the file name of the watchdog executable (0.2.1).
-const WatchdogBinaryName = "fleetify-watchdog"
+const WatchdogBinaryName = "fleeto-watchdog"
 
 // WatchdogStateDir is the state directory of the watchdog service.
 func WatchdogStateDir() string {
 	if runtime.GOOS == "darwin" {
-		return "/Library/Application Support/Fleetify/Watchdog"
+		return "/Library/Application Support/Fleeto/Watchdog"
 	}
-	return "/var/lib/fleetify-watchdog"
+	return "/var/lib/fleeto-watchdog"
 }
 
 // DataDir holds the markers shared by agent and watchdog.
 func DataDir() string {
 	if runtime.GOOS == "darwin" {
-		return "/Library/Application Support/Fleetify"
+		return "/Library/Application Support/Fleeto"
 	}
-	return "/var/lib/fleetify"
+	return "/var/lib/fleeto"
 }
 
 // IsElevated reports whether the process runs as root.

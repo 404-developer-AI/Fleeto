@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 #
-# fleetify-caddy: the host-level reverse proxy, one per VPS. Caddy with the layer4 module (caddy-l4), so connections
+# fleeto-caddy: the host-level reverse proxy, one per VPS. Caddy with the layer4 module (caddy-l4), so connections
 # for agents.<fqdn> are routed by TLS SNI to the instance gateway without being decrypted. Build context: this
-# directory (no files are copied in). Released as ghcr.io/404-developer-ai/fleetify-caddy and pulled by digest.
+# directory (no files are copied in). Released as ghcr.io/404-developer-ai/fleeto-caddy and pulled by digest.
 #
 # Versions are pinned: Caddy by tag, caddy-l4 by tag (module content is verified against the Go checksum database),
 # base images by digest. Bump them together and re-run the Caddyfile adapt test in CI.

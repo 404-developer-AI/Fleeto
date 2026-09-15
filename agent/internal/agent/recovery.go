@@ -68,7 +68,7 @@ func (a *Agent) recoverCertificate(ctx context.Context, st *state.State, tlsConf
 	}
 	req.Header.Set("Content-Type", enroll.ContentType)
 	req.Header.Set("Accept", enroll.ContentType+", application/problem+json")
-	req.Header.Set("User-Agent", "fleetify-agent/"+version.Version)
+	req.Header.Set("User-Agent", "fleeto-agent/"+version.Version)
 
 	resp, err := client.Do(req)
 	if err != nil {

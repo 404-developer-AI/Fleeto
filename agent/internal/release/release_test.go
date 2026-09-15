@@ -13,9 +13,9 @@ const validManifest = `{
   "version": "0.2.1",
   "images": {"web": "sha256:00"},
   "agentBinaries": [
-    {"component": "agent", "platform": "windows", "architecture": "amd64", "file": "windows-amd64/fleetify-agent.exe",
+    {"component": "agent", "platform": "windows", "architecture": "amd64", "file": "windows-amd64/fleeto-agent.exe",
      "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08", "size": 1234},
-    {"component": "watchdog", "platform": "windows", "architecture": "amd64", "file": "windows-amd64/fleetify-watchdog.exe",
+    {"component": "watchdog", "platform": "windows", "architecture": "amd64", "file": "windows-amd64/fleeto-watchdog.exe",
      "sha256": "60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752", "size": 999}
   ]
 }`
@@ -58,12 +58,12 @@ func TestVerifyAcceptsOnlyTrustedSignatures(t *testing.T) {
 func TestParseRefusesInvalidBinaries(t *testing.T) {
 	cases := map[string]string{
 		"path traversal":    `"file": "windows-amd64/../../evil.exe"`,
-		"other name":        `"file": "windows-amd64/fleetify-other.exe"`,
-		"platform mismatch": `"file": "linux-amd64/fleetify-agent"`,
+		"other name":        `"file": "windows-amd64/fleeto-other.exe"`,
+		"platform mismatch": `"file": "linux-amd64/fleeto-agent"`,
 	}
 	for name, replacement := range cases {
 		t.Run(name, func(t *testing.T) {
-			bad := strings.Replace(validManifest, `"file": "windows-amd64/fleetify-agent.exe"`, replacement, 1)
+			bad := strings.Replace(validManifest, `"file": "windows-amd64/fleeto-agent.exe"`, replacement, 1)
 			if _, err := Parse([]byte(bad)); err == nil {
 				t.Fatal("an invalid binary was accepted")
 			}
@@ -74,9 +74,9 @@ func TestParseRefusesInvalidBinaries(t *testing.T) {
 		"version":      strings.Replace(validManifest, `"version": "0.2.1"`, `"version": "latest"`, 1),
 		"sha":          strings.Replace(validManifest, "9f86d081", "XYZd081", 1),
 		"size":         strings.Replace(validManifest, `"size": 1234`, `"size": 999999999999`, 1),
-		"duplicate":    strings.Replace(validManifest, `"component": "watchdog", "platform": "windows", "architecture": "amd64", "file": "windows-amd64/fleetify-watchdog.exe"`, `"component": "agent", "platform": "windows", "architecture": "amd64", "file": "windows-amd64/fleetify-agent.exe"`, 1),
+		"duplicate":    strings.Replace(validManifest, `"component": "watchdog", "platform": "windows", "architecture": "amd64", "file": "windows-amd64/fleeto-watchdog.exe"`, `"component": "agent", "platform": "windows", "architecture": "amd64", "file": "windows-amd64/fleeto-agent.exe"`, 1),
 		"not json":     `{`,
-		"missing file": strings.Replace(validManifest, `"file": "windows-amd64/fleetify-agent.exe",`, "", 1),
+		"missing file": strings.Replace(validManifest, `"file": "windows-amd64/fleeto-agent.exe",`, "", 1),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := Parse([]byte(bad)); err == nil {

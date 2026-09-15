@@ -11,7 +11,7 @@
 |---|---|---|---|
 | Company | **Steaan** | `steaan.com` | Umbrella brand, "Focused software for IT teams, built in Belgium." |
 | Product | **Fleeto** | `fleeto.app` (to register) | Remote monitoring and management. Always "Fleeto · by Steaan" when the company is mentioned. |
-| Internal code | **Fleetify** | repo, namespaces, Docker | Never user-visible. Mirrors the Migravo/Migrify convention. See §7. |
+| Internal code | **Fleeto** | repo, namespaces, Docker, services | The same name as the product (decided 2026-09-15; until then the internal name was Fleetify). See §7. |
 
 Sibling products: Migravo (mailbox migration), Ticksy (servicedesk). Same design tokens across all three.
 
@@ -101,18 +101,26 @@ Use these terms consistently in UI, docs and email; do not introduce synonyms.
 
 Intervals are written in plain language: "every 30 seconds", "every 5 minutes", "once a month".
 
-## 7. Internal naming (Fleetify)
+## 7. Internal naming
 
-User-visible text says Fleeto; the following use **Fleetify** and must not be renamed:
+**Fleeto** is the only name, in user-visible text and internally (decided 2026-09-15). Until then the code used the internal
+name Fleetify, following the Migravo/Migrify convention; it was renamed everywhere in 0.2.1:
 
-- .NET namespaces and projects (`Fleetify.Web`, `Fleetify.Core`, `Fleetify.Infrastructure`, `Fleetify.Agent`)
-- Repository name, Docker image, container and volume names
-- CSS bundle and token prefix `--fl-`
-- Environment variables and secret names (`FLEETIFY_ROOT_KEY_FILE`, ...)
-- Log file names `fleetify-{Date}.log`
-- Agent service names on endpoints (`fleetify-agent`, and `fleetify-watchdog` from 0.2.1)
+- .NET namespaces and projects (`Fleeto.Web`, `Fleeto.Core`, `Fleeto.Infrastructure`, ...) and the solution `Fleeto.slnx`
+- Docker images (`ghcr.io/404-developer-ai/fleeto-*`), Compose projects, containers and volumes, `/opt/fleeto`
+- Database `fleeto`, login roles `fleeto_*`, database functions and notification channels
+- Environment variables, configuration sections and secret names (`FLEETO_ROOT`, `Fleeto__Database__Name`, ...)
+- Log file names `fleeto-{Date}.log`, signature contexts (`fleeto-job-v1`, ...), key file prefixes, certificate names
+- Agent service names on endpoints (`fleeto-agent`, `fleeto-watchdog`) and their folders (`C:\Program Files\Fleeto`,
+  `C:\ProgramData\Fleeto`)
+- CSS bundle and token prefix `--fl-` (unchanged: it fits both names)
 
-Check: `grep -rn "Fleetify" src/**/*.razor` should return identifiers only, never a string a customer can see.
+The old name survives only where data from before the rename is read: agent certificates, wrapped data keys, license
+documents, backup files and key files, an existing database, VPS layout and endpoint installation. Those places are listed in
+`deploy/ci/branding-check.sh` (`LEGACY_FILES`) and described in `MD-Files/ARCHITECTURE.md` §7, Rename to Fleeto. They are
+removed once no installation from before 0.2.1 exists.
+
+Check: `bash deploy/ci/branding-check.sh` fails on the old name anywhere else, and on "device" or "machine" in UI text.
 
 ## 8. Tone of voice
 

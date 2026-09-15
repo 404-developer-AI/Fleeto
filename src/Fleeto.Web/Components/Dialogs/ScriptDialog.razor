@@ -1,0 +1,79 @@
+@using Fleeto.Core.Domain
+@* Create a script (name, description, language, global or one client, first version) or edit its name and description. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(IsEdit ? "Edit script" : "New script")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" MaxLength="100" AutoFocus="true" Class="mb-3" />
+        <MudTextField @bind-Value="_description" Label="Description (optional)" Variant="Variant.Outlined" Lines="2" MaxLength="1000" Class="mb-3" />
+        @if (!IsEdit)
+        {
+            <div class="d-flex gap-2 flex-wrap mb-3">
+                <MudSelect T="ScriptLanguage" @bind-Value="_language" Label="Language" Variant="Variant.Outlined" Style="min-width:220px">
+                    @foreach (var language in Enum.GetValues<ScriptLanguage>())
+                    {
+                        <MudSelectItem T="ScriptLanguage" Value="language">@ScriptLanguages.Label(language) (@ScriptLanguages.PlatformLabel(language))</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="Guid?" @bind-Value="_clientId" Label="Available for" Variant="Variant.Outlined" Style="min-width:220px">
+                    <MudSelectItem T="Guid?" Value="@((Guid?)null)">Global (all clients)</MudSelectItem>
+                    @foreach (var client in Clients)
+                    {
+                        <MudSelectItem T="Guid?" Value="@((Guid?)client.Id)">@client.Code - @client.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudNumericField T="int" @bind-Value="_timeoutMinutes" Label="Timeout (minutes)" Variant="Variant.Outlined" Min="1" Max="1440" Style="max-width:160px" />
+            </div>
+            <MudTextField @bind-Value="_body" Label="Script" Variant="Variant.Outlined" Lines="16" MaxLength="@ScriptRules.MaxBodyLength" Class="script-editor"
+                          HelperText="Runs as SYSTEM on Windows and as root on Linux. The exit code decides whether the job succeeded (0) or failed." />
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">@(IsEdit ? "Save" : "Create")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public bool IsEdit { get; set; }
+    [Parameter] public string InitialName { get; set; } = string.Empty;
+    [Parameter] public string? InitialDescription { get; set; }
+    [Parameter] public IReadOnlyList<ClientOption> Clients { get; set; } = [];
+    [Parameter] public Func<ScriptInput, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+
+    private string _name = string.Empty;
+    private string? _description;
+    private ScriptLanguage _language = ScriptLanguage.PowerShell;
+    private Guid? _clientId;
+    private int _timeoutMinutes = ScriptRules.DefaultTimeoutSeconds / 60;
+    private string? _body;
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        _name = InitialName;
+        _description = InitialDescription;
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(new ScriptInput(_name, _description, _language, _clientId, _body, _timeoutMinutes * 60)))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

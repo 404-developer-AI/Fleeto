@@ -22,7 +22,7 @@ func IsService() bool {
 	return err == nil && ok
 }
 
-// Serve is the service entry point of fleetify-watchdog.
+// Serve is the service entry point of fleeto-watchdog.
 func Serve() error {
 	return svc.Run(ServiceName, &handler{})
 }

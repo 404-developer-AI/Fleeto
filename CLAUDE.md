@@ -1,4 +1,4 @@
-# CLAUDE.md — Fleeto (internal: Fleetify)
+# CLAUDE.md — Fleeto
 
 Fleeto is an RMM (remote monitoring and management) platform by Steaan, for IT teams
 managing 1 to 10,000 endpoints across many clients. This file is the starting point for
@@ -240,7 +240,7 @@ customers never install Fleeto themselves.
 - First run on a VPS: installs Docker and the host-level reverse proxy.
 - New instance: asks for the **FQDN** (or takes `--fqdn rmm.customer.example`), checks that
   the FQDN and `agents.<fqdn>` resolve to this VPS, generates the root key, signer key and
-  database passwords, writes the Compose files under `/opt/fleetify/<instance>/`, pulls the
+  database passwords, writes the Compose files under `/opt/fleeto/<instance>/`, pulls the
   images, runs migrations, starts the stack, registers the HTTPS route and the agent SNI
   passthrough route with the reverse proxy and prints the URL plus the one-time first-admin
   setup link.
@@ -260,10 +260,10 @@ customers never install Fleeto themselves.
 
 Ubuntu VPS, Docker Compose, one stack per instance behind one host-level **caddy** (reverse
 proxy, automatic TLS, routes by FQDN; agent traffic to `agents.<fqdn>` is passed through by
-SNI, never terminated, with a PROXY protocol header so the gateway sees agent addresses). Per instance: **fleetify-web** (Blazor Server UI + public REST API,
-.NET, MudBlazor, Migrify conventions), **fleetify-gateway** (mTLS WebSocket endpoint for
-agents, remote control relay), **fleetify-signer** (the only holder of the instance signing
-key and internal CA, no listening port), **fleetify-workers** (checks, alerting, integration
+SNI, never terminated, with a PROXY protocol header so the gateway sees agent addresses). Per instance: **fleeto-web** (Blazor Server UI + public REST API,
+.NET, MudBlazor, Migrify conventions), **fleeto-gateway** (mTLS WebSocket endpoint for
+agents, remote control relay), **fleeto-signer** (the only holder of the instance signing
+key and internal CA, no listening port), **fleeto-workers** (checks, alerting, integration
 pollers, patch orchestration, retention, backups) and **postgres** (PostgreSQL 17 +
 TimescaleDB, the only durable store; its LISTEN/NOTIFY carries cross-container notifications, never
 the only copy of anything). Agents are one Go codebase, one static binary per platform; from
@@ -279,11 +279,11 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
 - **Revocation**: the gateway accepts a client certificate only when it is on the allow list in the database (issued, not revoked, not expired) and drops live connections the moment a certificate is revoked. Deleting an endpoint revokes its certificates. A certificate connecting twice at once is refused and raises an alert (cloned VM).
 - **Two signing keys, never mixed** (ed25519):
   - the **Steaan release key** signs agent binaries, `install.sh` and the release manifest. It lives offline on a hardware token, never on a VPS or in CI secrets; its public keys are compiled into the agent and `install.sh`. A compromised instance cannot push an agent update.
-  - the **instance signing key** signs jobs, policies, check definitions and remote control session tokens for one instance. It is held only by **fleetify-signer**, which re-checks role, tier, script approval and validity before signing. Agents pin its public key at enrollment.
+  - the **instance signing key** signs jobs, policies, check definitions and remote control session tokens for one instance. It is held only by **fleeto-signer**, which re-checks role, tier, script approval and validity before signing. Agents pin its public key at enrollment.
   The key ceremony is documented in `MD-Files/ARCHITECTURE.md`.
 - **Jobs expire**: every signed job carries `InstanceId`, `EndpointId` and `ValidUntil` (default 24 hours, maximum 7 days). Signer, gateway and agent all refuse expired jobs.
 - **Script approval**: per policy, scripts can require approval by a second admin (fresh TOTP) before they run; each change needs new approval. Off by default, recommended for servers.
-- **Accepted risk**: full control of fleetify-web still lets an attacker get jobs signed within the signer's rules. The signer keeps the key out of web, enforces the rules and rate limits, and is the single audited choke point. Documented in `MD-Files/ARCHITECTURE.md` §5.
+- **Accepted risk**: full control of fleeto-web still lets an attacker get jobs signed within the signer's rules. The signer keeps the key out of web, enforces the rules and rate limits, and is the single audited choke point. Documented in `MD-Files/ARCHITECTURE.md` §5.
 - **Command authorization**: every job records who initiated it, when, on which endpoints, with what payload. Immutable audit log for all privileged actions (script run, script approval, patch, remote control session, credential change, API key change, license change, login, permission change, certificate revocation, client or site deletion).
 - **Remote control** is the highest-risk feature: per-session tokens, end-to-end encryption, visible on the endpoint, policy-controlled consent, audited, managed endpoints only.
 - **Remote terminal** (0.3.0): interactive terminal as SYSTEM with the same session token and end-to-end encryption as remote control, audited per session, managed endpoints only. Available to admins and technicians also where script approval is required: accepted risk, documented in `MD-Files/ARCHITECTURE.md` §5.
@@ -298,7 +298,7 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
   Veeam, vCenter, Proxmox, Action1), SMTP, Microsoft Entra ID and Microsoft Graph client secrets
   or certificates (with their expiry date, warned about before they expire), webhook secrets, backup destination credentials,
   the instance signing key and internal CA key (encrypted under the signer key, readable
-  only by fleetify-signer), TOTP seeds, enrollment tokens and API keys (hashed), the license
+  only by fleeto-signer), TOTP seeds, enrollment tokens and API keys (hashed), the license
   document. Nothing in `.env`, `appsettings` or any other file on the server, and nothing in
   the repository. The Steaan release and license signing keys never touch a server at all.
 - **Envelope encryption**: one root key (KEK) wraps per-purpose data keys (DEKs) that are
@@ -346,7 +346,7 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
 - Dashboard queries read continuous aggregates, never raw hypertables.
 - Live endpoint status via database notifications pushed to the UI, not polling loops.
 - Remote control: under 100 ms input latency on a LAN-quality link, adaptive quality on poor links.
-- Load-test the gateway and ingest path at 10,000 simulated agents before calling anything done; keep the simulator (`Fleetify.LoadTest`) in the repo. Size one VPS for several instances; document the per-instance footprint.
+- Load-test the gateway and ingest path at 10,000 simulated agents before calling anything done; keep the simulator (`Fleeto.LoadTest`) in the repo. Size one VPS for several instances; document the per-instance footprint.
 
 ## Integrations
 
@@ -386,12 +386,14 @@ home-grown patch engine, file transfer inside remote control. Note them, do not 
 
 ## Conventions
 
-- Namespaces, images, env vars, service names: **Fleetify**. User-visible text: **Fleeto**. Run the grep check from `MD-Files/branding-fleeto.md` §7 before every release.
+- **Fleeto is the only name**: namespaces, images, env vars, service names, database objects and user-visible text (decided
+  2026-09-15; the internal name Fleetify was renamed in 0.2.1). The old name appears only in the migration code listed in
+  `deploy/ci/branding-check.sh`. Run that check (`MD-Files/branding-fleeto.md` §7) before every release.
 - UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, monitoring template, client template, integration, note, remote control session, API key).
 - Follow the Migrify codebase conventions where they exist (project layout, EF Core patterns, MudBlazor usage, email templates).
 - Tests: unit tests for domain logic, integration tests against real PostgreSQL in CI, the cross-client tests from Security, license-tier enforcement tests, signer rule tests (refused roles, tiers, unapproved scripts, expired jobs), certificate revocation tests, and the load-test scenario. New features without tests are not done, and neither are new features
   that are not in `MD-Files/API.md` or on `MD-Files/API-WAITLIST.md` (see Public API).
-- CI on GitHub Actions: build, tests, vulnerability scan, secret scan, the Fleetify grep check. A release is a tagged commit that passes CI.
+- CI on GitHub Actions: build, tests, vulnerability scan, secret scan, the Fleeto grep check. A release is a tagged commit that passes CI.
 
 ## Open decisions (revisit before building)
 

@@ -27,7 +27,7 @@ const (
 	// DefaultFileName is the key file name for KindFile.
 	DefaultFileName = "agent-identity.key"
 	// DefaultCNGName is the CNG key name for KindCNG.
-	DefaultCNGName = "Fleetify Agent Identity"
+	DefaultCNGName = "Fleeto Agent Identity"
 )
 
 // ErrUnsupported is returned when a key kind is not available on this platform.
@@ -93,7 +93,7 @@ func CreateCSR(rand io.Reader, key crypto.Signer, hostname string) ([]byte, erro
 		return nil, errors.New("the identity key is not an ECDSA P-256 key")
 	}
 	template := &x509.CertificateRequest{
-		Subject:            pkix.Name{CommonName: hostname, Organization: []string{"Fleetify"}},
+		Subject:            pkix.Name{CommonName: hostname, Organization: []string{"Fleeto"}},
 		SignatureAlgorithm: x509.ECDSAWithSHA256,
 	}
 	der, err := x509.CreateCertificateRequest(rand, template, key)

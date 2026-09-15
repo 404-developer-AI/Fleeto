@@ -122,7 +122,7 @@ func TestProcessCheckFindsTheTestProcess(t *testing.T) {
 	if len(m) != 1 || m[0].Value < 1 {
 		t.Fatalf("the test process %s was not found: %+v", name, m)
 	}
-	absent := run(t, agentv1.CheckType_CHECK_TYPE_PROCESS_RUNNING, map[string]string{"process": "fleetify-no-such-process"})
+	absent := run(t, agentv1.CheckType_CHECK_TYPE_PROCESS_RUNNING, map[string]string{"process": "fleeto-no-such-process"})
 	if absent[0].Value != 0 || absent[0].Error != "" {
 		t.Fatalf("absent process: %+v", absent)
 	}

@@ -1,11 +1,11 @@
-# Fleeto instance stack. install.sh copies this template to /opt/fleetify/<instance>/compose.yml and runs it as
-# Compose project "fleetify-<instance>":
+# Fleeto instance stack. install.sh copies this template to /opt/fleeto/<instance>/compose.yml and runs it as
+# Compose project "fleeto-<instance>":
 #
-#   docker compose --project-name fleetify-<instance> --env-file /opt/fleetify/<instance>/instance.conf \
-#     -f /opt/fleetify/<instance>/compose.yml up -d
+#   docker compose --project-name fleeto-<instance> --env-file /opt/fleeto/<instance>/instance.conf \
+#     -f /opt/fleeto/<instance>/compose.yml up -d
 #
 # This file and instance.conf contain NO secrets. instance.conf holds the FQDN, the version, the two loopback ports
-# and the image references (by digest). Secrets are root-owned files in /opt/fleetify/<instance>/secrets/ (directory
+# and the image references (by digest). Secrets are root-owned files in /opt/fleeto/<instance>/secrets/ (directory
 # 0700, files 0440 root:10001) mounted as Docker secrets under /run/secrets, and only into the containers that need
 # them:
 #
@@ -18,7 +18,7 @@
 # and the gateway publish their port on 127.0.0.1 for the host Caddy; outbound NAT is off by default. "egress" gives
 # the workers outbound access (SMTP, backup storage). There is no Docker socket anywhere.
 
-name: fleetify-${FLEETIFY_INSTANCE:?FLEETIFY_INSTANCE must be set in instance.conf}
+name: fleeto-${FLEETO_INSTANCE:?FLEETO_INSTANCE must be set in instance.conf}
 
 x-logging: &logging
   driver: local
@@ -26,7 +26,7 @@ x-logging: &logging
     max-size: "20m"
     max-file: "5"
 
-# Hardening shared by every Fleetify container.
+# Hardening shared by every Fleeto container.
 x-app: &app
   restart: unless-stopped
   read_only: true
@@ -40,10 +40,10 @@ x-app: &app
   environment: &app-environment
     DOTNET_ENVIRONMENT: Production
     ASPNETCORE_ENVIRONMENT: Production
-    Fleetify__Secrets__Directory: /run/secrets
-    Fleetify__Database__Host: postgres
-    Fleetify__Database__Port: "5432"
-    Fleetify__Database__Name: fleetify
+    Fleeto__Secrets__Directory: /run/secrets
+    Fleeto__Database__Host: postgres
+    Fleeto__Database__Port: "5432"
+    Fleeto__Database__Name: fleeto
 
 services:
   postgres:
@@ -60,7 +60,7 @@ services:
     shm_size: 256m
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_DB: fleetify
+      POSTGRES_DB: fleeto
       POSTGRES_PASSWORD_FILE: /run/secrets/db-postgres.password
       # Password authentication over TCP; the superuser only through the local socket (peer), i.e. docker exec.
       POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=peer --encoding=UTF8"
@@ -78,16 +78,16 @@ services:
       # Copies each completed WAL segment into the spool directory shared with the workers, which encrypt and
       # upload it. See postgres/archive-wal.sh.
       - -c
-      - archive_command=/usr/local/bin/fleetify-archive-wal %p %f
+      - archive_command=/usr/local/bin/fleeto-archive-wal %p %f
       - -c
       - archive_timeout=300
       - -c
       - password_encryption=scram-sha-256
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./wal-spool:/var/lib/fleetify/wal-spool
+      - ./wal-spool:/var/lib/fleeto/wal-spool
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
-      - ./postgres/archive-wal.sh:/usr/local/bin/fleetify-archive-wal:ro
+      - ./postgres/archive-wal.sh:/usr/local/bin/fleeto-archive-wal:ro
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=64m
       - /var/run/postgresql:rw,noexec,nosuid,nodev,size=1m,uid=70,gid=70,mode=0775
@@ -104,7 +104,7 @@ services:
     healthcheck:
       # Over TCP on purpose: during first initialisation the temporary server listens on the socket only, and the
       # migrator must not start before the final server accepts TCP connections.
-      test: ["CMD", "pg_isready", "--host=127.0.0.1", "--port=5432", "--username=postgres", "--dbname=fleetify"]
+      test: ["CMD", "pg_isready", "--host=127.0.0.1", "--port=5432", "--username=postgres", "--dbname=fleeto"]
       interval: 10s
       timeout: 5s
       retries: 30
@@ -120,13 +120,13 @@ services:
     command:
       - migrate
       - --fqdn
-      - ${FLEETIFY_FQDN:?FLEETIFY_FQDN must be set in instance.conf}
+      - ${FLEETO_FQDN:?FLEETO_FQDN must be set in instance.conf}
       - --agent-host
-      - agents.${FLEETIFY_FQDN}
+      - agents.${FLEETO_FQDN}
       - --agent-port
       - "443"
       - --web-url
-      - https://${FLEETIFY_FQDN}
+      - https://${FLEETO_FQDN}
     secrets:
       - root.key
       - signer.key
@@ -193,13 +193,13 @@ services:
     image: ${WORKERS_IMAGE:?WORKERS_IMAGE must be set in instance.conf}
     environment:
       <<: *app-environment
-      Backup__WalSpoolDirectory: /var/lib/fleetify/wal-spool
-      Backup__TempDirectory: /var/lib/fleetify/work
+      Backup__WalSpoolDirectory: /var/lib/fleeto/wal-spool
+      Backup__TempDirectory: /var/lib/fleeto/work
     volumes:
       # Shared with postgres: WAL segments to encrypt and upload. Directory 2770 70:10001 on the host.
-      - ./wal-spool:/var/lib/fleetify/wal-spool
+      - ./wal-spool:/var/lib/fleeto/wal-spool
       # Scratch space for pg_dump output before encryption (too large for the /tmp tmpfs).
-      - ./work:/var/lib/fleetify/work
+      - ./work:/var/lib/fleeto/work
     secrets:
       - root.key
       - db-workers.password

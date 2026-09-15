@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Fleeto.Core/Fleeto.Core.csproj" />
+    <Project Path="src/Fleeto.Protocol/Fleeto.Protocol.csproj" />
+    <Project Path="src/Fleeto.Infrastructure/Fleeto.Infrastructure.csproj" />
+    <Project Path="src/Fleeto.Web/Fleeto.Web.csproj" />
+    <Project Path="src/Fleeto.Gateway/Fleeto.Gateway.csproj" />
+    <Project Path="src/Fleeto.Signer/Fleeto.Signer.csproj" />
+    <Project Path="src/Fleeto.Workers/Fleeto.Workers.csproj" />
+    <Project Path="src/Fleeto.Tools/Fleeto.Tools.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Fleeto.Testing/Fleeto.Testing.csproj" />
+    <Project Path="tests/Fleeto.Infrastructure.Tests/Fleeto.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Fleeto.Gateway.Tests/Fleeto.Gateway.Tests.csproj" />
+    <Project Path="tests/Fleeto.Signer.Tests/Fleeto.Signer.Tests.csproj" />
+    <Project Path="tests/Fleeto.Workers.Tests/Fleeto.Workers.Tests.csproj" />
+    <Project Path="tests/Fleeto.Web.Tests/Fleeto.Web.Tests.csproj" />
+    <Project Path="tests/Fleeto.LoadTest/Fleeto.LoadTest.csproj" />
+  </Folder>
+</Solution>

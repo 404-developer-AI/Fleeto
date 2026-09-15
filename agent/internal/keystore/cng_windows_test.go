@@ -13,7 +13,7 @@ import (
 
 // The TPM path, as a per-user key (no elevation). Skipped on machines without a usable TPM.
 func TestCNGUserKeyInTPMWhenAvailable(t *testing.T) {
-	ref := state.KeyRef{Kind: KindCNG, Provider: ProviderPlatform, Name: fmt.Sprintf("Fleetify Agent TPM Test %d", time.Now().UnixNano())}
+	ref := state.KeyRef{Kind: KindCNG, Provider: ProviderPlatform, Name: fmt.Sprintf("Fleeto Agent TPM Test %d", time.Now().UnixNano())}
 	key, ref, err := Create("", ref, 0)
 	if err != nil {
 		t.Skipf("no usable TPM: %v", err)
@@ -31,7 +31,7 @@ func TestCNGUserKeyInTPMWhenAvailable(t *testing.T) {
 
 // A per-user key in the software provider needs no elevation, so the CNG code path is tested on every run.
 func TestCNGUserKeyInSoftwareProvider(t *testing.T) {
-	ref := state.KeyRef{Kind: KindCNG, Provider: ProviderSoftware, Name: fmt.Sprintf("Fleetify Agent Test %d", time.Now().UnixNano())}
+	ref := state.KeyRef{Kind: KindCNG, Provider: ProviderSoftware, Name: fmt.Sprintf("Fleeto Agent Test %d", time.Now().UnixNano())}
 	key, ref, err := Create("", ref, 0)
 	if err != nil {
 		t.Fatalf("create: %v", err)

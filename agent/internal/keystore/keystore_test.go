@@ -13,7 +13,7 @@ import (
 
 func exerciseKey(t *testing.T, key Key) {
 	t.Helper()
-	digest := sha256.Sum256([]byte("fleetify"))
+	digest := sha256.Sum256([]byte("fleeto"))
 	sig, err := key.Sign(rand.Reader, digest[:], nil)
 	if err != nil {
 		t.Fatalf("sign: %v", err)

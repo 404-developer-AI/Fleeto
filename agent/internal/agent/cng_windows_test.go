@@ -19,7 +19,7 @@ import (
 func TestEnrollAndConnectWithCNGKey(t *testing.T) {
 	g := newFakeGateway(t)
 	dir := t.TempDir()
-	ref := state.KeyRef{Kind: keystore.KindCNG, Name: fmt.Sprintf("Fleetify Agent Session Test %d", time.Now().UnixNano())}
+	ref := state.KeyRef{Kind: keystore.KindCNG, Name: fmt.Sprintf("Fleeto Agent Session Test %d", time.Now().UnixNano())}
 	st, err := Enroll(context.Background(), EnrollParams{
 		StateDir: dir, Access: platform.AccessCurrentUser, Key: ref,
 		Server: g.addr(), Token: gwToken, CAFingerprint: g.ca.Fingerprint(), Logger: logging.Discard(),

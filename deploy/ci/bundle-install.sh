@@ -8,7 +8,7 @@
 # Usage:
 #   deploy/ci/bundle-install.sh --version 0.1.0 --release-public-keys "<base64>;<base64>" --out dist/install.sh
 #
-# --release-public-keys takes the same value as the FLEETIFY_RELEASE_PUBLIC_KEYS build property: semicolon-separated
+# --release-public-keys takes the same value as the FLEETO_RELEASE_PUBLIC_KEYS build property: semicolon-separated
 # base64 raw ed25519 public keys, current key first. Public keys only; no private key is ever an input.
 set -Eeuo pipefail
 
@@ -69,7 +69,7 @@ mapfile -t template_names < <(awk '/^readonly TEMPLATE_FILES=\(/ { inside = 1; n
     for name in "${template_names[@]}"; do
         file="$repo_root/deploy/$name"
         [[ -f "$file" ]] || fail "template deploy/$name does not exist"
-        delimiter="FLEETIFY_TEMPLATE_END_$(sha256sum "$file" | cut -c1-16)"
+        delimiter="FLEETO_TEMPLATE_END_$(sha256sum "$file" | cut -c1-16)"
         if grep -qx "$delimiter" "$file"; then
             fail "deploy/$name contains its heredoc delimiter"
         fi
@@ -86,8 +86,8 @@ mapfile -t template_names < <(awk '/^readonly TEMPLATE_FILES=\(/ { inside = 1; n
 } >"$templates_file"
 
 # --- Assemble --------------------------------------------------------------------------------------------------------
-start_marker='# >>> fleetify-bundle: templates'
-end_marker='# <<< fleetify-bundle: templates'
+start_marker='# >>> fleeto-bundle: templates'
+end_marker='# <<< fleeto-bundle: templates'
 [[ "$(grep -cxF "$start_marker" "$source_script")" -eq 1 && "$(grep -cxF "$end_marker" "$source_script")" -eq 1 ]] \
     || fail "template markers not found exactly once in install.sh"
 [[ "$(grep -cx 'STEAAN_RELEASE_PUBLIC_KEY_PEM' "$source_script")" -eq 1 ]] || fail "key placeholder line not found exactly once"
