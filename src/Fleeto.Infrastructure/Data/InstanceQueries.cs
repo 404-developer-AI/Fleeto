@@ -1,8 +1,8 @@
 using Fleeto.Core.Entities;
-using Fleeto.Infrastructure.Data;
+using Fleeto.Infrastructure.Email;
 using Microsoft.EntityFrameworkCore;
 
-namespace Fleeto.Workers.Common;
+namespace Fleeto.Infrastructure.Data;
 
 /// <summary>Identity of the instance as needed for links and object keys.</summary>
 public sealed record InstanceInfo(Guid InstanceId, string Fqdn, string WebBaseUrl)
@@ -10,6 +10,7 @@ public sealed record InstanceInfo(Guid InstanceId, string Fqdn, string WebBaseUr
     public string EndpointUrl(Guid endpointId) => $"{WebBaseUrl}/endpoints/{endpointId:D}";
     public string LicensingUrl => $"{WebBaseUrl}/settings/licensing";
     public string BackupsUrl => $"{WebBaseUrl}/settings/backups";
+    public string AuditLogUrl => $"{WebBaseUrl}/settings/audit-log";
 }
 
 /// <summary>Reads the instance identity and admin email addresses.</summary>
@@ -40,20 +41,4 @@ public static class InstanceQueries
 
         return emails.Select(e => e.Trim()).Where(EmailAddresses.IsPlausible).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
-}
-
-public static class EmailAddresses
-{
-    /// <summary>Splits a comma- or semicolon-separated recipient list into plausible, distinct addresses.</summary>
-    public static IReadOnlyList<string> Split(string? recipients) =>
-        (recipients ?? string.Empty)
-        .Split([',', ';', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-        .Where(IsPlausible)
-        .Distinct(StringComparer.OrdinalIgnoreCase)
-        .ToList();
-
-    /// <summary>A cheap sanity check; MimeKit parses the address properly at delivery time.</summary>
-    public static bool IsPlausible(string address) =>
-        address.Length is > 2 and <= 320 && address.IndexOf('@') > 0 && address.IndexOf('@') < address.Length - 1 &&
-        !address.Any(c => char.IsWhiteSpace(c) || char.IsControl(c));
 }

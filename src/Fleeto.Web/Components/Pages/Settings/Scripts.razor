@@ -2,8 +2,10 @@
 @attribute [Authorize(Policy = FleetoPolicies.Viewer)]
 @inherits FleetoPageBase
 @using Fleeto.Core.Domain
+@using Fleeto.Core.Entities
 @inject ScriptService ScriptSvc
 @inject ClientService ClientSvc
+@inject SettingsService SettingsSvc
 @inject IDialogService DialogService
 
 <PageTitle>Scripts - Fleeto</PageTitle>
@@ -22,6 +24,23 @@
 </div>
 
 <LoadState Loading="Loading" Failed="LoadFailed">
+    @if (IsAdmin)
+    {
+        @* A run on many endpoints at once is worth telling the other admins about (0.2.1). *@
+        <div class="fl-panel pa-4 mb-4" style="max-width:820px">
+            <MudText Typo="Typo.subtitle2" Class="mb-1">Notify admins of a large run</MudText>
+            <MudText Typo="Typo.body2" Class="muted mb-3">
+                Every admin gets an email when a technician starts a script on more endpoints than this. 0 turns the email off.
+            </MudText>
+            <div class="d-flex align-center" style="gap:12px">
+                <MudNumericField T="int" @bind-Value="_noticeAbove" Label="More than" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                 Min="0" Max="@ScriptRules.MaxEndpointsPerRun" Style="max-width:160px" />
+                <MudText Typo="Typo.body2" Class="muted">endpoints</MudText>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_savingNotice" OnClick="SaveNoticeAsync">Save</MudButton>
+            </div>
+        </div>
+    }
+
     @if (_scripts.Count == 0)
     {
         <EmptyState Icon="@Icons.Material.Outlined.Terminal" Title="No scripts yet"
@@ -63,6 +82,8 @@
 @code {
     private IReadOnlyList<ScriptListItem> _scripts = [];
     private IReadOnlyList<ClientOption> _clients = [];
+    private int _noticeAbove = ScriptRules.DefaultAdminNoticeAbove;
+    private bool _savingNotice;
 
     [SupplyParameterFromQuery(Name = "new")]
     public bool New { get; set; }
@@ -75,7 +96,25 @@
     {
         _scripts = await ScriptSvc.ListAsync(caller);
         _clients = await ClientSvc.ListOptionsAsync(caller);
+        if (caller.IsAdmin)
+        {
+            _noticeAbove = await SettingsSvc.GetScriptRunNoticeAsync();
+        }
     });
+
+    private async Task SaveNoticeAsync()
+    {
+        _savingNotice = true;
+        try
+        {
+            await RunAsync(caller => SettingsSvc.SaveScriptRunNoticeAsync(caller, _noticeAbove),
+                _noticeAbove == 0 ? "Admins are no longer notified of large runs." : $"Admins are notified above {_noticeAbove} endpoints.");
+        }
+        finally
+        {
+            _savingNotice = false;
+        }
+    }
 
     private async Task CreateAsync()
     {

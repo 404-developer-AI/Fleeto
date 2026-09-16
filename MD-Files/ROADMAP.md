@@ -15,8 +15,8 @@ run; its release build failed), `v0.2.0-alpha.2` (first published test build), `
 
 **0.2.1** — in progress (started 2026-09-15): the read-only public API, agent self-update with update rings, the
 Windows watchdog, the Linux agent with its watchdog and the rename to Fleeto everywhere are built (pre-releases `v0.2.1-alpha.1`, whose release build
-failed, `v0.2.1-alpha.2`, whose move of the test VPS fell back to the old layout, and `v0.2.1-alpha.3`, 2026-09-15); still open are the script features deferred
-from 0.2.0 and the icon for the installed web app. The Servicedesk ticket reference on notes moved to "Not yet scheduled" (decided 2026-09-15).
+failed, `v0.2.1-alpha.2`, whose move of the test VPS fell back to the old layout, and `v0.2.1-alpha.3`, 2026-09-15); still open are the output cap per policy, running a
+script as the logged-on user and the icon for the installed web app. The Servicedesk ticket reference on notes moved to "Not yet scheduled" (decided 2026-09-15).
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
 2026-09-15, see Later).
@@ -259,8 +259,19 @@ Everything that was still open for 0.2.0, moved here on 2026-09-15, with the dev
   command: the release manifest lists eight binaries (agent and watchdog for `windows-amd64`, `windows-arm64`,
   `linux-amd64` and `linux-arm64`), the instance serves them at `/agent/download/<platform>`, and each install command
   picks the architecture of the endpoint itself.
-- [open] Run a script on a selection of endpoints, with a notification to every admin above a configurable number of
-  endpoints (deferred from 0.2.0).
+- [done] Run a script on a selection of endpoints, with a notification to every admin above a configurable number of
+  endpoints (deferred from 0.2.0). Decided while building:
+  - the endpoint list gets a checkbox per row and one in its header; the selection holds only endpoints the list shows, so
+    filtering or another site never leaves an endpoint selected out of sight, and the run starts from the right-click menu
+    ("Run script on 12 endpoints");
+  - the threshold is instance-wide, in Settings, Scripts (a run spans clients and sites, so a policy value would be
+    ambiguous). Default: more than 10 endpoints; 0 turns the email off. The run dialog says beforehand that admins will be
+    told;
+  - the email is queued in the same transaction as the jobs, so a run that exists is always reported; it names the
+    technician, the script and version, the endpoint count, the first ten host names and how many endpoints were skipped;
+  - a run on more than one endpoint also writes one audit entry for the batch, next to the entry per job;
+  - after starting, a run window shows the state per endpoint, updated live, with the skipped endpoints and their reason;
+    selecting an endpoint there opens its output.
 - [open] Output cap for job output per policy instead of the fixed 50 MiB (deferred from 0.2.0).
 - [open] Run a script as the logged-on user instead of SYSTEM or root (deferred from 0.2.0).
 - [open] Fleeto icon for the installed web app: the instance only serves an SVG favicon and no web app manifest, so

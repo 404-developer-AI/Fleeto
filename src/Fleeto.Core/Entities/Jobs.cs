@@ -211,6 +211,16 @@ public static class ScriptRules
     /// <summary>Endpoints one run may target.</summary>
     public const int MaxEndpointsPerRun = 500;
 
+    /// <summary>
+    /// Endpoint count above which a run emails every admin, until an admin changes it in Settings, Scripts (0.2.1). A run on a handful
+    /// of endpoints is daily work; a run on many is worth telling the other admins about.
+    /// </summary>
+    public const int DefaultAdminNoticeAbove = 10;
+
+    /// <summary>Reads the stored notice threshold; anything missing or out of range falls back to the default.</summary>
+    public static int AdminNoticeAbove(string? stored) =>
+        int.TryParse(stored, out var value) && value >= 0 && value <= MaxEndpointsPerRun ? value : DefaultAdminNoticeAbove;
+
     /// <summary>A running job without a result becomes lost this long after its timeout.</summary>
     public static readonly TimeSpan LostGrace = TimeSpan.FromMinutes(15);
 

@@ -266,4 +266,57 @@ public sealed class ScriptAndJobServiceTests
         Assert.False(output.ShortenedInView);
         Assert.Equal("SRV-OUT", output.Job.Hostname);
     }
+
+    [Fact]
+    public async Task Run_on_a_selection_emails_every_admin_above_the_threshold_and_is_one_batch()
+    {
+        await _fixture.Database.LoadTestLicenseAsync(1000);
+        var technician = await _fixture.Database.CreateUserAsync(FleetoRoles.Technician);
+        var admin = await _fixture.Database.CreateUserAsync(FleetoRoles.Admin);
+        var client = await _fixture.Database.CreateClientAsync();
+        var site = await _fixture.Database.CreateSiteAsync(client.Id);
+        var endpoints = new List<Guid>();
+        foreach (var name in new[] { "SRV-BULK-1", "SRV-BULK-2", "SRV-BULK-3" })
+        {
+            endpoints.Add((await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, name, EndpointClass.Server)).Id);
+        }
+
+        var (script, _) = await _fixture.Database.CreateScriptAsync(null, technician.Id);
+        var caller = As(technician, FleetoRoles.Technician);
+        var settings = _fixture.Services.GetRequiredService<SettingsService>();
+        Assert.True((await settings.SaveScriptRunNoticeAsync(As(admin, FleetoRoles.Admin), 2)).Success);
+
+        var run = await Jobs.RunAsync(caller, script.Id, endpoints, TimeSpan.FromHours(24));
+
+        Assert.True(run.Success, run.Problem);
+        Assert.Equal(3, run.Value!.Created);
+        Assert.True(run.Value.AdminsNotified >= 1);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            var email = await db.OutboxEmails.AsNoTracking().Where(e => e.ToAddress == admin.Email).OrderByDescending(e => e.CreatedAt).FirstAsync();
+            Assert.Equal("job", email.Category);
+            Assert.Contains("3 endpoints", email.Subject, StringComparison.Ordinal);
+            Assert.Contains(script.Name, email.Subject, StringComparison.Ordinal);
+            Assert.Contains("SRV-BULK-1", email.TextBody, StringComparison.Ordinal);
+
+            var batch = await db.AuditEntries.AsNoTracking()
+                .SingleAsync(a => a.Action == AuditActions.JobBatchStarted && a.TargetId == run.Value.BatchId.ToString());
+            Assert.Contains("\"endpoints\": 3", batch.DetailsJson, StringComparison.Ordinal);
+        }
+
+        // The whole run is one batch, and another client's scope sees none of it.
+        var jobs = await Jobs.ListForBatchAsync(caller, run.Value.BatchId);
+        Assert.Equal(3, jobs.Count);
+        Assert.Equal(["SRV-BULK-1", "SRV-BULK-2", "SRV-BULK-3"], jobs.Select(j => j.Hostname));
+        Assert.All(jobs, j => Assert.Equal(run.Value.BatchId, j.BatchId));
+        Assert.Empty(await Jobs.ListForBatchAsync(WebFixture.CallerWith(new RestrictedClientScope([Guid.NewGuid()]), FleetoRoles.Technician), run.Value.BatchId));
+
+        // Turned off, a run of the same size tells nobody.
+        Assert.True((await settings.SaveScriptRunNoticeAsync(As(admin, FleetoRoles.Admin), 0)).Success);
+        var quiet = await Jobs.RunAsync(caller, script.Id, endpoints, TimeSpan.FromHours(24));
+        Assert.True(quiet.Success, quiet.Problem);
+        Assert.Equal(0, quiet.Value!.AdminsNotified);
+        Assert.False((await settings.SaveScriptRunNoticeAsync(As(admin, FleetoRoles.Admin), ScriptRules.MaxEndpointsPerRun + 1)).Success);
+        Assert.False((await settings.SaveScriptRunNoticeAsync(caller, 5)).Success);
+    }
 }

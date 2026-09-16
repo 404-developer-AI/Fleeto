@@ -1,0 +1,152 @@
+@using Fleeto.Core.Domain
+@implements IDisposable
+@inject JobService JobSvc
+@inject CurrentUser CurrentUser
+@inject LiveUpdates Live
+@inject IDialogService DialogService
+
+@* One script run on several endpoints (0.2.1): the state per endpoint, refreshed live, and the endpoints that got no job. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@ScriptName on @Ui.Count(_jobs.Count, "endpoint")</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (Skipped.Count > 0)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                @Ui.Count(Skipped.Count, "endpoint") got no job.
+            </MudAlert>
+            <MudTable T="JobRunTarget" Items="Skipped" Dense="true" Elevation="0" Class="mb-4">
+                <HeaderContent>
+                    <MudTh>Endpoint</MudTh>
+                    <MudTh>Reason</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd><strong>@context.Hostname</strong></MudTd>
+                    <MudTd class="muted">@context.Problem</MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+
+        @if (AdminsNotified > 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted mb-3">
+                This run is above the notification threshold, so @Ui.Count(AdminsNotified, "admin") received an email about it.
+            </MudText>
+        }
+
+        <div class="d-flex flex-wrap align-center gap-2 mb-2">
+            @foreach (var (label, count) in _summary)
+            {
+                <StatusChip Text="@($"{count} {label}")" Kind="@Ui.JobStateKind(_summaryKind[label])" />
+            }
+        </div>
+
+        @if (_jobs.Count == 0)
+        {
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+        }
+        else
+        {
+            <MudTable T="JobListItem" Items="_jobs" Dense="true" Hover="true" Elevation="0" FixedHeader="true" Height="360px"
+                      OnRowClick="OpenJobAsync">
+                <HeaderContent>
+                    <MudTh>Endpoint</MudTh>
+                    <MudTh>Result</MudTh>
+                    <MudTh>Exit code</MudTh>
+                    <MudTh>Output</MudTh>
+                    <MudTh>Finished</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd><strong>@context.Hostname</strong></MudTd>
+                    <MudTd><StatusChip Text="@Ui.JobStateLabel(context.State, context.Result)" Kind="@Ui.JobStateKind(context.State)" /></MudTd>
+                    <MudTd>@(context.ExitCode?.ToString() ?? "-")</MudTd>
+                    <MudTd class="muted">@Ui.JobOutputLabel(context.OutputState, context.OutputTruncated)</MudTd>
+                    <MudTd><TimeText Value="context.CompletedAt" Never="-" /></MudTd>
+                </RowTemplate>
+            </MudTable>
+            <MudText Typo="Typo.caption" Class="muted">
+                Select an endpoint to see its output. A job runs as soon as the endpoint is online; the results stay on the Jobs tab of each endpoint.
+            </MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Close">Done</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public Guid BatchId { get; set; }
+    [Parameter, EditorRequired] public string ScriptName { get; set; } = string.Empty;
+    [Parameter] public IReadOnlyList<JobRunTarget> Skipped { get; set; } = [];
+    [Parameter] public int AdminsNotified { get; set; }
+
+    private IReadOnlyList<JobListItem> _jobs = [];
+    private readonly List<(string Label, int Count)> _summary = [];
+    private readonly Dictionary<string, JobState> _summaryKind = [];
+    private HashSet<Guid> _endpointIds = [];
+    private DebouncedRefresh? _refresh;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _refresh = new DebouncedRefresh(() => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));
+        Live.JobsChanged += OnJobsChanged;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var caller = await CurrentUser.GetAsync();
+        _jobs = await JobSvc.ListForBatchAsync(caller, BatchId);
+        _endpointIds = _jobs.Select(j => j.EndpointId).ToHashSet();
+        Summarize();
+    }
+
+    /// <summary>Counts the jobs per state, in the order a technician reads them: still to come first, then the outcome.</summary>
+    private void Summarize()
+    {
+        _summary.Clear();
+        _summaryKind.Clear();
+        foreach (var group in _jobs.GroupBy(j => j.State).OrderBy(g => g.Key))
+        {
+            var label = Ui.JobStateLabel(group.Key, null);
+            _summary.Add((label, group.Count()));
+            _summaryKind[label] = group.Key;
+        }
+    }
+
+    private void OnJobsChanged(Guid endpointId)
+    {
+        if (endpointId == Guid.Empty || _endpointIds.Contains(endpointId))
+        {
+            _refresh?.Trigger();
+        }
+    }
+
+    private async Task OpenJobAsync(TableRowClickEventArgs<JobListItem> args)
+    {
+        if (args.Item is not { } job)
+        {
+            return;
+        }
+
+        var parameters = new DialogParameters<JobOutputDialog>
+        {
+            { d => d.JobId, job.Id },
+            { d => d.EndpointId, job.EndpointId }
+        };
+        var dialog = await DialogService.ShowAsync<JobOutputDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        await dialog.Result;
+    }
+
+    private void Close() => MudDialog.Close(DialogResult.Ok(true));
+
+    public void Dispose()
+    {
+        Live.JobsChanged -= OnJobsChanged;
+        _refresh?.Dispose();
+    }
+}

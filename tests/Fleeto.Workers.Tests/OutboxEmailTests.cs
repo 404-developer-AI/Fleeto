@@ -1,4 +1,5 @@
 using Fleeto.Core.Entities;
+using Fleeto.Infrastructure.Email;
 using Fleeto.Workers.Email;
 using Fleeto.Workers.Options;
 using Microsoft.EntityFrameworkCore;

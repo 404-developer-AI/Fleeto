@@ -1,4 +1,5 @@
 using Fleeto.Core.Entities;
+using Fleeto.Infrastructure.Email;
 using Fleeto.Infrastructure.Settings;
 using Fleeto.Workers.Options;
 using MailKit.Net.Smtp;

@@ -1,5 +1,6 @@
 using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
+using Fleeto.Infrastructure.Email;
 using Fleeto.Workers.Email;
 using Microsoft.EntityFrameworkCore;
 

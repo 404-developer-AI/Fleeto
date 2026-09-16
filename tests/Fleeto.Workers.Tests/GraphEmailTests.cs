@@ -1,10 +1,11 @@
+using Fleeto.Workers.Email;
 using System.Net;
 using System.Text;
 using System.Text.Json;
 using Fleeto.Core.Entities;
 using Fleeto.Infrastructure.Email;
 using Fleeto.Infrastructure.Settings;
-using Fleeto.Workers.Email;
+using Fleeto.Infrastructure.Email;
 using Fleeto.Workers.Licensing;
 using Fleeto.Workers.Options;
 using Microsoft.EntityFrameworkCore;

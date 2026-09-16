@@ -37,6 +37,12 @@ public static class SettingKeys
 
     /// <summary>Days of raw check results to keep when TimescaleDB is not installed. Default 30.</summary>
     public const string RetentionCheckResultsDays = "retention.check-results-days";
+
+    /// <summary>
+    /// Endpoint count above which starting a script emails every admin (0.2.1). A plain integer; 0 never notifies.
+    /// Missing means <see cref="Core.Entities.ScriptRules.DefaultAdminNoticeAbove"/>.
+    /// </summary>
+    public const string JobAdminNoticeAbove = "jobs.admin-notice-above";
 }
 
 public enum SmtpSecurity

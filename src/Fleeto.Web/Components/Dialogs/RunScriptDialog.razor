@@ -14,6 +14,12 @@
         }
         else
         {
+            @if (NotifyAdminsAbove > 0 && EndpointIds.Count > NotifyAdminsAbove)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                    This run is above @NotifyAdminsAbove endpoints, so every admin gets an email about it.
+                </MudAlert>
+            }
             <MudSelect T="Guid?" @bind-Value="_scriptId" Label="Script" Variant="Variant.Outlined" Class="mb-3" AnchorOrigin="Origin.BottomCenter">
                 @foreach (var script in Scripts)
                 {
@@ -50,6 +56,9 @@
     [Parameter, EditorRequired] public string TargetLabel { get; set; } = string.Empty;
     [Parameter] public IReadOnlyList<RunnableScript> Scripts { get; set; } = [];
     [Parameter] public Func<Guid, TimeSpan, Task<bool>> OnSubmit { get; set; } = (_, _) => Task.FromResult(true);
+
+    /// <summary>Endpoint count above which the run emails every admin (Settings, Scripts); 0 never notifies.</summary>
+    [Parameter] public int NotifyAdminsAbove { get; set; }
 
     private Guid? _scriptId;
     private TimeSpan _validity = ScriptRules.DefaultValidity;

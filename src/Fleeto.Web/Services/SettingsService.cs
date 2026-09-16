@@ -532,6 +532,30 @@ public sealed class SettingsService
             ca?.ExpiresAt, signingKey, FleetoVersion.Current, instance.CreatedAt);
     }
 
+    /// <summary>The endpoint count above which starting a script emails every admin (0.2.1); 0 never notifies.</summary>
+    public async Task<int> GetScriptRunNoticeAsync(CancellationToken cancellationToken = default) =>
+        ScriptRules.AdminNoticeAbove(await _settings.GetStringAsync(SettingKeys.JobAdminNoticeAbove, cancellationToken));
+
+    /// <summary>Saves the threshold above which a script run notifies every admin.</summary>
+    public async Task<ServiceResult> SaveScriptRunNoticeAsync(Caller caller, int above, CancellationToken cancellationToken = default)
+    {
+        if (!caller.IsAdmin)
+        {
+            return ServiceResult.Forbidden();
+        }
+
+        if (above < 0 || above > ScriptRules.MaxEndpointsPerRun)
+        {
+            return ServiceResult.Fail($"Choose a number between 0 and {ScriptRules.MaxEndpointsPerRun}. 0 turns the notification off.");
+        }
+
+        await _settings.SetStringAsync(SettingKeys.JobAdminNoticeAbove, above.ToString(CultureInfo.InvariantCulture), encrypted: false, caller.UserId,
+            cancellationToken);
+        await WriteAuditAsync(caller, AuditActions.SettingsChanged, "Setting", SettingKeys.JobAdminNoticeAbove, new { NotifyAdminsAbove = above },
+            cancellationToken);
+        return ServiceResult.Ok();
+    }
+
     private async Task WriteAuditAsync(Caller caller, string action, string targetType, string targetId, object details, CancellationToken cancellationToken)
     {
         await using var db = _dbFactory.CreateSystem();

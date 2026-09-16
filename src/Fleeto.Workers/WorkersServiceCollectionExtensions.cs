@@ -2,6 +2,7 @@ using Fleeto.Workers.Alerts;
 using Fleeto.Workers.Backups;
 using Fleeto.Workers.Checks;
 using Fleeto.Workers.Configuration;
+using Fleeto.Infrastructure.Email;
 using Fleeto.Workers.Email;
 using Fleeto.Workers.Endpoints;
 using Fleeto.Workers.Hosting;

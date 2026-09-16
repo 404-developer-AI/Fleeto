@@ -4,7 +4,9 @@ using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Audit;
 using Fleeto.Infrastructure.Data;
+using Fleeto.Infrastructure.Email;
 using Fleeto.Infrastructure.Licensing;
+using Fleeto.Infrastructure.Settings;
 using Fleeto.Web.Security;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,7 +17,8 @@ public sealed record RunnableScript(Guid Id, string Name, ScriptLanguage Languag
 public sealed record JobRunTarget(Guid EndpointId, string Hostname, string Problem);
 
 /// <param name="Skipped">Endpoints no job was created for, with the reason.</param>
-public sealed record JobRunResult(Guid BatchId, int Created, IReadOnlyList<JobRunTarget> Skipped);
+/// <param name="AdminsNotified">Admins emailed because the run was above the notice threshold (0.2.1).</param>
+public sealed record JobRunResult(Guid BatchId, int Created, IReadOnlyList<JobRunTarget> Skipped, int AdminsNotified = 0);
 
 public sealed record JobListItem(Guid Id, Guid BatchId, Guid EndpointId, string Hostname, string? ClientCode, string ScriptName, int ScriptVersionNumber,
     ScriptLanguage Language, JobState State, JobResult? Result, int? ExitCode, string? Problem, JobOutputState OutputState, bool OutputTruncated,
@@ -40,16 +43,21 @@ public sealed class JobService
         (TimeSpan.FromDays(7), "7 days")
     ];
 
+    /// <summary>Host names named in the admin notice; the rest is counted.</summary>
+    private const int NamedHostsInNotice = 10;
+
     private readonly IFleetoDbContextFactory _dbFactory;
     private readonly LicenseService _licenses;
     private readonly INotificationBus _bus;
+    private readonly SettingsStore _settings;
     private readonly TimeProvider _time;
 
-    public JobService(IFleetoDbContextFactory dbFactory, LicenseService licenses, INotificationBus bus, TimeProvider time)
+    public JobService(IFleetoDbContextFactory dbFactory, LicenseService licenses, INotificationBus bus, SettingsStore settings, TimeProvider time)
     {
         _dbFactory = dbFactory;
         _licenses = licenses;
         _bus = bus;
+        _settings = settings;
         _time = time;
     }
 
@@ -181,9 +189,73 @@ public sealed class JobService
                 : $"No job was started. None of the endpoints can run this script, for example {skipped[0].Hostname}: {skipped[0].Problem}");
         }
 
+        // Above the threshold every admin is told, in the same transaction as the jobs: the notice cannot be lost once the run exists.
+        var notified = await AddAdminNoticeAsync(db, caller, created, skipped.Count, now, cancellationToken);
+        if (created.Count > 1)
+        {
+            db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.JobBatchStarted, "Job", batchId.ToString(), null, new
+            {
+                BatchId = batchId, script.Name, VersionNumber = version.Number, Endpoints = created.Count, Skipped = skipped.Count,
+                AdminsNotified = notified
+            }), now));
+        }
+
         await db.SaveChangesAsync(cancellationToken);
         await PublishAsync(created.Select(j => j.EndpointId), cancellationToken);
-        return ServiceResult<JobRunResult>.Ok(new JobRunResult(batchId, created.Count, skipped));
+        return ServiceResult<JobRunResult>.Ok(new JobRunResult(batchId, created.Count, skipped, notified));
+    }
+
+    /// <summary>
+    /// Queues an email to every admin when a run is above the threshold of Settings, Scripts. The rows are added to the caller's
+    /// context, not saved: they are committed with the jobs themselves.
+    /// </summary>
+    private async Task<int> AddAdminNoticeAsync(FleetoDbContext db, Caller caller, IReadOnlyList<Job> created, int skippedCount, DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var threshold = await GetAdminNoticeAboveAsync(cancellationToken);
+        if (threshold <= 0 || created.Count <= threshold)
+        {
+            return 0;
+        }
+
+        var admins = await InstanceQueries.GetAdminEmailsAsync(db, cancellationToken);
+        if (admins.Count == 0)
+        {
+            return 0;
+        }
+
+        var instance = await InstanceQueries.GetInstanceAsync(db, cancellationToken);
+        var endpointIds = created.Select(j => j.EndpointId).ToList();
+        var hostnames = await db.Endpoints.AsNoTracking()
+            .Where(e => endpointIds.Contains(e.Id))
+            .OrderBy(e => e.Hostname).Select(e => e.Hostname).Take(NamedHostsInNotice)
+            .ToListAsync(cancellationToken);
+        var first = created[0];
+        var content = EmailTemplates.ScriptRunOnManyEndpoints(instance.Fqdn, new ScriptRunEmailModel(
+            caller.Name, first.ScriptName, first.ScriptVersionNumber, created.Count, skippedCount, hostnames, now, threshold), instance.AuditLogUrl);
+        foreach (var admin in admins)
+        {
+            db.OutboxEmails.Add(OutboxEmails.Create(admin, content, OutboxEmails.CategoryJob, now));
+        }
+
+        return admins.Count;
+    }
+
+    /// <summary>The endpoint count above which a run emails every admin; 0 never notifies.</summary>
+    public async Task<int> GetAdminNoticeAboveAsync(CancellationToken cancellationToken = default)
+    {
+        return ScriptRules.AdminNoticeAbove(await _settings.GetStringAsync(SettingKeys.JobAdminNoticeAbove, cancellationToken));
+    }
+
+    /// <summary>The jobs of one run, newest endpoint state first seen by host name, for the run window (0.2.1).</summary>
+    public async Task<IReadOnlyList<JobListItem>> ListForBatchAsync(Caller caller, Guid batchId, CancellationToken cancellationToken = default)
+    {
+        caller.EnsureView();
+        await using var db = _dbFactory.Create(caller.Scope);
+        var jobs = await Project(db, db.Jobs.AsNoTracking().Where(j => j.BatchId == batchId).OrderBy(j => j.CreatedAt).Take(ScriptRules.MaxEndpointsPerRun))
+            .ToListAsync(cancellationToken);
+        // The host name comes from the projection, so a run is sorted by endpoint here rather than in SQL; a batch holds at most 500 jobs.
+        return jobs.OrderBy(j => j.Hostname, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     public async Task<IReadOnlyList<JobListItem>> ListForEndpointAsync(Caller caller, Guid endpointId, int limit = 50, CancellationToken cancellationToken = default)

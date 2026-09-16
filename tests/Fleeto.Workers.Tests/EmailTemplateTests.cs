@@ -1,3 +1,4 @@
+using Fleeto.Infrastructure.Email;
 using Fleeto.Workers.Email;
 
 namespace Fleeto.Workers.Tests;
@@ -21,6 +22,8 @@ public sealed class EmailTemplateTests
         yield return EmailTemplates.LicenseGracePeriod(Hostile, new DateTime(2026, 10, 1), new DateTime(2026, 10, 15), "https://rmm.test.example/settings/licensing");
         yield return EmailTemplates.LicenseExpired(Hostile, new DateTime(2026, 10, 15), "https://rmm.test.example/settings/licensing");
         yield return EmailTemplates.BackupFailed(Hostile, new DateTime(2026, 9, 14, 2, 0, 0, DateTimeKind.Utc), Hostile, "https://rmm.test.example/settings/backups");
+        yield return EmailTemplates.ScriptRunOnManyEndpoints(Hostile, new ScriptRunEmailModel(Hostile, Hostile, 4, 42, 3, [Hostile, Hostile],
+            new DateTime(2026, 9, 16, 10, 15, 0, DateTimeKind.Utc), 10), "https://rmm.test.example/settings/audit-log");
         yield return EmailTemplates.TestEmail(Hostile);
     }
 

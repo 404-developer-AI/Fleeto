@@ -1,9 +1,10 @@
+using Fleeto.Workers.Email;
 using System.Globalization;
 using Fleeto.Core.Domain;
 using Fleeto.Infrastructure.Data;
 using Fleeto.Infrastructure.Settings;
 using Fleeto.Workers.Checks;
-using Fleeto.Workers.Email;
+using Fleeto.Infrastructure.Email;
 using Fleeto.Workers.Webhooks;
 using Fleeto.Workers.Hosting;
 using Microsoft.EntityFrameworkCore;

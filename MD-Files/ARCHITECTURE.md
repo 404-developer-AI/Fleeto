@@ -548,10 +548,15 @@ publish a resync when an occurrence starts or ends so open pages update. Windows
 occurrence (they are scheduled); the policy change that creates them is.
 
 **Job.** An admin or technician runs a library script on a managed endpoint (Jobs tab of the endpoint or
-the right-click menu of the endpoint list) and picks a validity window (1 hour, 24 hours or 7 days) → web
+the right-click menu of the endpoint list), or on a selection of endpoints checked in that list (0.2.1, at most 500 per
+run; only scripts that run on every chosen endpoint are offered), and picks a validity window (1 hour, 24 hours or 7 days) → web
 checks role, tier, platform, client and approval, and writes one `Job` per endpoint in state
 `pending_signature` with a snapshot of the current script version, a `SigningRequest` of kind `job` (only
-the web role may create one, origin trigger) and an audit entry, all in one transaction → the signer locks
+the web role may create one, origin trigger) and an audit entry, all in one transaction. Endpoints that cannot run the
+script are skipped with their reason and reported to the technician; a run on more than one endpoint also writes one audit
+entry for the batch, and above the threshold of Settings, Scripts (0.2.1, default: more than 10 endpoints, 0 turns it off)
+the same transaction queues an email to every admin naming the technician, the script, the endpoint count and the first ten
+host names, so a large run cannot happen unseen → the signer locks
 the job and checks again from the database: still `pending_signature` and within its validity window; the
 initiator exists, has 2FA, is not locked out and is admin or technician; the endpoint is managed with the
 license; the body of the stored version still has the snapshot hash and the language; the script is global

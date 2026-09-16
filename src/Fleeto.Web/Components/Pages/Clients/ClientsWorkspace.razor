@@ -202,6 +202,13 @@
                         <MudTable T="EndpointRow" Items="_page.Rows" Dense="true" Hover="true" Elevation="0" FixedHeader="true" Class="endpoint-table"
                                   OnRowClick="OnRowClick" RowClassFunc="RowClass">
                             <HeaderContent>
+                                @if (CanManage)
+                                {
+                                    <MudTh Style="width:44px">
+                                        <MudCheckBox T="bool" Value="@AllRowsSelected" Dense="true" Size="Size.Small"
+                                                     aria-label="Select every endpoint in this list" ValueChanged="SelectAllRows" />
+                                    </MudTh>
+                                }
                                 <MudTh Style="width:36px"></MudTh>
                                 <MudTh>Hostname</MudTh>
                                 @if (IsAllScope)
@@ -220,6 +227,15 @@
                             </HeaderContent>
                             @* Every cell opens the endpoint menu on right-click (see RowMenu): MudTable has no row-level context menu event. *@
                             <RowTemplate>
+                                @if (CanManage)
+                                {
+                                    @* Selecting must not open the endpoint below the list, so the click stops here. *@
+                                    <MudTd @onclick:stopPropagation="true">
+                                        <MudCheckBox T="bool" Value="@_selected.Contains(context.Id)" Dense="true" Size="Size.Small"
+                                                     aria-label="@($"Select {context.Hostname}")"
+                                                     ValueChanged="@(value => SelectRow(context, value))" />
+                                    </MudTd>
+                                }
                                 <MudTd @attributes="RowMenu(context)">
                                     <MudIcon Icon="@(context.EffectiveClass == EndpointClass.Server ? Icons.Material.Outlined.Dns : Icons.Material.Outlined.Computer)"
                                              Size="Size.Small" Class="muted" />
@@ -255,6 +271,14 @@
                             <MudMenu @ref="_endpointMenu" PositionAtCursor="true" aria-label="Endpoint actions">
                                 <ActivatorContent></ActivatorContent>
                                 <ChildContent>
+                                    @if (_selected.Count > 1)
+                                    {
+                                        <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="RunScriptOnSelectionAsync">
+                                            Run script on @Ui.Count(_selected.Count, "endpoint")
+                                        </MudMenuItem>
+                                        <MudMenuItem Icon="@Icons.Material.Outlined.Deselect" OnClick="ClearSelection">Clear selection</MudMenuItem>
+                                        <MudDivider />
+                                    }
                                     @if (_menuRow is { } row)
                                     {
                                         <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="@(() => EditEndpointAsync(row))">Edit</MudMenuItem>
@@ -340,6 +364,7 @@
     private bool _busy;
     private MudMenu? _endpointMenu;
     private EndpointRow? _menuRow;
+    private readonly HashSet<Guid> _selected = [];
     private EndpointDetailView? _detail;
 
     private ElementReference _tableScroll;
@@ -534,6 +559,10 @@
         var query = new EndpointListQuery(SiteId is null ? ClientId : null, SiteId, endpointClass, _endpointSearch, _status, _tier);
         await LoadAsync(async caller => _page = await EndpointSvc.ListAsync(caller, query));
         _rowsLoading = false;
+        if (_page is { } page)
+        {
+            _selected.IntersectWith(page.Rows.Select(r => r.Id));
+        }
     }
 
     private void OnLiveChange(Guid _) => _refresh?.Trigger();
@@ -606,6 +635,47 @@
     };
 
     private string RowClass(EndpointRow row, int _) => row.Id == SelectedEndpointId ? "row-selected" : string.Empty;
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // Selection: the endpoints a script runs on (0.2.1). It holds only endpoints in the list as it is shown, so a run
+    // never reaches an endpoint the technician filtered away.
+    // -----------------------------------------------------------------------------------------------------------------
+
+    private bool AllRowsSelected => _page is { Rows.Count: > 0 } page && page.Rows.All(r => _selected.Contains(r.Id));
+
+    private void SelectRow(EndpointRow row, bool selected)
+    {
+        if (selected)
+        {
+            _selected.Add(row.Id);
+        }
+        else
+        {
+            _selected.Remove(row.Id);
+        }
+    }
+
+    private void SelectAllRows(bool selected)
+    {
+        if (_page is not { } page)
+        {
+            return;
+        }
+
+        if (selected)
+        {
+            foreach (var row in page.Rows)
+            {
+                _selected.Add(row.Id);
+            }
+        }
+        else
+        {
+            _selected.Clear();
+        }
+    }
+
+    private void ClearSelection() => _selected.Clear();
 
     private void OnRowClick(TableRowClickEventArgs<EndpointRow> args)
     {
@@ -710,6 +780,70 @@
         {
             _busy = false;
         }
+    }
+
+    /// <summary>Runs one script on every selected endpoint and shows the result of the run per endpoint.</summary>
+    private async Task RunScriptOnSelectionAsync()
+    {
+        var ids = _selected.ToList();
+        if (ids.Count == 0)
+        {
+            return;
+        }
+
+        if (ids.Count > ScriptRules.MaxEndpointsPerRun)
+        {
+            Snackbar.Add($"A run reaches at most {ScriptRules.MaxEndpointsPerRun} endpoints. Narrow the selection.", Severity.Warning);
+            return;
+        }
+
+        IReadOnlyList<RunnableScript> scripts = [];
+        var notifyAbove = 0;
+        if (!await RunAsync(async caller =>
+            {
+                scripts = await JobSvc.ListRunnableScriptsAsync(caller, ids);
+                notifyAbove = await JobSvc.GetAdminNoticeAboveAsync();
+                return ServiceResult.Ok();
+            }, null))
+        {
+            return;
+        }
+
+        JobRunResult? run = null;
+        var scriptName = string.Empty;
+        var parameters = new DialogParameters<RunScriptDialog>
+        {
+            { d => d.EndpointIds, ids },
+            { d => d.TargetLabel, Ui.Count(ids.Count, "endpoint") },
+            { d => d.Scripts, scripts },
+            { d => d.NotifyAdminsAbove, notifyAbove },
+            {
+                d => d.OnSubmit, async (scriptId, validity) =>
+                {
+                    var result = await RunForValueAsync(caller => JobSvc.RunAsync(caller, scriptId, ids, validity), null);
+                    run = result?.Value;
+                    scriptName = scripts.FirstOrDefault(s => s.Id == scriptId)?.Name ?? "Script";
+                    return result is not null;
+                }
+            }
+        };
+        var dialog = await DialogService.ShowAsync<RunScriptDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        await dialog.Result;
+        if (run is not { } started)
+        {
+            return;
+        }
+
+        ClearSelection();
+        var show = new DialogParameters<JobBatchDialog>
+        {
+            { d => d.BatchId, started.BatchId },
+            { d => d.ScriptName, scriptName },
+            { d => d.Skipped, started.Skipped },
+            { d => d.AdminsNotified, started.AdminsNotified }
+        };
+        var batchDialog = await DialogService.ShowAsync<JobBatchDialog>(null, show, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        await batchDialog.Result;
     }
 
     private async Task RunScriptAsync(EndpointRow row)

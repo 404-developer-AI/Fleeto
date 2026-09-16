@@ -164,6 +164,8 @@ public static class AuditActions
     public const string ScriptVersionApproved = "script.version_approved";
     public const string ScriptDeleted = "script.deleted";
     public const string JobCreated = "job.created";
+    /// <summary>One entry per run on more than one endpoint, next to the entry per job (0.2.1).</summary>
+    public const string JobBatchStarted = "job.batch_started";
     public const string JobSigned = "job.signed";
     public const string JobRefused = "job.refused";
     public const string JobCancelled = "job.cancelled";

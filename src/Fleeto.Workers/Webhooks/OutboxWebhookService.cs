@@ -3,6 +3,7 @@ using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Data;
 using Fleeto.Infrastructure.Notifications;
 using Fleeto.Workers.Common;
+using Fleeto.Infrastructure.Email;
 using Fleeto.Workers.Email;
 using Fleeto.Workers.Hosting;
 using Fleeto.Workers.Options;

@@ -2,10 +2,24 @@ using System.Globalization;
 using System.Net;
 using System.Text;
 
-namespace Fleeto.Workers.Email;
+namespace Fleeto.Infrastructure.Email;
 
 /// <summary>Subject, HTML body and plain-text alternative of one email.</summary>
 public sealed record EmailContent(string Subject, string HtmlBody, string TextBody);
+
+/// <summary>
+/// A script run on many endpoints, as reported to the admins (0.2.1). <paramref name="Hostnames"/> holds the first host names only; the
+/// rest is counted. Host names and the user name come from agents and users: untrusted, like every value in an email.
+/// </summary>
+public sealed record ScriptRunEmailModel(
+    string InitiatedByName,
+    string ScriptName,
+    int ScriptVersionNumber,
+    int EndpointCount,
+    int SkippedCount,
+    IReadOnlyList<string> Hostnames,
+    DateTime StartedAt,
+    int Threshold);
 
 /// <summary>Values shown in alert emails. Every string may come from an agent or a user: treat all of it as untrusted.</summary>
 public sealed record AlertEmailModel(
@@ -269,6 +283,42 @@ public static class EmailTemplates
 
     private static string Capitalize(string value) => value.Length == 0 ? value : char.ToUpperInvariant(value[0]) + value[1..];
 
+    /// <summary>
+    /// A technician started a script on more endpoints than the instance allows without telling the admins (0.2.1). It reports what ran
+    /// where; it is never a request for approval, because the jobs are already signed and on their way.
+    /// </summary>
+    public static EmailContent ScriptRunOnManyEndpoints(string instanceFqdn, ScriptRunEmailModel run, string auditLogUrl)
+    {
+        var hosts = run.Hostnames.Count == 0 ? string.Empty : string.Join(", ", run.Hostnames);
+        var more = run.EndpointCount - run.Hostnames.Count;
+        var hostLine = more > 0 ? $"{hosts} and {more} more" : hosts;
+        var skipped = run.SkippedCount == 0 ? string.Empty : $" {run.SkippedCount} endpoint(s) were skipped and got no job.";
+
+        var html = Layout($"""
+            <p style="margin:0 0 16px"><strong>{Enc(run.InitiatedByName)}</strong> started the script <strong>{Enc(run.ScriptName)}</strong>
+            (version {run.ScriptVersionNumber}) on <strong>{run.EndpointCount}</strong> endpoints of {Enc(instanceFqdn)} at {Enc(Utc(run.StartedAt))}.</p>
+            <p style="margin:0 0 24px">{Enc(hostLine)}.{Enc(skipped)}</p>
+            <p style="margin:0 0 24px">You get this email because the instance notifies every admin above {run.Threshold} endpoints.
+            The result of each job is on the endpoint, on the Jobs tab.</p>
+            {Button(auditLogUrl, "Open the audit log")}
+            """);
+
+        var text = $"""
+            {run.InitiatedByName} started the script {run.ScriptName} (version {run.ScriptVersionNumber}) on {run.EndpointCount} endpoints
+            of {instanceFqdn} at {Utc(run.StartedAt)}.
+
+            {hostLine}.{skipped}
+
+            You get this email because the instance notifies every admin above {run.Threshold} endpoints. The result of each job is on the
+            endpoint, on the Jobs tab.
+
+            Open the audit log: {auditLogUrl}
+            """;
+
+        return new EmailContent(Subject($"{run.InitiatedByName} ran {run.ScriptName} on {run.EndpointCount} endpoints of {instanceFqdn}"),
+            html, Footer(text));
+    }
+
     /// <summary>A short message to confirm that email delivery works. Public so the web can reuse the same text.</summary>
     public static EmailContent TestEmail(string instanceFqdn)
     {
@@ -287,7 +337,7 @@ public static class EmailTemplates
     }
 
     /// <summary>One line, no control characters, at most 250 characters: safe as a mail header value.</summary>
-    internal static string Subject(string value)
+    public static string Subject(string value)
     {
         var builder = new StringBuilder(value.Length);
         foreach (var c in value)

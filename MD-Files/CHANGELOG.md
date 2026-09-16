@@ -48,6 +48,11 @@ watchdog, and the rename to Fleeto with the move of the test VPS from the Fleeti
   has one and is a root-only key file otherwise. Inventory reads the distribution, the kernel, the hardware (DMI), the packages
   (dpkg or rpm) and the systemd services, which the check dialog offers like Windows services. Checks, scripts (sh and bash) and
   jobs run as root; the disk check skips images, container layers and network shares.
+- 0.2.1: Run a script on a selection of endpoints: check the endpoints in the list and choose "Run script on N endpoints"
+  in the right-click menu. The run window shows the state per endpoint while it happens, the endpoints that got no job with
+  the reason, and the output of each job. Above a threshold in Settings, Scripts (default: more than 10 endpoints) every
+  admin gets an email naming the technician, the script and where it ran, and the run writes one audit entry for the batch
+  next to the entry per job.
 - 0.2.1: Agents for amd64 and arm64 on both platforms. The release manifest lists the agent and the watchdog for `windows-amd64`,
   `windows-arm64`, `linux-amd64` and `linux-arm64`, the instance serves them at `/agent/download/<platform>`, and the install
   command of a site is shown per operating system and picks the architecture of the endpoint itself.
