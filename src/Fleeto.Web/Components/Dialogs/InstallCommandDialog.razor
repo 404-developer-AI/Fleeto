@@ -10,15 +10,15 @@
         @if (Created.InstallCommands is { } commands)
         {
             <MudText Typo="Typo.body2" Class="mb-2">This token is shown only once. Pick the operating system of the endpoint.</MudText>
-            <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pt-3">
+            <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true">
                 <MudTabPanel Text="Windows">
-                    <MudText Typo="Typo.body2" Class="mb-2">Run in an elevated PowerShell on the endpoint.</MudText>
+                    <MudText Typo="Typo.body2" Class="mt-3 mb-2">Run in an elevated PowerShell on the endpoint.</MudText>
                     <div class="command-box mb-3">@commands.Windows</div>
                     <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.ContentCopy"
                                OnClick="@(() => CopyAsync(commands.Windows))">Copy command</MudButton>
                 </MudTabPanel>
                 <MudTabPanel Text="Linux">
-                    <MudText Typo="Typo.body2" Class="mb-2">
+                    <MudText Typo="Typo.body2" Class="mt-3 mb-2">
                         Run in a shell on the endpoint. On a system without sudo, such as Proxmox VE, run it as root without the sudo in front.
                     </MudText>
                     <div class="command-box mb-3">@commands.Linux</div>

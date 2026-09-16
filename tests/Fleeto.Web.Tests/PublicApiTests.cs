@@ -465,7 +465,7 @@ public sealed class PublicApiTests
         {
             Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, BatchId = Guid.NewGuid(), ScriptName = "Inventory refresh",
             ScriptVersionNumber = 1, Language = ScriptLanguage.PowerShell, ScriptSha256 = new string('a', 64), TimeoutSeconds = 600,
-            MaxOutputBytes = ScriptRules.MaxOutputBytes, CreatedAt = Now, ValidUntil = Now.AddHours(1), InitiatedByUserId = Guid.NewGuid(),
+            MaxOutputBytes = ScriptRules.DefaultMaxOutputBytes, CreatedAt = Now, ValidUntil = Now.AddHours(1), InitiatedByUserId = Guid.NewGuid(),
             InitiatedByName = "Technician"
         };
         db.Jobs.Add(job);

@@ -53,6 +53,15 @@ watchdog, and the rename to Fleeto with the move of the test VPS from the Fleeti
   the reason, and the output of each job. Above a threshold in Settings, Scripts (default: more than 10 endpoints) every
   admin gets an email naming the technician, the script and where it ran, and the run writes one audit entry for the batch
   next to the entry per job.
+- 0.2.1: A script can run as the signed-in user instead of as SYSTEM or root. The account is chosen per run in the run window
+  and signed with the job, so the agent runs what the signer decided. The agent picks the active session, a remote desktop
+  session included, and fails the job at once when nobody is signed in. The script is staged where that user may read it but
+  not change it, runs from their own profile or home directory with their environment, and on Windows in the interactive
+  desktop, so it can show a window. Script checks keep running as the agent's own account.
+- 0.2.1: The cap on job output is a policy setting (1 MiB to 200 MiB, default 50 MiB) instead of a fixed 50 MiB. The signer
+  reads it from the policy of the endpoint's site when it signs the job; agent and gateway keep 200 MiB as an absolute ceiling.
+- 0.2.1: Fleeto icon for the installed web app: a web app manifest with PNG icons (192, 512 and a maskable 512), an
+  apple-touch-icon and the theme colour, so installing Fleeto from the browser no longer shows a generic icon.
 - 0.2.1: Agents for amd64 and arm64 on both platforms. The release manifest lists the agent and the watchdog for `windows-amd64`,
   `windows-arm64`, `linux-amd64` and `linux-arm64`, the instance serves them at `/agent/download/<platform>`, and the install
   command of a site is shown per operating system and picks the architecture of the endpoint itself.

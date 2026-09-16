@@ -134,6 +134,8 @@ public sealed class JobHandler : ISigningRequestHandler
         }
 
         var timeout = Math.Clamp(version.TimeoutSeconds, ScriptRules.MinTimeoutSeconds, ScriptRules.MaxTimeoutSeconds);
+        // The output cap comes from the effective policy, not from the job row web wrote: the signer is the authority.
+        var maxOutput = ScriptRules.OutputCap(policy?.MaxOutputBytes ?? ScriptRules.DefaultMaxOutputBytes);
         var payload = new JobPayload
         {
             JobId = job.Id.ToString("D"),
@@ -143,7 +145,8 @@ public sealed class JobHandler : ISigningRequestHandler
             ValidUntil = Timestamp.FromDateTime(DateTime.SpecifyKind(job.ValidUntil, DateTimeKind.Utc)),
             InitiatedBy = job.InitiatedByName,
             TimeoutSeconds = (uint)timeout,
-            MaxOutputBytes = (ulong)ScriptRules.MaxOutputBytes,
+            MaxOutputBytes = (ulong)maxOutput,
+            RunAs = job.RunAs == Core.Entities.JobRunAs.LoggedOnUser ? Protocol.Agent.V1.JobRunAs.LoggedOnUser : Protocol.Agent.V1.JobRunAs.Service,
             Script = new ScriptJob
             {
                 Language = AgentConfigBuilder.ToProto(script.Language),
@@ -159,7 +162,7 @@ public sealed class JobHandler : ISigningRequestHandler
         job.SigningKeyId = _keyRing.SigningKeyId;
         job.SignedAt = now;
         job.TimeoutSeconds = timeout;
-        job.MaxOutputBytes = ScriptRules.MaxOutputBytes;
+        job.MaxOutputBytes = maxOutput;
         job.State = JobState.Queued;
 
         await SignerAudit.WriteAsync(db, new AuditRecord(AuditActions.JobSigned, "Job", job.Id.ToString(), job.ClientId, AuditActorType.System,
@@ -173,7 +176,8 @@ public sealed class JobHandler : ISigningRequestHandler
                 job.ScriptSha256,
                 job.ValidUntil,
                 InitiatedBy = job.InitiatedByName,
-                ApprovalRequired = policy?.ScriptApprovalRequired == true
+                ApprovalRequired = policy?.ScriptApprovalRequired == true,
+                RunAs = job.RunAs.ToString()
             }), now, cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);

@@ -12,12 +12,12 @@ namespace Fleeto.Web.Services;
 public sealed record PolicyListItem(Guid Id, string Name, string? Description, Guid? ClientId, string? ClientCode, bool IsDefault,
     int HeartbeatIntervalSeconds, int InventoryIntervalSeconds, int OfflineAlertAfterMinutes, AlertSeverity OfflineAlertSeverity, int SiteCount,
     int ClientTemplateSiteCount, IReadOnlyList<MaintenanceWindow> MaintenanceWindows, bool ScriptApprovalRequired = false,
-    UpdateRing UpdateRing = UpdateRing.Standard);
+    UpdateRing UpdateRing = UpdateRing.Standard, long MaxOutputBytes = ScriptRules.DefaultMaxOutputBytes);
 
 /// <param name="MaintenanceWindows">Recurring maintenance windows (0.2.0). Null keeps the current windows when updating, none when creating.</param>
 public sealed record PolicyInput(string? Name, string? Description, int HeartbeatIntervalSeconds, int InventoryIntervalSeconds,
     int OfflineAlertAfterMinutes, AlertSeverity OfflineAlertSeverity, IReadOnlyList<MaintenanceWindow>? MaintenanceWindows = null,
-    bool? ScriptApprovalRequired = null, UpdateRing? UpdateRing = null);
+    bool? ScriptApprovalRequired = null, UpdateRing? UpdateRing = null, long? MaxOutputBytes = null);
 
 /// <summary>Policies (global or per client). Linked, not copied: a change applies at once to every site that uses the policy.</summary>
 public sealed class PolicyService
@@ -27,6 +27,10 @@ public sealed class PolicyService
     public const int MinInventorySeconds = 900;
     public const int MaxInventorySeconds = 7 * 86400;
     public const int MaxOfflineAlertMinutes = 7 * 24 * 60;
+
+    /// <summary>The job output cap is chosen in whole mebibytes (0.2.1); the signer holds the same bounds.</summary>
+    public const int MinOutputMegabytes = (int)(ScriptRules.MinOutputBytes / ScriptRules.Mebibyte);
+    public const int MaxOutputMegabytes = (int)(ScriptRules.MaxOutputBytes / ScriptRules.Mebibyte);
 
     private readonly IFleetoDbContextFactory _dbFactory;
     private readonly TimeProvider _time;
@@ -49,7 +53,8 @@ public sealed class PolicyService
                     db.Clients.Where(c => c.Id == p.ClientId).Select(c => c.Code).FirstOrDefault(),
                     p.IsDefault, p.HeartbeatIntervalSeconds, p.InventoryIntervalSeconds, p.OfflineAlertAfterMinutes, p.OfflineAlertSeverity,
                     db.SitePolicies.Count(l => l.PolicyId == p.Id),
-                    db.ClientTemplateSites.Count(s => s.PolicyId == p.Id), Array.Empty<MaintenanceWindow>(), p.ScriptApprovalRequired, p.UpdateRing),
+                    db.ClientTemplateSites.Count(s => s.PolicyId == p.Id), Array.Empty<MaintenanceWindow>(), p.ScriptApprovalRequired, p.UpdateRing,
+                    p.MaxOutputBytes),
                 p.MaintenanceWindowsJson
             })
             .ToListAsync(cancellationToken);
@@ -148,7 +153,7 @@ public sealed class PolicyService
 
         var input = new PolicyInput(name, source.Description, source.HeartbeatIntervalSeconds, source.InventoryIntervalSeconds,
             source.OfflineAlertAfterMinutes, source.OfflineAlertSeverity, MaintenanceWindowSchedule.Parse(source.MaintenanceWindowsJson),
-            source.ScriptApprovalRequired, source.UpdateRing);
+            source.ScriptApprovalRequired, source.UpdateRing, source.MaxOutputBytes);
         var created = await CreateAsync(caller, targetClientId, input, cancellationToken);
         if (created.Success)
         {
@@ -222,6 +227,11 @@ public sealed class PolicyService
             policy.UpdateRing = ring;
         }
 
+        if (input.MaxOutputBytes is { } output)
+        {
+            policy.MaxOutputBytes = ScriptRules.OutputCap(output);
+        }
+
         policy.UpdatedAt = now;
     }
 
@@ -234,6 +244,7 @@ public sealed class PolicyService
         OfflineAlertSeverity = policy.OfflineAlertSeverity.ToString(),
         policy.ScriptApprovalRequired,
         UpdateRing = policy.UpdateRing.ToString(),
+        policy.MaxOutputBytes,
         MaintenanceWindows = MaintenanceWindowSchedule.Parse(policy.MaintenanceWindowsJson).Select(MaintenanceWindows.Describe).ToList()
     };
 
@@ -268,6 +279,11 @@ public sealed class PolicyService
         if (input.OfflineAlertAfterMinutes is < 0 or > MaxOfflineAlertMinutes)
         {
             return "The offline alert delay must be between 0 (no offline alerts) and 10080 minutes (7 days).";
+        }
+
+        if (input.MaxOutputBytes is { } output && (output < ScriptRules.MinOutputBytes || output > ScriptRules.MaxOutputBytes))
+        {
+            return $"The job output cap must be between {MinOutputMegabytes} and {MaxOutputMegabytes} MiB.";
         }
 
         return input.MaintenanceWindows is { } windows ? MaintenanceWindows.Validate(windows) : null;

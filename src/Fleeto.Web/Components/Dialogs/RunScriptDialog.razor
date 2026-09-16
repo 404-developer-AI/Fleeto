@@ -28,6 +28,23 @@
                     </MudSelectItem>
                 }
             </MudSelect>
+            <MudSelect T="JobRunAs" @bind-Value="_runAs" Label="Run as" Variant="Variant.Outlined" Class="mb-1">
+                <MudSelectItem T="JobRunAs" Value="JobRunAs.Service">@Ui.JobRunAsLabel(JobRunAs.Service)</MudSelectItem>
+                <MudSelectItem T="JobRunAs" Value="JobRunAs.LoggedOnUser">@Ui.JobRunAsLabel(JobRunAs.LoggedOnUser)</MudSelectItem>
+            </MudSelect>
+            <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+                @if (_runAs == JobRunAs.LoggedOnUser)
+                {
+                    <text>
+                        The script runs in the active session, with that user's rights and profile, and can show windows. An endpoint where
+                        nobody is signed in fails the job. The user can read the script while it runs.
+                    </text>
+                }
+                else
+                {
+                    <text>The script runs as SYSTEM on Windows and as root on Linux, with no user session.</text>
+                }
+            </MudText>
             <MudSelect T="TimeSpan" @bind-Value="_validity" Label="Run when the endpoint is online within" Variant="Variant.Outlined" Class="mb-2">
                 @foreach (var (validity, label) in JobService.Validities)
                 {
@@ -35,7 +52,7 @@
                 }
             </MudSelect>
             <MudText Typo="Typo.caption" Class="muted d-block">
-                The current version runs as SYSTEM or root. An endpoint that is offline longer than this does not run it; the job then expires.
+                An endpoint that is offline longer than this does not run the script; the job then expires.
             </MudText>
         }
     </DialogContent>
@@ -55,13 +72,14 @@
     [Parameter, EditorRequired] public IReadOnlyCollection<Guid> EndpointIds { get; set; } = [];
     [Parameter, EditorRequired] public string TargetLabel { get; set; } = string.Empty;
     [Parameter] public IReadOnlyList<RunnableScript> Scripts { get; set; } = [];
-    [Parameter] public Func<Guid, TimeSpan, Task<bool>> OnSubmit { get; set; } = (_, _) => Task.FromResult(true);
+    [Parameter] public Func<Guid, TimeSpan, JobRunAs, Task<bool>> OnSubmit { get; set; } = (_, _, _) => Task.FromResult(true);
 
     /// <summary>Endpoint count above which the run emails every admin (Settings, Scripts); 0 never notifies.</summary>
     [Parameter] public int NotifyAdminsAbove { get; set; }
 
     private Guid? _scriptId;
     private TimeSpan _validity = ScriptRules.DefaultValidity;
+    private JobRunAs _runAs = JobRunAs.Service;
     private bool _busy;
 
     private void Cancel() => MudDialog.Cancel();
@@ -76,7 +94,7 @@
         _busy = true;
         try
         {
-            if (await OnSubmit(scriptId, _validity))
+            if (await OnSubmit(scriptId, _validity, _runAs))
             {
                 MudDialog.Close(DialogResult.Ok(true));
             }

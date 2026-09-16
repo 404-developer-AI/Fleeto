@@ -408,19 +408,19 @@ public sealed class PublicApiQueries
     }
 
     private sealed record JobRow(Guid Id, Guid BatchId, Guid ClientId, Guid EndpointId, JobType Type, Guid? ScriptId, Guid? ScriptVersionId, string ScriptName,
-        int ScriptVersionNumber, ScriptLanguage Language, string ScriptSha256, JobState State, JobResult? Result, int? ExitCode, string? Problem,
+        int ScriptVersionNumber, ScriptLanguage Language, string ScriptSha256, JobRunAs RunAs, JobState State, JobResult? Result, int? ExitCode, string? Problem,
         string InitiatedByName, DateTime CreatedAt, DateTime ValidUntil, DateTime? DeliveredAt, DateTime? StartedAt, DateTime? CompletedAt,
         JobOutputState OutputState, bool OutputTruncated, long ReceivedOutputBytes);
 
     // Payload, signature and output chunks are never selected: the list stays small and the signed payload never leaves the database.
     private static IQueryable<JobRow> ProjectJobs(IQueryable<Job> jobs) =>
         jobs.Select(j => new JobRow(j.Id, j.BatchId, j.ClientId, j.EndpointId, j.Type, j.ScriptId, j.ScriptVersionId, j.ScriptName, j.ScriptVersionNumber,
-            j.Language, j.ScriptSha256, j.State, j.Result, j.ExitCode, j.RefusalReason ?? j.Error, j.InitiatedByName, j.CreatedAt, j.ValidUntil, j.DeliveredAt,
+            j.Language, j.ScriptSha256, j.RunAs, j.State, j.Result, j.ExitCode, j.RefusalReason ?? j.Error, j.InitiatedByName, j.CreatedAt, j.ValidUntil, j.DeliveredAt,
             j.StartedAt, j.CompletedAt, j.OutputState, j.OutputTruncated, j.ReceivedOutputBytes));
 
     private static ApiJob ToApi(JobRow j) =>
         new(j.Id, j.BatchId, j.ClientId, j.EndpointId, j.Type switch { JobType.Script => "script", _ => throw Unmapped(j.Type) },
-            new ApiJobScript(j.ScriptId, j.ScriptVersionId, j.ScriptName, j.ScriptVersionNumber, Map(j.Language), j.ScriptSha256),
+            new ApiJobScript(j.ScriptId, j.ScriptVersionId, j.ScriptName, j.ScriptVersionNumber, Map(j.Language), j.ScriptSha256), Map(j.RunAs),
             Map(j.State), j.Result is { } result ? Map(result) : null, j.ExitCode, j.Problem, j.InitiatedByName, Utc(j.CreatedAt), Utc(j.ValidUntil),
             UtcOrNull(j.DeliveredAt), UtcOrNull(j.StartedAt), UtcOrNull(j.CompletedAt), new ApiJobOutputSummary(Map(j.OutputState), j.OutputTruncated,
                 j.ReceivedOutputBytes));
@@ -551,6 +551,13 @@ public sealed class PublicApiQueries
         JobResult.Refused => ApiJobResult.Refused,
         JobResult.FailedToStart => ApiJobResult.FailedToStart,
         JobResult.Interrupted => ApiJobResult.Interrupted,
+        _ => throw Unmapped(value)
+    };
+
+    internal static ApiJobRunAs Map(JobRunAs value) => value switch
+    {
+        JobRunAs.Service => ApiJobRunAs.Service,
+        JobRunAs.LoggedOnUser => ApiJobRunAs.LoggedOnUser,
         _ => throw Unmapped(value)
     };
 

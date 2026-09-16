@@ -47,6 +47,10 @@
                 {
                     <span class="ml-1"><StatusChip Text="Script approval" Kind="StatusKind.Neutral" /></span>
                 }
+                @if (context.MaxOutputBytes != ScriptRules.DefaultMaxOutputBytes)
+                {
+                    <span class="ml-1"><StatusChip Text="@($"Output {context.MaxOutputBytes / ScriptRules.Mebibyte} MiB")" Kind="StatusKind.Neutral" /></span>
+                }
                 @if (!string.IsNullOrEmpty(context.Description))
                 {
                     <div class="muted" style="font-size:0.8125rem">@context.Description</div>

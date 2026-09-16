@@ -106,6 +106,13 @@ public enum ApiJobResult
     [JsonStringEnumMemberName("interrupted")] Interrupted
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<ApiJobRunAs>))]
+public enum ApiJobRunAs
+{
+    [JsonStringEnumMemberName("service")] Service,
+    [JsonStringEnumMemberName("logged_on_user")] LoggedOnUser
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter<ApiJobOutputState>))]
 public enum ApiJobOutputState
 {
@@ -230,6 +237,7 @@ public sealed record ApiJob(
     Guid EndpointId,
     string Type,
     ApiJobScript Script,
+    ApiJobRunAs RunAs,
     ApiJobState State,
     ApiJobResult? Result,
     int? ExitCode,

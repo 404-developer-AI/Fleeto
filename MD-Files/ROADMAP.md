@@ -15,8 +15,9 @@ run; its release build failed), `v0.2.0-alpha.2` (first published test build), `
 
 **0.2.1** — in progress (started 2026-09-15): the read-only public API, agent self-update with update rings, the
 Windows watchdog, the Linux agent with its watchdog and the rename to Fleeto everywhere are built (pre-releases `v0.2.1-alpha.1`, whose release build
-failed, `v0.2.1-alpha.2`, whose move of the test VPS fell back to the old layout, and `v0.2.1-alpha.3`, 2026-09-15); still open are the output cap per policy, running a
-script as the logged-on user and the icon for the installed web app. The Servicedesk ticket reference on notes moved to "Not yet scheduled" (decided 2026-09-15).
+failed, `v0.2.1-alpha.2`, whose move of the test VPS fell back to the old layout, and `v0.2.1-alpha.3`, 2026-09-15), and so are the
+script run on a selection of endpoints, the output cap per policy, running a script as the signed-in user and the icon for the installed web app,
+and the images of the failed `v0.2.0-alpha.1` are removed from ghcr.io; what is left is testing on real endpoints before the tag. The Servicedesk ticket reference on notes moved to "Not yet scheduled" (decided 2026-09-15).
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
 2026-09-15, see Later).
@@ -161,7 +162,7 @@ production release.
   execution with `ValidUntil`, output capture, job history including expired and refused jobs.
   PowerShell and Batch on Windows, sh and bash on Linux, always as SYSTEM or root (decided 2026-09-15). Decided
   while building: a script runs on one endpoint at a time from the UI. Running a script on a selection of endpoints,
-  an output cap per policy and running as the logged-on user are planned for 0.2.1.
+  an output cap per policy and running as the signed-in user followed in 0.2.1.
 - [done] Deployment for SaaS (decided 2026-09-15: Steaan runs every instance), tested with the first install on a VPS:
   - releases are GitHub Releases of the private repository; install.sh reads them with a fine-grained read-only token
     and pulls the private images with a classic `read:packages` token, both asked once and stored root-only;
@@ -272,14 +273,35 @@ Everything that was still open for 0.2.0, moved here on 2026-09-15, with the dev
   - a run on more than one endpoint also writes one audit entry for the batch, next to the entry per job;
   - after starting, a run window shows the state per endpoint, updated live, with the skipped endpoints and their reason;
     selecting an endpoint there opens its output.
-- [open] Output cap for job output per policy instead of the fixed 50 MiB (deferred from 0.2.0).
-- [open] Run a script as the logged-on user instead of SYSTEM or root (deferred from 0.2.0).
-- [open] Fleeto icon for the installed web app: the instance only serves an SVG favicon and no web app manifest, so
-  installing Fleeto from the browser shows a generic icon. Add `manifest.webmanifest` (name Fleeto, standalone display,
-  theme colour teal `#0F766E`) with PNG icons made from the favicon mark (192 and 512 px, plus a maskable 512 px),
-  an `apple-touch-icon` (180 px) and the `theme-color` meta tag in `App.razor`; check that the manifest and icons are
-  served without sign-in and allowed by the CSP.
-- [open] Remove the container images of the failed `v0.2.0-alpha.1` release from ghcr.io.
+- [done] Output cap for job output per policy instead of the fixed 50 MiB (deferred from 0.2.0). Decided while building: the
+  cap is chosen in whole mebibytes in the policy (1 MiB to 200 MiB, default 50 MiB); the signer reads it from the effective
+  policy of the endpoint's site and puts it in the signed job, so what web wrote on the job row never decides it; agent and
+  gateway hold 200 MiB as an absolute ceiling whatever a policy or a payload says; a policy that is not the default shows
+  its cap in the policy list.
+- [done] Run a script as the logged-on user instead of SYSTEM or root (deferred from 0.2.0). Decided while building:
+  - the account is chosen **per run** in the run window ("System (SYSTEM or root)" or "The signed-in user"), not on the
+    script and not in the policy: the same script is useful in both places, and running as a user is never more than the
+    service account may do anyway. It is signed with the job, so the agent runs what the signer decided and nothing else;
+  - the session is the **active** one, a remote desktop session included; on Windows the console session wins when someone
+    is signed in there, on Linux a graphical session wins over a text one and root is never chosen;
+  - an endpoint where nobody is signed in **fails the job at once** with that reason instead of waiting: the technician
+    sees it in the job list and starts it again later;
+  - the script is not written in the agent's own directory, which the user may not read, but in a directory the user may
+    read and not change (Windows: under `C:\ProgramData\Fleeto` with SYSTEM, the administrators and that user only;
+    Linux: a root-owned directory under `/tmp` with the script owned by the user, mode 0400). The user can read the script
+    while it runs; the run window says so;
+  - the script runs from the user's own profile or home directory, with that user's environment, and on Windows in
+    `winsta0\default`, so it can show a window; `CreateProcessAsUser` is called directly because Go's process API cannot
+    name a desktop;
+  - script checks from the signed configuration always run as the agent's own account, never as a user.
+- [done] Fleeto icon for the installed web app: `manifest.webmanifest` (name Fleeto, standalone display, theme colour
+  teal `#0F766E`) with PNG icons made from the favicon mark (192 and 512 px, plus a maskable 512 px), an
+  `apple-touch-icon` (180 px) and the `theme-color` meta tag in `App.razor`. Decided while building: the icons are
+  generated from the same geometry as `favicon.svg` by `tools/dev/build-icons.cs` (run with `dotnet run`, no image
+  library and no design tool), so the mark cannot drift from the favicon; `manifest-src 'self'` was added to the Content
+  Security Policy, and a test reads the sizes from the PNG headers and checks that every icon the manifest names
+  exists.
+- [done] Remove the container images of the failed `v0.2.0-alpha.1` release from ghcr.io (2026-09-16: web, gateway, signer, workers and tool; the release build stopped before the Caddy image).
 - Not supported for now: **macOS** (decided 2026-09-15): no macOS agent, watchdog, remote control or remote terminal.
   It may come later when there is demand (see Later).
 

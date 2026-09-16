@@ -444,6 +444,16 @@ message JobPayload {
   // The agent sends at most this much output (both streams together) and marks the rest truncated.
   uint64 max_output_bytes = 8;
   ScriptJob script = 9;
+  // Account the script runs under (0.2.1). Unspecified means the service account.
+  JobRunAs run_as = 10;
+}
+
+enum JobRunAs {
+  // SYSTEM on Windows, root on Linux: the account the agent service itself runs as.
+  JOB_RUN_AS_UNSPECIFIED = 0;
+  JOB_RUN_AS_SERVICE = 1;
+  // The user of the active session. The job fails when nobody is signed in.
+  JOB_RUN_AS_LOGGED_ON_USER = 2;
 }
 
 enum JobType {
@@ -463,13 +473,13 @@ message ScriptJob {
 
 enum ScriptLanguage {
   SCRIPT_LANGUAGE_UNSPECIFIED = 0;
-  // Windows PowerShell, run as SYSTEM.
+  // Windows PowerShell.
   SCRIPT_LANGUAGE_POWERSHELL = 1;
-  // cmd.exe batch file, run as SYSTEM.
+  // cmd.exe batch file.
   SCRIPT_LANGUAGE_BATCH = 2;
-  // /bin/sh, run as root.
+  // /bin/sh.
   SCRIPT_LANGUAGE_SHELL = 3;
-  // /bin/bash, run as root.
+  // /bin/bash.
   SCRIPT_LANGUAGE_BASH = 4;
 }
 

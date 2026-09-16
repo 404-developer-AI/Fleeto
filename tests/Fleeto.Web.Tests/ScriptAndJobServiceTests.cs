@@ -128,6 +128,42 @@ public sealed class ScriptAndJobServiceTests
     }
 
     [Fact]
+    public async Task A_job_takes_the_output_cap_of_the_policy_of_its_site_and_the_cap_is_bounded()
+    {
+        await _fixture.Database.LoadTestLicenseAsync(1000);
+        var technician = await _fixture.Database.CreateUserAsync(FleetoRoles.Technician);
+        var admin = await _fixture.Database.CreateUserAsync(FleetoRoles.Admin);
+        var client = await _fixture.Database.CreateClientAsync();
+        var site = await _fixture.Database.CreateSiteAsync(client.Id);
+        var endpoint = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "SRV-CAP", EndpointClass.Server);
+        var (script, _) = await _fixture.Database.CreateScriptAsync(null, technician.Id);
+        var policies = _fixture.Services.GetRequiredService<PolicyService>();
+        var adminCaller = As(admin, FleetoRoles.Admin);
+
+        var tooLarge = new PolicyInput("Cap " + Guid.NewGuid().ToString("N")[..6], null, 30, 3600, 10, AlertSeverity.Critical,
+            MaxOutputBytes: ScriptRules.MaxOutputBytes + ScriptRules.Mebibyte);
+        var refused = await policies.CreateAsync(adminCaller, client.Id, tooLarge);
+        Assert.False(refused.Success);
+        Assert.Contains("output cap", refused.Problem);
+
+        var created = await policies.CreateAsync(adminCaller, client.Id, tooLarge with { MaxOutputBytes = 4 * ScriptRules.Mebibyte });
+        Assert.True(created.Success, created.Problem);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            db.SitePolicies.Add(new SitePolicy { SiteId = site.Id, ClientId = client.Id, PolicyId = created.Value });
+            await db.SaveChangesAsync();
+        }
+
+        var run = await Jobs.RunAsync(As(technician, FleetoRoles.Technician), script.Id, [endpoint.Id], TimeSpan.FromHours(24));
+        Assert.True(run.Success, run.Problem);
+
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            Assert.Equal(4 * ScriptRules.Mebibyte, (await db.Jobs.AsNoTracking().SingleAsync(j => j.BatchId == run.Value!.BatchId)).MaxOutputBytes);
+        }
+    }
+
+    [Fact]
     public async Task Runs_create_jobs_only_where_the_script_can_run_and_cancel_before_delivery()
     {
         await _fixture.Database.LoadTestLicenseAsync(1000);
@@ -248,7 +284,7 @@ public sealed class ScriptAndJobServiceTests
             {
                 Id = jobId, ClientId = client.Id, EndpointId = endpoint.Id, BatchId = Guid.NewGuid(), ScriptId = script.Id, ScriptVersionId = version.Id,
                 ScriptName = script.Name, ScriptVersionNumber = 1, Language = script.Language, ScriptSha256 = version.Sha256, TimeoutSeconds = 600,
-                MaxOutputBytes = ScriptRules.MaxOutputBytes, CreatedAt = now, ValidUntil = now.AddHours(1), InitiatedByUserId = technician.Id, InitiatedByName = "Tech",
+                MaxOutputBytes = ScriptRules.DefaultMaxOutputBytes, CreatedAt = now, ValidUntil = now.AddHours(1), InitiatedByUserId = technician.Id, InitiatedByName = "Tech",
                 State = JobState.Succeeded, Signature = new byte[64], Payload = [1], DeliveredAt = now, CompletedAt = now, ExitCode = 0, OutputState = JobOutputState.Complete
             });
             db.JobOutputChunks.AddRange(

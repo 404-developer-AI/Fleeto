@@ -3,6 +3,7 @@ using System;
 using Fleeto.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Fleeto.Infrastructure.Migrations
 {
     [DbContext(typeof(FleetoDbContext))]
-    partial class FleetoDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260916014446_JobOutputCapPerPolicy")]
+    partial class JobOutputCapPerPolicy
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1626,13 +1629,6 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<string>("Result")
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
-
-                    b.Property<string>("RunAs")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasDefaultValue("Service");
 
                     b.Property<Guid?>("ScriptId")
                         .HasColumnType("uuid");

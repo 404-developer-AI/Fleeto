@@ -266,3 +266,49 @@ func TestAJobThatWasRunningWhenTheAgentStoppedIsReportedAsInterruptedAndNotRunAg
 		}
 	}
 }
+
+// The cap in the signed payload comes from the policy of the endpoint's site; the agent holds its own ceiling over it.
+func TestTheOutputLimitFollowsTheSignedCapWithinTheAgentCeiling(t *testing.T) {
+	cases := []struct {
+		signed uint64
+		want   int64
+	}{
+		{0, DefaultOutputBytes},
+		{8 * 1024 * 1024, 8 * 1024 * 1024},
+		{MaxOutputBytes, MaxOutputBytes},
+		{MaxOutputBytes + 1, MaxOutputBytes},
+	}
+	for _, c := range cases {
+		if got := OutputLimit(&agentv1.JobPayload{MaxOutputBytes: c.signed}); got != c.want {
+			t.Fatalf("OutputLimit(%d) = %d, want %d", c.signed, got, c.want)
+		}
+	}
+}
+
+// A job that must run as the signed-in user never falls back to SYSTEM or root: without a session it fails and says so.
+// The test process is not the agent service, so it cannot reach a user session on a build machine or a CI runner.
+func TestAJobForTheSignedInUserFailsWhenThereIsNoSession(t *testing.T) {
+	if session, err := signedInSession(); err == nil {
+		session.close()
+		t.Skip("this machine has a user session the test process can start a process in")
+	}
+
+	f := newFixture(t)
+	m := f.manager(t.TempDir())
+	id := "6d2a1d2a-0000-4000-8000-00000000000a"
+	language, body := nativeScript(false)
+	payload := f.payload(id, language, body)
+	payload.RunAs = agentv1.JobRunAs_JOB_RUN_AS_LOGGED_ON_USER
+	m.Accept(f.sign(payload))
+
+	completion, _ := completionOf(t, m, id, 10*time.Second)
+	if completion.GetResult() != agentv1.JobResult_JOB_RESULT_FAILED_TO_START {
+		t.Fatalf("result = %s, want FAILED_TO_START", completion.GetResult())
+	}
+	if !strings.Contains(completion.GetError(), "No user is signed in") {
+		t.Fatalf("error = %q, want it to name the missing session", completion.GetError())
+	}
+	if completion.GetStdout().GetBytes() != 0 {
+		t.Fatalf("the script produced %d bytes; it must not have run", completion.GetStdout().GetBytes())
+	}
+}

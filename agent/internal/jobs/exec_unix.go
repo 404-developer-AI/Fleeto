@@ -5,6 +5,7 @@ package jobs
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"syscall"
 
@@ -13,33 +14,46 @@ import (
 
 // processTree runs the script in its own process group, so a timeout or stop ends every process the script started.
 type processTree struct {
-	cmd *exec.Cmd
+	pid int
 }
 
-func command(ctx context.Context, language agentv1.ScriptLanguage, scriptPath, dir string) (*exec.Cmd, *processTree, error) {
+func command(ctx context.Context, opts commandOptions) (scriptProcess, *processTree, error) {
 	var interpreter string
-	switch language {
+	switch opts.language {
 	case agentv1.ScriptLanguage_SCRIPT_LANGUAGE_SHELL:
 		interpreter = "/bin/sh"
 	case agentv1.ScriptLanguage_SCRIPT_LANGUAGE_BASH:
 		interpreter = "/bin/bash"
 	default:
-		return nil, nil, fmt.Errorf("%s scripts do not run on this operating system", LanguageName(language))
+		return nil, nil, fmt.Errorf("%s scripts do not run on this operating system", LanguageName(opts.language))
 	}
-	cmd := exec.CommandContext(ctx, interpreter, scriptPath)
-	cmd.Dir = dir
+	tree := &processTree{}
+	cmd := exec.CommandContext(ctx, interpreter, opts.scriptPath)
+	cmd.Dir = opts.dir
+	cmd.Stdout = opts.stdout
+	cmd.Stderr = opts.stderr
+	cmd.WaitDelay = opts.wait
+	cmd.Cancel = tree.kill
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	return cmd, &processTree{cmd: cmd}, nil
+	if user := opts.session; user != nil {
+		// The script drops to the user's own account and session; root's environment never reaches it.
+		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: user.uid, Gid: user.gid}
+		cmd.Env = user.environment(opts.env)
+	} else {
+		cmd.Env = append(os.Environ(), opts.env...)
+	}
+	return execProcess{cmd: cmd}, tree, nil
 }
 
-func (t *processTree) attach(*exec.Cmd) {}
+// attach remembers the process so the whole group can be ended.
+func (t *processTree) attach(pid int) { t.pid = pid }
 
 // kill ends the whole process group.
 func (t *processTree) kill() error {
-	if t.cmd.Process == nil {
+	if t.pid == 0 {
 		return nil
 	}
-	return syscall.Kill(-t.cmd.Process.Pid, syscall.SIGKILL)
+	return syscall.Kill(-t.pid, syscall.SIGKILL)
 }
 
 func (t *processTree) close() {}

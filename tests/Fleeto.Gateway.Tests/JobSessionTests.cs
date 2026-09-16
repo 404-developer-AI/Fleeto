@@ -26,7 +26,7 @@ public sealed class JobSessionTests
 
     private DateTime Now => _fixture.Database.Time.GetUtcNow().UtcDateTime;
 
-    private async Task<Job> CreateJobAsync(Endpoint endpoint, JobState state = JobState.Queued, TimeSpan? validity = null, long maxOutput = ScriptRules.MaxOutputBytes,
+    private async Task<Job> CreateJobAsync(Endpoint endpoint, JobState state = JobState.Queued, TimeSpan? validity = null, long maxOutput = ScriptRules.DefaultMaxOutputBytes,
         bool delivered = false)
     {
         var user = await _fixture.Database.CreateUserAsync(FleetoRoles.Technician);

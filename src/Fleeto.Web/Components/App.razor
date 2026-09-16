@@ -7,6 +7,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="theme-color" content="#0F766E" />
     <base href="/" />
     <ResourcePreloader />
     <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
@@ -14,6 +15,9 @@
     @* The framework renders the import map as an inline script, so it carries the CSP nonce. *@
     <ImportMap nonce="@Nonce" />
     <link rel="icon" type="image/svg+xml" href="@Assets["favicon.svg"]" />
+    @* Installing Fleeto from the browser needs raster icons; the manifest and the icons are served without signing in. *@
+    <link rel="apple-touch-icon" href="@Assets["icons/apple-touch-icon.png"]" />
+    <link rel="manifest" href="@Assets["manifest.webmanifest"]" />
     <HeadOutlet @rendermode="PageRenderMode" />
 </head>
 

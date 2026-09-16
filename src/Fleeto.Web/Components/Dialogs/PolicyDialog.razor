@@ -46,6 +46,11 @@
             When the agents of the linked sites install a new Fleeto release, counted from the moment this instance installed it. Applies to
             agent-only endpoints too.
         </MudText>
+        <MudNumericField T="int" @bind-Value="_outputMegabytes" Label="Job output cap (MiB)" Variant="Variant.Outlined" Class="mt-3 mb-1"
+                         Min="@PolicyService.MinOutputMegabytes" Max="@PolicyService.MaxOutputMegabytes" />
+        <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+            Output one job may send back. The endpoint drops whatever a script writes beyond it and the job is marked truncated.
+        </MudText>
         <MaintenanceWindowEditor Windows="_windows" DefaultTimeZone="@TimeZoneOptions.IanaId(Time.Zone)" />
     </DialogContent>
     <DialogActions>
@@ -72,6 +77,7 @@
     private List<MaintenanceWindowEditor.WindowModel> _windows = [];
     private bool _scriptApproval;
     private UpdateRing _updateRing = UpdateRing.Standard;
+    private int _outputMegabytes = (int)(ScriptRules.DefaultMaxOutputBytes / ScriptRules.Mebibyte);
     private bool _busy;
 
     protected override void OnInitialized()
@@ -87,6 +93,7 @@
             _windows = p.MaintenanceWindows.Select(MaintenanceWindowEditor.WindowModel.From).ToList();
             _scriptApproval = p.ScriptApprovalRequired;
             _updateRing = p.UpdateRing;
+            _outputMegabytes = (int)(p.MaxOutputBytes / ScriptRules.Mebibyte);
         }
     }
 
@@ -98,7 +105,7 @@
         try
         {
             var input = new PolicyInput(_name, _description, _heartbeat, _inventoryMinutes * 60, _offlineMinutes, _offlineSeverity,
-                _windows.Select(w => w.ToWindow()).ToList(), _scriptApproval, _updateRing);
+                _windows.Select(w => w.ToWindow()).ToList(), _scriptApproval, _updateRing, _outputMegabytes * ScriptRules.Mebibyte);
             if (await OnSubmit(_clientId, input))
             {
                 MudDialog.Close(DialogResult.Ok(true));

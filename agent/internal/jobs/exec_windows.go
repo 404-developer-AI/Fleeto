@@ -21,30 +21,36 @@ type processTree struct {
 	job windows.Handle
 }
 
-func command(ctx context.Context, language agentv1.ScriptLanguage, scriptPath, dir string) (*exec.Cmd, *processTree, error) {
+// interpreter is the program that runs one script and the command line it is started with.
+type interpreter struct {
+	path    string
+	cmdLine string
+}
+
+func interpreterFor(language agentv1.ScriptLanguage, scriptPath string) (interpreter, error) {
 	systemRoot := os.Getenv("SystemRoot")
 	if systemRoot == "" {
 		systemRoot = `C:\Windows`
 	}
-	var cmd *exec.Cmd
 	switch language {
 	case agentv1.ScriptLanguage_SCRIPT_LANGUAGE_POWERSHELL:
-		powershell := filepath.Join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-		cmd = exec.CommandContext(ctx, powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath)
+		path := filepath.Join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+		return interpreter{path: path,
+			cmdLine: fmt.Sprintf(`"%s" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%s"`, path, scriptPath)}, nil
 	case agentv1.ScriptLanguage_SCRIPT_LANGUAGE_BATCH:
-		cmdExe := filepath.Join(systemRoot, "System32", "cmd.exe")
-		cmd = exec.CommandContext(ctx, cmdExe)
+		path := filepath.Join(systemRoot, "System32", "cmd.exe")
 		// cmd.exe parses its own command line: /s strips the outer quotes, so a path with spaces stays one argument.
-		cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: fmt.Sprintf(`"%s" /d /s /c ""%s""`, cmdExe, scriptPath)}
+		return interpreter{path: path, cmdLine: fmt.Sprintf(`"%s" /d /s /c ""%s""`, path, scriptPath)}, nil
 	default:
-		return nil, nil, fmt.Errorf("%s scripts do not run on Windows", LanguageName(language))
+		return interpreter{}, fmt.Errorf("%s scripts do not run on Windows", LanguageName(language))
 	}
-	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
+}
+
+func command(ctx context.Context, opts commandOptions) (scriptProcess, *processTree, error) {
+	run, err := interpreterFor(opts.language, opts.scriptPath)
+	if err != nil {
+		return nil, nil, err
 	}
-	cmd.SysProcAttr.HideWindow = true
-	cmd.SysProcAttr.CreationFlags |= windows.CREATE_NO_WINDOW
-	cmd.Dir = dir
 
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
@@ -58,12 +64,34 @@ func command(ctx context.Context, language agentv1.ScriptLanguage, scriptPath, d
 		_ = windows.CloseHandle(job)
 		return nil, nil, fmt.Errorf("configure the job object: %w", err)
 	}
-	return cmd, &processTree{job: job}, nil
+	tree := &processTree{job: job}
+
+	if opts.session != nil {
+		proc, err := newUserProcess(ctx, run, opts, tree)
+		if err != nil {
+			tree.close()
+			return nil, nil, err
+		}
+		return proc, tree, nil
+	}
+
+	cmd := exec.CommandContext(ctx, run.path)
+	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: run.cmdLine, HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+	cmd.Dir = opts.dir
+	cmd.Stdout = opts.stdout
+	cmd.Stderr = opts.stderr
+	cmd.Env = append(os.Environ(), opts.env...)
+	cmd.WaitDelay = opts.wait
+	cmd.Cancel = tree.kill
+	return execProcess{cmd: cmd}, tree, nil
 }
 
 // attach adds the started process to the job object; processes it starts from then on belong to the job too.
-func (t *processTree) attach(cmd *exec.Cmd) {
-	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(cmd.Process.Pid))
+func (t *processTree) attach(pid int) {
+	if pid == 0 {
+		return
+	}
+	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(pid))
 	if err != nil {
 		return
 	}

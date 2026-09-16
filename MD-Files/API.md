@@ -545,6 +545,7 @@ Response `200`: a page of [Job](#job). Errors: 400, 401, 429.
         "language": "powershell",
         "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
       },
+      "runAs": "service",
       "state": "succeeded",
       "result": "exited",
       "exitCode": 0,
@@ -767,6 +768,7 @@ not read them.
 | `endpointId` | UUID | |
 | `type` | string | `script`. More types may be added. |
 | `script` | object | The script as it was when the job was created: `id` (UUID, nullable: `null` after the script was deleted), `versionId` (UUID, nullable), `name`, `versionNumber` (integer), `language` ([script language](#script-language)), `sha256` (hex SHA-256 of the script body). |
+| `runAs` | [job run as](#job-run-as) | The account the script ran under on the endpoint. |
 | `state` | [job state](#job-state) | |
 | `result` | [job result](#job-result), nullable | What the agent reported when the job ended; `null` before. |
 | `exitCode` | integer, nullable | Exit code of the script. |
@@ -892,6 +894,13 @@ field `onHold`.
 
 `exited`, `timed_out`, `refused`, `failed_to_start`, `interrupted` (the agent stopped while the job ran).
 
+### Job run as
+
+| Value | Meaning |
+|---|---|
+| `service` | SYSTEM on Windows, root on Linux: the account the agent service itself runs as. |
+| `logged_on_user` | The user of the active session on the endpoint. A job fails with `failed_to_start` when nobody is signed in. |
+
 ### Job output state
 
 `none` (no output yet), `receiving`, `complete`, `incomplete` (part of the output never arrived).
@@ -959,5 +968,6 @@ values and examples.
 
 | Fleeto | API | Change |
 |---|---|---|
+| 0.2.1 | v1 | `runAs` on Job: the account the script ran under on the endpoint (additive). |
 | 0.2.1 | v1 | Alert kinds `agent_stopped` and `watchdog_stopped` (additive). |
 | 0.2.1 | v1 | First version: read-only access to clients, sites, endpoints (status, inventory, checks, notes), alerts and jobs (with output). API keys with client scope, expiry and revocation; rate limits per key and per address; audit per request. |

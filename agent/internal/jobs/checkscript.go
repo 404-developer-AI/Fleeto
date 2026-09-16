@@ -26,6 +26,8 @@ const (
 	MinCheckScriptTimeout = 5 * time.Second
 	// maxCheckOutput is how much output of a script check is kept in memory; only its first line is reported.
 	maxCheckOutput = 64 * 1024
+	// checkWaitDelay is how long the output of a check script may stay open after the script itself ended.
+	checkWaitDelay = 5 * time.Second
 	// maxDetailRunes bounds the detail reported for a script check.
 	maxDetailRunes = 200
 )
@@ -91,23 +93,27 @@ func RunCheckScript(ctx context.Context, baseDir string, access platform.Access,
 
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd, tree, err := command(runCtx, script.GetLanguage(), scriptPath, dir)
+	stdout := &limitedBuffer{limit: maxCheckOutput}
+	stderr := &limitedBuffer{limit: maxCheckOutput}
+	// A script check comes from the signed configuration and always runs as the agent's own account, never as a user.
+	proc, tree, err := command(runCtx, commandOptions{
+		language:   script.GetLanguage(),
+		scriptPath: scriptPath,
+		dir:        dir,
+		env:        []string{"FLEETO_CHECK_ID=" + checkID},
+		stdout:     stdout,
+		stderr:     stderr,
+		wait:       checkWaitDelay,
+	})
 	if err != nil {
 		return CheckScriptResult{Error: err.Error()}
 	}
 	defer tree.close()
-	stdout := &limitedBuffer{limit: maxCheckOutput}
-	stderr := &limitedBuffer{limit: maxCheckOutput}
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	cmd.Env = append(os.Environ(), "FLEETO_CHECK_ID="+checkID)
-	cmd.WaitDelay = 5 * time.Second
-	cmd.Cancel = tree.kill
-	if err := cmd.Start(); err != nil {
+	if err := proc.Start(); err != nil {
 		return CheckScriptResult{Error: fmt.Sprintf("could not start %s: %v", LanguageName(script.GetLanguage()), err)}
 	}
-	tree.attach(cmd)
-	waitErr := cmd.Wait()
+	tree.attach(proc.Pid())
+	waitErr := proc.Wait()
 
 	detail := FirstLine(stdout.Bytes())
 	if detail == "" {
@@ -119,13 +125,11 @@ func RunCheckScript(ctx context.Context, baseDir string, access platform.Access,
 		return CheckScriptResult{Error: "the agent stopped while the script ran"}
 	case errors.Is(runCtx.Err(), context.DeadlineExceeded):
 		return CheckScriptResult{Error: fmt.Sprintf("the script did not finish within %s and was ended", timeout), Detail: detail}
-	case waitErr == nil:
-		return CheckScriptResult{ExitCode: 0, Detail: detail}
-	case errors.As(waitErr, &exitErr):
-		return CheckScriptResult{ExitCode: exitErr.ExitCode(), Detail: detail}
-	case cmd.ProcessState != nil && cmd.ProcessState.Exited():
+	case waitErr == nil, errors.As(waitErr, &exitErr):
+		return CheckScriptResult{ExitCode: proc.ExitCode(), Detail: detail}
+	case errors.Is(waitErr, exec.ErrWaitDelay):
 		// A child process kept the output open; the script itself ended.
-		return CheckScriptResult{ExitCode: cmd.ProcessState.ExitCode(), Detail: detail}
+		return CheckScriptResult{ExitCode: proc.ExitCode(), Detail: detail}
 	default:
 		return CheckScriptResult{Error: waitErr.Error(), Detail: detail}
 	}

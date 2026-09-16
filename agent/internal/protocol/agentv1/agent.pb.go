@@ -327,6 +327,57 @@ func (CheckType) EnumDescriptor() ([]byte, []int) {
 	return file_agent_proto_rawDescGZIP(), []int{3}
 }
 
+type JobRunAs int32
+
+const (
+	// SYSTEM on Windows, root on Linux: the account the agent service itself runs as.
+	JobRunAs_JOB_RUN_AS_UNSPECIFIED JobRunAs = 0
+	JobRunAs_JOB_RUN_AS_SERVICE     JobRunAs = 1
+	// The user of the active session. The job fails when nobody is signed in.
+	JobRunAs_JOB_RUN_AS_LOGGED_ON_USER JobRunAs = 2
+)
+
+// Enum value maps for JobRunAs.
+var (
+	JobRunAs_name = map[int32]string{
+		0: "JOB_RUN_AS_UNSPECIFIED",
+		1: "JOB_RUN_AS_SERVICE",
+		2: "JOB_RUN_AS_LOGGED_ON_USER",
+	}
+	JobRunAs_value = map[string]int32{
+		"JOB_RUN_AS_UNSPECIFIED":    0,
+		"JOB_RUN_AS_SERVICE":        1,
+		"JOB_RUN_AS_LOGGED_ON_USER": 2,
+	}
+)
+
+func (x JobRunAs) Enum() *JobRunAs {
+	p := new(JobRunAs)
+	*p = x
+	return p
+}
+
+func (x JobRunAs) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (JobRunAs) Descriptor() protoreflect.EnumDescriptor {
+	return file_agent_proto_enumTypes[4].Descriptor()
+}
+
+func (JobRunAs) Type() protoreflect.EnumType {
+	return &file_agent_proto_enumTypes[4]
+}
+
+func (x JobRunAs) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use JobRunAs.Descriptor instead.
+func (JobRunAs) EnumDescriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{4}
+}
+
 type JobType int32
 
 const (
@@ -357,11 +408,11 @@ func (x JobType) String() string {
 }
 
 func (JobType) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[4].Descriptor()
+	return file_agent_proto_enumTypes[5].Descriptor()
 }
 
 func (JobType) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[4]
+	return &file_agent_proto_enumTypes[5]
 }
 
 func (x JobType) Number() protoreflect.EnumNumber {
@@ -370,20 +421,20 @@ func (x JobType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use JobType.Descriptor instead.
 func (JobType) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{4}
+	return file_agent_proto_rawDescGZIP(), []int{5}
 }
 
 type ScriptLanguage int32
 
 const (
 	ScriptLanguage_SCRIPT_LANGUAGE_UNSPECIFIED ScriptLanguage = 0
-	// Windows PowerShell, run as SYSTEM.
+	// Windows PowerShell.
 	ScriptLanguage_SCRIPT_LANGUAGE_POWERSHELL ScriptLanguage = 1
-	// cmd.exe batch file, run as SYSTEM.
+	// cmd.exe batch file.
 	ScriptLanguage_SCRIPT_LANGUAGE_BATCH ScriptLanguage = 2
-	// /bin/sh, run as root.
+	// /bin/sh.
 	ScriptLanguage_SCRIPT_LANGUAGE_SHELL ScriptLanguage = 3
-	// /bin/bash, run as root.
+	// /bin/bash.
 	ScriptLanguage_SCRIPT_LANGUAGE_BASH ScriptLanguage = 4
 )
 
@@ -416,11 +467,11 @@ func (x ScriptLanguage) String() string {
 }
 
 func (ScriptLanguage) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[5].Descriptor()
+	return file_agent_proto_enumTypes[6].Descriptor()
 }
 
 func (ScriptLanguage) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[5]
+	return &file_agent_proto_enumTypes[6]
 }
 
 func (x ScriptLanguage) Number() protoreflect.EnumNumber {
@@ -429,7 +480,7 @@ func (x ScriptLanguage) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ScriptLanguage.Descriptor instead.
 func (ScriptLanguage) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{5}
+	return file_agent_proto_rawDescGZIP(), []int{6}
 }
 
 type JobStream int32
@@ -465,11 +516,11 @@ func (x JobStream) String() string {
 }
 
 func (JobStream) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[6].Descriptor()
+	return file_agent_proto_enumTypes[7].Descriptor()
 }
 
 func (JobStream) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[6]
+	return &file_agent_proto_enumTypes[7]
 }
 
 func (x JobStream) Number() protoreflect.EnumNumber {
@@ -478,7 +529,7 @@ func (x JobStream) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use JobStream.Descriptor instead.
 func (JobStream) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{6}
+	return file_agent_proto_rawDescGZIP(), []int{7}
 }
 
 type JobResult int32
@@ -528,11 +579,11 @@ func (x JobResult) String() string {
 }
 
 func (JobResult) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[7].Descriptor()
+	return file_agent_proto_enumTypes[8].Descriptor()
 }
 
 func (JobResult) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[7]
+	return &file_agent_proto_enumTypes[8]
 }
 
 func (x JobResult) Number() protoreflect.EnumNumber {
@@ -541,7 +592,7 @@ func (x JobResult) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use JobResult.Descriptor instead.
 func (JobResult) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{7}
+	return file_agent_proto_rawDescGZIP(), []int{8}
 }
 
 type JobAckKind int32
@@ -580,11 +631,11 @@ func (x JobAckKind) String() string {
 }
 
 func (JobAckKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[8].Descriptor()
+	return file_agent_proto_enumTypes[9].Descriptor()
 }
 
 func (JobAckKind) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[8]
+	return &file_agent_proto_enumTypes[9]
 }
 
 func (x JobAckKind) Number() protoreflect.EnumNumber {
@@ -593,7 +644,7 @@ func (x JobAckKind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use JobAckKind.Descriptor instead.
 func (JobAckKind) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{8}
+	return file_agent_proto_rawDescGZIP(), []int{9}
 }
 
 type UpdateState int32
@@ -640,11 +691,11 @@ func (x UpdateState) String() string {
 }
 
 func (UpdateState) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[9].Descriptor()
+	return file_agent_proto_enumTypes[10].Descriptor()
 }
 
 func (UpdateState) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[9]
+	return &file_agent_proto_enumTypes[10]
 }
 
 func (x UpdateState) Number() protoreflect.EnumNumber {
@@ -653,7 +704,7 @@ func (x UpdateState) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use UpdateState.Descriptor instead.
 func (UpdateState) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{9}
+	return file_agent_proto_rawDescGZIP(), []int{10}
 }
 
 type DisconnectCode int32
@@ -698,11 +749,11 @@ func (x DisconnectCode) String() string {
 }
 
 func (DisconnectCode) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[10].Descriptor()
+	return file_agent_proto_enumTypes[11].Descriptor()
 }
 
 func (DisconnectCode) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[10]
+	return &file_agent_proto_enumTypes[11]
 }
 
 func (x DisconnectCode) Number() protoreflect.EnumNumber {
@@ -711,7 +762,7 @@ func (x DisconnectCode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use DisconnectCode.Descriptor instead.
 func (DisconnectCode) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{10}
+	return file_agent_proto_rawDescGZIP(), []int{11}
 }
 
 type EnrollRequest struct {
@@ -3173,8 +3224,10 @@ type JobPayload struct {
 	// The agent sends at most this much output (both streams together) and marks the rest truncated.
 	MaxOutputBytes uint64     `protobuf:"varint,8,opt,name=max_output_bytes,json=maxOutputBytes,proto3" json:"max_output_bytes,omitempty"`
 	Script         *ScriptJob `protobuf:"bytes,9,opt,name=script,proto3" json:"script,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Account the script runs under (0.2.1). Unspecified means the service account.
+	RunAs         JobRunAs `protobuf:"varint,10,opt,name=run_as,json=runAs,proto3,enum=fleeto.agent.v1.JobRunAs" json:"run_as,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *JobPayload) Reset() {
@@ -3268,6 +3321,13 @@ func (x *JobPayload) GetScript() *ScriptJob {
 		return x.Script
 	}
 	return nil
+}
+
+func (x *JobPayload) GetRunAs() JobRunAs {
+	if x != nil {
+		return x.RunAs
+	}
+	return JobRunAs_JOB_RUN_AS_UNSPECIFIED
 }
 
 type ScriptJob struct {
@@ -4185,7 +4245,7 @@ const file_agent_proto_rawDesc = "" +
 	"\tSignedJob\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\fR\tsignature\x12\x15\n" +
-	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\xfa\x02\n" +
+	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\xac\x03\n" +
 	"\n" +
 	"JobPayload\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x1f\n" +
@@ -4199,7 +4259,9 @@ const file_agent_proto_rawDesc = "" +
 	"\finitiated_by\x18\x06 \x01(\tR\vinitiatedBy\x12'\n" +
 	"\x0ftimeout_seconds\x18\a \x01(\rR\x0etimeoutSeconds\x12(\n" +
 	"\x10max_output_bytes\x18\b \x01(\x04R\x0emaxOutputBytes\x122\n" +
-	"\x06script\x18\t \x01(\v2\x1a.fleeto.agent.v1.ScriptJobR\x06script\"\xa2\x01\n" +
+	"\x06script\x18\t \x01(\v2\x1a.fleeto.agent.v1.ScriptJobR\x06script\x120\n" +
+	"\x06run_as\x18\n" +
+	" \x01(\x0e2\x19.fleeto.agent.v1.JobRunAsR\x05runAs\"\xa2\x01\n" +
 	"\tScriptJob\x12;\n" +
 	"\blanguage\x18\x01 \x01(\x0e2\x1f.fleeto.agent.v1.ScriptLanguageR\blanguage\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
@@ -4286,7 +4348,11 @@ const file_agent_proto_rawDesc = "" +
 	"\x1dCHECK_TYPE_CERTIFICATE_EXPIRY\x10\f\x12\x18\n" +
 	"\x14CHECK_TYPE_EVENT_LOG\x10\r\x12\x1e\n" +
 	"\x1aCHECK_TYPE_SECURITY_CENTER\x10\x0e\x12\x15\n" +
-	"\x11CHECK_TYPE_SCRIPT\x10\x0f*8\n" +
+	"\x11CHECK_TYPE_SCRIPT\x10\x0f*]\n" +
+	"\bJobRunAs\x12\x1a\n" +
+	"\x16JOB_RUN_AS_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12JOB_RUN_AS_SERVICE\x10\x01\x12\x1d\n" +
+	"\x19JOB_RUN_AS_LOGGED_ON_USER\x10\x02*8\n" +
 	"\aJobType\x12\x18\n" +
 	"\x14JOB_TYPE_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fJOB_TYPE_SCRIPT\x10\x01*\xa1\x01\n" +
@@ -4339,133 +4405,135 @@ func file_agent_proto_rawDescGZIP() []byte {
 	return file_agent_proto_rawDescData
 }
 
-var file_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 11)
+var file_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 12)
 var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
 var file_agent_proto_goTypes = []any{
 	(Component)(0),                      // 0: fleeto.agent.v1.Component
 	(ServiceState)(0),                   // 1: fleeto.agent.v1.ServiceState
 	(Tier)(0),                           // 2: fleeto.agent.v1.Tier
 	(CheckType)(0),                      // 3: fleeto.agent.v1.CheckType
-	(JobType)(0),                        // 4: fleeto.agent.v1.JobType
-	(ScriptLanguage)(0),                 // 5: fleeto.agent.v1.ScriptLanguage
-	(JobStream)(0),                      // 6: fleeto.agent.v1.JobStream
-	(JobResult)(0),                      // 7: fleeto.agent.v1.JobResult
-	(JobAckKind)(0),                     // 8: fleeto.agent.v1.JobAckKind
-	(UpdateState)(0),                    // 9: fleeto.agent.v1.UpdateState
-	(DisconnectCode)(0),                 // 10: fleeto.agent.v1.DisconnectCode
-	(*EnrollRequest)(nil),               // 11: fleeto.agent.v1.EnrollRequest
-	(*EnrollResponse)(nil),              // 12: fleeto.agent.v1.EnrollResponse
-	(*RecoverRequest)(nil),              // 13: fleeto.agent.v1.RecoverRequest
-	(*RecoverResponse)(nil),             // 14: fleeto.agent.v1.RecoverResponse
-	(*OsInfo)(nil),                      // 15: fleeto.agent.v1.OsInfo
-	(*AgentMessage)(nil),                // 16: fleeto.agent.v1.AgentMessage
-	(*ServerMessage)(nil),               // 17: fleeto.agent.v1.ServerMessage
-	(*Hello)(nil),                       // 18: fleeto.agent.v1.Hello
-	(*HelloAck)(nil),                    // 19: fleeto.agent.v1.HelloAck
-	(*Heartbeat)(nil),                   // 20: fleeto.agent.v1.Heartbeat
-	(*PeerStatus)(nil),                  // 21: fleeto.agent.v1.PeerStatus
-	(*Ping)(nil),                        // 22: fleeto.agent.v1.Ping
-	(*Pong)(nil),                        // 23: fleeto.agent.v1.Pong
-	(*InventoryRequest)(nil),            // 24: fleeto.agent.v1.InventoryRequest
-	(*RunChecksNow)(nil),                // 25: fleeto.agent.v1.RunChecksNow
-	(*InventoryReport)(nil),             // 26: fleeto.agent.v1.InventoryReport
-	(*Inventory)(nil),                   // 27: fleeto.agent.v1.Inventory
-	(*ServiceItem)(nil),                 // 28: fleeto.agent.v1.ServiceItem
-	(*Disk)(nil),                        // 29: fleeto.agent.v1.Disk
-	(*NetworkInterface)(nil),            // 30: fleeto.agent.v1.NetworkInterface
-	(*SoftwareItem)(nil),                // 31: fleeto.agent.v1.SoftwareItem
-	(*CheckResultBatch)(nil),            // 32: fleeto.agent.v1.CheckResultBatch
-	(*CheckResult)(nil),                 // 33: fleeto.agent.v1.CheckResult
-	(*BatchAck)(nil),                    // 34: fleeto.agent.v1.BatchAck
-	(*RenewCertificateRequest)(nil),     // 35: fleeto.agent.v1.RenewCertificateRequest
-	(*RenewCertificateResponse)(nil),    // 36: fleeto.agent.v1.RenewCertificateResponse
-	(*SignedConfig)(nil),                // 37: fleeto.agent.v1.SignedConfig
-	(*AgentConfig)(nil),                 // 38: fleeto.agent.v1.AgentConfig
-	(*CheckSpec)(nil),                   // 39: fleeto.agent.v1.CheckSpec
-	(*ConfigApplied)(nil),               // 40: fleeto.agent.v1.ConfigApplied
-	(*SignedJob)(nil),                   // 41: fleeto.agent.v1.SignedJob
-	(*JobPayload)(nil),                  // 42: fleeto.agent.v1.JobPayload
-	(*ScriptJob)(nil),                   // 43: fleeto.agent.v1.ScriptJob
-	(*JobStarted)(nil),                  // 44: fleeto.agent.v1.JobStarted
-	(*JobOutput)(nil),                   // 45: fleeto.agent.v1.JobOutput
-	(*JobStreamSummary)(nil),            // 46: fleeto.agent.v1.JobStreamSummary
-	(*JobCompletion)(nil),               // 47: fleeto.agent.v1.JobCompletion
-	(*JobAck)(nil),                      // 48: fleeto.agent.v1.JobAck
-	(*WatchdogCertificateRequest)(nil),  // 49: fleeto.agent.v1.WatchdogCertificateRequest
-	(*WatchdogCertificateResponse)(nil), // 50: fleeto.agent.v1.WatchdogCertificateResponse
-	(*UpdateOffer)(nil),                 // 51: fleeto.agent.v1.UpdateOffer
-	(*UpdateStatus)(nil),                // 52: fleeto.agent.v1.UpdateStatus
-	(*Disconnect)(nil),                  // 53: fleeto.agent.v1.Disconnect
-	nil,                                 // 54: fleeto.agent.v1.CheckSpec.ParametersEntry
-	(*timestamppb.Timestamp)(nil),       // 55: google.protobuf.Timestamp
+	(JobRunAs)(0),                       // 4: fleeto.agent.v1.JobRunAs
+	(JobType)(0),                        // 5: fleeto.agent.v1.JobType
+	(ScriptLanguage)(0),                 // 6: fleeto.agent.v1.ScriptLanguage
+	(JobStream)(0),                      // 7: fleeto.agent.v1.JobStream
+	(JobResult)(0),                      // 8: fleeto.agent.v1.JobResult
+	(JobAckKind)(0),                     // 9: fleeto.agent.v1.JobAckKind
+	(UpdateState)(0),                    // 10: fleeto.agent.v1.UpdateState
+	(DisconnectCode)(0),                 // 11: fleeto.agent.v1.DisconnectCode
+	(*EnrollRequest)(nil),               // 12: fleeto.agent.v1.EnrollRequest
+	(*EnrollResponse)(nil),              // 13: fleeto.agent.v1.EnrollResponse
+	(*RecoverRequest)(nil),              // 14: fleeto.agent.v1.RecoverRequest
+	(*RecoverResponse)(nil),             // 15: fleeto.agent.v1.RecoverResponse
+	(*OsInfo)(nil),                      // 16: fleeto.agent.v1.OsInfo
+	(*AgentMessage)(nil),                // 17: fleeto.agent.v1.AgentMessage
+	(*ServerMessage)(nil),               // 18: fleeto.agent.v1.ServerMessage
+	(*Hello)(nil),                       // 19: fleeto.agent.v1.Hello
+	(*HelloAck)(nil),                    // 20: fleeto.agent.v1.HelloAck
+	(*Heartbeat)(nil),                   // 21: fleeto.agent.v1.Heartbeat
+	(*PeerStatus)(nil),                  // 22: fleeto.agent.v1.PeerStatus
+	(*Ping)(nil),                        // 23: fleeto.agent.v1.Ping
+	(*Pong)(nil),                        // 24: fleeto.agent.v1.Pong
+	(*InventoryRequest)(nil),            // 25: fleeto.agent.v1.InventoryRequest
+	(*RunChecksNow)(nil),                // 26: fleeto.agent.v1.RunChecksNow
+	(*InventoryReport)(nil),             // 27: fleeto.agent.v1.InventoryReport
+	(*Inventory)(nil),                   // 28: fleeto.agent.v1.Inventory
+	(*ServiceItem)(nil),                 // 29: fleeto.agent.v1.ServiceItem
+	(*Disk)(nil),                        // 30: fleeto.agent.v1.Disk
+	(*NetworkInterface)(nil),            // 31: fleeto.agent.v1.NetworkInterface
+	(*SoftwareItem)(nil),                // 32: fleeto.agent.v1.SoftwareItem
+	(*CheckResultBatch)(nil),            // 33: fleeto.agent.v1.CheckResultBatch
+	(*CheckResult)(nil),                 // 34: fleeto.agent.v1.CheckResult
+	(*BatchAck)(nil),                    // 35: fleeto.agent.v1.BatchAck
+	(*RenewCertificateRequest)(nil),     // 36: fleeto.agent.v1.RenewCertificateRequest
+	(*RenewCertificateResponse)(nil),    // 37: fleeto.agent.v1.RenewCertificateResponse
+	(*SignedConfig)(nil),                // 38: fleeto.agent.v1.SignedConfig
+	(*AgentConfig)(nil),                 // 39: fleeto.agent.v1.AgentConfig
+	(*CheckSpec)(nil),                   // 40: fleeto.agent.v1.CheckSpec
+	(*ConfigApplied)(nil),               // 41: fleeto.agent.v1.ConfigApplied
+	(*SignedJob)(nil),                   // 42: fleeto.agent.v1.SignedJob
+	(*JobPayload)(nil),                  // 43: fleeto.agent.v1.JobPayload
+	(*ScriptJob)(nil),                   // 44: fleeto.agent.v1.ScriptJob
+	(*JobStarted)(nil),                  // 45: fleeto.agent.v1.JobStarted
+	(*JobOutput)(nil),                   // 46: fleeto.agent.v1.JobOutput
+	(*JobStreamSummary)(nil),            // 47: fleeto.agent.v1.JobStreamSummary
+	(*JobCompletion)(nil),               // 48: fleeto.agent.v1.JobCompletion
+	(*JobAck)(nil),                      // 49: fleeto.agent.v1.JobAck
+	(*WatchdogCertificateRequest)(nil),  // 50: fleeto.agent.v1.WatchdogCertificateRequest
+	(*WatchdogCertificateResponse)(nil), // 51: fleeto.agent.v1.WatchdogCertificateResponse
+	(*UpdateOffer)(nil),                 // 52: fleeto.agent.v1.UpdateOffer
+	(*UpdateStatus)(nil),                // 53: fleeto.agent.v1.UpdateStatus
+	(*Disconnect)(nil),                  // 54: fleeto.agent.v1.Disconnect
+	nil,                                 // 55: fleeto.agent.v1.CheckSpec.ParametersEntry
+	(*timestamppb.Timestamp)(nil),       // 56: google.protobuf.Timestamp
 }
 var file_agent_proto_depIdxs = []int32{
-	15, // 0: fleeto.agent.v1.EnrollRequest.os:type_name -> fleeto.agent.v1.OsInfo
-	18, // 1: fleeto.agent.v1.AgentMessage.hello:type_name -> fleeto.agent.v1.Hello
-	20, // 2: fleeto.agent.v1.AgentMessage.heartbeat:type_name -> fleeto.agent.v1.Heartbeat
-	26, // 3: fleeto.agent.v1.AgentMessage.inventory:type_name -> fleeto.agent.v1.InventoryReport
-	32, // 4: fleeto.agent.v1.AgentMessage.check_results:type_name -> fleeto.agent.v1.CheckResultBatch
-	35, // 5: fleeto.agent.v1.AgentMessage.renew_certificate:type_name -> fleeto.agent.v1.RenewCertificateRequest
-	40, // 6: fleeto.agent.v1.AgentMessage.config_applied:type_name -> fleeto.agent.v1.ConfigApplied
-	23, // 7: fleeto.agent.v1.AgentMessage.pong:type_name -> fleeto.agent.v1.Pong
-	44, // 8: fleeto.agent.v1.AgentMessage.job_started:type_name -> fleeto.agent.v1.JobStarted
-	45, // 9: fleeto.agent.v1.AgentMessage.job_output:type_name -> fleeto.agent.v1.JobOutput
-	47, // 10: fleeto.agent.v1.AgentMessage.job_completion:type_name -> fleeto.agent.v1.JobCompletion
-	49, // 11: fleeto.agent.v1.AgentMessage.watchdog_certificate:type_name -> fleeto.agent.v1.WatchdogCertificateRequest
-	52, // 12: fleeto.agent.v1.AgentMessage.update_status:type_name -> fleeto.agent.v1.UpdateStatus
-	19, // 13: fleeto.agent.v1.ServerMessage.hello_ack:type_name -> fleeto.agent.v1.HelloAck
-	34, // 14: fleeto.agent.v1.ServerMessage.batch_ack:type_name -> fleeto.agent.v1.BatchAck
-	37, // 15: fleeto.agent.v1.ServerMessage.config:type_name -> fleeto.agent.v1.SignedConfig
-	36, // 16: fleeto.agent.v1.ServerMessage.renew_certificate:type_name -> fleeto.agent.v1.RenewCertificateResponse
-	22, // 17: fleeto.agent.v1.ServerMessage.ping:type_name -> fleeto.agent.v1.Ping
-	53, // 18: fleeto.agent.v1.ServerMessage.disconnect:type_name -> fleeto.agent.v1.Disconnect
-	24, // 19: fleeto.agent.v1.ServerMessage.inventory_request:type_name -> fleeto.agent.v1.InventoryRequest
-	25, // 20: fleeto.agent.v1.ServerMessage.run_checks_now:type_name -> fleeto.agent.v1.RunChecksNow
-	41, // 21: fleeto.agent.v1.ServerMessage.job:type_name -> fleeto.agent.v1.SignedJob
-	48, // 22: fleeto.agent.v1.ServerMessage.job_ack:type_name -> fleeto.agent.v1.JobAck
-	51, // 23: fleeto.agent.v1.ServerMessage.update_offer:type_name -> fleeto.agent.v1.UpdateOffer
-	50, // 24: fleeto.agent.v1.ServerMessage.watchdog_certificate:type_name -> fleeto.agent.v1.WatchdogCertificateResponse
-	15, // 25: fleeto.agent.v1.Hello.os:type_name -> fleeto.agent.v1.OsInfo
+	16, // 0: fleeto.agent.v1.EnrollRequest.os:type_name -> fleeto.agent.v1.OsInfo
+	19, // 1: fleeto.agent.v1.AgentMessage.hello:type_name -> fleeto.agent.v1.Hello
+	21, // 2: fleeto.agent.v1.AgentMessage.heartbeat:type_name -> fleeto.agent.v1.Heartbeat
+	27, // 3: fleeto.agent.v1.AgentMessage.inventory:type_name -> fleeto.agent.v1.InventoryReport
+	33, // 4: fleeto.agent.v1.AgentMessage.check_results:type_name -> fleeto.agent.v1.CheckResultBatch
+	36, // 5: fleeto.agent.v1.AgentMessage.renew_certificate:type_name -> fleeto.agent.v1.RenewCertificateRequest
+	41, // 6: fleeto.agent.v1.AgentMessage.config_applied:type_name -> fleeto.agent.v1.ConfigApplied
+	24, // 7: fleeto.agent.v1.AgentMessage.pong:type_name -> fleeto.agent.v1.Pong
+	45, // 8: fleeto.agent.v1.AgentMessage.job_started:type_name -> fleeto.agent.v1.JobStarted
+	46, // 9: fleeto.agent.v1.AgentMessage.job_output:type_name -> fleeto.agent.v1.JobOutput
+	48, // 10: fleeto.agent.v1.AgentMessage.job_completion:type_name -> fleeto.agent.v1.JobCompletion
+	50, // 11: fleeto.agent.v1.AgentMessage.watchdog_certificate:type_name -> fleeto.agent.v1.WatchdogCertificateRequest
+	53, // 12: fleeto.agent.v1.AgentMessage.update_status:type_name -> fleeto.agent.v1.UpdateStatus
+	20, // 13: fleeto.agent.v1.ServerMessage.hello_ack:type_name -> fleeto.agent.v1.HelloAck
+	35, // 14: fleeto.agent.v1.ServerMessage.batch_ack:type_name -> fleeto.agent.v1.BatchAck
+	38, // 15: fleeto.agent.v1.ServerMessage.config:type_name -> fleeto.agent.v1.SignedConfig
+	37, // 16: fleeto.agent.v1.ServerMessage.renew_certificate:type_name -> fleeto.agent.v1.RenewCertificateResponse
+	23, // 17: fleeto.agent.v1.ServerMessage.ping:type_name -> fleeto.agent.v1.Ping
+	54, // 18: fleeto.agent.v1.ServerMessage.disconnect:type_name -> fleeto.agent.v1.Disconnect
+	25, // 19: fleeto.agent.v1.ServerMessage.inventory_request:type_name -> fleeto.agent.v1.InventoryRequest
+	26, // 20: fleeto.agent.v1.ServerMessage.run_checks_now:type_name -> fleeto.agent.v1.RunChecksNow
+	42, // 21: fleeto.agent.v1.ServerMessage.job:type_name -> fleeto.agent.v1.SignedJob
+	49, // 22: fleeto.agent.v1.ServerMessage.job_ack:type_name -> fleeto.agent.v1.JobAck
+	52, // 23: fleeto.agent.v1.ServerMessage.update_offer:type_name -> fleeto.agent.v1.UpdateOffer
+	51, // 24: fleeto.agent.v1.ServerMessage.watchdog_certificate:type_name -> fleeto.agent.v1.WatchdogCertificateResponse
+	16, // 25: fleeto.agent.v1.Hello.os:type_name -> fleeto.agent.v1.OsInfo
 	0,  // 26: fleeto.agent.v1.Hello.component:type_name -> fleeto.agent.v1.Component
-	55, // 27: fleeto.agent.v1.HelloAck.server_time:type_name -> google.protobuf.Timestamp
-	55, // 28: fleeto.agent.v1.Heartbeat.agent_time:type_name -> google.protobuf.Timestamp
-	21, // 29: fleeto.agent.v1.Heartbeat.peer:type_name -> fleeto.agent.v1.PeerStatus
+	56, // 27: fleeto.agent.v1.HelloAck.server_time:type_name -> google.protobuf.Timestamp
+	56, // 28: fleeto.agent.v1.Heartbeat.agent_time:type_name -> google.protobuf.Timestamp
+	22, // 29: fleeto.agent.v1.Heartbeat.peer:type_name -> fleeto.agent.v1.PeerStatus
 	1,  // 30: fleeto.agent.v1.PeerStatus.state:type_name -> fleeto.agent.v1.ServiceState
-	27, // 31: fleeto.agent.v1.InventoryReport.inventory:type_name -> fleeto.agent.v1.Inventory
-	15, // 32: fleeto.agent.v1.Inventory.os:type_name -> fleeto.agent.v1.OsInfo
-	29, // 33: fleeto.agent.v1.Inventory.disks:type_name -> fleeto.agent.v1.Disk
-	30, // 34: fleeto.agent.v1.Inventory.network_interfaces:type_name -> fleeto.agent.v1.NetworkInterface
-	31, // 35: fleeto.agent.v1.Inventory.software:type_name -> fleeto.agent.v1.SoftwareItem
-	55, // 36: fleeto.agent.v1.Inventory.boot_time:type_name -> google.protobuf.Timestamp
-	28, // 37: fleeto.agent.v1.Inventory.services:type_name -> fleeto.agent.v1.ServiceItem
-	33, // 38: fleeto.agent.v1.CheckResultBatch.results:type_name -> fleeto.agent.v1.CheckResult
-	55, // 39: fleeto.agent.v1.CheckResult.collected_at:type_name -> google.protobuf.Timestamp
-	55, // 40: fleeto.agent.v1.AgentConfig.issued_at:type_name -> google.protobuf.Timestamp
+	28, // 31: fleeto.agent.v1.InventoryReport.inventory:type_name -> fleeto.agent.v1.Inventory
+	16, // 32: fleeto.agent.v1.Inventory.os:type_name -> fleeto.agent.v1.OsInfo
+	30, // 33: fleeto.agent.v1.Inventory.disks:type_name -> fleeto.agent.v1.Disk
+	31, // 34: fleeto.agent.v1.Inventory.network_interfaces:type_name -> fleeto.agent.v1.NetworkInterface
+	32, // 35: fleeto.agent.v1.Inventory.software:type_name -> fleeto.agent.v1.SoftwareItem
+	56, // 36: fleeto.agent.v1.Inventory.boot_time:type_name -> google.protobuf.Timestamp
+	29, // 37: fleeto.agent.v1.Inventory.services:type_name -> fleeto.agent.v1.ServiceItem
+	34, // 38: fleeto.agent.v1.CheckResultBatch.results:type_name -> fleeto.agent.v1.CheckResult
+	56, // 39: fleeto.agent.v1.CheckResult.collected_at:type_name -> google.protobuf.Timestamp
+	56, // 40: fleeto.agent.v1.AgentConfig.issued_at:type_name -> google.protobuf.Timestamp
 	2,  // 41: fleeto.agent.v1.AgentConfig.tier:type_name -> fleeto.agent.v1.Tier
-	39, // 42: fleeto.agent.v1.AgentConfig.checks:type_name -> fleeto.agent.v1.CheckSpec
+	40, // 42: fleeto.agent.v1.AgentConfig.checks:type_name -> fleeto.agent.v1.CheckSpec
 	3,  // 43: fleeto.agent.v1.CheckSpec.type:type_name -> fleeto.agent.v1.CheckType
-	54, // 44: fleeto.agent.v1.CheckSpec.parameters:type_name -> fleeto.agent.v1.CheckSpec.ParametersEntry
-	43, // 45: fleeto.agent.v1.CheckSpec.script:type_name -> fleeto.agent.v1.ScriptJob
-	4,  // 46: fleeto.agent.v1.JobPayload.type:type_name -> fleeto.agent.v1.JobType
-	55, // 47: fleeto.agent.v1.JobPayload.valid_until:type_name -> google.protobuf.Timestamp
-	43, // 48: fleeto.agent.v1.JobPayload.script:type_name -> fleeto.agent.v1.ScriptJob
-	5,  // 49: fleeto.agent.v1.ScriptJob.language:type_name -> fleeto.agent.v1.ScriptLanguage
-	55, // 50: fleeto.agent.v1.JobStarted.started_at:type_name -> google.protobuf.Timestamp
-	6,  // 51: fleeto.agent.v1.JobOutput.stream:type_name -> fleeto.agent.v1.JobStream
-	7,  // 52: fleeto.agent.v1.JobCompletion.result:type_name -> fleeto.agent.v1.JobResult
-	46, // 53: fleeto.agent.v1.JobCompletion.stdout:type_name -> fleeto.agent.v1.JobStreamSummary
-	46, // 54: fleeto.agent.v1.JobCompletion.stderr:type_name -> fleeto.agent.v1.JobStreamSummary
-	55, // 55: fleeto.agent.v1.JobCompletion.finished_at:type_name -> google.protobuf.Timestamp
-	8,  // 56: fleeto.agent.v1.JobAck.kind:type_name -> fleeto.agent.v1.JobAckKind
-	6,  // 57: fleeto.agent.v1.JobAck.stream:type_name -> fleeto.agent.v1.JobStream
-	0,  // 58: fleeto.agent.v1.UpdateStatus.component:type_name -> fleeto.agent.v1.Component
-	9,  // 59: fleeto.agent.v1.UpdateStatus.state:type_name -> fleeto.agent.v1.UpdateState
-	10, // 60: fleeto.agent.v1.Disconnect.code:type_name -> fleeto.agent.v1.DisconnectCode
-	61, // [61:61] is the sub-list for method output_type
-	61, // [61:61] is the sub-list for method input_type
-	61, // [61:61] is the sub-list for extension type_name
-	61, // [61:61] is the sub-list for extension extendee
-	0,  // [0:61] is the sub-list for field type_name
+	55, // 44: fleeto.agent.v1.CheckSpec.parameters:type_name -> fleeto.agent.v1.CheckSpec.ParametersEntry
+	44, // 45: fleeto.agent.v1.CheckSpec.script:type_name -> fleeto.agent.v1.ScriptJob
+	5,  // 46: fleeto.agent.v1.JobPayload.type:type_name -> fleeto.agent.v1.JobType
+	56, // 47: fleeto.agent.v1.JobPayload.valid_until:type_name -> google.protobuf.Timestamp
+	44, // 48: fleeto.agent.v1.JobPayload.script:type_name -> fleeto.agent.v1.ScriptJob
+	4,  // 49: fleeto.agent.v1.JobPayload.run_as:type_name -> fleeto.agent.v1.JobRunAs
+	6,  // 50: fleeto.agent.v1.ScriptJob.language:type_name -> fleeto.agent.v1.ScriptLanguage
+	56, // 51: fleeto.agent.v1.JobStarted.started_at:type_name -> google.protobuf.Timestamp
+	7,  // 52: fleeto.agent.v1.JobOutput.stream:type_name -> fleeto.agent.v1.JobStream
+	8,  // 53: fleeto.agent.v1.JobCompletion.result:type_name -> fleeto.agent.v1.JobResult
+	47, // 54: fleeto.agent.v1.JobCompletion.stdout:type_name -> fleeto.agent.v1.JobStreamSummary
+	47, // 55: fleeto.agent.v1.JobCompletion.stderr:type_name -> fleeto.agent.v1.JobStreamSummary
+	56, // 56: fleeto.agent.v1.JobCompletion.finished_at:type_name -> google.protobuf.Timestamp
+	9,  // 57: fleeto.agent.v1.JobAck.kind:type_name -> fleeto.agent.v1.JobAckKind
+	7,  // 58: fleeto.agent.v1.JobAck.stream:type_name -> fleeto.agent.v1.JobStream
+	0,  // 59: fleeto.agent.v1.UpdateStatus.component:type_name -> fleeto.agent.v1.Component
+	10, // 60: fleeto.agent.v1.UpdateStatus.state:type_name -> fleeto.agent.v1.UpdateState
+	11, // 61: fleeto.agent.v1.Disconnect.code:type_name -> fleeto.agent.v1.DisconnectCode
+	62, // [62:62] is the sub-list for method output_type
+	62, // [62:62] is the sub-list for method input_type
+	62, // [62:62] is the sub-list for extension type_name
+	62, // [62:62] is the sub-list for extension extendee
+	0,  // [0:62] is the sub-list for field type_name
 }
 
 func init() { file_agent_proto_init() }
@@ -4506,7 +4574,7 @@ func file_agent_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
-			NumEnums:      11,
+			NumEnums:      12,
 			NumMessages:   44,
 			NumExtensions: 0,
 			NumServices:   0,

@@ -22,7 +22,8 @@ public sealed record JobRunResult(Guid BatchId, int Created, IReadOnlyList<JobRu
 
 public sealed record JobListItem(Guid Id, Guid BatchId, Guid EndpointId, string Hostname, string? ClientCode, string ScriptName, int ScriptVersionNumber,
     ScriptLanguage Language, JobState State, JobResult? Result, int? ExitCode, string? Problem, JobOutputState OutputState, bool OutputTruncated,
-    long OutputBytes, DateTime CreatedAt, DateTime ValidUntil, DateTime? StartedAt, DateTime? CompletedAt, string InitiatedByName, bool CanCancel);
+    long OutputBytes, DateTime CreatedAt, DateTime ValidUntil, DateTime? StartedAt, DateTime? CompletedAt, string InitiatedByName, bool CanCancel,
+    JobRunAs RunAs = JobRunAs.Service);
 
 /// <param name="Stdout">Decoded text of the first <see cref="JobService.MaxViewBytes"/> of the stream.</param>
 public sealed record JobOutputView(JobListItem Job, string Stdout, long StdoutBytes, string Stderr, long StderrBytes, bool ShortenedInView);
@@ -97,11 +98,16 @@ public sealed class JobService
     /// reason; when none remains, nothing is created.
     /// </summary>
     public async Task<ServiceResult<JobRunResult>> RunAsync(Caller caller, Guid scriptId, IReadOnlyCollection<Guid> endpointIds, TimeSpan validity,
-        CancellationToken cancellationToken = default)
+        JobRunAs runAs = JobRunAs.Service, CancellationToken cancellationToken = default)
     {
         if (!caller.CanManage)
         {
             return ServiceResult<JobRunResult>.Forbidden();
+        }
+
+        if (!Enum.IsDefined(runAs))
+        {
+            return ServiceResult<JobRunResult>.Fail("Choose where the script runs.");
         }
 
         if (Validities.All(v => v.Validity != validity))
@@ -130,7 +136,10 @@ public sealed class JobService
             {
                 e.Id, e.ClientId, e.Hostname, e.Tier, e.OsPlatform, e.Source,
                 ApprovalRequired = (db.SitePolicies.Where(l => l.SiteId == e.SiteId).Select(l => (bool?)l.Policy!.ScriptApprovalRequired).FirstOrDefault() ??
-                                    db.Policies.Where(p => p.IsDefault).Select(p => (bool?)p.ScriptApprovalRequired).FirstOrDefault()) == true
+                                    db.Policies.Where(p => p.IsDefault).Select(p => (bool?)p.ScriptApprovalRequired).FirstOrDefault()) == true,
+                // The signer reads the cap again when it signs; this is the value the job starts with.
+                MaxOutputBytes = db.SitePolicies.Where(l => l.SiteId == e.SiteId).Select(l => (long?)l.Policy!.MaxOutputBytes).FirstOrDefault() ??
+                                 db.Policies.Where(p => p.IsDefault).Select(p => (long?)p.MaxOutputBytes).FirstOrDefault()
             })
             .ToListAsync(cancellationToken);
         if (endpoints.Count == 0)
@@ -160,7 +169,8 @@ public sealed class JobService
             {
                 Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, BatchId = batchId, Type = JobType.Script,
                 ScriptId = script.Id, ScriptVersionId = version.Id, ScriptName = script.Name, ScriptVersionNumber = version.Number, Language = script.Language,
-                ScriptSha256 = version.Sha256, TimeoutSeconds = version.TimeoutSeconds, MaxOutputBytes = ScriptRules.MaxOutputBytes,
+                ScriptSha256 = version.Sha256, TimeoutSeconds = version.TimeoutSeconds,
+                MaxOutputBytes = ScriptRules.OutputCap(endpoint.MaxOutputBytes ?? ScriptRules.DefaultMaxOutputBytes), RunAs = runAs,
                 CreatedAt = now, ValidUntil = now + validity, InitiatedByUserId = caller.UserId,
                 InitiatedByName = caller.Name.Length > 200 ? caller.Name[..200] : caller.Name
             };
@@ -173,7 +183,8 @@ public sealed class JobService
             });
             db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.JobCreated, "Job", job.Id.ToString(), endpoint.ClientId, new
             {
-                endpoint.Hostname, EndpointId = endpoint.Id, BatchId = batchId, job.ScriptName, job.ScriptVersionNumber, job.ScriptSha256, job.ValidUntil
+                endpoint.Hostname, EndpointId = endpoint.Id, BatchId = batchId, job.ScriptName, job.ScriptVersionNumber, job.ScriptSha256, job.ValidUntil,
+                RunAs = job.RunAs.ToString()
             }), now));
         }
 
@@ -196,7 +207,7 @@ public sealed class JobService
             db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.JobBatchStarted, "Job", batchId.ToString(), null, new
             {
                 BatchId = batchId, script.Name, VersionNumber = version.Number, Endpoints = created.Count, Skipped = skipped.Count,
-                AdminsNotified = notified
+                AdminsNotified = notified, RunAs = runAs.ToString()
             }), now));
         }
 
@@ -326,7 +337,7 @@ public sealed class JobService
             db.Clients.Where(c => c.Id == j.ClientId).Select(c => c.Code).FirstOrDefault(),
             j.ScriptName, j.ScriptVersionNumber, j.Language, j.State, j.Result, j.ExitCode, j.RefusalReason ?? j.Error, j.OutputState, j.OutputTruncated,
             j.ReceivedOutputBytes, j.CreatedAt, j.ValidUntil, j.StartedAt, j.CompletedAt, j.InitiatedByName,
-            (j.State == JobState.PendingSignature || j.State == JobState.Queued) && j.DeliveredAt == null));
+            (j.State == JobState.PendingSignature || j.State == JobState.Queued) && j.DeliveredAt == null, j.RunAs));
 
     private static async Task<(string Text, long Bytes, bool Shortened)> ReadStreamAsync(FleetoDbContext db, Guid jobId, JobStream stream,
         CancellationToken cancellationToken)

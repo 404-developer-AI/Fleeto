@@ -212,6 +212,10 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(p => p.OfflineAlertSeverity).HasConversion<string>().HasMaxLength(20);
             entity.Property(p => p.MaintenanceWindowsJson).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
             entity.Property(p => p.UpdateRing).HasConversion<string>().HasMaxLength(20).HasDefaultValue(UpdateRing.Standard).HasSentinel((UpdateRing)(-1));
+            entity.Property(p => p.MaxOutputBytes).HasDefaultValue(ScriptRules.DefaultMaxOutputBytes).HasSentinel(0L);
+            entity.ToTable(table => table.HasCheckConstraint(
+                "CK_Policies_MaxOutputBytes",
+                $"\"MaxOutputBytes\" BETWEEN {ScriptRules.MinOutputBytes} AND {ScriptRules.MaxOutputBytes}"));
             entity.HasIndex(p => new { p.ClientId, p.Name }).IsUnique().AreNullsDistinct(false);
             entity.HasIndex(p => p.IsDefault).IsUnique().HasFilter("\"IsDefault\"");
             // A client-specific policy is deleted with its client.
@@ -437,6 +441,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(j => j.ScriptSha256).HasMaxLength(64);
             entity.Property(j => j.InitiatedByName).HasMaxLength(200);
             entity.Property(j => j.State).HasConversion<string>().HasMaxLength(20);
+            entity.Property(j => j.RunAs).HasConversion<string>().HasMaxLength(20).HasDefaultValue(JobRunAs.Service).HasSentinel((JobRunAs)(-1));
             entity.Property(j => j.RefusalReason).HasMaxLength(500);
             entity.Property(j => j.SigningKeyId).HasMaxLength(64);
             entity.Property(j => j.Result).HasConversion<string>().HasMaxLength(20);

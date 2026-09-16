@@ -30,7 +30,7 @@ public sealed class JobMaintenanceTests
         {
             Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, BatchId = Guid.NewGuid(), ScriptId = script.Id, ScriptVersionId = version.Id,
             ScriptName = script.Name, ScriptVersionNumber = 1, Language = script.Language, ScriptSha256 = version.Sha256, TimeoutSeconds = 600,
-            MaxOutputBytes = ScriptRules.MaxOutputBytes, CreatedAt = now, ValidUntil = now.AddHours(1), InitiatedByUserId = user.Id, InitiatedByName = "Tech",
+            MaxOutputBytes = ScriptRules.DefaultMaxOutputBytes, CreatedAt = now, ValidUntil = now.AddHours(1), InitiatedByUserId = user.Id, InitiatedByName = "Tech",
             State = state, Signature = state == JobState.PendingSignature ? null : new byte[64], Payload = state == JobState.PendingSignature ? null : [1]
         };
         configure?.Invoke(job);

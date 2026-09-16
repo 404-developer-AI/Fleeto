@@ -818,9 +818,9 @@
             { d => d.Scripts, scripts },
             { d => d.NotifyAdminsAbove, notifyAbove },
             {
-                d => d.OnSubmit, async (scriptId, validity) =>
+                d => d.OnSubmit, async (scriptId, validity, runAs) =>
                 {
-                    var result = await RunForValueAsync(caller => JobSvc.RunAsync(caller, scriptId, ids, validity), null);
+                    var result = await RunForValueAsync(caller => JobSvc.RunAsync(caller, scriptId, ids, validity, runAs), null);
                     run = result?.Value;
                     scriptName = scripts.FirstOrDefault(s => s.Id == scriptId)?.Name ?? "Script";
                     return result is not null;
@@ -863,7 +863,7 @@
             { d => d.EndpointIds, new[] { row.Id } },
             { d => d.TargetLabel, row.Hostname },
             { d => d.Scripts, scripts },
-            { d => d.OnSubmit, (scriptId, validity) => RunAsync(caller => JobSvc.RunAsync(caller, scriptId, [row.Id], validity),
+            { d => d.OnSubmit, (scriptId, validity, runAs) => RunAsync(caller => JobSvc.RunAsync(caller, scriptId, [row.Id], validity, runAs),
                 $"The job was started on {row.Hostname}. Its result appears on the Jobs tab.") }
         };
         var dialog = await DialogService.ShowAsync<RunScriptDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });

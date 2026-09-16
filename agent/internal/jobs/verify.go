@@ -30,8 +30,11 @@ const (
 	MaxPayloadBytes = 512 * 1024
 	// ClockTolerance is how far past ValidUntil a job is still accepted.
 	ClockTolerance = 5 * time.Minute
-	// MaxOutputBytes caps the output of one job whatever the payload says.
-	MaxOutputBytes = 50 * 1024 * 1024
+	// MaxOutputBytes caps the output of one job whatever the payload says. The policy of the endpoint's site picks the
+	// cap the signer puts in the payload; this is the ceiling the agent holds on its own.
+	MaxOutputBytes = 200 * 1024 * 1024
+	// DefaultOutputBytes applies when a payload names no cap at all.
+	DefaultOutputBytes = 50 * 1024 * 1024
 	// ChunkBytes is the size of a full output chunk.
 	ChunkBytes = 64 * 1024
 	maxTimeout = 24 * time.Hour
@@ -151,7 +154,7 @@ func Timeout(payload *agentv1.JobPayload) time.Duration {
 func OutputLimit(payload *agentv1.JobPayload) int64 {
 	limit := int64(min(payload.GetMaxOutputBytes(), MaxOutputBytes))
 	if limit <= 0 {
-		return MaxOutputBytes
+		return DefaultOutputBytes
 	}
 	return limit
 }

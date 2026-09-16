@@ -34,6 +34,12 @@ public class Policy
     /// <summary>When the endpoints of the linked sites get a new agent release (0.2.1). Applies to agent-only endpoints too.</summary>
     public UpdateRing UpdateRing { get; set; } = UpdateRing.Standard;
 
+    /// <summary>
+    /// Output one job of these endpoints may send back (0.2.1), between <see cref="ScriptRules.MinOutputBytes"/> and
+    /// <see cref="ScriptRules.MaxOutputBytes"/>. Output beyond it is dropped on the endpoint and the job is marked truncated.
+    /// </summary>
+    public long MaxOutputBytes { get; set; } = ScriptRules.DefaultMaxOutputBytes;
+
     /// <summary>Policy this one was copied from; the copy is independent.</summary>
     public Guid? CopiedFromId { get; set; }
 

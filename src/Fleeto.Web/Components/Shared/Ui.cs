@@ -228,6 +228,20 @@ public static class Ui
         _ => StatusKind.Neutral
     };
 
+    /// <summary>The account a job runs under on the endpoint, named the same way everywhere in the UI.</summary>
+    public static string JobRunAsLabel(JobRunAs runAs) => runAs switch
+    {
+        JobRunAs.LoggedOnUser => "The signed-in user",
+        _ => "System (SYSTEM or root)"
+    };
+
+    /// <summary>The same choice inside a sentence: "ran as the signed-in user".</summary>
+    public static string JobRunAsPhrase(JobRunAs runAs) => runAs switch
+    {
+        JobRunAs.LoggedOnUser => "as the signed-in user",
+        _ => "as SYSTEM or root"
+    };
+
     public static string JobOutputLabel(JobOutputState state, bool truncated) => state switch
     {
         JobOutputState.None => "No output",

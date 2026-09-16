@@ -23,7 +23,7 @@
                 <span class="muted">· @Ui.JobOutputLabel(job.OutputState, job.OutputTruncated)</span>
             </div>
             <MudText Typo="Typo.body2" Class="muted mb-3">
-                @ScriptLanguages.Label(job.Language) version @job.ScriptVersionNumber · started by @job.InitiatedByName <TimeText Value="job.CreatedAt" />
+                @ScriptLanguages.Label(job.Language) version @job.ScriptVersionNumber · @Ui.JobRunAsPhrase(job.RunAs) · started by @job.InitiatedByName <TimeText Value="job.CreatedAt" />
                 @if (job.StartedAt is not null)
                 {
                     <span> · ran from @Time.Absolute(job.StartedAt)@(job.CompletedAt is null ? "" : $" to {Time.Absolute(job.CompletedAt)}")</span>

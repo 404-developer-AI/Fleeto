@@ -606,7 +606,7 @@
             { d => d.EndpointIds, new[] { e.Id } },
             { d => d.TargetLabel, e.Hostname },
             { d => d.Scripts, scripts },
-            { d => d.OnSubmit, (scriptId, validity) => RunAsync(caller => JobSvc.RunAsync(caller, scriptId, [e.Id], validity),
+            { d => d.OnSubmit, (scriptId, validity, runAs) => RunAsync(caller => JobSvc.RunAsync(caller, scriptId, [e.Id], validity, runAs),
                 "The job was started. It runs as soon as the endpoint receives it.") }
         };
         var dialog = await DialogService.ShowAsync<RunScriptDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });

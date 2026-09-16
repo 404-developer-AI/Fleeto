@@ -11,7 +11,7 @@
         @if (Approve)
         {
             <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
-                Read the whole script. It runs as SYSTEM or root on every endpoint it is started on. Your approval applies to exactly this text.
+                Read the whole script. It runs as SYSTEM or root on every endpoint it is started on, or as the signed-in user there. Your approval applies to exactly this text.
             </MudAlert>
             <MudTextField @bind-Value="_code" Label="Code from your authenticator app" Variant="Variant.Outlined" MaxLength="6" InputMode="InputMode.numeric"
                           AutoFocus="true" Style="max-width:240px" />

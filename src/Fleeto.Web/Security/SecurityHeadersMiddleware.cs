@@ -50,6 +50,8 @@ public static class SecurityHeadersMiddleware
         "frame-ancestors 'none'; " +
         "form-action 'self'; " +
         "img-src 'self' data:; " +
+        // The web app manifest and its icons come from the instance itself.
+        "manifest-src 'self'; " +
         // Fonts are self-hosted (no Google Fonts: GDPR).
         "font-src 'self'; " +
         // 'unsafe-inline' for styles is required: MudBlazor renders inline style attributes, which cannot carry a nonce.

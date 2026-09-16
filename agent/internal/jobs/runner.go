@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"hash"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
@@ -25,11 +24,25 @@ const waitDelay = 10 * time.Second
 func (m *Manager) run(id string, payload *agentv1.JobPayload) {
 	dir := m.dir(id)
 	script := payload.GetScript()
-	scriptPath, err := writeScript(dir, script, m.opts.Access)
+	// A job that runs as the signed-in user needs that user's session before anything else: without one it fails now
+	// rather than half way, and the script is staged where that user can read it instead of in the protected job directory.
+	var session *signedInUser
+	if payload.GetRunAs() == agentv1.JobRunAs_JOB_RUN_AS_LOGGED_ON_USER {
+		found, err := signedInSession()
+		if err != nil {
+			m.complete(id, &agentv1.JobCompletion{Result: agentv1.JobResult_JOB_RESULT_FAILED_TO_START, Error: runAsUserError(err)})
+			return
+		}
+		defer found.close()
+		session = found
+	}
+
+	scriptPath, workDir, release, err := stage(dir, script, m.opts.Access, session)
 	if err != nil {
 		m.complete(id, &agentv1.JobCompletion{Result: agentv1.JobResult_JOB_RESULT_FAILED_TO_START, Error: "could not write the script: " + err.Error()})
 		return
 	}
+	defer release()
 	started := m.opts.Now().UTC()
 	if err := platform.WriteFileAtomic(filepath.Join(dir, startedFile), []byte(started.Format(time.RFC3339Nano)), m.opts.Access); err != nil {
 		m.complete(id, &agentv1.JobCompletion{Result: agentv1.JobResult_JOB_RESULT_FAILED_TO_START, Error: "could not record the start: " + err.Error()})
@@ -45,25 +58,30 @@ func (m *Manager) run(id string, payload *agentv1.JobPayload) {
 	stdout := &streamWriter{m: m, id: id, stream: agentv1.JobStream_JOB_STREAM_STDOUT, budget: budget, hash: sha256.New()}
 	stderr := &streamWriter{m: m, id: id, stream: agentv1.JobStream_JOB_STREAM_STDERR, budget: budget, hash: sha256.New()}
 
-	cmd, tree, err := command(ctx, script.GetLanguage(), scriptPath, dir)
+	proc, tree, err := command(ctx, commandOptions{
+		language:   script.GetLanguage(),
+		scriptPath: scriptPath,
+		dir:        workDir,
+		env:        []string{"FLEETO_JOB_ID=" + id},
+		stdout:     stdout,
+		stderr:     stderr,
+		wait:       waitDelay,
+		session:    session,
+	})
 	if err != nil {
-		m.complete(id, &agentv1.JobCompletion{Result: agentv1.JobResult_JOB_RESULT_FAILED_TO_START, Error: err.Error()})
+		m.complete(id, &agentv1.JobCompletion{Result: agentv1.JobResult_JOB_RESULT_FAILED_TO_START, Error: runAsUserError(err)})
 		return
 	}
 	defer tree.close()
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	cmd.Env = append(os.Environ(), "FLEETO_JOB_ID="+id)
-	cmd.WaitDelay = waitDelay
-	cmd.Cancel = tree.kill
 
-	m.opts.Logger.Info("job started", "jobId", id, "script", script.GetName(), "language", LanguageName(script.GetLanguage()), "timeout", timeout.String())
-	if err := cmd.Start(); err != nil {
+	m.opts.Logger.Info("job started", "jobId", id, "script", script.GetName(), "language", LanguageName(script.GetLanguage()),
+		"timeout", timeout.String(), "asUser", session != nil)
+	if err := proc.Start(); err != nil {
 		m.complete(id, &agentv1.JobCompletion{Result: agentv1.JobResult_JOB_RESULT_FAILED_TO_START,
 			Error: fmt.Sprintf("could not start %s: %v", LanguageName(script.GetLanguage()), err)})
 		return
 	}
-	tree.attach(cmd)
+	tree.attach(proc.Pid())
 
 	flushDone := make(chan struct{})
 	go func() {
@@ -79,7 +97,7 @@ func (m *Manager) run(id string, payload *agentv1.JobPayload) {
 			}
 		}
 	}()
-	waitErr := cmd.Wait()
+	waitErr := proc.Wait()
 	close(flushDone)
 	stdout.flushPartial()
 	stderr.flushPartial()
@@ -97,16 +115,10 @@ func (m *Manager) run(id string, payload *agentv1.JobPayload) {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		completion.Result = agentv1.JobResult_JOB_RESULT_TIMED_OUT
 		completion.Error = fmt.Sprintf("The script did not finish within %s and was ended.", timeout)
-	case waitErr == nil:
+	// The script ended on its own. ErrWaitDelay means a child process kept the output open and was left alone.
+	case waitErr == nil, errors.As(waitErr, &exitErr), errors.Is(waitErr, exec.ErrWaitDelay):
 		completion.Result = agentv1.JobResult_JOB_RESULT_EXITED
-		completion.ExitCode = 0
-	case errors.As(waitErr, &exitErr):
-		completion.Result = agentv1.JobResult_JOB_RESULT_EXITED
-		completion.ExitCode = int32(exitErr.ExitCode())
-	case errors.Is(waitErr, exec.ErrWaitDelay):
-		// The script ended; a child process kept the output open and was left alone after waitDelay.
-		completion.Result = agentv1.JobResult_JOB_RESULT_EXITED
-		completion.ExitCode = int32(cmd.ProcessState.ExitCode())
+		completion.ExitCode = int32(proc.ExitCode())
 	default:
 		completion.Result = agentv1.JobResult_JOB_RESULT_FAILED_TO_START
 		completion.Error = waitErr.Error()
@@ -117,6 +129,25 @@ func (m *Manager) run(id string, payload *agentv1.JobPayload) {
 	m.opts.Logger.Info("job ended", "jobId", id, "result", completion.GetResult().String(), "exitCode", completion.GetExitCode(),
 		"outputBytes", completion.GetStdout().GetBytes()+completion.GetStderr().GetBytes(), "truncated", completion.GetOutputTruncated())
 	m.complete(id, completion)
+}
+
+// runAsUserError turns the one error a technician must recognise into the sentence shown on the job, and passes
+// everything else through.
+func runAsUserError(err error) string {
+	if errors.Is(err, ErrNoUserSignedIn) {
+		return "No user is signed in on this endpoint, so the script could not run as the signed-in user. Start the job again when someone is signed in."
+	}
+	return err.Error()
+}
+
+// stage puts the script where the account that runs it can read it: the protected job directory for a script that runs
+// as SYSTEM or root, a directory only the signed-in user may read otherwise. release removes what it created.
+func stage(dir string, script *agentv1.ScriptJob, access platform.Access, session *signedInUser) (scriptPath, workDir string, release func(), err error) {
+	if session == nil {
+		path, err := writeScript(dir, script, access)
+		return path, dir, func() {}, err
+	}
+	return session.stage(script)
 }
 
 func firstError(errs ...error) error {
@@ -131,22 +162,25 @@ func firstError(errs ...error) error {
 // writeScript stores the script in the job's protected directory. PowerShell gets a UTF-8 byte order mark, so Windows
 // PowerShell reads non-ASCII characters correctly.
 func writeScript(dir string, script *agentv1.ScriptJob, access platform.Access) (string, error) {
-	var name string
-	body := []byte(script.GetBody())
-	switch script.GetLanguage() {
-	case agentv1.ScriptLanguage_SCRIPT_LANGUAGE_POWERSHELL:
-		name = "script.ps1"
-		body = append([]byte{0xEF, 0xBB, 0xBF}, body...)
-	case agentv1.ScriptLanguage_SCRIPT_LANGUAGE_BATCH:
-		name = "script.cmd"
-	default:
-		name = "script.sh"
-	}
+	name, body := scriptFile(script)
 	path := filepath.Join(dir, name)
 	if err := platform.WriteFileAtomic(path, body, access); err != nil {
 		return "", err
 	}
 	return path, nil
+}
+
+// scriptFile is the file name and the exact bytes of one script.
+func scriptFile(script *agentv1.ScriptJob) (string, []byte) {
+	body := []byte(script.GetBody())
+	switch script.GetLanguage() {
+	case agentv1.ScriptLanguage_SCRIPT_LANGUAGE_POWERSHELL:
+		return "script.ps1", append([]byte{0xEF, 0xBB, 0xBF}, body...)
+	case agentv1.ScriptLanguage_SCRIPT_LANGUAGE_BATCH:
+		return "script.cmd", body
+	default:
+		return "script.sh", body
+	}
 }
 
 // outputBudget is the output both streams of a job may still send.

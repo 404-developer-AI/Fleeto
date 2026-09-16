@@ -95,6 +95,16 @@ public enum JobResult
     Interrupted
 }
 
+/// <summary>The account a script runs under on the endpoint (0.2.1), chosen per run.</summary>
+public enum JobRunAs
+{
+    /// <summary>SYSTEM on Windows, root on Linux: the account the agent service itself runs as.</summary>
+    Service,
+
+    /// <summary>The user of the active session. The job fails when nobody is signed in.</summary>
+    LoggedOnUser
+}
+
 public enum JobOutputState
 {
     None,
@@ -123,6 +133,9 @@ public class Job
     public string ScriptSha256 { get; set; } = string.Empty;
     public int TimeoutSeconds { get; set; }
     public long MaxOutputBytes { get; set; }
+
+    /// <summary>The account the script runs under on the endpoint (0.2.1). Signed with the job.</summary>
+    public JobRunAs RunAs { get; set; } = JobRunAs.Service;
 
     public DateTime CreatedAt { get; set; }
     public DateTime ValidUntil { get; set; }
@@ -190,8 +203,20 @@ public static class ScriptRules
     public static readonly TimeSpan DefaultValidity = TimeSpan.FromHours(24);
     public static readonly TimeSpan MaxValidity = TimeSpan.FromDays(7);
 
-    /// <summary>Output per job the agent sends at most; beyond it the output is marked truncated.</summary>
-    public const long MaxOutputBytes = 50L * 1024 * 1024;
+    /// <summary>
+    /// Output per job the agent sends at most; beyond it the output is marked truncated. The policy of the endpoint's site
+    /// sets the cap (0.2.1) between <see cref="MinOutputBytes"/> and <see cref="MaxOutputBytes"/>; signer, gateway and agent
+    /// hold that ceiling whatever a policy or a job payload says.
+    /// </summary>
+    public const long DefaultMaxOutputBytes = 50L * 1024 * 1024;
+
+    public const long MinOutputBytes = 1L * 1024 * 1024;
+    public const long MaxOutputBytes = 200L * 1024 * 1024;
+
+    /// <summary>The cap a policy may set, rounded to whole mebibytes and held inside the bounds above.</summary>
+    public static long OutputCap(long bytes) => Math.Clamp(bytes, MinOutputBytes, MaxOutputBytes) / Mebibyte * Mebibyte;
+
+    public const long Mebibyte = 1024 * 1024;
 
     /// <summary>Largest output chunk.</summary>
     public const int MaxChunkBytes = 64 * 1024;

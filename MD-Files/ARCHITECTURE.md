@@ -101,7 +101,7 @@ AuditEntry (append-only)
 | `Maintenance` (on Client, Site, Endpoint) | `MaintenanceStartedAt?`, `MaintenanceEndsAt?`, `MaintenanceStartedByUserId?`, `MaintenanceStartedByName?`, `MaintenanceReason?` | Maintenance mode (0.2.0), stored as nullable columns on each of the three tables. Active while `MaintenanceStartedAt` is set and not in the future and `MaintenanceEndsAt` is null or in the future; ending by hand clears the columns, an end time that passes is left in place and every query compares with the current time. The reason is free text and personal data may appear in it: it is never copied into the audit log. See *Maintenance mode* in §4. |
 | **AgentCertificate** | `Id`, `ClientId`, `EndpointId`, `Role` (`agent`/`watchdog`), `Fingerprint`, `IssuedAt`, `ExpiresAt`, `RevokedAt?`, `RevokedBy?`, `RevokedReason?` | One row per issued certificate, renewals included. The gateway refuses every certificate with `RevokedAt` set. `Role` (0.2.1) decides which session the certificate may open; a renewal keeps it. |
 | **EndpointComponentState** | `EndpointId`, `Component` (`agent`/`watchdog`), `ClientId`, `InstalledVersion`, `ServiceState`, `ServiceDetail`, `ServiceStateAt?`, `UpdateVersion`, `UpdateState?`, `UpdateDetail`, `UpdateAt?` | Per endpoint and component (0.2.1): the service state its peer reports and the latest update report (`downloading`, `installing`, `installed`, `failed`, `rolled_back`). Written by the gateway, deleted with the endpoint. |
-| **Policy** | `Id`, `ClientId?`, `Name`, settings, `UpdateRing` (`preview`/`standard`/`delayed`, default `standard`), `MaintenanceWindowsJson` | Agent behaviour: intervals, patch behaviour, update ring (0.2.1, §4 Agent update), script permissions and **script approval required**, remote control rules (consent, recording), maintenance windows. `ClientId` null = global. |
+| **Policy** | `Id`, `ClientId?`, `Name`, settings, `UpdateRing` (`preview`/`standard`/`delayed`, default `standard`), `MaxOutputBytes` (1-200 MiB, default 50 MiB, check constraint), `MaintenanceWindowsJson` | Agent behaviour: intervals, patch behaviour, update ring (0.2.1, §4 Agent update), script permissions and **script approval required**, the job output cap (0.2.1, §4 Job), remote control rules (consent, recording), maintenance windows. `ClientId` null = global. |
 | **MaintenanceWindowOccurrence** | `PolicyId`, `WindowIndex`, `StartsAt`, `EndsAt`, `AppliesTo`, `Name?` | Occurrences of the policy's maintenance windows (0.2.0), stored 8 days ahead (§4, Maintenance windows). Deleted with the policy. |
 | **MonitoringTemplate** | `Id`, `ClientId?`, `Name` | Named set of `CheckDefinition`s with thresholds and alert rules. `ClientId` null = global. |
 | **CheckDefinition** | `Id`, `ClientId?`, `MonitoringTemplateId?`, `EndpointId?`, `Type`, `Interval`, `Thresholds`, `FailuresBeforeAlert`, `AppliesToClass`, `Enabled` | Interval from seconds to monthly. Owned by exactly one of a monitoring template or one endpoint (check constraint). An endpoint-only check carries the endpoint's `ClientId` (composite foreign key) and runs whatever the endpoint class. |
@@ -111,7 +111,7 @@ AuditEntry (append-only)
 | **CheckRunRequest** | `Id`, `ClientId`, `EndpointId`, `CheckDefinitionId`, `Reset`, `RequestedBy`, `RequestedAt`, `ExpiresAt`, `ResetAppliedAt?`, `DeliveredAt?`, `Outcome?` (`expired`, `not_applicable`, `not_managed`) | A technician's "Run now" or "Reset and run" (§4). Kept 7 days. |
 | **ClientTemplate** | `Id`, `Name`, sites with linked policies and templates | Blueprint used at client creation. Linked, not copied: later changes apply to every client using it; a technician can make an independent copy. |
 | **Script**, **ScriptVersion** | `Id`, `ClientId?`, `Name`, `Description`, `Language` (`PowerShell`, `Batch`, `Shell`, `Bash`), `CurrentVersionId`; version: `ClientId?`, `Number`, `Body`, `Sha256`, `TimeoutSeconds`, `AuthorUserId`, `ApprovedByUserId?`, `ApprovedAt?`, `ApprovedSha256?` | `ClientId` null = global, immutable (trigger); a version carries the client of its script (constraint trigger). Saving a changed body or timeout creates a new version; the language is fixed. A version is approved only when approver and author differ and `ApprovedSha256` equals `Sha256` (check constraint). |
-| **Job** | `Id`, `ClientId`, `EndpointId`, `BatchId`, `Type` (`Script`), snapshot of the script (`ScriptId?`, `ScriptVersionId?`, name, version number, `Language`, `ScriptSha256`, `TimeoutSeconds`, `MaxOutputBytes`), `ValidUntil`, `InitiatedByUserId`, `State` (`pending_signature`, `queued`, `running`, `succeeded`, `failed`, `expired`, `refused`, `lost`, `cancelled`), `RefusalReason?`, `Payload`, `Signature`, `SigningKeyId`, `DeliveredAt?`, `StartedAt?`, `CompletedAt?`, `Result?` (`exited`, `timed_out`, `refused`, `failed_to_start`, `interrupted`), `ExitCode?`, `OutputState` (`none`, `receiving`, `complete`, `incomplete`), `OutputTruncated`, per stream announced chunks, bytes and SHA-256 | One row per endpoint. Idempotent by `Id`. Never delivered or executed after `ValidUntil` (at most 7 days after creation, check constraint). `State` describes execution, `OutputState` describes the output; they move independently. The snapshot keeps the history readable after the script changes or is deleted. |
+| **Job** | `Id`, `ClientId`, `EndpointId`, `BatchId`, `Type` (`Script`), snapshot of the script (`ScriptId?`, `ScriptVersionId?`, name, version number, `Language`, `ScriptSha256`, `TimeoutSeconds`, `MaxOutputBytes`), `RunAs` (`service`/`logged_on_user`, 0.2.1), `ValidUntil`, `InitiatedByUserId`, `State` (`pending_signature`, `queued`, `running`, `succeeded`, `failed`, `expired`, `refused`, `lost`, `cancelled`), `RefusalReason?`, `Payload`, `Signature`, `SigningKeyId`, `DeliveredAt?`, `StartedAt?`, `CompletedAt?`, `Result?` (`exited`, `timed_out`, `refused`, `failed_to_start`, `interrupted`), `ExitCode?`, `OutputState` (`none`, `receiving`, `complete`, `incomplete`), `OutputTruncated`, per stream announced chunks, bytes and SHA-256 | One row per endpoint. Idempotent by `Id`. Never delivered or executed after `ValidUntil` (at most 7 days after creation, check constraint). `State` describes execution, `OutputState` describes the output; they move independently. The snapshot keeps the history readable after the script changes or is deleted. |
 | **JobOutputChunk** | `ClientId`, `JobId`, `Stream` (`stdout`/`stderr`), `Sequence`, `Data`, `ReceivedAt` | Unique on `JobId`, `Stream`, `Sequence`. Protocol in §4, Job output. |
 | **SigningRequest** | `Id`, `ClientId?`, `Kind` (`job`, `session_token`, `agent_csr`, `gateway_csr`, `policy`, `watchdog_certificate`), `SubjectId`, `RequestedBy`, `State`, `RefusalReason?` | Written by web or gateway, processed by the signer. |
 | **License** | `Id`, `CustomerName`, `Fqdn`, `ManagedEndpointCount`, `ExpiresAt`, `SignedDocument` (encrypted) | One per instance. Verified offline with the Steaan license public key baked into the build. Grace period of 14 days after `ExpiresAt`. |
@@ -563,15 +563,15 @@ license; the body of the stored version still has the snapshot hash and the lang
 or of the endpoint's client; the language runs on the endpoint's platform; and, when the policy of the
 endpoint's site (or the default policy) requires approval, the version is the script's current one and
 approved by an admin who is not its author → it signs a `JobPayload` (`JobId`, `InstanceId`, `EndpointId`,
-`Type`, `ValidUntil`, `InitiatedBy`, timeout, output cap, and the script: language, name, version, body,
-SHA-256) with the context `fleeto-job-v1` and sets `queued`, or sets `refused` with the reason → the
+`Type`, `ValidUntil`, `InitiatedBy`, timeout, output cap, the account it runs as, and the script: language, name,
+version, body, SHA-256) with the context `fleeto-job-v1` and sets `queued`, or sets `refused` with the reason → the
 gateway sends queued, signed, valid jobs to managed sessions when they connect, on a notification and in
 its 5-minute catch-up, and records `DeliveredAt` → the agent verifies the signature against the pinned
 key, that instance and endpoint are its own, that `ValidUntil` has not passed (5 minutes clock tolerance)
 and lies at most 7 days ahead, that its applied configuration is managed, the body hash and that the
 language runs on its operating system. It dedupes on `Job.Id` (a seen list kept until 7 days after the
-job's validity, plus the job directory) → it stores the signed job on disk, runs the script as SYSTEM or
-root and streams output as chunks (below) → it sends `JobCompletion`, and a refusal is a `JobCompletion`
+job's validity, plus the job directory) → it stores the signed job on disk, runs the script as the account the payload
+names (below) and streams output as chunks (below) → it sends `JobCompletion`, and a refusal is a `JobCompletion`
 with result `refused` and the reason.
 
 A job that is not signed within 15 minutes becomes `refused` (the signer did not answer); a queued job whose
@@ -581,8 +581,25 @@ atomic, so a delivered job cannot be cancelled. Scripts run at most 4 at a time 
 from 30 seconds to 24 hours set per version (default 10 minutes); the whole process tree ends at the timeout
 (a job object on Windows, a process group on Linux). A job that was running when the agent
 stopped is reported as `interrupted` after the restart and becomes `lost`: it is never started again, since
-running it twice could be worse than not knowing. Running a script as the logged-on user comes later
-(decided 2026-09-15).
+running it twice could be worse than not knowing.
+
+**The account a script runs as (0.2.1).** The technician chooses it per run: the agent's own account (SYSTEM on Windows,
+root on Linux) or the signed-in user. The choice is part of the signed payload, so the agent never decides it. For the
+signed-in user the agent takes the active session — the console session first on Windows, a graphical session first on
+Linux, never root — and fails the job with "No user is signed in on this endpoint" when there is none; it never falls
+back to its own account. The script is staged in a directory that user may read and not change (Windows: under
+`C:\ProgramData\Fleeto`, with a protected DACL for SYSTEM, the administrators and that user; Linux: a root-owned
+directory under `/tmp` with the script owned by the user, mode 0400), and runs from the user's own profile or home
+directory with that user's environment. On Windows the process is created with `CreateProcessAsUser` in
+`winsta0\default`, so it can show a window; Go's process API cannot name a desktop, so the agent calls Win32 itself. The
+output cap, the timeout and the process tree work the same in both cases. Script checks from the signed configuration
+always run as the agent's own account.
+
+**The output cap (0.2.1).** The policy of the endpoint's site sets how much output one job may send back, in whole
+mebibytes between 1 and 200 (default 50). The signer reads it from the effective policy when it signs, so the value web
+wrote on the job row never decides it; the gateway refuses chunks beyond the cap on the job row, and the agent stops
+sending and marks the output truncated. Agent and gateway hold 200 MiB as an absolute ceiling whatever a policy or a
+payload says.
 
 **Job output.** Output is never one message. The agent writes stdout and stderr to disk and
 sends them as `JobOutputChunk` messages of at most 64 KiB, each carrying `JobId`, `Stream`
@@ -837,6 +854,9 @@ container:
   secure desktop; the same privilege is why the session token and signature checks are
   never optional.
 - Clipboard sync is text-only in v1 and can be disabled per policy.
+- **A script that runs as the signed-in user, accepted risk (0.2.1).** That user can read the script text while it runs:
+  the interpreter has to open the file as them. The script is staged so that they can read it and not change it, and the
+  run window says so before the run starts. A script that carries a secret must run as the agent's own account.
 - **Remote terminal (0.3.0), accepted risk.** The interactive terminal (§3) is available to
   admins and technicians on every managed endpoint, also where the policy requires script
   approval. On those endpoints script approval therefore only governs library scripts run as
