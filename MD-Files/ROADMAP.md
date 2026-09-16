@@ -23,7 +23,11 @@ Windows endpoints and a Linux endpoint: self-update, the watchdog, taking over a
 signed-in user and without a signed-in user, a run on a selection and the output cap. The Servicedesk ticket reference on
 notes moved to "Not yet scheduled" (decided 2026-09-15).
 
-**0.2.2** — next: why an agent update waits, and choosing the user a script runs as (found while testing 0.2.1).
+**0.2.2** — released 2026-09-16 (`v0.2.2`): why an agent or watchdog update waits, choosing the user a script runs as, and a
+safe restore when an update fails, with WAL archiving removed (all found while testing 0.2.1). Pre-releases `v0.2.2-alpha.1` and
+`v0.2.2-alpha.2` (2026-09-16) on the first test VPS.
+
+**0.3.0** — next: remote control and remote background, planned with the developer on 2026-09-16 in seven steps.
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
 2026-09-15, see Later).
@@ -311,7 +315,7 @@ Everything that was still open for 0.2.0, moved here on 2026-09-15, with the dev
 - Not supported for now: **macOS** (decided 2026-09-15): no macOS agent, watchdog, remote control or remote terminal.
   It may come later when there is demand (see Later).
 
-## 0.2.2 — Agent update visibility and the user a script runs as
+## 0.2.2 — Agent update visibility and the user a script runs as (released 2026-09-16)
 
 Found while testing `v0.2.1-alpha.5` on the test VPS (2026-09-16): an agent without a watchdog waited silently, first for its
 retry after a failed attempt and then for its update ring, so neither the agent log nor the UI said why nothing happened.
@@ -349,29 +353,79 @@ and the rollback crashed PostgreSQL halfway through dropping the database, so th
 
 ## 0.3.0 — Remote control
 
-- Transport decided after a prototype (WebRTC via gateway TURN vs. WebSocket relay).
-- End-to-end encryption with the key exchange bound to the signed session token and the
-  agent certificate, tested against a hostile relay.
-- Windows: console session as SYSTEM (login screen, UAC), active user session with banner,
-  keyboard and mouse, two-way text clipboard, consent and recording per policy, session
-  audit, reconnect and stuck-key protection.
-- Linux: X11.
-- Remote terminal: an interactive terminal as SYSTEM or root (cmd and PowerShell on Windows, sh on Linux) in the browser, served by the watchdog so it also works when the agent is broken. Same
-  session token and end-to-end encryption as remote control; admins and technicians on every
-  managed endpoint, also where the policy requires script approval (accepted risk, see
-  ARCHITECTURE.md §5); audit per session and a transcript when the policy records sessions.
+Two kinds of session, both opened from the right-click menu of the endpoint list and from the endpoint detail, each in its own
+popup window: **Remote control** (take over the screen) and **Remote background** (terminal, files, services and processes
+without touching the screen). Managed endpoints only, admins and technicians, never read-only.
 
-Requested by the developer (2026-09-16); the exact design is discussed when 0.3.0 starts:
+Decisions (2026-09-16, with the developer):
 
-- Right-click in the endpoint list: "Remote control" takes over the screen (Windows first).
-- Right-click in the endpoint list: "Remote background" opens a background session without taking over the screen, with:
-  - the remote terminal above (PowerShell and cmd on Windows, a shell on Linux);
-  - a file explorer with transfer: browse, refresh, download, upload, rename, delete, and copy and paste to another location
-    on the endpoint;
-  - Windows services;
-  - processes, on Windows and Linux.
-- To decide before building: file transfer is out of scope for v1 in CLAUDE.md ("file transfer inside remote control"), and
-  what the background session may do per role, policy and approval, and how it is audited.
+- **Transport**: a WebSocket relay through the gateway on port 443, no WebRTC and no prototype. The browser connects to
+  `wss://<fqdn>/relay/...` (Caddy routes it to the gateway), the agent opens a separate mTLS WebSocket per session to
+  `agents.<fqdn>`, so screen traffic never blocks the agent's control connection. Traffic passes the VPS anyway (TURN would
+  too), UDP is often blocked at customers, and frame acknowledgements keep latency bounded. WebRTC returns only if
+  measurements demand it.
+- **End-to-end encryption** as in ARCHITECTURE.md §4: a single-use session token from the signer with the browser's
+  ephemeral X25519 key, the agent's key signed with its certificate key, AES-256-GCM frames with sequence numbers. Every
+  participant has its own key exchange with the agent. Tested against a hostile relay (tamper, replay, reorder, swapped key,
+  token for another endpoint or instance).
+- **Image**: tiles with change detection (sharp text, same Go code on Windows and Linux, adaptive quality), then H.264
+  through Media Foundation on Windows (hardware encoder where present) decoded with WebCodecs, falling back to tiles
+  automatically when it is not available.
+- **Keyboard** must never change characters on the way, also on the Windows sign-in screen with a different layout on the
+  technician's PC (AZERTY vs QWERTY): keys are sent as physical keys (scan codes) with character translation to the
+  endpoint's active layout, a Unicode fallback for characters the layout lacks, and "Type clipboard" to enter a password
+  where pasting is not possible. Ctrl+Alt+Del button: the agent sets `SoftwareSASGeneration=1` at install and update; a
+  customer GPO that overrides it wins, and the button then says why it does not work.
+- **Clipboard** in both directions for text (a must). Files from the technician's PC to the endpoint by pasting or dragging
+  into the remote window (they appear on the endpoint clipboard like RDP); files copied on the endpoint show "N files copied,
+  download" in the window, because a browser cannot put files on the local clipboard.
+- **Several technicians** work in the same remote control session at the same time: each sees the others' pointers, the
+  banner names all of them, every join is its own token and audit entry.
+- **Windows session**: a choice when opening, default the console (including the sign-in screen and UAC); every signed-in RDP
+  session is listed by user. Screen capture with DXGI desktop duplication and a GDI fallback (RDP sessions, VMs), several
+  monitors selectable.
+- **Consent and banner**: servers (Windows and Linux) never prompt and show no banner. Workstations follow the policy:
+  consent prompt on/off (default off), banner with the technician names on/off (default on), consent timeout (default
+  30 seconds) after which access is granted; an explicit refusal ends the session. Remote background never prompts.
+- **Remote background**: admins and technicians may do everything (same accepted risk as the terminal towards script
+  approval). Served by the watchdog, so it also works when the agent is broken.
+  - Terminal as SYSTEM or root: PowerShell and cmd on Windows (ConPTY on Windows 10 1809 and Server 2019 or newer, a simpler
+    terminal without PTY on Server 2016), the root shell on Linux.
+  - File explorer: browse, refresh, download, upload, rename, delete, copy and paste within the endpoint. Streamed through the
+    relay, never stored on the server, resumable after a drop, at most 10 GB per file (policy).
+  - Services (Windows and systemd): list, start, stop, restart, startup type. Processes (Windows and Linux): list with CPU,
+    memory and user, end a process.
+- **Limits**: a session without input closes after 30 minutes (warning 2 minutes before, policy), no maximum duration.
+- **Reason** is optional when opening or joining a session.
+- **Audit** per session and per participant (who, endpoint, kind, Windows session, start, end, reason) and per action in a
+  background session (file, service or process action with its target). No terminal content.
+- **Recording** of sessions and terminal transcripts moved to Not yet scheduled.
+- **Platforms**: Windows 10 and Server 2016 or newer; Linux X11 (Wayland shows that remote control is not supported, remote
+  background works); Linux without a graphical session gets remote background only.
+- **Public API**: sessions go onto `API-WAITLIST.md`.
+- **Test builds**: a pre-release `v0.3.0-alpha.N` after every step that can be tested on real endpoints (commit and tag after
+  asking).
+
+Steps:
+
+1. **Foundation and remote terminal** (alpha.1): documentation of the decisions above (CLAUDE.md, ARCHITECTURE.md), data
+   model (`RemoteSessions`, participants, actions), policy settings (consent, banner, timeout, clipboard, idle timeout, file
+   size), signer rules for session tokens, gateway relay (browser route through Caddy, agent and watchdog session sockets,
+   revocation drops sessions), the shared end-to-end crypto in Go and the browser with hostile relay tests, tier and
+   cross-client tests at every layer, the Remote background window with the terminal served by the watchdog.
+2. **Remote background complete** (alpha.2): file explorer with resumable transfer, services, processes, audit per action.
+3. **Remote control on Windows** (alpha.3): session helper in the chosen Windows session (console, sign-in screen, UAC, RDP
+   sessions), capture with monitor choice, tile codec with flow control, mouse and layout-safe keyboard, Type clipboard,
+   Ctrl+Alt+Del, stuck-key release, automatic reconnect, viewer window.
+4. **Clipboard, several technicians, consent and banner** (alpha.4): text clipboard both ways, files by paste or drag and
+   download notice, joining a running session with each other's pointers, consent prompt, banner and timeout on workstations,
+   idle timeout.
+5. **H.264 on Windows** (alpha.5): Media Foundation encoder with WebCodecs, automatic fallback, latency measured (under
+   100 ms on a LAN) and a poor link simulated.
+6. **Linux X11** (alpha.6): capture, XTEST input with keysym mapping, X selections for the clipboard, banner and consent
+   window on workstations, the Wayland message.
+7. **Release 0.3.0**: concurrent sessions through the gateway under load, security review of the new code, API waiting list,
+   changelog, tag `v0.3.0`.
 
 ## 0.4.0 — Patch management via Action1
 
@@ -426,6 +480,10 @@ Wanted, but not in a version yet: the version is chosen once the open questions 
   restore procedure that is rehearsed. Open questions: how often a base backup runs, the storage it needs per instance, and
   the recovery point the customers need.
 
+- Recording of remote control sessions and remote terminal transcripts (moved out of 0.3.0 on 2026-09-16; 0.3.0 keeps the
+  audit per session, participant and action). Open questions: video or events only, storage per hour in PostgreSQL,
+  retention, who may watch a recording.
+
 - Servicedesk ticket reference on notes (moved out of 0.2.1 on 2026-09-15). **Not yet scheduled**: the developer works out
   with the Servicedesk team how both products should work together before anything is built. Starting point from
   2026-09-15, to be confirmed in that alignment:
@@ -445,7 +503,7 @@ Wanted, but not in a version yet: the version is chosen once the open questions 
   permission flow for remote control.
 - Write access in the public API for the resources a technician can change in the UI: only when there is demand
   (decided 2026-09-15).
-- File transfer inside remote control; Wayland support on Linux.
+- Wayland support on Linux. (File transfer moved into 0.3.0 on 2026-09-16.)
 - Whitelabel beyond the FQDN: customer logo and product name in UI and email.
 - Steaan management server: central issue, renewal and revocation of licenses, fetched by
   instances over an API; later also an overview of all instances and their versions.

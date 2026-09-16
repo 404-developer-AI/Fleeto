@@ -8,7 +8,7 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 
 - **Language**: conversation with the developer is always in Dutch. Documentation, code,
   comments, commit messages, log messages and UI text are always in English.
-- **Current phase**: 0.2.1 is released (2026-09-16, together with 0.2.0) and runs on the first test VPS. Next is 0.2.2
+- **Current phase**: 0.2.2 is released (2026-09-16) and runs on the first test VPS. Next is 0.3.0 (remote control)
   in `MD-Files/ROADMAP.md`. Local development runs without Docker (see `README.md`);
   Docker is for the VPS and CI only.
 - **Git**: always ask before committing, pushing or tagging. No intermediate commits while a version is being built.
