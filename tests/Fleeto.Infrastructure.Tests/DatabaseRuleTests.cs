@@ -1,4 +1,5 @@
 using Fleeto.Core.Entities;
+using Fleeto.Infrastructure.Data;
 using Fleeto.Testing;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -62,6 +63,30 @@ public class DatabaseRuleTests
             var error = await Assert.ThrowsAsync<PostgresException>(() => insert.ExecuteNonQueryAsync());
             Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
         }
+
+        await transaction.RollbackAsync();
+    }
+
+    [Theory]
+    [InlineData("fleeto_web", "Job")]
+    [InlineData("fleeto_gateway", "WatchdogCertificate")]
+    [InlineData("fleeto_workers", "AgentConfig")]
+    public async Task Every_container_that_requests_a_signature_may_insert_it_with_the_production_grants(string role, string kind)
+    {
+        await EnsureRolesAsync();
+        await using var connection = await _db.DataSource.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        // The grants of fleeto-tool migrate, not a test grant: a missing INSERT here stopped every script run on a VPS.
+        await Execute(connection, DatabaseGrants.BuildSql());
+#pragma warning disable CA2100 // role names come from the fixed InlineData above
+        await Execute(connection, $"SET LOCAL ROLE {role}");
+#pragma warning restore CA2100
+
+        await using var insert = new NpgsqlCommand(
+            """INSERT INTO "SigningRequests" ("Id","Kind","Payload","RequestedBy","State","CreatedAt") VALUES (gen_random_uuid(), @kind, ''::bytea, 'test', 'Pending', now())""",
+            connection, transaction);
+        insert.Parameters.AddWithValue("kind", kind);
+        await insert.ExecuteNonQueryAsync();
 
         await transaction.RollbackAsync();
     }

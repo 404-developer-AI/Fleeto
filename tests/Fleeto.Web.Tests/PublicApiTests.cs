@@ -458,7 +458,22 @@ public sealed class PublicApiTests
         return alert;
     }
 
-    private async Task<Job> CreateJobAsync(Endpoint endpoint)
+    [Fact]
+    public async Task A_job_that_ran_as_the_signed_in_user_names_the_account()
+    {
+        await _fixture.Database.LoadTestLicenseAsync(1000);
+        var client = await _fixture.Database.CreateClientAsync();
+        var endpoint = await _fixture.Database.CreateEndpointAsync(await _fixture.Database.CreateSiteAsync(client.Id), EndpointTier.Managed);
+        var job = await CreateJobAsync(endpoint, JobRunAs.LoggedOnUser, @"CONTOSO\jan");
+        var (_, token) = await CreateKeyAsync();
+
+        var json = await JsonAsync(await GetAsync(token, $"/api/v1/jobs/{job.Id}"));
+
+        Assert.Equal("logged_on_user", json.GetProperty("runAs").GetString());
+        Assert.Equal(job.RunAsAccount, json.GetProperty("runAsAccount").GetString());
+    }
+
+    private async Task<Job> CreateJobAsync(Endpoint endpoint, JobRunAs runAs = JobRunAs.Service, string? runAsAccount = null)
     {
         await using var db = _fixture.Database.DbFactory.CreateSystem();
         var job = new Job
@@ -466,7 +481,7 @@ public sealed class PublicApiTests
             Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, BatchId = Guid.NewGuid(), ScriptName = "Inventory refresh",
             ScriptVersionNumber = 1, Language = ScriptLanguage.PowerShell, ScriptSha256 = new string('a', 64), TimeoutSeconds = 600,
             MaxOutputBytes = ScriptRules.DefaultMaxOutputBytes, CreatedAt = Now, ValidUntil = Now.AddHours(1), InitiatedByUserId = Guid.NewGuid(),
-            InitiatedByName = "Technician"
+            InitiatedByName = "Technician", RunAs = runAs, RunAsAccount = runAsAccount
         };
         db.Jobs.Add(job);
         await db.SaveChangesAsync();

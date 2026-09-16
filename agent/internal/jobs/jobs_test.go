@@ -267,6 +267,32 @@ func TestAJobThatWasRunningWhenTheAgentStoppedIsReportedAsInterruptedAndNotRunAg
 	}
 }
 
+// The account a job ran under is recorded next to its start and sent with it, also after the agent restarted.
+func TestTheStartOfAJobNamesTheAccountItRanUnder(t *testing.T) {
+	f := newFixture(t)
+	dir := filepath.Join(t.TempDir(), "jobs")
+	id := "77777777-7777-7777-7777-777777777777"
+	language, body := nativeScript(false)
+	data, _ := proto.Marshal(f.sign(f.payload(id, language, body)))
+	if err := os.MkdirAll(filepath.Join(dir, id), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(dir, id, jobFile), data, 0o600)
+	_ = os.WriteFile(filepath.Join(dir, id, startedFile), []byte(time.Now().UTC().Format(time.RFC3339Nano)), 0o600)
+	_ = os.WriteFile(filepath.Join(dir, id, accountFile), []byte(`CONTOSO\jan`), 0o600)
+
+	_, messages := completionOf(t, f.manager(dir), id, 5*time.Second)
+	for _, message := range messages {
+		if started := message.Msg.GetJobStarted(); started != nil && started.GetJobId() == id {
+			if started.GetRunAsAccount() != `CONTOSO\jan` {
+				t.Fatalf("run as account = %q, want CONTOSO\\jan", started.GetRunAsAccount())
+			}
+			return
+		}
+	}
+	t.Fatal("the start of the job was not sent")
+}
+
 // The cap in the signed payload comes from the policy of the endpoint's site; the agent holds its own ceiling over it.
 func TestTheOutputLimitFollowsTheSignedCapWithinTheAgentCeiling(t *testing.T) {
 	cases := []struct {

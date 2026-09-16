@@ -1,7 +1,9 @@
 using System.Globalization;
+using System.Net;
 using System.Text.Json;
 using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
+using Fleeto.Infrastructure.Security;
 
 namespace Fleeto.Web.Components.Shared;
 
@@ -228,6 +230,13 @@ public static class Ui
         _ => StatusKind.Neutral
     };
 
+    /// <summary>
+    /// True when the agent connected from a private or special-use address (same LAN with local DNS, VPN): its public IP is then not
+    /// known, so the Summary does not call the address public. Uses the same ranges as the webhook address policy.
+    /// </summary>
+    public static bool IsPrivateConnection(string? address) =>
+        IPAddress.TryParse(address, out var ip) && !NetworkAddressPolicy.IsPublic(ip);
+
     /// <summary>The account a job runs under on the endpoint, named the same way everywhere in the UI.</summary>
     public static string JobRunAsLabel(JobRunAs runAs) => runAs switch
     {
@@ -235,9 +244,10 @@ public static class Ui
         _ => "System (SYSTEM or root)"
     };
 
-    /// <summary>The same choice inside a sentence: "ran as the signed-in user".</summary>
-    public static string JobRunAsPhrase(JobRunAs runAs) => runAs switch
+    /// <summary>The same choice inside a sentence: "as the signed-in user", or with the account once the agent reported it.</summary>
+    public static string JobRunAsPhrase(JobRunAs runAs, string? account = null) => runAs switch
     {
+        JobRunAs.LoggedOnUser when !string.IsNullOrEmpty(account) => $"as the signed-in user {account}",
         JobRunAs.LoggedOnUser => "as the signed-in user",
         _ => "as SYSTEM or root"
     };

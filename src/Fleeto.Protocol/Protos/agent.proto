@@ -487,6 +487,9 @@ enum ScriptLanguage {
 message JobStarted {
   string job_id = 1;
   google.protobuf.Timestamp started_at = 2;
+  // The account a script runs under when it runs as the signed-in user (0.2.1), as DOMAIN\name on Windows and the user name on
+  // Linux. Empty when it runs as the service account.
+  string run_as_account = 3;
 }
 
 enum JobStream {

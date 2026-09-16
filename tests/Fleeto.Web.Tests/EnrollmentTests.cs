@@ -30,7 +30,7 @@ public class EnrollmentTests
         var command = InstallCommand.Build("https://rmm.example.com/", "agents.rmm.example.com", 443, token, Fingerprint.ToUpperInvariant()).Windows;
 
         Assert.StartsWith("powershell -NoProfile -ExecutionPolicy Bypass -Command '", command);
-        Assert.Contains("''https://rmm.example.com/agent/download/windows-''$a", command);
+        Assert.Contains("-Uri (''https://rmm.example.com/agent/download/windows-'' + $a) -OutFile", command);
         Assert.Contains("''ARM64''", command);
         Assert.Contains("--server ''agents.rmm.example.com:443''", command);
         Assert.Contains($"--token ''{token}''", command);

@@ -78,7 +78,8 @@ public static class DatabaseGrants
             ["JobOutputChunks"] = Grants(web: Read, gateway: "SELECT, INSERT", workers: "SELECT, DELETE"),
 
             // Who may request which kind is also enforced by trigger TR_SigningRequests_Origin (migration SigningRequestOrigin).
-            ["SigningRequests"] = Grants(web: Read, gateway: "SELECT, INSERT", signer: "SELECT, UPDATE", workers: "SELECT, INSERT, DELETE"),
+            // Web requests job signatures (0.2.0), the gateway certificates, the workers configurations.
+            ["SigningRequests"] = Grants(web: "SELECT, INSERT", gateway: "SELECT, INSERT", signer: "SELECT, UPDATE", workers: "SELECT, INSERT, DELETE"),
             ["EndpointConfigs"] = Grants(web: Read, gateway: Read, signer: "SELECT, INSERT, UPDATE", workers: Read),
             ["ConfigChangeEvents"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
 

@@ -15,7 +15,7 @@ run; its release build failed), `v0.2.0-alpha.2` (first published test build), `
 
 **0.2.1** — in progress (started 2026-09-15): the read-only public API, agent self-update with update rings, the
 Windows watchdog, the Linux agent with its watchdog and the rename to Fleeto everywhere are built (pre-releases `v0.2.1-alpha.1`, whose release build
-failed, `v0.2.1-alpha.2`, whose move of the test VPS fell back to the old layout, `v0.2.1-alpha.3`, 2026-09-15, `v0.2.1-alpha.4`, 2026-09-16, the first with every 0.2.1 feature, and `v0.2.1-alpha.5`, which lets the watchdog get its certificate on a moved instance), and so are the
+failed, `v0.2.1-alpha.2`, whose move of the test VPS fell back to the old layout, `v0.2.1-alpha.3`, 2026-09-15, `v0.2.1-alpha.4`, 2026-09-16, the first with every 0.2.1 feature, `v0.2.1-alpha.5`, which lets the watchdog get its certificate on a moved instance, and `v0.2.1-alpha.6` with the fixes from testing on real Windows and Linux endpoints), and so are the
 script run on a selection of endpoints, the output cap per policy, running a script as the signed-in user and the icon for the installed web app,
 and the images of the failed `v0.2.0-alpha.1` are removed from ghcr.io; what is left is testing on real endpoints before the tag. The Servicedesk ticket reference on notes moved to "Not yet scheduled" (decided 2026-09-15).
 
@@ -304,6 +304,27 @@ Everything that was still open for 0.2.0, moved here on 2026-09-15, with the dev
 - [done] Remove the container images of the failed `v0.2.0-alpha.1` release from ghcr.io (2026-09-16: web, gateway, signer, workers and tool; the release build stopped before the Caddy image).
 - Not supported for now: **macOS** (decided 2026-09-15): no macOS agent, watchdog, remote control or remote terminal.
   It may come later when there is demand (see Later).
+
+## 0.2.2 — Agent update visibility
+
+Found while testing `v0.2.1-alpha.5` on the test VPS (2026-09-16): an agent without a watchdog waited silently, first for its
+retry after a failed attempt and then for its update ring, so neither the agent log nor the UI said why nothing happened.
+
+- [open] The agent logs once per release why it does not install it yet: waiting for the update ring, waiting for the next
+  attempt after a failure (with the time), or a version that was rolled back before.
+- [open] The endpoint detail states what the watchdog and the agent are waiting for instead of "Not installed yet: the agent
+  installs it with the next release offer", for example "Waiting for the update ring (Standard, from 23 Sep)" or "Next attempt
+  after 13:06". The agent reports the reason and the time with its update state.
+- [open] A transient failure (the gateway or signer could not answer right now) is retried within minutes with backoff instead
+  of after one hour; a refusal or a defective download keeps the one-hour wait.
+
+Also found while testing (2026-09-16): on an endpoint with several signed-in users, such as a remote desktop server, "The
+signed-in user" runs the script as the console user or else the first active session Windows lists, which the technician cannot
+predict.
+
+- [open] Choose the user in the run window: the agent reports the signed-in users with their sessions, the technician picks one,
+  and the choice is signed with the job. When that user is no longer signed in, the job fails with that reason.
+- [open] "All signed-in users": one run per active session, with the output per user.
 
 ## 0.3.0 — Remote control
 

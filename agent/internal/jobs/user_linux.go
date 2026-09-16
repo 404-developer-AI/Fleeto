@@ -148,6 +148,9 @@ func (u *signedInUser) stage(script *agentv1.ScriptJob) (scriptPath, workDir str
 
 func (u *signedInUser) close() {}
 
+// accountName is the account the script runs under, for the job history.
+func (u *signedInUser) accountName() string { return u.name }
+
 // environment is a login-like environment: enough for a script to find the user's session, without copying root's.
 func (u *signedInUser) environment(extra []string) []string {
 	env := []string{

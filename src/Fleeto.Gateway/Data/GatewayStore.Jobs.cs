@@ -72,16 +72,21 @@ public sealed partial class GatewayStore
         return await command.ExecuteScalarAsync(cancellationToken) is not null;
     }
 
-    /// <summary>The agent started the job. Server time is recorded; a job the workers marked expired meanwhile runs after all.</summary>
-    public async Task<JobUpdate> JobStartedAsync(Guid jobId, Guid endpointId, DateTime now, CancellationToken cancellationToken)
+    /// <summary>
+    /// The agent started the job. Server time is recorded; a job the workers marked expired meanwhile runs after all. The account the agent
+    /// reports is stored only for a job that runs as the signed-in user.
+    /// </summary>
+    public async Task<JobUpdate> JobStartedAsync(Guid jobId, Guid endpointId, DateTime now, string runAsAccount, CancellationToken cancellationToken)
     {
         await using var command = _dataSource.CreateCommand("""
-            UPDATE "Jobs" SET "State" = 'Running', "StartedAt" = $3
+            UPDATE "Jobs" SET "State" = 'Running', "StartedAt" = $3,
+                "RunAsAccount" = CASE WHEN "RunAs" = 'LoggedOnUser' THEN NULLIF($4, '') END
             WHERE "Id" = $1 AND "EndpointId" = $2 AND "DeliveredAt" IS NOT NULL AND "State" IN ('Queued', 'Expired') AND "CompletedAt" IS NULL
             """);
         command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = jobId });
         command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = endpointId });
         command.Parameters.Add(new NpgsqlParameter<DateTime> { TypedValue = now });
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = DbText.Clean(runAsAccount, 256) });
         return await command.ExecuteNonQueryAsync(cancellationToken) > 0 ? JobUpdate.Changed : JobUpdate.None;
     }
 

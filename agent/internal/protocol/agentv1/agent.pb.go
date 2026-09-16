@@ -3410,9 +3410,12 @@ func (x *ScriptJob) GetSha256() string {
 
 // The agent started the job. Sent until acknowledged.
 type JobStarted struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	JobId         string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	StartedAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	JobId     string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	StartedAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	// The account a script runs under when it runs as the signed-in user (0.2.1), as DOMAIN\name on Windows and the user name on
+	// Linux. Empty when it runs as the service account.
+	RunAsAccount  string `protobuf:"bytes,3,opt,name=run_as_account,json=runAsAccount,proto3" json:"run_as_account,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3459,6 +3462,13 @@ func (x *JobStarted) GetStartedAt() *timestamppb.Timestamp {
 		return x.StartedAt
 	}
 	return nil
+}
+
+func (x *JobStarted) GetRunAsAccount() string {
+	if x != nil {
+		return x.RunAsAccount
+	}
+	return ""
 }
 
 // One piece of output, at most 64 KiB. Sequences start at 0 per stream. The agent keeps a chunk on disk until it is
@@ -4267,12 +4277,13 @@ const file_agent_proto_rawDesc = "" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\rR\aversion\x12\x12\n" +
 	"\x04body\x18\x04 \x01(\tR\x04body\x12\x16\n" +
-	"\x06sha256\x18\x05 \x01(\tR\x06sha256\"^\n" +
+	"\x06sha256\x18\x05 \x01(\tR\x06sha256\"\x84\x01\n" +
 	"\n" +
 	"JobStarted\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x129\n" +
 	"\n" +
-	"started_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\"\x86\x01\n" +
+	"started_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12$\n" +
+	"\x0erun_as_account\x18\x03 \x01(\tR\frunAsAccount\"\x86\x01\n" +
 	"\tJobOutput\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x122\n" +
 	"\x06stream\x18\x02 \x01(\x0e2\x1a.fleeto.agent.v1.JobStreamR\x06stream\x12\x1a\n" +

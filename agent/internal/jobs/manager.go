@@ -25,6 +25,7 @@ import (
 const (
 	jobFile        = "job.pb"
 	startedFile    = "started"
+	accountFile    = "account"
 	startedAcked   = "started.acked"
 	completionFile = "completion.pb"
 	completionAck  = "completion.acked"
@@ -315,8 +316,12 @@ func (m *Manager) Pending(skip func(key string) bool) []Message {
 						startedAt = t
 					}
 				}
+				var account string
+				if data, err := os.ReadFile(filepath.Join(dir, accountFile)); err == nil {
+					account = strings.TrimSpace(string(data))
+				}
 				messages = append(messages, Message{key, &agentv1.AgentMessage{Body: &agentv1.AgentMessage_JobStarted{
-					JobStarted: &agentv1.JobStarted{JobId: d.id, StartedAt: timestamppb.New(startedAt)}}}})
+					JobStarted: &agentv1.JobStarted{JobId: d.id, StartedAt: timestamppb.New(startedAt), RunAsAccount: account}}}})
 			}
 		}
 		chunks, _ := filepath.Glob(filepath.Join(dir, "out-*.chunk"))

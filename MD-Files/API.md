@@ -546,6 +546,7 @@ Response `200`: a page of [Job](#job). Errors: 400, 401, 429.
         "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
       },
       "runAs": "service",
+      "runAsAccount": null,
       "state": "succeeded",
       "result": "exited",
       "exitCode": 0,
@@ -680,7 +681,7 @@ maintenance window of its policy) the one that lasts longest is shown.
 | `architecture` | string | For example `amd64` or `arm64`. |
 | `agentVersion` | string | Version of the Fleeto agent. |
 | `enrolledAt` | timestamp | |
-| `publicIpAddress` | string, nullable | The address the agent connected from last time (personal data). |
+| `publicIpAddress` | string, nullable | The address the agent connected from last time (personal data). A private address (for example `172.16.10.96`) when the agent reaches the instance inside a private network, such as the same LAN with local DNS or a VPN; its public IP is then not known. |
 | `publicIpSeenAt` | timestamp, nullable | |
 | `openAlertCount` | integer | Unresolved alerts, not counting alerts on hold. |
 | `heldAlertCount` | integer | Unresolved alerts on hold. |
@@ -769,6 +770,7 @@ not read them.
 | `type` | string | `script`. More types may be added. |
 | `script` | object | The script as it was when the job was created: `id` (UUID, nullable: `null` after the script was deleted), `versionId` (UUID, nullable), `name`, `versionNumber` (integer), `language` ([script language](#script-language)), `sha256` (hex SHA-256 of the script body). |
 | `runAs` | [job run as](#job-run-as) | The account the script ran under on the endpoint. |
+| `runAsAccount` | string, nullable | For `logged_on_user`: the account the agent ran the script under, as `DOMAIN\name` on Windows and the user name on Linux, once the job started. `null` for `service` and before the start. |
 | `state` | [job state](#job-state) | |
 | `result` | [job result](#job-result), nullable | What the agent reported when the job ended; `null` before. |
 | `exitCode` | integer, nullable | Exit code of the script. |
@@ -968,6 +970,7 @@ values and examples.
 
 | Fleeto | API | Change |
 |---|---|---|
+| 0.2.1 | v1 | `runAsAccount` on Job: the signed-in user a `logged_on_user` job ran as (additive). |
 | 0.2.1 | v1 | `runAs` on Job: the account the script ran under on the endpoint (additive). |
 | 0.2.1 | v1 | Alert kinds `agent_stopped` and `watchdog_stopped` (additive). |
 | 0.2.1 | v1 | First version: read-only access to clients, sites, endpoints (status, inventory, checks, notes), alerts and jobs (with output). API keys with client scope, expiry and revocation; rate limits per key and per address; audit per request. |

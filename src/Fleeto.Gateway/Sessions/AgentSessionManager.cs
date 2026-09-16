@@ -774,7 +774,7 @@ public sealed partial class AgentSessionManager : BackgroundService
             return;
         }
 
-        if (await StoreJobMessageAsync(session, () => _store.JobStartedAsync(jobId, session.EndpointId, _time.GetUtcNow().UtcDateTime, cancellationToken)) is { } update)
+        if (await StoreJobMessageAsync(session, () => _store.JobStartedAsync(jobId, session.EndpointId, _time.GetUtcNow().UtcDateTime, started.RunAsAccount, cancellationToken)) is { } update)
         {
             session.Send(new ServerMessage { JobAck = new JobAck { JobId = started.JobId, Kind = JobAckKind.Started } });
             if (update == JobUpdate.Changed)

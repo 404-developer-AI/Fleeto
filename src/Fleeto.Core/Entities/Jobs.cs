@@ -137,6 +137,9 @@ public class Job
     /// <summary>The account the script runs under on the endpoint (0.2.1). Signed with the job.</summary>
     public JobRunAs RunAs { get; set; } = JobRunAs.Service;
 
+    /// <summary>The account the agent ran the script under when it ran as the signed-in user (0.2.1), as the agent reported it.</summary>
+    public string? RunAsAccount { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime ValidUntil { get; set; }
     public Guid InitiatedByUserId { get; set; }

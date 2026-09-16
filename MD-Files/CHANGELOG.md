@@ -20,7 +20,9 @@ not open its keys under the new name. `0.2.1-alpha.3` seals them again during th
 watchdog, and the rename to Fleeto with the move of the test VPS from the Fleetify layout. `0.2.1-alpha.4` (2026-09-16) is the first test
 build with every 0.2.1 feature: the Linux agent on amd64 and arm64, a script run on a selection of endpoints, the output cap
 per policy, running a script as the signed-in user and the web app icon. `0.2.1-alpha.5` restores the signing request rule that the
-rename migration had reverted on the test VPS, so the watchdog can get its certificate.
+rename migration had reverted on the test VPS, so the watchdog can get its certificate. `0.2.1-alpha.6` fixes what testing on
+real Windows and Linux endpoints found: the Windows install command, script runs refused by the database, the account a script
+ran under, and a private connection address shown as public IP.
 
 ### Added
 
@@ -60,7 +62,8 @@ rename migration had reverted on the test VPS, so the watchdog can get its certi
   and signed with the job, so the agent runs what the signer decided. The agent picks the active session, a remote desktop
   session included, and fails the job at once when nobody is signed in. The script is staged where that user may read it but
   not change it, runs from their own profile or home directory with their environment, and on Windows in the interactive
-  desktop, so it can show a window. Script checks keep running as the agent's own account.
+  desktop, so it can show a window. Script checks keep running as the agent's own account. The agent reports the account it
+  ran the script under with the start of the job; the job output window and `runAsAccount` on Job in the API show it.
 - 0.2.1: The cap on job output is a policy setting (1 MiB to 200 MiB, default 50 MiB) instead of a fixed 50 MiB. The signer
   reads it from the policy of the endpoint's site when it signs the job; agent and gateway keep 200 MiB as an absolute ceiling.
 - 0.2.1: Fleeto icon for the installed web app: a web app manifest with PNG icons (192, 512 and a maskable 512), an
@@ -270,6 +273,14 @@ rename migration had reverted on the test VPS, so the watchdog can get its certi
   failed with "Unknown signing request kind WatchdogCertificate". Migration `RestoreSigningRequestOrigin` writes the rule again, and
   the rename now keeps a function that a later migration already wrote under the new name.
 - 0.2.1: The Linux inventory no longer lists an rpm header without a name as a package called "(none)".
+- 0.2.1: The Windows install command failed with "A positional parameter cannot be found that accepts argument 'amd64'": the
+  download address and the architecture reached `Invoke-WebRequest` as two arguments. They are now joined into one `-Uri`.
+- 0.2.1: The endpoint Summary no longer calls a private address "Public IP". An agent that reaches the instance inside a private
+  network (the same LAN with local DNS, a VPN) connects from a private address; the Summary then shows it as "Connection address"
+  marked "private network", because the public IP is not known.
+- 0.2.0: Running a script failed on every installed instance with "permission denied for table SigningRequests": the database role
+  of web could read signing requests but not create the job signature request. Web now has INSERT on the table (the trigger still
+  allows it only jobs), and a test checks with the production grants that every container can request its own signatures.
 
 ### Security
 

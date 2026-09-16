@@ -442,6 +442,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(j => j.InitiatedByName).HasMaxLength(200);
             entity.Property(j => j.State).HasConversion<string>().HasMaxLength(20);
             entity.Property(j => j.RunAs).HasConversion<string>().HasMaxLength(20).HasDefaultValue(JobRunAs.Service).HasSentinel((JobRunAs)(-1));
+            entity.Property(j => j.RunAsAccount).HasMaxLength(256);
             entity.Property(j => j.RefusalReason).HasMaxLength(500);
             entity.Property(j => j.SigningKeyId).HasMaxLength(64);
             entity.Property(j => j.Result).HasConversion<string>().HasMaxLength(20);

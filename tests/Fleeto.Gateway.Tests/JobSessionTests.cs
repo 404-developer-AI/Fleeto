@@ -27,7 +27,7 @@ public sealed class JobSessionTests
     private DateTime Now => _fixture.Database.Time.GetUtcNow().UtcDateTime;
 
     private async Task<Job> CreateJobAsync(Endpoint endpoint, JobState state = JobState.Queued, TimeSpan? validity = null, long maxOutput = ScriptRules.DefaultMaxOutputBytes,
-        bool delivered = false)
+        bool delivered = false, Core.Entities.JobRunAs runAs = Core.Entities.JobRunAs.Service)
     {
         var user = await _fixture.Database.CreateUserAsync(FleetoRoles.Technician);
         var (script, version) = await _fixture.Database.CreateScriptAsync(null, user.Id);
@@ -38,7 +38,7 @@ public sealed class JobSessionTests
             ScriptName = script.Name, ScriptVersionNumber = 1, Language = script.Language, ScriptSha256 = version.Sha256, TimeoutSeconds = 600, MaxOutputBytes = maxOutput,
             CreatedAt = Now, ValidUntil = Now + (validity ?? TimeSpan.FromHours(1)), InitiatedByUserId = user.Id, InitiatedByName = "Tech", State = state,
             Payload = state == JobState.PendingSignature ? null : [1, 2, 3], Signature = state == JobState.PendingSignature ? null : new byte[64], SigningKeyId = "key",
-            DeliveredAt = delivered ? Now : null
+            DeliveredAt = delivered ? Now : null, RunAs = runAs
         };
         db.Jobs.Add(job);
         await db.SaveChangesAsync();
@@ -75,6 +75,29 @@ public sealed class JobSessionTests
         await harness.Manager.DeliverJobsAsync([agentOnly.Id], CancellationToken.None);
         Assert.DoesNotContain(GatewayHarness.Drain(agentOnlySession), m => m.BodyCase == ServerMessage.BodyOneofCase.Job);
         Assert.Null((await ReadAsync(notManaged.Id)).DeliveredAt);
+    }
+
+    [Fact]
+    public async Task The_account_the_agent_reports_is_stored_only_for_a_job_that_runs_as_the_signed_in_user()
+    {
+        await _fixture.Database.LoadTestLicenseAsync(1000);
+        using var harness = _fixture.CreateHarness();
+        var endpoint = await _fixture.CreateEndpointAsync(EndpointTier.Managed);
+        var asUser = await CreateJobAsync(endpoint, delivered: true, runAs: Core.Entities.JobRunAs.LoggedOnUser);
+        var asService = await CreateJobAsync(endpoint, delivered: true);
+        var session = await harness.OpenAsync(endpoint);
+        GatewayHarness.Drain(session);
+
+        foreach (var job in new[] { asUser, asService })
+        {
+            await harness.Manager.HandleAsync(session, new AgentMessage
+            {
+                JobStarted = new JobStarted { JobId = job.Id.ToString("D"), RunAsAccount = @"CONTOSO\jan" }
+            }, CancellationToken.None);
+        }
+
+        Assert.Equal(@"CONTOSO\jan",(await ReadAsync(asUser.Id)).RunAsAccount);
+        Assert.Null((await ReadAsync(asService.Id)).RunAsAccount);
     }
 
     [Fact]

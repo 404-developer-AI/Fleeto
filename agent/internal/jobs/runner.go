@@ -43,6 +43,12 @@ func (m *Manager) run(id string, payload *agentv1.JobPayload) {
 		return
 	}
 	defer release()
+	if session != nil {
+		// Recorded next to the start, so the job history names the user even when the agent restarts before the start is sent.
+		if err := platform.WriteFileAtomic(filepath.Join(dir, accountFile), []byte(session.accountName()), m.opts.Access); err != nil {
+			m.opts.Logger.Warn("the account of the job could not be recorded", "jobId", id, "error", err)
+		}
+	}
 	started := m.opts.Now().UTC()
 	if err := platform.WriteFileAtomic(filepath.Join(dir, startedFile), []byte(started.Format(time.RFC3339Nano)), m.opts.Access); err != nil {
 		m.complete(id, &agentv1.JobCompletion{Result: agentv1.JobResult_JOB_RESULT_FAILED_TO_START, Error: "could not record the start: " + err.Error()})

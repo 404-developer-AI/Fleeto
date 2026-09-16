@@ -355,8 +355,9 @@
                         <MudText Typo="Typo.h6" Class="section-title mb-2">Network</MudText>
                         <MudSimpleTable Dense="true" Elevation="0" Class="detail-table mb-2">
                             <tbody>
+                                @{ var privateConnection = Ui.IsPrivateConnection(e.PublicIpAddress); }
                                 <tr>
-                                    <td class="muted">Public IP</td>
+                                    <td class="muted">@(privateConnection ? "Connection address" : "Public IP")</td>
                                     <td>
                                         @if (string.IsNullOrEmpty(e.PublicIpAddress))
                                         {
@@ -365,6 +366,12 @@
                                         else
                                         {
                                             <span class="mono">@e.PublicIpAddress</span>
+                                            @if (privateConnection)
+                                            {
+                                                <MudTooltip Text="The agent reaches the instance inside a private network (same LAN, VPN or local DNS), so its public IP is not known.">
+                                                    <span class="muted"> · private network</span>
+                                                </MudTooltip>
+                                            }
                                             <span class="muted"> · seen <TimeText Value="e.PublicIpSeenAt" /></span>
                                         }
                                     </td>

@@ -19,4 +19,6 @@ func (u *signedInUser) stage(*agentv1.ScriptJob) (string, string, func(), error)
 
 func (u *signedInUser) close() {}
 
+func (u *signedInUser) accountName() string { return "" }
+
 func (u *signedInUser) environment(extra []string) []string { return extra }

@@ -273,7 +273,8 @@ public static partial class InstallCommand
             "$ErrorActionPreference=" + Quote("Stop") + "; " +
             "$a=if ($env:PROCESSOR_ARCHITECTURE -eq " + Quote("ARM64") + ") {" + Quote("arm64") + "} else {" + Quote("amd64") + "}; " +
             "$p=Join-Path $env:TEMP " + Quote("fleeto-agent.exe") + "; " +
-            "Invoke-WebRequest -UseBasicParsing " + Quote(downloadBase + "windows-") + "$a -OutFile $p; " +
+            // One argument: a quoted string followed by $a would be two positional arguments.
+            "Invoke-WebRequest -UseBasicParsing -Uri (" + Quote(downloadBase + "windows-") + " + $a) -OutFile $p; " +
             "& $p install --server " + Quote(server) +
             " --token " + Quote(token) +
             " --ca-fingerprint " + Quote(fingerprint);

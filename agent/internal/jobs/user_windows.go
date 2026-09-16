@@ -20,6 +20,8 @@ type signedInUser struct {
 	session uint32
 	token   windows.Token
 	sid     string
+	// account is DOMAIN\name, or the SID when the name cannot be looked up.
+	account string
 	profile string
 }
 
@@ -99,8 +101,16 @@ func openSession(id uint32) (*signedInUser, error) {
 	if err != nil {
 		profile = ""
 	}
-	return &signedInUser{session: id, token: primary, sid: account.User.Sid.String(), profile: profile}, nil
+	sid := account.User.Sid.String()
+	name := sid
+	if user, domain, _, err := account.User.Sid.LookupAccount(""); err == nil {
+		name = domain + `\` + user
+	}
+	return &signedInUser{session: id, token: primary, sid: sid, account: name, profile: profile}, nil
 }
+
+// accountName is the account the script runs under, for the job history.
+func (u *signedInUser) accountName() string { return u.account }
 
 func (u *signedInUser) close() {
 	if u != nil && u.token != 0 {
