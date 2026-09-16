@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text.RegularExpressions;
 using Amazon;
 using Amazon.Runtime;
 using Amazon.S3;
@@ -17,7 +16,7 @@ namespace Fleeto.Workers.Backups;
 /// Encrypts files with the backup public key and uploads them to the configured destination. S3 uploads use PutObject
 /// only, so write-only credentials (no read, no delete) are enough: a compromised VPS cannot read or remove backups.
 /// </summary>
-public sealed partial class BackupDestinations
+public sealed class BackupDestinations
 {
     private readonly BackupOptions _options;
     private readonly ILogger<BackupDestinations> _logger;
@@ -33,13 +32,6 @@ public sealed partial class BackupDestinations
         JoinKey(Prefix(settings), instanceId.ToString("D"), startedAtUtc.ToString("yyyy", CultureInfo.InvariantCulture),
             startedAtUtc.ToString("MM", CultureInfo.InvariantCulture),
             $"fleeto-{startedAtUtc.ToString("yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture)}.dump.fbk");
-
-    /// <summary>Object key of an archived WAL file: <c>&lt;prefix&gt;/&lt;instance id&gt;/wal/&lt;file name&gt;.fbk</c>.</summary>
-    public static string WalObjectKey(BackupSettings settings, Guid instanceId, string walFileName) =>
-        JoinKey(Prefix(settings), instanceId.ToString("D"), "wal", walFileName + ".fbk");
-
-    /// <summary>WAL, history and backup label names only: no path separators can reach an object key or a path.</summary>
-    public static bool IsValidWalFileName(string name) => WalFileName().IsMatch(name);
 
     /// <summary>Validates the settings needed to upload. Returns a problem (cause and next step) or null.</summary>
     public static string? Validate(BackupSettings settings, out byte[] publicKey)
@@ -181,7 +173,4 @@ public sealed partial class BackupDestinations
         OperationCanceledException => "the upload did not finish in time",
         _ => ex.Message
     };
-
-    [GeneratedRegex("^[0-9A-Za-z._-]{1,128}$")]
-    private static partial Regex WalFileName();
 }

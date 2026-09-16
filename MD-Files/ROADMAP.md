@@ -338,6 +338,15 @@ predict.
   the agent last reported, so each is signed for one user; a user who has left by the time the job arrives fails that job. Also for
   a run on a selection of endpoints; a run creates at most 500 jobs.
 
+Found while installing `v0.2.2-alpha.1` on the test VPS (2026-09-16): the WAL spool had filled the disk, the migrations failed
+and the rollback crashed PostgreSQL halfway through dropping the database, so the instance had to be restored by hand.
+
+- [done] WAL archiving removed (decided 2026-09-16): it could not be restored without base backups and filled the disk. The
+  nightly dump is the backup; up to 24 hours of changes can be lost until point-in-time recovery exists (Not yet scheduled).
+- [done] install.sh checks free disk space before an update, restores into a separate database and replaces the instance
+  database only after a complete restore, keeps the backup of an update it could not roll back, and retries that update on the
+  next run.
+
 ## 0.3.0 — Remote control
 
 - Transport decided after a prototype (WebRTC via gateway TURN vs. WebSocket relay).
@@ -411,6 +420,11 @@ Requested by the developer (2026-09-16); the exact design is discussed when 0.3.
 ## Not yet scheduled
 
 Wanted, but not in a version yet: the version is chosen once the open questions are answered.
+
+- Point-in-time recovery (removed WAL archiving on 2026-09-16 until this exists): physical base backups (`pg_basebackup`)
+  plus WAL archiving to the off-VPS destination, both encrypted like the nightly dump, a bounded spool on the VPS, and a
+  restore procedure that is rehearsed. Open questions: how often a base backup runs, the storage it needs per instance, and
+  the recovery point the customers need.
 
 - Servicedesk ticket reference on notes (moved out of 0.2.1 on 2026-09-15). **Not yet scheduled**: the developer works out
   with the Servicedesk team how both products should work together before anything is built. Starting point from

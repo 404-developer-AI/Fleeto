@@ -44,12 +44,6 @@ public sealed class BackupOptions
     /// <summary>Directory for the temporary dump and its encrypted copy. Empty means the system temp directory.</summary>
     public string TempDirectory { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Directory fed by PostgreSQL <c>archive_command</c> on the VPS. Completed WAL files found here are encrypted,
-    /// uploaded and deleted. Empty disables WAL shipping.
-    /// </summary>
-    public string WalSpoolDirectory { get; set; } = string.Empty;
-
     /// <summary>Upload attempts per file before the upload counts as failed.</summary>
     public int UploadAttempts { get; set; } = 3;
 

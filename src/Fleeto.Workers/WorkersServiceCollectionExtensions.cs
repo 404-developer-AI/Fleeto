@@ -57,7 +57,6 @@ public static class WorkersServiceCollectionExtensions
         services.AddHostedService<LicenseMonitorService>();
         services.AddHostedService<CredentialExpiryService>();
         services.AddHostedService<BackupService>();
-        services.AddHostedService<WalShipperService>();
         services.AddHostedService<RetentionService>();
 
         return services;

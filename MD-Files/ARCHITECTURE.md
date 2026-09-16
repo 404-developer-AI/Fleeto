@@ -711,8 +711,8 @@ another key's budget) → the endpoint runs as a `Caller` with the read-only rol
 application services as the UI → an `api.request` audit entry (method, path, query, status) is written before the
 response leaves; when it cannot be written the data is withheld with a 500.
 
-**Backup.** Nightly, worker runs `pg_dump` per instance and WAL is archived continuously →
-each file is encrypted on the VPS (ephemeral X25519 with the backup public key, HKDF,
+**Backup.** Nightly, worker runs `pg_dump` per instance →
+the file is encrypted on the VPS (ephemeral X25519 with the backup public key, HKDF,
 chunked AES-256-GCM; see §5 Backups) before it touches the network
 → uploaded to the off-VPS destination with write-only credentials → the destination's own
 lifecycle rule deletes backups after the retention period. The VPS can create backups but
@@ -896,7 +896,9 @@ container:
 
 ### Backups
 
-- Nightly `pg_dump` plus continuous WAL archiving, per instance.
+- Nightly `pg_dump` per instance. No WAL archiving (removed in 0.2.2, decided 2026-09-16): archived WAL cannot be
+  restored without physical base backups, so a restore returns to the last nightly dump and up to 24 hours of changes
+  can be lost. WAL archiving returns together with base backups for point-in-time recovery (ROADMAP.md, Not yet scheduled).
 - Encrypted on the VPS before upload, using the instance's **backup public key** for key
   agreement only. Per file: generate an ephemeral X25519 key pair → X25519 with the backup
   public key gives a shared secret → HKDF-SHA256 derives a file key (the HKDF input includes
@@ -1088,6 +1090,12 @@ runs on the migrated schema, so migrations follow **expand/contract**:
   manifest. `install.sh` then shows that before starting, asks for confirmation (or
   `--yes`), and on a failed update restores the pre-update backup together with the previous
   images instead of swapping images only.
+- Before an update, install.sh checks free disk space for the pre-update backup, a second copy of the database and the
+  new images, and changes nothing when it is short (0.2.2). A restore waits for a healthy PostgreSQL, checks that
+  `pg_restore` can read the backup, restores into `fleeto_restore` and only then swaps it in (`fleeto` becomes
+  `fleeto_replaced`, which is dropped afterwards), so a restore that fails leaves the database it had. When a restore
+  fails, the instance stays stopped in state `rollback-failed`, the backup moves to `backups/kept/`, and the next run
+  starts the update again from the previous configuration.
 
 Agents self-update from their instance (0.2.1), staged by the update ring of the site policy: see §4, Agent update. The
 instance only distributes the binaries; the agent and watchdog install one only when the release manifest that lists it

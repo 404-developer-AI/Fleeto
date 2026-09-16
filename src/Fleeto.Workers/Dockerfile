@@ -64,7 +64,7 @@ RUN . /etc/os-release \
     && pg_dump --version \
     && groupadd --system --gid 10001 fleeto \
     && useradd --system --uid 10001 --gid 10001 --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin fleeto \
-    && install -d -o 10001 -g 10001 -m 0770 /var/lib/fleeto/work /var/lib/fleeto/wal-spool
+    && install -d -o 10001 -g 10001 -m 0770 /var/lib/fleeto/work
 WORKDIR /app
 COPY --from=build --chown=root:root /app/ /app/
 

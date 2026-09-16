@@ -304,6 +304,86 @@ for case in settings routes copy fallback finish; do
 done
 pass "install.sh moves a VPS from the Fleetify layout: settings, routes, copies with renamed database, fallback and cleanup"
 
+# --- 3e. Restore and disk space before an update --------------------------------------------------------------------
+# Docker is a stand-in: psql input goes to $SQL, every call to $CALLS. A failed restore must never touch the instance database.
+cat >"$work/restore.sh" <<'EOF'
+source "$REPO/deploy/install.sh"
+set +e
+trap - ERR
+install() { local args=() skip=false a; for a in "$@"; do if $skip; then skip=false; elif [[ "$a" == -o || "$a" == -g ]]; then skip=true; else args+=("$a"); fi; done; command install "${args[@]}"; }
+docker() {
+    printf '%s\n' "$*" >>"$CALLS"
+    case "$*" in
+        info*) printf '%s\n' "$FLEETO_ROOT" ;;
+        *"ps -q postgres"*) printf 'postgres-container\n' ;;
+        *"pg_restore --list"*) cat >/dev/null; return "${LIST_STATUS:-0}" ;;
+        *"pg_restore --username"*) cat >/dev/null; return "${RESTORE_STATUS:-0}" ;;
+        *"pg_database_size"*) printf '%s\n' "${DB_BYTES-1048576}" ;;
+        *"exec -T postgres psql"*" -c "*) ;;
+        *"exec -T postgres psql"*) cat >>"$SQL" ;;
+    esac
+    return 0
+}
+wait_for_container_health() { return "${HEALTH_STATUS:-0}"; }
+df() { printf 'Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/test 100000000 1 %s 1%% /\n' "${FREE_KB:-100000000}"; }
+instance=rmm-a-example
+dir="$FLEETO_ROOT/$instance"
+mkdir -p "$dir/backups" "$dir/state/previous/postgres"
+printf 'FLEETO_INSTANCE=rmm-a-example\nFLEETO_FQDN=rmm.a.example\nFLEETO_VERSION=9.9.8\nFLEETO_STATE=updating\nWEB_PORT=20000\nAGENT_PORT=20001\n' >"$dir/instance.conf"
+cp "$dir/instance.conf" "$dir/state/previous/instance.conf"
+printf 'services: {}\n' >"$dir/compose.yml"
+cp "$dir/compose.yml" "$dir/state/previous/compose.yml"
+backup="$dir/backups/pre-update-9.9.8-to-9.9.9-20260916T000000Z.dump"
+printf 'PGDMP' >"$backup"
+: >"$SQL"
+
+case "$CASE" in
+    restored)
+        restore_database "$instance" "$backup" >/dev/null 2>&1 || exit 90
+        grep -q 'CREATE DATABASE fleeto_restore' "$SQL" || exit 91
+        grep -q 'ALTER DATABASE fleeto_restore RENAME TO fleeto;' "$SQL" || exit 92
+        # The restore goes into the new database, and the swap comes after it.
+        grep -q 'pg_restore --username=postgres --dbname=fleeto_restore' "$CALLS" || exit 93
+        grep -q 'DROP DATABASE IF EXISTS fleeto_replaced WITH (FORCE);' "$CALLS" || exit 94
+        grep -Eq '^DROP DATABASE (IF EXISTS )?fleeto( |;)' "$SQL" && exit 95
+        ;;
+    failed)
+        RESTORE_STATUS=1 restore_database "$instance" "$backup" >/dev/null 2>&1 && exit 100
+        grep -q 'RENAME TO' "$SQL" && exit 101
+        grep -q 'DROP DATABASE IF EXISTS fleeto_restore WITH (FORCE);' "$CALLS" || exit 102
+        ;;
+    unreadable)
+        LIST_STATUS=1 restore_database "$instance" "$backup" >/dev/null 2>&1 && exit 110
+        [[ -s "$SQL" ]] && exit 111
+        ;;
+    unhealthy)
+        HEALTH_STATUS=1 restore_database "$instance" "$backup" >/dev/null 2>&1 && exit 120
+        grep -q 'psql\|pg_restore' "$CALLS" && exit 121
+        ;;
+    space)
+        # 1 GiB database: two copies plus the 2 GiB margin plus the backup is 5 GiB.
+        ( DB_BYTES=$((1024 * 1024 * 1024)) FREE_KB=$((4 * 1024 * 1024)) require_space_for_update "$instance" ) >/dev/null 2>&1 && exit 130
+        ( DB_BYTES=$((1024 * 1024 * 1024)) FREE_KB=$((6 * 1024 * 1024)) require_space_for_update "$instance" ) >/dev/null 2>&1 || exit 131
+        ( DB_BYTES="" require_space_for_update "$instance" ) >/dev/null 2>&1 && exit 132
+        # Leftovers of an earlier restore are dropped, the replaced database only while the instance database is valid.
+        grep -q "datname = 'fleeto' AND datconnlimit <> -2" "$SQL" || exit 133
+        ;;
+    rollback)
+        ( RESTORE_STATUS=1 rollback_instance "$instance" 9.9.8 9.9.9 restore "$backup" "the migrations failed" ) >/dev/null 2>&1 && exit 140
+        grep -qx 'FLEETO_STATE=rollback-failed' "$dir/instance.conf" || exit 141
+        [[ -f "$dir/backups/kept/$(basename "$backup")" && ! -e "$backup" ]] || exit 142
+        grep -q 'restoring the pre-update backup failed' "$dir/state/history.log" || exit 143
+        ;;
+esac
+exit 0
+EOF
+for case in restored failed unreadable unhealthy space rollback; do
+    mkdir -p "$work/restore-$case/fleeto"
+    FLEETO_ROOT="$work/restore-$case/fleeto" CALLS="$work/restore-$case/calls" SQL="$work/restore-$case/sql" \
+        REPO="$repo_root" CASE="$case" bash "$work/restore.sh" </dev/null || fail "restore and disk space, case $case (exit $?)"
+done
+pass "install.sh checks disk space before an update and replaces the database only after a complete restore"
+
 # --- 4. Caddyfile generation -----------------------------------------------------------------------------------------
 mkdir -p "$work/root/rmm-a-example" "$work/root/rmm-b-example" "$work/empty" "$work/caddy-two" "$work/caddy-empty"
 printf 'FLEETO_INSTANCE=rmm-a-example\nFLEETO_FQDN=rmm.a.example\nWEB_PORT=20000\nAGENT_PORT=20001\n' >"$work/root/rmm-a-example/instance.conf"

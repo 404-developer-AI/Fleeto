@@ -69,25 +69,15 @@ services:
       # the whole machine.
       TS_TUNE_MEMORY: ${POSTGRES_MEMORY:-1GB}
       TS_TUNE_NUM_CPUS: ${POSTGRES_CPUS:-2}
+    # No WAL archiving (decided 2026-09-16): without a physical base backup the archived WAL cannot be restored, so the
+    # nightly pg_dump is the backup. It returns together with base backups for point-in-time recovery.
     command:
       - postgres
-      - -c
-      - wal_level=replica
-      - -c
-      - archive_mode=on
-      # Copies each completed WAL segment into the spool directory shared with the workers, which encrypt and
-      # upload it. See postgres/archive-wal.sh.
-      - -c
-      - archive_command=/usr/local/bin/fleeto-archive-wal %p %f
-      - -c
-      - archive_timeout=300
       - -c
       - password_encryption=scram-sha-256
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./wal-spool:/var/lib/fleeto/wal-spool
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
-      - ./postgres/archive-wal.sh:/usr/local/bin/fleeto-archive-wal:ro
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=64m
       - /var/run/postgresql:rw,noexec,nosuid,nodev,size=1m,uid=70,gid=70,mode=0775
@@ -193,11 +183,8 @@ services:
     image: ${WORKERS_IMAGE:?WORKERS_IMAGE must be set in instance.conf}
     environment:
       <<: *app-environment
-      Backup__WalSpoolDirectory: /var/lib/fleeto/wal-spool
       Backup__TempDirectory: /var/lib/fleeto/work
     volumes:
-      # Shared with postgres: WAL segments to encrypt and upload. Directory 2770 70:10001 on the host.
-      - ./wal-spool:/var/lib/fleeto/wal-spool
       # Scratch space for pg_dump output before encryption (too large for the /tmp tmpfs).
       - ./work:/var/lib/fleeto/work
     secrets:

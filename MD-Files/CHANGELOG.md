@@ -38,6 +38,22 @@ When a third released version is added, the oldest entry moves to the top of
   a download that does not match the signed manifest or a failing service change still waits an hour. The gateway marks a
   watchdog certificate error as `temporary` when the signer did not answer (additive protocol field).
 
+### Fixed
+
+- A failed update no longer loses the instance database when its rollback cannot restore the backup. install.sh checks the
+  free disk space before an update (the backup, a second copy of the database and the new images) and changes nothing when
+  it is short. A restore waits for a healthy PostgreSQL, checks that the backup can be read, restores into a separate
+  database and replaces the instance database only when the restore is complete. When a restore still fails, the backup is
+  moved out of the rotation to `backups/kept/`, and the next install.sh run starts the update again from the previous
+  configuration.
+
+### Removed
+
+- WAL archiving. Without a physical base backup the archived WAL could not be restored, and without a backup destination
+  the spooled WAL grew by about 4.6 GB a day until it filled the disk of the first test VPS during an update. The nightly
+  `pg_dump` is the backup: a restore can lose up to 24 hours of changes. An update removes the `wal-spool/` directory and
+  `archive_command`; WAL archiving returns together with base backups for point-in-time recovery.
+
 ## [0.2.1] — 2026-09-16
 
 The first release since 0.1.0: it holds the 0.2.0 milestone, which was not released on its own

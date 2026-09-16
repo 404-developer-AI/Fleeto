@@ -60,7 +60,6 @@ readonly INSTANCE_VOLUMES=(postgres-data web-keys web-logs)
 # Container identities (Dockerfiles and deploy/compose/compose.yml).
 readonly APP_UID=10001
 readonly APP_GID=10001
-readonly POSTGRES_UID=70
 # Docker's apt repository signing key (https://download.docker.com/linux/ubuntu/gpg).
 readonly DOCKER_APT_KEY_FINGERPRINT="9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
 # Loopback port range for instance web and gateway ports.
@@ -68,6 +67,8 @@ readonly PORT_RANGE_START=20000
 readonly PORT_RANGE_END=29998
 readonly HEALTH_TIMEOUT_SECONDS=300
 readonly PRE_UPDATE_BACKUPS_KEPT=3
+# Free space an update needs on top of the database copies: new images, migrations, logs (KiB).
+readonly UPDATE_SPACE_MARGIN_KB=$((2 * 1024 * 1024))
 
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
@@ -95,7 +96,6 @@ FLEETO_RELEASE_PUBLIC_KEYS
 readonly TEMPLATE_FILES=(
     "compose/compose.yml"
     "postgres/init/10-fleeto-roles.sh"
-    "postgres/archive-wal.sh"
     "caddy/compose.yml"
 )
 
@@ -951,7 +951,13 @@ write_instance_templates() {
     template "compose/compose.yml" | write_file_atomic "$dir/compose.yml" 0600
     # Read by the postgres user inside the container.
     template "postgres/init/10-fleeto-roles.sh" | write_file_atomic "$dir/postgres/init/10-fleeto-roles.sh" 0755
-    template "postgres/archive-wal.sh" | write_file_atomic "$dir/postgres/archive-wal.sh" 0755
+}
+
+# remove_wal_archiving <instance dir>: removes what WAL archiving (up to 0.2.2-alpha.1) left on the host. Only after an update
+# succeeded: a rollback to such a release still needs its spool and archive_command.
+remove_wal_archiving() {
+    local dir="$1"
+    rm -rf -- "$dir/wal-spool" "$dir/postgres/archive-wal.sh"
 }
 
 create_instance_directories() {
@@ -959,8 +965,6 @@ create_instance_directories() {
     install -d -m 0700 -o root -g root "$dir" "$dir/secrets" "$dir/backups" "$dir/state"
     # Read by the gateway (uid 10001) through a read-only bind mount; nothing in it is secret.
     install -d -m 0755 -o root -g root "$dir/release"
-    # WAL spool shared by postgres (owner) and the workers (group); setgid keeps the group on new files.
-    install -d -m 2770 -o "$POSTGRES_UID" -g "$APP_GID" "$dir/wal-spool"
     install -d -m 0700 -o "$APP_UID" -g "$APP_GID" "$dir/work"
 }
 
@@ -1342,32 +1346,150 @@ backup_database() {
     LAST_BACKUP_FILE="$file"
 }
 
+# restore_database <instance> <dump file>: restores a pre-update dump. The dump is restored into a new database first and
+# replaces the instance database only when it restored completely, so a failed restore (a full disk, a crash of PostgreSQL)
+# leaves the instance with the database it had instead of none. Returns non-zero when the instance database was not replaced.
 restore_database() {
-    local instance="$1" file="$2" log
+    local instance="$1" file="$2" log container_id
     log="$(instance_dir "$instance")/backups/restore-$(date -u +%Y%m%dT%H%M%SZ).log"
     step "Restoring the database of $instance from $(basename "$file")"
-    dc_instance "$instance" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username=postgres --dbname=postgres >/dev/null <<'SQL'
-DROP DATABASE IF EXISTS fleeto WITH (FORCE);
-CREATE DATABASE fleeto OWNER fleeto_migrator ENCODING 'UTF8';
-REVOKE ALL ON DATABASE fleeto FROM PUBLIC;
-GRANT CONNECT ON DATABASE fleeto TO fleeto_migrator, fleeto_web, fleeto_gateway, fleeto_signer, fleeto_workers, fleeto_backup;
+    : >"$log"
+    chmod 0600 "$log"
+    if [[ ! -s "$file" ]]; then
+        warn "The backup ${file:-(none)} is missing or empty; the database was not changed."
+        return 1
+    fi
+    container_id="$(dc_instance "$instance" ps -q postgres 2>/dev/null || true)"
+    if [[ -z "$container_id" ]] || ! wait_for_container_health "$container_id" "$HEALTH_TIMEOUT_SECONDS"; then
+        warn "PostgreSQL of $instance is not healthy; the database was not changed."
+        return 1
+    fi
+    if ! dc_instance "$instance" exec -T postgres pg_restore --list <"$file" >/dev/null 2>>"$log"; then
+        warn "pg_restore cannot read the backup (details in $log); the database was not changed."
+        return 1
+    fi
+
+    if ! dc_instance "$instance" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username=postgres --dbname=postgres >>"$log" 2>&1 <<'SQL'
+DROP DATABASE IF EXISTS fleeto_restore WITH (FORCE);
+CREATE DATABASE fleeto_restore OWNER fleeto_migrator ENCODING 'UTF8';
+REVOKE ALL ON DATABASE fleeto_restore FROM PUBLIC;
+GRANT CONNECT ON DATABASE fleeto_restore TO fleeto_migrator, fleeto_web, fleeto_gateway, fleeto_signer, fleeto_workers, fleeto_backup;
 SQL
-    dc_instance "$instance" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username=postgres --dbname=fleeto >/dev/null <<'SQL'
+    then
+        warn "The database for the restore could not be created (details in $log); the database was not changed."
+        discard_restore_database "$instance"
+        return 1
+    fi
+    if ! dc_instance "$instance" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username=postgres --dbname=fleeto_restore >>"$log" 2>&1 <<'SQL'
 ALTER SCHEMA public OWNER TO fleeto_migrator;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 SELECT timescaledb_pre_restore();
 SQL
-    local restore_status=0
-    dc_instance "$instance" exec -T postgres pg_restore --username=postgres --dbname=fleeto --no-password <"$file" >"$log" 2>&1 || restore_status=$?
-    chmod 0600 "$log"
-    dc_instance "$instance" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username=postgres --dbname=fleeto \
-        -c 'SELECT timescaledb_post_restore();' >/dev/null
-    if [[ "$restore_status" -ne 0 ]]; then
-        warn "pg_restore reported errors (exit code $restore_status); details in $log."
+    then
+        warn "The database for the restore could not be prepared (details in $log); the database was not changed."
+        discard_restore_database "$instance"
         return 1
     fi
+    if ! dc_instance "$instance" exec -T postgres pg_restore --username=postgres --dbname=fleeto_restore --no-password <"$file" >>"$log" 2>&1; then
+        warn "pg_restore reported errors (details in $log); the database was not changed."
+        discard_restore_database "$instance"
+        return 1
+    fi
+    if ! dc_instance "$instance" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username=postgres --dbname=fleeto_restore >>"$log" 2>&1 <<'SQL'
+SELECT timescaledb_post_restore();
+-- A dump without the migration history is not a Fleeto database.
+SELECT 1 / count(*) FROM "__EFMigrationsHistory";
+SQL
+    then
+        warn "The restored database is not complete (details in $log); the database was not changed."
+        discard_restore_database "$instance"
+        return 1
+    fi
+
+    # The swap. An invalid database (a DROP that did not finish) cannot be renamed, only dropped.
+    if ! dc_instance "$instance" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username=postgres --dbname=postgres >>"$log" 2>&1 <<'SQL'
+DROP DATABASE IF EXISTS fleeto_replaced WITH (FORCE);
+SELECT 'DROP DATABASE fleeto WITH (FORCE)' WHERE EXISTS (SELECT 1 FROM pg_database WHERE datname = 'fleeto' AND datconnlimit = -2)
+\gexec
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'fleeto' AND pid <> pg_backend_pid();
+SELECT 'ALTER DATABASE fleeto RENAME TO fleeto_replaced' WHERE EXISTS (SELECT 1 FROM pg_database WHERE datname = 'fleeto')
+\gexec
+ALTER DATABASE fleeto_restore RENAME TO fleeto;
+SQL
+    then
+        # Put the instance database back under its name when the first rename went through and the second did not.
+        dc_instance "$instance" exec -T postgres psql --no-psqlrc --username=postgres --dbname=postgres >>"$log" 2>&1 <<'SQL' || true
+SELECT 'ALTER DATABASE fleeto_replaced RENAME TO fleeto'
+WHERE EXISTS (SELECT 1 FROM pg_database WHERE datname = 'fleeto_replaced') AND NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'fleeto')
+\gexec
+SQL
+        warn "The restored database could not replace the instance database (details in $log); the database was not changed."
+        discard_restore_database "$instance"
+        return 1
+    fi
+    dc_instance "$instance" exec -T postgres psql --no-psqlrc --username=postgres --dbname=postgres \
+        -c 'DROP DATABASE IF EXISTS fleeto_replaced WITH (FORCE);' >>"$log" 2>&1 \
+        || warn "The replaced database fleeto_replaced could not be dropped; drop it by hand to free its space (details in $log)."
     ok "database restored"
+}
+
+# discard_restore_database <instance>: removes a restore that did not finish, to free its space. Best effort.
+discard_restore_database() {
+    dc_instance "$1" exec -T postgres psql --no-psqlrc --username=postgres --dbname=postgres \
+        -c 'DROP DATABASE IF EXISTS fleeto_restore WITH (FORCE);' >/dev/null 2>&1 || true
+}
+
+# discard_leftover_databases <instance>: drops what an earlier restore left behind, to free its space: an unfinished restore, and
+# the database a restore replaced, but that one only while the instance database exists and is valid. Best effort.
+discard_leftover_databases() {
+    dc_instance "$1" exec -T postgres psql --no-psqlrc --username=postgres --dbname=postgres >/dev/null 2>&1 <<'SQL' || true
+DROP DATABASE IF EXISTS fleeto_restore WITH (FORCE);
+SELECT 'DROP DATABASE fleeto_replaced WITH (FORCE)'
+WHERE EXISTS (SELECT 1 FROM pg_database WHERE datname = 'fleeto_replaced')
+  AND EXISTS (SELECT 1 FROM pg_database WHERE datname = 'fleeto' AND datconnlimit <> -2)
+\gexec
+SQL
+}
+
+# keep_backup <instance> <file>: moves a backup out of the rotation of pre-update backups and prints its new path. Used when
+# an update could not be rolled back: that backup may be the last copy of the database from before the update.
+keep_backup() {
+    local instance="$1" file="$2" kept
+    [[ -f "$file" ]] || { printf '%s' "$file"; return 0; }
+    kept="$(instance_dir "$instance")/backups/kept"
+    install -d -m 0700 "$kept"
+    mv -- "$file" "$kept/"
+    printf '%s' "$kept/$(basename "$file")"
+}
+
+# require_space_for_update <instance>: an update needs room for the pre-update backup, a second copy of the database while a
+# failed update restores it, and the new images and migrations. Checked before anything changes.
+require_space_for_update() {
+    local instance="$1" dir fqdn db_bytes db_kb root root_kb root_device backups_kb backups_device needed
+    dir="$(instance_dir "$instance")"
+    fqdn="$(conf_get "$dir/instance.conf" FLEETO_FQDN)"
+    discard_leftover_databases "$instance"
+    if ! db_bytes="$(dc_instance "$instance" exec -T postgres psql --no-psqlrc --username=postgres --dbname=postgres -Atc \
+        "SELECT pg_database_size('fleeto')" 2>/dev/null)" || [[ ! "$db_bytes" =~ ^[0-9]+$ ]]; then
+        die "The database of $fqdn cannot be read, so it cannot be backed up before the update; nothing was changed." \
+            "Check '$(dc_hint "$instance") logs postgres'. If an earlier update failed, see $dir/state/history.log and contact Steaan support."
+    fi
+    db_kb=$((db_bytes / 1024))
+    root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /var/lib/docker)"
+    read -r root_device root_kb < <(df -Pk "$root" | awk 'NR == 2 { print $1, $4 }')
+    read -r backups_device backups_kb < <(df -Pk "$dir" | awk 'NR == 2 { print $1, $4 }')
+    needed=$((2 * db_kb + UPDATE_SPACE_MARGIN_KB))
+    if [[ "$root_device" == "$backups_device" ]]; then
+        needed=$((needed + db_kb))
+    elif ((backups_kb < db_kb + 102400)); then
+        die "Updating $fqdn needs about $(((db_kb + 102400) / 1024)) MB free in $dir for the pre-update backup, but $((backups_kb / 1024)) MB is free." \
+            "Free disk space and run install.sh again; nothing was changed."
+    fi
+    ((root_kb >= needed)) \
+        || die "Updating $fqdn needs about $((needed / 1024)) MB free on $root (the pre-update backup, a copy of the database for a rollback and the new images), but $((root_kb / 1024)) MB is free." \
+            "Free disk space and run install.sh again; nothing was changed. 'docker system df' and 'du -sh $dir/*' show what uses it."
+    info "disk space checked: $((root_kb / 1024)) MB free, about $((needed / 1024)) MB needed"
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1786,9 +1908,16 @@ update_instance() {
     fqdn="$(conf_get "$dir/instance.conf" FLEETO_FQDN)"
     installed_version="$(conf_get "$dir/instance.conf" FLEETO_VERSION)"
 
-    if [[ "$(conf_get "$dir/instance.conf" FLEETO_STATE)" == "updating" && -d "$dir/state/previous" ]]; then
-        # An earlier run stopped halfway through an update: start again from the configuration before it.
-        warn "An earlier update of $fqdn was interrupted; restoring its previous configuration first."
+    local state
+    state="$(conf_get "$dir/instance.conf" FLEETO_STATE)"
+    if [[ ("$state" == "updating" || "$state" == "rollback-failed") && -d "$dir/state/previous" ]]; then
+        # An earlier run stopped halfway through an update, or could not roll it back: start again from the configuration before
+        # it. The database is as that run left it; the update below backs it up and migrates it forward.
+        if [[ "$state" == "updating" ]]; then
+            warn "An earlier update of $fqdn was interrupted; restoring its previous configuration first."
+        else
+            warn "An earlier update of $fqdn could not be rolled back; restoring its previous configuration and updating again."
+        fi
         cp -a "$dir/state/previous/compose.yml" "$dir/state/previous/instance.conf" "$dir/"
         rm -rf -- "$dir/postgres"
         cp -a "$dir/state/previous/postgres" "$dir/"
@@ -1808,6 +1937,8 @@ update_instance() {
         confirm "Update $fqdn to $version?" || die "Update of $fqdn cancelled; nothing was changed." ""
     fi
 
+    wait_for_postgres "$instance"
+    require_space_for_update "$instance"
     pull_release_images
     ensure_caddy "$version"
     create_instance_directories "$dir"
@@ -1856,6 +1987,7 @@ update_instance() {
 
     set_instance_version "$instance" "$version"
     set_instance_state "$instance" ok
+    remove_wal_archiving "$dir"
     update_caddy_routes
     append_history "$instance" "updated $installed_version -> $version"
     ok "$fqdn runs Fleeto $version"
@@ -1891,9 +2023,12 @@ rollback_instance() {
 
     if [[ "$mode" == "restore" ]]; then
         if ! restore_database "$instance" "$backup_file"; then
+            local kept
+            kept="$(keep_backup "$instance" "$backup_file")"
             set_instance_state "$instance" rollback-failed
-            die "Restoring the pre-update backup of $instance failed. The instance is stopped." \
-                "Contact Steaan support with $dir/state/history.log and the restore log in $dir/backups. The backup is $backup_file."
+            append_history "$instance" "restoring the pre-update backup failed; the database is as the update to $failed_version left it"
+            die "Restoring the pre-update backup of $instance failed. The instance is stopped; its database is as the failed update left it." \
+                "Solve the cause above (for example free disk space), then run install.sh again: it updates to $failed_version again from the previous configuration. The backup is kept as $kept; restore logs are in $dir/backups."
         fi
     fi
 
@@ -1911,8 +2046,10 @@ rollback_instance() {
     fi
     set_instance_state "$instance" rollback-failed
     append_history "$instance" "rollback to $previous_version failed"
+    local kept
+    kept="$(keep_backup "$instance" "$backup_file")"
     die "Rolling $instance back to $previous_version did not bring it back to health." \
-        "Contact Steaan support with $dir/state/history.log. The pre-update backup is $backup_file."
+        "Contact Steaan support with $dir/state/history.log. The pre-update backup is kept as $kept."
 }
 
 # ---------------------------------------------------------------------------------------------------------------------

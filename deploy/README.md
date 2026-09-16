@@ -8,7 +8,6 @@ which installs and updates instances. Design background: `MD-Files/ARCHITECTURE.
 | `install.sh` | Installs and updates instances. The release build embeds the files below and the Steaan release public keys. |
 | `compose/compose.yml` | Template of one instance stack (postgres, migrator, signer, gateway, workers, web). |
 | `postgres/init/10-fleeto-roles.sh` | Creates the database roles at first start of an instance database. |
-| `postgres/archive-wal.sh` | PostgreSQL `archive_command`: copies WAL segments into the spool the workers upload from. |
 | `caddy/Dockerfile`, `caddy/compose.yml` | Host proxy image (Caddy + layer4 module) and its Compose file. |
 | `ci/bundle-install.sh` | Produces the release `install.sh` (version, public keys, embedded templates). |
 | `ci/test-deploy.sh` | Self-test of the bundle, signature checks, Caddyfile generation and Compose rendering. |
@@ -139,8 +138,7 @@ Running it again is safe: an interrupted install continues, existing secrets are
     secrets/                           0700 root; files 0440 root:10001
       root.key, signer.key             32 random bytes, base64
       db-<role>.password               postgres, migrator, web, gateway, signer, workers, backup
-    postgres/                          init script and archive_command
-    wal-spool/                         2770 70:10001, WAL segments waiting for upload by the workers
+    postgres/                          init script
     work/                              0700 10001, scratch space of the nightly backup
     backups/                           0700 root, pre-update database dumps (the last 3)
     state/                             history.log, configuration snapshot of the last update
@@ -167,6 +165,12 @@ database to `backups/`, runs the migrator, restarts the stack and runs the healt
 marked `rollback: restore` it first restores the pre-update dump, and it asks for confirmation (or `--yes`) before
 such an update starts. install.sh never downgrades an instance.
 
+Before anything changes, an update checks free disk space: the pre-update dump, a second copy of the database for a
+rollback and the new images, plus 2 GB. A rollback restores the dump into a separate database and replaces the
+instance database only when the restore is complete. If a restore still fails, the instance stays stopped with state
+`rollback-failed` (`--list`), the dump moves to `backups/kept/`, and running the same install.sh command again, after
+solving the cause, updates from the previous configuration.
+
 ### Moving from the Fleetify layout (0.2.1)
 
 A VPS installed before 0.2.1 uses the old internal name: `/opt/fleetify`, projects `fleetify-*`, database `fleetify`. The
@@ -188,9 +192,11 @@ sudo /opt/fleeto/bin/install.sh --all            # every later run, also a retry
 
 ## Backups
 
-- Nightly `pg_dump` and continuous WAL archiving are done by fleeto-workers, encrypted with the instance's backup
-  public key before upload to S3-compatible storage in the EU. Configure the destination and the backup public key in
-  Settings, Backups. Until then the dashboard warns and WAL segments accumulate in `wal-spool/`.
+- The nightly `pg_dump` is done by fleeto-workers, encrypted with the instance's backup public key before upload to
+  S3-compatible storage in the EU. Configure the destination and the backup public key in Settings, Backups; until then
+  the dashboard warns. A restore returns the instance to the last nightly backup: up to 24 hours of changes can be lost.
+- There is no WAL archiving (removed in 0.2.2): archived WAL cannot be restored without physical base backups. An update
+  to 0.2.2 or later removes the `wal-spool/` directory of earlier releases.
 - The pre-update dumps in `backups/` are a rollback aid only. They are not encrypted and never leave the VPS.
 - Instance secrets (`secrets/`) are never part of a backup.
 
@@ -219,9 +225,8 @@ backup destination.
    `DROP DATABASE fleeto WITH (FORCE); CREATE DATABASE fleeto OWNER fleeto_migrator;`, grant CONNECT to the
    fleeto roles, `CREATE EXTENSION timescaledb; SELECT timescaledb_pre_restore();`, then
    `pg_restore --dbname=fleeto fleeto.dump` and `SELECT timescaledb_post_restore();`
-   (`restore_database` in install.sh does exactly this for pre-update dumps).
-6. Replay archived WAL segments for point-in-time recovery if needed (procedure to be written with the key ceremony).
-7. Start the stack with `install.sh --fqdn <fqdn>`, which runs the migrator and the health check.
+   (`restore_database` in install.sh does the same for pre-update dumps, into `fleeto_restore` first).
+6. Start the stack with `install.sh --fqdn <fqdn>`, which runs the migrator and the health check.
 
 ## Development and CI
 
