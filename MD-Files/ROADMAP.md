@@ -10,14 +10,20 @@
 **0.1.0** — implemented; tagged `v0.1.0` on 2026-09-15 as a historical marker on its last commit, without a release
 build (decided 2026-09-15). What was listed as open before the tag stays a checklist under "Open items from 0.1.0".
 
-**0.2.0** — every item built (2026-09-15); everything that was still open moved to 0.2.1 (decided 2026-09-15). Pre-releases `v0.2.0-alpha.1` (2026-09-15, first CI
-run; its release build failed), `v0.2.0-alpha.2` (first published test build), `v0.2.0-alpha.3` (VPS behind NAT, first VPS install), `v0.2.0-alpha.4` (fixes from the first install) and `v0.2.0-alpha.5` (network MTU). `v0.2.0-alpha.5` runs on the first test VPS.
+**0.2.0** — every item built (2026-09-15); everything that was still open moved to 0.2.1 (decided 2026-09-15). Not released
+on its own: it ships with 0.2.1. Pre-releases `v0.2.0-alpha.1` (2026-09-15, first CI run; its release build failed),
+`v0.2.0-alpha.2` (first published test build), `v0.2.0-alpha.3` (VPS behind NAT, first VPS install), `v0.2.0-alpha.4` (fixes
+from the first install) and `v0.2.0-alpha.5` (network MTU).
 
-**0.2.1** — in progress (started 2026-09-15): the read-only public API, agent self-update with update rings, the
-Windows watchdog, the Linux agent with its watchdog and the rename to Fleeto everywhere are built (pre-releases `v0.2.1-alpha.1`, whose release build
-failed, `v0.2.1-alpha.2`, whose move of the test VPS fell back to the old layout, `v0.2.1-alpha.3`, 2026-09-15, `v0.2.1-alpha.4`, 2026-09-16, the first with every 0.2.1 feature, `v0.2.1-alpha.5`, which lets the watchdog get its certificate on a moved instance, and `v0.2.1-alpha.6` with the fixes from testing on real Windows and Linux endpoints), and so are the
-script run on a selection of endpoints, the output cap per policy, running a script as the signed-in user and the icon for the installed web app,
-and the images of the failed `v0.2.0-alpha.1` are removed from ghcr.io; what is left is testing on real endpoints before the tag. The Servicedesk ticket reference on notes moved to "Not yet scheduled" (decided 2026-09-15).
+**0.2.1** — released 2026-09-16 (`v0.2.1`), the first release since 0.1.0, together with 0.2.0: the read-only public API,
+agent self-update with update rings, the watchdog, the Linux agent, the rename to Fleeto everywhere, a script run on a
+selection of endpoints, the output cap per policy, running a script as the signed-in user and the icon for the installed web
+app. Pre-releases `v0.2.1-alpha.1` to `v0.2.1-alpha.6` (2026-09-15 and 2026-09-16) were tested on the first test VPS with two
+Windows endpoints and a Linux endpoint: self-update, the watchdog, taking over a Fleetify agent, scripts as SYSTEM, as the
+signed-in user and without a signed-in user, a run on a selection and the output cap. The Servicedesk ticket reference on
+notes moved to "Not yet scheduled" (decided 2026-09-15).
+
+**0.2.2** — next: why an agent update waits, and choosing the user a script runs as (found while testing 0.2.1).
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
 2026-09-15, see Later).
@@ -185,7 +191,7 @@ production release.
     state), so checks, alerts, notes and audit history are kept instead of creating a new endpoint.
     Decided while building: chosen by the technician only (Enroll again on the endpoint, a single-use
     token bound to it); no automatic matching.
-## 0.2.1 — API, agent updates, watchdog and Linux agent
+## 0.2.1 — API, agent updates, watchdog and Linux agent (released 2026-09-16)
 
 Everything that was still open for 0.2.0, moved here on 2026-09-15, with the developer's answers of that day.
 
@@ -305,7 +311,7 @@ Everything that was still open for 0.2.0, moved here on 2026-09-15, with the dev
 - Not supported for now: **macOS** (decided 2026-09-15): no macOS agent, watchdog, remote control or remote terminal.
   It may come later when there is demand (see Later).
 
-## 0.2.2 — Agent update visibility
+## 0.2.2 — Agent update visibility and the user a script runs as
 
 Found while testing `v0.2.1-alpha.5` on the test VPS (2026-09-16): an agent without a watchdog waited silently, first for its
 retry after a failed attempt and then for its update ring, so neither the agent log nor the UI said why nothing happened.
