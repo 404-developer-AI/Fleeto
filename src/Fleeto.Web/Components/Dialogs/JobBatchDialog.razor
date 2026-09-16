@@ -5,10 +5,11 @@
 @inject LiveUpdates Live
 @inject IDialogService DialogService
 
-@* One script run on several endpoints (0.2.1): the state per endpoint, refreshed live, and the endpoints that got no job. *@
+@* One script run on several endpoints (0.2.1): the state per job, refreshed live, and the endpoints that got no job. A run for all signed-in
+   users (0.2.2) has a job per user on each endpoint. *@
 <MudDialog>
     <TitleContent>
-        <MudText Typo="Typo.h6">@ScriptName on @Ui.Count(_jobs.Count, "endpoint")</MudText>
+        <MudText Typo="Typo.h6">@ScriptName on @Ui.Count(_endpointIds.Count, "endpoint")@(_perUser ? $", {Ui.Count(_jobs.Count, "job")}" : "")</MudText>
     </TitleContent>
     <DialogContent>
         @if (Skipped.Count > 0)
@@ -52,6 +53,10 @@
                       OnRowClick="OpenJobAsync">
                 <HeaderContent>
                     <MudTh>Endpoint</MudTh>
+                    @if (_perUser)
+                    {
+                        <MudTh>User</MudTh>
+                    }
                     <MudTh>Result</MudTh>
                     <MudTh>Exit code</MudTh>
                     <MudTh>Output</MudTh>
@@ -59,6 +64,10 @@
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd><strong>@context.Hostname</strong></MudTd>
+                    @if (_perUser)
+                    {
+                        <MudTd>@(context.RunAsAccount ?? context.RunAsChosenAccount ?? "-")</MudTd>
+                    }
                     <MudTd><StatusChip Text="@Ui.JobStateLabel(context.State, context.Result)" Kind="@Ui.JobStateKind(context.State)" /></MudTd>
                     <MudTd>@(context.ExitCode?.ToString() ?? "-")</MudTd>
                     <MudTd class="muted">@Ui.JobOutputLabel(context.OutputState, context.OutputTruncated)</MudTd>
@@ -66,7 +75,7 @@
                 </RowTemplate>
             </MudTable>
             <MudText Typo="Typo.caption" Class="muted">
-                Select an endpoint to see its output. A job runs as soon as the endpoint is online; the results stay on the Jobs tab of each endpoint.
+                Select @(_perUser ? "a job" : "an endpoint") to see its output. A job runs as soon as the endpoint is online; the results stay on the Jobs tab of each endpoint.
             </MudText>
         }
     </DialogContent>
@@ -88,6 +97,9 @@
     private readonly List<(string Label, int Count)> _summary = [];
     private readonly Dictionary<string, JobState> _summaryKind = [];
     private HashSet<Guid> _endpointIds = [];
+
+    // A job per signed-in user: the table names the user of each job.
+    private bool _perUser;
     private DebouncedRefresh? _refresh;
 
     protected override async Task OnInitializedAsync()
@@ -102,6 +114,7 @@
         var caller = await CurrentUser.GetAsync();
         _jobs = await JobSvc.ListForBatchAsync(caller, BatchId);
         _endpointIds = _jobs.Select(j => j.EndpointId).ToHashSet();
+        _perUser = _jobs.Count > _endpointIds.Count;
         Summarize();
     }
 

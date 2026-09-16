@@ -34,6 +34,9 @@ public sealed class JobHandler : ISigningRequestHandler
     public const string ScriptClientReason = "The script belongs to another client.";
     public const string ApprovalReason =
         "The site's policy requires approval of scripts, and this version of the script is not the current version approved by a second admin. Ask an admin to approve it.";
+    public const string ChosenUserReason = "The chosen user is invalid: a user can only be chosen for a script that runs as the signed-in user.";
+    public const string ChosenUserAgentReason =
+        "The agent of this endpoint is too old to run a script as a chosen user. Wait until it runs Fleeto 0.2.2 or later, or run it as the signed-in user.";
     public const string ValidityReason = "The job's validity window is invalid or has passed. Start the job again with a validity of at most 7 days.";
 
     private readonly SignerKeyRing _keyRing;
@@ -84,7 +87,7 @@ public sealed class JobHandler : ISigningRequestHandler
 
         var endpoint = await db.Endpoints.IgnoreQueryFilters().AsNoTracking()
             .Where(e => e.Id == job.EndpointId && e.ClientId == job.ClientId)
-            .Select(e => new { e.Id, e.SiteId, e.Tier, e.OsPlatform, e.Hostname })
+            .Select(e => new { e.Id, e.SiteId, e.Tier, e.OsPlatform, e.Hostname, e.AgentVersion })
             .SingleOrDefaultAsync(cancellationToken);
         if (endpoint is null)
         {
@@ -133,6 +136,21 @@ public sealed class JobHandler : ISigningRequestHandler
             return SigningOutcome.Refused(ApprovalReason);
         }
 
+        // A chosen user (0.2.2) only with run as the signed-in user, as a SID or uid, and only for an agent that honours it: an older agent
+        // would ignore the choice and run the script as whichever user is signed in.
+        if (job.RunAsUserId is not null)
+        {
+            if (job.RunAs != Core.Entities.JobRunAs.LoggedOnUser || !SignedInUserRules.IsValidUserId(job.RunAsUserId))
+            {
+                return SigningOutcome.Refused(ChosenUserReason);
+            }
+
+            if (!SignedInUserRules.AgentSupportsChosenUser(endpoint.AgentVersion))
+            {
+                return SigningOutcome.Refused(ChosenUserAgentReason);
+            }
+        }
+
         var timeout = Math.Clamp(version.TimeoutSeconds, ScriptRules.MinTimeoutSeconds, ScriptRules.MaxTimeoutSeconds);
         // The output cap comes from the effective policy, not from the job row web wrote: the signer is the authority.
         var maxOutput = ScriptRules.OutputCap(policy?.MaxOutputBytes ?? ScriptRules.DefaultMaxOutputBytes);
@@ -147,6 +165,7 @@ public sealed class JobHandler : ISigningRequestHandler
             TimeoutSeconds = (uint)timeout,
             MaxOutputBytes = (ulong)maxOutput,
             RunAs = job.RunAs == Core.Entities.JobRunAs.LoggedOnUser ? Protocol.Agent.V1.JobRunAs.LoggedOnUser : Protocol.Agent.V1.JobRunAs.Service,
+            RunAsUserId = job.RunAsUserId ?? string.Empty,
             Script = new ScriptJob
             {
                 Language = AgentConfigBuilder.ToProto(script.Language),

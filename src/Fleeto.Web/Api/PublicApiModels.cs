@@ -239,6 +239,7 @@ public sealed record ApiJob(
     ApiJobScript Script,
     ApiJobRunAs RunAs,
     string? RunAsAccount,
+    string? RunAsChosenAccount,
     ApiJobState State,
     ApiJobResult? Result,
     int? ExitCode,

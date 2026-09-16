@@ -199,15 +199,43 @@ public sealed partial class AgentSessionManager
         await PublishAsync(NotificationChannels.EndpointStatus, session.EndpointId);
     }
 
+    /// <summary>Stores the signed-in users an agent reports (0.2.2). The agent sends the list only when it changed.</summary>
+    private async Task SaveSignedInUsersAsync(AgentSession session, Heartbeat heartbeat, CancellationToken cancellationToken)
+    {
+        if (heartbeat.SignedInUsers is not { } users)
+        {
+            return;
+        }
+
+        try
+        {
+            await _store.SaveSignedInUsersAsync(session.EndpointId, users, _time.GetUtcNow().UtcDateTime, cancellationToken);
+        }
+        catch (Exception ex) when (ex is NpgsqlException or TimeoutException)
+        {
+            // The list is personal data and only a convenience for the run window: a lost report is replaced by the next change.
+            _logger.LogWarning(ex, "Endpoint {EndpointId}: could not store the signed-in users", session.EndpointId);
+            return;
+        }
+
+        _logger.LogDebug("Endpoint {EndpointId}: {Count} signed-in users", session.EndpointId, users.Users.Count);
+    }
+
     private async Task SaveUpdateStatusAsync(AgentSession session, UpdateStatus status, CancellationToken cancellationToken)
     {
-        var state = GatewayStore.MapUpdateState(status.State);
         var component = status.Component switch
         {
             Component.Agent => (AgentComponent?)AgentComponent.Agent,
             Component.Watchdog => AgentComponent.Watchdog,
             _ => null
         };
+        if (status.State == UpdateState.Waiting && component is not null)
+        {
+            await SaveUpdateWaitAsync(session, component.Value, status, cancellationToken);
+            return;
+        }
+
+        var state = GatewayStore.MapUpdateState(status.State);
         if (state is null || component is null)
         {
             return;
@@ -230,11 +258,36 @@ public sealed partial class AgentSessionManager
         await PublishAsync(NotificationChannels.EndpointStatus, session.EndpointId);
     }
 
+    private async Task SaveUpdateWaitAsync(AgentSession session, AgentComponent component, UpdateStatus status, CancellationToken cancellationToken)
+    {
+        if (GatewayStore.MapUpdateWait(status.WaitReason) is not { } reason)
+        {
+            return;
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        // At most 30 days, so a wrong duration cannot overflow or promise a time far away.
+        DateTime? until = status.WaitSeconds > 0 ? now.AddSeconds(Math.Min(status.WaitSeconds, (uint)TimeSpan.FromDays(30).TotalSeconds)) : null;
+        try
+        {
+            await _store.SaveUpdateWaitAsync(session.EndpointId, session.ClientId, component, status.Version, reason, until, now, cancellationToken);
+        }
+        catch (Exception ex) when (ex is NpgsqlException or TimeoutException)
+        {
+            _logger.LogWarning(ex, "Endpoint {EndpointId}: could not store an update wait", session.EndpointId);
+            return;
+        }
+
+        _logger.LogInformation("Endpoint {EndpointId}: {Component} {Version}: waiting ({Reason}) until {Until}", session.EndpointId, component,
+            DbText.Clean(status.Version, 50), reason, until);
+        await PublishAsync(NotificationChannels.EndpointStatus, session.EndpointId);
+    }
+
     private void StartWatchdogCertificate(AgentSession session, WatchdogCertificateRequest request)
     {
         if (!session.TryBeginWatchdogCertificate())
         {
-            session.Send(WatchdogCertificateError("A watchdog certificate request for this endpoint is already in progress."));
+            session.Send(WatchdogCertificateError("A watchdog certificate request for this endpoint is already in progress.", temporary: true));
             return;
         }
 
@@ -250,7 +303,7 @@ public sealed partial class AgentSessionManager
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Endpoint {EndpointId}: watchdog certificate request failed", session.EndpointId);
-                session.Send(WatchdogCertificateError("The watchdog certificate could not be issued right now. The agent retries later."));
+                session.Send(WatchdogCertificateError("The watchdog certificate could not be issued right now. The agent retries later.", temporary: true));
             }
             finally
             {
@@ -297,12 +350,13 @@ public sealed partial class AgentSessionManager
                 _logger.LogWarning("Endpoint {EndpointId}: watchdog certificate refused: {Reason}", session.EndpointId, outcome.RefusalReason);
                 return WatchdogCertificateError(outcome.RefusalReason ?? "The watchdog certificate was refused.");
             default:
-                return WatchdogCertificateError("The watchdog certificate could not be issued right now. The agent retries later.");
+                return WatchdogCertificateError("The watchdog certificate could not be issued right now. The agent retries later.", temporary: true);
         }
     }
 
-    private static ServerMessage WatchdogCertificateError(string error) =>
-        new() { WatchdogCertificate = new WatchdogCertificateResponse { Error = error } };
+    /// <summary>A refusal, or with <paramref name="temporary"/> a failure that passes on its own, which the agent retries within minutes.</summary>
+    private static ServerMessage WatchdogCertificateError(string error, bool temporary = false) =>
+        new() { WatchdogCertificate = new WatchdogCertificateResponse { Error = error, Temporary = temporary } };
 
     /// <summary>
     /// Sends the current release when it was not sent on this connection yet, or when whether the endpoint's ring may install it changed.

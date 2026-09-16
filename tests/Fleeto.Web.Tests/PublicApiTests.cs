@@ -471,6 +471,7 @@ public sealed class PublicApiTests
 
         Assert.Equal("logged_on_user", json.GetProperty("runAs").GetString());
         Assert.Equal(job.RunAsAccount, json.GetProperty("runAsAccount").GetString());
+        Assert.Equal(job.RunAsChosenAccount, json.GetProperty("runAsChosenAccount").GetString());
     }
 
     private async Task<Job> CreateJobAsync(Endpoint endpoint, JobRunAs runAs = JobRunAs.Service, string? runAsAccount = null)
@@ -481,7 +482,8 @@ public sealed class PublicApiTests
             Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, BatchId = Guid.NewGuid(), ScriptName = "Inventory refresh",
             ScriptVersionNumber = 1, Language = ScriptLanguage.PowerShell, ScriptSha256 = new string('a', 64), TimeoutSeconds = 600,
             MaxOutputBytes = ScriptRules.DefaultMaxOutputBytes, CreatedAt = Now, ValidUntil = Now.AddHours(1), InitiatedByUserId = Guid.NewGuid(),
-            InitiatedByName = "Technician", RunAs = runAs, RunAsAccount = runAsAccount
+            InitiatedByName = "Technician", RunAs = runAs, RunAsAccount = runAsAccount,
+            RunAsUserId = runAsAccount is null ? null : "S-1-5-21-1-1001", RunAsChosenAccount = runAsAccount
         };
         db.Jobs.Add(job);
         await db.SaveChangesAsync();

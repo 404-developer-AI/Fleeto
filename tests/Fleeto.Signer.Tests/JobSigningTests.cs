@@ -54,7 +54,7 @@ public sealed class JobSigningTests
     }
 
     private async Task<Job> CreateJobAsync(Scope scope, ScriptVersion version, Script script, Guid? initiatorId = null, TimeSpan? validity = null,
-        string? sha = null, JobState state = JobState.PendingSignature, JobRunAs runAs = JobRunAs.Service)
+        string? sha = null, JobState state = JobState.PendingSignature, JobRunAs runAs = JobRunAs.Service, string? runAsUserId = null)
     {
         await using var db = _fixture.Database.DbFactory.CreateSystem();
         var job = new Job
@@ -63,7 +63,7 @@ public sealed class JobSigningTests
             ScriptId = script.Id, ScriptVersionId = version.Id, ScriptName = script.Name, ScriptVersionNumber = version.Number, Language = script.Language,
             ScriptSha256 = sha ?? version.Sha256, TimeoutSeconds = version.TimeoutSeconds, MaxOutputBytes = ScriptRules.DefaultMaxOutputBytes,
             CreatedAt = _fixture.Now, ValidUntil = _fixture.Now + (validity ?? TimeSpan.FromHours(24)), InitiatedByUserId = initiatorId ?? scope.TechnicianId,
-            InitiatedByName = "Tess Tech", State = state, RunAs = runAs
+            InitiatedByName = "Tess Tech", State = state, RunAs = runAs, RunAsUserId = runAsUserId
         };
         db.Jobs.Add(job);
         await db.SaveChangesAsync();
@@ -116,6 +116,35 @@ public sealed class JobSigningTests
 
         Assert.Equal(JobState.Queued, signed.State);
         Assert.Equal(Protocol.Agent.V1.JobRunAs.LoggedOnUser, JobPayload.Parser.ParseFrom(signed.Payload).RunAs);
+    }
+
+    [Fact]
+    public async Task A_chosen_user_is_signed_only_for_the_signed_in_user_and_an_agent_that_honours_it()
+    {
+        const string sid = "S-1-5-21-1004336348-1177238915-682003330-1001";
+        var scope = await ScopeAsync();
+        var (script, version) = await _fixture.Database.CreateScriptAsync(null, scope.TechnicianId);
+
+        // The agent of the endpoint is 0.1.0: it would ignore the choice and run as whoever is signed in.
+        var (_, tooOld) = await SignAsync(await CreateJobAsync(scope, version, script, runAs: JobRunAs.LoggedOnUser, runAsUserId: sid));
+        Assert.Equal(JobState.Refused, tooOld.State);
+        Assert.Equal(Handlers.JobHandler.ChosenUserAgentReason, tooOld.RefusalReason);
+
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.Endpoints.Where(e => e.Id == scope.Endpoint.Id).ExecuteUpdateAsync(s => s.SetProperty(e => e.AgentVersion, "0.2.2-alpha.1"));
+        }
+
+        var (_, asService) = await SignAsync(await CreateJobAsync(scope, version, script, runAs: JobRunAs.Service, runAsUserId: sid));
+        Assert.Equal(Handlers.JobHandler.ChosenUserReason, asService.RefusalReason);
+        var (_, invalid) = await SignAsync(await CreateJobAsync(scope, version, script, runAs: JobRunAs.LoggedOnUser, runAsUserId: "jan; rm -rf /"));
+        Assert.Equal(Handlers.JobHandler.ChosenUserReason, invalid.RefusalReason);
+
+        var (_, signed) = await SignAsync(await CreateJobAsync(scope, version, script, runAs: JobRunAs.LoggedOnUser, runAsUserId: sid));
+        Assert.Equal(JobState.Queued, signed.State);
+        var payload = JobPayload.Parser.ParseFrom(signed.Payload);
+        Assert.Equal(Protocol.Agent.V1.JobRunAs.LoggedOnUser, payload.RunAs);
+        Assert.Equal(sid, payload.RunAsUserId);
     }
 
     [Fact]

@@ -123,6 +123,12 @@ public class Endpoint
 
     public DateTime? PublicIpSeenAt { get; set; }
 
+    /// <summary>The users signed in on the endpoint as the agent last reported them (0.2.2), JSON of SignedInUserInfo. Personal data.</summary>
+    public string? SignedInUsersJson { get; set; }
+
+    /// <summary>Server time the agent last reported the signed-in users.</summary>
+    public DateTime? SignedInUsersAt { get; set; }
+
     /// <summary>Maintenance mode: active while started and the end is unset or in the future (MaintenanceRules).</summary>
     public DateTime? MaintenanceStartedAt { get; set; }
 

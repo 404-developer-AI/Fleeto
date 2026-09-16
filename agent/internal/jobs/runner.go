@@ -28,7 +28,7 @@ func (m *Manager) run(id string, payload *agentv1.JobPayload) {
 	// rather than half way, and the script is staged where that user can read it instead of in the protected job directory.
 	var session *signedInUser
 	if payload.GetRunAs() == agentv1.JobRunAs_JOB_RUN_AS_LOGGED_ON_USER {
-		found, err := signedInSession()
+		found, err := signedInSession(payload.GetRunAsUserId())
 		if err != nil {
 			m.complete(id, &agentv1.JobCompletion{Result: agentv1.JobResult_JOB_RESULT_FAILED_TO_START, Error: runAsUserError(err)})
 			return
@@ -140,6 +140,9 @@ func (m *Manager) run(id string, payload *agentv1.JobPayload) {
 // runAsUserError turns the one error a technician must recognise into the sentence shown on the job, and passes
 // everything else through.
 func runAsUserError(err error) string {
+	if errors.Is(err, ErrUserNotSignedIn) {
+		return "The chosen user is not signed in on this endpoint (anymore), so the script did not run. Start the job again when they are signed in, or choose another user."
+	}
 	if errors.Is(err, ErrNoUserSignedIn) {
 		return "No user is signed in on this endpoint, so the script could not run as the signed-in user. Start the job again when someone is signed in."
 	}

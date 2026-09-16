@@ -94,11 +94,81 @@ public sealed class WatchdogSessionTests
             Assert.Equal("0.2.1", reported.UpdateVersion);
         }
 
+        // A wait is stored next to the last result, its end on the gateway clock; the next result clears it.
+        await harness.Manager.HandleAsync(watchdog, new AgentMessage
+        {
+            UpdateStatus = new UpdateStatus
+            {
+                Component = Component.Agent, Version = "0.2.2", State = UpdateState.Waiting, WaitReason = UpdateWaitReason.NextAttempt, WaitSeconds = 3600
+            }
+        }, CancellationToken.None);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            var reported = await db.EndpointComponentStates.AsNoTracking().SingleAsync(c => c.EndpointId == endpoint.Id && c.Component == AgentComponent.Agent);
+            Assert.Equal(ComponentUpdateState.RolledBack, reported.UpdateState);
+            Assert.Equal("0.2.2", reported.WaitVersion);
+            Assert.Equal(ComponentUpdateWait.NextAttempt, reported.WaitReason);
+            Assert.NotNull(reported.WaitAt);
+            Assert.Equal(reported.WaitAt!.Value.AddHours(1), reported.WaitUntil!.Value, TimeSpan.FromSeconds(1));
+        }
+
+        await harness.Manager.HandleAsync(watchdog, new AgentMessage
+        {
+            UpdateStatus = new UpdateStatus { Component = Component.Agent, Version = "0.2.2", State = UpdateState.Downloading }
+        }, CancellationToken.None);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            var reported = await db.EndpointComponentStates.AsNoTracking().SingleAsync(c => c.EndpointId == endpoint.Id && c.Component == AgentComponent.Agent);
+            Assert.Equal(ComponentUpdateState.Downloading, reported.UpdateState);
+            Assert.Null(reported.WaitReason);
+            Assert.Null(reported.WaitVersion);
+            Assert.Null(reported.WaitUntil);
+        }
+
         watchdog.Abort("test");
         await harness.Manager.CloseAsync(watchdog);
         stored = await ReadEndpointAsync(endpoint.Id);
         Assert.False(stored.WatchdogOnline);
         Assert.True(stored.IsOnline);
+    }
+
+    [Fact]
+    public async Task The_signed_in_users_an_agent_reports_are_stored_cleaned_and_a_watchdog_cannot_report_them()
+    {
+        using var harness = _fixture.CreateHarness();
+        var endpoint = await _fixture.CreateEndpointAsync();
+        var agent = await harness.OpenAsync(endpoint);
+        var users = new SignedInUsers
+        {
+            Users =
+            {
+                new SignedInUser { Id = "S-1-5-21-1-1001", Account = @"CONTOSO\jan", Sessions = { new UserSession { Id = "2" }, new UserSession { Id = "1", Console = true } } },
+                new SignedInUser { Id = "not a sid", Account = "intruder" },
+                new SignedInUser { Id = "S-1-5-21-1-1002", Account = "" }
+            }
+        };
+
+        await harness.Manager.HandleAsync(agent, new AgentMessage { Heartbeat = new Heartbeat { SignedInUsers = users } }, CancellationToken.None);
+        var stored = await ReadEndpointAsync(endpoint.Id);
+        Assert.NotNull(stored.SignedInUsersAt);
+        var parsed = Core.Domain.SignedInUserRules.Parse(stored.SignedInUsersJson);
+        Assert.Equal(["S-1-5-21-1-1001", "S-1-5-21-1-1002"], parsed.Select(u => u.Id));
+        Assert.Equal(@"CONTOSO\jan", parsed[0].Account);
+        Assert.Equal(2, parsed[0].Sessions.Count);
+        // Without an account name the SID is shown.
+        Assert.Equal("S-1-5-21-1-1002", parsed[1].Account);
+
+        // A heartbeat without a list leaves the list alone; an empty list means nobody is signed in.
+        await harness.Manager.HandleAsync(agent, new AgentMessage { Heartbeat = new Heartbeat() }, CancellationToken.None);
+        Assert.Equal(2, Core.Domain.SignedInUserRules.Parse((await ReadEndpointAsync(endpoint.Id)).SignedInUsersJson).Count);
+        await harness.Manager.HandleAsync(agent, new AgentMessage { Heartbeat = new Heartbeat { SignedInUsers = new SignedInUsers() } }, CancellationToken.None);
+        Assert.Empty(Core.Domain.SignedInUserRules.Parse((await ReadEndpointAsync(endpoint.Id)).SignedInUsersJson));
+
+        var watchdog = harness.NewSession(new AgentIdentity(endpoint.Id, Guid.NewGuid().ToString("N"), "watchdog-key", DateTime.UtcNow.AddDays(30),
+            AgentComponent.Watchdog));
+        Assert.True(await harness.Manager.OpenAsync(watchdog, WatchdogHello(), CancellationToken.None));
+        await harness.Manager.HandleAsync(watchdog, new AgentMessage { Heartbeat = new Heartbeat { SignedInUsers = users } }, CancellationToken.None);
+        Assert.Empty(Core.Domain.SignedInUserRules.Parse((await ReadEndpointAsync(endpoint.Id)).SignedInUsersJson));
     }
 
     [Fact]
@@ -130,6 +200,7 @@ public sealed class WatchdogSessionTests
 
         var refused = await harness.Manager.IssueWatchdogCertificateAsync(session, agent.Csr(), CancellationToken.None);
         Assert.NotEmpty(refused.WatchdogCertificate.Error);
+        Assert.False(refused.WatchdogCertificate.Temporary);
 
         using var watchdogKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var csr = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=watchdog", watchdogKey, HashAlgorithmName.SHA256).CreateSigningRequest();
@@ -145,6 +216,28 @@ public sealed class WatchdogSessionTests
         var watchdog = harness.NewSession(new AgentIdentity(endpoint.Id, identity.Fingerprint, identity.PublicKeyFingerprint, identity.ExpiresAt, AgentComponent.Watchdog));
         Assert.True(await harness.Manager.OpenAsync(watchdog, WatchdogHello(), CancellationToken.None));
         Assert.NotEmpty((await harness.Manager.IssueWatchdogCertificateAsync(watchdog, csr, CancellationToken.None)).WatchdogCertificate.Error);
+    }
+
+    [Fact]
+    public async Task A_signer_that_does_not_answer_is_a_temporary_failure_and_a_refusal_is_not()
+    {
+        using var harness = _fixture.CreateHarness();
+        var endpoint = await _fixture.CreateEndpointAsync();
+        var agent = await _fixture.IssueAsync(endpoint);
+        var session = harness.NewSession(agent.Identity(endpoint.Id));
+        Assert.True(await harness.Manager.OpenAsync(session, GatewayHarness.Hello(), CancellationToken.None));
+        using var watchdogKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var csr = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=watchdog", watchdogKey, HashAlgorithmName.SHA256).CreateSigningRequest();
+
+        // No signer runs: the request times out, and the agent retries within minutes.
+        var timedOut = await harness.Manager.IssueWatchdogCertificateAsync(session, csr, CancellationToken.None);
+        Assert.NotEmpty(timedOut.WatchdogCertificate.Error);
+        Assert.True(timedOut.WatchdogCertificate.Temporary);
+
+        await using var signer = new FakeSigner(_fixture, _ => "The endpoint is not enrolled.");
+        var refused = await harness.Manager.IssueWatchdogCertificateAsync(session, csr, CancellationToken.None);
+        Assert.Equal("The endpoint is not enrolled.", refused.WatchdogCertificate.Error);
+        Assert.False(refused.WatchdogCertificate.Temporary);
     }
 
     [Fact]

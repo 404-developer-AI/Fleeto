@@ -26,35 +26,29 @@ type signedInUser struct {
 	sessionID   string
 	display     string
 	sessionType string
+	// console: the session has a seat (a local screen) and is not remote.
+	console bool
 }
 
 // stageDirRoot holds the scripts of jobs that run as a user. It is in /tmp because the agent's own state directory is
 // readable by root only, and a user must be able to read the script the interpreter opens.
 const stageDirRoot = "/tmp"
 
-// signedInSession finds the session to run in. loginctl is part of systemd, which the agent already requires.
-func signedInSession() (*signedInUser, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	tool, err := exec.LookPath("loginctl")
-	if err != nil {
-		return nil, ErrNoUserSignedIn
+// signedInSession finds the session to run in: a graphical session first, else any active one. With a userID (a uid) only the
+// sessions of that user count. loginctl is part of systemd, which the agent already requires.
+func signedInSession(userID string) (*signedInUser, error) {
+	notFound := ErrNoUserSignedIn
+	if userID != "" {
+		notFound = ErrUserNotSignedIn
 	}
-	list, err := commandOutput(ctx, tool, "list-sessions", "--no-legend")
+	sessions, err := activeSessions()
 	if err != nil {
-		return nil, ErrNoUserSignedIn
+		return nil, notFound
 	}
 
 	var fallback *signedInUser
-	for line := range strings.SplitSeq(list, "\n") {
-		// SESSION UID USER SEAT TTY
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		found, err := describeSession(ctx, tool, fields[0])
-		if err != nil || found == nil {
+	for _, found := range sessions {
+		if userID != "" && !sameUser(userID, strconv.FormatUint(uint64(found.uid), 10)) {
 			continue
 		}
 		if found.display != "" || found.sessionType == "x11" || found.sessionType == "wayland" {
@@ -67,13 +61,56 @@ func signedInSession() (*signedInUser, error) {
 	if fallback != nil {
 		return fallback, nil
 	}
-	return nil, ErrNoUserSignedIn
+	return nil, notFound
+}
+
+// SignedInUsers lists the users with an active session, for the technician to choose from.
+func SignedInUsers() ([]*agentv1.SignedInUser, error) {
+	sessions, err := activeSessions()
+	if err != nil {
+		return nil, err
+	}
+	found := make([]userSession, 0, len(sessions))
+	for _, s := range sessions {
+		found = append(found, userSession{userID: strconv.FormatUint(uint64(s.uid), 10), account: s.name, session: s.sessionID, console: s.console})
+	}
+	return groupSessions(found), nil
+}
+
+// activeSessions lists the active sessions of real users (root is never one) in the order of loginctl.
+func activeSessions() ([]*signedInUser, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	tool, err := exec.LookPath("loginctl")
+	if err != nil {
+		return nil, fmt.Errorf("find loginctl: %w", err)
+	}
+	list, err := commandOutput(ctx, tool, "list-sessions", "--no-legend")
+	if err != nil {
+		return nil, fmt.Errorf("list the sessions of this endpoint: %w", err)
+	}
+
+	var sessions []*signedInUser
+	for line := range strings.SplitSeq(list, "\n") {
+		// SESSION UID USER SEAT TTY
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		found, err := describeSession(ctx, tool, fields[0])
+		if err != nil || found == nil {
+			continue
+		}
+		sessions = append(sessions, found)
+	}
+	return sessions, nil
 }
 
 // describeSession returns the session when it is active and belongs to a real user, and nil otherwise.
 func describeSession(ctx context.Context, tool, id string) (*signedInUser, error) {
 	out, err := commandOutput(ctx, tool, "show-session", id, "--property=Active", "--property=Name", "--property=User",
-		"--property=Display", "--property=Type", "--property=State")
+		"--property=Display", "--property=Type", "--property=State", "--property=Seat", "--property=Remote")
 	if err != nil {
 		return nil, err
 	}
@@ -106,6 +143,7 @@ func describeSession(ctx context.Context, tool, id string) (*signedInUser, error
 		sessionID:   id,
 		display:     values["Display"],
 		sessionType: values["Type"],
+		console:     values["Seat"] != "" && values["Remote"] != "yes",
 	}, nil
 }
 

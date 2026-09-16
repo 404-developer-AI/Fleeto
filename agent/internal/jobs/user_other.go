@@ -11,7 +11,10 @@ type signedInUser struct {
 	gid uint32
 }
 
-func signedInSession() (*signedInUser, error) { return nil, ErrNoUserSignedIn }
+func signedInSession(string) (*signedInUser, error) { return nil, ErrNoUserSignedIn }
+
+// SignedInUsers is empty on platforms without a supported agent.
+func SignedInUsers() ([]*agentv1.SignedInUser, error) { return []*agentv1.SignedInUser{}, nil }
 
 func (u *signedInUser) stage(*agentv1.ScriptJob) (string, string, func(), error) {
 	return "", "", func() {}, ErrNoUserSignedIn

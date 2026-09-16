@@ -164,6 +164,139 @@ public sealed class ScriptAndJobServiceTests
     }
 
     [Fact]
+    public async Task A_run_as_a_chosen_user_takes_a_user_the_agent_reported_on_one_endpoint()
+    {
+        await _fixture.Database.LoadTestLicenseAsync(1000);
+        var technician = await _fixture.Database.CreateUserAsync(FleetoRoles.Technician);
+        var client = await _fixture.Database.CreateClientAsync();
+        var site = await _fixture.Database.CreateSiteAsync(client.Id);
+        var rds = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "SRV-RDS", EndpointClass.Server);
+        var other = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "SRV-OTHER", EndpointClass.Server);
+        var (script, _) = await _fixture.Database.CreateScriptAsync(null, technician.Id);
+        var caller = As(technician, FleetoRoles.Technician);
+        const string jan = "S-1-5-21-1-1001";
+        var users = """[{"id":"S-1-5-21-1-1001","account":"CONTOSO\\jan","sessions":[{"id":"2","console":false}]},{"id":"S-1-5-21-1-1002","account":"CONTOSO\\piet","sessions":[{"id":"1","console":true}]}]""";
+
+        // An agent without the list (older than 0.2.2) offers no choice and refuses one.
+        Assert.Null(await Jobs.GetSignedInUsersAsync(caller, rds.Id));
+        var tooOld = await Jobs.RunAsync(caller, script.Id, [rds.Id], TimeSpan.FromHours(24), JobRunAs.LoggedOnUser, jan);
+        Assert.False(tooOld.Success);
+        Assert.Contains("too old", tooOld.Problem);
+
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.Endpoints.Where(e => e.Id == rds.Id).ExecuteUpdateAsync(s => s
+                .SetProperty(e => e.AgentVersion, "0.2.2").SetProperty(e => e.SignedInUsersJson, users).SetProperty(e => e.SignedInUsersAt, DateTime.UtcNow));
+        }
+
+        var view = await Jobs.GetSignedInUsersAsync(caller, rds.Id);
+        Assert.NotNull(view);
+        Assert.Equal([@"CONTOSO\jan", @"CONTOSO\piet"], view.Users.Select(u => u.Account));
+        Assert.Null(await Jobs.GetSignedInUsersAsync(As(await _fixture.Database.CreateUserAsync(FleetoRoles.ReadOnly), FleetoRoles.ReadOnly), rds.Id));
+
+        Assert.False((await Jobs.RunAsync(caller, script.Id, [rds.Id], TimeSpan.FromHours(24), JobRunAs.Service, jan)).Success);
+        Assert.False((await Jobs.RunAsync(caller, script.Id, [rds.Id, other.Id], TimeSpan.FromHours(24), JobRunAs.LoggedOnUser, jan)).Success);
+        var gone = await Jobs.RunAsync(caller, script.Id, [rds.Id], TimeSpan.FromHours(24), JobRunAs.LoggedOnUser, "S-1-5-21-1-1003");
+        Assert.False(gone.Success);
+        Assert.Contains("no longer signed in", gone.Problem);
+
+        var run = await Jobs.RunAsync(caller, script.Id, [rds.Id], TimeSpan.FromHours(24), JobRunAs.LoggedOnUser, jan);
+        Assert.True(run.Success, run.Problem);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            var job = await db.Jobs.AsNoTracking().SingleAsync(j => j.BatchId == run.Value!.BatchId);
+            Assert.Equal(jan, job.RunAsUserId);
+            Assert.Equal(@"CONTOSO\jan", job.RunAsChosenAccount);
+            var audit = await db.AuditEntries.AsNoTracking().SingleAsync(a => a.Action == AuditActions.JobCreated && a.TargetId == job.Id.ToString());
+            Assert.Contains("jan", audit.DetailsJson);
+            Assert.DoesNotContain("piet", audit.DetailsJson);
+        }
+    }
+
+    [Fact]
+    public async Task A_run_for_all_signed_in_users_creates_one_job_per_reported_user_and_skips_endpoints_without_users()
+    {
+        await _fixture.Database.LoadTestLicenseAsync(1000);
+        var technician = await _fixture.Database.CreateUserAsync(FleetoRoles.Technician);
+        var client = await _fixture.Database.CreateClientAsync();
+        var site = await _fixture.Database.CreateSiteAsync(client.Id);
+        var rds = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "SRV-RDS-ALL", EndpointClass.Server);
+        var empty = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "SRV-EMPTY", EndpointClass.Server);
+        var old = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "SRV-OLD", EndpointClass.Server);
+        var (script, _) = await _fixture.Database.CreateScriptAsync(null, technician.Id);
+        var caller = As(technician, FleetoRoles.Technician);
+        var users = """[{"id":"S-1-5-21-1-1002","account":"CONTOSO\\piet","sessions":[{"id":"1","console":true}]},{"id":"S-1-5-21-1-1001","account":"CONTOSO\\jan","sessions":[{"id":"2","console":false},{"id":"3","console":false}]}]""";
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.Endpoints.Where(e => e.Id == rds.Id).ExecuteUpdateAsync(s => s
+                .SetProperty(e => e.AgentVersion, "0.2.2").SetProperty(e => e.SignedInUsersJson, users).SetProperty(e => e.SignedInUsersAt, DateTime.UtcNow));
+            await db.Endpoints.Where(e => e.Id == empty.Id).ExecuteUpdateAsync(s => s
+                .SetProperty(e => e.AgentVersion, "0.2.2").SetProperty(e => e.SignedInUsersJson, "[]").SetProperty(e => e.SignedInUsersAt, DateTime.UtcNow));
+        }
+
+        // All users only goes with run as the signed-in user, and never together with one chosen user.
+        Assert.False((await Jobs.RunAsync(caller, script.Id, [rds.Id], TimeSpan.FromHours(24), JobRunAs.Service, allSignedInUsers: true)).Success);
+        Assert.False((await Jobs.RunAsync(caller, script.Id, [rds.Id], TimeSpan.FromHours(24), JobRunAs.LoggedOnUser, "S-1-5-21-1-1001", true)).Success);
+
+        var run = await Jobs.RunAsync(caller, script.Id, [rds.Id, empty.Id, old.Id], TimeSpan.FromHours(24), JobRunAs.LoggedOnUser, allSignedInUsers: true);
+        Assert.True(run.Success, run.Problem);
+        Assert.Equal(2, run.Value!.Created);
+        Assert.Contains(run.Value.Skipped, s => s.EndpointId == empty.Id && s.Problem.Contains("Nobody was signed in"));
+        Assert.Contains(run.Value.Skipped, s => s.EndpointId == old.Id && s.Problem.Contains("too old"));
+
+        var listed = await Jobs.ListForBatchAsync(caller, run.Value.BatchId);
+        Assert.Equal([@"CONTOSO\jan", @"CONTOSO\piet"], listed.Select(j => j.RunAsChosenAccount));
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            var jobs = await db.Jobs.AsNoTracking().Where(j => j.BatchId == run.Value.BatchId).ToListAsync();
+            Assert.All(jobs, j => Assert.Equal((rds.Id, JobRunAs.LoggedOnUser), (j.EndpointId, j.RunAs)));
+            Assert.Equal(["S-1-5-21-1-1001", "S-1-5-21-1-1002"], jobs.Select(j => j.RunAsUserId).Order());
+            var jobIds = jobs.Select(j => j.Id).ToList();
+            Assert.Equal(2, await db.SigningRequests.CountAsync(r => r.SubjectId != null && jobIds.Contains(r.SubjectId.Value)));
+            var batch = await db.AuditEntries.AsNoTracking()
+                .SingleAsync(a => a.Action == AuditActions.JobBatchStarted && a.TargetId == run.Value.BatchId.ToString());
+            Assert.Contains("\"endpoints\": 1", batch.DetailsJson, StringComparison.Ordinal);
+            Assert.Contains("\"jobs\": 2", batch.DetailsJson, StringComparison.Ordinal);
+        }
+
+        // No endpoint with a user: nothing is started.
+        var none = await Jobs.RunAsync(caller, script.Id, [empty.Id], TimeSpan.FromHours(24), JobRunAs.LoggedOnUser, allSignedInUsers: true);
+        Assert.False(none.Success);
+        Assert.Contains("Nobody was signed in", none.Problem);
+    }
+
+    [Fact]
+    public async Task A_run_for_all_signed_in_users_is_refused_whole_above_the_job_limit()
+    {
+        await _fixture.Database.LoadTestLicenseAsync(1000);
+        var technician = await _fixture.Database.CreateUserAsync(FleetoRoles.Technician);
+        var client = await _fixture.Database.CreateClientAsync();
+        var site = await _fixture.Database.CreateSiteAsync(client.Id);
+        var (script, _) = await _fixture.Database.CreateScriptAsync(null, technician.Id);
+        var users = "[" + string.Join(",", Enumerable.Range(0, 200).Select(i => $$"""{"id":"S-1-5-21-9-{{2000 + i}}","account":"CONTOSO\\u{{i}}","sessions":[{"id":"{{i + 2}}","console":false}]}""")) + "]";
+        var ids = new List<Guid>();
+        for (var i = 0; i < 3; i++)
+        {
+            var endpoint = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, $"SRV-FARM-{i}", EndpointClass.Server);
+            ids.Add(endpoint.Id);
+        }
+
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.Endpoints.Where(e => ids.Contains(e.Id)).ExecuteUpdateAsync(s => s
+                .SetProperty(e => e.AgentVersion, "0.2.2").SetProperty(e => e.SignedInUsersJson, users).SetProperty(e => e.SignedInUsersAt, DateTime.UtcNow));
+        }
+
+        var run = await Jobs.RunAsync(As(technician, FleetoRoles.Technician), script.Id, ids, TimeSpan.FromHours(24), JobRunAs.LoggedOnUser, allSignedInUsers: true);
+        Assert.False(run.Success);
+        Assert.Contains("more than 500 jobs", run.Problem);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            Assert.False(await db.Jobs.AnyAsync(j => ids.Contains(j.EndpointId)));
+        }
+    }
+
+    [Fact]
     public async Task Runs_create_jobs_only_where_the_script_can_run_and_cancel_before_delivery()
     {
         await _fixture.Database.LoadTestLicenseAsync(1000);

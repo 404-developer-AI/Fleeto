@@ -1,3 +1,4 @@
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Identity;
@@ -130,6 +131,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(e => e.Tier).HasConversion<string>().HasMaxLength(20);
             entity.Property(e => e.Source).HasConversion<string>().HasMaxLength(20);
             entity.Property(e => e.PublicIpAddress).HasMaxLength(64);
+            entity.Property(e => e.SignedInUsersJson).HasColumnType("jsonb");
             entity.Property(e => e.WatchdogVersion).HasMaxLength(50).HasDefaultValue(string.Empty);
             entity.Ignore(e => e.EffectiveClass);
             MaintenanceColumns(entity);
@@ -442,6 +444,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(j => j.InitiatedByName).HasMaxLength(200);
             entity.Property(j => j.State).HasConversion<string>().HasMaxLength(20);
             entity.Property(j => j.RunAs).HasConversion<string>().HasMaxLength(20).HasDefaultValue(JobRunAs.Service).HasSentinel((JobRunAs)(-1));
+            entity.Property(j => j.RunAsUserId).HasMaxLength(SignedInUserRules.MaxUserIdLength);
+            entity.Property(j => j.RunAsChosenAccount).HasMaxLength(SignedInUserRules.MaxAccountLength);
             entity.Property(j => j.RunAsAccount).HasMaxLength(256);
             entity.Property(j => j.RefusalReason).HasMaxLength(500);
             entity.Property(j => j.SigningKeyId).HasMaxLength(64);
@@ -615,6 +619,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(c => c.UpdateVersion).HasMaxLength(50);
             entity.Property(c => c.UpdateState).HasConversion<string>().HasMaxLength(20);
             entity.Property(c => c.UpdateDetail).HasMaxLength(500);
+            entity.Property(c => c.WaitVersion).HasMaxLength(50);
+            entity.Property(c => c.WaitReason).HasConversion<string>().HasMaxLength(20);
             EndpointChild(entity, c => new { c.EndpointId, c.ClientId });
             ClientOwned(entity);
         });

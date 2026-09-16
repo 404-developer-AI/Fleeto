@@ -408,20 +408,20 @@ public sealed class PublicApiQueries
     }
 
     private sealed record JobRow(Guid Id, Guid BatchId, Guid ClientId, Guid EndpointId, JobType Type, Guid? ScriptId, Guid? ScriptVersionId, string ScriptName,
-        int ScriptVersionNumber, ScriptLanguage Language, string ScriptSha256, JobRunAs RunAs, string? RunAsAccount, JobState State, JobResult? Result, int? ExitCode, string? Problem,
+        int ScriptVersionNumber, ScriptLanguage Language, string ScriptSha256, JobRunAs RunAs, string? RunAsAccount, string? RunAsChosenAccount, JobState State, JobResult? Result, int? ExitCode, string? Problem,
         string InitiatedByName, DateTime CreatedAt, DateTime ValidUntil, DateTime? DeliveredAt, DateTime? StartedAt, DateTime? CompletedAt,
         JobOutputState OutputState, bool OutputTruncated, long ReceivedOutputBytes);
 
     // Payload, signature and output chunks are never selected: the list stays small and the signed payload never leaves the database.
     private static IQueryable<JobRow> ProjectJobs(IQueryable<Job> jobs) =>
         jobs.Select(j => new JobRow(j.Id, j.BatchId, j.ClientId, j.EndpointId, j.Type, j.ScriptId, j.ScriptVersionId, j.ScriptName, j.ScriptVersionNumber,
-            j.Language, j.ScriptSha256, j.RunAs, j.RunAsAccount, j.State, j.Result, j.ExitCode, j.RefusalReason ?? j.Error, j.InitiatedByName, j.CreatedAt, j.ValidUntil, j.DeliveredAt,
+            j.Language, j.ScriptSha256, j.RunAs, j.RunAsAccount, j.RunAsChosenAccount, j.State, j.Result, j.ExitCode, j.RefusalReason ?? j.Error, j.InitiatedByName, j.CreatedAt, j.ValidUntil, j.DeliveredAt,
             j.StartedAt, j.CompletedAt, j.OutputState, j.OutputTruncated, j.ReceivedOutputBytes));
 
     private static ApiJob ToApi(JobRow j) =>
         new(j.Id, j.BatchId, j.ClientId, j.EndpointId, j.Type switch { JobType.Script => "script", _ => throw Unmapped(j.Type) },
             new ApiJobScript(j.ScriptId, j.ScriptVersionId, j.ScriptName, j.ScriptVersionNumber, Map(j.Language), j.ScriptSha256), Map(j.RunAs),
-            j.RunAsAccount, Map(j.State), j.Result is { } result ? Map(result) : null, j.ExitCode, j.Problem, j.InitiatedByName, Utc(j.CreatedAt), Utc(j.ValidUntil),
+            j.RunAsAccount, j.RunAsChosenAccount, Map(j.State), j.Result is { } result ? Map(result) : null, j.ExitCode, j.Problem, j.InitiatedByName, Utc(j.CreatedAt), Utc(j.ValidUntil),
             UtcOrNull(j.DeliveredAt), UtcOrNull(j.StartedAt), UtcOrNull(j.CompletedAt), new ApiJobOutputSummary(Map(j.OutputState), j.OutputTruncated,
                 j.ReceivedOutputBytes));
 

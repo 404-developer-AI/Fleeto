@@ -1,6 +1,9 @@
+using System.Buffers;
+using System.Text.Json;
 using Fleeto.Core.Entities;
 using Fleeto.Protocol.Agent.V1;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace Fleeto.Gateway.Data;
 
@@ -139,7 +142,8 @@ public sealed partial class GatewayStore
             VALUES ($1, $2, $3, '', 'Unknown', '', $4, $5, $6, $7)
             ON CONFLICT ("EndpointId", "Component") DO UPDATE SET
               "UpdateVersion" = EXCLUDED."UpdateVersion", "UpdateState" = EXCLUDED."UpdateState",
-              "UpdateDetail" = EXCLUDED."UpdateDetail", "UpdateAt" = EXCLUDED."UpdateAt"
+              "UpdateDetail" = EXCLUDED."UpdateDetail", "UpdateAt" = EXCLUDED."UpdateAt",
+              "WaitVersion" = NULL, "WaitReason" = NULL, "WaitUntil" = NULL, "WaitAt" = NULL
             """);
         command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = endpointId });
         command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = component.ToString() });
@@ -147,6 +151,77 @@ public sealed partial class GatewayStore
         command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = DbText.Clean(version, 50) });
         command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = state.ToString() });
         command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = DbText.Clean(detail, 500) });
+        command.Parameters.Add(new NpgsqlParameter<DateTime> { TypedValue = now });
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Stores the users signed in on an endpoint (0.2.2), bounded and cleaned: at most <see cref="SignedInUserRules.MaxUsers"/> users with a valid
+    /// SID or uid and <see cref="SignedInUserRules.MaxSessionsPerUser"/> sessions each.
+    /// </summary>
+    public async Task SaveSignedInUsersAsync(Guid endpointId, Protocol.Agent.V1.SignedInUsers users, DateTime now, CancellationToken cancellationToken)
+    {
+        await using var command = _dataSource.CreateCommand("""
+            UPDATE "Endpoints" SET "SignedInUsersJson" = $2::jsonb, "SignedInUsersAt" = $3 WHERE "Id" = $1
+            """);
+        command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = endpointId });
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = SignedInUsersJson(users) });
+        command.Parameters.Add(new NpgsqlParameter<DateTime> { TypedValue = now });
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    internal static string SignedInUsersJson(Protocol.Agent.V1.SignedInUsers users)
+    {
+        var buffer = new ArrayBufferWriter<byte>(256);
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartArray();
+            foreach (var user in users.Users.Where(u => Core.Domain.SignedInUserRules.IsValidUserId(u.Id)).DistinctBy(u => u.Id.ToUpperInvariant())
+                         .Take(Core.Domain.SignedInUserRules.MaxUsers))
+            {
+                writer.WriteStartObject();
+                writer.WriteString("id", user.Id);
+                var account = DbText.Clean(user.Account, Core.Domain.SignedInUserRules.MaxAccountLength);
+                writer.WriteString("account", account.Length > 0 ? account : user.Id);
+                writer.WriteStartArray("sessions");
+                foreach (var session in user.Sessions.Take(Core.Domain.SignedInUserRules.MaxSessionsPerUser))
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("id", DbText.Clean(session.Id, 64));
+                    writer.WriteBoolean("console", session.Console);
+                    writer.WriteEndObject();
+                }
+
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndArray();
+        }
+
+        return System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+
+    /// <summary>
+    /// Stores why the service that installs a component holds back an offered release (0.2.2), next to its last update result. The end of the
+    /// wait is stamped on the gateway clock from the duration the endpoint reports.
+    /// </summary>
+    public async Task SaveUpdateWaitAsync(Guid endpointId, Guid clientId, AgentComponent component, string version, ComponentUpdateWait reason,
+        DateTime? until, DateTime now, CancellationToken cancellationToken)
+    {
+        await using var command = _dataSource.CreateCommand("""
+            INSERT INTO "EndpointComponentStates" ("EndpointId", "Component", "ClientId", "InstalledVersion", "ServiceState", "ServiceDetail", "UpdateVersion", "UpdateDetail", "WaitVersion", "WaitReason", "WaitUntil", "WaitAt")
+            VALUES ($1, $2, $3, '', 'Unknown', '', '', '', $4, $5, $6, $7)
+            ON CONFLICT ("EndpointId", "Component") DO UPDATE SET
+              "WaitVersion" = EXCLUDED."WaitVersion", "WaitReason" = EXCLUDED."WaitReason",
+              "WaitUntil" = EXCLUDED."WaitUntil", "WaitAt" = EXCLUDED."WaitAt"
+            """);
+        command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = endpointId });
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = component.ToString() });
+        command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = clientId });
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = DbText.Clean(version, 50) });
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = reason.ToString() });
+        command.Parameters.Add(new NpgsqlParameter { Value = (object?)until ?? DBNull.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz });
         command.Parameters.Add(new NpgsqlParameter<DateTime> { TypedValue = now });
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -233,6 +308,16 @@ public sealed partial class GatewayStore
         UpdateState.Installed => ComponentUpdateState.Installed,
         UpdateState.Failed => ComponentUpdateState.Failed,
         UpdateState.RolledBack => ComponentUpdateState.RolledBack,
+        _ => null
+    };
+
+    internal static ComponentUpdateWait? MapUpdateWait(UpdateWaitReason reason) => reason switch
+    {
+        UpdateWaitReason.UpdateRing => ComponentUpdateWait.UpdateRing,
+        UpdateWaitReason.NextAttempt => ComponentUpdateWait.NextAttempt,
+        UpdateWaitReason.RandomDelay => ComponentUpdateWait.RandomDelay,
+        UpdateWaitReason.InstallerUpdate => ComponentUpdateWait.InstallerUpdate,
+        UpdateWaitReason.RolledBack => ComponentUpdateWait.RolledBack,
         _ => null
     };
 }

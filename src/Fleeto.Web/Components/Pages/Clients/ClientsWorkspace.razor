@@ -817,10 +817,11 @@
             { d => d.TargetLabel, Ui.Count(ids.Count, "endpoint") },
             { d => d.Scripts, scripts },
             { d => d.NotifyAdminsAbove, notifyAbove },
+            { d => d.OfferAllUsers, true },
             {
-                d => d.OnSubmit, async (scriptId, validity, runAs) =>
+                d => d.OnSubmit, async (scriptId, validity, runAs, _, allUsers) =>
                 {
-                    var result = await RunForValueAsync(caller => JobSvc.RunAsync(caller, scriptId, ids, validity, runAs), null);
+                    var result = await RunForValueAsync(caller => JobSvc.RunAsync(caller, scriptId, ids, validity, runAs, allSignedInUsers: allUsers), null);
                     run = result?.Value;
                     scriptName = scripts.FirstOrDefault(s => s.Id == scriptId)?.Name ?? "Script";
                     return result is not null;
@@ -849,9 +850,11 @@
     private async Task RunScriptAsync(EndpointRow row)
     {
         IReadOnlyList<RunnableScript> scripts = [];
+        SignedInUsersView? signedIn = null;
         if (!await RunAsync(async caller =>
             {
                 scripts = await JobSvc.ListRunnableScriptsAsync(caller, [row.Id]);
+                signedIn = await JobSvc.GetSignedInUsersAsync(caller, row.Id);
                 return ServiceResult.Ok();
             }, null))
         {
@@ -863,8 +866,11 @@
             { d => d.EndpointIds, new[] { row.Id } },
             { d => d.TargetLabel, row.Hostname },
             { d => d.Scripts, scripts },
-            { d => d.OnSubmit, (scriptId, validity, runAs) => RunAsync(caller => JobSvc.RunAsync(caller, scriptId, [row.Id], validity, runAs),
-                $"The job was started on {row.Hostname}. Its result appears on the Jobs tab.") }
+            { d => d.SignedInUsers, signedIn },
+            { d => d.OnSubmit, (scriptId, validity, runAs, userId, allUsers) => RunAsync(caller => JobSvc.RunAsync(caller, scriptId, [row.Id], validity, runAs, userId, allUsers),
+                allUsers
+                    ? $"A job was started on {row.Hostname} for every signed-in user. Their results appear on the Jobs tab."
+                    : $"The job was started on {row.Hostname}. Its result appears on the Jobs tab.") }
         };
         var dialog = await DialogService.ShowAsync<RunScriptDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         await dialog.Result;

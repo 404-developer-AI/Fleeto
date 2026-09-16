@@ -455,14 +455,8 @@ func (w *Watchdog) releaseClient() (*http.Client, string, error) {
 }
 
 func (w *Watchdog) reportUpdate(s update.Status) {
-	component := agentv1.Component_COMPONENT_AGENT
-	if s.Component == release.ComponentWatchdog {
-		component = agentv1.Component_COMPONENT_WATCHDOG
-	}
 	select {
-	case w.outbox <- &agentv1.AgentMessage{Body: &agentv1.AgentMessage_UpdateStatus{UpdateStatus: &agentv1.UpdateStatus{
-		Component: component, Version: s.Version, State: s.State, Detail: s.Detail,
-	}}}:
+	case w.outbox <- &agentv1.AgentMessage{Body: &agentv1.AgentMessage_UpdateStatus{UpdateStatus: s.Message()}}:
 	default:
 	}
 }

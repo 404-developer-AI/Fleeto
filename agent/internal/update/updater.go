@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"log/slog"
+	"math"
 	"math/rand/v2"
 	"net/http"
 	"os"
@@ -37,6 +38,24 @@ type Status struct {
 	Version   string
 	State     agentv1.UpdateState
 	Detail    string
+	// WaitReason and WaitFor go with UPDATE_STATE_WAITING; WaitFor is zero when the end of the wait is not known.
+	WaitReason agentv1.UpdateWaitReason
+	WaitFor    time.Duration
+}
+
+// Message is the status as the protocol message for the gateway.
+func (s Status) Message() *agentv1.UpdateStatus {
+	component := agentv1.Component_COMPONENT_AGENT
+	if s.Component == release.ComponentWatchdog {
+		component = agentv1.Component_COMPONENT_WATCHDOG
+	}
+	wait := uint32(0)
+	if s.WaitFor > 0 {
+		wait = uint32(min(math.Ceil(s.WaitFor.Seconds()), math.MaxUint32))
+	}
+	return &agentv1.UpdateStatus{
+		Component: component, Version: s.Version, State: s.State, Detail: s.Detail, WaitReason: s.WaitReason, WaitSeconds: wait,
+	}
 }
 
 // UpdaterOptions configures an Updater. Zero durations get production defaults.
@@ -66,7 +85,9 @@ type UpdaterOptions struct {
 	HealthTimeout    time.Duration
 	HealthMaxTimeout time.Duration
 	RetryAfter       time.Duration
-	Now              func() time.Time
+	// TransientRetry is the first wait after a transient failure; it doubles with each further one up to RetryAfter.
+	TransientRetry time.Duration
+	Now            func() time.Time
 }
 
 type offer struct {
@@ -83,7 +104,11 @@ type Updater struct {
 	latest    *offer
 	notBefore map[string]time.Time
 	lastBad   [32]byte
-	wake      chan struct{}
+	// lastWait is the wait logged last, so each reason is logged once per release instead of at every evaluation.
+	lastWait string
+	// transientFailures counts transient failures in a row, for the backoff.
+	transientFailures int
+	wake              chan struct{}
 }
 
 // NewUpdater creates an updater; call Run in a goroutine and Offer for every UpdateOffer.
@@ -101,6 +126,9 @@ func NewUpdater(opts UpdaterOptions) *Updater {
 	}
 	if opts.RetryAfter <= 0 {
 		opts.RetryAfter = time.Hour
+	}
+	if opts.TransientRetry <= 0 {
+		opts.TransientRetry = time.Minute
 	}
 	if opts.Now == nil {
 		opts.Now = time.Now
@@ -175,20 +203,14 @@ func (u *Updater) Evaluate(ctx context.Context) {
 		return
 	}
 	provision := installed == ""
-	switch {
-	case provision && u.opts.Provision == nil:
-		return
-	case provision && !o.allowed && (u.opts.Ready == nil || !u.opts.Ready(m)):
-		return
-	case !provision && (!release.Newer(m.Version, installed) || !o.allowed):
-		return
-	case u.memory.RolledBack(u.opts.Target.Component, m.Version):
-		return
-	case !u.memory.MayAttempt(u.opts.Target.Component, now):
-		return
-	case !provision && u.opts.Ready != nil && !u.opts.Ready(m):
+	if provision && u.opts.Provision == nil || !provision && !release.Newer(m.Version, installed) {
 		return
 	}
+	if reason, until := u.waitReason(m, o.allowed, provision, now); reason != agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_UNSPECIFIED {
+		u.reportWait(logger, m.Version, installed, reason, until, now)
+		return
+	}
+	u.lastWait = ""
 
 	// Spread the downloads of many endpoints over time; a missing service is repaired without waiting.
 	if !provision {
@@ -197,6 +219,10 @@ func (u *Updater) Evaluate(ctx context.Context) {
 			at = now.Add(time.Duration(rand.Int64N(int64(u.opts.MaxDelay) + 1)))
 			u.notBefore[m.Version] = at
 			logger.Info("release offered; installing after a random delay", "version", m.Version, "installed", installed, "at", at.UTC().Format(time.RFC3339))
+			if at.After(now) {
+				u.opts.Report(Status{Component: u.opts.Target.Component, Version: m.Version, State: agentv1.UpdateState_UPDATE_STATE_WAITING,
+					WaitReason: agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_RANDOM_DELAY, WaitFor: at.Sub(now)})
+			}
 		}
 		if now.Before(at) {
 			time.AfterFunc(at.Sub(now), u.Wake)
@@ -207,14 +233,67 @@ func (u *Updater) Evaluate(ctx context.Context) {
 	u.install(ctx, logger, m, binary, installed, provision)
 }
 
+// waitReason says why an offered release that this updater would install is not installed now; unspecified when nothing holds it
+// back. until is the time the wait ends, when it is known.
+func (u *Updater) waitReason(m *release.Manifest, allowed, provision bool, now time.Time) (reason agentv1.UpdateWaitReason, until time.Time) {
+	component := u.opts.Target.Component
+	switch {
+	case u.memory.RolledBack(component, m.Version):
+		return agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_ROLLED_BACK, time.Time{}
+	// A missing target is installed from a release the ring has not reached when this service already runs that release.
+	case !allowed && (!provision || u.opts.Ready == nil || !u.opts.Ready(m)):
+		return agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_UPDATE_RING, time.Time{}
+	case !u.memory.MayAttempt(component, now):
+		return agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_NEXT_ATTEMPT, u.memory.NextAttempt(component)
+	case !provision && u.opts.Ready != nil && !u.opts.Ready(m):
+		return agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_INSTALLER_UPDATE, time.Time{}
+	}
+	return agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_UNSPECIFIED, time.Time{}
+}
+
+var waitTexts = map[agentv1.UpdateWaitReason]string{
+	agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_ROLLED_BACK:      "this version was rolled back before and is not tried again",
+	agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_UPDATE_RING:      "waiting for the update ring of the endpoint",
+	agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_NEXT_ATTEMPT:     "waiting for the next attempt after a failed or postponed one",
+	agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_INSTALLER_UPDATE: "waiting until this service runs the release itself",
+}
+
+// reportWait logs a wait and reports it to the gateway, once per release, reason and end time.
+func (u *Updater) reportWait(logger *slog.Logger, version, installed string, reason agentv1.UpdateWaitReason, until, now time.Time) {
+	key := version + "|" + reason.String() + "|" + until.UTC().Format(time.RFC3339)
+	if key == u.lastWait {
+		return
+	}
+	u.lastWait = key
+	if installed == "" {
+		installed = "not installed"
+	}
+	attrs := []any{"version", version, "installed", installed, "reason", waitTexts[reason]}
+	status := Status{Component: u.opts.Target.Component, Version: version, State: agentv1.UpdateState_UPDATE_STATE_WAITING, WaitReason: reason}
+	if !until.IsZero() {
+		attrs = append(attrs, "nextAttempt", until.UTC().Format(time.RFC3339))
+		status.WaitFor = until.Sub(now)
+	}
+	logger.Info("release offered; not installing it yet", attrs...)
+	u.opts.Report(status)
+}
+
 func (u *Updater) install(ctx context.Context, logger *slog.Logger, m *release.Manifest, binary release.Binary, installed string, provision bool) {
 	t := u.opts.Target
 	report := func(state agentv1.UpdateState, detail string) {
 		u.opts.Report(Status{Component: t.Component, Version: m.Version, State: state, Detail: truncate(detail, 500)})
 	}
 	fail := func(err error) {
-		logger.Warn("installing the release failed; the installed version keeps running", "version", m.Version, "error", err)
 		report(agentv1.UpdateState_UPDATE_STATE_FAILED, err.Error())
+		if IsTransient(err) {
+			wait := u.transientWait()
+			logger.Warn("installing the release failed for now; retrying soon", "version", m.Version, "retryIn", wait.Round(time.Second).String(), "error", err)
+			u.memory.RetryAt(t.Component, u.opts.Now().Add(wait))
+			time.AfterFunc(wait, u.Wake)
+			return
+		}
+		u.transientFailures = 0
+		logger.Warn("installing the release failed; the installed version keeps running", "version", m.Version, "error", err)
 		u.memory.RetryAt(t.Component, u.opts.Now().Add(u.opts.RetryAfter))
 	}
 
@@ -256,6 +335,7 @@ func (u *Updater) install(ctx context.Context, logger *slog.Logger, m *release.M
 			return
 		}
 		u.memory.Clear(t.Component)
+		u.transientFailures = 0
 		logger.Info("installed", "version", m.Version)
 		report(agentv1.UpdateState_UPDATE_STATE_INSTALLED, "")
 		return
@@ -278,6 +358,7 @@ func (u *Updater) install(ctx context.Context, logger *slog.Logger, m *release.M
 	switch outcome {
 	case Installed:
 		u.memory.Clear(t.Component)
+		u.transientFailures = 0
 		logger.Info("updated", "from", installed, "to", m.Version)
 		report(agentv1.UpdateState_UPDATE_STATE_INSTALLED, "")
 	case RolledBack:
@@ -287,4 +368,19 @@ func (u *Updater) install(ctx context.Context, logger *slog.Logger, m *release.M
 	default:
 		fail(err)
 	}
+}
+
+// transientWait is the wait after one more transient failure in a row: TransientRetry doubled per earlier failure, at most RetryAfter,
+// between half and all of that so the endpoints that failed together do not retry together.
+func (u *Updater) transientWait() time.Duration {
+	ceiling := u.opts.TransientRetry
+	for i := 0; i < u.transientFailures && ceiling < u.opts.RetryAfter; i++ {
+		ceiling *= 2
+	}
+	ceiling = min(ceiling, u.opts.RetryAfter)
+	if u.transientFailures < 32 {
+		u.transientFailures++
+	}
+	half := ceiling / 2
+	return half + time.Duration(rand.Int64N(int64(ceiling-half)+1))
 }

@@ -48,6 +48,8 @@ type WatchdogOptions struct {
 	Keys []ed25519.PublicKey
 	// UpdateMaxDelay spreads updates of many endpoints; default 10 minutes, negative for none (tests).
 	UpdateMaxDelay time.Duration
+	// UpdateTransientRetry is the first wait after a transient failure; default 1 minute (tests shorten it).
+	UpdateTransientRetry time.Duration
 	// Create creates the watchdog service; default svcctl.Create.
 	Create func(svcctl.Definition) error
 	// Delete deletes the watchdog service; default svcctl.Delete.
@@ -101,9 +103,10 @@ func newWatchdogManager(a *Agent, opts WatchdogOptions) (*watchdogManager, error
 			target, ok2 := release.ParseVersion(manifest.Version)
 			return ok && ok2 && release.Compare(own, target) >= 0
 		},
-		Provision: m.provision,
-		Pause:     m.supervisor.Pause,
-		MaxDelay:  opts.UpdateMaxDelay,
+		Provision:      m.provision,
+		Pause:          m.supervisor.Pause,
+		MaxDelay:       opts.UpdateMaxDelay,
+		TransientRetry: opts.UpdateTransientRetry,
 	})
 	return m, nil
 }
@@ -233,7 +236,7 @@ func (m *watchdogManager) ensureIdentity(ctx context.Context, force bool) error 
 		return nil
 	}
 	if !m.a.connected.Load() {
-		return errors.New("the agent is not connected, so the watchdog cannot get a certificate now")
+		return update.Transient(errors.New("the agent is not connected, so the watchdog cannot get a certificate now"))
 	}
 	access := m.a.store.Access()
 	if err := platform.EnsureProtectedDir(m.opts.StateDir, access); err != nil {
@@ -270,7 +273,7 @@ func (m *watchdogManager) ensureIdentity(ctx context.Context, force bool) error 
 	if !m.a.enqueue(&agentv1.AgentMessage{Body: &agentv1.AgentMessage_WatchdogCertificate{
 		WatchdogCertificate: &agentv1.WatchdogCertificateRequest{CsrDer: csr},
 	}}) {
-		return errors.New("the request for a watchdog certificate could not be queued")
+		return update.Transient(errors.New("the request for a watchdog certificate could not be queued"))
 	}
 	var response *agentv1.WatchdogCertificateResponse
 	select {
@@ -278,7 +281,10 @@ func (m *watchdogManager) ensureIdentity(ctx context.Context, force bool) error 
 		return ctx.Err()
 	case response = <-m.certificates:
 	case <-time.After(watchdogCertificateWait):
-		return errors.New("no answer to the watchdog certificate request")
+		return update.Transient(errors.New("no answer to the watchdog certificate request"))
+	}
+	if response.GetError() != "" && response.GetTemporary() {
+		return update.Transient(fmt.Errorf("the watchdog certificate could not be issued right now: %s", response.GetError()))
 	}
 	if response.GetError() != "" {
 		return fmt.Errorf("the gateway refused the watchdog certificate: %s", response.GetError())
@@ -333,13 +339,7 @@ func (a *Agent) releaseClient() (*http.Client, string, error) {
 
 // reportUpdate queues an update report for the gateway.
 func (a *Agent) reportUpdate(s update.Status) {
-	component := agentv1.Component_COMPONENT_AGENT
-	if s.Component == release.ComponentWatchdog {
-		component = agentv1.Component_COMPONENT_WATCHDOG
-	}
-	a.enqueue(&agentv1.AgentMessage{Body: &agentv1.AgentMessage_UpdateStatus{UpdateStatus: &agentv1.UpdateStatus{
-		Component: component, Version: s.Version, State: s.State, Detail: s.Detail,
-	}}})
+	a.enqueue(&agentv1.AgentMessage{Body: &agentv1.AgentMessage_UpdateStatus{UpdateStatus: s.Message()}})
 }
 
 // enqueue queues a message for the next accepted session. Returns false when the queue is full.

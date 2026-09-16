@@ -275,6 +275,8 @@ func testOptions(store *state.Store) Options {
 		BackoffBase:        50 * time.Millisecond,
 		BackoffMax:         200 * time.Millisecond,
 		HandshakeTimeout:   5 * time.Second,
+		// The sessions of the machine running the tests are not the endpoint's.
+		SignedInUsers: func() ([]*agentv1.SignedInUser, error) { return nil, errors.New("no signed-in users in tests") },
 	}
 }
 
@@ -433,6 +435,58 @@ func TestSessionConfigResultsAckResendAndRevocation(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 	}
 	_ = a
+}
+
+// The agent reports the signed-in users with the first heartbeat after they are read and again only when the list changes; a list that
+// cannot be read is not reported as empty.
+func TestTheSignedInUsersAreReportedWhenTheyChange(t *testing.T) {
+	g := newFakeGateway(t)
+	store := enrollForTest(t, g)
+	var mu sync.Mutex
+	users := []*agentv1.SignedInUser{{Id: "S-1-5-21-1-1001", Account: `CONTOSO\jan`, Sessions: []*agentv1.UserSession{{Id: "1", Console: true}}}}
+	var readErr error
+	opts := testOptions(store)
+	opts.SignedInUsersInterval = 100 * time.Millisecond
+	opts.SignedInUsers = func() ([]*agentv1.SignedInUser, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return users, readErr
+	}
+	startAgent(t, opts)
+	c := g.accept(t)
+	c.expect(t, "Hello", func(m *agentv1.AgentMessage) bool { return isType[*agentv1.AgentMessage_Hello](m) })
+	c.send(t, &agentv1.ServerMessage{Body: &agentv1.ServerMessage_HelloAck{HelloAck: &agentv1.HelloAck{HeartbeatIntervalSeconds: 1}}})
+
+	first := c.expect(t, "a heartbeat with the signed-in users", func(m *agentv1.AgentMessage) bool {
+		return m.GetHeartbeat().GetSignedInUsers() != nil
+	})
+	if got := first.GetHeartbeat().GetSignedInUsers().GetUsers(); len(got) != 1 || got[0].GetAccount() != `CONTOSO\jan` {
+		t.Fatalf("unexpected users %v", got)
+	}
+
+	// Unchanged, then unreadable: heartbeats without a list.
+	mu.Lock()
+	readErr = errors.New("access denied")
+	users = nil
+	mu.Unlock()
+	for range 2 {
+		heartbeat := c.expect(t, "a heartbeat", func(m *agentv1.AgentMessage) bool { return isType[*agentv1.AgentMessage_Heartbeat](m) })
+		if heartbeat.GetHeartbeat().GetSignedInUsers() != nil {
+			t.Fatalf("an unchanged or unreadable list was sent again: %v", heartbeat.GetHeartbeat().GetSignedInUsers())
+		}
+	}
+
+	// Everybody signed out: an empty list is reported.
+	mu.Lock()
+	readErr = nil
+	users = []*agentv1.SignedInUser{}
+	mu.Unlock()
+	empty := c.expect(t, "a heartbeat with an empty list", func(m *agentv1.AgentMessage) bool {
+		return m.GetHeartbeat().GetSignedInUsers() != nil
+	})
+	if len(empty.GetHeartbeat().GetSignedInUsers().GetUsers()) != 0 {
+		t.Fatalf("expected nobody signed in, got %v", empty.GetHeartbeat().GetSignedInUsers())
+	}
 }
 
 func TestAgentOnlyConfigurationRunsNoChecks(t *testing.T) {

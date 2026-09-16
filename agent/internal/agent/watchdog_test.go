@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -102,6 +103,7 @@ func TestTheAgentInstallsAMissingWatchdogFromAVerifiedRelease(t *testing.T) {
 	opts := testOptions(store)
 	opts.Watchdog = &WatchdogOptions{
 		StateDir: watchdogDir, ProgramDir: programDir, Controller: controller, Keys: []ed25519.PublicKey{releasePub}, UpdateMaxDelay: -1,
+		UpdateTransientRetry: 200 * time.Millisecond,
 		Create: func(def svcctl.Definition) error {
 			controller.mu.Lock()
 			created = append(created, def)
@@ -141,7 +143,19 @@ func TestTheAgentInstallsAMissingWatchdogFromAVerifiedRelease(t *testing.T) {
 		Manifest: manifest, Signature: ed25519.Sign(releasePriv, manifest), UpdateAllowed: true,
 	}}})
 
-	request := c.expect(t, "a watchdog certificate request", func(m *agentv1.AgentMessage) bool {
+	// The signer cannot answer right now: the agent reports the failure and asks again within the transient retry, not after an hour.
+	c.expect(t, "a watchdog certificate request", func(m *agentv1.AgentMessage) bool {
+		return isType[*agentv1.AgentMessage_WatchdogCertificate](m)
+	})
+	c.send(t, &agentv1.ServerMessage{Body: &agentv1.ServerMessage_WatchdogCertificate{WatchdogCertificate: &agentv1.WatchdogCertificateResponse{
+		Error: "The watchdog certificate could not be issued right now. The agent retries later.", Temporary: true,
+	}}})
+	c.expect(t, "the failed report", func(m *agentv1.AgentMessage) bool {
+		return m.GetUpdateStatus().GetState() == agentv1.UpdateState_UPDATE_STATE_FAILED &&
+			strings.Contains(m.GetUpdateStatus().GetDetail(), "could not be issued right now")
+	})
+
+	request := c.expect(t, "a second watchdog certificate request", func(m *agentv1.AgentMessage) bool {
 		return isType[*agentv1.AgentMessage_WatchdogCertificate](m)
 	})
 	downloads.Wait()

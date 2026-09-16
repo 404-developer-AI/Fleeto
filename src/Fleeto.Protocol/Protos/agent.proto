@@ -165,6 +165,29 @@ message Heartbeat {
   // The state of the other service on the endpoint as this service sees it (0.2.1): the watchdog as seen by the agent, the agent
   // as seen by the watchdog. Sent with the first heartbeat of a session and whenever it changes.
   PeerStatus peer = 2;
+  // The users signed in on the endpoint (0.2.2), for choosing the user a script runs as. Agent only; sent with the first heartbeat of
+  // a session and whenever the list changes. Absent means unchanged; an empty list means nobody is signed in.
+  SignedInUsers signed_in_users = 3;
+}
+
+message SignedInUsers {
+  repeated SignedInUser users = 1;
+}
+
+// A user with at least one active session. Personal data.
+message SignedInUser {
+  // Stable identity of the account, which a job names to run as this user: the SID on Windows, the uid on Linux.
+  string id = 1;
+  // DOMAIN\name on Windows, the user name on Linux.
+  string account = 2;
+  repeated UserSession sessions = 3;
+}
+
+message UserSession {
+  // The Windows session number or the systemd-logind session id.
+  string id = 1;
+  // The session on the local screen of the endpoint; otherwise a remote desktop or remote graphical session.
+  bool console = 2;
 }
 
 message PeerStatus {
@@ -446,6 +469,10 @@ message JobPayload {
   ScriptJob script = 9;
   // Account the script runs under (0.2.1). Unspecified means the service account.
   JobRunAs run_as = 10;
+  // With JOB_RUN_AS_LOGGED_ON_USER (0.2.2): the user the technician chose, as SignedInUser.id. The script runs in a session of this
+  // user only, the console session first; when the user has no active session the job fails. Empty: the console session first,
+  // else the first active session.
+  string run_as_user_id = 11;
 }
 
 enum JobRunAs {
@@ -572,6 +599,8 @@ message WatchdogCertificateResponse {
   bytes certificate_der = 1;
   // Non-empty when refused; the agent retries later.
   string error = 2;
+  // With error (0.2.2): the gateway or signer could not answer right now, so the agent retries within minutes instead of after an hour.
+  bool temporary = 3;
 }
 
 // The current release of the instance, sent after HelloAck and whenever update_allowed changes.
@@ -593,6 +622,11 @@ message UpdateStatus {
   UpdateState state = 3;
   // Cause of a failure or rollback. Free text, at most 500 characters.
   string detail = 4;
+  // With UPDATE_STATE_WAITING (0.2.2): why the offered release is not installed yet.
+  UpdateWaitReason wait_reason = 5;
+  // With UPDATE_STATE_WAITING: seconds until the wait ends, 0 when the installer cannot know (the ring, its own update). A duration
+  // instead of a time, so the gateway stamps the end on its own clock.
+  uint32 wait_seconds = 6;
 }
 
 enum UpdateState {
@@ -604,6 +638,23 @@ enum UpdateState {
   UPDATE_STATE_FAILED = 4;
   // Installed but the new version did not start or connect; the previous version was restored. Not retried for this version.
   UPDATE_STATE_ROLLED_BACK = 5;
+  // Offered and newer, but not installed yet (0.2.2); wait_reason says why. Not a result: the last result stays shown next to it.
+  UPDATE_STATE_WAITING = 6;
+}
+
+// Why an installer holds back an offered newer release (0.2.2).
+enum UpdateWaitReason {
+  UPDATE_WAIT_REASON_UNSPECIFIED = 0;
+  // The update ring of the endpoint has not reached the release, or the release is paused.
+  UPDATE_WAIT_REASON_UPDATE_RING = 1;
+  // The next attempt after a failed or postponed one; wait_seconds says when.
+  UPDATE_WAIT_REASON_NEXT_ATTEMPT = 2;
+  // The random delay that spreads downloads over endpoints; wait_seconds says when.
+  UPDATE_WAIT_REASON_RANDOM_DELAY = 3;
+  // The agent updates the watchdog only once it runs the release itself.
+  UPDATE_WAIT_REASON_INSTALLER_UPDATE = 4;
+  // This version was rolled back on the endpoint before and is not tried again.
+  UPDATE_WAIT_REASON_ROLLED_BACK = 5;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

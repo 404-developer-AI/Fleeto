@@ -3,6 +3,7 @@ using System;
 using Fleeto.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Fleeto.Infrastructure.Migrations
 {
     [DbContext(typeof(FleetoDbContext))]
-    partial class FleetoDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260916142712_ComponentUpdateWait")]
+    partial class ComponentUpdateWait
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1070,12 +1073,6 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<DateTime?>("PublicIpSeenAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<DateTime?>("SignedInUsersAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("SignedInUsersJson")
-                        .HasColumnType("jsonb");
-
                     b.Property<Guid>("SiteId")
                         .HasColumnType("uuid");
 
@@ -1657,14 +1654,6 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<string>("RunAsAccount")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
-
-                    b.Property<string>("RunAsChosenAccount")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("RunAsUserId")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
 
                     b.Property<Guid?>("ScriptId")
                         .HasColumnType("uuid");

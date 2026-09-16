@@ -547,6 +547,7 @@ Response `200`: a page of [Job](#job). Errors: 400, 401, 429.
       },
       "runAs": "service",
       "runAsAccount": null,
+      "runAsChosenAccount": null,
       "state": "succeeded",
       "result": "exited",
       "exitCode": 0,
@@ -771,6 +772,7 @@ not read them.
 | `script` | object | The script as it was when the job was created: `id` (UUID, nullable: `null` after the script was deleted), `versionId` (UUID, nullable), `name`, `versionNumber` (integer), `language` ([script language](#script-language)), `sha256` (hex SHA-256 of the script body). |
 | `runAs` | [job run as](#job-run-as) | The account the script ran under on the endpoint. |
 | `runAsAccount` | string, nullable | For `logged_on_user`: the account the agent ran the script under, as `DOMAIN\name` on Windows and the user name on Linux, once the job started. `null` for `service` and before the start. |
+| `runAsChosenAccount` | string, nullable | For `logged_on_user`: the user the technician chose to run the script as, in the same form as `runAsAccount`. The job runs only in a session of that user and fails when they are not signed in. `null` when no user was chosen: the agent then takes the console session first. A run for all signed-in users creates one job per user with this field set, all with the same `batchId`. From Fleeto 0.2.2. |
 | `state` | [job state](#job-state) | |
 | `result` | [job result](#job-result), nullable | What the agent reported when the job ended; `null` before. |
 | `exitCode` | integer, nullable | Exit code of the script. |
@@ -970,6 +972,7 @@ values and examples.
 
 | Fleeto | API | Change |
 |---|---|---|
+| 0.2.2 | v1 | `runAsChosenAccount` on Job: the user the technician chose for a `logged_on_user` job (additive). |
 | 0.2.1 | v1 | `runAsAccount` on Job: the signed-in user a `logged_on_user` job ran as (additive). |
 | 0.2.1 | v1 | `runAs` on Job: the account the script ran under on the endpoint (additive). |
 | 0.2.1 | v1 | Alert kinds `agent_stopped` and `watchdog_stopped` (additive). |

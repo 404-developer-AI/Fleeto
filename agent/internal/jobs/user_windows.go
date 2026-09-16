@@ -3,9 +3,12 @@
 package jobs
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"sync"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -26,9 +29,13 @@ type signedInUser struct {
 }
 
 // signedInSession picks the active session: the console session when someone is signed in there, otherwise the first
-// active session (a remote desktop session counts). Connected-but-signed-out and disconnected sessions are skipped.
-func signedInSession() (*signedInUser, error) {
+// active session (a remote desktop session counts). Connected-but-signed-out and disconnected sessions are skipped. With a
+// userID (a SID) only the sessions of that user count.
+func signedInSession(userID string) (*signedInUser, error) {
 	sessions, err := activeSessions()
+	if errors.Is(err, ErrNoUserSignedIn) && userID != "" {
+		return nil, ErrUserNotSignedIn
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -43,9 +50,74 @@ func signedInSession() (*signedInUser, error) {
 		if err != nil {
 			continue
 		}
+		if userID != "" && !sameUser(userID, user.sid) {
+			user.close()
+			continue
+		}
 		return user, nil
 	}
+	if userID != "" {
+		return nil, ErrUserNotSignedIn
+	}
 	return nil, ErrNoUserSignedIn
+}
+
+// SignedInUsers lists the users with an active session, for the technician to choose from. Needs the rights of SYSTEM; an error
+// when there are sessions but none could be read.
+func SignedInUsers() ([]*agentv1.SignedInUser, error) {
+	sessions, err := activeSessions()
+	if errors.Is(err, ErrNoUserSignedIn) {
+		return []*agentv1.SignedInUser{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	console := windows.WTSGetActiveConsoleSessionId()
+	var found []userSession
+	var lastErr error
+	for _, id := range sessions {
+		sid, err := sessionUser(id)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		found = append(found, userSession{userID: sid, account: accountOf(sid), session: strconv.FormatUint(uint64(id), 10), console: id == console})
+	}
+	if len(found) == 0 && lastErr != nil {
+		return nil, fmt.Errorf("read the users of the active sessions: %w", lastErr)
+	}
+	return groupSessions(found), nil
+}
+
+// sessionUser is the SID of the user signed in to a session.
+func sessionUser(id uint32) (string, error) {
+	var token windows.Token
+	if err := windows.WTSQueryUserToken(id, &token); err != nil {
+		return "", err
+	}
+	defer token.Close()
+	account, err := token.GetTokenUser()
+	if err != nil {
+		return "", err
+	}
+	return account.User.Sid.String(), nil
+}
+
+// accountNames caches DOMAIN\name per SID: the list is read every heartbeat, and a lookup may ask a domain controller.
+var accountNames sync.Map
+
+func accountOf(sid string) string {
+	if name, ok := accountNames.Load(sid); ok {
+		return name.(string)
+	}
+	name := sid
+	if parsed, err := windows.StringToSid(sid); err == nil {
+		if user, domain, _, err := parsed.LookupAccount(""); err == nil {
+			name = domain + `\` + user
+			accountNames.Store(sid, name)
+		}
+	}
+	return name
 }
 
 func slicesContains(values []uint32, value uint32) bool {
@@ -102,11 +174,7 @@ func openSession(id uint32) (*signedInUser, error) {
 		profile = ""
 	}
 	sid := account.User.Sid.String()
-	name := sid
-	if user, domain, _, err := account.User.Sid.LookupAccount(""); err == nil {
-		name = domain + `\` + user
-	}
-	return &signedInUser{session: id, token: primary, sid: sid, account: name, profile: profile}, nil
+	return &signedInUser{session: id, token: primary, sid: sid, account: accountOf(sid), profile: profile}, nil
 }
 
 // accountName is the account the script runs under, for the job history.

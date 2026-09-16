@@ -155,6 +155,21 @@ public enum ComponentUpdateState
     RolledBack
 }
 
+/// <summary>Why the service that installs a component holds back an offered newer release (0.2.2).</summary>
+public enum ComponentUpdateWait
+{
+    /// <summary>The update ring of the endpoint has not reached the release, or the release is paused.</summary>
+    UpdateRing,
+    /// <summary>The next attempt after a failed or postponed one.</summary>
+    NextAttempt,
+    /// <summary>The random delay that spreads downloads over endpoints.</summary>
+    RandomDelay,
+    /// <summary>The agent updates the watchdog only once it runs the release itself.</summary>
+    InstallerUpdate,
+    /// <summary>The version was rolled back on the endpoint before and is not tried again.</summary>
+    RolledBack
+}
+
 /// <summary>How a link between a site and a policy or monitoring template came to exist.</summary>
 public enum LinkSource
 {

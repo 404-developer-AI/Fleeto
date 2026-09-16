@@ -140,6 +140,15 @@ public class Job
     /// <summary>The account the agent ran the script under when it ran as the signed-in user (0.2.1), as the agent reported it.</summary>
     public string? RunAsAccount { get; set; }
 
+    /// <summary>
+    /// The user the technician chose for a job that runs as the signed-in user (0.2.2): the SID or uid the agent reported. Signed with the
+    /// job; null lets the agent pick the console session first.
+    /// </summary>
+    public string? RunAsUserId { get; set; }
+
+    /// <summary>The account name of <see cref="RunAsUserId"/> when it was chosen, for the job history.</summary>
+    public string? RunAsChosenAccount { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime ValidUntil { get; set; }
     public Guid InitiatedByUserId { get; set; }
@@ -238,6 +247,9 @@ public static class ScriptRules
 
     /// <summary>Endpoints one run may target.</summary>
     public const int MaxEndpointsPerRun = 500;
+
+    /// <summary>Jobs one run may create (0.2.2): a run for all signed-in users creates one job per user on each endpoint.</summary>
+    public const int MaxJobsPerRun = 500;
 
     /// <summary>
     /// Endpoint count above which a run emails every admin, until an admin changes it in Settings, Scripts (0.2.1). A run on a handful

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -384,10 +385,10 @@ func TestUpdaterInstallsAVerifiedNewerReleaseAndSkipsARolledBackOne(t *testing.T
 		HealthTimeout:    2 * time.Second, HealthMaxTimeout: 3 * time.Second,
 	})
 
-	// Not allowed by the ring: nothing happens.
+	// Not allowed by the ring: only the wait is reported.
 	u.Offer(manifest, signature, false)
 	u.Evaluate(context.Background())
-	if len(reports) != 0 {
+	if len(reports) != 1 || reports[0].State != agentv1.UpdateState_UPDATE_STATE_WAITING {
 		t.Fatalf("an update that the ring does not allow was started: %+v", reports)
 	}
 
@@ -421,9 +422,10 @@ func TestUpdaterInstallsAVerifiedNewerReleaseAndSkipsARolledBackOne(t *testing.T
 	}
 	reports = nil
 	u.Evaluate(context.Background())
-	if len(reports) != 0 {
-		t.Fatal("a rolled back version was tried again")
+	if len(reports) != 1 || reports[0].WaitReason != agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_ROLLED_BACK {
+		t.Fatalf("a rolled back version was tried again: %+v", reports)
 	}
+	reports = nil
 
 	// Never a downgrade or reinstall of the same version.
 	u2 := NewUpdater(UpdaterOptions{
@@ -439,5 +441,226 @@ func TestUpdaterInstallsAVerifiedNewerReleaseAndSkipsARolledBackOne(t *testing.T
 	u2.Evaluate(context.Background())
 	if len(reports) != 0 {
 		t.Fatal("the installed version was reinstalled")
+	}
+}
+
+func TestUpdaterLogsOnceWhyAnOfferedReleaseWaits(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	file := release.ExpectedFile("agent", runtime.GOOS, runtime.GOARCH)
+	manifest := []byte(fmt.Sprintf(`{"formatVersion":1,"version":"0.2.2","agentBinaries":[{"component":"agent","platform":%q,"architecture":%q,"file":%q,"sha256":%q,"size":1}]}`,
+		runtime.GOOS, runtime.GOARCH, file, strings.Repeat("0", 64)))
+	signature := ed25519.Sign(priv, manifest)
+
+	var logs strings.Builder
+	now := time.Date(2026, 9, 16, 12, 0, 0, 0, time.UTC)
+	ready := true
+	installed := "0.2.1"
+	u := NewUpdater(UpdaterOptions{
+		Target: Target{Component: "agent", Service: "fleeto-agent"}, Keys: []ed25519.PublicKey{pub}, StateDir: t.TempDir(),
+		Access: platform.AccessCurrentUser, Controller: &fakeController{state: svcctl.StateRunning},
+		Logger: slog.New(slog.NewTextHandler(&logs, nil)), MaxDelay: time.Hour, Now: func() time.Time { return now },
+		Client:           func() (*http.Client, string, error) { return nil, "", errors.New("no download in this test") },
+		InstalledVersion: func(context.Context) (string, error) { return installed, nil },
+		Ready:            func(*release.Manifest) bool { return ready },
+	})
+	count := func(text string) int { return strings.Count(logs.String(), text) }
+	var reports []Status
+	u.opts.Report = func(s Status) { reports = append(reports, s) }
+	// expect checks that the evaluations reported exactly one wait since the previous check, with this reason and duration.
+	seen := 0
+	expect := func(reason agentv1.UpdateWaitReason, seconds uint32) {
+		t.Helper()
+		if len(reports) != seen+1 {
+			t.Fatalf("expected one new report, got %+v", reports[seen:])
+		}
+		msg := reports[seen].Message()
+		seen = len(reports)
+		if msg.GetState() != agentv1.UpdateState_UPDATE_STATE_WAITING || msg.GetWaitReason() != reason || msg.GetWaitSeconds() != seconds ||
+			msg.GetVersion() != "0.2.2" || msg.GetComponent() != agentv1.Component_COMPONENT_AGENT {
+			t.Fatalf("expected a %v wait of %d seconds, got %+v", reason, seconds, msg)
+		}
+	}
+
+	u.Offer(manifest, signature, false)
+	u.Evaluate(context.Background())
+	u.Evaluate(context.Background())
+	if count("waiting for the update ring") != 1 {
+		t.Fatalf("expected the ring wait logged once:\n%s", logs.String())
+	}
+	expect(agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_UPDATE_RING, 0)
+
+	u.memory.RetryAt("agent", now.Add(time.Hour))
+	u.Offer(manifest, signature, true)
+	u.Evaluate(context.Background())
+	u.Evaluate(context.Background())
+	if count("waiting for the next attempt") != 1 || count("nextAttempt=2026-09-16T13:00:00Z") != 1 {
+		t.Fatalf("expected the retry wait logged once with its time:\n%s", logs.String())
+	}
+	expect(agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_NEXT_ATTEMPT, 3600)
+	// A new failure moves the next attempt: logged and reported again.
+	u.memory.RetryAt("agent", now.Add(2*time.Hour))
+	u.Evaluate(context.Background())
+	if count("nextAttempt=2026-09-16T14:00:00Z") != 1 {
+		t.Fatalf("expected the moved retry wait logged:\n%s", logs.String())
+	}
+	expect(agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_NEXT_ATTEMPT, 7200)
+
+	u.memory.Clear("agent")
+	ready = false
+	u.Evaluate(context.Background())
+	if count("waiting until this service runs the release itself") != 1 {
+		t.Fatalf("expected the readiness wait logged:\n%s", logs.String())
+	}
+	expect(agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_INSTALLER_UPDATE, 0)
+
+	u.memory.RecordRollback("agent", "0.2.2")
+	u.Evaluate(context.Background())
+	u.Evaluate(context.Background())
+	if count("rolled back before") != 1 {
+		t.Fatalf("expected the rollback logged once:\n%s", logs.String())
+	}
+	expect(agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_ROLLED_BACK, 0)
+
+	// An installed release is no wait; the random delay is reported with its end but logged as before.
+	before := count("not installing it yet")
+	installed = "0.2.2"
+	u.Evaluate(context.Background())
+	if len(reports) != seen {
+		t.Fatalf("an installed release was reported as waiting: %+v", reports[seen:])
+	}
+	installed = "0.2.0"
+	u.memory = OpenMemory(t.TempDir(), platform.AccessCurrentUser)
+	ready = true
+	u.notBefore["0.2.2"] = now.Add(90 * time.Second)
+	u.Evaluate(context.Background())
+	if count("not installing it yet") != before || len(reports) != seen {
+		t.Fatalf("expected no wait logged or reported for a delay planned before:\n%s\n%+v", logs.String(), reports[seen:])
+	}
+	delete(u.notBefore, "0.2.2")
+	u.Evaluate(context.Background())
+	u.Evaluate(context.Background())
+	if count("not installing it yet") != before || count("installing after a random delay") != 1 {
+		t.Fatalf("expected the random delay logged once:\n%s", logs.String())
+	}
+	if len(reports) != seen+1 {
+		t.Fatalf("expected one random delay report, got %+v", reports[seen:])
+	}
+	if msg := reports[seen].Message(); msg.GetWaitReason() != agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_RANDOM_DELAY ||
+		msg.GetWaitSeconds() > 3600 || msg.GetWaitSeconds() != uint32(math.Ceil(u.notBefore["0.2.2"].Sub(now).Seconds())) {
+		t.Fatalf("expected a random delay report ending at the planned time, got %+v", msg)
+	}
+}
+
+func TestStatusMessageRoundsTheWaitUp(t *testing.T) {
+	msg := Status{Component: release.ComponentWatchdog, Version: "0.2.2", State: agentv1.UpdateState_UPDATE_STATE_WAITING,
+		WaitReason: agentv1.UpdateWaitReason_UPDATE_WAIT_REASON_RANDOM_DELAY, WaitFor: 1500 * time.Millisecond}.Message()
+	if msg.GetComponent() != agentv1.Component_COMPONENT_WATCHDOG || msg.GetWaitSeconds() != 2 {
+		t.Fatalf("unexpected message %+v", msg)
+	}
+}
+
+func TestDownloadMarksOnlyFailuresThatPassOnTheirOwnAsTransient(t *testing.T) {
+	content := "binary content"
+	sum := sha256.Sum256([]byte(content))
+	status := http.StatusOK
+	dropped := false
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case status != http.StatusOK:
+			w.WriteHeader(status)
+		case dropped:
+			// Promise the whole binary, send half and drop the connection.
+			w.Header().Set("Content-Length", fmt.Sprint(len(content)))
+			_, _ = io.WriteString(w, content[:5])
+			w.(http.Flusher).Flush()
+			conn, _, _ := w.(http.Hijacker).Hijack()
+			_ = conn.Close()
+		default:
+			_, _ = io.WriteString(w, "binary contenX")
+		}
+	}))
+	host := strings.TrimPrefix(server.URL, "https://")
+	b := release.Binary{Component: "agent", Platform: "windows", Architecture: "amd64", File: "windows-amd64/fleeto-agent.exe",
+		SHA256: hex.EncodeToString(sum[:]), Size: int64(len(content))}
+	dir := t.TempDir()
+	download := func() error {
+		return Download(context.Background(), server.Client(), host, "0.2.2", b, filepath.Join(dir, "staged.exe"), platform.AccessCurrentUser)
+	}
+
+	for _, code := range []int{http.StatusInternalServerError, http.StatusBadGateway, http.StatusGatewayTimeout} {
+		status = code
+		if err := download(); !IsTransient(err) {
+			t.Fatalf("HTTP %d must be transient, got %v", code, err)
+		}
+	}
+	for _, code := range []int{http.StatusNotFound, http.StatusForbidden} {
+		status = code
+		if err := download(); err == nil || IsTransient(err) {
+			t.Fatalf("HTTP %d must wait an hour, got %v", code, err)
+		}
+	}
+	status = http.StatusOK
+	if err := download(); err == nil || IsTransient(err) {
+		t.Fatalf("a download that does not match the manifest must wait an hour, got %v", err)
+	}
+	dropped = true
+	if err := download(); !IsTransient(err) {
+		t.Fatalf("a dropped connection must be transient, got %v", err)
+	}
+	server.Close()
+	if err := download(); !IsTransient(err) {
+		t.Fatalf("a gateway that does not answer must be transient, got %v", err)
+	}
+}
+
+func TestUpdaterRetriesATransientFailureSoonWithBackoff(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	file := release.ExpectedFile("agent", runtime.GOOS, runtime.GOARCH)
+	manifest := []byte(fmt.Sprintf(`{"formatVersion":1,"version":"0.2.2","agentBinaries":[{"component":"agent","platform":%q,"architecture":%q,"file":%q,"sha256":%q,"size":1}]}`,
+		runtime.GOOS, runtime.GOARCH, file, strings.Repeat("0", 64)))
+	status := http.StatusBadGateway
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status) }))
+	defer server.Close()
+
+	now := time.Date(2026, 9, 16, 12, 0, 0, 0, time.UTC)
+	var reports []Status
+	u := NewUpdater(UpdaterOptions{
+		Target: Target{Component: "agent", Service: "fleeto-agent"}, Keys: []ed25519.PublicKey{pub}, StateDir: t.TempDir(),
+		Access: platform.AccessCurrentUser, Controller: &fakeController{state: svcctl.StateRunning}, Logger: discard(), MaxDelay: -1,
+		Now: func() time.Time { return now },
+		Client: func() (*http.Client, string, error) {
+			return server.Client(), strings.TrimPrefix(server.URL, "https://"), nil
+		},
+		Report:           func(s Status) { reports = append(reports, s) },
+		InstalledVersion: func(context.Context) (string, error) { return "0.2.1", nil },
+		// Long enough that the wake-ups of the failures never fire during the test.
+		TransientRetry: 10 * time.Minute, RetryAfter: time.Hour,
+	})
+	u.Offer(manifest, ed25519.Sign(priv, manifest), true)
+
+	// Each transient failure in a row waits between half and all of 10, 20, 40 minutes, then at most the hour.
+	for i, ceiling := range []time.Duration{10 * time.Minute, 20 * time.Minute, 40 * time.Minute, time.Hour, time.Hour} {
+		u.Evaluate(context.Background())
+		if len(reports) == 0 || reports[len(reports)-1].State != agentv1.UpdateState_UPDATE_STATE_FAILED {
+			t.Fatalf("attempt %d: expected a failed report, got %+v", i, reports)
+		}
+		wait := u.memory.NextAttempt("agent").Sub(now)
+		if wait < ceiling/2 || wait > ceiling {
+			t.Fatalf("attempt %d: expected a wait up to %s, got %s", i, ceiling, wait)
+		}
+		now = u.memory.NextAttempt("agent")
+	}
+
+	// A refusal waits the hour and starts the backoff again.
+	status = http.StatusNotFound
+	u.Evaluate(context.Background())
+	if wait := u.memory.NextAttempt("agent").Sub(now); wait != time.Hour {
+		t.Fatalf("a refusal must wait an hour, got %s", wait)
+	}
+	now = u.memory.NextAttempt("agent")
+	status = http.StatusBadGateway
+	u.Evaluate(context.Background())
+	if wait := u.memory.NextAttempt("agent").Sub(now); wait < 5*time.Minute || wait > 10*time.Minute {
+		t.Fatalf("the backoff must start again after a refusal, got %s", wait)
 	}
 }

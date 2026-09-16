@@ -258,6 +258,10 @@
                                                 @Ui.UpdateStateLabel(agentUpdate) @agentState.UpdateVersion <TimeText Value="agentState.UpdateAt" />@(string.IsNullOrEmpty(agentState.UpdateDetail) ? "" : $" · {agentState.UpdateDetail}")
                                             </div>
                                         }
+                                        @if (Component(e, AgentComponent.Agent) is { } agentWaitState && Ui.UpdateWaitText(agentWaitState, e.AgentVersion, e, Clock.GetUtcNow().UtcDateTime, Time.Absolute) is { } agentWait)
+                                        {
+                                            <div class="muted" style="font-size:0.75rem">@agentWait</div>
+                                        }
                                         @if (!e.IsOnline && Component(e, AgentComponent.Agent) is { ServiceState: not ComponentServiceState.Unknown } agentService)
                                         {
                                             <div class="muted" style="font-size:0.75rem">
@@ -269,9 +273,10 @@
                                 <tr>
                                     <td class="muted">Watchdog</td>
                                     <td>
+                                        @{ var watchdogWait = Component(e, AgentComponent.Watchdog) is { } waitState ? Ui.UpdateWaitText(waitState, e.WatchdogVersion, e, Clock.GetUtcNow().UtcDateTime, Time.Absolute) : null; }
                                         @if (string.IsNullOrEmpty(e.WatchdogVersion))
                                         {
-                                            <span class="muted">Not installed yet: the agent installs it with the next release offer</span>
+                                            <span class="muted">@(watchdogWait is null ? "Not installed yet: the agent installs it with the next release offer" : "Not installed yet")</span>
                                         }
                                         else
                                         {
@@ -295,6 +300,10 @@
                                                 <div class="muted" style="font-size:0.75rem">
                                                     @Ui.UpdateStateLabel(watchdogUpdate) @watchdogState.UpdateVersion <TimeText Value="watchdogState.UpdateAt" />@(string.IsNullOrEmpty(watchdogState.UpdateDetail) ? "" : $" · {watchdogState.UpdateDetail}")
                                                 </div>
+                                            }
+                                            @if (watchdogWait is not null)
+                                            {
+                                                <div class="muted" style="font-size:0.75rem">@watchdogWait</div>
                                             }
                                         }
                                     </td>
@@ -581,7 +590,13 @@
             </HeaderContent>
             <RowTemplate>
                 <MudTd><TimeText Value="context.StartedAt ?? context.CreatedAt" /></MudTd>
-                <MudTd>@context.ScriptName <span class="muted">v@(context.ScriptVersionNumber)</span></MudTd>
+                <MudTd>
+                    @context.ScriptName <span class="muted">v@(context.ScriptVersionNumber)</span>
+                    @if (context.RunAs == JobRunAs.LoggedOnUser && (context.RunAsAccount ?? context.RunAsChosenAccount) is { } account)
+                    {
+                        <span class="muted"> · @account</span>
+                    }
+                </MudTd>
                 <MudTd>
                     <StatusChip Text="@Ui.JobStateLabel(context.State, context.Result)" Kind="@Ui.JobStateKind(context.State)" />
                     @if (context.ExitCode is { } exitCode)
@@ -607,14 +622,22 @@
     private async Task RunScriptAsync(EndpointDetail e)
     {
         IReadOnlyList<RunnableScript> scripts = [];
-        await LoadAsync(async caller => scripts = await JobSvc.ListRunnableScriptsAsync(caller, [e.Id]));
+        SignedInUsersView? signedIn = null;
+        await LoadAsync(async caller =>
+        {
+            scripts = await JobSvc.ListRunnableScriptsAsync(caller, [e.Id]);
+            signedIn = await JobSvc.GetSignedInUsersAsync(caller, e.Id);
+        });
         var parameters = new DialogParameters<RunScriptDialog>
         {
             { d => d.EndpointIds, new[] { e.Id } },
             { d => d.TargetLabel, e.Hostname },
             { d => d.Scripts, scripts },
-            { d => d.OnSubmit, (scriptId, validity, runAs) => RunAsync(caller => JobSvc.RunAsync(caller, scriptId, [e.Id], validity, runAs),
-                "The job was started. It runs as soon as the endpoint receives it.") }
+            { d => d.SignedInUsers, signedIn },
+            { d => d.OnSubmit, (scriptId, validity, runAs, userId, allUsers) => RunAsync(caller => JobSvc.RunAsync(caller, scriptId, [e.Id], validity, runAs, userId, allUsers),
+                allUsers
+                    ? "A job was started for every signed-in user. They run as soon as the endpoint receives them."
+                    : "The job was started. It runs as soon as the endpoint receives it.") }
         };
         var dialog = await DialogService.ShowAsync<RunScriptDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         if (!(await dialog.Result)!.Canceled)

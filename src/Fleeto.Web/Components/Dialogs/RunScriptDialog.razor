@@ -33,7 +33,22 @@
                 <MudSelectItem T="JobRunAs" Value="JobRunAs.LoggedOnUser">@Ui.JobRunAsLabel(JobRunAs.LoggedOnUser)</MudSelectItem>
             </MudSelect>
             <MudText Typo="Typo.caption" Class="muted d-block mb-3">
-                @if (_runAs == JobRunAs.LoggedOnUser)
+                @if (_runAs == JobRunAs.LoggedOnUser && _userId == AllUsers)
+                {
+                    <text>
+                        The script runs once for every user the agent last reported as signed in, each in a session of that user, with their
+                        rights and profile, and can show windows. Every user gets their own job with its own result and output. A user who is
+                        not signed in anymore when the job arrives fails that job. The users can read the script while it runs.
+                    </text>
+                }
+                else if (_runAs == JobRunAs.LoggedOnUser && SignedInUsers is not null)
+                {
+                    <text>
+                        The script runs in a session of the user, with their rights and profile, and can show windows. When that user is not
+                        signed in anymore, the job fails. The user can read the script while it runs.
+                    </text>
+                }
+                else if (_runAs == JobRunAs.LoggedOnUser)
                 {
                     <text>
                         The script runs in the active session, with that user's rights and profile, and can show windows. An endpoint where
@@ -45,6 +60,38 @@
                     <text>The script runs as SYSTEM on Windows and as root on Linux, with no user session.</text>
                 }
             </MudText>
+            @if (_runAs == JobRunAs.LoggedOnUser && SignedInUsers is null && OfferAllUsers)
+            {
+                <MudSelect T="string" @bind-Value="_userId" Label="User" Variant="Variant.Outlined" Class="mb-3">
+                    <MudSelectItem T="string" Value="@AnyUser">Whoever is signed in (the console session first)</MudSelectItem>
+                    <MudSelectItem T="string" Value="@AllUsers">All signed-in users, one job each</MudSelectItem>
+                </MudSelect>
+            }
+            else if (_runAs == JobRunAs.LoggedOnUser && SignedInUsers is { } signedIn)
+            {
+                <MudSelect T="string" @bind-Value="_userId" Label="User" Variant="Variant.Outlined" Class="mb-1">
+                    <MudSelectItem T="string" Value="@AnyUser">Whoever is signed in (the console session first)</MudSelectItem>
+                    @if (signedIn.Users.Count > 1)
+                    {
+                        <MudSelectItem T="string" Value="@AllUsers">All @signedIn.Users.Count signed-in users, one job each</MudSelectItem>
+                    }
+                    @foreach (var user in signedIn.Users)
+                    {
+                        <MudSelectItem T="string" Value="@user.Id">@Ui.SignedInUserLabel(user)</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+                    @if (signedIn.Users.Count == 0)
+                    {
+                        <text>Nobody was signed in when the agent last reported, </text>
+                    }
+                    else
+                    {
+                        <text>Signed-in users as the agent last reported them, </text>
+                    }
+                    <TimeText Value="signedIn.ReportedAt" />@(signedIn.EndpointOnline ? "." : ". The endpoint is offline, so this may have changed.")
+                </MudText>
+            }
             <MudSelect T="TimeSpan" @bind-Value="_validity" Label="Run when the endpoint is online within" Variant="Variant.Outlined" Class="mb-2">
                 @foreach (var (validity, label) in JobService.Validities)
                 {
@@ -72,7 +119,24 @@
     [Parameter, EditorRequired] public IReadOnlyCollection<Guid> EndpointIds { get; set; } = [];
     [Parameter, EditorRequired] public string TargetLabel { get; set; } = string.Empty;
     [Parameter] public IReadOnlyList<RunnableScript> Scripts { get; set; } = [];
-    [Parameter] public Func<Guid, TimeSpan, JobRunAs, Task<bool>> OnSubmit { get; set; } = (_, _, _) => Task.FromResult(true);
+    /// <summary>
+    /// Script, validity, run as, the chosen user (0.2.2) as the job's run-as user id or null for "whoever is signed in", and whether the script
+    /// runs for all signed-in users (0.2.2).
+    /// </summary>
+    [Parameter] public Func<Guid, TimeSpan, JobRunAs, string?, bool, Task<bool>> OnSubmit { get; set; } = (_, _, _, _, _) => Task.FromResult(true);
+
+    /// <summary>The users signed in on the one endpoint of the run; null for several endpoints or an agent that cannot run as a chosen user.</summary>
+    [Parameter] public SignedInUsersView? SignedInUsers { get; set; }
+
+    /// <summary>
+    /// Offers "All signed-in users" for a run on several endpoints, where no list of users is shown (0.2.2). With <see cref="SignedInUsers"/> it
+    /// is offered when more than one user is signed in.
+    /// </summary>
+    [Parameter] public bool OfferAllUsers { get; set; }
+
+    // Neither is a valid SID or uid, so they never collide with a user.
+    private const string AnyUser = "any";
+    private const string AllUsers = "all";
 
     /// <summary>Endpoint count above which the run emails every admin (Settings, Scripts); 0 never notifies.</summary>
     [Parameter] public int NotifyAdminsAbove { get; set; }
@@ -80,6 +144,7 @@
     private Guid? _scriptId;
     private TimeSpan _validity = ScriptRules.DefaultValidity;
     private JobRunAs _runAs = JobRunAs.Service;
+    private string _userId = AnyUser;
     private bool _busy;
 
     private void Cancel() => MudDialog.Cancel();
@@ -94,7 +159,9 @@
         _busy = true;
         try
         {
-            if (await OnSubmit(scriptId, _validity, _runAs))
+            var allUsers = _runAs == JobRunAs.LoggedOnUser && _userId == AllUsers;
+            var userId = _runAs == JobRunAs.LoggedOnUser && SignedInUsers is not null && _userId is not AnyUser and not AllUsers ? _userId : null;
+            if (await OnSubmit(scriptId, _validity, _runAs, userId, allUsers))
             {
                 MudDialog.Close(DialogResult.Ok(true));
             }

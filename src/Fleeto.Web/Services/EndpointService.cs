@@ -18,11 +18,15 @@ public sealed record EndpointDetail(
     int ActiveCertificates, DateTime? CertificateExpiresAt, int OpenAlertCount, int HeldAlertCount, IReadOnlyList<SiteOption> ClientSites,
     string? PublicIpAddress, DateTime? PublicIpSeenAt, EffectiveMaintenance? Maintenance, bool OwnMaintenanceActive,
     bool WatchdogOnline = false, string WatchdogVersion = "", DateTime? WatchdogLastSeenAt = null,
-    IReadOnlyList<EndpointComponentView>? Components = null, string? ReleaseVersion = null);
+    IReadOnlyList<EndpointComponentView>? Components = null, string? ReleaseVersion = null, ReleaseRingTiming? ReleaseRing = null);
+
+/// <summary>When the update ring of an endpoint gets the current release (0.2.2): its ring, the moment the ring reaches it, whether it is paused.</summary>
+public sealed record ReleaseRingTiming(UpdateRing Ring, DateTime AvailableAt, bool Paused);
 
 /// <summary>What an endpoint reports about one of its Fleeto services (0.2.1): its service state as the other service sees it, and its last update.</summary>
 public sealed record EndpointComponentView(AgentComponent Component, ComponentServiceState ServiceState, string ServiceDetail, DateTime? ServiceStateAt,
-    string UpdateVersion, ComponentUpdateState? UpdateState, string UpdateDetail, DateTime? UpdateAt);
+    string UpdateVersion, ComponentUpdateState? UpdateState, string UpdateDetail, DateTime? UpdateAt,
+    string? WaitVersion = null, ComponentUpdateWait? WaitReason = null, DateTime? WaitUntil = null, DateTime? WaitAt = null);
 
 public sealed record SiteOption(Guid Id, string Name);
 
@@ -252,16 +256,25 @@ public sealed class EndpointService
 
         var components = await db.EndpointComponentStates.AsNoTracking().Where(c => c.EndpointId == e.Id).OrderBy(c => c.Component)
             .Select(c => new EndpointComponentView(c.Component, c.ServiceState, c.ServiceDetail, c.ServiceStateAt, c.UpdateVersion, c.UpdateState, c.UpdateDetail,
-                c.UpdateAt))
+                c.UpdateAt, c.WaitVersion, c.WaitReason, c.WaitUntil, c.WaitAt))
             .ToListAsync(cancellationToken);
-        var releaseVersion = await db.AgentReleases.AsNoTracking().Where(r => r.IsCurrent).Select(r => r.Version).FirstOrDefaultAsync(cancellationToken);
+        var release = await db.AgentReleases.AsNoTracking().FirstOrDefaultAsync(r => r.IsCurrent, cancellationToken);
+        ReleaseRingTiming? releaseRing = null;
+        if (release is not null)
+        {
+            // The same effective ring as the gateway: the policy of the site, else the default policy.
+            var ring = await db.SitePolicies.AsNoTracking().Where(l => l.SiteId == e.SiteId).Select(l => (UpdateRing?)l.Policy!.UpdateRing).FirstOrDefaultAsync(cancellationToken)
+                       ?? await db.Policies.AsNoTracking().Where(p => p.IsDefault).Select(p => (UpdateRing?)p.UpdateRing).FirstOrDefaultAsync(cancellationToken)
+                       ?? UpdateRing.Standard;
+            releaseRing = new ReleaseRingTiming(ring, UpdateRings.AvailableAt(release, ring), release.PausedAt is not null);
+        }
 
         return new EndpointDetail(e.Id, e.Hostname, e.ClientId, endpoint.ClientCode ?? string.Empty, endpoint.ClientName ?? string.Empty, e.SiteId,
             endpoint.SiteName, e.IsOnline, e.Tier, e.Source, e.DetectedClass, e.ClassOverride, e.OsPlatform, e.OsName, e.OsVersion, e.Architecture,
             e.AgentVersion, e.EnrolledAt, e.LastSeenAt, e.ConfigVersion, e.AppliedConfigVersion, endpoint.ActiveCertificates,
             endpoint.CertificateExpiresAt, endpoint.OpenAlerts, endpoint.HeldAlerts, sites, e.PublicIpAddress, e.PublicIpSeenAt,
             MaintenanceRules.Effective(e.Maintenance, endpoint.Site, endpoint.Client, now, MaintenanceWindowSchedule.PeriodFor(windows, e.SiteId, e.EffectiveClass)),
-            e.Maintenance.IsActive(now), e.WatchdogOnline, e.WatchdogVersion, e.WatchdogLastSeenAt, components, releaseVersion);
+            e.Maintenance.IsActive(now), e.WatchdogOnline, e.WatchdogVersion, e.WatchdogLastSeenAt, components, release?.Version, releaseRing);
     }
 
     public async Task<InventoryView?> GetInventoryAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)

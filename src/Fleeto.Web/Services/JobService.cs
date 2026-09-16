@@ -23,7 +23,10 @@ public sealed record JobRunResult(Guid BatchId, int Created, IReadOnlyList<JobRu
 public sealed record JobListItem(Guid Id, Guid BatchId, Guid EndpointId, string Hostname, string? ClientCode, string ScriptName, int ScriptVersionNumber,
     ScriptLanguage Language, JobState State, JobResult? Result, int? ExitCode, string? Problem, JobOutputState OutputState, bool OutputTruncated,
     long OutputBytes, DateTime CreatedAt, DateTime ValidUntil, DateTime? StartedAt, DateTime? CompletedAt, string InitiatedByName, bool CanCancel,
-    JobRunAs RunAs = JobRunAs.Service, string? RunAsAccount = null);
+    JobRunAs RunAs = JobRunAs.Service, string? RunAsAccount = null, string? RunAsChosenAccount = null);
+
+/// <summary>The users signed in on one endpoint as its agent last reported them (0.2.2), for choosing the user a script runs as.</summary>
+public sealed record SignedInUsersView(IReadOnlyList<SignedInUserInfo> Users, DateTime? ReportedAt, bool EndpointOnline);
 
 /// <param name="Stdout">Decoded text of the first <see cref="JobService.MaxViewBytes"/> of the stream.</param>
 public sealed record JobOutputView(JobListItem Job, string Stdout, long StdoutBytes, string Stderr, long StderrBytes, bool ShortenedInView);
@@ -95,10 +98,11 @@ public sealed class JobService
     /// <summary>
     /// Creates one job per endpoint for the script's current version and asks fleeto-signer to sign them. Endpoints that cannot
     /// run it (not managed, another platform or client, or an approval policy with an unapproved version) are skipped with the
-    /// reason; when none remains, nothing is created.
+    /// reason; when none remains, nothing is created. With <paramref name="allSignedInUsers"/> (0.2.2) an endpoint gets one job per
+    /// user its agent last reported, each signed for that user, so every user has their own result and output.
     /// </summary>
     public async Task<ServiceResult<JobRunResult>> RunAsync(Caller caller, Guid scriptId, IReadOnlyCollection<Guid> endpointIds, TimeSpan validity,
-        JobRunAs runAs = JobRunAs.Service, CancellationToken cancellationToken = default)
+        JobRunAs runAs = JobRunAs.Service, string? runAsUserId = null, bool allSignedInUsers = false, CancellationToken cancellationToken = default)
     {
         if (!caller.CanManage)
         {
@@ -108,6 +112,21 @@ public sealed class JobService
         if (!Enum.IsDefined(runAs))
         {
             return ServiceResult<JobRunResult>.Fail("Choose where the script runs.");
+        }
+
+        if (runAsUserId is not null && (runAs != JobRunAs.LoggedOnUser || !SignedInUserRules.IsValidUserId(runAsUserId)))
+        {
+            return ServiceResult<JobRunResult>.Fail("A user can only be chosen when the script runs as the signed-in user.");
+        }
+
+        if (runAsUserId is not null && endpointIds.Distinct().Count() != 1)
+        {
+            return ServiceResult<JobRunResult>.Fail("A user can only be chosen when the script runs on one endpoint. Run it on each endpoint to choose a user there.");
+        }
+
+        if (allSignedInUsers && (runAs != JobRunAs.LoggedOnUser || runAsUserId is not null))
+        {
+            return ServiceResult<JobRunResult>.Fail("All signed-in users can only be chosen when the script runs as the signed-in user, without a chosen user.");
         }
 
         if (Validities.All(v => v.Validity != validity))
@@ -134,7 +153,7 @@ public sealed class JobService
         var endpoints = await db.Endpoints.AsNoTracking().Where(e => ids.Contains(e.Id))
             .Select(e => new
             {
-                e.Id, e.ClientId, e.Hostname, e.Tier, e.OsPlatform, e.Source,
+                e.Id, e.ClientId, e.Hostname, e.Tier, e.OsPlatform, e.Source, e.AgentVersion, e.SignedInUsersJson,
                 ApprovalRequired = (db.SitePolicies.Where(l => l.SiteId == e.SiteId).Select(l => (bool?)l.Policy!.ScriptApprovalRequired).FirstOrDefault() ??
                                     db.Policies.Where(p => p.IsDefault).Select(p => (bool?)p.ScriptApprovalRequired).FirstOrDefault()) == true,
                 // The signer reads the cap again when it signs; this is the value the job starts with.
@@ -154,10 +173,21 @@ public sealed class JobService
         var created = new List<Job>();
         foreach (var endpoint in endpoints.OrderBy(e => e.Hostname))
         {
+            var chooseUser = runAsUserId is not null || allSignedInUsers;
+            var reported = chooseUser ? SignedInUserRules.Parse(endpoint.SignedInUsersJson) : [];
+
+            // The chosen user must be one the agent reported: the signer and the agent check the rest.
+            var chosen = runAsUserId is null ? null : reported.FirstOrDefault(u => string.Equals(u.Id, runAsUserId, StringComparison.OrdinalIgnoreCase));
             var problem = TierRules.EffectiveTier(endpoint.Tier, license) != EndpointTier.Managed ? "Not managed. Switch it to managed to run scripts."
                 : !ScriptLanguages.RunsOn(script.Language, endpoint.OsPlatform) ? $"{ScriptLanguages.Label(script.Language)} does not run on this operating system."
                 : script.ClientId is { } scriptClient && scriptClient != endpoint.ClientId ? "The script belongs to another client."
                 : endpoint.ApprovalRequired && !version.IsApproved ? "The site's policy requires an approved script. Ask a second admin to approve this version."
+                : chooseUser && !SignedInUserRules.AgentSupportsChosenUser(endpoint.AgentVersion)
+                    ? "The agent is too old to run a script as a chosen user. Run it as the signed-in user, or wait until the agent runs Fleeto 0.2.2."
+                : runAsUserId is not null && chosen is null
+                    ? "The chosen user is no longer signed in on this endpoint, as far as the agent reported. Open Run script again to see who is signed in."
+                : allSignedInUsers && reported.Count == 0
+                    ? "Nobody was signed in when the agent last reported."
                 : null;
             if (problem is not null)
             {
@@ -165,27 +195,41 @@ public sealed class JobService
                 continue;
             }
 
-            var job = new Job
+            // For all signed-in users one job per user, sorted by account so a run reads the same every time; otherwise one job.
+            IEnumerable<SignedInUserInfo?> users = allSignedInUsers
+                ? reported.DistinctBy(u => u.Id, StringComparer.OrdinalIgnoreCase).OrderBy(u => u.Account, StringComparer.OrdinalIgnoreCase)
+                : [chosen];
+            foreach (var user in users)
             {
-                Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, BatchId = batchId, Type = JobType.Script,
-                ScriptId = script.Id, ScriptVersionId = version.Id, ScriptName = script.Name, ScriptVersionNumber = version.Number, Language = script.Language,
-                ScriptSha256 = version.Sha256, TimeoutSeconds = version.TimeoutSeconds,
-                MaxOutputBytes = ScriptRules.OutputCap(endpoint.MaxOutputBytes ?? ScriptRules.DefaultMaxOutputBytes), RunAs = runAs,
-                CreatedAt = now, ValidUntil = now + validity, InitiatedByUserId = caller.UserId,
-                InitiatedByName = caller.Name.Length > 200 ? caller.Name[..200] : caller.Name
-            };
-            created.Add(job);
-            db.Jobs.Add(job);
-            db.SigningRequests.Add(new SigningRequest
-            {
-                Id = Guid.NewGuid(), ClientId = endpoint.ClientId, Kind = SigningRequestKind.Job, SubjectId = job.Id, Payload = [],
-                RequestedBy = "web:" + (caller.IpAddress ?? "unknown"), CreatedAt = now
-            });
-            db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.JobCreated, "Job", job.Id.ToString(), endpoint.ClientId, new
-            {
-                endpoint.Hostname, EndpointId = endpoint.Id, BatchId = batchId, job.ScriptName, job.ScriptVersionNumber, job.ScriptSha256, job.ValidUntil,
-                RunAs = job.RunAs.ToString()
-            }), now));
+                if (created.Count == ScriptRules.MaxJobsPerRun)
+                {
+                    return ServiceResult<JobRunResult>.Fail(
+                        $"This run would start more than {ScriptRules.MaxJobsPerRun} jobs, one per signed-in user. Choose fewer endpoints.");
+                }
+
+                var job = new Job
+                {
+                    Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, BatchId = batchId, Type = JobType.Script,
+                    ScriptId = script.Id, ScriptVersionId = version.Id, ScriptName = script.Name, ScriptVersionNumber = version.Number, Language = script.Language,
+                    ScriptSha256 = version.Sha256, TimeoutSeconds = version.TimeoutSeconds,
+                    MaxOutputBytes = ScriptRules.OutputCap(endpoint.MaxOutputBytes ?? ScriptRules.DefaultMaxOutputBytes), RunAs = runAs,
+                    RunAsUserId = user?.Id, RunAsChosenAccount = user?.Account,
+                    CreatedAt = now, ValidUntil = now + validity, InitiatedByUserId = caller.UserId,
+                    InitiatedByName = caller.Name.Length > 200 ? caller.Name[..200] : caller.Name
+                };
+                created.Add(job);
+                db.Jobs.Add(job);
+                db.SigningRequests.Add(new SigningRequest
+                {
+                    Id = Guid.NewGuid(), ClientId = endpoint.ClientId, Kind = SigningRequestKind.Job, SubjectId = job.Id, Payload = [],
+                    RequestedBy = "web:" + (caller.IpAddress ?? "unknown"), CreatedAt = now
+                });
+                db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.JobCreated, "Job", job.Id.ToString(), endpoint.ClientId, new
+                {
+                    endpoint.Hostname, EndpointId = endpoint.Id, BatchId = batchId, job.ScriptName, job.ScriptVersionNumber, job.ScriptSha256, job.ValidUntil,
+                    RunAs = job.RunAs.ToString(), RunAsUser = job.RunAsChosenAccount, AllSignedInUsers = allSignedInUsers
+                }), now));
+            }
         }
 
         foreach (var missing in ids.Except(endpoints.Select(e => e.Id)))
@@ -206,8 +250,8 @@ public sealed class JobService
         {
             db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.JobBatchStarted, "Job", batchId.ToString(), null, new
             {
-                BatchId = batchId, script.Name, VersionNumber = version.Number, Endpoints = created.Count, Skipped = skipped.Count,
-                AdminsNotified = notified, RunAs = runAs.ToString()
+                BatchId = batchId, script.Name, VersionNumber = version.Number, Endpoints = created.Select(j => j.EndpointId).Distinct().Count(),
+                Jobs = created.Count, Skipped = skipped.Count, AdminsNotified = notified, RunAs = runAs.ToString(), AllSignedInUsers = allSignedInUsers
             }), now));
         }
 
@@ -217,14 +261,39 @@ public sealed class JobService
     }
 
     /// <summary>
+    /// The users signed in on one endpoint as its agent last reported them (0.2.2), for the run window. Null when the endpoint does not exist
+    /// for the caller or its agent cannot run a script as a chosen user.
+    /// </summary>
+    public async Task<SignedInUsersView?> GetSignedInUsersAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
+    {
+        if (!caller.CanManage)
+        {
+            return null;
+        }
+
+        await using var db = _dbFactory.Create(caller.Scope);
+        var endpoint = await db.Endpoints.AsNoTracking().Where(e => e.Id == endpointId)
+            .Select(e => new { e.AgentVersion, e.SignedInUsersJson, e.SignedInUsersAt, e.IsOnline })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (endpoint is null || !SignedInUserRules.AgentSupportsChosenUser(endpoint.AgentVersion) || endpoint.SignedInUsersAt is null)
+        {
+            return null;
+        }
+
+        return new SignedInUsersView(SignedInUserRules.Parse(endpoint.SignedInUsersJson), endpoint.SignedInUsersAt, endpoint.IsOnline);
+    }
+
+    /// <summary>
     /// Queues an email to every admin when a run is above the threshold of Settings, Scripts. The rows are added to the caller's
     /// context, not saved: they are committed with the jobs themselves.
     /// </summary>
     private async Task<int> AddAdminNoticeAsync(FleetoDbContext db, Caller caller, IReadOnlyList<Job> created, int skippedCount, DateTime now,
         CancellationToken cancellationToken)
     {
+        // The threshold counts endpoints: a run for all signed-in users has several jobs per endpoint.
+        var endpointIds = created.Select(j => j.EndpointId).Distinct().ToList();
         var threshold = await GetAdminNoticeAboveAsync(cancellationToken);
-        if (threshold <= 0 || created.Count <= threshold)
+        if (threshold <= 0 || endpointIds.Count <= threshold)
         {
             return 0;
         }
@@ -236,14 +305,13 @@ public sealed class JobService
         }
 
         var instance = await InstanceQueries.GetInstanceAsync(db, cancellationToken);
-        var endpointIds = created.Select(j => j.EndpointId).ToList();
         var hostnames = await db.Endpoints.AsNoTracking()
             .Where(e => endpointIds.Contains(e.Id))
             .OrderBy(e => e.Hostname).Select(e => e.Hostname).Take(NamedHostsInNotice)
             .ToListAsync(cancellationToken);
         var first = created[0];
         var content = EmailTemplates.ScriptRunOnManyEndpoints(instance.Fqdn, new ScriptRunEmailModel(
-            caller.Name, first.ScriptName, first.ScriptVersionNumber, created.Count, skippedCount, hostnames, now, threshold), instance.AuditLogUrl);
+            caller.Name, first.ScriptName, first.ScriptVersionNumber, endpointIds.Count, skippedCount, hostnames, now, threshold), instance.AuditLogUrl);
         foreach (var admin in admins)
         {
             db.OutboxEmails.Add(OutboxEmails.Create(admin, content, OutboxEmails.CategoryJob, now));
@@ -263,10 +331,10 @@ public sealed class JobService
     {
         caller.EnsureView();
         await using var db = _dbFactory.Create(caller.Scope);
-        var jobs = await Project(db, db.Jobs.AsNoTracking().Where(j => j.BatchId == batchId).OrderBy(j => j.CreatedAt).Take(ScriptRules.MaxEndpointsPerRun))
+        var jobs = await Project(db, db.Jobs.AsNoTracking().Where(j => j.BatchId == batchId).OrderBy(j => j.CreatedAt).Take(ScriptRules.MaxJobsPerRun))
             .ToListAsync(cancellationToken);
         // The host name comes from the projection, so a run is sorted by endpoint here rather than in SQL; a batch holds at most 500 jobs.
-        return jobs.OrderBy(j => j.Hostname, StringComparer.OrdinalIgnoreCase).ToList();
+        return jobs.OrderBy(j => j.Hostname, StringComparer.OrdinalIgnoreCase).ThenBy(j => j.RunAsChosenAccount, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     public async Task<IReadOnlyList<JobListItem>> ListForEndpointAsync(Caller caller, Guid endpointId, int limit = 50, CancellationToken cancellationToken = default)
@@ -337,7 +405,7 @@ public sealed class JobService
             db.Clients.Where(c => c.Id == j.ClientId).Select(c => c.Code).FirstOrDefault(),
             j.ScriptName, j.ScriptVersionNumber, j.Language, j.State, j.Result, j.ExitCode, j.RefusalReason ?? j.Error, j.OutputState, j.OutputTruncated,
             j.ReceivedOutputBytes, j.CreatedAt, j.ValidUntil, j.StartedAt, j.CompletedAt, j.InitiatedByName,
-            (j.State == JobState.PendingSignature || j.State == JobState.Queued) && j.DeliveredAt == null, j.RunAs, j.RunAsAccount));
+            (j.State == JobState.PendingSignature || j.State == JobState.Queued) && j.DeliveredAt == null, j.RunAs, j.RunAsAccount, j.RunAsChosenAccount));
 
     private static async Task<(string Text, long Bytes, bool Shortened)> ReadStreamAsync(FleetoDbContext db, Guid jobId, JobStream stream,
         CancellationToken cancellationToken)

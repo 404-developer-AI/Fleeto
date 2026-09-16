@@ -50,6 +50,13 @@ func (m *Memory) MayAttempt(component string, now time.Time) bool {
 	return !now.Before(m.data.NextAttempt[component])
 }
 
+// NextAttempt is the earliest next attempt for component; the zero time when there is no wait.
+func (m *Memory) NextAttempt(component string) time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.data.NextAttempt[component]
+}
+
 // RecordRollback remembers a rolled back version.
 func (m *Memory) RecordRollback(component, version string) {
 	m.update(func(d *memoryData) {

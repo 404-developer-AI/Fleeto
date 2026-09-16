@@ -32,6 +32,30 @@ func (e *RetryLaterError) Error() string {
 	return fmt.Sprintf("the gateway asks to retry the download in %s", e.After)
 }
 
+// TransientError marks a failure that passes on its own within minutes: the gateway or the signer could not answer right now. The
+// updater retries it soon with backoff; any other failure waits an hour.
+type TransientError struct {
+	Err error
+}
+
+func (e *TransientError) Error() string { return e.Err.Error() }
+
+func (e *TransientError) Unwrap() error { return e.Err }
+
+// Transient marks err as transient; nil stays nil.
+func Transient(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &TransientError{Err: err}
+}
+
+// IsTransient reports whether err, or an error it wraps, is transient.
+func IsTransient(err error) bool {
+	var transient *TransientError
+	return errors.As(err, &transient)
+}
+
 // Download fetches one binary of a verified release from the gateway into dest. The file is written to a temporary name, checked
 // against the size and SHA-256 of the manifest while it is written, and renamed into place only when both match.
 func Download(ctx context.Context, client *http.Client, server, version string, b release.Binary, dest string, access platform.Access) error {
@@ -45,7 +69,11 @@ func Download(ctx context.Context, client *http.Client, server, version string, 
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("download %s: %w", b.File, err)
+		if ctx.Err() != nil {
+			return err
+		}
+		// No connection or no answer: the gateway is restarting or the network is down for now.
+		return Transient(fmt.Errorf("download %s: %w", b.File, err))
 	}
 	defer resp.Body.Close()
 	switch resp.StatusCode {
@@ -56,6 +84,8 @@ func Download(ctx context.Context, client *http.Client, server, version string, 
 			after = time.Duration(seconds) * time.Second
 		}
 		return &RetryLaterError{After: after}
+	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusGatewayTimeout:
+		return Transient(fmt.Errorf("download %s: the gateway answered HTTP %d", b.File, resp.StatusCode))
 	default:
 		return fmt.Errorf("download %s: the gateway answered HTTP %d", b.File, resp.StatusCode)
 	}
@@ -66,12 +96,17 @@ func Download(ctx context.Context, client *http.Client, server, version string, 
 		return fmt.Errorf("create %s: %w", tmp, err)
 	}
 	hash := sha256.New()
-	written, copyErr := io.Copy(io.MultiWriter(f, hash), io.LimitReader(resp.Body, b.Size+1))
+	body := &readErrors{r: io.LimitReader(resp.Body, b.Size+1)}
+	written, copyErr := io.Copy(io.MultiWriter(f, hash), body)
 	syncErr := f.Sync()
 	closeErr := f.Close()
 	fail := func(err error) error {
 		_ = os.Remove(tmp)
 		return err
+	}
+	if body.err != nil && ctx.Err() == nil {
+		// The connection dropped during the download.
+		return fail(Transient(fmt.Errorf("download %s: %w", b.File, body.err)))
 	}
 	if err := errors.Join(copyErr, syncErr, closeErr); err != nil {
 		return fail(fmt.Errorf("write %s: %w", tmp, err))
@@ -130,6 +165,20 @@ func ProbeVersion(ctx context.Context, exe string) (string, error) {
 
 func equalHex(a, b string) bool {
 	return len(a) == len(b) && subtle.ConstantTimeCompare([]byte(strings.ToLower(a)), []byte(strings.ToLower(b))) == 1
+}
+
+// readErrors remembers the error of reading the response, to tell a dropped connection from a local write error.
+type readErrors struct {
+	r   io.Reader
+	err error
+}
+
+func (r *readErrors) Read(p []byte) (int, error) {
+	n, err := r.r.Read(p)
+	if err != nil && err != io.EOF {
+		r.err = err
+	}
+	return n, err
 }
 
 type limitedBuffer struct {

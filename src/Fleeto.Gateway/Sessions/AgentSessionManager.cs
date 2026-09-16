@@ -322,6 +322,7 @@ public sealed partial class AgentSessionManager : BackgroundService
         {
             case AgentMessage.BodyOneofCase.Heartbeat:
                 await SavePeerStatusAsync(session, message.Heartbeat, cancellationToken);
+                await SaveSignedInUsersAsync(session, message.Heartbeat, cancellationToken);
                 break;
             case AgentMessage.BodyOneofCase.WatchdogCertificate:
                 StartWatchdogCertificate(session, message.WatchdogCertificate);

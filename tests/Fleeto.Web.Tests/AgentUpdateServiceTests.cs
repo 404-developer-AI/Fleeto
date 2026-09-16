@@ -1,5 +1,6 @@
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
+using Fleeto.Infrastructure.Data;
 using Fleeto.Web.Security;
 using Fleeto.Web.Services;
 using Microsoft.EntityFrameworkCore;
@@ -89,6 +90,41 @@ public sealed class AgentUpdateServiceTests
         Assert.Equal(ComponentUpdateState.RolledBack, problem.State);
         Assert.Equal(client.Code, problem.ClientCode);
         Assert.True(overview.AgentsOlder >= 1);
+    }
+
+    [Fact]
+    public async Task The_endpoint_detail_shows_what_the_installer_waits_for_with_the_ring_of_its_site()
+    {
+        var version = await CreateCurrentReleaseAsync();
+        var client = await _fixture.Database.CreateClientAsync();
+        var site = await _fixture.Database.CreateSiteAsync(client.Id);
+        var endpoint = await _fixture.Database.CreateEndpointAsync(site, hostname: "WS-WAITING");
+        var policies = _fixture.Services.GetRequiredService<PolicyService>();
+        var policy = await policies.CreateAsync(WebFixtureBase.Admin(), null,
+            new PolicyInput("Ring " + Guid.NewGuid().ToString("N")[..6], null, 30, 3600, 10, AlertSeverity.Critical, UpdateRing: UpdateRing.Delayed));
+        Assert.True(policy.Success, policy.Problem);
+        var now = _fixture.Database.Time.GetUtcNow().UtcDateTime;
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            db.SitePolicies.Add(new SitePolicy { SiteId = site.Id, ClientId = client.Id, PolicyId = policy.Value, CreatedAt = now });
+            db.EndpointComponentStates.Add(new EndpointComponentState
+            {
+                EndpointId = endpoint.Id, ClientId = endpoint.ClientId, Component = AgentComponent.Watchdog, WaitVersion = version,
+                WaitReason = ComponentUpdateWait.UpdateRing, WaitAt = now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // A technician limited to the client sees the wait and the ring of the site.
+        var endpoints = _fixture.Services.GetRequiredService<EndpointService>();
+        var detail = await endpoints.GetAsync(WebFixtureBase.CallerWith(new RestrictedClientScope([client.Id]), FleetoRoles.Technician), endpoint.Id);
+        Assert.NotNull(detail);
+        var watchdog = Assert.Single(detail.Components!, c => c.Component == AgentComponent.Watchdog);
+        Assert.Equal(ComponentUpdateWait.UpdateRing, watchdog.WaitReason);
+        Assert.Equal(version, detail.ReleaseVersion);
+        Assert.Equal(UpdateRing.Delayed, detail.ReleaseRing!.Ring);
+        Assert.False(detail.ReleaseRing.Paused);
+        Assert.True(detail.ReleaseRing.AvailableAt > now.AddDays(13));
     }
 
     [Fact]

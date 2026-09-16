@@ -4,6 +4,7 @@ using System.Text.Json;
 using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Infrastructure.Security;
+using Fleeto.Web.Services;
 
 namespace Fleeto.Web.Components.Shared;
 
@@ -57,6 +58,39 @@ public static class Ui
         ComponentUpdateState.Failed => "Update failed",
         _ => "Rolled back"
     };
+
+    /// <summary>
+    /// What the installer of a component waits for before it installs an offered release (0.2.2), or null when there is nothing to show: no wait
+    /// reported, or the component already runs that release or a newer one.
+    /// </summary>
+    public static string? UpdateWaitText(EndpointComponentView component, string installedVersion, EndpointDetail endpoint, DateTime now,
+        Func<DateTime?, string> absolute)
+    {
+        if (component.WaitReason is not { } reason || string.IsNullOrEmpty(component.WaitVersion) ||
+            installedVersion.Length > 0 && !SemanticVersion.IsOlder(installedVersion, component.WaitVersion))
+        {
+            return null;
+        }
+
+        var version = component.WaitVersion;
+        // The ring timing belongs to the current release only; a wait for another release shows no date.
+        var ring = endpoint.ReleaseRing is { } timing && endpoint.ReleaseVersion == version ? timing : null;
+        return reason switch
+        {
+            ComponentUpdateWait.UpdateRing when ring is { Paused: true } => $"Waiting: release {version} is paused",
+            ComponentUpdateWait.UpdateRing when ring is not null && ring.AvailableAt > now =>
+                $"Waiting for the update ring: release {version} reaches the {ring.Ring} ring on {absolute(ring.AvailableAt)}",
+            ComponentUpdateWait.UpdateRing when ring is not null => $"Waiting for the update ring: release {version}, {ring.Ring} ring",
+            ComponentUpdateWait.UpdateRing => $"Waiting for the update ring: release {version}",
+            ComponentUpdateWait.NextAttempt when component.WaitUntil is { } until => $"Next attempt to install {version} after {absolute(until)}",
+            ComponentUpdateWait.NextAttempt => $"Waiting for the next attempt to install {version}",
+            ComponentUpdateWait.RandomDelay when component.WaitUntil is { } until =>
+                $"Installs {version} after {absolute(until)}: a random delay spreads the downloads of many endpoints",
+            ComponentUpdateWait.RandomDelay => $"Installs {version} after a random delay",
+            ComponentUpdateWait.InstallerUpdate => $"Waiting until the agent runs {version}: the agent updates the watchdog after its own update",
+            _ => $"Release {version} was rolled back on this endpoint and is not tried again"
+        };
+    }
 
     public static StatusKind UpdateStateKind(ComponentUpdateState state) => state switch
     {
@@ -244,13 +278,32 @@ public static class Ui
         _ => "System (SYSTEM or root)"
     };
 
-    /// <summary>The same choice inside a sentence: "as the signed-in user", or with the account once the agent reported it.</summary>
-    public static string JobRunAsPhrase(JobRunAs runAs, string? account = null) => runAs switch
+    /// <summary>
+    /// The same choice inside a sentence: "as the signed-in user", with the account once the agent reported it, or else with the user the
+    /// technician chose (0.2.2).
+    /// </summary>
+    public static string JobRunAsPhrase(JobRunAs runAs, string? account = null, string? chosenAccount = null) => runAs switch
     {
         JobRunAs.LoggedOnUser when !string.IsNullOrEmpty(account) => $"as the signed-in user {account}",
+        JobRunAs.LoggedOnUser when !string.IsNullOrEmpty(chosenAccount) => $"as the signed-in user {chosenAccount}",
         JobRunAs.LoggedOnUser => "as the signed-in user",
         _ => "as SYSTEM or root"
     };
+
+    /// <summary>A signed-in user in the run window: the account and its sessions, e.g. "CONTOSO\jan · console and 1 remote session".</summary>
+    public static string SignedInUserLabel(SignedInUserInfo user)
+    {
+        var console = user.Sessions.Any(s => s.Console);
+        var remote = user.Sessions.Count(s => !s.Console);
+        var sessions = (console, remote) switch
+        {
+            (true, 0) => "console",
+            (true, _) => $"console and {Count(remote, "remote session")}",
+            (false, 0) => "signed in",
+            _ => Count(remote, "remote session")
+        };
+        return $"{user.Account} · {sessions}";
+    }
 
     public static string JobOutputLabel(JobOutputState state, bool truncated) => state switch
     {

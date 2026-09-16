@@ -170,6 +170,13 @@ public class EndpointComponentState
     public ComponentUpdateState? UpdateState { get; set; }
     public string UpdateDetail { get; set; } = string.Empty;
     public DateTime? UpdateAt { get; set; }
+
+    /// <summary>The offered release the installer holds back, and why (0.2.2). Cleared by the next update report that is not a wait.</summary>
+    public string? WaitVersion { get; set; }
+    public ComponentUpdateWait? WaitReason { get; set; }
+    /// <summary>When the wait ends, stamped by the gateway; null when the installer cannot know (the ring, its own update).</summary>
+    public DateTime? WaitUntil { get; set; }
+    public DateTime? WaitAt { get; set; }
 }
 
 /// <summary>Append-only audit trail. No update or delete path in code or database grants.</summary>

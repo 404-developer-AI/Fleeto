@@ -45,6 +45,10 @@ type Options struct {
 	Inventory func(ctx context.Context) *agentv1.Inventory
 	// OSInfo describes the operating system for Hello; default inventory.OSInfo.
 	OSInfo func(ctx context.Context) *agentv1.OsInfo
+	// SignedInUsers lists the users signed in on the endpoint (0.2.2); default jobs.SignedInUsers.
+	SignedInUsers func() ([]*agentv1.SignedInUser, error)
+	// SignedInUsersInterval is how often that list is read; default 30 seconds.
+	SignedInUsersInterval time.Duration
 
 	MaxBufferedResults       int
 	BatchMinResults          int
@@ -81,6 +85,10 @@ func (o *Options) setDefaults() {
 	if o.OSInfo == nil {
 		o.OSInfo = inventory.OSInfo
 	}
+	if o.SignedInUsers == nil {
+		o.SignedInUsers = jobs.SignedInUsers
+	}
+	setDefault(&o.SignedInUsersInterval, 30*time.Second)
 	setDefault(&o.MaxBufferedResults, buffer.DefaultMaxResults)
 	setDefault(&o.BatchMinResults, 100)
 	setDefault(&o.BatchMaxResults, buffer.MaxBatchResults)
@@ -121,7 +129,9 @@ type Agent struct {
 	outbox    chan *agentv1.AgentMessage
 	connected atomic.Bool
 	peer      atomic.Pointer[agentv1.PeerStatus]
-	watchdog  *watchdogManager
+	// signedIn is the latest list of signed-in users; nil until it was read once.
+	signedIn atomic.Pointer[agentv1.SignedInUsers]
+	watchdog *watchdogManager
 
 	mu             sync.Mutex
 	st             *state.State
@@ -271,6 +281,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		safego.Go(a.logger, "watchdog manager", func() { a.watchdog.run(watchdogCtx) })
 	}
 
+	usersCtx, stopUsers := context.WithCancel(ctx)
+	defer stopUsers()
+	safego.Go(a.logger, "signed-in users", func() { a.watchSignedInUsers(usersCtx) })
+
 	bo := backoff.New(a.opts.BackoffBase, a.opts.BackoffMax)
 	for {
 		started := a.opts.Now()
@@ -325,5 +339,29 @@ func (a *Agent) storeResults(results []*agentv1.CheckResult) {
 	select {
 	case a.resultsAdded <- struct{}{}:
 	default:
+	}
+}
+
+// watchSignedInUsers reads the signed-in users now and every interval, off the session loop: listing sessions may run loginctl. A list
+// that cannot be read keeps the previous one; the error is logged once until the list can be read again.
+func (a *Agent) watchSignedInUsers(ctx context.Context) {
+	ticker := time.NewTicker(a.opts.SignedInUsersInterval)
+	defer ticker.Stop()
+	failing := false
+	for {
+		users, err := a.opts.SignedInUsers()
+		switch {
+		case err != nil && !failing:
+			failing = true
+			a.logger.Warn("the signed-in users could not be read; the list is not updated", "error", err)
+		case err == nil:
+			failing = false
+			a.signedIn.Store(&agentv1.SignedInUsers{Users: users})
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }

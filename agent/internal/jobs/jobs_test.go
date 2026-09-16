@@ -84,14 +84,16 @@ func (f *fixture) manager(dir string) *Manager {
 	return m
 }
 
+// completionOf waits for a job's completion and returns it with every pending message read after it. Pending lists the output
+// before it checks for the completion, so the call that first sees the completion can miss a chunk written just before it; the
+// runner writes every chunk before the completion, so a fresh read holds all of them.
 func completionOf(t *testing.T, m *Manager, id string, timeout time.Duration) (*agentv1.JobCompletion, []Message) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		messages := m.Pending(func(string) bool { return false })
-		for _, message := range messages {
+		for _, message := range m.Pending(func(string) bool { return false }) {
 			if c := message.Msg.GetJobCompletion(); c != nil && c.GetJobId() == id {
-				return c, messages
+				return c, m.Pending(func(string) bool { return false })
 			}
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -314,7 +316,7 @@ func TestTheOutputLimitFollowsTheSignedCapWithinTheAgentCeiling(t *testing.T) {
 // A job that must run as the signed-in user never falls back to SYSTEM or root: without a session it fails and says so.
 // The test process is not the agent service, so it cannot reach a user session on a build machine or a CI runner.
 func TestAJobForTheSignedInUserFailsWhenThereIsNoSession(t *testing.T) {
-	if session, err := signedInSession(); err == nil {
+	if session, err := signedInSession(""); err == nil {
 		session.close()
 		t.Skip("this machine has a user session the test process can start a process in")
 	}
@@ -333,6 +335,33 @@ func TestAJobForTheSignedInUserFailsWhenThereIsNoSession(t *testing.T) {
 	}
 	if !strings.Contains(completion.GetError(), "No user is signed in") {
 		t.Fatalf("error = %q, want it to name the missing session", completion.GetError())
+	}
+	if completion.GetStdout().GetBytes() != 0 {
+		t.Fatalf("the script produced %d bytes; it must not have run", completion.GetStdout().GetBytes())
+	}
+}
+
+// A job for a chosen user never runs as anyone else: when that user has no active session it fails and says so, also on a machine where
+// another user is signed in.
+func TestAJobForAChosenUserFailsWhenThatUserIsNotSignedIn(t *testing.T) {
+	f := newFixture(t)
+	m := f.manager(t.TempDir())
+	id := "6d2a1d2a-0000-4000-8000-00000000000b"
+	language, body := nativeScript(false)
+	payload := f.payload(id, language, body)
+	payload.RunAs = agentv1.JobRunAs_JOB_RUN_AS_LOGGED_ON_USER
+	payload.RunAsUserId = "S-1-5-21-0-0-0-424242"
+	if runtime.GOOS != "windows" {
+		payload.RunAsUserId = "424242"
+	}
+	m.Accept(f.sign(payload))
+
+	completion, _ := completionOf(t, m, id, 10*time.Second)
+	if completion.GetResult() != agentv1.JobResult_JOB_RESULT_FAILED_TO_START {
+		t.Fatalf("result = %s, want FAILED_TO_START", completion.GetResult())
+	}
+	if !strings.Contains(completion.GetError(), "The chosen user is not signed in") {
+		t.Fatalf("error = %q, want it to name the chosen user", completion.GetError())
 	}
 	if completion.GetStdout().GetBytes() != 0 {
 		t.Fatalf("the script produced %d bytes; it must not have run", completion.GetStdout().GetBytes())

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
@@ -72,6 +73,8 @@ type session struct {
 	startedAt        time.Time
 	// jobsSent holds the job messages sent on this connection; after a reconnect everything unacknowledged is sent again.
 	jobsSent map[string]bool
+	// usersSent is the signed-in users list last sent on this connection, serialized; nil until the first.
+	usersSent []byte
 }
 
 // tlsConfig builds the mTLS configuration: the pinned instance CA is the only root, the client certificate is the
@@ -309,13 +312,27 @@ func (s *session) sendJobMessages() error {
 	return nil
 }
 
-// sendHeartbeat sends a heartbeat with the state of the watchdog service (0.2.1) and refreshes the health file.
+// sendHeartbeat sends a heartbeat with the state of the watchdog service (0.2.1) and, when it changed on this connection, the signed-in
+// users (0.2.2), and refreshes the health file.
 func (s *session) sendHeartbeat() error {
 	a := s.a
 	a.writeHealthConnected()
-	return s.send(&agentv1.AgentMessage{Body: &agentv1.AgentMessage_Heartbeat{
-		Heartbeat: &agentv1.Heartbeat{AgentTime: timestamppb.New(a.opts.Now()), Peer: a.peer.Load()},
-	}})
+	heartbeat := &agentv1.Heartbeat{AgentTime: timestamppb.New(a.opts.Now()), Peer: a.peer.Load()}
+	var users []byte
+	if list := a.signedIn.Load(); list != nil {
+		options := proto.MarshalOptions{Deterministic: true}
+		if data, err := options.Marshal(list); err == nil && (s.usersSent == nil || !bytes.Equal(data, s.usersSent)) {
+			heartbeat.SignedInUsers = list
+			users = data
+		}
+	}
+	if err := s.send(&agentv1.AgentMessage{Body: &agentv1.AgentMessage_Heartbeat{Heartbeat: heartbeat}}); err != nil {
+		return err
+	}
+	if users != nil {
+		s.usersSent = users
+	}
+	return nil
 }
 
 func (s *session) sendHello() error {
@@ -404,7 +421,7 @@ func (s *session) handleHelloAck(ack *agentv1.HelloAck) error {
 	}
 	a.connected.Store(true)
 	a.writeHealth(true)
-	if a.peer.Load() != nil {
+	if a.peer.Load() != nil || a.signedIn.Load() != nil {
 		if err := s.sendHeartbeat(); err != nil {
 			return err
 		}

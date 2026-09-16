@@ -316,21 +316,27 @@ Everything that was still open for 0.2.0, moved here on 2026-09-15, with the dev
 Found while testing `v0.2.1-alpha.5` on the test VPS (2026-09-16): an agent without a watchdog waited silently, first for its
 retry after a failed attempt and then for its update ring, so neither the agent log nor the UI said why nothing happened.
 
-- [open] The agent logs once per release why it does not install it yet: waiting for the update ring, waiting for the next
-  attempt after a failure (with the time), or a version that was rolled back before.
-- [open] The endpoint detail states what the watchdog and the agent are waiting for instead of "Not installed yet: the agent
-  installs it with the next release offer", for example "Waiting for the update ring (Standard, from 23 Sep)" or "Next attempt
-  after 13:06". The agent reports the reason and the time with its update state.
-- [open] A transient failure (the gateway or signer could not answer right now) is retried within minutes with backoff instead
-  of after one hour; a refusal or a defective download keeps the one-hour wait.
+- [done] The agent logs once per release why it does not install it yet: waiting for the update ring, waiting for the next
+  attempt after a failure (with the time), or a version that was rolled back before. The watchdog logs the same for the agent
+  it installs, and the agent also logs when it waits to update the watchdog until it runs the release itself.
+- [done] The endpoint detail states what the watchdog and the agent are waiting for instead of "Not installed yet: the agent
+  installs it with the next release offer", for example "Waiting for the update ring: release 0.2.2 reaches the Standard ring on
+  23 Sep 2026 14:00" or "Next attempt to install 0.2.2 after 16 Sep 2026 13:06". The installer reports the reason and the
+  seconds until the wait ends with its update state (`waiting`), also for the random delay.
+- [done] A transient failure (the gateway or signer could not answer right now) is retried within minutes with backoff instead
+  of after one hour; a refusal or a defective download keeps the one-hour wait. Backoff from 1 minute, doubling up to the hour,
+  with jitter; the gateway marks a watchdog certificate error `temporary` when the signer did not answer.
 
 Also found while testing (2026-09-16): on an endpoint with several signed-in users, such as a remote desktop server, "The
 signed-in user" runs the script as the console user or else the first active session Windows lists, which the technician cannot
 predict.
 
-- [open] Choose the user in the run window: the agent reports the signed-in users with their sessions, the technician picks one,
-  and the choice is signed with the job. When that user is no longer signed in, the job fails with that reason.
-- [open] "All signed-in users": one run per active session, with the output per user.
+- [done] Choose the user in the run window: the agent reports the signed-in users with their sessions, the technician picks one,
+  and the choice is signed with the job. When that user is no longer signed in, the job fails with that reason. For a run on
+  one endpoint; the user is identified by SID or uid, and the signer signs a choice only for an agent from 0.2.2.
+- [done] "All signed-in users": one job per signed-in user, with the result and output per user. Web creates the jobs from the users
+  the agent last reported, so each is signed for one user; a user who has left by the time the job arrives fails that job. Also for
+  a run on a selection of endpoints; a run creates at most 500 jobs.
 
 ## 0.3.0 — Remote control
 
@@ -345,6 +351,18 @@ predict.
   session token and end-to-end encryption as remote control; admins and technicians on every
   managed endpoint, also where the policy requires script approval (accepted risk, see
   ARCHITECTURE.md §5); audit per session and a transcript when the policy records sessions.
+
+Requested by the developer (2026-09-16); the exact design is discussed when 0.3.0 starts:
+
+- Right-click in the endpoint list: "Remote control" takes over the screen (Windows first).
+- Right-click in the endpoint list: "Remote background" opens a background session without taking over the screen, with:
+  - the remote terminal above (PowerShell and cmd on Windows, a shell on Linux);
+  - a file explorer with transfer: browse, refresh, download, upload, rename, delete, and copy and paste to another location
+    on the endpoint;
+  - Windows services;
+  - processes, on Windows and Linux.
+- To decide before building: file transfer is out of scope for v1 in CLAUDE.md ("file transfer inside remote control"), and
+  what the background session may do per role, policy and approval, and how it is audited.
 
 ## 0.4.0 — Patch management via Action1
 
