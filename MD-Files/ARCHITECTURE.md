@@ -165,7 +165,7 @@ Three kinds of tables:
 ## 3. Agents
 
 - **One codebase, Go**: single static binary per platform, no runtime dependencies on the
-  endpoint. Targets: Windows (service running as SYSTEM) and Linux (systemd, 0.2.1), on amd64 and arm64. macOS is not
+  endpoint. Targets: Windows (service running as SYSTEM) and Linux (systemd unit running as root, 0.2.1), on amd64 and arm64. macOS is not
   supported for now and may come when there is demand (decided 2026-09-15); the code keeps building for it only so the
   platform abstraction stays honest.
   Proxmox hosts are Debian, so the Linux agent applies, plus optional Proxmox API
@@ -216,6 +216,18 @@ Three kinds of tables:
   VM image from carrying a working identity; elsewhere it is a file readable only by
   SYSTEM or root. Certificates live 90 days and renew automatically over the existing mTLS
   connection.
+  - **Windows**: a CNG machine key (`Fleeto Agent Identity`), in the Microsoft Platform Crypto Provider when the
+    endpoint has a TPM.
+  - **Linux** (0.2.1): an ECDSA P-256 key created inside the TPM 2.0 (`/dev/tpmrm0`) under the owner storage key; what
+    is stored is the key blob the TPM itself encrypted, which loads in no other TPM. Without a TPM the key is a PKCS#8
+    file in the state directory, readable by root only.
+- **Linux layout** (0.2.1): the binaries live in `/opt/fleeto-agent` (deliberately not under `/opt/fleeto`, which holds
+  the instances of a Fleeto server), the state in `/var/lib/fleeto/agent` and `/var/lib/fleeto/watchdog`, root-only.
+  Services are the systemd units `fleeto-agent.service` and `fleeto-watchdog.service`: `Restart=always`, started at
+  boot, no sandbox (the agent runs checks, scripts and installers as root). They log to the journal and to their state
+  directory. `fleeto-agent install` writes the units and enables them; `fleeto-agent uninstall` removes both, their keys
+  and their directories. Service control, supervision and updates go through `systemctl`, so the agent needs no D-Bus
+  library; a unit an administrator disabled or masked is reported and never started again by the other service.
 - **Agent-only tier**: the agent still connects, heartbeats and reports inventory, but the
   gateway refuses to deliver jobs, policies, check definitions or remote control sessions to
   it. The agent itself also refuses them, so a bug on the server side cannot promote an
@@ -239,8 +251,8 @@ Three kinds of tables:
   `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File`, `cmd.exe /d /s /c`,
   `/bin/sh` or `/bin/bash`. Enrolling again removes the jobs of the previous enrollment.
 - **Watchdog service (0.2.1).** A second Windows service, `fleeto-watchdog`, a small separate binary
-  (`cmd/fleeto-watchdog`) from the same Go codebase, running as SYSTEM with its own state directory. On Linux the
-  watchdog follows with the Linux agent service; until then a Linux agent runs without one.
+  (`cmd/fleeto-watchdog`) from the same Go codebase, running as SYSTEM with its own state directory. On Linux (0.2.1) it is
+  the systemd unit `fleeto-watchdog.service`, running as root; everything below is the same on both platforms.
   - **Identity.** Its own key (platform key store `Fleeto Watchdog Identity`, TPM-backed where available) and its own
     90-day certificate for the same endpoint with the role *watchdog* (`AgentCertificate.Role`). The agent creates the key
     and sends the CSR over its own session (`WatchdogCertificateRequest`); the signer issues it only for an endpoint with a
@@ -276,15 +288,19 @@ Three kinds of tables:
 - Wire format: protobuf over the WebSocket, one message per binary WebSocket frame (the frame is
   the length prefix), results batched. Never one HTTP request per check result. Contract:
   `src/Fleeto.Protocol/Protos/agent.proto`.
-- Endpoint class detection: Windows Server / Linux without a desktop session / ESXi guests
-  flagged as servers → `server`; everything else → `workstation`. The technician can override.
+- Endpoint class detection: Windows Server / Linux without a desktop session (no display manager unit and no graphical
+  default target) / ESXi guests flagged as servers → `server`; everything else → `workstation`. The technician can override.
 
 ## 4. Key flows
 
 **Enrollment.** Technician creates an enrollment token for a site (expiring, revocable,
-optionally single-use, stored hashed). The UI produces a one-line install command that
+optionally single-use, stored hashed). The UI produces a one-line install command per platform (Windows: PowerShell;
+Linux: a POSIX shell command run with sudo or as root, which picks amd64 or arm64 from `uname -m` and runs the
+installer from a directory under `/opt`, because `/tmp` is mounted without exec permission on hardened endpoints) that
 embeds the instance FQDN, the token and the SHA-256 fingerprint of the instance CA
-certificate. The agent installs and generates its key pair → fetches `GET /v1/ca` from
+certificate. The command downloads the agent from the instance itself, `GET /agent/download/<platform>-<architecture>`
+(`windows-amd64`, `windows-arm64`, `linux-amd64`, `linux-arm64`), which the web image carries and serves without
+sign-in, rate limited. The agent installs and generates its key pair → fetches `GET /v1/ca` from
 `agents.<fqdn>` without sending anything secret and keeps only the CA certificate whose SHA-256
 equals the install fingerprint (TLS stacks leave a self-signed root out of the handshake, so the
 CA cannot come from the chain) → opens a new connection verified normally against that CA as

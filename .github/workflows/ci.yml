@@ -113,16 +113,27 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # A software TPM, so the TPM key store of the Linux agent is tested the way it runs on an endpoint (0.2.1).
+      - name: Software TPM
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends swtpm swtpm-tools
+
       - name: Test
         run: go test ./...
 
-      - name: Cross-build windows/amd64 and linux/amd64
+      - name: Cross-build every released platform
         if: matrix.os == 'ubuntu-latest'
         env:
           CGO_ENABLED: "0"
         run: |
-          GOOS=windows GOARCH=amd64 go build -trimpath -o dist/windows-amd64/fleeto-agent.exe ./cmd/fleeto-agent
-          GOOS=linux GOARCH=amd64 go build -trimpath -o dist/linux-amd64/fleeto-agent ./cmd/fleeto-agent
+          for platform in windows-amd64 windows-arm64 linux-amd64 linux-arm64; do
+            goos="${platform%-*}"; goarch="${platform#*-}"; suffix=""
+            [ "$goos" = windows ] && suffix=".exe"
+            for component in agent watchdog; do
+              GOOS="$goos" GOARCH="$goarch" go build -trimpath \
+                -o "dist/$platform/fleeto-$component$suffix" "./cmd/fleeto-$component"
+            done
+          done
 
       - name: govulncheck
         if: matrix.os == 'ubuntu-latest'
@@ -269,9 +280,13 @@ jobs:
           echo "User: $user"
           [ "$user" = "10001:10001" ]
 
-      - name: Agent binary is present
+      - name: Agent binaries are present
         if: matrix.image == 'web'
-        run: docker run --rm --entrypoint ls "fleeto-web:ci" -l /app/agent/windows-amd64/fleeto-agent.exe
+        run: |
+          docker run --rm --entrypoint ls "fleeto-web:ci" -l \
+            /app/agent/windows-amd64/fleeto-agent.exe /app/agent/windows-arm64/fleeto-agent.exe \
+            /app/agent/linux-amd64/fleeto-agent /app/agent/linux-arm64/fleeto-agent \
+            /app/agent/linux-amd64/fleeto-watchdog
 
       - name: Caddyfile and Compose validation with the built proxy image
         if: matrix.image == 'caddy'

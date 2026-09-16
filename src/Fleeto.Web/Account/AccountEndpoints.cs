@@ -248,24 +248,33 @@ public static class OperationalEndpoints
             return Results.Json(new { status = "unhealthy" }, statusCode: StatusCodes.Status503ServiceUnavailable);
         }).AllowAnonymous();
 
-        app.MapGet("/agent/download/windows-amd64", (IConfiguration configuration, IWebHostEnvironment environment) =>
+        // The agent of one platform, for the install command of a site (Windows and Linux, amd64 and arm64).
+        app.MapGet("/agent/download/{platform}", (string platform, IConfiguration configuration, IWebHostEnvironment environment) =>
         {
+            if (!InstallCommand.Platforms.Contains(platform, StringComparer.Ordinal))
+            {
+                return NotAvailable();
+            }
+
             var configured = configuration["Agent:BinariesDirectory"];
             if (string.IsNullOrWhiteSpace(configured))
             {
                 return NotAvailable();
             }
 
+            var windows = platform.StartsWith("windows-", StringComparison.Ordinal);
+            var fileName = windows ? "fleeto-agent.exe" : "fleeto-agent";
             var directory = Path.GetFullPath(Path.IsPathRooted(configured) ? configured : Path.Combine(environment.ContentRootPath, configured));
-            // The image lays binaries out per platform (windows-amd64/); a flat directory works as well.
-            var path = new[] { Path.Combine(directory, "windows-amd64", "fleeto-agent.exe"), Path.Combine(directory, "fleeto-agent.exe") }
+            // The image lays binaries out per platform (windows-amd64/); a flat directory works as well for a development build.
+            var path = new[] { Path.Combine(directory, platform, fileName), Path.Combine(directory, fileName) }
                 .FirstOrDefault(File.Exists);
             if (path is null)
             {
                 return NotAvailable();
             }
 
-            return Results.File(path, "application/vnd.microsoft.portable-executable", "fleeto-agent.exe", enableRangeProcessing: true);
+            var contentType = windows ? "application/vnd.microsoft.portable-executable" : "application/octet-stream";
+            return Results.File(path, contentType, fileName, enableRangeProcessing: true);
         }).AllowAnonymous().RequireRateLimiting(AccountEndpoints.DownloadRateLimitPolicy);
 
         return app;

@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build !windows && !linux
 
 package inventory
 
@@ -23,7 +23,7 @@ func OSInfo(ctx context.Context) *agentv1.OsInfo {
 }
 
 func collectPlatform(context.Context) (platformInfo, error) {
-	// Hardware and software inventory for Linux and macOS follows in a later release.
+	// Hardware and software inventory beyond Windows and Linux follows when a platform needs it.
 	return platformInfo{}, nil
 }
 
@@ -32,6 +32,6 @@ func installedSoftware() ([]*agentv1.SoftwareItem, error) {
 }
 
 func services() ([]*agentv1.ServiceItem, error) {
-	// systemd units and launchd jobs follow with the Linux and macOS agents.
+	// launchd jobs follow if macOS is ever supported.
 	return nil, nil
 }

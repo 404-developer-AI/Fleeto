@@ -26,6 +26,9 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1"
 )
 
+// maxServices bounds the services in one inventory; the server keeps the same limit.
+const maxServices = 2000
+
 // Hostname returns the host name, or "unknown".
 func Hostname() string {
 	name, err := os.Hostname()

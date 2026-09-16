@@ -24,13 +24,14 @@ public class EnrollmentTests
     }
 
     [Fact]
-    public void Install_command_contains_the_fingerprint_agent_address_and_token_in_single_quotes()
+    public void Windows_install_command_contains_the_fingerprint_agent_address_and_token_in_single_quotes()
     {
         var (token, _, _) = OpaqueTokens.Create(OpaqueTokens.EnrollmentPrefix);
-        var command = InstallCommand.Build("https://rmm.example.com/", "agents.rmm.example.com", 443, token, Fingerprint.ToUpperInvariant());
+        var command = InstallCommand.Build("https://rmm.example.com/", "agents.rmm.example.com", 443, token, Fingerprint.ToUpperInvariant()).Windows;
 
         Assert.StartsWith("powershell -NoProfile -ExecutionPolicy Bypass -Command '", command);
-        Assert.Contains("''https://rmm.example.com/agent/download/windows-amd64''", command);
+        Assert.Contains("''https://rmm.example.com/agent/download/windows-''$a", command);
+        Assert.Contains("''ARM64''", command);
         Assert.Contains("--server ''agents.rmm.example.com:443''", command);
         Assert.Contains($"--token ''{token}''", command);
         Assert.Contains($"--ca-fingerprint ''{Fingerprint}''", command);
@@ -38,6 +39,32 @@ public class EnrollmentTests
 
         Assert.Throws<ArgumentException>(() => InstallCommand.Build("https://rmm.example.com", "agents'; calc", 443, token, Fingerprint));
         Assert.Throws<ArgumentException>(() => InstallCommand.Build("https://rmm.example.com", "agents.example.com", 443, token, "not-hex"));
+        Assert.Throws<ArgumentException>(() => InstallCommand.Build("https://rmm.example.com/'; rm -rf /", "agents.example.com", 443, token, Fingerprint));
+    }
+
+    [Fact]
+    public void Linux_install_command_picks_the_architecture_and_runs_the_installer_outside_tmp()
+    {
+        var (token, _, _) = OpaqueTokens.Create(OpaqueTokens.EnrollmentPrefix);
+        var command = InstallCommand.Build("https://rmm.example.com", "agents.rmm.example.com", 443, token, Fingerprint).Linux;
+
+        Assert.StartsWith("sudo sh -c '", command);
+        Assert.EndsWith("'", command);
+        // The command is one single-quoted shell argument, so nothing in it may be quoted with a single quote.
+        Assert.Equal(2, command.Count(c => c == '\''));
+        Assert.Contains("x86_64) a=amd64;; aarch64|arm64) a=arm64;;", command);
+        Assert.Contains("https://rmm.example.com/agent/download/linux-$a", command);
+        // /tmp is mounted without exec permission on hardened endpoints, so the installer runs from /opt.
+        Assert.Contains("mktemp -d /opt/.fleeto-install.", command);
+        Assert.Contains("curl -fsS", command);
+        Assert.Contains("wget -q", command);
+        Assert.Contains($"install --server agents.rmm.example.com:443 --token {token} --ca-fingerprint {Fingerprint}", command);
+    }
+
+    [Fact]
+    public void Every_platform_of_the_install_command_is_served_by_this_instance()
+    {
+        Assert.Equal(["windows-amd64", "windows-arm64", "linux-amd64", "linux-arm64"], InstallCommand.Platforms);
     }
 
     [Fact]
@@ -75,10 +102,13 @@ public class EnrollmentTests
         var result = await service.CreateAsync(WebFixtureBase.Technician(), site.Id, "Rollout", TimeSpan.FromDays(7), null);
         Assert.True(result.Success, result.Problem);
         var created = result.Value!;
-        Assert.NotNull(created.InstallCommand);
-        Assert.Contains(activeFingerprint, created.InstallCommand);
-        Assert.Contains("agents." + Fleeto.Testing.TestDatabase.Fqdn + ":443", created.InstallCommand);
-        Assert.Contains(created.Token, created.InstallCommand);
+        Assert.NotNull(created.InstallCommands);
+        foreach (var command in new[] { created.InstallCommands.Windows, created.InstallCommands.Linux })
+        {
+            Assert.Contains(activeFingerprint, command);
+            Assert.Contains("agents." + Fleeto.Testing.TestDatabase.Fqdn + ":443", command);
+            Assert.Contains(created.Token, command);
+        }
 
         Assert.True(OpaqueTokens.TryParse(created.Token, OpaqueTokens.EnrollmentPrefix, out var id, out var hash));
         await using var check = db.DbFactory.CreateSystem();

@@ -14,8 +14,8 @@ build (decided 2026-09-15). What was listed as open before the tag stays a check
 run; its release build failed), `v0.2.0-alpha.2` (first published test build), `v0.2.0-alpha.3` (VPS behind NAT, first VPS install), `v0.2.0-alpha.4` (fixes from the first install) and `v0.2.0-alpha.5` (network MTU). `v0.2.0-alpha.5` runs on the first test VPS.
 
 **0.2.1** — in progress (started 2026-09-15): the read-only public API, agent self-update with update rings, the
-Windows watchdog and the rename to Fleeto everywhere are built (pre-releases `v0.2.1-alpha.1`, whose release build
-failed, `v0.2.1-alpha.2`, whose move of the test VPS fell back to the old layout, and `v0.2.1-alpha.3`, 2026-09-15); still open are the Linux agent (with its watchdog), arm64 agents, the script features deferred
+Windows watchdog, the Linux agent with its watchdog and the rename to Fleeto everywhere are built (pre-releases `v0.2.1-alpha.1`, whose release build
+failed, `v0.2.1-alpha.2`, whose move of the test VPS fell back to the old layout, and `v0.2.1-alpha.3`, 2026-09-15); still open are the script features deferred
 from 0.2.0 and the icon for the installed web app. The Servicedesk ticket reference on notes moved to "Not yet scheduled" (decided 2026-09-15).
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
@@ -102,7 +102,7 @@ production release.
 
 ### Known limitations of 0.1.0
 
-- The Linux agent is a stub (it follows in 0.2.1); macOS is not supported for now.
+- The Linux agent follows in 0.2.1; macOS is not supported for now.
 - An agent offline past its certificate expiry (90 days, renewal from day 60) cannot reconnect and
   must be enrolled again as a new endpoint. [done] Recovery built in 0.2.0.
 - The web data protection key ring is stored unencrypted on its volume.
@@ -130,7 +130,7 @@ production release.
 - [done] Webhook notifications next to email: generic JSON signed with HMAC-SHA256, Slack and Microsoft Teams
   (workflow adaptive card); per-channel retry and circuit breaker, test message, last delivery shown. Sent
   only to public https addresses, checked at connect time.
-- [done] Service checks by picking a service (Windows services now; systemd with the Linux agent in 0.2.1): besides typing the service name, choose from a list of the
+- [done] Service checks by picking a service (Windows services; systemd services with the Linux agent, 0.2.1): besides typing the service name, choose from a list of the
   services on the endpoint. The agent reports its services (name, display name, start type, state) as
   part of the inventory; the check dialog on an endpoint offers them, and on a monitoring template it
   offers the services seen on the endpoints of the linked sites. Typing a name stays possible for a
@@ -239,12 +239,26 @@ Everything that was still open for 0.2.0, moved here on 2026-09-15, with the dev
   over its own session (the signer checks that the endpoint has a valid agent certificate and that the watchdog key
   differs), "Watchdog stopped" only for an endpoint whose watchdog connected before, and a watchdog session never
   receives configurations or jobs.
-- [open] Linux agent for **Ubuntu LTS (22.04, 24.04), Debian 12 and newer (including Proxmox VE hosts) and the RHEL
+- [done] Linux agent for **Ubuntu LTS (22.04, 24.04), Debian 12 and newer (including Proxmox VE hosts) and the RHEL
   family (RHEL, Rocky Linux, AlmaLinux 8 and 9)** (decided 2026-09-15): systemd service and the watchdog as a second
   systemd service (service control, supervision and self-update on Linux), install command generated in the UI, inventory, the check catalog on Linux, systemd services offered in the check dialog, key storage (TPM where
-  available, otherwise a root-only file), scripts in sh and bash as root.
-- [open] Agents for **amd64 and arm64** (decided 2026-09-15), on Windows and Linux, in the release pipeline and the install
-  command.
+  available, otherwise a root-only file), scripts in sh and bash as root. Decided while building:
+  - service control goes through `systemctl` instead of the D-Bus API, so the agent needs no extra library; a unit an
+    administrator disabled or masked is reported and never started again by the other service;
+  - the TPM key is an ECDSA P-256 key created inside the TPM under the owner storage key, stored as the key blob the TPM
+    itself encrypted (no persistent handle); CI tests it against a software TPM;
+  - binaries in `/opt/fleeto-agent`, state in `/var/lib/fleeto/{agent,watchdog}`, units `fleeto-agent.service` and
+    `fleeto-watchdog.service`, logging to the journal and to the state directory;
+  - the install command picks the architecture itself and downloads with curl or wget; it runs the installer from a
+    directory under `/opt`, because `/tmp` is mounted without exec permission on hardened endpoints;
+  - inventory: distribution and kernel from `/etc/os-release` (a Proxmox VE host names Proxmox), hardware from DMI,
+    packages from dpkg or rpm without the maintainer email address, systemd services with the start type vocabulary of
+    every platform (enabled, static, generated and indirect are `automatic`, disabled is `manual`, masked is `disabled`);
+  - the disk check skips images, container layers and network shares, and reports a filesystem mounted twice once.
+- [done] Agents for **amd64 and arm64** (decided 2026-09-15), on Windows and Linux, in the release pipeline and the install
+  command: the release manifest lists eight binaries (agent and watchdog for `windows-amd64`, `windows-arm64`,
+  `linux-amd64` and `linux-arm64`), the instance serves them at `/agent/download/<platform>`, and each install command
+  picks the architecture of the endpoint itself.
 - [open] Run a script on a selection of endpoints, with a notification to every admin above a configurable number of
   endpoints (deferred from 0.2.0).
 - [open] Output cap for job output per policy instead of the fixed 50 MiB (deferred from 0.2.0).

@@ -11,9 +11,6 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1"
 )
 
-// maxServices bounds the services in one inventory; the server keeps the same limit.
-const maxServices = 2000
-
 // services lists the Win32 services with their start type and state. It asks only for the rights it needs, so it also works in
 // the non-elevated development mode (services whose configuration cannot be read keep an empty start type).
 func services() ([]*agentv1.ServiceItem, error) {

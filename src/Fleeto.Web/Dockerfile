@@ -25,16 +25,21 @@ RUN go mod download && go mod verify
 COPY agent/ ./
 ARG FLEETO_VERSION=0.0.0-dev
 ARG FLEETO_RELEASE_PUBLIC_KEYS=""
-# The agent and the watchdog (0.2.1). Reproducible (-trimpath, no VCS stamp, pinned toolchain): the release workflow builds this stage on
-# its own to list the SHA-256 of each binary in the signed manifest, then checks the binaries in the web and gateway images against it.
+# The agent and the watchdog (0.2.1) for every supported platform: Windows and Linux, amd64 and arm64. Reproducible (-trimpath, no VCS
+# stamp, pinned toolchain): the release workflow builds this stage on its own to list the SHA-256 of each binary in the signed manifest,
+# then checks the binaries in the web and gateway images against it.
 RUN pkg=github.com/404-developer-AI/Fleeto/agent/internal/version \
-    && mkdir -p /out/windows-amd64 \
-    && for component in agent watchdog; do \
-        GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false \
-            -ldflags "-s -w -buildid= -X ${pkg}.Version=${FLEETO_VERSION} -X '${pkg}.ReleasePublicKeys=${FLEETO_RELEASE_PUBLIC_KEYS}'" \
-            -o /out/windows-amd64/fleeto-${component}.exe ./cmd/fleeto-${component}; \
+    && for platform in windows-amd64 windows-arm64 linux-amd64 linux-arm64; do \
+        goos="${platform%-*}"; goarch="${platform#*-}"; suffix=""; \
+        if [ "$goos" = windows ]; then suffix=".exe"; fi; \
+        mkdir -p "/out/${platform}"; \
+        for component in agent watchdog; do \
+            GOOS="$goos" GOARCH="$goarch" go build -trimpath -buildvcs=false \
+                -ldflags "-s -w -buildid= -X ${pkg}.Version=${FLEETO_VERSION} -X '${pkg}.ReleasePublicKeys=${FLEETO_RELEASE_PUBLIC_KEYS}'" \
+                -o "/out/${platform}/fleeto-${component}${suffix}" ./cmd/fleeto-${component}; \
+        done; \
     done \
-    && (cd /out && sha256sum windows-amd64/fleeto-agent.exe windows-amd64/fleeto-watchdog.exe > SHA256SUMS)
+    && (cd /out && sha256sum */fleeto-agent */fleeto-agent.exe */fleeto-watchdog */fleeto-watchdog.exe > SHA256SUMS)
 
 # Only the agent binaries, for the release workflow: docker buildx build --target agent-binaries --output type=local,dest=<dir>.
 # (Exporting the agent stage itself would write its whole filesystem.) The runtime image does not use this stage.

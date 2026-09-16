@@ -12,8 +12,11 @@ namespace Fleeto.Web.Services;
 public sealed record EnrollmentTokenListItem(Guid Id, string Name, DateTime CreatedAt, DateTime ExpiresAt, int? MaxUses, int UseCount,
     DateTime? RevokedAt, string Status, string? EndpointHostname = null);
 
+/// <summary>The one-line install command per platform, shown once with a new token.</summary>
+public sealed record InstallCommands(string Windows, string Linux);
+
 /// <summary>A token that was just created. The plaintext exists only in this object and on the screen, once.</summary>
-public sealed record CreatedEnrollmentToken(Guid Id, string Token, string? InstallCommand, string? Problem);
+public sealed record CreatedEnrollmentToken(Guid Id, string Token, InstallCommands? InstallCommands, string? Problem);
 
 /// <summary>Enrollment tokens for a site and the one-line install command that carries one.</summary>
 public sealed class EnrollmentService
@@ -210,21 +213,31 @@ public sealed class EnrollmentService
 }
 
 /// <summary>
-/// Builds the one-line PowerShell install command shown once after a token is created. It downloads the agent from this
-/// instance and installs it with the gateway address, the token and the SHA-256 fingerprint of the instance CA.
+/// Builds the one-line install command shown once after a token is created, for every platform an agent runs on. It downloads the
+/// agent from this instance and installs it with the gateway address, the token and the SHA-256 fingerprint of the instance CA.
 /// <para>
-/// The -Command argument is single-quoted (inner quotes doubled) so the elevated PowerShell the command is pasted into
-/// does not expand <c>$ErrorActionPreference</c> or <c>$p</c> before the child process sees them; a double-quoted
-/// argument would be broken in both Windows PowerShell 5.1 and PowerShell 7.
+/// The Windows command is a PowerShell -Command argument; it is single-quoted (inner quotes doubled) so the elevated PowerShell the
+/// command is pasted into does not expand <c>$ErrorActionPreference</c> or <c>$p</c> before the child process sees them; a
+/// double-quoted argument would be broken in both Windows PowerShell 5.1 and PowerShell 7. The Linux command is a POSIX shell
+/// argument in single quotes, so it contains no single quote of its own.
 /// </para>
 /// </summary>
 public static partial class InstallCommand
 {
-    public static string Build(string webBaseUrl, string agentHostName, int agentPort, string token, string caFingerprint)
+    /// <summary>The platform directories the instance serves agent binaries for; the same names as in the release manifest.</summary>
+    public static readonly IReadOnlyList<string> Platforms = ["windows-amd64", "windows-arm64", "linux-amd64", "linux-arm64"];
+
+    public static InstallCommands Build(string webBaseUrl, string agentHostName, int agentPort, string token, string caFingerprint)
     {
         if (!Uri.TryCreate(webBaseUrl, UriKind.Absolute, out var baseUri) || baseUri.Scheme is not ("https" or "http"))
         {
             throw new ArgumentException("The web base URL is not an absolute http(s) URL.", nameof(webBaseUrl));
+        }
+
+        var downloadBase = webBaseUrl.TrimEnd('/') + "/agent/download/";
+        if (!DownloadUrlPattern().IsMatch(downloadBase))
+        {
+            throw new ArgumentException("The web base URL contains characters that are not allowed.", nameof(webBaseUrl));
         }
 
         if (!HostNamePattern().IsMatch(agentHostName))
@@ -247,16 +260,49 @@ public static partial class InstallCommand
             throw new ArgumentException("The CA fingerprint must be 64 hexadecimal characters.", nameof(caFingerprint));
         }
 
-        var downloadUrl = webBaseUrl.TrimEnd('/') + "/agent/download/windows-amd64";
+        var server = $"{agentHostName}:{agentPort}";
+        var fingerprint = caFingerprint.ToLowerInvariant();
+        return new InstallCommands(
+            BuildWindows(downloadBase, server, token, fingerprint),
+            BuildLinux(downloadBase, server, token, fingerprint));
+    }
+
+    private static string BuildWindows(string downloadBase, string server, string token, string fingerprint)
+    {
         var inner =
             "$ErrorActionPreference=" + Quote("Stop") + "; " +
+            "$a=if ($env:PROCESSOR_ARCHITECTURE -eq " + Quote("ARM64") + ") {" + Quote("arm64") + "} else {" + Quote("amd64") + "}; " +
             "$p=Join-Path $env:TEMP " + Quote("fleeto-agent.exe") + "; " +
-            "Invoke-WebRequest -UseBasicParsing " + Quote(downloadUrl) + " -OutFile $p; " +
-            "& $p install --server " + Quote($"{agentHostName}:{agentPort}") +
+            "Invoke-WebRequest -UseBasicParsing " + Quote(downloadBase + "windows-") + "$a -OutFile $p; " +
+            "& $p install --server " + Quote(server) +
             " --token " + Quote(token) +
-            " --ca-fingerprint " + Quote(caFingerprint.ToLowerInvariant());
+            " --ca-fingerprint " + Quote(fingerprint);
 
         return "powershell -NoProfile -ExecutionPolicy Bypass -Command '" + inner.Replace("'", "''", StringComparison.Ordinal) + "'";
+    }
+
+    /// <summary>
+    /// The Linux command: it picks the architecture, downloads with curl or wget, and runs the installer from a directory under /opt,
+    /// because /tmp is mounted without exec permission on hardened systems. The downloaded file is removed afterwards, whether the
+    /// install succeeds or not.
+    /// </summary>
+    private static string BuildLinux(string downloadBase, string server, string token, string fingerprint)
+    {
+        var inner =
+            "set -e; " +
+            "case \"$(uname -m)\" in x86_64) a=amd64;; aarch64|arm64) a=arm64;; *) " +
+            "echo \"Fleeto has no Linux agent for $(uname -m).\" >&2; exit 1;; esac; " +
+            "d=$(mktemp -d /opt/.fleeto-install.XXXXXX); " +
+            "trap \"rm -rf $d\" EXIT; " +
+            "u=\"" + downloadBase + "linux-$a\"; " +
+            "if command -v curl >/dev/null; then curl -fsS \"$u\" -o \"$d/fleeto-agent\"; " +
+            "else wget -q \"$u\" -O \"$d/fleeto-agent\"; fi; " +
+            "chmod 700 \"$d/fleeto-agent\"; " +
+            "\"$d/fleeto-agent\" install --server " + server +
+            " --token " + token +
+            " --ca-fingerprint " + fingerprint;
+
+        return "sudo sh -c '" + inner + "'";
     }
 
     /// <summary>A PowerShell single-quoted string literal.</summary>
@@ -270,4 +316,8 @@ public static partial class InstallCommand
 
     [GeneratedRegex("^[0-9A-Fa-f]{64}$")]
     private static partial Regex FingerprintPattern();
+
+    /// <summary>The download URL ends up in a shell and a PowerShell command, so only plain URL characters are allowed.</summary>
+    [GeneratedRegex("^https?://[A-Za-z0-9._~:/?#@!$&*+,;=%()-]{1,2000}$")]
+    private static partial Regex DownloadUrlPattern();
 }

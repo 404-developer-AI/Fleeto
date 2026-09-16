@@ -13,10 +13,11 @@ func DefaultStateDir() string {
 	if runtime.GOOS == "darwin" {
 		return "/Library/Application Support/Fleeto/Agent"
 	}
-	return "/var/lib/fleeto-agent"
+	return "/var/lib/fleeto/agent"
 }
 
-// ProgramDir is where the agent binary is installed.
+// ProgramDir is where the agent and watchdog binaries are installed. It is deliberately not under /opt/fleeto: that path holds the
+// instances of a Fleeto server, which can run on an endpoint that also has an agent.
 func ProgramDir() string {
 	if runtime.GOOS == "darwin" {
 		return "/Library/Fleeto/Agent"
@@ -35,7 +36,7 @@ func WatchdogStateDir() string {
 	if runtime.GOOS == "darwin" {
 		return "/Library/Application Support/Fleeto/Watchdog"
 	}
-	return "/var/lib/fleeto-watchdog"
+	return "/var/lib/fleeto/watchdog"
 }
 
 // DataDir holds the markers shared by agent and watchdog.

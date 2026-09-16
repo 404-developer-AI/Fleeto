@@ -41,10 +41,10 @@ Usage:
   fleeto-agent status [--state-dir <dir>]
   fleeto-agent version [--short]
   fleeto-agent run                      (started by the service manager)
-  fleeto-agent run --foreground --state-dir <dir> [--key-store file|cng]
+  fleeto-agent run --foreground --state-dir <dir> [--key-store file|cng|tpm]
                      [--server <host:port> --token <fet_...> --ca-fingerprint <sha256 hex>]
 
-Copy the install command from the site page in Fleeto. install and uninstall need administrator rights.
+Copy the install command from the site page in Fleeto. install and uninstall need administrator rights (root on Linux).
 run --foreground is for development: it needs no administrator rights and keeps its key in the state directory.
 `
 
@@ -223,6 +223,8 @@ func describeKey(ref state.KeyRef) string {
 			scope = "machine"
 		}
 		return fmt.Sprintf("CNG %s key in %s", scope, ref.Provider)
+	case keystore.KindTPM:
+		return "TPM 2.0, key blob " + ref.File
 	default:
 		return ref.Kind
 	}
@@ -236,7 +238,7 @@ func cmdRun(args []string, stderr io.Writer) int {
 	fs := newFlagSet("run", stderr)
 	foreground := fs.Bool("foreground", false, "run in the console (development)")
 	stateDir := fs.String("state-dir", "", "state directory")
-	keyStore := fs.String("key-store", keystore.KindFile, "key store: file or cng")
+	keyStore := fs.String("key-store", keystore.KindFile, "key store: file, cng (Windows) or tpm (Linux)")
 	server := fs.String("server", "", "gateway host:port, to enroll when not enrolled")
 	token := fs.String("token", "", "enrollment token, to enroll when not enrolled")
 	fingerprint := fs.String("ca-fingerprint", "", "instance CA fingerprint, to enroll when not enrolled")
@@ -255,8 +257,8 @@ func cmdRun(args []string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "Error: run --foreground needs --state-dir, for example --state-dir .\\agent-dev")
 		return exitUsage
 	}
-	if *keyStore != keystore.KindFile && *keyStore != keystore.KindCNG {
-		fmt.Fprintln(stderr, "Error: --key-store must be file or cng")
+	if *keyStore != keystore.KindFile && *keyStore != keystore.KindCNG && *keyStore != keystore.KindTPM {
+		fmt.Fprintln(stderr, "Error: --key-store must be file, cng (Windows) or tpm (Linux)")
 		return exitUsage
 	}
 	dir, err := filepath.Abs(*stateDir)
@@ -296,7 +298,7 @@ func cmdRun(args []string, stderr io.Writer) int {
 		}
 		return exitError
 	case needsEnrollment:
-		// A cng key in foreground mode is a per-user key, so no administrator rights are needed.
+		// A cng key in foreground mode is a per-user key, so no administrator rights are needed; a tpm key needs access to the TPM device.
 		_, err := agent.Enroll(ctx, agent.EnrollParams{
 			StateDir: dir, Access: access, Key: state.KeyRef{Kind: *keyStore},
 			Server: *server, Token: *token, CAFingerprint: *fingerprint, Logger: logger,

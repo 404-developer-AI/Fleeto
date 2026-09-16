@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build !windows && !linux
 
 package svcctl
 
@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// unsupported is the controller of platforms without service support yet (the Linux agent follows in 0.2.1).
+// unsupported is the controller of platforms without service support: everything but Windows and Linux.
 type unsupported struct{}
 
 // New returns the controller of this platform.

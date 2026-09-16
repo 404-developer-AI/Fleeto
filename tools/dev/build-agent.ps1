@@ -1,7 +1,7 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-    Builds the Fleeto agent and watchdog for Windows amd64: agent/dist/windows-amd64/fleeto-{agent,watchdog}.exe.
+    Builds the Fleeto agent and watchdog: agent/dist/<platform>/fleeto-{agent,watchdog}[.exe].
 
 .DESCRIPTION
     The version comes from <Version> in Directory.Build.props, so server and agent share one version number.
@@ -11,8 +11,12 @@
     With -Sign it also writes agent/dist/manifest.json with the hashes of both binaries and signs it with the development release
     key of setup-dev.ps1, so a local gateway (appsettings.Development.json) offers them as an agent update (0.2.1).
 
+.PARAMETER Platform
+    Platforms to build, as <os>-<architecture>. Default: windows-amd64. Use 'all' for every released platform
+    (windows-amd64, windows-arm64, linux-amd64, linux-arm64), which is what a signed manifest for a test endpoint needs.
+
 .PARAMETER Output
-    Output directory. Default: agent/dist/windows-amd64.
+    Output directory of a single platform build. Default: agent/dist/<platform>. Not allowed with more than one platform.
 
 .PARAMETER ReleasePublicKeys
     Base64 ed25519 public keys separated by ';'. Overrides Directory.Build.local.props.
@@ -26,6 +30,8 @@
 #>
 [CmdletBinding()]
 param(
+    [ValidateSet('windows-amd64', 'windows-arm64', 'linux-amd64', 'linux-arm64', 'all')]
+    [string[]] $Platform = @('windows-amd64'),
     [string] $Output,
     [string] $ReleasePublicKeys,
     [switch] $Sign,
@@ -37,7 +43,8 @@ Set-StrictMode -Version Latest
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '../..')
 $agentDir = Join-Path $repoRoot 'agent'
-if (-not $Output) { $Output = Join-Path $agentDir 'dist/windows-amd64' }
+$platforms = if ($Platform -contains 'all') { @('windows-amd64', 'windows-arm64', 'linux-amd64', 'linux-arm64') } else { $Platform }
+if ($Output -and $platforms.Count -gt 1) { throw 'Use -Output with one platform only; several platforms write to agent/dist/<platform>.' }
 
 $go = Get-Command go -ErrorAction SilentlyContinue
 if (-not $go) {
@@ -65,21 +72,26 @@ if ($ReleasePublicKeys -and $ReleasePublicKeys -notmatch '^[A-Za-z0-9+/=;]+$') {
 }
 if (-not $ReleasePublicKeys) { Write-Warning 'No release public keys found: building a development agent without them.' }
 
-New-Item -ItemType Directory -Force -Path $Output | Out-Null
 $module = 'github.com/404-developer-AI/Fleeto/agent'
 $ldflags = "-s -w -buildid= -X $module/internal/version.Version=$version -X $module/internal/version.ReleasePublicKeys=$ReleasePublicKeys"
 $outFiles = @()
 
 $env:CGO_ENABLED = '0'
-$env:GOOS = 'windows'
-$env:GOARCH = 'amd64'
 Push-Location $agentDir
 try {
-    foreach ($component in 'agent', 'watchdog') {
-        $outFile = Join-Path $Output "fleeto-$component.exe"
-        & $goExe build -trimpath -buildvcs=false -ldflags $ldflags -o $outFile "./cmd/fleeto-$component"
-        if ($LASTEXITCODE -ne 0) { throw "go build of fleeto-$component failed with exit code $LASTEXITCODE." }
-        $outFiles += $outFile
+    foreach ($target in $platforms) {
+        $goos, $goarch = $target -split '-', 2
+        $suffix = if ($goos -eq 'windows') { '.exe' } else { '' }
+        $targetDir = if ($Output) { $Output } else { Join-Path $agentDir "dist/$target" }
+        New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+        $env:GOOS = $goos
+        $env:GOARCH = $goarch
+        foreach ($component in 'agent', 'watchdog') {
+            $outFile = Join-Path $targetDir "fleeto-$component$suffix"
+            & $goExe build -trimpath -buildvcs=false -ldflags $ldflags -o $outFile "./cmd/fleeto-$component"
+            if ($LASTEXITCODE -ne 0) { throw "go build of fleeto-$component for $target failed with exit code $LASTEXITCODE." }
+            $outFiles += $outFile
+        }
     }
 }
 finally {
@@ -95,7 +107,7 @@ foreach ($outFile in $outFiles) {
 
 if ($Sign) {
     # The manifest describes <platform>-<architecture>/<file> relative to its own directory, the layout the gateway serves.
-    $distDir = Split-Path -Parent (Resolve-Path $Output)
+    $distDir = if ($Output) { Split-Path -Parent (Resolve-Path $Output) } else { Join-Path $agentDir 'dist' }
     $key = Join-Path $env:LOCALAPPDATA 'Fleeto/dev/keys/release-signing.key'
     if (-not (Test-Path $key)) { throw "The development release key $key does not exist. Run tools/dev/setup-dev.ps1 first." }
     $manifest = Join-Path $distDir 'manifest.json'

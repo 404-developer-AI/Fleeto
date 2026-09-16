@@ -64,7 +64,7 @@ Then:
    an authenticator app at hand. A new link: run `setup-dev.ps1` again while no admin exists.
 2. Settings, Licensing: load `%LOCALAPPDATA%\Fleeto\dev\dev-license.txt` (25 managed endpoints for `localhost`).
 3. Create a client, a site and an enrollment token on the site page. The install command is shown once.
-4. Build the agent: `pwsh tools/dev/build-agent.ps1`.
+4. Build the agent: `pwsh tools/dev/build-agent.ps1` (add `-Platform all` for the Linux and arm64 binaries).
 5. Run the agent on this PC. Either paste the install command in an elevated PowerShell (installs the Windows service
    `fleeto-agent`), or run it without admin rights in the foreground:
 

@@ -1,7 +1,8 @@
 // Package keystore holds the agent identity key: an ECDSA P-256 key generated on the endpoint that never leaves it.
 //
-// Windows service mode uses a non-exportable CNG machine key, in the TPM when one is available. Development mode and
-// the other platforms use a PKCS#8 file readable only by its owner.
+// Windows service mode uses a non-exportable CNG machine key, in the TPM when one is available. The Linux service uses a key held in
+// the TPM 2.0 of the endpoint when it has one (0.2.1). Development mode, and endpoints without a TPM, use a PKCS#8 file readable only
+// by its owner (root for the service).
 package keystore
 
 import (
@@ -24,6 +25,8 @@ const (
 	KindFile = "file"
 	// KindCNG is a Windows CNG persisted key.
 	KindCNG = "cng"
+	// KindTPM is a key held in the TPM 2.0 of the endpoint (Linux, 0.2.1).
+	KindTPM = "tpm"
 	// DefaultFileName is the key file name for KindFile.
 	DefaultFileName = "agent-identity.key"
 	// DefaultCNGName is the CNG key name for KindCNG.
@@ -56,6 +59,12 @@ func Create(dir string, ref state.KeyRef, access platform.Access) (Key, state.Ke
 			ref.Name = DefaultCNGName
 		}
 		return createCNGKey(ref)
+	case KindTPM:
+		if ref.File == "" {
+			ref.File = DefaultTPMFileName
+		}
+		key, err := createTPMKey(tpmKeyPath(dir, ref), access)
+		return key, ref, err
 	default:
 		return nil, ref, fmt.Errorf("unknown key store %q", ref.Kind)
 	}
@@ -68,6 +77,8 @@ func Open(dir string, ref state.KeyRef) (Key, error) {
 		return openFileKey(filepath.Join(dir, ref.File))
 	case KindCNG:
 		return openCNGKey(ref)
+	case KindTPM:
+		return openTPMKey(tpmKeyPath(dir, ref))
 	default:
 		return nil, fmt.Errorf("unknown key store %q", ref.Kind)
 	}
@@ -80,6 +91,8 @@ func Delete(dir string, ref state.KeyRef) error {
 		return deleteFileKey(filepath.Join(dir, ref.File))
 	case KindCNG:
 		return deleteCNGKey(ref)
+	case KindTPM:
+		return deleteTPMKey(tpmKeyPath(dir, ref))
 	default:
 		return fmt.Errorf("unknown key store %q", ref.Kind)
 	}

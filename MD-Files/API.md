@@ -700,12 +700,12 @@ not read them.
 | `cpu` | object | `model` (string), `cores` (integer), `logicalProcessors` (integer). |
 | `memoryTotalBytes` | integer | Physical memory. |
 | `bootTime` | timestamp, nullable | Last start of the operating system. |
-| `domain` | string | Windows domain or DNS domain; empty when none. |
+| `domain` | string | Windows domain or DNS domain; on Linux the realm the endpoint is joined to. Empty when none. |
 | `loggedOnUser` | string | User of the interactive session, empty when nobody is logged on (personal data). |
 | `disks` | array | Per disk: `mount` (`C:` or `/var`), `filesystem`, `totalBytes`, `freeBytes`. |
 | `networkInterfaces` | array | Per interface: `name`, `macAddress`, `ipAddresses` (array of strings, IPv4 and IPv6). |
-| `software` | array | Installed software: `name`, `version`, `publisher`, `installDate` (as the operating system reports it, often `yyyyMMdd`; may be empty). |
-| `services` | array | Services (Windows; systemd services follow with the Linux agent): `name`, `displayName`, `startType` (`automatic`, `automatic_delayed`, `manual`, `disabled`, or empty when unknown) and `state` (`running`, `stopped`, `starting`, `stopping`, `paused`, or empty when unknown). Sorted by display name. |
+| `software` | array | Installed software, from the registry on Windows and from dpkg or rpm on Linux: `name`, `version`, `publisher`, `installDate` (as the operating system reports it, often `yyyyMMdd`; may be empty, as it is for dpkg packages). |
+| `services` | array | Services: Windows services, or systemd services on Linux (`name` without the `.service` suffix, `displayName` is the unit description). Per service: `name`, `displayName`, `startType` (`automatic`, `automatic_delayed` (Windows), `manual`, `disabled`, or empty when unknown; a systemd unit that is enabled, static, generated or indirect is `automatic`, one that is disabled is `manual` and a masked one is `disabled`) and `state` (`running`, `stopped`, `starting`, `stopping`, `paused` (Windows), or empty when unknown). Sorted by display name. |
 
 ### EndpointChecks
 

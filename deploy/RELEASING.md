@@ -82,4 +82,5 @@ under `agentBinaries`; the binaries themselves carry no separate signature.
 
 For local development, `pwsh tools/dev/build-agent.ps1 -Sign [-Version 0.2.1-dev.2]` builds both binaries into
 `agent/dist/windows-amd64/` and writes `agent/dist/manifest.json(.sig)` signed with the development release key; the
-development gateway serves that directory.
+development gateway serves that directory. Add `-Platform all` to build every released platform (`windows-amd64`,
+`windows-arm64`, `linux-amd64`, `linux-arm64`), which a manifest for a Linux test endpoint needs.

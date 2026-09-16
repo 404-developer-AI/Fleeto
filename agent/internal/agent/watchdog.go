@@ -246,6 +246,8 @@ func (m *watchdogManager) ensureIdentity(ctx context.Context, force bool) error 
 		ref.Name = WatchdogKeyName
 	case keystore.KindFile:
 		ref.File = "watchdog-identity.key"
+	case keystore.KindTPM:
+		ref.File = "watchdog-identity.tpmkey"
 	}
 	if err := keystore.Delete(m.opts.StateDir, ref); err != nil {
 		return fmt.Errorf("remove the previous watchdog key: %w", err)

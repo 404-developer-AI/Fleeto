@@ -41,6 +41,16 @@ watchdog, and the rename to Fleeto with the move of the test VPS from the Fleeti
 - 0.2.1: The gateway image carries the agent and watchdog binaries and serves them to enrolled endpoints; `install.sh` hands the
   verified release manifest to the gateway. `tools/dev/build-agent.ps1` builds both binaries and, with `-Sign`, a signed
   development manifest.
+- 0.2.1: Linux agent and watchdog for Ubuntu LTS 22.04 and 24.04, Debian 12 and newer (including Proxmox VE hosts) and the RHEL
+  family 8 and 9 (RHEL, Rocky Linux, AlmaLinux). `fleeto-agent install` enrolls the endpoint and writes the systemd units
+  `fleeto-agent.service` and `fleeto-watchdog.service`, which run as root, start at boot and keep each other running; a unit an
+  administrator disabled or masked is reported and left alone. The identity key is created inside the TPM 2.0 where the endpoint
+  has one and is a root-only key file otherwise. Inventory reads the distribution, the kernel, the hardware (DMI), the packages
+  (dpkg or rpm) and the systemd services, which the check dialog offers like Windows services. Checks, scripts (sh and bash) and
+  jobs run as root; the disk check skips images, container layers and network shares.
+- 0.2.1: Agents for amd64 and arm64 on both platforms. The release manifest lists the agent and the watchdog for `windows-amd64`,
+  `windows-arm64`, `linux-amd64` and `linux-arm64`, the instance serves them at `/agent/download/<platform>`, and the install
+  command of a site is shown per operating system and picks the architecture of the endpoint itself.
 
 - 0.2.0: Maintenance mode for a client, a site or a managed endpoint, started from the client and site settings menus and
   the right-click menu of the endpoint list, for 1, 4 or 24 hours, until a chosen time or until turned off, with an
