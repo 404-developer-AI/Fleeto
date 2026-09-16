@@ -234,7 +234,8 @@ func parseRpm(out string) []*agentv1.SoftwareItem {
 	var items []*agentv1.SoftwareItem
 	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Split(strings.TrimRight(line, "\r"), "\t")
-		if len(fields) < 4 || fields[0] == "" {
+		// rpm prints (none) for a header without a name.
+		if len(fields) < 4 || fields[0] == "" || fields[0] == "(none)" {
 			continue
 		}
 		if len(items) >= maxSoftware {
