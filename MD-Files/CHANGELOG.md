@@ -19,7 +19,8 @@ image was pushed. `0.2.1-alpha.2` fixed that; moving the test VPS with it fell b
 not open its keys under the new name. `0.2.1-alpha.3` seals them again during the move: public API, agent self-update and
 watchdog, and the rename to Fleeto with the move of the test VPS from the Fleetify layout. `0.2.1-alpha.4` (2026-09-16) is the first test
 build with every 0.2.1 feature: the Linux agent on amd64 and arm64, a script run on a selection of endpoints, the output cap
-per policy, running a script as the signed-in user and the web app icon.
+per policy, running a script as the signed-in user and the web app icon. `0.2.1-alpha.5` restores the signing request rule that the
+rename migration had reverted on the test VPS, so the watchdog can get its certificate.
 
 ### Added
 
@@ -261,6 +262,14 @@ per policy, running a script as the signed-in user and the web app icon.
 - Enrollment response relies on the TLS connection validated against the pinned CA
   fingerprint instead of a separate signature.
 - License clock-rollback protection documented with its precise threat model.
+
+### Fixed
+
+- 0.2.1: A watchdog could not be installed on an instance moved from the Fleetify layout. The rename migration replaced the rule for
+  who may request which signature with its version from before the watchdog, so the gateway's request for a watchdog certificate
+  failed with "Unknown signing request kind WatchdogCertificate". Migration `RestoreSigningRequestOrigin` writes the rule again, and
+  the rename now keeps a function that a later migration already wrote under the new name.
+- 0.2.1: The Linux inventory no longer lists an rpm header without a name as a package called "(none)".
 
 ### Security
 

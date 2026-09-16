@@ -1079,7 +1079,8 @@ run under the new names.
      keep instances that are still in the old layout reachable (same loopback ports). The old install.sh is replaced by a stub;
   3. each instance is updated to the release. The migrator renames the database functions and triggers (migration
      `RenameToFleeto`, generic from the catalog, also for the role and channel names in function bodies and trigger
-     arguments), rewraps the data keys and seals the instance signing key and CA key again with the new associated data
+     arguments; a function that a later migration already wrote under the new name is kept, and `RestoreSigningRequestOrigin`
+     repairs the signing request rule on instances moved before that was fixed), rewraps the data keys and seals the instance signing key and CA key again with the new associated data
      labels (`LegacyRenameUpgrade`, before the signer starts), renames the recovery codes marker and has every endpoint
      configuration signed again. An instance whose update fails runs again from the old layout and moves with the next run; one that succeeds
      loses its old copy, and `/opt/fleetify` goes once no instance is left in it.

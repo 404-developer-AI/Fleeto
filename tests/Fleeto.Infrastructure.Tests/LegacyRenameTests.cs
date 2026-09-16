@@ -155,6 +155,45 @@ public class RenameMigrationTests
     }
 
     [Fact]
+    public async Task Rename_migration_keeps_a_function_a_later_migration_already_wrote_under_the_new_name()
+    {
+        await using var connection = await _db.DataSource.OpenConnectionAsync();
+        try
+        {
+            // A 0.2.0 database: the old function without WatchdogCertificate, called by the trigger under its old name.
+            await ExecuteAsync(connection, RenameToFleeto.RenameSql("fleeto_", "fleetify_"));
+            await ExecuteAsync(connection, RestoreSigningRequestOrigin.FunctionSql
+                .Replace("'AgentRecovery', 'WatchdogCertificate'", "'AgentRecovery'", StringComparison.Ordinal)
+                .Replace("fleeto_", "fleetify_", StringComparison.Ordinal));
+            // AgentUpdatesAndWatchdog runs before RenameToFleeto and writes the new function under the new name.
+            await ExecuteAsync(connection, RestoreSigningRequestOrigin.FunctionSql);
+
+            await ExecuteAsync(connection, RenameToFleeto.RenameSql("fleetify_", "fleeto_"));
+
+            Assert.Equal(0, await ScalarAsync<long>(connection, LegacyObjectCountSql));
+            Assert.Contains("'WatchdogCertificate'", await ScalarAsync<string>(connection, "SELECT prosrc FROM pg_proc WHERE proname = 'fleeto_signing_request_origin'"));
+            Assert.Equal("fleeto_signing_request_origin", await ScalarAsync<string>(connection, """
+                SELECT p.proname::text FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid WHERE t.tgname = 'TR_SigningRequests_Origin'
+                """));
+        }
+        finally
+        {
+            await ExecuteAsync(connection, RenameToFleeto.RenameSql("fleetify_", "fleeto_"));
+            await ExecuteAsync(connection, RestoreSigningRequestOrigin.FunctionSql);
+        }
+    }
+
+    [Fact]
+    public async Task Signing_request_origin_rule_names_every_signing_request_kind()
+    {
+        await using var connection = await _db.DataSource.OpenConnectionAsync();
+        var source = await ScalarAsync<string>(connection, "SELECT prosrc FROM pg_proc WHERE proname = 'fleeto_signing_request_origin'");
+
+        // A kind the rule does not name is refused for every container role: the gateway, web or workers cannot request it.
+        Assert.All(Enum.GetNames<SigningRequestKind>(), kind => Assert.Contains($"'{kind}'", source));
+    }
+
+    [Fact]
     public async Task Migrate_seals_signer_keys_again_and_renames_the_recovery_codes_marker()
     {
         var database = _db;

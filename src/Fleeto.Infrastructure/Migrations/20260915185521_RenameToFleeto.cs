@@ -54,12 +54,16 @@ namespace Fleeto.Infrastructure.Migrations
               r record;
             BEGIN
               -- 1. Functions named with the old prefix or mentioning it (role names, channel names): create the renamed version.
+              --    A function that already exists under the new name was written by a later migration and is newer: keep it.
               FOR r IN
                 SELECT p.oid, p.proname
                 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
                 WHERE n.nspname = 'public' AND p.prokind = 'f'
                   AND (p.proname LIKE '{{from}}%' OR p.prosrc LIKE '%{{from}}%')
               LOOP
+                CONTINUE WHEN starts_with(r.proname, '{{from}}') AND EXISTS (
+                  SELECT 1 FROM pg_proc q JOIN pg_namespace m ON m.oid = q.pronamespace
+                  WHERE m.nspname = 'public' AND q.prokind = 'f' AND q.proname = '{{to}}' || substr(r.proname, length('{{from}}') + 1));
                 EXECUTE replace(pg_get_functiondef(r.oid), '{{from}}', '{{to}}');
               END LOOP;
 
