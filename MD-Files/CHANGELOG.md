@@ -17,7 +17,9 @@ Work on 0.2.1, which holds everything still open for 0.2.0, has entries starting
 (2026-09-15) was the first test build of it; its release build failed while exporting the agent binaries, before any
 image was pushed. `0.2.1-alpha.2` fixed that; moving the test VPS with it fell back to the old layout, because the signer could
 not open its keys under the new name. `0.2.1-alpha.3` seals them again during the move: public API, agent self-update and
-watchdog, and the rename to Fleeto with the move of the test VPS from the Fleetify layout.
+watchdog, and the rename to Fleeto with the move of the test VPS from the Fleetify layout. `0.2.1-alpha.4` (2026-09-16) is the first test
+build with every 0.2.1 feature: the Linux agent on amd64 and arm64, a script run on a selection of endpoints, the output cap
+per policy, running a script as the signed-in user and the web app icon.
 
 ### Added
 

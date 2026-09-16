@@ -15,7 +15,7 @@ run; its release build failed), `v0.2.0-alpha.2` (first published test build), `
 
 **0.2.1** — in progress (started 2026-09-15): the read-only public API, agent self-update with update rings, the
 Windows watchdog, the Linux agent with its watchdog and the rename to Fleeto everywhere are built (pre-releases `v0.2.1-alpha.1`, whose release build
-failed, `v0.2.1-alpha.2`, whose move of the test VPS fell back to the old layout, and `v0.2.1-alpha.3`, 2026-09-15), and so are the
+failed, `v0.2.1-alpha.2`, whose move of the test VPS fell back to the old layout, `v0.2.1-alpha.3`, 2026-09-15, and `v0.2.1-alpha.4`, 2026-09-16, the first with every 0.2.1 feature), and so are the
 script run on a selection of endpoints, the output cap per policy, running a script as the signed-in user and the icon for the installed web app,
 and the images of the failed `v0.2.0-alpha.1` are removed from ghcr.io; what is left is testing on real endpoints before the tag. The Servicedesk ticket reference on notes moved to "Not yet scheduled" (decided 2026-09-15).
 
