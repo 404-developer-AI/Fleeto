@@ -9,6 +9,7 @@ using Fleeto.Workers.Hosting;
 using Fleeto.Workers.Jobs;
 using Fleeto.Workers.Licensing;
 using Fleeto.Workers.Options;
+using Fleeto.Workers.Remote;
 using Fleeto.Workers.Retention;
 using Fleeto.Workers.Webhooks;
 using Microsoft.Extensions.Configuration;
@@ -47,6 +48,7 @@ public static class WorkersServiceCollectionExtensions
         services.AddHostedService<CheckEvaluationService>();
         services.AddHostedService<CheckRunRequestService>();
         services.AddHostedService<JobMaintenanceService>();
+        services.AddHostedService<RemoteSessionMaintenanceService>();
         services.AddHostedService<AlertHoldService>();
         services.AddHostedService<EndpointHealthService>();
         services.AddHostedService<EndpointEventService>();

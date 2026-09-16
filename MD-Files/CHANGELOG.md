@@ -9,6 +9,26 @@ When a third released version is added, the oldest entry moves to the top of
 
 ## [Unreleased]
 
+### Added
+
+- 0.3.0: Remote background with a terminal as SYSTEM or root. Opened from the right-click menu of a managed endpoint or the
+  Remote background button on the endpoint detail, in its own window: PowerShell or Command Prompt on Windows (in a pseudo
+  console; Windows Server 2016 gets line input), the login shell on Linux, served by the watchdog, so it also works when the
+  agent is broken. The shell ends when the window closes or the session ends; a new terminal can be opened in the same session.
+  An optional reason is stored with the session. Needs the watchdog of Fleeto 0.3.0.
+- 0.3.0: Remote sessions are end-to-end encrypted between the browser and the endpoint. fleeto-signer signs a single-use token
+  per technician's connection, valid 60 seconds, with the browser's ephemeral X25519 key; the endpoint signs its own key with
+  its certificate key, and the browser accepts that key only by the fingerprint the instance recorded. Frames are AES-256-GCM
+  with a counter nonce. The gateway relays them unread: browsers connect to `wss://<fqdn>/relay/` through the host proxy, the
+  endpoint to `/v1/relay/` with its client certificate. Tier checks in web, signer, gateway and on the endpoint.
+- 0.3.0: A remote session without input closes after the policy's idle timeout (Remote session idle timeout, 5 to 480 minutes,
+  default 30), with a warning 2 minutes before.
+- 0.3.0: Remote sessions, their participants and actions are stored (migration `RemoteSessions`, additive) and audited:
+  `remote_session.requested`, `.signed`, `.joined`, `.left` and `.refused`. Sessions that never connect end after 5 minutes;
+  the history is kept 13 months. The policy stores the remote session settings of later steps (consent, banner, clipboard,
+  file size).
+- 0.3.0: install.sh gives every instance a loopback port for the relay (`RELAY_PORT`) and routes `/relay/*` to it.
+
 ## [0.2.2] — 2026-09-16
 
 Found while testing 0.2.1 on the first test VPS: why an agent or watchdog update waits, choosing the user a script runs as, and

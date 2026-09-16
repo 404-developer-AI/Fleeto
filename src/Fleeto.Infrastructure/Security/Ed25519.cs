@@ -120,6 +120,9 @@ public static class SignatureContexts
 
     /// <summary>Signed jobs (0.2.0); must equal the Go agent constant.</summary>
     public const string Job = "fleeto-job-v1";
+
+    /// <summary>Remote session tokens (0.3.0); must equal the Go agent constant.</summary>
+    public const string RemoteSession = "fleeto-remote-session-v1";
     public const string License = "fleeto-license-v1";
     public const string ReleaseManifest = "fleeto-release-manifest-v1";
 }

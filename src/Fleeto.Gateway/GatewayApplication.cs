@@ -3,6 +3,7 @@ using Fleeto.Gateway.Data;
 using Fleeto.Gateway.Diagnostics;
 using Fleeto.Gateway.Enrollment;
 using Fleeto.Gateway.Releases;
+using Fleeto.Gateway.Remote;
 using Fleeto.Gateway.Sessions;
 using Fleeto.Gateway.Signing;
 using Fleeto.Gateway.Tls;
@@ -48,6 +49,8 @@ public static class GatewayApplication
         builder.Services.AddHostedService(sp => sp.GetRequiredService<ReleaseCatalog>());
         builder.Services.AddSingleton<AgentSessionManager>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<AgentSessionManager>());
+        builder.Services.AddSingleton<RemoteRelay>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<RemoteRelay>());
         builder.Services.AddHostedService<LastSeenFlusher>();
         builder.Services.AddHostedService<GatewaySummaryLogger>();
 
@@ -86,6 +89,9 @@ public static class GatewayApplication
             });
 
             kestrel.Listen(address, options.HealthPort, listen => listen.Protocols = HttpProtocols.Http1);
+
+            // Browser side of the remote session relay (0.3.0), behind the host proxy.
+            kestrel.Listen(address, options.RelayPort, listen => listen.Protocols = HttpProtocols.Http1);
         });
 
         var app = builder.Build();
@@ -121,6 +127,13 @@ public static class GatewayApplication
             .RequireRateLimiting(EnrollmentHandler.RateLimitPolicy);
         app.MapGet("/health", (HttpContext context, GatewayHealth health) => health.HandleAsync(context))
             .AddEndpointFilter(OnlyOnPort(ports.HealthPort));
+        // Remote sessions (0.3.0): the browser presents its token on the relay port, the endpoint connects with its certificate on the agent port.
+        app.MapGet(RemoteRelay.BrowserPathPrefix + "{participantId:guid}", (HttpContext context, Guid participantId, RemoteRelay relay) =>
+                relay.HandleBrowserAsync(context, participantId))
+            .AddEndpointFilter(OnlyOnPort(ports.RelayPort));
+        app.MapGet(RemoteRelay.EndpointPathPrefix + "{participantId:guid}", (HttpContext context, Guid participantId, RemoteRelay relay) =>
+                relay.HandleEndpointAsync(context, participantId))
+            .AddEndpointFilter(OnlyOnPort(ports.AgentPort));
 
         return app;
     }

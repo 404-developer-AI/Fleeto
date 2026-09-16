@@ -821,11 +821,28 @@ port_in_use() {
     local port="$1" conf
     for conf in "$FLEETO_ROOT"/*/instance.conf; do
         [[ -f "$conf" ]] || continue
-        if [[ "$(conf_get "$conf" WEB_PORT)" == "$port" || "$(conf_get "$conf" AGENT_PORT)" == "$port" ]]; then
+        if [[ "$(conf_get "$conf" WEB_PORT)" == "$port" || "$(conf_get "$conf" AGENT_PORT)" == "$port" || "$(conf_get "$conf" RELAY_PORT)" == "$port" ]]; then
             return 0
         fi
     done
     [[ -n "$(ss -Htan "sport = :$port" 2>/dev/null)" ]]
+}
+
+# allocate_relay_port [existing]: prints the loopback port of the gateway's remote session relay (0.3.0). An instance keeps the port it has;
+# an instance from before 0.3.0 gets the first free port, from the top of the range down so the web and agent pairs stay together.
+allocate_relay_port() {
+    local existing="${1:-}" port
+    if [[ "$existing" =~ ^[0-9]{4,5}$ ]]; then
+        printf '%s' "$existing"
+        return 0
+    fi
+    for ((port = PORT_RANGE_END + 1; port > PORT_RANGE_START; port--)); do
+        if ! port_in_use "$port"; then
+            printf '%s' "$port"
+            return 0
+        fi
+    done
+    die "No free loopback port left between $PORT_RANGE_START and $PORT_RANGE_END." "Remove unused instances from this VPS."
 }
 
 # Sets WEB_PORT and AGENT_PORT to the first free pair of loopback ports.
@@ -886,7 +903,7 @@ recreate_networks_if_diverged() {
 }
 
 write_instance_conf() {
-    local instance="$1" fqdn="$2" version="$3" state="$4" web_port="$5" agent_port="$6" dir edge_egress="false" memory="1GB" cpus="2"
+    local instance="$1" fqdn="$2" version="$3" state="$4" web_port="$5" agent_port="$6" relay_port="$7" dir edge_egress="false" memory="1GB" cpus="2"
     dir="$(instance_dir "$instance")"
     # Keep settings the VPS owner may have tuned.
     if [[ -f "$dir/instance.conf" ]]; then
@@ -904,6 +921,7 @@ FLEETO_STATE=$state
 FLEETO_ROLLBACK=$MANIFEST_ROLLBACK
 WEB_PORT=$web_port
 AGENT_PORT=$agent_port
+RELAY_PORT=$relay_port
 EDGE_EGRESS=$edge_egress
 POSTGRES_MEMORY=$memory
 POSTGRES_CPUS=$cpus
@@ -1132,7 +1150,7 @@ conf_fqdn() {
 }
 
 generate_caddyfile() {
-    local instance conf fqdn web_port agent_port matcher
+    local instance conf fqdn web_port agent_port relay_port matcher
     local -a instances=()
     mapfile -t instances < <(routed_instance_confs)
 
@@ -1171,11 +1189,23 @@ generate_caddyfile() {
         instance="$(basename "$(dirname "$conf")")"
         fqdn="$(conf_fqdn "$conf")"
         web_port="$(conf_get "$conf" WEB_PORT)"
+        relay_port="$(conf_get "$conf" RELAY_PORT)"
         validate_generated_values "$instance" "$fqdn" "$web_port"
         printf '\n# Instance %s\n' "$instance"
         printf '%s {\n' "$fqdn"
         printf '\theader Strict-Transport-Security "max-age=31536000; includeSubDomains"\n'
-        printf '\treverse_proxy 127.0.0.1:%s\n' "$web_port"
+        if [[ -n "$relay_port" ]]; then
+            # Remote sessions (0.3.0): the browser side of the relay runs in the gateway. What passes is end-to-end encrypted.
+            validate_generated_values "$instance" "$fqdn" "$relay_port"
+            printf '\thandle /relay/* {\n'
+            printf '\t\treverse_proxy 127.0.0.1:%s\n' "$relay_port"
+            printf '\t}\n'
+            printf '\thandle {\n'
+            printf '\t\treverse_proxy 127.0.0.1:%s\n' "$web_port"
+            printf '\t}\n'
+        else
+            printf '\treverse_proxy 127.0.0.1:%s\n' "$web_port"
+        fi
         printf '}\n'
     done
 }
@@ -1249,7 +1279,7 @@ wait_for_container_health() {
 
 # instance_health_problems <instance>: prints one line per problem; prints nothing when healthy.
 instance_health_problems() {
-    local instance="$1" dir service container_id status fqdn web_port agent_port
+    local instance="$1" dir service container_id status fqdn web_port agent_port relay_port
     dir="$(instance_dir "$instance")"
     fqdn="$(conf_get "$dir/instance.conf" "${CONF_PREFIX}_FQDN")"
     web_port="$(conf_get "$dir/instance.conf" WEB_PORT)"
@@ -1268,6 +1298,13 @@ instance_health_problems() {
     # A completed TLS handshake proves the gateway obtained its server certificate from the signer.
     timeout 10 openssl s_client -connect "127.0.0.1:$agent_port" -servername "agents.$fqdn" </dev/null >/dev/null 2>&1 \
         || echo "gateway does not complete a TLS handshake on 127.0.0.1:$agent_port"
+    # The remote session relay (0.3.0) answers a plain request with 400 (WebSocket required) once it has read its database.
+    relay_port="$(conf_get "$dir/instance.conf" RELAY_PORT)"
+    if [[ -n "$relay_port" ]]; then
+        [[ "$(curl --silent --max-time 5 --output /dev/null --write-out '%{http_code}' \
+            "http://127.0.0.1:$relay_port/relay/v1/sessions/00000000-0000-0000-0000-000000000000" || true)" == 400 ]] \
+            || echo "the remote session relay does not answer on 127.0.0.1:$relay_port"
+    fi
 }
 
 wait_for_instance_health() {
@@ -1513,20 +1550,22 @@ install_instance() {
     step "Preparing $dir"
     create_instance_directories "$dir"
     generate_instance_secrets "$dir"
-    local web_port agent_port
+    local web_port agent_port relay_port
     if [[ -f "$dir/instance.conf" ]]; then
         # A previous attempt got this far: keep its ports.
         web_port="$(conf_get "$dir/instance.conf" WEB_PORT)"
         agent_port="$(conf_get "$dir/instance.conf" AGENT_PORT)"
+        relay_port="$(allocate_relay_port "$(conf_get "$dir/instance.conf" RELAY_PORT)")"
     else
         allocate_ports
         web_port="$WEB_PORT"
         agent_port="$AGENT_PORT"
+        relay_port="$(allocate_relay_port)"
     fi
     write_instance_templates "$dir"
     write_release_manifest "$dir"
-    write_instance_conf "$instance" "$fqdn" "$version" installing "$web_port" "$agent_port"
-    ok "web on 127.0.0.1:$web_port, gateway on 127.0.0.1:$agent_port"
+    write_instance_conf "$instance" "$fqdn" "$version" installing "$web_port" "$agent_port" "$relay_port"
+    ok "web on 127.0.0.1:$web_port, gateway on 127.0.0.1:$agent_port, remote session relay on 127.0.0.1:$relay_port"
 
     recreate_networks_if_diverged "$instance"
     step "Starting PostgreSQL"
@@ -1955,13 +1994,15 @@ update_instance() {
     [[ -d "$dir/release" ]] && cp -a "$dir/release" "$dir/state/previous/"
     rollback_mode="$MANIFEST_ROLLBACK"
 
-    local web_port agent_port
+    local web_port agent_port relay_port
     web_port="$(conf_get "$dir/instance.conf" WEB_PORT)"
     agent_port="$(conf_get "$dir/instance.conf" AGENT_PORT)"
+    # An instance from before 0.3.0 gets its relay port now; a rollback restores the previous instance.conf without it.
+    relay_port="$(allocate_relay_port "$(conf_get "$dir/instance.conf" RELAY_PORT)")"
     write_instance_templates "$dir"
     write_release_manifest "$dir"
     # The recorded version changes only after the health check passes.
-    write_instance_conf "$instance" "$fqdn" "$installed_version" updating "$web_port" "$agent_port"
+    write_instance_conf "$instance" "$fqdn" "$installed_version" updating "$web_port" "$agent_port" "$relay_port"
 
     if instance_networks_diverge "$instance"; then
         if ! recreate_networks_if_diverged "$instance"; then

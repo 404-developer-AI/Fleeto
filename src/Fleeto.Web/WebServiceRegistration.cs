@@ -76,6 +76,8 @@ public static class WebServiceRegistration
         services.AddSingleton<AuditQueryService>();
         services.AddSingleton<ApiKeyService>();
         services.AddSingleton<AgentUpdateService>();
+        services.AddSingleton<RemoteSessionService>();
+        services.AddScoped<RemoteWindow>();
         return services;
     }
 }

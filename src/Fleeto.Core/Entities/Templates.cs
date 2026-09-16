@@ -40,6 +40,26 @@ public class Policy
     /// </summary>
     public long MaxOutputBytes { get; set; } = ScriptRules.DefaultMaxOutputBytes;
 
+    /// <summary>
+    /// Remote control on workstations (0.3.0): ask the signed-in user to allow a session first. Off by default; servers never ask.
+    /// </summary>
+    public bool RemoteConsentRequired { get; set; }
+
+    /// <summary>Seconds the consent prompt waits for an answer; without one, access is granted (0.3.0).</summary>
+    public int RemoteConsentTimeoutSeconds { get; set; } = Domain.RemoteSessionRules.DefaultConsentTimeoutSeconds;
+
+    /// <summary>Remote control on workstations (0.3.0): a banner naming the technicians while a session runs. On by default; servers never show it.</summary>
+    public bool RemoteBannerVisible { get; set; } = true;
+
+    /// <summary>Remote control (0.3.0): clipboard synchronisation between technician and endpoint.</summary>
+    public bool RemoteClipboardEnabled { get; set; } = true;
+
+    /// <summary>A remote session without input from the technician closes after this many minutes (0.3.0).</summary>
+    public int RemoteIdleTimeoutMinutes { get; set; } = Domain.RemoteSessionRules.DefaultIdleTimeoutMinutes;
+
+    /// <summary>The largest file one transfer in a remote session may carry (0.3.0).</summary>
+    public long RemoteMaxFileBytes { get; set; } = Domain.RemoteSessionRules.DefaultMaxFileBytes;
+
     /// <summary>Policy this one was copied from; the copy is independent.</summary>
     public Guid? CopiedFromId { get; set; }
 

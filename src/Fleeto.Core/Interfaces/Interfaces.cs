@@ -206,4 +206,10 @@ public static class AuditActions
     public const string CredentialChanged = "settings.credential_changed";
     public const string NotificationChannelChanged = "notification_channel.changed";
     public const string BackupStarted = "backup.started";
+
+    public const string RemoteSessionRequested = "remote_session.requested";
+    public const string RemoteSessionSigned = "remote_session.signed";
+    public const string RemoteSessionJoined = "remote_session.joined";
+    public const string RemoteSessionLeft = "remote_session.left";
+    public const string RemoteSessionRefused = "remote_session.refused";
 }

@@ -13,6 +13,7 @@
 @inject IDialogService DialogService
 @inject LiveUpdates Live
 @inject IJSRuntime JS
+@inject RemoteWindow RemoteWindow
 @inject TimeProvider Clock
 
 @* Clients workspace: clients and sites on the left, the endpoints of the selection on the right, and the selected endpoint below. *@
@@ -292,6 +293,7 @@
                                         }
                                         @if (row.Tier == EndpointTier.Managed)
                                         {
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.Terminal" OnClick="@(() => RemoteWindow.OpenBackgroundAsync(row.Id))">Remote background</MudMenuItem>
                                             <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="@(() => RunScriptAsync(row))">Run script</MudMenuItem>
                                             @MaintenanceMenuItems(MaintenanceTarget.Endpoint, row.Id, row.Hostname, false, row.OwnMaintenanceActive ? row.OwnMaintenance : null)
                                         }

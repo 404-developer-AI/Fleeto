@@ -25,8 +25,14 @@
 //
 // Watchdog (0.2.1): the second service on an endpoint connects to the same /v1/connect with its own certificate (role watchdog,
 // issued through WatchdogCertificateRequest over the agent session). A watchdog session only exchanges Hello, HelloAck, Heartbeat,
-// Ping, Pong, certificate renewal, UpdateOffer, UpdateStatus and Disconnect; the gateway ignores anything else it sends and never
-// sends it configurations, jobs, check run or inventory requests.
+// Ping, Pong, certificate renewal, UpdateOffer, UpdateStatus, remote background sessions (0.3.0) and Disconnect; the gateway ignores
+// anything else it sends and never sends it configurations, jobs, check run or inventory requests.
+//
+// Remote sessions (0.3.0, ARCHITECTURE.md §4 Remote session): the gateway sends RemoteSessionOffer over the session of the service that
+// serves the session (the watchdog for remote background). The service verifies the token (context "fleeto-remote-session-v1"), then
+// opens WebSocket wss://<agent host>/v1/relay/<participant id> with its client certificate (mTLS) and sends RelayEndpointHello as the
+// first binary message. After it, every binary message on the relay is one AES-256-GCM frame between browser and endpoint that the
+// gateway passes on unread. A refused offer is answered with RemoteSessionRefused over the control session instead.
 //
 // Updates (0.2.1): UpdateOffer carries the release manifest of the instance with its Steaan release signature (ed25519 over the
 // exact manifest bytes, without a context prefix, the same signature install.sh verifies). The receiver verifies it against the
@@ -112,6 +118,8 @@ message AgentMessage {
     // 0.2.1
     WatchdogCertificateRequest watchdog_certificate = 11;
     UpdateStatus update_status = 12;
+    // 0.3.0
+    RemoteSessionRefused remote_session_refused = 13;
   }
 }
 
@@ -130,6 +138,8 @@ message ServerMessage {
     // 0.2.1
     UpdateOffer update_offer = 11;
     WatchdogCertificateResponse watchdog_certificate = 12;
+    // 0.3.0
+    RemoteSessionOffer remote_session_offer = 13;
   }
 }
 
@@ -655,6 +665,75 @@ enum UpdateWaitReason {
   UPDATE_WAIT_REASON_INSTALLER_UPDATE = 4;
   // This version was rolled back on the endpoint before and is not tried again.
   UPDATE_WAIT_REASON_ROLLED_BACK = 5;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Remote sessions (0.3.0)
+// ---------------------------------------------------------------------------------------------------------------
+
+// A remote session token signed by fleeto-signer for one participant: single use, valid 60 seconds.
+message SignedRemoteSession {
+  // Serialized RemoteSessionToken.
+  bytes payload = 1;
+  // ed25519 over "fleeto-remote-session-v1" || 0x00 || payload.
+  bytes signature = 2;
+  string key_id = 3;
+}
+
+// The endpoint accepts a token only when the signature verifies against the pinned instance signing key, instance_id and endpoint_id
+// are its own, component is the service that received it, valid_until has not passed (5 minutes clock tolerance), the participant id
+// was not used before, and its own applied signed configuration is managed.
+message RemoteSessionToken {
+  // RemoteSessionParticipant id: one technician's connection. Used once.
+  string participant_id = 1;
+  string session_id = 2;
+  string instance_id = 3;
+  string endpoint_id = 4;
+  RemoteSessionKind kind = 5;
+  // The service that serves the session.
+  Component component = 6;
+  string technician_id = 7;
+  // Display name of the technician, for the endpoint's log.
+  string technician_name = 8;
+  // The browser's ephemeral X25519 public key, 32 bytes. The endpoint derives the session keys with it and nothing else.
+  bytes browser_public_key = 9;
+  google.protobuf.Timestamp issued_at = 10;
+  google.protobuf.Timestamp valid_until = 11;
+  // From the effective policy of the endpoint: a session without input from the technician closes after this long.
+  uint32 idle_timeout_seconds = 12;
+  // From the effective policy: the largest file one transfer may carry.
+  uint64 max_file_bytes = 13;
+}
+
+enum RemoteSessionKind {
+  REMOTE_SESSION_KIND_UNSPECIFIED = 0;
+  REMOTE_SESSION_KIND_REMOTE_CONTROL = 1;
+  REMOTE_SESSION_KIND_REMOTE_BACKGROUND = 2;
+}
+
+// The gateway asks the service to connect its side of the relay for a token the browser presented.
+message RemoteSessionOffer {
+  SignedRemoteSession session = 1;
+}
+
+// The service refused an offer; the gateway tells the browser why.
+message RemoteSessionRefused {
+  string participant_id = 1;
+  // Free text, at most 500 characters.
+  string error = 2;
+}
+
+// First binary message of the endpoint on /v1/relay/<participant id>. The gateway passes the key and signature to the browser.
+message RelayEndpointHello {
+  string participant_id = 1;
+  // The endpoint's ephemeral X25519 public key, 32 bytes.
+  bytes endpoint_public_key = 2;
+  // ECDSA P-256 with SHA-256 by the certificate key of the service, IEEE P1363 (r || s, 64 bytes), over
+  // "fleeto-remote-endpoint-key-v1" || 0x00 || SHA-256(RemoteSessionToken payload) || endpoint_public_key.
+  bytes signature = 3;
+  // The SubjectPublicKeyInfo (DER) of the service's certificate, exactly as in the certificate. The browser accepts it only when its
+  // SHA-256 is the public key fingerprint the instance recorded for a valid certificate of that service; the relay cannot swap it.
+  bytes certificate_public_key = 4;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

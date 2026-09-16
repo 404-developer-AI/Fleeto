@@ -11,8 +11,10 @@ public static class SecurityHeadersMiddleware
     /// <summary>Key under which the per-response nonce is published to the renderer (App.razor).</summary>
     public const string NonceItemKey = "fleeto-csp-nonce";
 
-    public static IApplicationBuilder UseFleetoSecurityHeaders(this IApplicationBuilder app) =>
-        app.Use(async (context, next) =>
+    public static IApplicationBuilder UseFleetoSecurityHeaders(this IApplicationBuilder app)
+    {
+        var relaySource = RelaySource(app.ApplicationServices.GetRequiredService<IConfiguration>()["Remote:RelayUrl"]);
+        return app.Use(async (context, next) =>
         {
             // A fresh nonce per response; a reused nonce would be forgeable.
             var nonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
@@ -33,7 +35,7 @@ public static class SecurityHeadersMiddleware
             }, context);
 
             var headers = context.Response.Headers;
-            headers["Content-Security-Policy"] = BuildContentSecurityPolicy(nonce, WebSocketSources(context));
+            headers["Content-Security-Policy"] = BuildContentSecurityPolicy(nonce, WebSocketSources(context) + relaySource);
             headers["X-Content-Type-Options"] = "nosniff";
             headers["X-Frame-Options"] = "DENY";
             headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
@@ -42,6 +44,22 @@ public static class SecurityHeadersMiddleware
 
             await next();
         });
+    }
+
+    /// <summary>
+    /// The remote session relay (0.3.0) is reached on the instance's own host under /relay/, which the host names already cover. Only a
+    /// relay configured elsewhere (local development: the gateway's relay port) is added, by its origin.
+    /// </summary>
+    internal static string RelaySource(string? relayUrl)
+    {
+        if (string.IsNullOrWhiteSpace(relayUrl) || !Uri.TryCreate(relayUrl, UriKind.Absolute, out var uri) || uri.Scheme is not ("ws" or "wss") ||
+            uri.Authority.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('.' or '-' or ':' or '[' or ']')))
+        {
+            return string.Empty;
+        }
+
+        return $" {uri.Scheme}://{uri.Authority}";
+    }
 
     internal static string BuildContentSecurityPolicy(string nonce, string webSocketSources) =>
         "default-src 'self'; " +

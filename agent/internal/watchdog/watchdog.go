@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -31,7 +32,9 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/platform"
 	"github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1"
 	"github.com/404-developer-AI/Fleeto/agent/internal/release"
+	"github.com/404-developer-AI/Fleeto/agent/internal/remote"
 	"github.com/404-developer-AI/Fleeto/agent/internal/safego"
+	"github.com/404-developer-AI/Fleeto/agent/internal/signedconfig"
 	"github.com/404-developer-AI/Fleeto/agent/internal/state"
 	"github.com/404-developer-AI/Fleeto/agent/internal/svcctl"
 	"github.com/404-developer-AI/Fleeto/agent/internal/update"
@@ -79,6 +82,7 @@ type Watchdog struct {
 	outbox     chan *agentv1.AgentMessage
 	supervisor *update.Supervisor
 	updater    *update.Updater
+	remote     *remote.Server
 }
 
 // New loads the identity the agent provisioned.
@@ -137,7 +141,74 @@ func New(opts Options) (*Watchdog, error) {
 		Pause:    w.supervisor.Pause,
 		MaxDelay: opts.UpdateMaxDelay,
 	})
+	// Remote background sessions (0.3.0) are served here, so they also work when the agent is broken.
+	w.remote = &remote.Server{
+		Component: agentv1.Component_COMPONENT_WATCHDOG,
+		Trust:     w.trust,
+		Managed:   w.agentManaged,
+		Signer:    key,
+		CertificatePublicKey: func() ([]byte, error) {
+			cert, err := w.st.Load().Certificate()
+			if err != nil {
+				return nil, err
+			}
+			return cert.RawSubjectPublicKeyInfo, nil
+		},
+		Dial: remote.WebSocketDialer(func() (string, *tls.Config, error) {
+			st := w.st.Load()
+			conf, _, err := w.tlsConfig(st)
+			return st.Server, conf, err
+		}),
+		Hello: func() remote.Hello {
+			return remote.Hello{Hostname: inventory.Hostname(), Platform: runtime.GOOS, Shells: remote.Shells(), PTY: remote.PTYAvailable(),
+				Version: version.Version}
+		},
+		Open:   remote.OpenTerminal,
+		Logger: opts.Logger,
+		Now:    opts.Now,
+	}
 	return w, nil
+}
+
+// trust is the instance trust the agent pinned at enrollment and gave to the watchdog.
+func (w *Watchdog) trust() (signedconfig.Trust, error) {
+	st := w.st.Load()
+	signingKey, err := st.SigningKey()
+	if err != nil {
+		return signedconfig.Trust{}, err
+	}
+	return signedconfig.Trust{SigningKey: signingKey, KeyID: st.SigningKeyID, InstanceID: st.InstanceID, EndpointID: st.EndpointID}, nil
+}
+
+// agentManaged reports whether the signed configuration the agent applied verifies and is managed. The watchdog has no configuration of
+// its own, so it reads the agent's (tier enforcement, layer 4); without a readable, verified configuration it serves no sessions.
+func (w *Watchdog) agentManaged() bool {
+	trust, err := w.trust()
+	if err != nil {
+		return false
+	}
+	agentState, err := state.NewStore(w.opts.AgentStateDir, w.store.Access()).Load()
+	if err != nil || agentState.EndpointID != trust.EndpointID || agentState.InstanceID != trust.InstanceID {
+		return false
+	}
+	return remote.ManagedConfig(agentState.AppliedConfig, trust)
+}
+
+// remoteSession starts a remote background session for an offer, or reports why it was refused.
+func (w *Watchdog) remoteSession(ctx context.Context, offer *agentv1.RemoteSessionOffer) {
+	participantID, refusal := w.remote.Offer(ctx, offer)
+	if refusal == "" {
+		return
+	}
+	if len(refusal) > 500 {
+		refusal = refusal[:500]
+	}
+	select {
+	case w.outbox <- &agentv1.AgentMessage{Body: &agentv1.AgentMessage_RemoteSessionRefused{
+		RemoteSessionRefused: &agentv1.RemoteSessionRefused{ParticipantId: participantID, Error: refusal},
+	}}:
+	default:
+	}
 }
 
 // Close releases the key.
@@ -371,6 +442,10 @@ func (w *Watchdog) session(ctx context.Context) (renewed bool, err error) {
 				}
 			case *agentv1.ServerMessage_UpdateOffer:
 				w.updater.Offer(body.UpdateOffer.GetManifest(), body.UpdateOffer.GetSignature(), body.UpdateOffer.GetUpdateAllowed())
+			case *agentv1.ServerMessage_RemoteSessionOffer:
+				// In the background with the service's context: a session outlives a reconnect of this control connection.
+				offer := body.RemoteSessionOffer
+				safego.Go(w.logger, "remote session offer", func() { w.remoteSession(ctx, offer) })
 			case *agentv1.ServerMessage_RenewCertificate:
 				renewalSentAt = time.Time{}
 				if w.storeRenewal(body.RenewCertificate) {

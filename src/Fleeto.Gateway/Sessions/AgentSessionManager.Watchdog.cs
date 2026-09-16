@@ -157,6 +157,9 @@ public sealed partial class AgentSessionManager
             case AgentMessage.BodyOneofCase.UpdateStatus:
                 await SaveUpdateStatusAsync(session, message.UpdateStatus, cancellationToken);
                 break;
+            case AgentMessage.BodyOneofCase.RemoteSessionRefused:
+                RaiseRemoteSessionRefused(session, message.RemoteSessionRefused);
+                break;
             case AgentMessage.BodyOneofCase.Hello:
                 session.Close(DisconnectCode.ProtocolError, "Hello may only be sent once per connection.");
                 break;
@@ -164,6 +167,21 @@ public sealed partial class AgentSessionManager
                 _logger.LogWarning("Endpoint {EndpointId}: the watchdog sent a {Message} message, which only the agent may send; ignored",
                     session.EndpointId, message.BodyCase);
                 break;
+        }
+    }
+
+    /// <summary>A service refused a remote session offer (0.3.0); the relay tells the waiting browser why.</summary>
+    public event Action<AgentSession, RemoteSessionRefused>? RemoteSessionRefused;
+
+    private void RaiseRemoteSessionRefused(AgentSession session, RemoteSessionRefused refused)
+    {
+        try
+        {
+            RemoteSessionRefused?.Invoke(session, refused);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Endpoint {EndpointId}: handling a refused remote session failed", session.EndpointId);
         }
     }
 

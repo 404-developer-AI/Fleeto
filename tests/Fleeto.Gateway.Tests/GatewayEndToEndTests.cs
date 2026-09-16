@@ -46,6 +46,7 @@ public sealed class GatewayEndToEndTests
                 "--Gateway:ListenAddress=127.0.0.1",
                 $"--Gateway:AgentPort={agentPort}",
                 $"--Gateway:HealthPort={healthPort}",
+                $"--Gateway:RelayPort={FreePort()}",
                 "--Logging:LogLevel:Default=Warning"
             ],
             builder =>
@@ -116,7 +117,7 @@ public sealed class GatewayEndToEndTests
     {
         var healthPort = FreePort();
         await using var app = GatewayApplication.Build(
-            ["--Gateway:ListenAddress=127.0.0.1", $"--Gateway:AgentPort={FreePort()}", $"--Gateway:HealthPort={healthPort}"],
+            ["--Gateway:ListenAddress=127.0.0.1", $"--Gateway:AgentPort={FreePort()}", $"--Gateway:HealthPort={healthPort}", $"--Gateway:RelayPort={FreePort()}"],
             builder =>
             {
                 builder.Services.AddSingleton(_fixture.Database.DataSource);

@@ -20,6 +20,18 @@ public sealed class GatewayOptions
     /// <summary>Plain HTTP port for <c>/health</c> (8081 in the container, 5201 locally).</summary>
     public int HealthPort { get; set; } = 8081;
 
+    /// <summary>
+    /// Plain HTTP port for the browser side of the remote session relay (0.3.0; 8082 in the container, 5202 locally). The host proxy
+    /// terminates TLS for the instance FQDN and passes <c>/relay/</c> here; what flows through is end-to-end encrypted.
+    /// </summary>
+    public int RelayPort { get; set; } = 8082;
+
+    /// <summary>Remote session relays the gateway runs at the same time.</summary>
+    public int MaxRelays { get; set; } = 2000;
+
+    /// <summary>Remote session relays one browser address may open per minute.</summary>
+    public int RelayConnectsPerMinutePerAddress { get; set; } = 30;
+
     /// <summary>How long a requester waits for fleeto-signer.</summary>
     public int SigningTimeoutSeconds { get; set; } = 30;
 

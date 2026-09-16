@@ -77,6 +77,13 @@ public static class DatabaseGrants
             ["Jobs"] = Grants(web: "SELECT, INSERT, UPDATE", gateway: "SELECT, UPDATE", signer: "SELECT, UPDATE", workers: "SELECT, UPDATE, DELETE"),
             ["JobOutputChunks"] = Grants(web: Read, gateway: "SELECT, INSERT", workers: "SELECT, DELETE"),
 
+            // Remote sessions (0.3.0): web opens them, the signer signs each participant's token, the gateway pairs browser and endpoint
+            // and records who joined and left, the workers end stale rows and apply retention. Actions are reported by the endpoint.
+            ["RemoteSessions"] = Grants(web: "SELECT, INSERT", gateway: "SELECT, UPDATE", signer: Read, workers: "SELECT, UPDATE, DELETE"),
+            ["RemoteSessionParticipants"] = Grants(web: "SELECT, INSERT, UPDATE", gateway: "SELECT, UPDATE", signer: "SELECT, UPDATE",
+                workers: "SELECT, UPDATE, DELETE"),
+            ["RemoteSessionActions"] = Grants(web: Read, gateway: "SELECT, INSERT", workers: "SELECT, DELETE"),
+
             // Who may request which kind is also enforced by trigger TR_SigningRequests_Origin (migration SigningRequestOrigin).
             // Web requests job signatures (0.2.0), the gateway certificates, the workers configurations.
             ["SigningRequests"] = Grants(web: "SELECT, INSERT", gateway: "SELECT, INSERT", signer: "SELECT, UPDATE", workers: "SELECT, INSERT, DELETE"),

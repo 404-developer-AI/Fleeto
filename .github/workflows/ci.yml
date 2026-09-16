@@ -207,6 +207,20 @@ jobs:
         run: |
           "$RUNNER_TEMP/gitleaks" git --redact --verbose --exit-code 1 .
 
+  browser-crypto:
+    name: Remote session encryption in the browser (Node)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The runner's Node has WebCrypto with X25519, HKDF, ECDSA and AES-GCM: the same primitives the browser uses. The test checks
+      # src/Fleeto.Web/wwwroot/js/remote-crypto.mjs against the vectors the Go endpoint verifies (agent/internal/remote).
+      - run: |
+          node --version
+          node --test tests/browser/remote-crypto.test.mjs
+
   branding:
     name: Branding check
     runs-on: ubuntu-latest

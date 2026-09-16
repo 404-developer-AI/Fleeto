@@ -1,0 +1,185 @@
+using Fleeto.Core.Domain;
+using Fleeto.Core.Entities;
+using Fleeto.Core.Interfaces;
+using Fleeto.Infrastructure.Licensing;
+using Fleeto.Infrastructure.Security;
+using Fleeto.Infrastructure.Services;
+using Fleeto.Protocol.Agent.V1;
+using Fleeto.Signer.Keys;
+using Fleeto.Signer.Processing;
+using Google.Protobuf;
+using Google.Protobuf.WellKnownTypes;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using RemoteSessionKind = Fleeto.Core.Entities.RemoteSessionKind;
+
+namespace Fleeto.Signer.Handlers;
+
+/// <summary>
+/// Signs the single-use token of one remote session participant (0.3.0, ARCHITECTURE.md §4, Remote session and §5, Remote control).
+/// Decided from the database, independently of web: the participant is still waiting for its token and was requested within the last
+/// minute; its user exists, has two-factor authentication, is not locked out and is an admin or technician; the endpoint exists in the
+/// participant's client and is managed (license included); the browser key is a usable X25519 key. The token carries the effective
+/// policy's idle timeout and file size cap, and is valid for 60 seconds.
+/// </summary>
+public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
+{
+    public const string MissingReason = "The remote session request no longer exists. Open the session again.";
+    public const string TooOldReason = "The remote session request waited too long for the signer. Open the session again.";
+    public const string UserReason =
+        "The technician no longer exists, is locked out, has no two-factor authentication or has no admin or technician role. Ask an admin for access.";
+    public const string NotManagedReason = "The endpoint is not managed. Switch it to managed before opening a remote session.";
+    public const string BrowserKeyReason = "The browser sent an invalid session key. Close the window and open the session again.";
+    public const string KindReason = "This kind of remote session is not available yet.";
+
+    private readonly SignerKeyRing _keyRing;
+    private readonly LicenseService _licenses;
+    private readonly ILogger<RemoteSessionTokenHandler> _logger;
+
+    public RemoteSessionTokenHandler(SignerKeyRing keyRing, LicenseService licenses, ILogger<RemoteSessionTokenHandler> logger)
+    {
+        _keyRing = keyRing;
+        _licenses = licenses;
+        _logger = logger;
+    }
+
+    public SigningRequestKind Kind => SigningRequestKind.RemoteSessionToken;
+
+    public async Task<SigningOutcome> HandleAsync(SigningContext context, CancellationToken cancellationToken)
+    {
+        var db = context.Db;
+        var now = context.Now;
+        if (context.Request.SubjectId is not { } participantId)
+        {
+            return SigningOutcome.Refused(MissingReason);
+        }
+
+        var participants = await db.RemoteSessionParticipants
+            .FromSql($"""SELECT * FROM "RemoteSessionParticipants" WHERE "Id" = {participantId} FOR UPDATE""")
+            .IgnoreQueryFilters().ToListAsync(cancellationToken);
+        if (participants.Count == 0 || participants[0].ClientId != context.Request.ClientId)
+        {
+            return SigningOutcome.Refused(MissingReason);
+        }
+
+        var participant = participants[0];
+        if (participant.State != RemoteParticipantState.Requested)
+        {
+            // Given up by web (timeout) or handled already: nothing to sign and nothing wrong.
+            return SigningOutcome.Completed(null);
+        }
+
+        if (now - participant.CreatedAt > RemoteSessionRules.MaxRequestAge || participant.CreatedAt > now + TimeSpan.FromMinutes(1))
+        {
+            return SigningOutcome.Refused(TooOldReason);
+        }
+
+        var session = await db.RemoteSessions.IgnoreQueryFilters().AsNoTracking()
+            .SingleOrDefaultAsync(s => s.Id == participant.SessionId && s.ClientId == participant.ClientId, cancellationToken);
+        if (session is null || session.EndpointId != participant.EndpointId || session.EndedAt is not null)
+        {
+            return SigningOutcome.Refused(MissingReason);
+        }
+
+        // Remote background is served by the watchdog; remote control by the agent arrives with its own step.
+        if (session.Kind != RemoteSessionKind.RemoteBackground || session.Component != AgentComponent.Watchdog)
+        {
+            return SigningOutcome.Refused(KindReason);
+        }
+
+        if (!RemoteSessionRules.IsValidPublicKey(participant.BrowserPublicKey))
+        {
+            return SigningOutcome.Refused(BrowserKeyReason);
+        }
+
+        if (!await ScriptCheckResolver.UserHasRoleAsync(db, participant.UserId, now, cancellationToken, FleetoRoleNames.Admin,
+                FleetoRoleNames.Technician))
+        {
+            return SigningOutcome.Refused(UserReason);
+        }
+
+        var endpoint = await db.Endpoints.IgnoreQueryFilters().AsNoTracking()
+            .Where(e => e.Id == participant.EndpointId && e.ClientId == participant.ClientId)
+            .Select(e => new { e.Id, e.SiteId, e.Tier, e.Hostname })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (endpoint is null)
+        {
+            return SigningOutcome.Refused(MissingReason);
+        }
+
+        // Tier enforcement, layer 2 (the signer): the stored tier and the license must both allow managed behaviour.
+        var license = await _licenses.GetStatusAsync(db, cancellationToken);
+        if (TierRules.EffectiveTier(endpoint.Tier, license) != EndpointTier.Managed)
+        {
+            return SigningOutcome.Refused(NotManagedReason);
+        }
+
+        var policy = await db.SitePolicies.IgnoreQueryFilters().AsNoTracking()
+                         .Where(l => l.SiteId == endpoint.SiteId)
+                         .Select(l => l.Policy)
+                         .FirstOrDefaultAsync(cancellationToken)
+                     ?? await db.Policies.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, cancellationToken);
+        var idleMinutes = RemoteSessionRules.IdleTimeoutMinutes(policy?.RemoteIdleTimeoutMinutes ?? RemoteSessionRules.DefaultIdleTimeoutMinutes);
+        var maxFileBytes = RemoteSessionRules.MaxFileBytes(policy?.RemoteMaxFileBytes ?? RemoteSessionRules.DefaultMaxFileBytes);
+
+        var validUntil = now + RemoteSessionRules.TokenValidity;
+        var payload = new RemoteSessionToken
+        {
+            ParticipantId = participant.Id.ToString("D"),
+            SessionId = session.Id.ToString("D"),
+            InstanceId = _keyRing.InstanceId.ToString("D"),
+            EndpointId = endpoint.Id.ToString("D"),
+            Kind = Protocol.Agent.V1.RemoteSessionKind.RemoteBackground,
+            Component = Component.Watchdog,
+            TechnicianId = participant.UserId.ToString("D"),
+            TechnicianName = participant.UserName,
+            BrowserPublicKey = ByteString.CopyFrom(participant.BrowserPublicKey),
+            IssuedAt = Timestamp.FromDateTime(DateTime.SpecifyKind(now, DateTimeKind.Utc)),
+            ValidUntil = Timestamp.FromDateTime(DateTime.SpecifyKind(validUntil, DateTimeKind.Utc)),
+            IdleTimeoutSeconds = (uint)(idleMinutes * 60),
+            MaxFileBytes = (ulong)maxFileBytes
+        }.ToByteArray();
+
+        participant.TokenPayload = payload;
+        participant.TokenSignature = _keyRing.Sign(SignatureContexts.RemoteSession, payload);
+        participant.SigningKeyId = _keyRing.SigningKeyId;
+        participant.SignedAt = now;
+        participant.ValidUntil = validUntil;
+        participant.State = RemoteParticipantState.Signed;
+
+        await SignerAudit.WriteAsync(db, new AuditRecord(AuditActions.RemoteSessionSigned, "RemoteSession", session.Id.ToString(), session.ClientId,
+            AuditActorType.System, SignerAudit.ActorName, SignerAudit.ActorName,
+            new
+            {
+                endpoint.Hostname,
+                EndpointId = endpoint.Id,
+                ParticipantId = participant.Id,
+                Kind = session.Kind.ToString(),
+                Technician = participant.UserName,
+                validUntil,
+                IdleTimeoutMinutes = idleMinutes
+            }), now, cancellationToken);
+
+        await db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Signed remote session token {ParticipantId} ({Kind}) for endpoint {EndpointId}", participant.Id, session.Kind, endpoint.Id);
+        return SigningOutcome.Completed(null);
+    }
+
+    /// <summary>Marks the participant refused with the signer's reason, after the handler's own writes were rolled back.</summary>
+    public async Task<IReadOnlyList<PendingNotification>> OnRefusedAsync(SigningContext context, string reason, CancellationToken cancellationToken)
+    {
+        if (context.Request.SubjectId is not { } participantId)
+        {
+            return [];
+        }
+
+        var reasonText = reason.Length > 500 ? reason[..500] : reason;
+        await context.Db.RemoteSessionParticipants.IgnoreQueryFilters()
+            .Where(p => p.Id == participantId && p.ClientId == context.Request.ClientId && p.State == RemoteParticipantState.Requested)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.State, RemoteParticipantState.Refused)
+                .SetProperty(p => p.EndReason, reasonText)
+                .SetProperty(p => p.EndedAt, context.Now), cancellationToken);
+        return [];
+    }
+}

@@ -134,7 +134,7 @@ Running it again is safe: an interrupted install continues, existing secrets are
   bin/install.sh                       the verified install.sh of the latest applied release
   caddy/                               host proxy: compose.yml, caddy.conf (image digest), config/Caddyfile (generated)
   <instance>/                          0700 root; <instance> is the FQDN with dots replaced by dashes
-    compose.yml, instance.conf         no secrets (instance.conf: FQDN, version, state, loopback ports, image digests)
+    compose.yml, instance.conf         no secrets (instance.conf: FQDN, version, state, loopback ports of web, gateway and relay, image digests)
     secrets/                           0700 root; files 0440 root:10001
       root.key, signer.key             32 random bytes, base64
       db-<role>.password               postgres, migrator, web, gateway, signer, workers, backup

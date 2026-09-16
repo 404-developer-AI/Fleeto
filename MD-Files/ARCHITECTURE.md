@@ -2,10 +2,11 @@
 
 > Technical reference for Fleeto. Rules and priorities live in
 > `CLAUDE.md` in the repository root; this file describes how the system is put together.
-> Status: 0.0.x and 0.1.0 implemented (agent enrollment, gateway, signer, workers, web UI,
-> licensing, backups); 0.2.0 in progress (maintenance mode, the check catalog, services in the inventory, the
-> check history, notification routing, webhooks, email through Microsoft Graph, expiring credential warnings and
-> policy maintenance windows, certificate recovery and enrolling again, the script library and jobs implemented); later sections (remote control, public API, integrations) are design. Sections marked *decision pending* point to the open decisions in `CLAUDE.md`.
+> Status: 0.0.x to 0.2.2 released (agent enrollment, gateway, signer, workers, web UI, licensing, backups, maintenance,
+> the check catalog and history, notification routing, scripts and jobs, the read-only public API, agent updates, the
+> watchdog, the Linux agent); 0.3.0 in progress (remote sessions: the relay, end-to-end encryption and the remote
+> background terminal implemented, the rest of remote background and remote control are design). Integrations are design.
+> Sections marked *decision pending* point to the open decisions in `CLAUDE.md`.
 
 ## 1. Deployment topology
 
@@ -40,10 +41,11 @@ Inside one instance:
 [agents] --mTLS WebSocket (SNI passthrough)--> [fleeto-gateway] --batch write, then ack--> [postgres + TimescaleDB]
                                                   │        │                                        ^      ^   ^
                                                   │        └─ NOTIFY (postgres) ─> [fleeto-workers] ─┘       │   │
-                                                  └── remote control relay (ciphertext only)                   │   │
+                                                  └── remote session relay (ciphertext only, 0.3.0)            │   │
 [integrations: Action1, Sophos, Veeam, Proxmox, vCenter] --> [poller workers] ─────────────────────────────────┘   │
                                                                                                                    │
 [browser, API clients] --HTTPS--> [caddy] --> [fleeto-web: Blazor Server UI + public REST API] <─────────────────┤
+[browser] --wss://<fqdn>/relay/--> [caddy] --> [fleeto-gateway relay port] (remote sessions, end-to-end encrypted)  │
                                                      ^                                                             │
                                                      +-- LISTEN/NOTIFY (postgres) for live status                  │
                                                                                                                    │
@@ -52,9 +54,9 @@ Inside one instance:
 
 | Container | Scope | Role | Notes |
 |---|---|---|---|
-| **caddy** | VPS | Reverse proxy, automatic TLS | One per VPS, built with the layer4 module. Terminates TLS for the UI and API of every instance, so it holds the TLS private keys and ACME account for every FQDN on the VPS (see §5). Agent traffic to `agents.<fqdn>` is passed through by SNI to the instance gateway and never decrypted, so mTLS stays end to end between agent and gateway. In front of the passed-through connection Caddy sends a PROXY protocol v2 header with the agent's address (see §5, Other controls). |
+| **caddy** | VPS | Reverse proxy, automatic TLS | One per VPS, built with the layer4 module. Terminates TLS for the UI and API of every instance, so it holds the TLS private keys and ACME account for every FQDN on the VPS (see §5). Agent traffic to `agents.<fqdn>` is passed through by SNI to the instance gateway and never decrypted, so mTLS stays end to end between agent and gateway. In front of the passed-through connection Caddy sends a PROXY protocol v2 header with the agent's address (see §5, Other controls). From 0.3.0 it proxies `https://<fqdn>/relay/` to the gateway's relay port: the browser side of remote sessions, whose content is end-to-end encrypted. |
 | **fleeto-web** | instance | Blazor Server UI and public REST API (.NET, MudBlazor) | Follows the Migrify project layout and conventions. Cannot sign anything an agent executes. |
-| **fleeto-gateway** | instance | Agent connection endpoint and remote control relay | Persistent WebSocket over mTLS for online state, command push and check results. Checks certificate revocation on every connection. Acks agent data only after it is written to Postgres. Serves the agent and watchdog binaries of the current release for agent updates (0.2.1). Target: 10,000 concurrent connections on modest hardware. Language: .NET (decided in 0.1.0). |
+| **fleeto-gateway** | instance | Agent connection endpoint and remote control relay | Persistent WebSocket over mTLS for online state, command push and check results. Checks certificate revocation on every connection. Acks agent data only after it is written to Postgres. Serves the agent and watchdog binaries of the current release for agent updates (0.2.1). Relays remote sessions between browser and endpoint without holding a session key (0.3.0, §4 Remote session). Target: 10,000 concurrent connections on modest hardware. Language: .NET (decided in 0.1.0). |
 | **fleeto-signer** | instance | Signs everything that establishes trust with agents | Holds the instance signing key and the internal CA key, decrypted with its own signer key that no other container mounts. No listening port: it picks up signing requests from the database. Re-checks role, tier, script approval and validity window before signing. See §5. |
 | **fleeto-workers** | instance | Background jobs | Check evaluation, alerting, integration pollers, Action1 patch orchestration, retention cleanup, backups, license checks. |
 | **postgres** | instance | PostgreSQL 17 + TimescaleDB | The only durable store. Relational data plus hypertables for check results and metrics plus log storage with full-text search. One database role per container with only the grants that container needs. LISTEN/NOTIFY carries cross-container notifications (ids only); every subscriber also catches up from the tables, so a lost notification delays work and never loses it. No Valkey: the signer may only talk to the database, so database notifications are needed anyway. |
@@ -101,7 +103,7 @@ AuditEntry (append-only)
 | `Maintenance` (on Client, Site, Endpoint) | `MaintenanceStartedAt?`, `MaintenanceEndsAt?`, `MaintenanceStartedByUserId?`, `MaintenanceStartedByName?`, `MaintenanceReason?` | Maintenance mode (0.2.0), stored as nullable columns on each of the three tables. Active while `MaintenanceStartedAt` is set and not in the future and `MaintenanceEndsAt` is null or in the future; ending by hand clears the columns, an end time that passes is left in place and every query compares with the current time. The reason is free text and personal data may appear in it: it is never copied into the audit log. See *Maintenance mode* in §4. |
 | **AgentCertificate** | `Id`, `ClientId`, `EndpointId`, `Role` (`agent`/`watchdog`), `Fingerprint`, `IssuedAt`, `ExpiresAt`, `RevokedAt?`, `RevokedBy?`, `RevokedReason?` | One row per issued certificate, renewals included. The gateway refuses every certificate with `RevokedAt` set. `Role` (0.2.1) decides which session the certificate may open; a renewal keeps it. |
 | **EndpointComponentState** | `EndpointId`, `Component` (`agent`/`watchdog`), `ClientId`, `InstalledVersion`, `ServiceState`, `ServiceDetail`, `ServiceStateAt?`, `UpdateVersion`, `UpdateState?`, `UpdateDetail`, `UpdateAt?`, `WaitVersion?`, `WaitReason?`, `WaitUntil?`, `WaitAt?` | Per endpoint and component (0.2.1): the service state its peer reports and the latest update report (`downloading`, `installing`, `installed`, `failed`, `rolled_back`). From 0.2.2 also the offered release the installer holds back and why (`UpdateRing`, `NextAttempt`, `RandomDelay`, `InstallerUpdate`, `RolledBack`), cleared by the next update report that is not a wait. Written by the gateway, deleted with the endpoint. |
-| **Policy** | `Id`, `ClientId?`, `Name`, settings, `UpdateRing` (`preview`/`standard`/`delayed`, default `standard`), `MaxOutputBytes` (1-200 MiB, default 50 MiB, check constraint), `MaintenanceWindowsJson` | Agent behaviour: intervals, patch behaviour, update ring (0.2.1, §4 Agent update), script permissions and **script approval required**, the job output cap (0.2.1, §4 Job), remote control rules (consent, recording), maintenance windows. `ClientId` null = global. |
+| **Policy** | `Id`, `ClientId?`, `Name`, settings, `UpdateRing` (`preview`/`standard`/`delayed`, default `standard`), `MaxOutputBytes` (1-200 MiB, default 50 MiB, check constraint), `MaintenanceWindowsJson`, remote session settings (0.3.0): `RemoteConsentRequired` (default off), `RemoteConsentTimeoutSeconds` (10-300, default 30), `RemoteBannerVisible` (default on), `RemoteClipboardEnabled` (default on), `RemoteIdleTimeoutMinutes` (5-480, default 30), `RemoteMaxFileBytes` (1 MiB-10 GiB, default 10 GiB) | Agent behaviour: intervals, patch behaviour, update ring (0.2.1, §4 Agent update), script permissions and **script approval required**, the job output cap (0.2.1, §4 Job), remote session rules (0.3.0; consent, banner and clipboard apply to remote control on workstations only and take effect with its steps), maintenance windows. `ClientId` null = global. |
 | **MaintenanceWindowOccurrence** | `PolicyId`, `WindowIndex`, `StartsAt`, `EndsAt`, `AppliesTo`, `Name?` | Occurrences of the policy's maintenance windows (0.2.0), stored 8 days ahead (§4, Maintenance windows). Deleted with the policy. |
 | **MonitoringTemplate** | `Id`, `ClientId?`, `Name` | Named set of `CheckDefinition`s with thresholds and alert rules. `ClientId` null = global. |
 | **CheckDefinition** | `Id`, `ClientId?`, `MonitoringTemplateId?`, `EndpointId?`, `Type`, `Interval`, `Thresholds`, `FailuresBeforeAlert`, `AppliesToClass`, `Enabled` | Interval from seconds to monthly. Owned by exactly one of a monitoring template or one endpoint (check constraint). An endpoint-only check carries the endpoint's `ClientId` (composite foreign key) and runs whatever the endpoint class. |
@@ -113,11 +115,13 @@ AuditEntry (append-only)
 | **Script**, **ScriptVersion** | `Id`, `ClientId?`, `Name`, `Description`, `Language` (`PowerShell`, `Batch`, `Shell`, `Bash`), `CurrentVersionId`; version: `ClientId?`, `Number`, `Body`, `Sha256`, `TimeoutSeconds`, `AuthorUserId`, `ApprovedByUserId?`, `ApprovedAt?`, `ApprovedSha256?` | `ClientId` null = global, immutable (trigger); a version carries the client of its script (constraint trigger). Saving a changed body or timeout creates a new version; the language is fixed. A version is approved only when approver and author differ and `ApprovedSha256` equals `Sha256` (check constraint). |
 | **Job** | `Id`, `ClientId`, `EndpointId`, `BatchId`, `Type` (`Script`), snapshot of the script (`ScriptId?`, `ScriptVersionId?`, name, version number, `Language`, `ScriptSha256`, `TimeoutSeconds`, `MaxOutputBytes`), `RunAs` (`service`/`logged_on_user`, 0.2.1), `RunAsAccount?` (the user the agent reported, 0.2.1), `RunAsUserId?` and `RunAsChosenAccount?` (the user the technician chose, 0.2.2), `ValidUntil`, `InitiatedByUserId`, `State` (`pending_signature`, `queued`, `running`, `succeeded`, `failed`, `expired`, `refused`, `lost`, `cancelled`), `RefusalReason?`, `Payload`, `Signature`, `SigningKeyId`, `DeliveredAt?`, `StartedAt?`, `CompletedAt?`, `Result?` (`exited`, `timed_out`, `refused`, `failed_to_start`, `interrupted`), `ExitCode?`, `OutputState` (`none`, `receiving`, `complete`, `incomplete`), `OutputTruncated`, per stream announced chunks, bytes and SHA-256 | One row per endpoint. Idempotent by `Id`. Never delivered or executed after `ValidUntil` (at most 7 days after creation, check constraint). `State` describes execution, `OutputState` describes the output; they move independently. The snapshot keeps the history readable after the script changes or is deleted. |
 | **JobOutputChunk** | `ClientId`, `JobId`, `Stream` (`stdout`/`stderr`), `Sequence`, `Data`, `ReceivedAt` | Unique on `JobId`, `Stream`, `Sequence`. Protocol in §4, Job output. |
-| **SigningRequest** | `Id`, `ClientId?`, `Kind` (`job`, `session_token`, `agent_csr`, `gateway_csr`, `policy`, `watchdog_certificate`), `SubjectId`, `RequestedBy`, `State`, `RefusalReason?` | Written by web or gateway, processed by the signer. |
+| **SigningRequest** | `Id`, `ClientId?`, `Kind` (`Job`, `RemoteSessionToken`, `AgentEnrollment`, `AgentRenewal`, `AgentRecovery`, `GatewayCertificate`, `AgentConfig`, `WatchdogCertificate`), `SubjectId`, `RequestedBy`, `State`, `RefusalReason?` | Written by web, gateway or workers (who may create which kind is a database trigger), processed by the signer. |
 | **License** | `Id`, `CustomerName`, `Fqdn`, `ManagedEndpointCount`, `ExpiresAt`, `SignedDocument` (encrypted) | One per instance. Verified offline with the Steaan license public key baked into the build. Grace period of 14 days after `ExpiresAt`. |
 | **AgentRelease** | `Version`, `ManifestSha256`, `InstalledAt`, `IsCurrent`, `PausedAt?`, `PausedByUserId?`, `PausedByName?`, `ReleasedToAllAt?`, `ReleasedToAllByUserId?`, `ReleasedToAllByName?` | One row per release the gateway loaded (0.2.1). `InstalledAt` starts the ring delays; at most one `IsCurrent` (unique filtered index). Paused and released to all by admins in Settings, Agent updates, each audited. |
 | **ApiKey** | `Id`, `Name`, `SecretHash`, `AllClients`, `CreatedByUserId`, `CreatedByName`, `CreatedAt`, `ExpiresAt?`, `LastUsedAt?`, `RevokedAt?`, `RevokedByUserId?`, `RevokedByName?` | Public API key (0.2.1), read-only. The id is part of the token; only the SHA-256 of the secret is stored (check constraint: 64 hex characters) and the token is shown once. Limited to the clients in **ApiKeyClient** (`ApiKeyId`, `ClientId`, deleted with either side) when `AllClients` is false, so a key whose clients are all deleted sees nothing. Never deleted: revoked keys stay for the audit trail. Web only (grants). Format in §6. |
-| **RemoteSession** | `Id`, `ClientId`, `EndpointId`, `TechnicianId`, `Reason`, `StartedAt`, `EndedAt`, `ConsentGiven`, `BrowserKeyFingerprint`, `RecordingRef?` | Every session, whether it connected or not. |
+| **RemoteSession** | `Id`, `ClientId`, `EndpointId`, `Kind` (`RemoteControl`/`RemoteBackground`), `Component` (`agent`/`watchdog`, the serving service), `StartedByUserId`, `StartedByName`, `Reason?`, `CreatedAt`, `StartedAt?`, `EndedAt?`, `EndReason?` | Every session (0.3.0), whether it connected or not. Kept 13 months, then removed with its participants and actions; the audit log keeps its own entries. |
+| **RemoteSessionParticipant** | `Id`, `SessionId`, `ClientId`, `EndpointId`, `UserId`, `UserName`, `Reason?`, `State` (`Requested`, `Signed`, `Connecting`, `Connected`, `Ended`, `Refused`, `Failed`), `BrowserPublicKey` (32 bytes, check constraint), `TokenPayload?`, `TokenSignature?`, `SigningKeyId?`, `SignedAt?`, `ValidUntil?`, `IpAddress?`, `CreatedAt`, `ConnectingAt?`, `ConnectedAt?`, `EndedAt?`, `EndReason?` | One technician's connection to a session, with its own single-use token (§4 Remote session). `ConnectingAt` needs a signature (check constraint). Web writes it, the signer signs it, the gateway claims, connects and ends it, the workers end what never connected. |
+| **RemoteSessionAction** | `Id`, `SessionId`, `ParticipantId?`, `ClientId`, `EndpointId`, `Time`, `Action`, `Target`, `Detail?` | An action inside a remote background session as the endpoint reports it (file, service or process action with its target; written from 0.3.0 step 2). Terminal content is never stored. |
 | **CheckResult** | `Time` (ingest), `ClientId`, `EndpointId`, `CheckDefinitionId`, `Status`, `Value`, `Payload` | TimescaleDB hypertable, compressed, retention policy. Deduplicated per endpoint and agent batch sequence number. |
 | **Alert** | `Id`, `ClientId`, `EndpointId`, `CheckDefinitionId`, `Severity`, `State`, `AcknowledgedBy`, `HeldUntil?`, `HeldAt?`, `HeldBy?`, timestamps | Deduplicated per endpoint and check. On hold while `HeldUntil` is in the future (§4, Alert hold). |
 | **InventorySnapshot** | `EndpointId`, `ClientId`, `ReceivedAt`, `Hash`, hardware facts, `DisksJson`, `NetworkInterfacesJson`, `SoftwareJson`, `ServicesJson` | Latest inventory, one row per endpoint. `ServicesJson` (0.2.0): name, display name, start type and state per service (at most 2,000), used to pick the service of a service check; for a monitoring template the services of the most recent 1,000 inventories of its endpoints are offered. |
@@ -261,8 +265,8 @@ Three kinds of tables:
     when it is missing or expires within 7 days, the agent requests a new one. Revoking or deleting the endpoint revokes both.
   - **Sessions.** The gateway keeps one agent session and one watchdog session per endpoint (the role comes from the
     allow list in the database, never from the agent), so both are connected without triggering the duplicate identity
-    rule. A watchdog session only sends heartbeats, update reports and renewals; it never receives configurations, jobs or
-    requests, and a watchdog certificate cannot recover an expired certificate.
+    rule. A watchdog session only sends heartbeats, update reports and renewals, and from 0.3.0 receives remote background
+    offers; it never receives configurations, jobs or requests, and a watchdog certificate cannot recover an expired certificate.
   - **Supervision.** Every 30 seconds each service checks the other: a stopped service is started again with a backoff
     (30 seconds, doubling up to 10 minutes), a disabled service is left alone and reported, and supervision pauses while the
     binary is being replaced. The marker file `uninstalling` in the data directory stops both from restarting or installing
@@ -276,14 +280,17 @@ Three kinds of tables:
   - **Updates.** The watchdog installs agent updates; the agent installs a missing watchdog and updates the watchdog once
     it runs the release itself. Both install a binary only when the release manifest that lists it carries a valid Steaan
     release signature (§4, Agent update).
-- **Remote terminal (0.3.0, design).** An interactive terminal as SYSTEM or root (cmd and PowerShell on
-  Windows, sh on Linux), served by the watchdog so it also works when the agent is
-  broken. Same trust model as remote control: a single-use session token from the signer bound
-  to the technician, endpoint and the browser's ephemeral key, end-to-end encryption between
-  browser and watchdog, the gateway relays ciphertext only. Admins and technicians, managed
-  endpoints only, always available (no policy switch). Every session is an audit entry
-  (technician, endpoint, start, end); a transcript is kept when the policy records remote
-  control sessions. See §5 for the accepted risk towards script approval.
+- **Remote background (0.3.0).** Terminal, files, services and processes without touching the screen, served by the
+  watchdog (`internal/remote`) so it also works when the agent is broken. The terminal runs as SYSTEM or root: PowerShell
+  or cmd in a Windows pseudo console (ConPTY, Windows 10 1809 and Server 2019 or newer; Server 2016 gets the shell with
+  redirected streams and line input, output converted from the console code page), the login shell (bash, else sh) in a
+  pseudo terminal on Linux, each in a job object or its own session so closing it ends everything it started. At most 4
+  terminals per session and 8 sessions per service. The watchdog has no configuration of its own: it serves a session only
+  while the signed configuration the agent applied verifies against the pinned instance key and is managed. Same trust
+  model as remote control (§4 Remote session); admins and technicians, managed endpoints only, no policy switch. Every
+  session and participant is recorded and audited (technician, endpoint, start, end, reason); terminal content never
+  leaves the session. Files, services and processes follow in step 2 of 0.3.0. See §5 for the accepted risk towards script
+  approval.
 - Reconnect with exponential backoff plus jitter.
 - Wire format: protobuf over the WebSocket, one message per binary WebSocket frame (the frame is
   the length prefix), results batched. Never one HTTP request per check result. Contract:
@@ -673,23 +680,60 @@ scripts, so there are no ad-hoc scripts to refuse. The setting is off by default
 for server sites. Scripts live under Settings, Templates, Scripts: every user can read them,
 admins and technicians write them, admins approve.
 
-**Remote control session.** Technician clicks Remote control on a managed endpoint and
-enters a reason → the browser generates an ephemeral X25519 key pair → web writes a
-`RemoteSession` and a `SigningRequest` with the browser's public key → signer issues a
-session token (valid 60 seconds to start the session, single use) bound to technician,
-endpoint, session id and the browser's public key → gateway hands the token to the agent →
-agent verifies the instance signature; if the policy requires consent, it shows a prompt to
-the endpoint user and waits → agent generates its own ephemeral key pair and signs its
-public key and the session id with its agent certificate key → the browser checks that
-signature against the endpoint's certificate, the agent checks that the browser's key
-matches the one in the token → both derive the session keys (X25519, HKDF) and every frame
-is encrypted with AES-256-GCM → the gateway relays ciphertext it cannot read or alter
-unnoticed (transport: *decision pending*, WebRTC with the gateway as TURN vs. WebSocket
-relay; with WebRTC the DTLS certificate fingerprints are bound in the same way) → the agent
-streams screen frames, the browser sends keyboard, mouse and clipboard events, the agent
-sends clipboard changes back → a banner on the endpoint names the technician for the whole
-session → on end, drop or timeout the agent releases all pressed keys, the session row is
-closed and the audit entry completed.
+**Remote session (0.3.0).** Two kinds, each in its own popup window opened from the endpoint list or detail: **remote
+control** (the screen, served by the agent; from step 3) and **remote background** (terminal, files, services and
+processes, served by the watchdog; the terminal from step 1). Transport, decided 2026-09-16 without a prototype: a
+WebSocket relay through the gateway on port 443, no WebRTC. Traffic passes the VPS either way (TURN would too), UDP is
+often blocked at customers, and every session gets its own sockets, so screen traffic never blocks an agent's control
+connection. The flow for one technician (a participant):
+
+1. The technician opens the window of a managed endpoint and starts the session, with an optional reason → the browser
+   generates an ephemeral X25519 key pair; the private key is not extractable → web checks role, client scope, tier and
+   that the serving service is online and new enough, then writes the `RemoteSession`, the `RemoteSessionParticipant` with
+   the browser's public key, a `SigningRequest` (`RemoteSessionToken`, web only) and the audit entry
+   `remote_session.requested` in one transaction, and waits up to 20 seconds.
+2. fleeto-signer decides again from the database (participant still requested and at most 60 seconds old; user exists, has
+   two-factor authentication, is not locked out and is an admin or technician; endpoint managed, license included; valid
+   browser key) and signs a `RemoteSessionToken` (context `fleeto-remote-session-v1`): participant, session, instance,
+   endpoint, kind, serving service, technician, browser key, issued at, valid until (60 seconds), and the policy's idle
+   timeout and file size cap. Audited as `remote_session.signed`. A request web gave up on is never signed.
+3. Web returns the token, its signature and the public key fingerprints (SHA-256 of the SubjectPublicKeyInfo) of the
+   serving service's valid certificates. The browser opens `wss://<fqdn>/relay/v1/sessions/<participant>` (Caddy passes
+   it to the gateway's relay port) and sends the token as its first message.
+4. The gateway checks the Origin (the instance's web URL only), a per-address rate limit, the token signature against the
+   instance signing keys, the participant in the path, the instance and the validity on its own clock, then **claims the
+   participant once**: `Signed` becomes `Connecting` only while the stored token is byte for byte the one presented and
+   still valid. It refuses an endpoint whose stored tier is not managed, and sends `RemoteSessionOffer` with the token over
+   the control session of the serving service (at most 8 sessions per endpoint).
+5. The service verifies the token against its pinned instance signing key (instance, endpoint, service, kind, validity with
+   5 minutes clock tolerance), checks that its own verified configuration is managed, remembers the participant id so the
+   token opens one session, generates its own ephemeral X25519 key and signs, with its certificate key (TPM or CNG where
+   available), `fleeto-remote-endpoint-key-v1` || 0x00 || SHA-256(token payload) || its public key. It opens
+   `wss://agents.<fqdn>/v1/relay/<participant>` with its client certificate and sends `RelayEndpointHello` (its key, the
+   signature as r || s, and its certificate's SubjectPublicKeyInfo). A refusal goes back as `RemoteSessionRefused` over the
+   control session and reaches the browser.
+6. The gateway pairs the socket only with the certificate of exactly that endpoint and service (allow list), records the
+   participant `Connected` and the session started, audits `remote_session.joined`, and gives the browser the key,
+   signature and certificate key. The browser accepts the certificate key only when its fingerprint is one web gave,
+   verifies the signature with it, and derives the keys.
+7. Keys: X25519 shared secret → HKDF-SHA256 with salt SHA-256(token payload) and info `fleeto-remote-v1` || browser key ||
+   endpoint key, 64 bytes: browser to endpoint, then endpoint to browser. Every frame is AES-256-GCM with a 96-bit nonce of
+   four zero bytes and a 64-bit big-endian counter per direction, starting at 0 and never sent, so a changed, replayed,
+   dropped, reordered or reflected frame fails and ends the session. From here the gateway passes binary messages of at
+   most 1 MiB unread in both directions.
+8. Inside the session every decrypted frame starts with a type byte: Hello (what the endpoint offers), Open and Opened (a
+   terminal on a channel), Data (a 16-bit channel and raw bytes), Resize, CloseChannel, Closed (exit code), IdleWarning,
+   End and Activity; bodies are JSON except Data. Without input for the policy's idle timeout (default 30 minutes) the
+   endpoint warns 2 minutes before and ends the session.
+9. When either side closes, the relay closes the other; the gateway ends the participant (`Ended`, with the reason) and the
+   session once nobody is connected, and audits `remote_session.left`. Revoking the certificate or the endpoint, switching
+   it to agent-only (checked on every endpoint status notification and every minute) and a gateway restart end the relay;
+   at its start the gateway ends every connection left from before. The workers end participants that never connected
+   within 5 minutes.
+
+Several technicians (step 4) each get their own participant, token and key exchange with the endpoint. Remote control
+(step 3) adds the screen, input and, for workstations, the policy's consent prompt and banner; servers never prompt and
+show no banner.
 
 **Client creation from template.** Technician picks a client template, enters code and
 name → the sites in the template are created under the new client with their policy and
@@ -732,7 +776,7 @@ Per instance, on the VPS
     └─ wraps → data keys (DEKs)      in the DB, one per purpose
                   └─ encrypt →       integration credentials, SMTP, Microsoft Graph secret or certificate key,
                                      webhook URLs and signing secrets, Action1, backup destination credentials,
-                                     TOTP seeds, license document, remote control recordings
+                                     TOTP seeds, license document
   signer key (KEK)                   Docker secret, mounted in fleeto-signer only
     └─ encrypts →                    instance signing key (ed25519): jobs, policies, check definitions, session tokens
                                      internal CA key: agent certificates, gateway server certificate
@@ -867,23 +911,25 @@ container:
 
 ### Remote control
 
-- Session token: signed by the signer with the instance signing key, valid 60 seconds to
-  start, single use, bound to technician, endpoint, session id and the browser's ephemeral
-  public key.
-- End-to-end encryption between browser and agent with the key exchange anchored outside
-  the relay (§4): the browser's key is in the signed token, the agent's key is signed with
-  its certificate key. A compromised gateway can drop a session but cannot read or inject
-  into it.
-- Limit, stated plainly: the browser learns the endpoint's certificate from web, and web can
-  start sessions anyway. End-to-end encryption protects against the gateway and the network,
-  not against a compromised web container.
-- Visible on the endpoint: banner with technician name for the entire session, consent
-  prompt when the policy demands it, session recording when the policy demands it
-  (recordings are encrypted with a DEK and follow the retention policy).
+- Session token (0.3.0): signed by the signer with the instance signing key, valid 60 seconds to open the relay, single use
+  (claimed once in the database by the gateway, remembered by the endpoint), bound to technician, endpoint, instance,
+  session, participant, serving service and the browser's ephemeral public key.
+- End-to-end encryption between browser and endpoint with the key exchange anchored outside the relay (§4 Remote session):
+  the browser's key is in the signed token, the endpoint's key is signed with its certificate key, and the browser accepts
+  that certificate key only by the fingerprint web gives it. A compromised gateway can drop a session but cannot read it,
+  inject into it or take part in it; tests prove it against a hostile relay in Go and in the browser implementation
+  (tampered, replayed, reordered and reflected frames, swapped keys, a token for another participant, endpoint or instance).
+- Limit, stated plainly: the browser learns the fingerprints from web, and web can start sessions anyway. End-to-end
+  encryption protects against the gateway and the network, not against a compromised web container.
+- Tier enforcement in all four places: web, the signer, the gateway (stored tier at the claim, and a live relay ends when the
+  endpoint leaves managed) and the endpoint (its own verified configuration).
+- Visible on the endpoint (remote control, decided 2026-09-16): servers never prompt and show no banner; workstations follow
+  the policy: consent prompt (default off, access granted after the timeout, an explicit refusal ends the session) and a
+  banner naming every technician (default on). Remote background never prompts. Recording of sessions is not scheduled.
 - Agent runs as SYSTEM on Windows to reach the console session, the login screen and UAC
   secure desktop; the same privilege is why the session token and signature checks are
   never optional.
-- Clipboard sync is text-only in v1 and can be disabled per policy.
+- Clipboard: text both ways and files to the endpoint (0.3.0), disabled per policy.
 - **A script that runs as the signed-in user, accepted risk (0.2.1).** That user can read the script text while it runs:
   the interpreter has to open the file as them. The script is staged so that they can read it and not change it, and the
   run window says so before the run starts. A script that carries a secret must run as the agent's own account.
@@ -891,8 +937,8 @@ container:
   admins and technicians on every managed endpoint, also where the policy requires script
   approval. On those endpoints script approval therefore only governs library scripts run as
   jobs: a technician who may open a terminal can run any command as SYSTEM. This is a deliberate
-  product decision; the controls are the per-session signed token, end-to-end encryption, the
-  audit entry per session and the transcript when recording is on.
+  product decision; the controls are the per-session signed token, end-to-end encryption and the
+  audit entries per session and participant. Terminal transcripts are not recorded (recording is not scheduled).
 
 ### Backups
 
@@ -1059,7 +1105,8 @@ listener wrapper on Caddy's own :443 server, sends `tls sni agents.<fqdn>` untou
 PROXY protocol v2 header with the agent's address) to the gateway's loopback port and lets
 everything else fall through to Caddy's TLS, which serves the FQDN with HSTS and proxies to the
 web's loopback port (no second internal hop; real client IPs reach the web through
-X-Forwarded-For) → print the URL, the one-time first-admin setup link
+X-Forwarded-For), except `/relay/*`, which goes to the gateway's relay port (0.3.0; `RELAY_PORT` in instance.conf, allocated
+from the top of the loopback range and kept; an instance from before 0.3.0 gets one at its next update) → print the URL, the one-time first-admin setup link
 and a reminder to run the key
 ceremony (offline copies of root key and signer key, backup key pair). First-admin setup
 asks for the backup destination and the backup public key.
@@ -1147,7 +1194,9 @@ run under the new names.
 /src/Fleeto.Protocol/        agent protocol v1 (agent.proto) and generated C#
 /src/Fleeto.Infrastructure/  EF Core model and migrations, grants, crypto, CA, licensing, notifications, shared services
 /src/Fleeto.Web/             Blazor Server UI and the read-only public REST API (Api/, 0.2.1)
-/src/Fleeto.Gateway/         agent endpoint (.NET): enrollment, mTLS WebSocket sessions, ingest; remote control relay later
+/src/Fleeto.Gateway/         agent endpoint (.NET): enrollment, mTLS WebSocket sessions, ingest, the remote session relay (Remote/, 0.3.0)
+/src/Fleeto.Web/wwwroot/js/  browser helpers; remote.js and remote-crypto.mjs run remote sessions (0.3.0)
+/src/Fleeto.Web/wwwroot/lib/ vendored browser libraries with their source and hash (xterm.js, 0.3.0)
 /src/Fleeto.Signer/          signing service: instance signing key, internal CA, signing rules
 /src/Fleeto.Workers/         background jobs: config fan-out, check evaluation, alerts, email, license, backups, retention
 /src/Fleeto.Tools/           fleeto-tool: migrate, license, release and backup key utilities
@@ -1155,6 +1204,7 @@ run under the new names.
 /tests/Fleeto.Testing/       shared test fixture: a real PostgreSQL database per test project
 /tests/Fleeto.*.Tests/       unit and integration tests per component, cross-client and tier enforcement tests
 /tests/Fleeto.LoadTest/      simulator for 10,000 agents
+/tests/browser/                Node tests of the browser's remote session encryption against the Go vectors (0.3.0)
 /tools/dev/                    local development without Docker: setup-dev.ps1, start-dev.ps1, build-agent.ps1
 /deploy/                       Compose stack, host Caddy, install.sh (Dockerfiles live next to each project)
 /.github/workflows/            CI: build, test, vulnerability scan, secret scan, branding grep

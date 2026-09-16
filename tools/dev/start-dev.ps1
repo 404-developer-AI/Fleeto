@@ -12,6 +12,7 @@
       Web UI           https://localhost:7100
       Agent gateway    https://localhost:7200  (agents connect here; mTLS)
       Gateway health   http://localhost:5201/health
+      Remote relay     ws://localhost:5202/relay/  (browser side of remote sessions; web points there in Development)
 
 .PARAMETER NoBuild
     Skip the build (use after a successful build).

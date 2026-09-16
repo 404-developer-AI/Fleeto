@@ -51,6 +51,11 @@
         <MudText Typo="Typo.caption" Class="muted d-block mb-3">
             Output one job may send back. The endpoint drops whatever a script writes beyond it and the job is marked truncated.
         </MudText>
+        <MudNumericField T="int" @bind-Value="_remoteIdleMinutes" Label="Remote session idle timeout (minutes)" Variant="Variant.Outlined" Class="mt-3 mb-1"
+                         Min="@RemoteSessionRules.MinIdleTimeoutMinutes" Max="@RemoteSessionRules.MaxIdleTimeoutMinutes" />
+        <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+            A remote background session without input closes after this long. The technician is warned 2 minutes before.
+        </MudText>
         <MaintenanceWindowEditor Windows="_windows" DefaultTimeZone="@TimeZoneOptions.IanaId(Time.Zone)" />
     </DialogContent>
     <DialogActions>
@@ -78,6 +83,7 @@
     private bool _scriptApproval;
     private UpdateRing _updateRing = UpdateRing.Standard;
     private int _outputMegabytes = (int)(ScriptRules.DefaultMaxOutputBytes / ScriptRules.Mebibyte);
+    private int _remoteIdleMinutes = RemoteSessionRules.DefaultIdleTimeoutMinutes;
     private bool _busy;
 
     protected override void OnInitialized()
@@ -94,6 +100,7 @@
             _scriptApproval = p.ScriptApprovalRequired;
             _updateRing = p.UpdateRing;
             _outputMegabytes = (int)(p.MaxOutputBytes / ScriptRules.Mebibyte);
+            _remoteIdleMinutes = p.RemoteIdleTimeoutMinutes;
         }
     }
 
@@ -105,7 +112,7 @@
         try
         {
             var input = new PolicyInput(_name, _description, _heartbeat, _inventoryMinutes * 60, _offlineMinutes, _offlineSeverity,
-                _windows.Select(w => w.ToWindow()).ToList(), _scriptApproval, _updateRing, _outputMegabytes * ScriptRules.Mebibyte);
+                _windows.Select(w => w.ToWindow()).ToList(), _scriptApproval, _updateRing, _outputMegabytes * ScriptRules.Mebibyte, _remoteIdleMinutes);
             if (await OnSubmit(_clientId, input))
             {
                 MudDialog.Close(DialogResult.Ok(true));

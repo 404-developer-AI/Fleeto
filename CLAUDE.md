@@ -8,8 +8,8 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 
 - **Language**: conversation with the developer is always in Dutch. Documentation, code,
   comments, commit messages, log messages and UI text are always in English.
-- **Current phase**: 0.2.2 is released (2026-09-16) and runs on the first test VPS. Next is 0.3.0 (remote control)
-  in `MD-Files/ROADMAP.md`. Local development runs without Docker (see `README.md`);
+- **Current phase**: 0.2.2 is released (2026-09-16) and runs on the first test VPS. 0.3.0 (remote control) is being built in
+  seven steps in `MD-Files/ROADMAP.md`, with a pre-release `v0.3.0-alpha.N` after every step that can be tested on endpoints. Local development runs without Docker (see `README.md`);
   Docker is for the VPS and CI only.
 - **Git**: always ask before committing, pushing or tagging. No intermediate commits while a version is being built.
   Tag a version only after its commits are pushed and CI is green.
@@ -167,23 +167,36 @@ Licenses are counted **per endpoint** and belong to the instance.
 
 ## Remote control
 
-Screen takeover is built into Fleeto: no external tool, no third-party account.
+Screen takeover is built into Fleeto: no external tool, no third-party account. Decisions of 2026-09-16 (0.3.0):
 
-- Technician opens a session from the endpoint page in the browser. The agent captures the
-  screen, streams it through the gateway, and injects keyboard and mouse input.
-- **Clipboard works in both directions** for text from day one; file transfer follows later.
-- Servers: connect to the console session, including the login screen and UAC prompts,
-  which requires the agent to run as SYSTEM on Windows. Workstations: the active user
-  session, with a visible banner on the endpoint naming the technician while a session runs.
-- Policy decides whether the endpoint user must consent first, and whether sessions are
-  recorded. Every session is an audit entry with technician, endpoint, start, end and reason.
-- Sessions are end-to-end encrypted between browser and agent, authorised per session with
-  a short-lived token, and only possible on managed endpoints. The key exchange is anchored
-  outside the relay: the signed session token carries the browser's ephemeral public key and
-  the agent signs its own with its certificate key, so a compromised gateway cannot sit in
-  the middle. Details in `MD-Files/ARCHITECTURE.md` §4 and §5.
-- Platforms in order: Windows, Linux (X11 first, Wayland later). macOS is not supported for now
-  (decided 2026-09-15; possibly later when there is demand).
+- Two kinds of session, each in its own popup window opened from the right-click menu of the endpoint list or the endpoint
+  detail: **Remote control** (the screen, served by the agent) and **Remote background** (terminal, files, services and
+  processes without touching the screen, served by the watchdog so it also works when the agent is broken). Managed
+  endpoints only; admins and technicians, never read-only. The reason is optional.
+- **Transport**: a WebSocket relay through the gateway on port 443 (`wss://<fqdn>/relay/`), no WebRTC. Image: tiles with
+  change detection first, then H.264 on Windows with automatic fallback to tiles.
+- **Keyboard** never changes characters on the way, also on the Windows sign-in screen with another layout on the
+  technician's PC: physical keys translated to the endpoint's layout, a Unicode fallback and "Type clipboard".
+  Ctrl+Alt+Del works because the agent sets `SoftwareSASGeneration=1`; a customer GPO that overrides it wins.
+- **Clipboard**: text in both directions; files from the technician's PC by pasting or dragging; files copied on the
+  endpoint are offered for download.
+- **Several technicians** can work in the same session at once and see each other's pointers; every join has its own token
+  and audit entry.
+- **Windows session**: chosen when opening, default the console (sign-in screen and UAC included), or a signed-in RDP session.
+- **Consent and banner**: servers never prompt and show no banner. Workstations follow the policy: consent prompt on/off
+  (default off, access granted after a timeout of 30 seconds, an explicit refusal ends the session) and a banner naming the
+  technicians on/off (default on). Remote background never prompts.
+- **Remote background**: terminal as SYSTEM or root, file explorer (streamed, resumable, never stored on the server, at most
+  10 GB per file by policy), services and processes. Audited per session, participant and action; never terminal content.
+- A session without input closes after the policy's idle timeout (default 30 minutes, warned 2 minutes before); no maximum
+  duration. **Recording** of sessions is not scheduled.
+- Sessions are end-to-end encrypted between browser and endpoint, authorised per participant with a single-use token of
+  60 seconds, and only possible on managed endpoints. The key exchange is anchored outside the relay: the signed token
+  carries the browser's ephemeral public key, the endpoint signs its own with its certificate key, and the browser accepts
+  that key only by the fingerprint the instance recorded, so a compromised gateway cannot sit in the middle. Details in
+  `MD-Files/ARCHITECTURE.md` §4 and §5.
+- Platforms: Windows 10 and Server 2016 or newer; Linux with X11 (Wayland shows that remote control is not supported, remote
+  background works). macOS is not supported for now (decided 2026-09-15; possibly later when there is demand).
 
 ## Public API
 
@@ -285,8 +298,8 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
 - **Script approval**: per policy, scripts can require approval by a second admin (fresh TOTP) before they run; each change needs new approval. Off by default, recommended for servers.
 - **Accepted risk**: full control of fleeto-web still lets an attacker get jobs signed within the signer's rules. The signer keeps the key out of web, enforces the rules and rate limits, and is the single audited choke point. Documented in `MD-Files/ARCHITECTURE.md` §5.
 - **Command authorization**: every job records who initiated it, when, on which endpoints, with what payload. Immutable audit log for all privileged actions (script run, script approval, patch, remote control session, credential change, API key change, license change, login, permission change, certificate revocation, client or site deletion).
-- **Remote control** is the highest-risk feature: per-session tokens, end-to-end encryption, visible on the endpoint, policy-controlled consent, audited, managed endpoints only.
-- **Remote terminal** (0.3.0): interactive terminal as SYSTEM with the same session token and end-to-end encryption as remote control, audited per session, managed endpoints only. Available to admins and technicians also where script approval is required: accepted risk, documented in `MD-Files/ARCHITECTURE.md` §5.
+- **Remote control** is the highest-risk feature: single-use tokens per participant, end-to-end encryption, visible on workstations by policy, policy-controlled consent on workstations, audited, managed endpoints only.
+- **Remote terminal** (0.3.0): interactive terminal as SYSTEM or root in the remote background session, with the same session token and end-to-end encryption as remote control, audited per session and participant, managed endpoints only. Available to admins and technicians also where script approval is required: accepted risk, documented in `MD-Files/ARCHITECTURE.md` §5.
 - **Web/API**: 2FA (TOTP) for all users, session hardening, per-endpoint rate limiting, strict input validation, parameterized queries only, CSP with a nonce and without unsafe-inline for scripts (styles need `'unsafe-inline'` because MudBlazor renders inline style attributes). API keys hashed at rest, scoped, revocable.
 - **Least privilege**: containers run as non-root, read-only filesystems where possible, no Docker socket exposure to app containers, one database role per container. Instances on the same VPS share nothing but the host proxy: separate networks, volumes and secrets. The host proxy is not secret-free: it holds the TLS keys of every instance FQDN on the VPS, so it is pinned, minimally configured and its admin API is local only.
 - **Multi-tenancy discipline**: every query is scoped by client; every client-owned table carries its own `ClientId` (denormalized on purpose, kept consistent by composite foreign keys to the parent); write tests that prove cross-client reads fail. Instances are separate stacks, so cross-instance access is impossible by construction, not by a filter.
@@ -318,7 +331,7 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
   key; the private key is created in the key ceremony and stays offline. Backup storage
   credentials are write-only, so a compromised VPS can neither read nor delete backups.
 - **GDPR**: Fleeto processes personal data (user accounts, endpoint user names, IP addresses,
-  log content, remote control recordings) on behalf of customers and their clients. Rules:
+  log content, remote session history) on behalf of customers and their clients. Rules:
   data stays in the EU; retention limits apply to every data type and are enforced
   automatically; deleting a client or endpoint purges its data, with backups expiring on
   their own schedule; every access to personal data is covered by the audit log; a data
@@ -372,7 +385,8 @@ check/alert model as agent data (one alert pipeline, not two), credentials encry
   adjustable per endpoint, run now and reset; check history with charts
 - Alerting with acknowledgement, hold, deduplication and escalation via email/webhook
 - Script library + remote execution with output capture
-- Remote control with two-way clipboard, built in; remote terminal as SYSTEM
+- Remote control with two-way clipboard and file transfer, built in; remote background with terminal as SYSTEM, files,
+  services and processes
 - Watchdog service that keeps the agent running and alerts when it cannot
 - Patch compliance and deployment through Action1
 - Log and event search
@@ -382,7 +396,7 @@ check/alert model as agent data (one alert pipeline, not two), credentials encry
 - Integrations: Action1, Sophos, Veeam, Proxmox, vCenter
 
 Explicitly out of scope for v1: mobile device management, network topology mapping, a
-home-grown patch engine, file transfer inside remote control. Note them, do not build them.
+home-grown patch engine. Note them, do not build them. (File transfer inside remote sessions moved into 0.3.0 on 2026-09-16.)
 
 ## Conventions
 
@@ -401,8 +415,6 @@ home-grown patch engine, file transfer inside remote control. Note them, do not 
   the token proves MFA (`amr` claim), or is local TOTP always required on top? And may a user with
   Entra ID still sign in with a local password?
 - **Whitelabel depth**: FQDN only (v1) vs. customer logo and product name in the UI and emails.
-- **Remote control transport**: WebRTC with the gateway as TURN relay vs. a plain WebSocket
-  relay through the gateway. Prototype both on Windows before the remote control milestone.
 - **Action1**: to be worked out when the Action1 milestone starts: platform coverage (Windows
   confirmed; Linux to check), API rate limits, licensing model, and how Action1
   organizations map to Fleeto clients.

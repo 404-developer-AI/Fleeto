@@ -297,3 +297,14 @@ html, body {
 .status-timeline-problem { background: var(--fl-error); }
 .status-timeline-error { background: #D97706; }
 .status-timeline-empty { background: #E7E5E4; }
+
+/* Remote session windows (0.3.0): the session fills the window. */
+.remote-window { display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: var(--mud-palette-background); }
+.remote-header { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--mud-palette-lines-default); flex-wrap: wrap; }
+.remote-title { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+.remote-hostname { font-weight: 600; font-size: 1rem; }
+.remote-title .muted { font-size: 0.8rem; }
+.remote-start { max-width: 640px; padding: 24px 16px; }
+.remote-terminal { flex: 1; min-height: 0; padding: 8px; background: #0b1220; }
+.remote-terminal.hidden { display: none; }
+.remote-terminal .xterm { height: 100%; }

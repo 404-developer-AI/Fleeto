@@ -57,6 +57,7 @@ pwsh tools/dev/start-dev.ps1          # builds, migrates, starts signer, gateway
 | https://localhost:7100 | Web UI |
 | https://localhost:7200 | Agent gateway (mTLS) |
 | http://localhost:5201/health | Gateway health |
+| ws://localhost:5202/relay/ | Remote session relay (browser side; web points there in Development) |
 
 Then:
 

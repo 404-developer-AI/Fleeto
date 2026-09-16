@@ -17,6 +17,8 @@ public sealed class SigningRateLimiter
         [SigningRequestKind.AgentRecovery] = 600,
         [SigningRequestKind.WatchdogCertificate] = 600,
         [SigningRequestKind.Job] = 3000,
+        // Every technician's connection to a remote session (0.3.0); a person opens a handful per minute at most.
+        [SigningRequestKind.RemoteSessionToken] = 600,
         [SigningRequestKind.GatewayCertificate] = 10,
         [SigningRequestKind.AgentConfig] = 20_000
     };

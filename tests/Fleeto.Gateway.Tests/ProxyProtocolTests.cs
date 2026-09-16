@@ -161,6 +161,7 @@ public sealed class ProxyProtocolTests
                 "--Gateway:ListenAddress=127.0.0.1",
                 $"--Gateway:AgentPort={agentPort}",
                 $"--Gateway:HealthPort={healthPort}",
+                $"--Gateway:RelayPort={FreePort()}",
                 "--Gateway:EnrollmentsPerMinutePerAddress=1",
                 "--Gateway:ProxyProtocol:Enabled=true",
                 $"--Gateway:ProxyProtocol:TrustedNetworks:0={trustedNetwork}",

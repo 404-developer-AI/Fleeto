@@ -2198,6 +2198,30 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<bool>("RemoteBannerVisible")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("RemoteClipboardEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("RemoteConsentRequired")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("RemoteConsentTimeoutSeconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(30);
+
+                    b.Property<int>("RemoteIdleTimeoutMinutes")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(30);
+
+                    b.Property<long>("RemoteMaxFileBytes")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(10737418240L);
+
                     b.Property<bool>("ScriptApprovalRequired")
                         .HasColumnType("boolean");
 
@@ -2225,6 +2249,217 @@ namespace Fleeto.Infrastructure.Migrations
                     b.ToTable("Policies", t =>
                         {
                             t.HasCheckConstraint("CK_Policies_MaxOutputBytes", "\"MaxOutputBytes\" BETWEEN 1048576 AND 209715200");
+
+                            t.HasCheckConstraint("CK_Policies_RemoteConsentTimeoutSeconds", "\"RemoteConsentTimeoutSeconds\" BETWEEN 10 AND 300");
+
+                            t.HasCheckConstraint("CK_Policies_RemoteIdleTimeoutMinutes", "\"RemoteIdleTimeoutMinutes\" BETWEEN 5 AND 480");
+
+                            t.HasCheckConstraint("CK_Policies_RemoteMaxFileBytes", "\"RemoteMaxFileBytes\" BETWEEN 1048576 AND 10737418240");
+                        });
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.RemoteSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Component")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EndReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("StartedByName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("StartedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("Id")
+                        .HasDatabaseName("IX_RemoteSessions_Open")
+                        .HasFilter("\"EndedAt\" IS NULL");
+
+                    b.HasIndex("EndpointId", "ClientId");
+
+                    b.HasIndex("EndpointId", "CreatedAt")
+                        .IsDescending(false, true);
+
+                    b.ToTable("RemoteSessions");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.RemoteSessionAction", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ParticipantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Target")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime>("Time")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ParticipantId");
+
+                    b.HasIndex("Time");
+
+                    b.HasIndex("SessionId", "ClientId");
+
+                    b.HasIndex("SessionId", "Time");
+
+                    b.ToTable("RemoteSessionActions");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.RemoteSessionParticipant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<byte[]>("BrowserPublicKey")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ConnectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ConnectingAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EndReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("SignedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SigningKeyId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<byte[]>("TokenPayload")
+                        .HasColumnType("bytea");
+
+                    b.Property<byte[]>("TokenSignature")
+                        .HasColumnType("bytea");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("ValidUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SessionId");
+
+                    b.HasIndex("EndpointId", "ClientId");
+
+                    b.HasIndex("SessionId", "ClientId");
+
+                    b.HasIndex("State", "CreatedAt")
+                        .HasDatabaseName("IX_RemoteSessionParticipants_Active")
+                        .HasFilter("\"State\" IN ('Requested', 'Signed', 'Connecting', 'Connected')");
+
+                    b.ToTable("RemoteSessionParticipants", t =>
+                        {
+                            t.HasCheckConstraint("CK_RemoteSessionParticipants_BrowserKey", "octet_length(\"BrowserPublicKey\") = 32");
+
+                            t.HasCheckConstraint("CK_RemoteSessionParticipants_Signed", "\"ConnectingAt\" IS NULL OR \"TokenSignature\" IS NOT NULL");
                         });
                 });
 
@@ -3137,6 +3372,48 @@ namespace Fleeto.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("ClientId")
                         .OnDelete(DeleteBehavior.Cascade);
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.RemoteSession", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.RemoteSessionAction", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.RemoteSessionParticipant", null)
+                        .WithMany()
+                        .HasForeignKey("ParticipantId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Fleeto.Core.Entities.RemoteSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.RemoteSessionParticipant", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleeto.Core.Entities.RemoteSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.Script", b =>

@@ -25,8 +25,14 @@
 //
 // Watchdog (0.2.1): the second service on an endpoint connects to the same /v1/connect with its own certificate (role watchdog,
 // issued through WatchdogCertificateRequest over the agent session). A watchdog session only exchanges Hello, HelloAck, Heartbeat,
-// Ping, Pong, certificate renewal, UpdateOffer, UpdateStatus and Disconnect; the gateway ignores anything else it sends and never
-// sends it configurations, jobs, check run or inventory requests.
+// Ping, Pong, certificate renewal, UpdateOffer, UpdateStatus, remote background sessions (0.3.0) and Disconnect; the gateway ignores
+// anything else it sends and never sends it configurations, jobs, check run or inventory requests.
+//
+// Remote sessions (0.3.0, ARCHITECTURE.md §4 Remote session): the gateway sends RemoteSessionOffer over the session of the service that
+// serves the session (the watchdog for remote background). The service verifies the token (context "fleeto-remote-session-v1"), then
+// opens WebSocket wss://<agent host>/v1/relay/<participant id> with its client certificate (mTLS) and sends RelayEndpointHello as the
+// first binary message. After it, every binary message on the relay is one AES-256-GCM frame between browser and endpoint that the
+// gateway passes on unread. A refused offer is answered with RemoteSessionRefused over the control session instead.
 //
 // Updates (0.2.1): UpdateOffer carries the release manifest of the instance with its Steaan release signature (ed25519 over the
 // exact manifest bytes, without a context prefix, the same signature install.sh verifies). The receiver verifies it against the
@@ -775,6 +781,55 @@ func (UpdateWaitReason) EnumDescriptor() ([]byte, []int) {
 	return file_agent_proto_rawDescGZIP(), []int{11}
 }
 
+type RemoteSessionKind int32
+
+const (
+	RemoteSessionKind_REMOTE_SESSION_KIND_UNSPECIFIED       RemoteSessionKind = 0
+	RemoteSessionKind_REMOTE_SESSION_KIND_REMOTE_CONTROL    RemoteSessionKind = 1
+	RemoteSessionKind_REMOTE_SESSION_KIND_REMOTE_BACKGROUND RemoteSessionKind = 2
+)
+
+// Enum value maps for RemoteSessionKind.
+var (
+	RemoteSessionKind_name = map[int32]string{
+		0: "REMOTE_SESSION_KIND_UNSPECIFIED",
+		1: "REMOTE_SESSION_KIND_REMOTE_CONTROL",
+		2: "REMOTE_SESSION_KIND_REMOTE_BACKGROUND",
+	}
+	RemoteSessionKind_value = map[string]int32{
+		"REMOTE_SESSION_KIND_UNSPECIFIED":       0,
+		"REMOTE_SESSION_KIND_REMOTE_CONTROL":    1,
+		"REMOTE_SESSION_KIND_REMOTE_BACKGROUND": 2,
+	}
+)
+
+func (x RemoteSessionKind) Enum() *RemoteSessionKind {
+	p := new(RemoteSessionKind)
+	*p = x
+	return p
+}
+
+func (x RemoteSessionKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RemoteSessionKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_agent_proto_enumTypes[12].Descriptor()
+}
+
+func (RemoteSessionKind) Type() protoreflect.EnumType {
+	return &file_agent_proto_enumTypes[12]
+}
+
+func (x RemoteSessionKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RemoteSessionKind.Descriptor instead.
+func (RemoteSessionKind) EnumDescriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{12}
+}
+
 type DisconnectCode int32
 
 const (
@@ -817,11 +872,11 @@ func (x DisconnectCode) String() string {
 }
 
 func (DisconnectCode) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[12].Descriptor()
+	return file_agent_proto_enumTypes[13].Descriptor()
 }
 
 func (DisconnectCode) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[12]
+	return &file_agent_proto_enumTypes[13]
 }
 
 func (x DisconnectCode) Number() protoreflect.EnumNumber {
@@ -830,7 +885,7 @@ func (x DisconnectCode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use DisconnectCode.Descriptor instead.
 func (DisconnectCode) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{12}
+	return file_agent_proto_rawDescGZIP(), []int{13}
 }
 
 type EnrollRequest struct {
@@ -1202,6 +1257,7 @@ type AgentMessage struct {
 	//	*AgentMessage_JobCompletion
 	//	*AgentMessage_WatchdogCertificate
 	//	*AgentMessage_UpdateStatus
+	//	*AgentMessage_RemoteSessionRefused
 	Body          isAgentMessage_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1352,6 +1408,15 @@ func (x *AgentMessage) GetUpdateStatus() *UpdateStatus {
 	return nil
 }
 
+func (x *AgentMessage) GetRemoteSessionRefused() *RemoteSessionRefused {
+	if x != nil {
+		if x, ok := x.Body.(*AgentMessage_RemoteSessionRefused); ok {
+			return x.RemoteSessionRefused
+		}
+	}
+	return nil
+}
+
 type isAgentMessage_Body interface {
 	isAgentMessage_Body()
 }
@@ -1405,6 +1470,11 @@ type AgentMessage_UpdateStatus struct {
 	UpdateStatus *UpdateStatus `protobuf:"bytes,12,opt,name=update_status,json=updateStatus,proto3,oneof"`
 }
 
+type AgentMessage_RemoteSessionRefused struct {
+	// 0.3.0
+	RemoteSessionRefused *RemoteSessionRefused `protobuf:"bytes,13,opt,name=remote_session_refused,json=remoteSessionRefused,proto3,oneof"`
+}
+
 func (*AgentMessage_Hello) isAgentMessage_Body() {}
 
 func (*AgentMessage_Heartbeat) isAgentMessage_Body() {}
@@ -1429,6 +1499,8 @@ func (*AgentMessage_WatchdogCertificate) isAgentMessage_Body() {}
 
 func (*AgentMessage_UpdateStatus) isAgentMessage_Body() {}
 
+func (*AgentMessage_RemoteSessionRefused) isAgentMessage_Body() {}
+
 type ServerMessage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Body:
@@ -1445,6 +1517,7 @@ type ServerMessage struct {
 	//	*ServerMessage_JobAck
 	//	*ServerMessage_UpdateOffer
 	//	*ServerMessage_WatchdogCertificate
+	//	*ServerMessage_RemoteSessionOffer
 	Body          isServerMessage_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1595,6 +1668,15 @@ func (x *ServerMessage) GetWatchdogCertificate() *WatchdogCertificateResponse {
 	return nil
 }
 
+func (x *ServerMessage) GetRemoteSessionOffer() *RemoteSessionOffer {
+	if x != nil {
+		if x, ok := x.Body.(*ServerMessage_RemoteSessionOffer); ok {
+			return x.RemoteSessionOffer
+		}
+	}
+	return nil
+}
+
 type isServerMessage_Body interface {
 	isServerMessage_Body()
 }
@@ -1648,6 +1730,11 @@ type ServerMessage_WatchdogCertificate struct {
 	WatchdogCertificate *WatchdogCertificateResponse `protobuf:"bytes,12,opt,name=watchdog_certificate,json=watchdogCertificate,proto3,oneof"`
 }
 
+type ServerMessage_RemoteSessionOffer struct {
+	// 0.3.0
+	RemoteSessionOffer *RemoteSessionOffer `protobuf:"bytes,13,opt,name=remote_session_offer,json=remoteSessionOffer,proto3,oneof"`
+}
+
 func (*ServerMessage_HelloAck) isServerMessage_Body() {}
 
 func (*ServerMessage_BatchAck) isServerMessage_Body() {}
@@ -1671,6 +1758,8 @@ func (*ServerMessage_JobAck) isServerMessage_Body() {}
 func (*ServerMessage_UpdateOffer) isServerMessage_Body() {}
 
 func (*ServerMessage_WatchdogCertificate) isServerMessage_Body() {}
+
+func (*ServerMessage_RemoteSessionOffer) isServerMessage_Body() {}
 
 // First message after the WebSocket opens. The server closes the connection if anything else comes first.
 type Hello struct {
@@ -4288,6 +4377,391 @@ func (x *UpdateStatus) GetWaitSeconds() uint32 {
 	return 0
 }
 
+// A remote session token signed by fleeto-signer for one participant: single use, valid 60 seconds.
+type SignedRemoteSession struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Serialized RemoteSessionToken.
+	Payload []byte `protobuf:"bytes,1,opt,name=payload,proto3" json:"payload,omitempty"`
+	// ed25519 over "fleeto-remote-session-v1" || 0x00 || payload.
+	Signature     []byte `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
+	KeyId         string `protobuf:"bytes,3,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignedRemoteSession) Reset() {
+	*x = SignedRemoteSession{}
+	mi := &file_agent_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignedRemoteSession) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignedRemoteSession) ProtoMessage() {}
+
+func (x *SignedRemoteSession) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignedRemoteSession.ProtoReflect.Descriptor instead.
+func (*SignedRemoteSession) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *SignedRemoteSession) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *SignedRemoteSession) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
+func (x *SignedRemoteSession) GetKeyId() string {
+	if x != nil {
+		return x.KeyId
+	}
+	return ""
+}
+
+// The endpoint accepts a token only when the signature verifies against the pinned instance signing key, instance_id and endpoint_id
+// are its own, component is the service that received it, valid_until has not passed (5 minutes clock tolerance), the participant id
+// was not used before, and its own applied signed configuration is managed.
+type RemoteSessionToken struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// RemoteSessionParticipant id: one technician's connection. Used once.
+	ParticipantId string            `protobuf:"bytes,1,opt,name=participant_id,json=participantId,proto3" json:"participant_id,omitempty"`
+	SessionId     string            `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	InstanceId    string            `protobuf:"bytes,3,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	EndpointId    string            `protobuf:"bytes,4,opt,name=endpoint_id,json=endpointId,proto3" json:"endpoint_id,omitempty"`
+	Kind          RemoteSessionKind `protobuf:"varint,5,opt,name=kind,proto3,enum=fleeto.agent.v1.RemoteSessionKind" json:"kind,omitempty"`
+	// The service that serves the session.
+	Component    Component `protobuf:"varint,6,opt,name=component,proto3,enum=fleeto.agent.v1.Component" json:"component,omitempty"`
+	TechnicianId string    `protobuf:"bytes,7,opt,name=technician_id,json=technicianId,proto3" json:"technician_id,omitempty"`
+	// Display name of the technician, for the endpoint's log.
+	TechnicianName string `protobuf:"bytes,8,opt,name=technician_name,json=technicianName,proto3" json:"technician_name,omitempty"`
+	// The browser's ephemeral X25519 public key, 32 bytes. The endpoint derives the session keys with it and nothing else.
+	BrowserPublicKey []byte                 `protobuf:"bytes,9,opt,name=browser_public_key,json=browserPublicKey,proto3" json:"browser_public_key,omitempty"`
+	IssuedAt         *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=issued_at,json=issuedAt,proto3" json:"issued_at,omitempty"`
+	ValidUntil       *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=valid_until,json=validUntil,proto3" json:"valid_until,omitempty"`
+	// From the effective policy of the endpoint: a session without input from the technician closes after this long.
+	IdleTimeoutSeconds uint32 `protobuf:"varint,12,opt,name=idle_timeout_seconds,json=idleTimeoutSeconds,proto3" json:"idle_timeout_seconds,omitempty"`
+	// From the effective policy: the largest file one transfer may carry.
+	MaxFileBytes  uint64 `protobuf:"varint,13,opt,name=max_file_bytes,json=maxFileBytes,proto3" json:"max_file_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoteSessionToken) Reset() {
+	*x = RemoteSessionToken{}
+	mi := &file_agent_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoteSessionToken) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoteSessionToken) ProtoMessage() {}
+
+func (x *RemoteSessionToken) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoteSessionToken.ProtoReflect.Descriptor instead.
+func (*RemoteSessionToken) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *RemoteSessionToken) GetParticipantId() string {
+	if x != nil {
+		return x.ParticipantId
+	}
+	return ""
+}
+
+func (x *RemoteSessionToken) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *RemoteSessionToken) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
+}
+
+func (x *RemoteSessionToken) GetEndpointId() string {
+	if x != nil {
+		return x.EndpointId
+	}
+	return ""
+}
+
+func (x *RemoteSessionToken) GetKind() RemoteSessionKind {
+	if x != nil {
+		return x.Kind
+	}
+	return RemoteSessionKind_REMOTE_SESSION_KIND_UNSPECIFIED
+}
+
+func (x *RemoteSessionToken) GetComponent() Component {
+	if x != nil {
+		return x.Component
+	}
+	return Component_COMPONENT_UNSPECIFIED
+}
+
+func (x *RemoteSessionToken) GetTechnicianId() string {
+	if x != nil {
+		return x.TechnicianId
+	}
+	return ""
+}
+
+func (x *RemoteSessionToken) GetTechnicianName() string {
+	if x != nil {
+		return x.TechnicianName
+	}
+	return ""
+}
+
+func (x *RemoteSessionToken) GetBrowserPublicKey() []byte {
+	if x != nil {
+		return x.BrowserPublicKey
+	}
+	return nil
+}
+
+func (x *RemoteSessionToken) GetIssuedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.IssuedAt
+	}
+	return nil
+}
+
+func (x *RemoteSessionToken) GetValidUntil() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ValidUntil
+	}
+	return nil
+}
+
+func (x *RemoteSessionToken) GetIdleTimeoutSeconds() uint32 {
+	if x != nil {
+		return x.IdleTimeoutSeconds
+	}
+	return 0
+}
+
+func (x *RemoteSessionToken) GetMaxFileBytes() uint64 {
+	if x != nil {
+		return x.MaxFileBytes
+	}
+	return 0
+}
+
+// The gateway asks the service to connect its side of the relay for a token the browser presented.
+type RemoteSessionOffer struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Session       *SignedRemoteSession   `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoteSessionOffer) Reset() {
+	*x = RemoteSessionOffer{}
+	mi := &file_agent_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoteSessionOffer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoteSessionOffer) ProtoMessage() {}
+
+func (x *RemoteSessionOffer) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoteSessionOffer.ProtoReflect.Descriptor instead.
+func (*RemoteSessionOffer) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *RemoteSessionOffer) GetSession() *SignedRemoteSession {
+	if x != nil {
+		return x.Session
+	}
+	return nil
+}
+
+// The service refused an offer; the gateway tells the browser why.
+type RemoteSessionRefused struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ParticipantId string                 `protobuf:"bytes,1,opt,name=participant_id,json=participantId,proto3" json:"participant_id,omitempty"`
+	// Free text, at most 500 characters.
+	Error         string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoteSessionRefused) Reset() {
+	*x = RemoteSessionRefused{}
+	mi := &file_agent_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoteSessionRefused) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoteSessionRefused) ProtoMessage() {}
+
+func (x *RemoteSessionRefused) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoteSessionRefused.ProtoReflect.Descriptor instead.
+func (*RemoteSessionRefused) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *RemoteSessionRefused) GetParticipantId() string {
+	if x != nil {
+		return x.ParticipantId
+	}
+	return ""
+}
+
+func (x *RemoteSessionRefused) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+// First binary message of the endpoint on /v1/relay/<participant id>. The gateway passes the key and signature to the browser.
+type RelayEndpointHello struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ParticipantId string                 `protobuf:"bytes,1,opt,name=participant_id,json=participantId,proto3" json:"participant_id,omitempty"`
+	// The endpoint's ephemeral X25519 public key, 32 bytes.
+	EndpointPublicKey []byte `protobuf:"bytes,2,opt,name=endpoint_public_key,json=endpointPublicKey,proto3" json:"endpoint_public_key,omitempty"`
+	// ECDSA P-256 with SHA-256 by the certificate key of the service, IEEE P1363 (r || s, 64 bytes), over
+	// "fleeto-remote-endpoint-key-v1" || 0x00 || SHA-256(RemoteSessionToken payload) || endpoint_public_key.
+	Signature []byte `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`
+	// The SubjectPublicKeyInfo (DER) of the service's certificate, exactly as in the certificate. The browser accepts it only when its
+	// SHA-256 is the public key fingerprint the instance recorded for a valid certificate of that service; the relay cannot swap it.
+	CertificatePublicKey []byte `protobuf:"bytes,4,opt,name=certificate_public_key,json=certificatePublicKey,proto3" json:"certificate_public_key,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *RelayEndpointHello) Reset() {
+	*x = RelayEndpointHello{}
+	mi := &file_agent_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayEndpointHello) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayEndpointHello) ProtoMessage() {}
+
+func (x *RelayEndpointHello) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayEndpointHello.ProtoReflect.Descriptor instead.
+func (*RelayEndpointHello) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *RelayEndpointHello) GetParticipantId() string {
+	if x != nil {
+		return x.ParticipantId
+	}
+	return ""
+}
+
+func (x *RelayEndpointHello) GetEndpointPublicKey() []byte {
+	if x != nil {
+		return x.EndpointPublicKey
+	}
+	return nil
+}
+
+func (x *RelayEndpointHello) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
+func (x *RelayEndpointHello) GetCertificatePublicKey() []byte {
+	if x != nil {
+		return x.CertificatePublicKey
+	}
+	return nil
+}
+
 type Disconnect struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Code          DisconnectCode         `protobuf:"varint,1,opt,name=code,proto3,enum=fleeto.agent.v1.DisconnectCode" json:"code,omitempty"`
@@ -4298,7 +4772,7 @@ type Disconnect struct {
 
 func (x *Disconnect) Reset() {
 	*x = Disconnect{}
-	mi := &file_agent_proto_msgTypes[45]
+	mi := &file_agent_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4310,7 +4784,7 @@ func (x *Disconnect) String() string {
 func (*Disconnect) ProtoMessage() {}
 
 func (x *Disconnect) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[45]
+	mi := &file_agent_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4323,7 +4797,7 @@ func (x *Disconnect) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Disconnect.ProtoReflect.Descriptor instead.
 func (*Disconnect) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{45}
+	return file_agent_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *Disconnect) GetCode() DisconnectCode {
@@ -4371,7 +4845,7 @@ const file_agent_proto_rawDesc = "" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\tR\aversion\x12\x1b\n" +
 	"\tis_server\x18\x04 \x01(\bR\bisServer\x12\"\n" +
-	"\farchitecture\x18\x05 \x01(\tR\farchitecture\"\xcb\x06\n" +
+	"\farchitecture\x18\x05 \x01(\tR\farchitecture\"\xaa\a\n" +
 	"\fAgentMessage\x12.\n" +
 	"\x05hello\x18\x01 \x01(\v2\x16.fleeto.agent.v1.HelloH\x00R\x05hello\x12:\n" +
 	"\theartbeat\x18\x02 \x01(\v2\x1a.fleeto.agent.v1.HeartbeatH\x00R\theartbeat\x12@\n" +
@@ -4387,8 +4861,9 @@ const file_agent_proto_rawDesc = "" +
 	"\x0ejob_completion\x18\n" +
 	" \x01(\v2\x1e.fleeto.agent.v1.JobCompletionH\x00R\rjobCompletion\x12`\n" +
 	"\x14watchdog_certificate\x18\v \x01(\v2+.fleeto.agent.v1.WatchdogCertificateRequestH\x00R\x13watchdogCertificate\x12D\n" +
-	"\rupdate_status\x18\f \x01(\v2\x1d.fleeto.agent.v1.UpdateStatusH\x00R\fupdateStatusB\x06\n" +
-	"\x04body\"\xad\x06\n" +
+	"\rupdate_status\x18\f \x01(\v2\x1d.fleeto.agent.v1.UpdateStatusH\x00R\fupdateStatus\x12]\n" +
+	"\x16remote_session_refused\x18\r \x01(\v2%.fleeto.agent.v1.RemoteSessionRefusedH\x00R\x14remoteSessionRefusedB\x06\n" +
+	"\x04body\"\x86\a\n" +
 	"\rServerMessage\x128\n" +
 	"\thello_ack\x18\x01 \x01(\v2\x19.fleeto.agent.v1.HelloAckH\x00R\bhelloAck\x128\n" +
 	"\tbatch_ack\x18\x02 \x01(\v2\x19.fleeto.agent.v1.BatchAckH\x00R\bbatchAck\x127\n" +
@@ -4404,7 +4879,8 @@ const file_agent_proto_rawDesc = "" +
 	"\ajob_ack\x18\n" +
 	" \x01(\v2\x17.fleeto.agent.v1.JobAckH\x00R\x06jobAck\x12A\n" +
 	"\fupdate_offer\x18\v \x01(\v2\x1c.fleeto.agent.v1.UpdateOfferH\x00R\vupdateOffer\x12a\n" +
-	"\x14watchdog_certificate\x18\f \x01(\v2,.fleeto.agent.v1.WatchdogCertificateResponseH\x00R\x13watchdogCertificateB\x06\n" +
+	"\x14watchdog_certificate\x18\f \x01(\v2,.fleeto.agent.v1.WatchdogCertificateResponseH\x00R\x13watchdogCertificate\x12W\n" +
+	"\x14remote_session_offer\x18\r \x01(\v2#.fleeto.agent.v1.RemoteSessionOfferH\x00R\x12remoteSessionOfferB\x06\n" +
 	"\x04body\"\xf9\x01\n" +
 	"\x05Hello\x12#\n" +
 	"\ragent_version\x18\x01 \x01(\tR\fagentVersion\x12\x1a\n" +
@@ -4614,7 +5090,40 @@ const file_agent_proto_rawDesc = "" +
 	"\x06detail\x18\x04 \x01(\tR\x06detail\x12B\n" +
 	"\vwait_reason\x18\x05 \x01(\x0e2!.fleeto.agent.v1.UpdateWaitReasonR\n" +
 	"waitReason\x12!\n" +
-	"\fwait_seconds\x18\x06 \x01(\rR\vwaitSeconds\"Y\n" +
+	"\fwait_seconds\x18\x06 \x01(\rR\vwaitSeconds\"d\n" +
+	"\x13SignedRemoteSession\x12\x18\n" +
+	"\apayload\x18\x01 \x01(\fR\apayload\x12\x1c\n" +
+	"\tsignature\x18\x02 \x01(\fR\tsignature\x12\x15\n" +
+	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\xd8\x04\n" +
+	"\x12RemoteSessionToken\x12%\n" +
+	"\x0eparticipant_id\x18\x01 \x01(\tR\rparticipantId\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x1f\n" +
+	"\vinstance_id\x18\x03 \x01(\tR\n" +
+	"instanceId\x12\x1f\n" +
+	"\vendpoint_id\x18\x04 \x01(\tR\n" +
+	"endpointId\x126\n" +
+	"\x04kind\x18\x05 \x01(\x0e2\".fleeto.agent.v1.RemoteSessionKindR\x04kind\x128\n" +
+	"\tcomponent\x18\x06 \x01(\x0e2\x1a.fleeto.agent.v1.ComponentR\tcomponent\x12#\n" +
+	"\rtechnician_id\x18\a \x01(\tR\ftechnicianId\x12'\n" +
+	"\x0ftechnician_name\x18\b \x01(\tR\x0etechnicianName\x12,\n" +
+	"\x12browser_public_key\x18\t \x01(\fR\x10browserPublicKey\x127\n" +
+	"\tissued_at\x18\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\bissuedAt\x12;\n" +
+	"\vvalid_until\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"validUntil\x120\n" +
+	"\x14idle_timeout_seconds\x18\f \x01(\rR\x12idleTimeoutSeconds\x12$\n" +
+	"\x0emax_file_bytes\x18\r \x01(\x04R\fmaxFileBytes\"T\n" +
+	"\x12RemoteSessionOffer\x12>\n" +
+	"\asession\x18\x01 \x01(\v2$.fleeto.agent.v1.SignedRemoteSessionR\asession\"S\n" +
+	"\x14RemoteSessionRefused\x12%\n" +
+	"\x0eparticipant_id\x18\x01 \x01(\tR\rparticipantId\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\xbf\x01\n" +
+	"\x12RelayEndpointHello\x12%\n" +
+	"\x0eparticipant_id\x18\x01 \x01(\tR\rparticipantId\x12.\n" +
+	"\x13endpoint_public_key\x18\x02 \x01(\fR\x11endpointPublicKey\x12\x1c\n" +
+	"\tsignature\x18\x03 \x01(\fR\tsignature\x124\n" +
+	"\x16certificate_public_key\x18\x04 \x01(\fR\x14certificatePublicKey\"Y\n" +
 	"\n" +
 	"Disconnect\x123\n" +
 	"\x04code\x18\x01 \x01(\x0e2\x1f.fleeto.agent.v1.DisconnectCodeR\x04code\x12\x16\n" +
@@ -4697,7 +5206,11 @@ const file_agent_proto_rawDesc = "" +
 	"\x1fUPDATE_WAIT_REASON_NEXT_ATTEMPT\x10\x02\x12#\n" +
 	"\x1fUPDATE_WAIT_REASON_RANDOM_DELAY\x10\x03\x12'\n" +
 	"#UPDATE_WAIT_REASON_INSTALLER_UPDATE\x10\x04\x12\"\n" +
-	"\x1eUPDATE_WAIT_REASON_ROLLED_BACK\x10\x05*\xbf\x01\n" +
+	"\x1eUPDATE_WAIT_REASON_ROLLED_BACK\x10\x05*\x8b\x01\n" +
+	"\x11RemoteSessionKind\x12#\n" +
+	"\x1fREMOTE_SESSION_KIND_UNSPECIFIED\x10\x00\x12&\n" +
+	"\"REMOTE_SESSION_KIND_REMOTE_CONTROL\x10\x01\x12)\n" +
+	"%REMOTE_SESSION_KIND_REMOTE_BACKGROUND\x10\x02*\xbf\x01\n" +
 	"\x0eDisconnectCode\x12\x1f\n" +
 	"\x1bDISCONNECT_CODE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17DISCONNECT_CODE_REVOKED\x10\x01\x12&\n" +
@@ -4717,8 +5230,8 @@ func file_agent_proto_rawDescGZIP() []byte {
 	return file_agent_proto_rawDescData
 }
 
-var file_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 13)
-var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 47)
+var file_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 14)
+var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 52)
 var file_agent_proto_goTypes = []any{
 	(Component)(0),                      // 0: fleeto.agent.v1.Component
 	(ServiceState)(0),                   // 1: fleeto.agent.v1.ServiceState
@@ -4732,128 +5245,141 @@ var file_agent_proto_goTypes = []any{
 	(JobAckKind)(0),                     // 9: fleeto.agent.v1.JobAckKind
 	(UpdateState)(0),                    // 10: fleeto.agent.v1.UpdateState
 	(UpdateWaitReason)(0),               // 11: fleeto.agent.v1.UpdateWaitReason
-	(DisconnectCode)(0),                 // 12: fleeto.agent.v1.DisconnectCode
-	(*EnrollRequest)(nil),               // 13: fleeto.agent.v1.EnrollRequest
-	(*EnrollResponse)(nil),              // 14: fleeto.agent.v1.EnrollResponse
-	(*RecoverRequest)(nil),              // 15: fleeto.agent.v1.RecoverRequest
-	(*RecoverResponse)(nil),             // 16: fleeto.agent.v1.RecoverResponse
-	(*OsInfo)(nil),                      // 17: fleeto.agent.v1.OsInfo
-	(*AgentMessage)(nil),                // 18: fleeto.agent.v1.AgentMessage
-	(*ServerMessage)(nil),               // 19: fleeto.agent.v1.ServerMessage
-	(*Hello)(nil),                       // 20: fleeto.agent.v1.Hello
-	(*HelloAck)(nil),                    // 21: fleeto.agent.v1.HelloAck
-	(*Heartbeat)(nil),                   // 22: fleeto.agent.v1.Heartbeat
-	(*SignedInUsers)(nil),               // 23: fleeto.agent.v1.SignedInUsers
-	(*SignedInUser)(nil),                // 24: fleeto.agent.v1.SignedInUser
-	(*UserSession)(nil),                 // 25: fleeto.agent.v1.UserSession
-	(*PeerStatus)(nil),                  // 26: fleeto.agent.v1.PeerStatus
-	(*Ping)(nil),                        // 27: fleeto.agent.v1.Ping
-	(*Pong)(nil),                        // 28: fleeto.agent.v1.Pong
-	(*InventoryRequest)(nil),            // 29: fleeto.agent.v1.InventoryRequest
-	(*RunChecksNow)(nil),                // 30: fleeto.agent.v1.RunChecksNow
-	(*InventoryReport)(nil),             // 31: fleeto.agent.v1.InventoryReport
-	(*Inventory)(nil),                   // 32: fleeto.agent.v1.Inventory
-	(*ServiceItem)(nil),                 // 33: fleeto.agent.v1.ServiceItem
-	(*Disk)(nil),                        // 34: fleeto.agent.v1.Disk
-	(*NetworkInterface)(nil),            // 35: fleeto.agent.v1.NetworkInterface
-	(*SoftwareItem)(nil),                // 36: fleeto.agent.v1.SoftwareItem
-	(*CheckResultBatch)(nil),            // 37: fleeto.agent.v1.CheckResultBatch
-	(*CheckResult)(nil),                 // 38: fleeto.agent.v1.CheckResult
-	(*BatchAck)(nil),                    // 39: fleeto.agent.v1.BatchAck
-	(*RenewCertificateRequest)(nil),     // 40: fleeto.agent.v1.RenewCertificateRequest
-	(*RenewCertificateResponse)(nil),    // 41: fleeto.agent.v1.RenewCertificateResponse
-	(*SignedConfig)(nil),                // 42: fleeto.agent.v1.SignedConfig
-	(*AgentConfig)(nil),                 // 43: fleeto.agent.v1.AgentConfig
-	(*CheckSpec)(nil),                   // 44: fleeto.agent.v1.CheckSpec
-	(*ConfigApplied)(nil),               // 45: fleeto.agent.v1.ConfigApplied
-	(*SignedJob)(nil),                   // 46: fleeto.agent.v1.SignedJob
-	(*JobPayload)(nil),                  // 47: fleeto.agent.v1.JobPayload
-	(*ScriptJob)(nil),                   // 48: fleeto.agent.v1.ScriptJob
-	(*JobStarted)(nil),                  // 49: fleeto.agent.v1.JobStarted
-	(*JobOutput)(nil),                   // 50: fleeto.agent.v1.JobOutput
-	(*JobStreamSummary)(nil),            // 51: fleeto.agent.v1.JobStreamSummary
-	(*JobCompletion)(nil),               // 52: fleeto.agent.v1.JobCompletion
-	(*JobAck)(nil),                      // 53: fleeto.agent.v1.JobAck
-	(*WatchdogCertificateRequest)(nil),  // 54: fleeto.agent.v1.WatchdogCertificateRequest
-	(*WatchdogCertificateResponse)(nil), // 55: fleeto.agent.v1.WatchdogCertificateResponse
-	(*UpdateOffer)(nil),                 // 56: fleeto.agent.v1.UpdateOffer
-	(*UpdateStatus)(nil),                // 57: fleeto.agent.v1.UpdateStatus
-	(*Disconnect)(nil),                  // 58: fleeto.agent.v1.Disconnect
-	nil,                                 // 59: fleeto.agent.v1.CheckSpec.ParametersEntry
-	(*timestamppb.Timestamp)(nil),       // 60: google.protobuf.Timestamp
+	(RemoteSessionKind)(0),              // 12: fleeto.agent.v1.RemoteSessionKind
+	(DisconnectCode)(0),                 // 13: fleeto.agent.v1.DisconnectCode
+	(*EnrollRequest)(nil),               // 14: fleeto.agent.v1.EnrollRequest
+	(*EnrollResponse)(nil),              // 15: fleeto.agent.v1.EnrollResponse
+	(*RecoverRequest)(nil),              // 16: fleeto.agent.v1.RecoverRequest
+	(*RecoverResponse)(nil),             // 17: fleeto.agent.v1.RecoverResponse
+	(*OsInfo)(nil),                      // 18: fleeto.agent.v1.OsInfo
+	(*AgentMessage)(nil),                // 19: fleeto.agent.v1.AgentMessage
+	(*ServerMessage)(nil),               // 20: fleeto.agent.v1.ServerMessage
+	(*Hello)(nil),                       // 21: fleeto.agent.v1.Hello
+	(*HelloAck)(nil),                    // 22: fleeto.agent.v1.HelloAck
+	(*Heartbeat)(nil),                   // 23: fleeto.agent.v1.Heartbeat
+	(*SignedInUsers)(nil),               // 24: fleeto.agent.v1.SignedInUsers
+	(*SignedInUser)(nil),                // 25: fleeto.agent.v1.SignedInUser
+	(*UserSession)(nil),                 // 26: fleeto.agent.v1.UserSession
+	(*PeerStatus)(nil),                  // 27: fleeto.agent.v1.PeerStatus
+	(*Ping)(nil),                        // 28: fleeto.agent.v1.Ping
+	(*Pong)(nil),                        // 29: fleeto.agent.v1.Pong
+	(*InventoryRequest)(nil),            // 30: fleeto.agent.v1.InventoryRequest
+	(*RunChecksNow)(nil),                // 31: fleeto.agent.v1.RunChecksNow
+	(*InventoryReport)(nil),             // 32: fleeto.agent.v1.InventoryReport
+	(*Inventory)(nil),                   // 33: fleeto.agent.v1.Inventory
+	(*ServiceItem)(nil),                 // 34: fleeto.agent.v1.ServiceItem
+	(*Disk)(nil),                        // 35: fleeto.agent.v1.Disk
+	(*NetworkInterface)(nil),            // 36: fleeto.agent.v1.NetworkInterface
+	(*SoftwareItem)(nil),                // 37: fleeto.agent.v1.SoftwareItem
+	(*CheckResultBatch)(nil),            // 38: fleeto.agent.v1.CheckResultBatch
+	(*CheckResult)(nil),                 // 39: fleeto.agent.v1.CheckResult
+	(*BatchAck)(nil),                    // 40: fleeto.agent.v1.BatchAck
+	(*RenewCertificateRequest)(nil),     // 41: fleeto.agent.v1.RenewCertificateRequest
+	(*RenewCertificateResponse)(nil),    // 42: fleeto.agent.v1.RenewCertificateResponse
+	(*SignedConfig)(nil),                // 43: fleeto.agent.v1.SignedConfig
+	(*AgentConfig)(nil),                 // 44: fleeto.agent.v1.AgentConfig
+	(*CheckSpec)(nil),                   // 45: fleeto.agent.v1.CheckSpec
+	(*ConfigApplied)(nil),               // 46: fleeto.agent.v1.ConfigApplied
+	(*SignedJob)(nil),                   // 47: fleeto.agent.v1.SignedJob
+	(*JobPayload)(nil),                  // 48: fleeto.agent.v1.JobPayload
+	(*ScriptJob)(nil),                   // 49: fleeto.agent.v1.ScriptJob
+	(*JobStarted)(nil),                  // 50: fleeto.agent.v1.JobStarted
+	(*JobOutput)(nil),                   // 51: fleeto.agent.v1.JobOutput
+	(*JobStreamSummary)(nil),            // 52: fleeto.agent.v1.JobStreamSummary
+	(*JobCompletion)(nil),               // 53: fleeto.agent.v1.JobCompletion
+	(*JobAck)(nil),                      // 54: fleeto.agent.v1.JobAck
+	(*WatchdogCertificateRequest)(nil),  // 55: fleeto.agent.v1.WatchdogCertificateRequest
+	(*WatchdogCertificateResponse)(nil), // 56: fleeto.agent.v1.WatchdogCertificateResponse
+	(*UpdateOffer)(nil),                 // 57: fleeto.agent.v1.UpdateOffer
+	(*UpdateStatus)(nil),                // 58: fleeto.agent.v1.UpdateStatus
+	(*SignedRemoteSession)(nil),         // 59: fleeto.agent.v1.SignedRemoteSession
+	(*RemoteSessionToken)(nil),          // 60: fleeto.agent.v1.RemoteSessionToken
+	(*RemoteSessionOffer)(nil),          // 61: fleeto.agent.v1.RemoteSessionOffer
+	(*RemoteSessionRefused)(nil),        // 62: fleeto.agent.v1.RemoteSessionRefused
+	(*RelayEndpointHello)(nil),          // 63: fleeto.agent.v1.RelayEndpointHello
+	(*Disconnect)(nil),                  // 64: fleeto.agent.v1.Disconnect
+	nil,                                 // 65: fleeto.agent.v1.CheckSpec.ParametersEntry
+	(*timestamppb.Timestamp)(nil),       // 66: google.protobuf.Timestamp
 }
 var file_agent_proto_depIdxs = []int32{
-	17, // 0: fleeto.agent.v1.EnrollRequest.os:type_name -> fleeto.agent.v1.OsInfo
-	20, // 1: fleeto.agent.v1.AgentMessage.hello:type_name -> fleeto.agent.v1.Hello
-	22, // 2: fleeto.agent.v1.AgentMessage.heartbeat:type_name -> fleeto.agent.v1.Heartbeat
-	31, // 3: fleeto.agent.v1.AgentMessage.inventory:type_name -> fleeto.agent.v1.InventoryReport
-	37, // 4: fleeto.agent.v1.AgentMessage.check_results:type_name -> fleeto.agent.v1.CheckResultBatch
-	40, // 5: fleeto.agent.v1.AgentMessage.renew_certificate:type_name -> fleeto.agent.v1.RenewCertificateRequest
-	45, // 6: fleeto.agent.v1.AgentMessage.config_applied:type_name -> fleeto.agent.v1.ConfigApplied
-	28, // 7: fleeto.agent.v1.AgentMessage.pong:type_name -> fleeto.agent.v1.Pong
-	49, // 8: fleeto.agent.v1.AgentMessage.job_started:type_name -> fleeto.agent.v1.JobStarted
-	50, // 9: fleeto.agent.v1.AgentMessage.job_output:type_name -> fleeto.agent.v1.JobOutput
-	52, // 10: fleeto.agent.v1.AgentMessage.job_completion:type_name -> fleeto.agent.v1.JobCompletion
-	54, // 11: fleeto.agent.v1.AgentMessage.watchdog_certificate:type_name -> fleeto.agent.v1.WatchdogCertificateRequest
-	57, // 12: fleeto.agent.v1.AgentMessage.update_status:type_name -> fleeto.agent.v1.UpdateStatus
-	21, // 13: fleeto.agent.v1.ServerMessage.hello_ack:type_name -> fleeto.agent.v1.HelloAck
-	39, // 14: fleeto.agent.v1.ServerMessage.batch_ack:type_name -> fleeto.agent.v1.BatchAck
-	42, // 15: fleeto.agent.v1.ServerMessage.config:type_name -> fleeto.agent.v1.SignedConfig
-	41, // 16: fleeto.agent.v1.ServerMessage.renew_certificate:type_name -> fleeto.agent.v1.RenewCertificateResponse
-	27, // 17: fleeto.agent.v1.ServerMessage.ping:type_name -> fleeto.agent.v1.Ping
-	58, // 18: fleeto.agent.v1.ServerMessage.disconnect:type_name -> fleeto.agent.v1.Disconnect
-	29, // 19: fleeto.agent.v1.ServerMessage.inventory_request:type_name -> fleeto.agent.v1.InventoryRequest
-	30, // 20: fleeto.agent.v1.ServerMessage.run_checks_now:type_name -> fleeto.agent.v1.RunChecksNow
-	46, // 21: fleeto.agent.v1.ServerMessage.job:type_name -> fleeto.agent.v1.SignedJob
-	53, // 22: fleeto.agent.v1.ServerMessage.job_ack:type_name -> fleeto.agent.v1.JobAck
-	56, // 23: fleeto.agent.v1.ServerMessage.update_offer:type_name -> fleeto.agent.v1.UpdateOffer
-	55, // 24: fleeto.agent.v1.ServerMessage.watchdog_certificate:type_name -> fleeto.agent.v1.WatchdogCertificateResponse
-	17, // 25: fleeto.agent.v1.Hello.os:type_name -> fleeto.agent.v1.OsInfo
-	0,  // 26: fleeto.agent.v1.Hello.component:type_name -> fleeto.agent.v1.Component
-	60, // 27: fleeto.agent.v1.HelloAck.server_time:type_name -> google.protobuf.Timestamp
-	60, // 28: fleeto.agent.v1.Heartbeat.agent_time:type_name -> google.protobuf.Timestamp
-	26, // 29: fleeto.agent.v1.Heartbeat.peer:type_name -> fleeto.agent.v1.PeerStatus
-	23, // 30: fleeto.agent.v1.Heartbeat.signed_in_users:type_name -> fleeto.agent.v1.SignedInUsers
-	24, // 31: fleeto.agent.v1.SignedInUsers.users:type_name -> fleeto.agent.v1.SignedInUser
-	25, // 32: fleeto.agent.v1.SignedInUser.sessions:type_name -> fleeto.agent.v1.UserSession
-	1,  // 33: fleeto.agent.v1.PeerStatus.state:type_name -> fleeto.agent.v1.ServiceState
-	32, // 34: fleeto.agent.v1.InventoryReport.inventory:type_name -> fleeto.agent.v1.Inventory
-	17, // 35: fleeto.agent.v1.Inventory.os:type_name -> fleeto.agent.v1.OsInfo
-	34, // 36: fleeto.agent.v1.Inventory.disks:type_name -> fleeto.agent.v1.Disk
-	35, // 37: fleeto.agent.v1.Inventory.network_interfaces:type_name -> fleeto.agent.v1.NetworkInterface
-	36, // 38: fleeto.agent.v1.Inventory.software:type_name -> fleeto.agent.v1.SoftwareItem
-	60, // 39: fleeto.agent.v1.Inventory.boot_time:type_name -> google.protobuf.Timestamp
-	33, // 40: fleeto.agent.v1.Inventory.services:type_name -> fleeto.agent.v1.ServiceItem
-	38, // 41: fleeto.agent.v1.CheckResultBatch.results:type_name -> fleeto.agent.v1.CheckResult
-	60, // 42: fleeto.agent.v1.CheckResult.collected_at:type_name -> google.protobuf.Timestamp
-	60, // 43: fleeto.agent.v1.AgentConfig.issued_at:type_name -> google.protobuf.Timestamp
-	2,  // 44: fleeto.agent.v1.AgentConfig.tier:type_name -> fleeto.agent.v1.Tier
-	44, // 45: fleeto.agent.v1.AgentConfig.checks:type_name -> fleeto.agent.v1.CheckSpec
-	3,  // 46: fleeto.agent.v1.CheckSpec.type:type_name -> fleeto.agent.v1.CheckType
-	59, // 47: fleeto.agent.v1.CheckSpec.parameters:type_name -> fleeto.agent.v1.CheckSpec.ParametersEntry
-	48, // 48: fleeto.agent.v1.CheckSpec.script:type_name -> fleeto.agent.v1.ScriptJob
-	5,  // 49: fleeto.agent.v1.JobPayload.type:type_name -> fleeto.agent.v1.JobType
-	60, // 50: fleeto.agent.v1.JobPayload.valid_until:type_name -> google.protobuf.Timestamp
-	48, // 51: fleeto.agent.v1.JobPayload.script:type_name -> fleeto.agent.v1.ScriptJob
-	4,  // 52: fleeto.agent.v1.JobPayload.run_as:type_name -> fleeto.agent.v1.JobRunAs
-	6,  // 53: fleeto.agent.v1.ScriptJob.language:type_name -> fleeto.agent.v1.ScriptLanguage
-	60, // 54: fleeto.agent.v1.JobStarted.started_at:type_name -> google.protobuf.Timestamp
-	7,  // 55: fleeto.agent.v1.JobOutput.stream:type_name -> fleeto.agent.v1.JobStream
-	8,  // 56: fleeto.agent.v1.JobCompletion.result:type_name -> fleeto.agent.v1.JobResult
-	51, // 57: fleeto.agent.v1.JobCompletion.stdout:type_name -> fleeto.agent.v1.JobStreamSummary
-	51, // 58: fleeto.agent.v1.JobCompletion.stderr:type_name -> fleeto.agent.v1.JobStreamSummary
-	60, // 59: fleeto.agent.v1.JobCompletion.finished_at:type_name -> google.protobuf.Timestamp
-	9,  // 60: fleeto.agent.v1.JobAck.kind:type_name -> fleeto.agent.v1.JobAckKind
-	7,  // 61: fleeto.agent.v1.JobAck.stream:type_name -> fleeto.agent.v1.JobStream
-	0,  // 62: fleeto.agent.v1.UpdateStatus.component:type_name -> fleeto.agent.v1.Component
-	10, // 63: fleeto.agent.v1.UpdateStatus.state:type_name -> fleeto.agent.v1.UpdateState
-	11, // 64: fleeto.agent.v1.UpdateStatus.wait_reason:type_name -> fleeto.agent.v1.UpdateWaitReason
-	12, // 65: fleeto.agent.v1.Disconnect.code:type_name -> fleeto.agent.v1.DisconnectCode
-	66, // [66:66] is the sub-list for method output_type
-	66, // [66:66] is the sub-list for method input_type
-	66, // [66:66] is the sub-list for extension type_name
-	66, // [66:66] is the sub-list for extension extendee
-	0,  // [0:66] is the sub-list for field type_name
+	18, // 0: fleeto.agent.v1.EnrollRequest.os:type_name -> fleeto.agent.v1.OsInfo
+	21, // 1: fleeto.agent.v1.AgentMessage.hello:type_name -> fleeto.agent.v1.Hello
+	23, // 2: fleeto.agent.v1.AgentMessage.heartbeat:type_name -> fleeto.agent.v1.Heartbeat
+	32, // 3: fleeto.agent.v1.AgentMessage.inventory:type_name -> fleeto.agent.v1.InventoryReport
+	38, // 4: fleeto.agent.v1.AgentMessage.check_results:type_name -> fleeto.agent.v1.CheckResultBatch
+	41, // 5: fleeto.agent.v1.AgentMessage.renew_certificate:type_name -> fleeto.agent.v1.RenewCertificateRequest
+	46, // 6: fleeto.agent.v1.AgentMessage.config_applied:type_name -> fleeto.agent.v1.ConfigApplied
+	29, // 7: fleeto.agent.v1.AgentMessage.pong:type_name -> fleeto.agent.v1.Pong
+	50, // 8: fleeto.agent.v1.AgentMessage.job_started:type_name -> fleeto.agent.v1.JobStarted
+	51, // 9: fleeto.agent.v1.AgentMessage.job_output:type_name -> fleeto.agent.v1.JobOutput
+	53, // 10: fleeto.agent.v1.AgentMessage.job_completion:type_name -> fleeto.agent.v1.JobCompletion
+	55, // 11: fleeto.agent.v1.AgentMessage.watchdog_certificate:type_name -> fleeto.agent.v1.WatchdogCertificateRequest
+	58, // 12: fleeto.agent.v1.AgentMessage.update_status:type_name -> fleeto.agent.v1.UpdateStatus
+	62, // 13: fleeto.agent.v1.AgentMessage.remote_session_refused:type_name -> fleeto.agent.v1.RemoteSessionRefused
+	22, // 14: fleeto.agent.v1.ServerMessage.hello_ack:type_name -> fleeto.agent.v1.HelloAck
+	40, // 15: fleeto.agent.v1.ServerMessage.batch_ack:type_name -> fleeto.agent.v1.BatchAck
+	43, // 16: fleeto.agent.v1.ServerMessage.config:type_name -> fleeto.agent.v1.SignedConfig
+	42, // 17: fleeto.agent.v1.ServerMessage.renew_certificate:type_name -> fleeto.agent.v1.RenewCertificateResponse
+	28, // 18: fleeto.agent.v1.ServerMessage.ping:type_name -> fleeto.agent.v1.Ping
+	64, // 19: fleeto.agent.v1.ServerMessage.disconnect:type_name -> fleeto.agent.v1.Disconnect
+	30, // 20: fleeto.agent.v1.ServerMessage.inventory_request:type_name -> fleeto.agent.v1.InventoryRequest
+	31, // 21: fleeto.agent.v1.ServerMessage.run_checks_now:type_name -> fleeto.agent.v1.RunChecksNow
+	47, // 22: fleeto.agent.v1.ServerMessage.job:type_name -> fleeto.agent.v1.SignedJob
+	54, // 23: fleeto.agent.v1.ServerMessage.job_ack:type_name -> fleeto.agent.v1.JobAck
+	57, // 24: fleeto.agent.v1.ServerMessage.update_offer:type_name -> fleeto.agent.v1.UpdateOffer
+	56, // 25: fleeto.agent.v1.ServerMessage.watchdog_certificate:type_name -> fleeto.agent.v1.WatchdogCertificateResponse
+	61, // 26: fleeto.agent.v1.ServerMessage.remote_session_offer:type_name -> fleeto.agent.v1.RemoteSessionOffer
+	18, // 27: fleeto.agent.v1.Hello.os:type_name -> fleeto.agent.v1.OsInfo
+	0,  // 28: fleeto.agent.v1.Hello.component:type_name -> fleeto.agent.v1.Component
+	66, // 29: fleeto.agent.v1.HelloAck.server_time:type_name -> google.protobuf.Timestamp
+	66, // 30: fleeto.agent.v1.Heartbeat.agent_time:type_name -> google.protobuf.Timestamp
+	27, // 31: fleeto.agent.v1.Heartbeat.peer:type_name -> fleeto.agent.v1.PeerStatus
+	24, // 32: fleeto.agent.v1.Heartbeat.signed_in_users:type_name -> fleeto.agent.v1.SignedInUsers
+	25, // 33: fleeto.agent.v1.SignedInUsers.users:type_name -> fleeto.agent.v1.SignedInUser
+	26, // 34: fleeto.agent.v1.SignedInUser.sessions:type_name -> fleeto.agent.v1.UserSession
+	1,  // 35: fleeto.agent.v1.PeerStatus.state:type_name -> fleeto.agent.v1.ServiceState
+	33, // 36: fleeto.agent.v1.InventoryReport.inventory:type_name -> fleeto.agent.v1.Inventory
+	18, // 37: fleeto.agent.v1.Inventory.os:type_name -> fleeto.agent.v1.OsInfo
+	35, // 38: fleeto.agent.v1.Inventory.disks:type_name -> fleeto.agent.v1.Disk
+	36, // 39: fleeto.agent.v1.Inventory.network_interfaces:type_name -> fleeto.agent.v1.NetworkInterface
+	37, // 40: fleeto.agent.v1.Inventory.software:type_name -> fleeto.agent.v1.SoftwareItem
+	66, // 41: fleeto.agent.v1.Inventory.boot_time:type_name -> google.protobuf.Timestamp
+	34, // 42: fleeto.agent.v1.Inventory.services:type_name -> fleeto.agent.v1.ServiceItem
+	39, // 43: fleeto.agent.v1.CheckResultBatch.results:type_name -> fleeto.agent.v1.CheckResult
+	66, // 44: fleeto.agent.v1.CheckResult.collected_at:type_name -> google.protobuf.Timestamp
+	66, // 45: fleeto.agent.v1.AgentConfig.issued_at:type_name -> google.protobuf.Timestamp
+	2,  // 46: fleeto.agent.v1.AgentConfig.tier:type_name -> fleeto.agent.v1.Tier
+	45, // 47: fleeto.agent.v1.AgentConfig.checks:type_name -> fleeto.agent.v1.CheckSpec
+	3,  // 48: fleeto.agent.v1.CheckSpec.type:type_name -> fleeto.agent.v1.CheckType
+	65, // 49: fleeto.agent.v1.CheckSpec.parameters:type_name -> fleeto.agent.v1.CheckSpec.ParametersEntry
+	49, // 50: fleeto.agent.v1.CheckSpec.script:type_name -> fleeto.agent.v1.ScriptJob
+	5,  // 51: fleeto.agent.v1.JobPayload.type:type_name -> fleeto.agent.v1.JobType
+	66, // 52: fleeto.agent.v1.JobPayload.valid_until:type_name -> google.protobuf.Timestamp
+	49, // 53: fleeto.agent.v1.JobPayload.script:type_name -> fleeto.agent.v1.ScriptJob
+	4,  // 54: fleeto.agent.v1.JobPayload.run_as:type_name -> fleeto.agent.v1.JobRunAs
+	6,  // 55: fleeto.agent.v1.ScriptJob.language:type_name -> fleeto.agent.v1.ScriptLanguage
+	66, // 56: fleeto.agent.v1.JobStarted.started_at:type_name -> google.protobuf.Timestamp
+	7,  // 57: fleeto.agent.v1.JobOutput.stream:type_name -> fleeto.agent.v1.JobStream
+	8,  // 58: fleeto.agent.v1.JobCompletion.result:type_name -> fleeto.agent.v1.JobResult
+	52, // 59: fleeto.agent.v1.JobCompletion.stdout:type_name -> fleeto.agent.v1.JobStreamSummary
+	52, // 60: fleeto.agent.v1.JobCompletion.stderr:type_name -> fleeto.agent.v1.JobStreamSummary
+	66, // 61: fleeto.agent.v1.JobCompletion.finished_at:type_name -> google.protobuf.Timestamp
+	9,  // 62: fleeto.agent.v1.JobAck.kind:type_name -> fleeto.agent.v1.JobAckKind
+	7,  // 63: fleeto.agent.v1.JobAck.stream:type_name -> fleeto.agent.v1.JobStream
+	0,  // 64: fleeto.agent.v1.UpdateStatus.component:type_name -> fleeto.agent.v1.Component
+	10, // 65: fleeto.agent.v1.UpdateStatus.state:type_name -> fleeto.agent.v1.UpdateState
+	11, // 66: fleeto.agent.v1.UpdateStatus.wait_reason:type_name -> fleeto.agent.v1.UpdateWaitReason
+	12, // 67: fleeto.agent.v1.RemoteSessionToken.kind:type_name -> fleeto.agent.v1.RemoteSessionKind
+	0,  // 68: fleeto.agent.v1.RemoteSessionToken.component:type_name -> fleeto.agent.v1.Component
+	66, // 69: fleeto.agent.v1.RemoteSessionToken.issued_at:type_name -> google.protobuf.Timestamp
+	66, // 70: fleeto.agent.v1.RemoteSessionToken.valid_until:type_name -> google.protobuf.Timestamp
+	59, // 71: fleeto.agent.v1.RemoteSessionOffer.session:type_name -> fleeto.agent.v1.SignedRemoteSession
+	13, // 72: fleeto.agent.v1.Disconnect.code:type_name -> fleeto.agent.v1.DisconnectCode
+	73, // [73:73] is the sub-list for method output_type
+	73, // [73:73] is the sub-list for method input_type
+	73, // [73:73] is the sub-list for extension type_name
+	73, // [73:73] is the sub-list for extension extendee
+	0,  // [0:73] is the sub-list for field type_name
 }
 
 func init() { file_agent_proto_init() }
@@ -4874,6 +5400,7 @@ func file_agent_proto_init() {
 		(*AgentMessage_JobCompletion)(nil),
 		(*AgentMessage_WatchdogCertificate)(nil),
 		(*AgentMessage_UpdateStatus)(nil),
+		(*AgentMessage_RemoteSessionRefused)(nil),
 	}
 	file_agent_proto_msgTypes[6].OneofWrappers = []any{
 		(*ServerMessage_HelloAck)(nil),
@@ -4888,14 +5415,15 @@ func file_agent_proto_init() {
 		(*ServerMessage_JobAck)(nil),
 		(*ServerMessage_UpdateOffer)(nil),
 		(*ServerMessage_WatchdogCertificate)(nil),
+		(*ServerMessage_RemoteSessionOffer)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
-			NumEnums:      13,
-			NumMessages:   47,
+			NumEnums:      14,
+			NumMessages:   52,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

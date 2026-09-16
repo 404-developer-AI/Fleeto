@@ -27,7 +27,8 @@ notes moved to "Not yet scheduled" (decided 2026-09-15).
 safe restore when an update fails, with WAL archiving removed (all found while testing 0.2.1). Pre-releases `v0.2.2-alpha.1` and
 `v0.2.2-alpha.2` (2026-09-16) on the first test VPS.
 
-**0.3.0** — next: remote control and remote background, planned with the developer on 2026-09-16 in seven steps.
+**0.3.0** — in progress (started 2026-09-16): remote control and remote background, planned with the developer on 2026-09-16 in
+seven steps. Step 1 (the relay, end-to-end encryption and the remote background terminal) is built.
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
 2026-09-15, see Later).
@@ -408,11 +409,23 @@ Decisions (2026-09-16, with the developer):
 
 Steps:
 
-1. **Foundation and remote terminal** (alpha.1): documentation of the decisions above (CLAUDE.md, ARCHITECTURE.md), data
+1. [done] **Foundation and remote terminal** (alpha.1): documentation of the decisions above (CLAUDE.md, ARCHITECTURE.md), data
    model (`RemoteSessions`, participants, actions), policy settings (consent, banner, timeout, clipboard, idle timeout, file
    size), signer rules for session tokens, gateway relay (browser route through Caddy, agent and watchdog session sockets,
    revocation drops sessions), the shared end-to-end crypto in Go and the browser with hostile relay tests, tier and
    cross-client tests at every layer, the Remote background window with the terminal served by the watchdog.
+   Decided while building (2026-09-16):
+   - The instance stores no certificates, only their public key fingerprints: the endpoint sends its certificate key with its
+     signed session key, and the browser accepts it only when its fingerprint is one web gives. The trust still comes from the
+     instance, and certificates issued before 0.3.0 work.
+   - The idle timeout is built with the terminal, because a forgotten SYSTEM terminal is the first risk it covers; the policy
+     dialog shows only that setting for now. Consent, banner, clipboard and file size are stored with the policy and appear in the
+     dialog with the step that uses them (no placeholder UI).
+   - The gateway listens for the browser side on its own loopback port (`RELAY_PORT`, allocated by install.sh from the top of
+     the port range); Caddy proxies `/relay/*` there.
+   - xterm.js 6.0.0 is served from the instance (`wwwroot/lib/xterm`, verified against the npm integrity hash).
+   - On Windows Server 2016 (no ConPTY) the terminal runs the shell with redirected streams: the window edits the line and sends
+     it with Enter; full-screen programs do not work there.
 2. **Remote background complete** (alpha.2): file explorer with resumable transfer, services, processes, audit per action.
 3. **Remote control on Windows** (alpha.3): session helper in the chosen Windows session (console, sign-in screen, UAC, RDP
    sessions), capture with monitor choice, tile codec with flow control, mouse and layout-safe keyboard, Type clipboard,

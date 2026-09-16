@@ -11,6 +11,18 @@ window.fleeto = {
   copyText: function (text) {
     return navigator.clipboard.writeText(text);
   },
+  // Opens a remote session in its own window (0.3.0); a window with the same name is reused and brought to the front. Same origin, so
+  // the window keeps the sign-in. Returns false when the browser blocked it.
+  openWindow: function (url, name) {
+    var width = Math.min(1280, Math.max(800, Math.round(window.screen.availWidth * 0.7)));
+    var height = Math.min(900, Math.max(600, Math.round(window.screen.availHeight * 0.75)));
+    var opened = window.open(url, name, "popup=yes,width=" + width + ",height=" + height);
+    if (!opened) {
+      return false;
+    }
+    opened.focus();
+    return true;
+  },
   // Saves a small file produced by the server (a public certificate). The content arrives base64 over the circuit.
   saveFile: function (fileName, contentType, base64) {
     var bytes = Uint8Array.from(atob(base64), function (c) { return c.charCodeAt(0); });

@@ -1,0 +1,11 @@
+@inherits LayoutComponentBase
+
+@* The popup windows of remote sessions (0.3.0): the whole window is the session, without navigation. *@
+<MudThemeProvider Theme="@FleetoTheme.Theme" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<div class="remote-window">
+    @Body
+</div>

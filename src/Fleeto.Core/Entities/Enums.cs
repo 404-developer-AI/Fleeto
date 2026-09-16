@@ -197,7 +197,11 @@ public enum SigningRequestKind
     /// Certificate for the watchdog of an endpoint (0.2.1), requested by the gateway for a live agent session. SubjectId is the endpoint
     /// id, the payload the CSR of the watchdog key.
     /// </summary>
-    WatchdogCertificate
+    WatchdogCertificate,
+    /// <summary>
+    /// A single-use token for one participant of a remote session (0.3.0). SubjectId is the participant id; only web may request it.
+    /// </summary>
+    RemoteSessionToken
 }
 
 public enum SigningRequestState

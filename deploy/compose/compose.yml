@@ -4,7 +4,7 @@
 #   docker compose --project-name fleeto-<instance> --env-file /opt/fleeto/<instance>/instance.conf \
 #     -f /opt/fleeto/<instance>/compose.yml up -d
 #
-# This file and instance.conf contain NO secrets. instance.conf holds the FQDN, the version, the two loopback ports
+# This file and instance.conf contain NO secrets. instance.conf holds the FQDN, the version, the three loopback ports
 # and the image references (by digest). Secrets are root-owned files in /opt/fleeto/<instance>/secrets/ (directory
 # 0700, files 0440 root:10001) mounted as Docker secrets under /run/secrets, and only into the containers that need
 # them:
@@ -150,6 +150,7 @@ services:
       Gateway__ListenAddress: 0.0.0.0
       Gateway__AgentPort: "8443"
       Gateway__HealthPort: "8081"
+      Gateway__RelayPort: "8082"
       # The host Caddy sends a PROXY protocol v2 header with the agent's address. It arrives through the loopback port,
       # which Docker forwards from the edge network's gateway address, so the same private ranges as for web are trusted.
       # Only processes on the VPS or containers of this instance can reach the port from those ranges; the header only
@@ -165,6 +166,8 @@ services:
     ports:
       # Loopback only; the host Caddy passes agents.<fqdn> through to this port by SNI.
       - "127.0.0.1:${AGENT_PORT:?AGENT_PORT must be set in instance.conf}:8443"
+      # Loopback only; the host Caddy proxies https://<fqdn>/relay/ here: the browser side of remote sessions (0.3.0), end-to-end encrypted.
+      - "127.0.0.1:${RELAY_PORT:?RELAY_PORT must be set in instance.conf}:8082"
     secrets:
       - db-gateway.password
     networks:

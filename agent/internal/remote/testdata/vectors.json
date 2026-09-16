@@ -1,0 +1,34 @@
+{
+  "tokenPayload": "CiQxYzJkM2U0Zi01YTZiLTRjN2QtOGU5Zi0wYTFiMmMzZDRlNWYSJDlmOGU3ZDZjLTViNGEtNDkzOC04MjcxLTYwNWY0ZTNkMmMxYhokNmYxZDNjMWUtNWE0Yi00ZjdlLTlhMzEtMmI4ZjBjMWQyZTNmIiQwYjZhNGUyYy0xZDNmLTRhNWItOGM3ZC05ZTBmMWEyYjNjNGQoAjACOiQ3YTZiNWM0ZC0zZTJmLTRhMWItOWM4ZC03ZTZmNWE0YjNjMmRCCVRlc3MgVGVjaEoglDaT+gih8uVvdbAzQo8GAfZhrEqoXuUfrHVspoLioyZSBgjAiarVBloGCPyJqtUGYIgO",
+  "browserPrivateKey": "zUwcwp8o4CgXmryCZgZu+3b48kMqwx/VCZztnb4eZIs=",
+  "browserPublicKey": "lDaT+gih8uVvdbAzQo8GAfZhrEqoXuUfrHVspoLioyY=",
+  "endpointPrivateKey": "xsXD0xP4Ug00CA99I3kD1Y03w80tQFGeH96454L0g94=",
+  "endpointPublicKey": "mbPxi9lPbvxp3fjFf165wVR/xOZKXMVrYBoDJMbtxFk=",
+  "endpointCertificateSpki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE3l8QLic/kAL16EoftypWwPeKjCzEIPlpO/5M/5ZxSl6KZqtKLEFH1MXN3fHuwHRIwK5IxulsxoA8LVoWmnhd3A==",
+  "endpointCertificateFingerprint": "4c4963e0602e4c40181d995bf04d50cdb5f030685e9dbbe6dbdb4f04cc3e03c7",
+  "endpointSignature": "TctR531gLOLEVjmDFoBGv1AvXk0RFKU7AErGU5aJYhBwYKBaOqLBpq8ZygUII1UI+hjkLnO1dJFoo7VVF7gB2A==",
+  "browserToEndpointKey": "1ETzxyakcCRUZAtaPf7p2fC79+v6w0c4TOfNe4mEBbg=",
+  "endpointToBrowserKey": "pyBb7BEb1IvGv16YLyGTiNFaWYFK80sqynooZ2/b6dk=",
+  "frames": [
+    {
+      "direction": "endpointToBrowser",
+      "plaintext": "AXsiaG9zdG5hbWUiOiJTUlYtMDEifQ==",
+      "ciphertext": "oTuvw0UVWXpc9lp/JIUthb+2cAbULaFFOz1r4vwWX1BjwhtTFL4="
+    },
+    {
+      "direction": "browserToEndpoint",
+      "plaintext": "AnsiY2hhbm5lbCI6MSwic2VydmljZSI6InRlcm1pbmFsIiwic2hlbGwiOiJwb3dlcnNoZWxsIiwiY29scyI6MTIwLCJyb3dzIjozMH0=",
+      "ciphertext": "uREvtxOYzICtudAqJoMvVZag/2A8U7/r3MmtxuRoXTdbNtfT2Aaq3348Evn2SBJ11CxFH/if5ebWaiPvp9ohEuJ+Vf/uSxcPVO8VvaUnM3InDfSQSR0pCu7jZ3Jr"
+    },
+    {
+      "direction": "browserToEndpoint",
+      "plaintext": "BAABZGlyDQ==",
+      "ciphertext": "gPK/sLn7fY3uIlwyRfqS8KMYsMg0zlo="
+    },
+    {
+      "direction": "endpointToBrowser",
+      "plaintext": "BAAB4oKs",
+      "ciphertext": "rEx7JtUR+T6USGSsiK9C/hv4ZMrNGA=="
+    }
+  ]
+}

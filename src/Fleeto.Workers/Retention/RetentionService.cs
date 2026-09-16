@@ -132,6 +132,12 @@ public sealed class RetentionService : WorkerLoop
           SELECT "Id" FROM "Jobs" WHERE "CreatedAt" < @cutoff AND "State" NOT IN ('PendingSignature', 'Queued', 'Running') LIMIT 5000)
         """;
 
+    // Participants and actions go with their session (foreign key cascade). A session still open is never removed.
+    private const string DeleteRemoteSessionsSql = """
+        DELETE FROM "RemoteSessions" WHERE "Id" IN (
+          SELECT "Id" FROM "RemoteSessions" WHERE "CreatedAt" < @cutoff AND "EndedAt" IS NOT NULL LIMIT 5000)
+        """;
+
     private const string DeleteAgentCertificatesSql = """
         DELETE FROM "AgentCertificates" WHERE "Id" IN (
           SELECT "Id" FROM "AgentCertificates" WHERE "ExpiresAt" < @cutoff LIMIT 5000)
@@ -200,6 +206,8 @@ public sealed class RetentionService : WorkerLoop
             () => [new NpgsqlParameter("cutoff", now.AddDays(-90)), new NpgsqlParameter("maxAttempts", OutboxWebhookService.MaxAttempts)], cancellationToken);
         deleted["JobOutputChunks"] = await DeleteInBatchesAsync(DeleteJobOutputSql, () => [new NpgsqlParameter("cutoff", now - JobOutputRetention)], cancellationToken);
         deleted["Jobs"] = await DeleteInBatchesAsync(DeleteJobsSql, () => [new NpgsqlParameter("cutoff", now - JobRetention)], cancellationToken);
+        deleted["RemoteSessions"] = await DeleteInBatchesAsync(DeleteRemoteSessionsSql,
+            () => [new NpgsqlParameter("cutoff", now - RemoteSessionRules.HistoryRetention)], cancellationToken);
         deleted["AgentCertificates"] = await DeleteInBatchesAsync(DeleteAgentCertificatesSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))], cancellationToken);
         deleted["EnrollmentTokens"] = await DeleteInBatchesAsync(DeleteEnrollmentTokensSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))], cancellationToken);
 

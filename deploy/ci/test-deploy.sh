@@ -386,7 +386,8 @@ pass "install.sh checks disk space before an update and replaces the database on
 
 # --- 4. Caddyfile generation -----------------------------------------------------------------------------------------
 mkdir -p "$work/root/rmm-a-example" "$work/root/rmm-b-example" "$work/empty" "$work/caddy-two" "$work/caddy-empty"
-printf 'FLEETO_INSTANCE=rmm-a-example\nFLEETO_FQDN=rmm.a.example\nWEB_PORT=20000\nAGENT_PORT=20001\n' >"$work/root/rmm-a-example/instance.conf"
+printf 'FLEETO_INSTANCE=rmm-a-example\nFLEETO_FQDN=rmm.a.example\nWEB_PORT=20000\nAGENT_PORT=20001\nRELAY_PORT=29999\n' >"$work/root/rmm-a-example/instance.conf"
+# An instance from before 0.3.0: no relay port yet, so no relay route.
 printf 'FLEETO_INSTANCE=rmm-b-example\nFLEETO_FQDN=rmm.b.example\nWEB_PORT=20002\nAGENT_PORT=20003\n' >"$work/root/rmm-b-example/instance.conf"
 FLEETO_ROOT="$work/root" bash -c "source '$repo_root/deploy/install.sh'; generate_caddyfile" >"$work/caddy-two/Caddyfile"
 FLEETO_ROOT="$work/empty" bash -c "source '$repo_root/deploy/install.sh'; generate_caddyfile" >"$work/caddy-empty/Caddyfile"
@@ -394,7 +395,16 @@ grep -q 'tls sni agents.rmm.b.example' "$work/caddy-two/Caddyfile" || fail "SNI 
 grep -q 'proxy 127.0.0.1:20003' "$work/caddy-two/Caddyfile" || fail "gateway upstream missing"
 grep -q 'proxy_protocol v2' "$work/caddy-two/Caddyfile" || fail "PROXY protocol towards the gateway missing"
 grep -q 'reverse_proxy 127.0.0.1:20000' "$work/caddy-two/Caddyfile" || fail "web upstream missing"
-pass "Caddyfile generated for two instances and for none"
+grep -qF 'handle /relay/* {' "$work/caddy-two/Caddyfile" || fail "remote session relay route missing"
+grep -q 'reverse_proxy 127.0.0.1:29999' "$work/caddy-two/Caddyfile" || fail "remote session relay upstream missing"
+[[ "$(grep -cF 'handle /relay/' "$work/caddy-two/Caddyfile")" -eq 1 ]] || fail "a relay route was generated for an instance without a relay port"
+grep -q 'reverse_proxy 127.0.0.1:20002' "$work/caddy-two/Caddyfile" || fail "web upstream of the instance without a relay port missing"
+# A new relay port comes from the top of the range and is never one in use; an instance keeps the port it has.
+relay="$(FLEETO_ROOT="$work/root" bash -c "source '$repo_root/deploy/install.sh'; ss() { :; }; allocate_relay_port")"
+[[ "$relay" == 29998 ]] || fail "allocate_relay_port chose $relay instead of 29998"
+relay="$(FLEETO_ROOT="$work/root" bash -c "source '$repo_root/deploy/install.sh'; allocate_relay_port 29999")"
+[[ "$relay" == 29999 ]] || fail "an instance lost its relay port"
+pass "Caddyfile generated for two instances and for none, with the relay route where an instance has a relay port"
 
 # --- 5. Docker-based checks ------------------------------------------------------------------------------------------
 if [[ -z "$caddy_image" ]]; then

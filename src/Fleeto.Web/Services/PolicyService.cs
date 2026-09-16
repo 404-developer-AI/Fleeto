@@ -12,12 +12,14 @@ namespace Fleeto.Web.Services;
 public sealed record PolicyListItem(Guid Id, string Name, string? Description, Guid? ClientId, string? ClientCode, bool IsDefault,
     int HeartbeatIntervalSeconds, int InventoryIntervalSeconds, int OfflineAlertAfterMinutes, AlertSeverity OfflineAlertSeverity, int SiteCount,
     int ClientTemplateSiteCount, IReadOnlyList<MaintenanceWindow> MaintenanceWindows, bool ScriptApprovalRequired = false,
-    UpdateRing UpdateRing = UpdateRing.Standard, long MaxOutputBytes = ScriptRules.DefaultMaxOutputBytes);
+    UpdateRing UpdateRing = UpdateRing.Standard, long MaxOutputBytes = ScriptRules.DefaultMaxOutputBytes,
+    int RemoteIdleTimeoutMinutes = RemoteSessionRules.DefaultIdleTimeoutMinutes);
 
 /// <param name="MaintenanceWindows">Recurring maintenance windows (0.2.0). Null keeps the current windows when updating, none when creating.</param>
+/// <param name="RemoteIdleTimeoutMinutes">Minutes a remote session may go without input (0.3.0). Null keeps the current value.</param>
 public sealed record PolicyInput(string? Name, string? Description, int HeartbeatIntervalSeconds, int InventoryIntervalSeconds,
     int OfflineAlertAfterMinutes, AlertSeverity OfflineAlertSeverity, IReadOnlyList<MaintenanceWindow>? MaintenanceWindows = null,
-    bool? ScriptApprovalRequired = null, UpdateRing? UpdateRing = null, long? MaxOutputBytes = null);
+    bool? ScriptApprovalRequired = null, UpdateRing? UpdateRing = null, long? MaxOutputBytes = null, int? RemoteIdleTimeoutMinutes = null);
 
 /// <summary>Policies (global or per client). Linked, not copied: a change applies at once to every site that uses the policy.</summary>
 public sealed class PolicyService
@@ -54,7 +56,7 @@ public sealed class PolicyService
                     p.IsDefault, p.HeartbeatIntervalSeconds, p.InventoryIntervalSeconds, p.OfflineAlertAfterMinutes, p.OfflineAlertSeverity,
                     db.SitePolicies.Count(l => l.PolicyId == p.Id),
                     db.ClientTemplateSites.Count(s => s.PolicyId == p.Id), Array.Empty<MaintenanceWindow>(), p.ScriptApprovalRequired, p.UpdateRing,
-                    p.MaxOutputBytes),
+                    p.MaxOutputBytes, p.RemoteIdleTimeoutMinutes),
                 p.MaintenanceWindowsJson
             })
             .ToListAsync(cancellationToken);
@@ -153,7 +155,7 @@ public sealed class PolicyService
 
         var input = new PolicyInput(name, source.Description, source.HeartbeatIntervalSeconds, source.InventoryIntervalSeconds,
             source.OfflineAlertAfterMinutes, source.OfflineAlertSeverity, MaintenanceWindowSchedule.Parse(source.MaintenanceWindowsJson),
-            source.ScriptApprovalRequired, source.UpdateRing, source.MaxOutputBytes);
+            source.ScriptApprovalRequired, source.UpdateRing, source.MaxOutputBytes, source.RemoteIdleTimeoutMinutes);
         var created = await CreateAsync(caller, targetClientId, input, cancellationToken);
         if (created.Success)
         {
@@ -232,6 +234,11 @@ public sealed class PolicyService
             policy.MaxOutputBytes = ScriptRules.OutputCap(output);
         }
 
+        if (input.RemoteIdleTimeoutMinutes is { } idle)
+        {
+            policy.RemoteIdleTimeoutMinutes = RemoteSessionRules.IdleTimeoutMinutes(idle);
+        }
+
         policy.UpdatedAt = now;
     }
 
@@ -245,7 +252,8 @@ public sealed class PolicyService
         policy.ScriptApprovalRequired,
         UpdateRing = policy.UpdateRing.ToString(),
         policy.MaxOutputBytes,
-        MaintenanceWindows = MaintenanceWindowSchedule.Parse(policy.MaintenanceWindowsJson).Select(MaintenanceWindows.Describe).ToList()
+        policy.RemoteIdleTimeoutMinutes,
+        MaintenanceWindows =MaintenanceWindowSchedule.Parse(policy.MaintenanceWindowsJson).Select(MaintenanceWindows.Describe).ToList()
     };
 
     internal static string? Validate(PolicyInput input)
@@ -284,6 +292,11 @@ public sealed class PolicyService
         if (input.MaxOutputBytes is { } output && (output < ScriptRules.MinOutputBytes || output > ScriptRules.MaxOutputBytes))
         {
             return $"The job output cap must be between {MinOutputMegabytes} and {MaxOutputMegabytes} MiB.";
+        }
+
+        if (input.RemoteIdleTimeoutMinutes is { } idle && (idle < RemoteSessionRules.MinIdleTimeoutMinutes || idle > RemoteSessionRules.MaxIdleTimeoutMinutes))
+        {
+            return $"The remote session idle timeout must be between {RemoteSessionRules.MinIdleTimeoutMinutes} and {RemoteSessionRules.MaxIdleTimeoutMinutes} minutes.";
         }
 
         return input.MaintenanceWindows is { } windows ? MaintenanceWindows.Validate(windows) : null;

@@ -51,6 +51,9 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<ScriptVersion> ScriptVersions => Set<ScriptVersion>();
     public DbSet<Job> Jobs => Set<Job>();
     public DbSet<JobOutputChunk> JobOutputChunks => Set<JobOutputChunk>();
+    public DbSet<RemoteSession> RemoteSessions => Set<RemoteSession>();
+    public DbSet<RemoteSessionParticipant> RemoteSessionParticipants => Set<RemoteSessionParticipant>();
+    public DbSet<RemoteSessionAction> RemoteSessionActions => Set<RemoteSessionAction>();
     public DbSet<ClientTemplate> ClientTemplates => Set<ClientTemplate>();
     public DbSet<ClientTemplateSite> ClientTemplateSites => Set<ClientTemplateSite>();
     public DbSet<ClientTemplateSiteMonitoringTemplate> ClientTemplateSiteMonitoringTemplates => Set<ClientTemplateSiteMonitoringTemplate>();
@@ -215,9 +218,24 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(p => p.MaintenanceWindowsJson).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
             entity.Property(p => p.UpdateRing).HasConversion<string>().HasMaxLength(20).HasDefaultValue(UpdateRing.Standard).HasSentinel((UpdateRing)(-1));
             entity.Property(p => p.MaxOutputBytes).HasDefaultValue(ScriptRules.DefaultMaxOutputBytes).HasSentinel(0L);
-            entity.ToTable(table => table.HasCheckConstraint(
-                "CK_Policies_MaxOutputBytes",
-                $"\"MaxOutputBytes\" BETWEEN {ScriptRules.MinOutputBytes} AND {ScriptRules.MaxOutputBytes}"));
+            // Remote session settings (0.3.0). Sentinels outside the valid range, so a value equal to the default is still written.
+            // The booleans have no database default in the model (a default of true would swallow false); migration RemoteSessions
+            // fills existing rows with the defaults.
+            entity.Property(p => p.RemoteConsentTimeoutSeconds).HasDefaultValue(RemoteSessionRules.DefaultConsentTimeoutSeconds).HasSentinel(0);
+            entity.Property(p => p.RemoteIdleTimeoutMinutes).HasDefaultValue(RemoteSessionRules.DefaultIdleTimeoutMinutes).HasSentinel(0);
+            entity.Property(p => p.RemoteMaxFileBytes).HasDefaultValue(RemoteSessionRules.DefaultMaxFileBytes).HasSentinel(0L);
+            entity.ToTable(table =>
+            {
+                table.HasCheckConstraint(
+                    "CK_Policies_MaxOutputBytes",
+                    $"\"MaxOutputBytes\" BETWEEN {ScriptRules.MinOutputBytes} AND {ScriptRules.MaxOutputBytes}");
+                table.HasCheckConstraint("CK_Policies_RemoteConsentTimeoutSeconds",
+                    $"\"RemoteConsentTimeoutSeconds\" BETWEEN {RemoteSessionRules.MinConsentTimeoutSeconds} AND {RemoteSessionRules.MaxConsentTimeoutSeconds}");
+                table.HasCheckConstraint("CK_Policies_RemoteIdleTimeoutMinutes",
+                    $"\"RemoteIdleTimeoutMinutes\" BETWEEN {RemoteSessionRules.MinIdleTimeoutMinutes} AND {RemoteSessionRules.MaxIdleTimeoutMinutes}");
+                table.HasCheckConstraint("CK_Policies_RemoteMaxFileBytes",
+                    $"\"RemoteMaxFileBytes\" BETWEEN {RemoteSessionRules.MinMaxFileBytes} AND {RemoteSessionRules.MaxMaxFileBytes}");
+            });
             entity.HasIndex(p => new { p.ClientId, p.Name }).IsUnique().AreNullsDistinct(false);
             entity.HasIndex(p => p.IsDefault).IsUnique().HasFilter("\"IsDefault\"");
             // A client-specific policy is deleted with its client.
@@ -482,6 +500,64 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(c => c.ReceivedAt);
             entity.ToTable(t => t.HasCheckConstraint("CK_JobOutputChunks_Size", "octet_length(\"Data\") BETWEEN 1 AND 65536"));
+            ClientOwned(entity);
+        });
+
+        // Remote sessions (0.3.0): the session, one row per technician's connection, and the actions of a background session.
+        builder.Entity<RemoteSession>(entity =>
+        {
+            entity.Property(r => r.Kind).HasConversion<string>().HasMaxLength(30);
+            entity.Property(r => r.Component).HasConversion<string>().HasMaxLength(20);
+            entity.Property(r => r.StartedByName).HasMaxLength(200);
+            entity.Property(r => r.Reason).HasMaxLength(RemoteSessionRules.MaxReasonLength);
+            entity.Property(r => r.EndReason).HasMaxLength(500);
+            entity.HasAlternateKey(r => new { r.Id, r.ClientId });
+            EndpointChild(entity, r => new { r.EndpointId, r.ClientId });
+            entity.HasIndex(r => new { r.EndpointId, r.CreatedAt }).IsDescending(false, true);
+            entity.HasIndex(r => r.CreatedAt);
+            entity.HasIndex(r => r.Id).HasFilter("\"EndedAt\" IS NULL").HasDatabaseName("IX_RemoteSessions_Open");
+            ClientOwned(entity);
+        });
+
+        builder.Entity<RemoteSessionParticipant>(entity =>
+        {
+            entity.Property(p => p.UserName).HasMaxLength(200);
+            entity.Property(p => p.Reason).HasMaxLength(RemoteSessionRules.MaxReasonLength);
+            entity.Property(p => p.State).HasConversion<string>().HasMaxLength(20);
+            entity.Property(p => p.SigningKeyId).HasMaxLength(64);
+            entity.Property(p => p.IpAddress).HasMaxLength(64);
+            entity.Property(p => p.EndReason).HasMaxLength(500);
+            entity.HasOne<RemoteSession>().WithMany()
+                .HasForeignKey(p => new { p.SessionId, p.ClientId })
+                .HasPrincipalKey(r => new { r.Id, r.ClientId })
+                .OnDelete(DeleteBehavior.Cascade);
+            EndpointChild(entity, p => new { p.EndpointId, p.ClientId });
+            entity.HasIndex(p => p.SessionId);
+            entity.HasIndex(p => new { p.State, p.CreatedAt })
+                .HasFilter("\"State\" IN ('Requested', 'Signed', 'Connecting', 'Connected')")
+                .HasDatabaseName("IX_RemoteSessionParticipants_Active");
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_RemoteSessionParticipants_BrowserKey", "octet_length(\"BrowserPublicKey\") = 32");
+                // The relay only opens with a signed token.
+                t.HasCheckConstraint("CK_RemoteSessionParticipants_Signed", "\"ConnectingAt\" IS NULL OR \"TokenSignature\" IS NOT NULL");
+            });
+            ClientOwned(entity);
+        });
+
+        builder.Entity<RemoteSessionAction>(entity =>
+        {
+            entity.Property(a => a.Id).UseIdentityAlwaysColumn();
+            entity.Property(a => a.Action).HasMaxLength(50);
+            entity.Property(a => a.Target).HasMaxLength(1000);
+            entity.Property(a => a.Detail).HasMaxLength(1000);
+            entity.HasOne<RemoteSession>().WithMany()
+                .HasForeignKey(a => new { a.SessionId, a.ClientId })
+                .HasPrincipalKey(r => new { r.Id, r.ClientId })
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<RemoteSessionParticipant>().WithMany().HasForeignKey(a => a.ParticipantId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasIndex(a => new { a.SessionId, a.Time });
+            entity.HasIndex(a => a.Time);
             ClientOwned(entity);
         });
 
