@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/404-developer-AI/Fleeto/agent/internal/safego"
 )
@@ -111,14 +112,21 @@ func (d *download) run(ctx context.Context, offset int64) {
 	d.b.sendTransfer(d.id, "end", sent, "")
 }
 
-// waitForWindow blocks while the browser is more than one window behind, so a large file never floods the relay.
+// waitForWindow blocks while the browser is more than one window behind, so a large file never floods the relay. It gives up when no
+// acknowledgement arrives within transferStallTimeout.
 func (d *download) waitForWindow(ctx context.Context, sent int64) error {
 	for sent-d.acked.Load() > transferWindow {
+		timer := time.NewTimer(transferStallTimeout)
 		select {
 		case <-d.wake:
+			timer.Stop()
+		case <-timer.C:
+			return errors.New("the browser stopped receiving the download")
 		case <-d.done:
+			timer.Stop()
 			return errors.New("cancelled")
 		case <-ctx.Done():
+			timer.Stop()
 			return ctx.Err()
 		}
 	}

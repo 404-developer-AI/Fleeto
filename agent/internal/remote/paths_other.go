@@ -7,3 +7,6 @@ func driveRoots() []string { return []string{"/"} }
 
 // defaultPath is where the explorer opens.
 func defaultPath() string { return "/" }
+
+// inUse reports whether an operation failed because another program has the file open; Unix-like systems do not lock files that way.
+func inUse(error) bool { return false }

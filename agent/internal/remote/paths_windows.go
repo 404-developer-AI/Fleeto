@@ -3,6 +3,7 @@
 package remote
 
 import (
+	"errors"
 	"os"
 
 	"golang.org/x/sys/windows"
@@ -32,4 +33,9 @@ func defaultPath() string {
 		return drive + `\`
 	}
 	return `C:\`
+}
+
+// inUse reports whether an operation failed because another program has the file open.
+func inUse(err error) bool {
+	return errors.Is(err, windows.ERROR_SHARING_VIOLATION) || errors.Is(err, windows.ERROR_LOCK_VIOLATION)
 }

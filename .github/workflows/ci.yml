@@ -219,7 +219,7 @@ jobs:
       # src/Fleeto.Web/wwwroot/js/remote-crypto.mjs against the vectors the Go endpoint verifies (agent/internal/remote).
       - run: |
           node --version
-          node --test tests/browser/remote-crypto.test.mjs
+          node --test tests/browser/remote-crypto.test.mjs tests/browser/remote-transfers.test.mjs
 
   branding:
     name: Branding check

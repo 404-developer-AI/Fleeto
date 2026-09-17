@@ -305,3 +305,51 @@ func sleeper() *exec.Cmd {
 	}
 	return exec.Command("sleep", "30")
 }
+
+// A browser that never acknowledges (it lost track of the transfer) must not keep the file open: the download gives up after the stall
+// timeout, reports an error and closes the file, so it can be deleted again.
+func TestDownloadGivesUpWhenTheBrowserStopsAcknowledging(t *testing.T) {
+	previous := transferStallTimeout
+	transferStallTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { transferStallTimeout = previous })
+
+	bs := startBackground(t)
+	path := filepath.Join(t.TempDir(), "stalled.bin")
+	if err := os.WriteFile(path, make([]byte, transferWindow+2*fileChunkBytes), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	response := bs.ok("download", map[string]any{"path": path, "offset": 0})
+	bs.expectAction("file.download")
+	transfer := uint32(response["transfer"].(float64))
+
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("the stalled download never gave up")
+		default:
+		}
+		kind, payload := bs.browser.read()
+		if kind != FrameTransfer {
+			continue // chunks are ignored: this browser never acknowledges
+		}
+		var tb transferBody
+		_ = json.Unmarshal(payload, &tb)
+		if tb.Transfer != transfer {
+			continue
+		}
+		if tb.Kind != "error" {
+			t.Fatalf("expected an error, got %q", tb.Kind)
+		}
+		break
+	}
+	// The file is closed again: deleting it works (on Windows an open file cannot be deleted).
+	result := bs.request("delete", map[string]any{"path": path})
+	for i := 0; result["ok"] != true && i < 20; i++ {
+		time.Sleep(50 * time.Millisecond)
+		result = bs.request("delete", map[string]any{"path": path})
+	}
+	if result["ok"] != true {
+		t.Fatalf("delete after a stalled download failed: %v", result["error"])
+	}
+}

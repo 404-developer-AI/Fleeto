@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/404-developer-AI/Fleeto/agent/internal/safego"
 )
@@ -31,6 +32,10 @@ const (
 	// partSuffix marks an upload that is still in progress.
 	partSuffix = ".fleeto-part"
 )
+
+// transferStallTimeout is how long a download waits for the browser to acknowledge before it gives up and closes the file, so a browser
+// that stopped listening never keeps a file open (and undeletable on Windows) for the rest of the session. Tests shorten it.
+var transferStallTimeout = 2 * time.Minute
 
 // requestBody is the shared shape of a FrameRequest. Fields not used by an op stay zero.
 type requestBody struct {
@@ -400,6 +405,8 @@ func opError(what string, err error) error {
 		return fmt.Errorf("cannot %s: access is denied", what)
 	case errors.Is(err, os.ErrExist):
 		return fmt.Errorf("cannot %s: it already exists", what)
+	case inUse(err):
+		return fmt.Errorf("cannot %s: another program has it open; close that program or end its process and try again", what)
 	default:
 		return fmt.Errorf("cannot %s", what)
 	}

@@ -334,19 +334,23 @@ html, body {
 .remote-progress { height: 6px; background: var(--mud-palette-lines-default); border-radius: 3px; overflow: hidden; margin-top: 4px; }
 .remote-progress-fill { height: 100%; width: 0; background: var(--mud-palette-primary); transition: width 0.2s; }
 .remote-table { flex: 1; overflow: auto; font-size: 0.85rem; }
-.remote-row { display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--mud-palette-lines-default); }
+/* Rows are grids with the same columns per table, so the header and every row line up whatever a cell holds. */
+.remote-row { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 12px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--mud-palette-lines-default); }
+.remote-files .remote-row { grid-template-columns: minmax(0, 1fr) 90px 170px 260px; }
+.remote-services .remote-row { grid-template-columns: minmax(0, 1fr) 90px 140px 190px; }
+.remote-processes .remote-row { grid-template-columns: minmax(0, 1fr) 70px 240px 64px 90px 56px; }
+.remote-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .remote-row.remote-head { position: sticky; top: 0; background: var(--mud-palette-surface); font-weight: 600; color: var(--mud-palette-text-secondary); z-index: 1; }
 .remote-row.remote-dir { cursor: default; }
 .remote-row:hover:not(.remote-head) { background: var(--mud-palette-action-default-hover, rgba(0,0,0,0.03)); }
-.remote-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.remote-size, .remote-modified { width: 120px; color: var(--mud-palette-text-secondary); }
-.remote-actions { display: flex; gap: 4px; align-items: center; }
-.remote-svc-name { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.remote-svc-display { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.remote-svc-state, .remote-svc-start { width: 120px; }
+.remote-size, .remote-modified, .remote-proc-pid, .remote-proc-user, .remote-proc-cpu, .remote-proc-mem { color: var(--mud-palette-text-secondary); }
+.remote-size, .remote-proc-pid, .remote-proc-cpu, .remote-proc-mem { text-align: right; }
+.remote-row > .remote-actions { display: flex; gap: 4px; align-items: center; justify-content: flex-end; overflow: visible; }
+.remote-svc-name { display: flex; flex-direction: column; }
+.remote-svc-display, .remote-svc-name .muted { overflow: hidden; text-overflow: ellipsis; }
 .remote-svc-state.ok { color: var(--mud-palette-success, #16a34a); }
 .remote-svc-state.off { color: var(--mud-palette-text-secondary); }
 .remote-svc-state.pending { color: var(--mud-palette-warning, #d97706); }
-.remote-proc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.remote-proc-pid, .remote-proc-user, .remote-proc-cpu, .remote-proc-mem { width: 90px; color: var(--mud-palette-text-secondary); }
+.remote-row > .remote-svc-start { overflow: visible; }
+.remote-svc-start .remote-startselect { width: 100%; }
 .muted { color: var(--mud-palette-text-secondary); font-size: 0.75rem; }

@@ -291,7 +291,8 @@ Three kinds of tables:
   session and participant is recorded and audited (technician, endpoint, start, end, reason); terminal content never
   leaves the session. See §5 for the accepted risk towards script approval.
   - **Files** (0.3.0 step 2): browse the endpoint, download a file (streamed with flow control, at most the policy's file size
-    cap, resumable from a byte offset after a reconnect), upload a file (written to a `.fleeto-part` file, then renamed), and
+    cap, resumable from a byte offset after a reconnect; the endpoint starts sending when it answers, so the browser keeps frames
+    of a transfer it does not know yet, and a download without acknowledgements for 2 minutes stops and closes the file), upload a file (written to a `.fleeto-part` file, then renamed), and
     create, rename, delete and copy within the endpoint. All over the same encrypted session; the watchdog acts as SYSTEM or
     root.
   - **Services** (0.3.0 step 2): list them and start, stop, restart or change the start type (the service control manager on

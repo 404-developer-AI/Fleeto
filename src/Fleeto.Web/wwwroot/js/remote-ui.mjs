@@ -231,7 +231,7 @@ export class Workspace {
     toolbar.append(up, refresh, mkdir, upload, this.pasteButton, this.fileInput);
     this.transfers = el("div", "remote-transfers");
     this.fileError = el("div", "remote-error");
-    this.fileTable = el("div", "remote-table");
+    this.fileTable = el("div", "remote-table remote-files");
     panel.append(toolbar, this.pathLabel, this.fileError, this.transfers, this.fileTable);
   }
 
@@ -271,7 +271,8 @@ export class Workspace {
     }
   }
 
-  async listFiles(path) {
+  // listFiles shows a folder. A message (the error of the action just taken) stays visible after the refresh.
+  async listFiles(path, message = "") {
     this.fileError.textContent = "Loading…";
     try {
       const result = await this.session.request("list", { path });
@@ -279,7 +280,7 @@ export class Workspace {
       this.parent = result.parent;
       this.pathLabel.textContent = result.path;
       this.pasteButton.disabled = !this.clipboard;
-      this.fileError.textContent = result.truncated ? "Showing the first files of a large folder." : "";
+      this.fileError.textContent = message || (result.truncated ? "Showing the first files of a large folder." : "");
       this.renderFiles(result.entries);
     } catch (error) {
       this.fileError.textContent = error.message;
@@ -294,7 +295,7 @@ export class Workspace {
     for (const entry of entries) {
       const row = el("div", "remote-row" + (entry.dir ? " remote-dir" : ""));
       const icon = entry.dir ? "📁" : "📄";
-      const name = el("span", "remote-name", `${icon} ${entry.name}`);
+      const name = withTitle(el("span", "remote-name", `${icon} ${entry.name}`));
       row.append(name, el("span", "remote-size", entry.dir ? "" : formatBytes(entry.size)), el("span", "remote-modified", formatDate(entry.modified)));
       const actions = el("span", "remote-actions");
       if (!entry.dir) {
@@ -320,8 +321,8 @@ export class Workspace {
     if (!name) {
       return;
     }
-    await this.run(() => this.session.request("mkdir", { path: this.path, name }), "The folder could not be created");
-    this.listFiles(this.path);
+    const message = await this.run(() => this.session.request("mkdir", { path: this.path, name }), "The folder could not be created");
+    this.listFiles(this.path, message);
   }
 
   async rename(entry) {
@@ -329,16 +330,16 @@ export class Workspace {
     if (!name || name === entry.name) {
       return;
     }
-    await this.run(() => this.session.request("rename", { path: this.join(entry.name), name }), "It could not be renamed");
-    this.listFiles(this.path);
+    const message = await this.run(() => this.session.request("rename", { path: this.join(entry.name), name }), "It could not be renamed");
+    this.listFiles(this.path, message);
   }
 
   async remove(entry) {
     if (!confirm(`Delete ${entry.name}?${entry.dir ? " The folder and everything in it will be deleted." : ""}`)) {
       return;
     }
-    await this.run(() => this.session.request("delete", { path: this.join(entry.name), recursive: entry.dir }), "It could not be deleted");
-    this.listFiles(this.path);
+    const message = await this.run(() => this.session.request("delete", { path: this.join(entry.name), recursive: entry.dir }), "It could not be deleted");
+    this.listFiles(this.path, message);
   }
 
   copy(entry) {
@@ -351,8 +352,8 @@ export class Workspace {
     if (!this.clipboard) {
       return;
     }
-    await this.run(() => this.session.request("copy", { path: this.clipboard.path, dest: this.path }), "It could not be copied");
-    this.listFiles(this.path);
+    const message = await this.run(() => this.session.request("copy", { path: this.clipboard.path, dest: this.path }), "It could not be copied");
+    this.listFiles(this.path, message);
   }
 
   async download(entry) {
@@ -427,7 +428,7 @@ export class Workspace {
     this.serviceFilter.addEventListener("input", () => this.renderServices());
     toolbar.appendChild(this.serviceFilter);
     this.serviceError = el("div", "remote-error");
-    this.serviceTable = el("div", "remote-table");
+    this.serviceTable = el("div", "remote-table remote-services");
     panel.append(toolbar, this.serviceError, this.serviceTable);
   }
 
@@ -447,7 +448,7 @@ export class Workspace {
     const filter = (this.serviceFilter.value || "").toLowerCase();
     this.serviceTable.replaceChildren();
     const header = el("div", "remote-row remote-head");
-    header.append(el("span", "remote-svc-name", "Service"), el("span", "remote-svc-state", "State"), el("span", "remote-svc-start", "Start type"), el("span", "remote-actions", ""));
+    header.append(el("span", "remote-svc-name", "Service"), el("span", "remote-svc-state", "State"), el("span", "remote-actions", ""), el("span", "remote-svc-start", "Start type"));
     this.serviceTable.appendChild(header);
     for (const svc of this.serviceList) {
       const label = (svc.displayName || svc.name).toLowerCase();
@@ -456,8 +457,8 @@ export class Workspace {
       }
       const row = el("div", "remote-row");
       const name = el("span", "remote-svc-name");
-      name.append(el("span", "remote-svc-display", svc.displayName || svc.name), el("span", "muted", svc.name));
-      row.append(name, el("span", "remote-svc-state " + stateClass(svc.state), svc.state || "—"), el("span", "remote-svc-start", startTypeLabel(svc.startType)));
+      name.append(withTitle(el("span", "remote-svc-display", svc.displayName || svc.name)), el("span", "muted", svc.name));
+      row.append(name, el("span", "remote-svc-state " + stateClass(svc.state), svc.state || "—"));
       const actions = el("span", "remote-actions");
       if (svc.state === "running") {
         actions.append(iconButton("Stop", () => this.serviceAction(svc, "stop")), iconButton("Restart", () => this.serviceAction(svc, "restart")));
@@ -473,8 +474,9 @@ export class Workspace {
         select.appendChild(option);
       }
       select.addEventListener("change", () => this.serviceAction(svc, "start_type", select.value));
-      actions.appendChild(select);
-      row.appendChild(actions);
+      const start = el("span", "remote-svc-start");
+      start.appendChild(select);
+      row.append(actions, start);
       this.serviceTable.appendChild(row);
     }
   }
@@ -507,7 +509,7 @@ export class Workspace {
     this.processFilter.addEventListener("input", () => this.renderProcesses());
     toolbar.appendChild(this.processFilter);
     this.processError = el("div", "remote-error");
-    this.processTable = el("div", "remote-table");
+    this.processTable = el("div", "remote-table remote-processes");
     panel.append(toolbar, this.processError, this.processTable);
   }
 
@@ -535,7 +537,7 @@ export class Workspace {
         continue;
       }
       const row = el("div", "remote-row");
-      row.append(el("span", "remote-proc-name", proc.name), el("span", "remote-proc-pid", String(proc.pid)), el("span", "remote-proc-user", proc.user || "—"),
+      row.append(withTitle(el("span", "remote-proc-name", proc.name)), el("span", "remote-proc-pid", String(proc.pid)), withTitle(el("span", "remote-proc-user", proc.user || "—")),
         el("span", "remote-proc-cpu", proc.cpu.toFixed(1) + "%"), el("span", "remote-proc-mem", formatBytes(proc.memory)));
       const actions = el("span", "remote-actions");
       actions.appendChild(iconButton("End", () => this.endProcess(proc)));
@@ -558,12 +560,13 @@ export class Workspace {
 
   // --- helpers ---------------------------------------------------------------
 
+  // run performs a file action and returns its error message, or "" when it worked.
   async run(action, failMessage) {
     try {
       await action();
-      this.fileError.textContent = "";
+      return "";
     } catch (error) {
-      this.fileError.textContent = `${failMessage}: ${error.message}`;
+      return `${failMessage}: ${error.message}.`;
     }
   }
 
@@ -591,6 +594,12 @@ function el(tag, className, text) {
   if (text !== undefined) {
     node.textContent = text;
   }
+  return node;
+}
+
+// withTitle shows the whole text on hover where a column cuts it off.
+function withTitle(node) {
+  node.title = node.textContent;
   return node;
 }
 
@@ -637,14 +646,4 @@ function stateClass(state) {
     return "off";
   }
   return "pending";
-}
-
-function startTypeLabel(type) {
-  switch (type) {
-    case "automatic": return "Automatic";
-    case "automatic_delayed": return "Automatic (delayed)";
-    case "manual": return "Manual";
-    case "disabled": return "Disabled";
-    default: return type || "—";
-  }
 }

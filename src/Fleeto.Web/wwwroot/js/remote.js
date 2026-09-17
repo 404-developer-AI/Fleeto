@@ -47,6 +47,9 @@ class RemoteSession {
     this.nextRequestId = 1;
     this.downloads = new Map();
     this.uploads = new Map();
+    // Transfer frames that arrive before their transfer is registered (the endpoint starts sending as soon as it answers the request),
+    // kept per transfer id until download() or upload() claims them.
+    this.early = new Map();
     this.onUnload = () => this.end(true);
   }
 
@@ -137,7 +140,7 @@ class RemoteSession {
         await this.onChunk(body);
         break;
       case Frame.Transfer:
-        this.onTransfer(JSON.parse(decoder.decode(body)));
+        await this.onTransfer(JSON.parse(decoder.decode(body)));
         break;
       default:
         if (this.workspace) {
@@ -199,25 +202,73 @@ class RemoteSession {
     const download = this.downloads.get(transfer);
     if (download) {
       await download.onChunk(body.subarray(4));
+    } else if (!this.uploads.has(transfer)) {
+      this.keepEarly(transfer, { chunk: body.slice(4) });
     }
   }
 
-  onTransfer(message) {
+  async onTransfer(message) {
     const download = this.downloads.get(message.transfer);
     if (download) {
-      download.onControl(message);
+      await download.onControl(message);
       return;
     }
     const upload = this.uploads.get(message.transfer);
     if (upload) {
       upload.onControl(message);
+    } else {
+      this.keepEarly(message.transfer, { control: message });
+    }
+  }
+
+  keepEarly(transfer, frame) {
+    const entry = this.early.get(transfer) ?? { frames: [], bytes: 0 };
+    entry.frames.push(frame);
+    entry.bytes += frame.chunk ? frame.chunk.length : 0;
+    // The endpoint never runs more than its flow-control window (4 MiB) ahead of acknowledgements, so this stays small; anything beyond
+    // that is not a transfer this page asked for.
+    if (entry.bytes > 8 * 1024 * 1024) {
+      this.early.delete(transfer);
+      return;
+    }
+    this.early.set(transfer, entry);
+  }
+
+  // registerTransfer replays the frames that arrived before the transfer was known, in order, and then stores its state. Frames that
+  // arrive while the replay writes are kept too and replayed in the next round; the state is stored only when nothing is waiting, with
+  // no await in between, so a later frame can never overtake an earlier one.
+  async registerTransfer(map, transfer, state) {
+    for (;;) {
+      const entry = this.early.get(transfer);
+      if (!entry) {
+        if (!state.finished) {
+          map.set(transfer, state);
+        }
+        return;
+      }
+      this.early.delete(transfer);
+      for (const frame of entry.frames) {
+        if (frame.chunk && state.onChunk) {
+          await state.onChunk(frame.chunk);
+        } else if (frame.control) {
+          await state.onControl(frame.control);
+        }
+      }
     }
   }
 
   async download(path, name, onProgress) {
-    const response = await this.request("download", { path, offset: 0 });
+    // The save location is chosen first, while the click still counts as a user gesture (the file picker requires one), and before
+    // the endpoint starts sending.
+    const sink = await createSink(name);
+    let response;
+    try {
+      response = await this.request("download", { path, offset: 0 });
+    } catch (error) {
+      await sink.abort();
+      throw error;
+    }
     const transfer = response.transfer;
-    const sink = await createSink(name || response.name, response.size);
     return new Promise((resolve, reject) => {
       let received = 0;
       let acked = 0;
@@ -258,8 +309,14 @@ class RemoteSession {
           reject(new Error("cancelled"));
         }
       };
-      const cleanup = () => this.downloads.delete(transfer);
-      this.downloads.set(transfer, state);
+      const cleanup = () => {
+        state.finished = true;
+        this.downloads.delete(transfer);
+      };
+      this.registerTransfer(this.downloads, transfer, state).catch((error) => {
+        cleanup();
+        reject(error);
+      });
     });
   }
 
@@ -295,8 +352,11 @@ class RemoteSession {
           reject(new Error("cancelled"));
         }
       };
-      const cleanup = () => this.uploads.delete(transfer);
-      this.uploads.set(transfer, state);
+      const cleanup = () => {
+        state.finished = true;
+        this.uploads.delete(transfer);
+      };
+      this.registerTransfer(this.uploads, transfer, state);
 
       (async () => {
         try {
@@ -459,7 +519,7 @@ function jsonChunk(header, data) {
 }
 
 // createSink streams a download to disk with the File System Access API when it is available, or collects it and saves a Blob otherwise.
-async function createSink(name, size) {
+async function createSink(name) {
   if (window.showSaveFilePicker) {
     try {
       const handle = await window.showSaveFilePicker({ suggestedName: name });
