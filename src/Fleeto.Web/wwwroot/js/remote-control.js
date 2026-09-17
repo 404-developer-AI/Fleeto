@@ -115,12 +115,14 @@ class ControlSession {
       case Frame.Hello:
         this.hello = JSON.parse(decoder.decode(body));
         this.state = "connected";
-        this.reconnects = 0;
         this.report("connected");
         this.startViewer();
         this.sendControl(Frame.Start, { monitor: this.monitor });
         break;
       case Frame.Info:
+        // The endpoint's helper answered, so the screen works: this is a healthy session, not a crash loop. Only now is the reconnect
+        // counter cleared, so a session that connects but dies before showing anything still counts toward the retry cap.
+        this.reconnects = 0;
         if (this.viewer) {
           this.viewer.onInfo(JSON.parse(decoder.decode(body)));
         }

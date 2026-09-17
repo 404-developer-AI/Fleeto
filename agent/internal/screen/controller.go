@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -141,7 +142,7 @@ func (c *Controller) startLocked(ctx context.Context) error {
 			return errors.New("No Windows session is attached to the console right now. Try again in a moment.")
 		}
 	}
-	helper, err := c.opts.Launch(ctx, session)
+	helper, err := launch(ctx, c.opts.Launch, session)
 	if err != nil {
 		c.opts.Logger.Warn("could not start the remote control helper", "session", session, "error", err)
 		return errors.New("The endpoint could not show Windows session " + itoa(session) + ": " + err.Error())
@@ -251,6 +252,17 @@ func (c *Controller) Close() {
 	if helper != nil {
 		_ = helper.Close()
 	}
+}
+
+// launch calls the launcher and turns a panic (a Win32 call in the platform launcher) into an error, so a helper that cannot start ends
+// as a notice to the technician instead of killing the whole session.
+func launch(ctx context.Context, launcher Launcher, session uint32) (h Helper, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			h, err = nil, fmt.Errorf("the helper stopped unexpectedly: %v", r)
+		}
+	}()
+	return launcher(ctx, session)
 }
 
 func itoa(v uint32) string {

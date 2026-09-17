@@ -102,7 +102,14 @@ func WindowsLauncher(logger *slog.Logger) Launcher {
 		}
 		startup.Cb = uint32(unsafe.Sizeof(startup))
 		commandLine := windows.ComposeCommandLine([]string{exe, HelperCommand})
-		environment := windows.StringToUTF16(SessionIDEnv + "=" + itoa(sessionID) + "\x00SystemRoot=" + os.Getenv("SystemRoot") + "\x00")
+		environment := environmentBlock([]string{
+			SessionIDEnv + "=" + itoa(sessionID),
+			"SystemRoot=" + os.Getenv("SystemRoot"),
+			"SystemDrive=" + os.Getenv("SystemDrive"),
+			"windir=" + os.Getenv("windir"),
+			"TEMP=" + os.Getenv("TEMP"),
+			"TMP=" + os.Getenv("TMP"),
+		})
 		var info windows.ProcessInformation
 		err = windows.CreateProcessAsUser(token, windows.StringToUTF16Ptr(exe), windows.StringToUTF16Ptr(commandLine), nil, nil, true,
 			windows.CREATE_NO_WINDOW|windows.CREATE_SUSPENDED|windows.CREATE_UNICODE_ENVIRONMENT|windows.EXTENDED_STARTUPINFO_PRESENT,
@@ -292,3 +299,18 @@ func EnableSoftwareSAS() (changed bool, err error) {
 
 // Supported reports whether this platform serves remote control.
 func Supported() bool { return true }
+
+// environmentBlock builds a UTF-16 environment block for CreateProcessAsUser: each "NAME=value" ends in a NUL, and the whole block ends
+// in a second NUL. It never passes a string with an embedded NUL to the UTF-16 conversion (that panics); a variable that cannot be
+// converted (an unexpected NUL in a value) is skipped.
+func environmentBlock(vars []string) []uint16 {
+	var block []uint16
+	for _, v := range vars {
+		encoded, err := windows.UTF16FromString(v)
+		if err != nil {
+			continue
+		}
+		block = append(block, encoded...) // encoded already ends in a NUL
+	}
+	return append(block, 0)
+}

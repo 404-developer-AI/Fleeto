@@ -230,3 +230,23 @@ func TestClosingTheControllerClosesTheHelper(t *testing.T) {
 		t.Fatal("a closed controller started a helper")
 	}
 }
+
+func TestALauncherThatPanicsBecomesANoticeNotADeadSession(t *testing.T) {
+	h := newControllerHarness(t, 0)
+	h.c.opts.Launch = func(context.Context, uint32) (Helper, error) { panic("boom in a Win32 call") }
+	h.c.Handle(context.Background(), append([]byte{FrameStart}, `{"monitor":0}`...))
+	notice := h.browserGets(FrameNotice)
+	if !strings.Contains(string(notice), "stopped unexpectedly") {
+		t.Fatalf("notice %s", notice[1:])
+	}
+	// The controller is still usable: a working launcher afterwards starts a helper.
+	h.c.opts.Launch = func(_ context.Context, id uint32) (Helper, error) {
+		helper := newFakeHelper(id)
+		h.mu.Lock()
+		h.helpers = append(h.helpers, helper)
+		h.mu.Unlock()
+		return helper, nil
+	}
+	h.c.Handle(context.Background(), append([]byte{FrameStart}, `{"monitor":0}`...))
+	h.helper(0).expect(t, FrameStart)
+}
