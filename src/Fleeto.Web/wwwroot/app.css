@@ -353,4 +353,12 @@ html, body {
 .remote-svc-state.pending { color: var(--mud-palette-warning, #d97706); }
 .remote-row > .remote-svc-start { overflow: visible; }
 .remote-svc-start .remote-startselect { width: 100%; }
+
+/* Remote control viewer (0.3.0 step 3): the toolbar, then the screen filling the rest of the window. */
+.remote-control-toolbar { align-items: center; }
+.remote-desktop { margin-left: auto; }
+.remote-screen { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: flex-start; justify-content: center; background: #0b1220; }
+.remote-canvas { display: block; image-rendering: auto; outline: none; cursor: crosshair; }
+.remote-canvas-fit { max-width: 100%; max-height: 100%; object-fit: contain; }
+.remote-canvas-actual { max-width: none; max-height: none; }
 .muted { color: var(--mud-palette-text-secondary); font-size: 0.75rem; }

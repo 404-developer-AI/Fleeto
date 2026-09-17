@@ -293,6 +293,10 @@
                                         }
                                         @if (row.Tier == EndpointTier.Managed)
                                         {
+                                            @if (row.OsPlatform == "windows")
+                                            {
+                                                <MudMenuItem Icon="@Icons.Material.Outlined.ScreenShare" OnClick="@(() => RemoteWindow.OpenControlAsync(row.Id))">Remote control</MudMenuItem>
+                                            }
                                             <MudMenuItem Icon="@Icons.Material.Outlined.Terminal" OnClick="@(() => RemoteWindow.OpenBackgroundAsync(row.Id))">Remote background</MudMenuItem>
                                             <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="@(() => RunScriptAsync(row))">Run script</MudMenuItem>
                                             @MaintenanceMenuItems(MaintenanceTarget.Endpoint, row.Id, row.Hostname, false, row.OwnMaintenanceActive ? row.OwnMaintenance : null)

@@ -41,6 +41,12 @@
                 <div class="endpoint-detail-actions">
                     @if (CanManage && e.Tier == EndpointTier.Managed)
                     {
+                        @if (e.OsPlatform == "windows")
+                        {
+                            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.ScreenShare" OnClick="@(() => RemoteWindow.OpenControlAsync(e.Id))">
+                                Remote control
+                            </MudButton>
+                        }
                         <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Terminal" OnClick="@(() => RemoteWindow.OpenBackgroundAsync(e.Id))">
                             Remote background
                         </MudButton>

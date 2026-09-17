@@ -6,6 +6,12 @@ public static class RemoteSessionRules
     /// <summary>The first watchdog that serves remote background sessions.</summary>
     public const string MinimumWatchdogVersion = "0.3.0-alpha.1";
 
+    /// <summary>The first agent that serves remote control sessions (0.3.0 step 3, Windows).</summary>
+    public const string MinimumAgentVersion = "0.3.0-alpha.5";
+
+    /// <summary>The Windows session id that stands for the console session: whichever session is attached to the screen.</summary>
+    public const int ConsoleWindowsSession = 0;
+
     /// <summary>How long a signed session token opens the relay.</summary>
     public static readonly TimeSpan TokenValidity = TimeSpan.FromSeconds(60);
 
@@ -57,6 +63,32 @@ public static class RemoteSessionRules
     public static bool WatchdogSupportsRemoteBackground(string? watchdogVersion) =>
         SemanticVersion.TryParse(watchdogVersion, out _) && !SemanticVersion.IsOlder(watchdogVersion, MinimumWatchdogVersion);
 
+    /// <summary>True when the agent version serves remote control sessions.</summary>
+    public static bool AgentSupportsRemoteControl(string? agentVersion) =>
+        SemanticVersion.TryParse(agentVersion, out _) && !SemanticVersion.IsOlder(agentVersion, MinimumAgentVersion);
+
+    /// <summary>
+    /// The Windows sessions a remote control session can show: the console first, then every remote session of a signed-in user as the
+    /// agent last reported it (0.2.2), by user.
+    /// </summary>
+    public static IReadOnlyList<RemoteWindowsSession> WindowsSessions(IReadOnlyList<SignedInUserInfo> users)
+    {
+        var sessions = new List<RemoteWindowsSession> { new(ConsoleWindowsSession, "Console", null) };
+        foreach (var user in users.OrderBy(u => u.Account, StringComparer.OrdinalIgnoreCase))
+        {
+            foreach (var session in user.Sessions)
+            {
+                if (!session.Console && int.TryParse(session.Id, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture,
+                        out var id) && id > ConsoleWindowsSession && sessions.All(s => s.Id != id))
+                {
+                    sessions.Add(new RemoteWindowsSession(id, $"{user.Account} (session {id})", user.Account));
+                }
+            }
+        }
+
+        return sessions;
+    }
+
     /// <summary>The idle timeout a policy may set, held inside the bounds.</summary>
     public static int IdleTimeoutMinutes(int minutes) => Math.Clamp(minutes, MinIdleTimeoutMinutes, MaxIdleTimeoutMinutes);
 
@@ -66,3 +98,8 @@ public static class RemoteSessionRules
     /// <summary>A usable X25519 public key: 32 bytes, not all zero.</summary>
     public static bool IsValidPublicKey(ReadOnlySpan<byte> key) => key.Length == PublicKeyBytes && key.IndexOfAnyExcept((byte)0) >= 0;
 }
+
+/// <summary>A Windows session a remote control session can show (0.3.0).</summary>
+/// <param name="Id">0 for the console, otherwise the Windows session number.</param>
+/// <param name="Account">The signed-in user of a remote session; null for the console.</param>
+public sealed record RemoteWindowsSession(int Id, string Label, string? Account);

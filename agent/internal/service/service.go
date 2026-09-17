@@ -9,6 +9,7 @@ import (
 
 	"github.com/404-developer-AI/Fleeto/agent/internal/agent"
 	"github.com/404-developer-AI/Fleeto/agent/internal/platform"
+	"github.com/404-developer-AI/Fleeto/agent/internal/screen"
 	"github.com/404-developer-AI/Fleeto/agent/internal/state"
 )
 
@@ -39,6 +40,13 @@ const retryDelay = 30 * time.Second
 // does not restart in a loop.
 func RunAgent(ctx context.Context, stateDir string, access platform.Access, logger *slog.Logger, watchdog *agent.WatchdogOptions) {
 	store := state.NewStore(stateDir, access)
+	// The Ctrl+Alt+Del button of remote control (0.3.0) needs Windows to accept a Secure Attention Sequence from a service. Set once when
+	// missing; a value set by an administrator or a group policy is kept.
+	if changed, err := screen.EnableSoftwareSAS(); err != nil {
+		logger.Warn("could not allow services to send Ctrl+Alt+Del (SoftwareSASGeneration)", "error", err)
+	} else if changed {
+		logger.Info("allowed services to send Ctrl+Alt+Del for remote control (SoftwareSASGeneration = 1)")
+	}
 	for ctx.Err() == nil {
 		a, err := agent.New(agent.Options{Store: store, Logger: logger, Watchdog: watchdog})
 		if err != nil {

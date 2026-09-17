@@ -4479,9 +4479,12 @@ type RemoteSessionToken struct {
 	// From the effective policy of the endpoint: a session without input from the technician closes after this long.
 	IdleTimeoutSeconds uint32 `protobuf:"varint,12,opt,name=idle_timeout_seconds,json=idleTimeoutSeconds,proto3" json:"idle_timeout_seconds,omitempty"`
 	// From the effective policy: the largest file one transfer may carry.
-	MaxFileBytes  uint64 `protobuf:"varint,13,opt,name=max_file_bytes,json=maxFileBytes,proto3" json:"max_file_bytes,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	MaxFileBytes uint64 `protobuf:"varint,13,opt,name=max_file_bytes,json=maxFileBytes,proto3" json:"max_file_bytes,omitempty"`
+	// Remote control on Windows (0.3.0 step 3): the Windows session to show. 0 is the console session (whichever session is attached to
+	// the console, including the sign-in screen); any other value is a signed-in session (an RDP session) as the agent reported it.
+	WindowsSessionId uint32 `protobuf:"varint,14,opt,name=windows_session_id,json=windowsSessionId,proto3" json:"windows_session_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *RemoteSessionToken) Reset() {
@@ -4601,6 +4604,13 @@ func (x *RemoteSessionToken) GetIdleTimeoutSeconds() uint32 {
 func (x *RemoteSessionToken) GetMaxFileBytes() uint64 {
 	if x != nil {
 		return x.MaxFileBytes
+	}
+	return 0
+}
+
+func (x *RemoteSessionToken) GetWindowsSessionId() uint32 {
+	if x != nil {
+		return x.WindowsSessionId
 	}
 	return 0
 }
@@ -5194,7 +5204,7 @@ const file_agent_proto_rawDesc = "" +
 	"\x13SignedRemoteSession\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\fR\tsignature\x12\x15\n" +
-	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\xd8\x04\n" +
+	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\x86\x05\n" +
 	"\x12RemoteSessionToken\x12%\n" +
 	"\x0eparticipant_id\x18\x01 \x01(\tR\rparticipantId\x12\x1d\n" +
 	"\n" +
@@ -5213,7 +5223,8 @@ const file_agent_proto_rawDesc = "" +
 	"\vvalid_until\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"validUntil\x120\n" +
 	"\x14idle_timeout_seconds\x18\f \x01(\rR\x12idleTimeoutSeconds\x12$\n" +
-	"\x0emax_file_bytes\x18\r \x01(\x04R\fmaxFileBytes\"T\n" +
+	"\x0emax_file_bytes\x18\r \x01(\x04R\fmaxFileBytes\x12,\n" +
+	"\x12windows_session_id\x18\x0e \x01(\rR\x10windowsSessionId\"T\n" +
 	"\x12RemoteSessionOffer\x12>\n" +
 	"\asession\x18\x01 \x01(\v2$.fleeto.agent.v1.SignedRemoteSessionR\asession\"S\n" +
 	"\x14RemoteSessionRefused\x12%\n" +

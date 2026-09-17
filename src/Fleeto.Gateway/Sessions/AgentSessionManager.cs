@@ -354,6 +354,10 @@ public sealed partial class AgentSessionManager : BackgroundService
             case AgentMessage.BodyOneofCase.JobCompletion:
                 await JobCompletionAsync(session, message.JobCompletion, cancellationToken);
                 break;
+            case AgentMessage.BodyOneofCase.RemoteSessionRefused:
+                // Remote control (0.3.0 step 3) is served by the agent, so its refusals arrive over the agent session.
+                RaiseRemoteSessionRefused(session, message.RemoteSessionRefused);
+                break;
             case AgentMessage.BodyOneofCase.Hello:
                 session.Close(DisconnectCode.ProtocolError, "Hello may only be sent once per connection.");
                 break;

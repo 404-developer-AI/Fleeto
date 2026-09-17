@@ -164,17 +164,26 @@ public sealed class RemoteRelay : BackgroundService
             return;
         }
 
-        if (participant.Kind != RemoteSessionKind.RemoteBackground || participant.Component != AgentComponent.Watchdog)
+        // Remote background is served by the watchdog, remote control (0.3.0 step 3) by the agent: the offer goes over that service's session.
+        AgentSession? control;
+        switch (participant.Kind, participant.Component)
         {
-            await RefuseAsync(browser, participant, address, "This kind of remote session is not available yet.");
-            return;
+            case (RemoteSessionKind.RemoteBackground, AgentComponent.Watchdog):
+                _sessions.TryGetWatchdogSession(participant.EndpointId, out control);
+                break;
+            case (RemoteSessionKind.RemoteControl, AgentComponent.Agent):
+                _sessions.TryGetSession(participant.EndpointId, out control);
+                break;
+            default:
+                await RefuseAsync(browser, participant, address, "This kind of remote session is not available yet.");
+                return;
         }
 
-        if (!_sessions.TryGetWatchdogSession(participant.EndpointId, out var control) || control is null || control.IsClosing ||
-            control.Tier != EndpointTier.Managed)
+        if (control is null || control.IsClosing || control.Tier != EndpointTier.Managed)
         {
-            await RefuseAsync(browser, participant, address,
-                "The watchdog of this endpoint is not connected. Remote background needs the Fleeto watchdog to be online. Try again when it is.");
+            await RefuseAsync(browser, participant, address, participant.Component == AgentComponent.Watchdog
+                ? "The watchdog of this endpoint is not connected. Remote background needs the Fleeto watchdog to be online. Try again when it is."
+                : "The agent of this endpoint is not connected. Remote control needs the endpoint to be online. Try again when it is.");
             return;
         }
 
@@ -212,7 +221,8 @@ public sealed class RemoteRelay : BackgroundService
                 }
             }))
         {
-            await RefuseAsync(pairing.Browser, participant, pairing.Address, "The watchdog of this endpoint disconnected. Try again in a moment.");
+            await RefuseAsync(pairing.Browser, participant, pairing.Address,
+                $"The {(participant.Component == AgentComponent.Watchdog ? "watchdog" : "agent")} of this endpoint disconnected. Try again in a moment.");
             return;
         }
 

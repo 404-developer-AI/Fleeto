@@ -12,7 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1"
 	"github.com/404-developer-AI/Fleeto/agent/internal/safego"
+	"github.com/404-developer-AI/Fleeto/agent/internal/screen"
 )
 
 // Frame types: the first byte of every decrypted frame. Bodies are JSON, except Data, which carries a 16-bit big-endian channel number
@@ -91,7 +93,21 @@ type Hello struct {
 	// MaxFileBytes is the largest file one transfer may carry, from the token (policy). Set by Run.
 	MaxFileBytes int64  `json:"maxFileBytes"`
 	Version      string `json:"version"`
+	// Kind is "remote_control" or "remote_background", from the token. Set by Run.
+	Kind string `json:"kind"`
+	// WindowsSession is the Windows session a remote control session shows, 0 for the console. Set by Run.
+	WindowsSession uint32 `json:"windowsSession,omitempty"`
 }
+
+// ScreenHandler serves the screen of a remote control session (internal/screen.Controller).
+type ScreenHandler interface {
+	// Handle takes one remote control frame from the browser (type byte and body).
+	Handle(ctx context.Context, frame []byte)
+	Close()
+}
+
+// ScreenFactory creates the screen handler of a remote control session; send passes a frame to the browser.
+type ScreenFactory func(token *Token, send func(frame []byte) error) ScreenHandler
 
 type openBody struct {
 	Channel int    `json:"channel"`
@@ -124,6 +140,8 @@ type SessionOptions struct {
 	Open      TerminalOpener
 	// Report records an action the technician took (files, services, processes) for the audit log; nil disables reporting.
 	Report func(action, target, detail string)
+	// Screen serves remote control sessions; nil where remote control is not served.
+	Screen ScreenFactory
 	Logger *slog.Logger
 	Now    func() time.Time
 	// Tick is how often the idle timeout is checked; tests shorten it.
@@ -142,6 +160,7 @@ type Session struct {
 	lastInput  time.Time
 	warned     bool
 	background *background
+	screen     ScreenHandler
 }
 
 // NewSession prepares a session with the derived keys.
@@ -178,6 +197,18 @@ func (s *Session) Run(ctx context.Context) (reason string) {
 	hello := s.opts.Hello
 	hello.IdleTimeoutSeconds = int(s.opts.Token.IdleTimeout() / time.Second)
 	hello.MaxFileBytes = s.opts.Token.MaxFileBytes()
+	hello.Kind = "remote_background"
+	if s.remoteControl() {
+		hello.Kind = "remote_control"
+		hello.WindowsSession = s.opts.Token.GetWindowsSessionId()
+		hello.MaxFileBytes = 0
+		if s.opts.Screen == nil {
+			s.end("This endpoint does not serve remote control. Update the agent.")
+			return "remote control is not served here"
+		}
+		s.screen = s.opts.Screen(s.opts.Token, func(frame []byte) error { return s.sendFrame(ctx, frame) })
+		defer s.screen.Close()
+	}
 	if err := s.sendJSON(ctx, FrameHello, hello); err != nil {
 		return "the relay closed before the session started: " + err.Error()
 	}
@@ -239,6 +270,22 @@ func (s *Session) handle(ctx context.Context, frame []byte) (done bool, reason s
 		return false, ""
 	}
 	body := frame[1:]
+	if s.remoteControl() {
+		// A remote control session carries the screen only: no terminal, files, services or processes, whatever the browser sends.
+		switch {
+		case frame[0] == FrameActivity:
+			s.touch()
+		case frame[0] == FrameEnd:
+			_ = s.opts.Transport.Close("ended by the technician")
+			return true, "ended by the technician"
+		case screen.FromBrowser(frame[0]):
+			if frame[0] != screen.FrameAck {
+				s.touch()
+			}
+			s.screen.Handle(ctx, frame)
+		}
+		return false, ""
+	}
 	switch frame[0] {
 	case FrameOpen:
 		s.touch()
@@ -355,6 +402,10 @@ func (s *Session) pump(ctx context.Context, channel uint16, terminal Terminal) {
 		reply.Error = waitErr.Error()
 	}
 	_ = s.sendJSON(ctx, FrameClosed, reply)
+}
+
+func (s *Session) remoteControl() bool {
+	return s.opts.Token.GetKind() == agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_REMOTE_CONTROL
 }
 
 func (s *Session) end(reason string) {

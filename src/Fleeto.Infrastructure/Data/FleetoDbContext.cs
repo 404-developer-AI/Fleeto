@@ -516,6 +516,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(r => new { r.EndpointId, r.CreatedAt }).IsDescending(false, true);
             entity.HasIndex(r => r.CreatedAt);
             entity.HasIndex(r => r.Id).HasFilter("\"EndedAt\" IS NULL").HasDatabaseName("IX_RemoteSessions_Open");
+            entity.ToTable(t => t.HasCheckConstraint("CK_RemoteSessions_WindowsSession",
+                "(\"Kind\" = 'RemoteControl' AND \"WindowsSessionId\" >= 0) OR (\"Kind\" <> 'RemoteControl' AND \"WindowsSessionId\" IS NULL)"));
             ClientOwned(entity);
         });
 

@@ -44,6 +44,12 @@ public class RemoteSession
     /// <summary>The service on the endpoint that serves the session: the agent for remote control, the watchdog for remote background.</summary>
     public AgentComponent Component { get; set; }
 
+    /// <summary>
+    /// Remote control on Windows (0.3.0 step 3): the Windows session shown, 0 for the console (sign-in screen included), otherwise the
+    /// id of a signed-in session the agent reported. Null for remote background.
+    /// </summary>
+    public int? WindowsSessionId { get; set; }
+
     public Guid StartedByUserId { get; set; }
     public string StartedByName { get; set; } = string.Empty;
 

@@ -46,7 +46,7 @@ public sealed record EndpointListQuery(Guid? ClientId, Guid? SiteId, EndpointCla
 public sealed record EndpointRow(Guid Id, string Hostname, Guid ClientId, string ClientCode, string ClientName, Guid SiteId, string SiteName,
     bool IsOnline, EndpointTier Tier, EndpointClass EffectiveClass, string OsName, string OsVersion, string AgentVersion, string LoggedOnUser,
     DateTime? LastSeenAt, int OpenAlertCount, bool HasCriticalAlert, EffectiveMaintenance? Maintenance = null, bool OwnMaintenanceActive = false,
-    MaintenancePeriod? OwnMaintenance = null);
+    MaintenancePeriod? OwnMaintenance = null, string OsPlatform = "");
 
 /// <summary>
 /// One page of the endpoint list. Counts cover the whole scope and filters; <see cref="Rows"/> holds at most
@@ -202,7 +202,7 @@ public sealed class EndpointService
                 e.LastSeenAt,
                 db.Alerts.Count(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now)),
                 db.Alerts.Any(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now) &&
-                                   a.Severity == AlertSeverity.Critical), null),
+                                   a.Severity == AlertSeverity.Critical), null, false, null, e.OsPlatform),
                 Own = new MaintenancePeriod(e.MaintenanceStartedAt, e.MaintenanceEndsAt, e.MaintenanceStartedByName, e.MaintenanceReason),
                 Site = new MaintenancePeriod(e.Site.MaintenanceStartedAt, e.Site.MaintenanceEndsAt, e.Site.MaintenanceStartedByName, e.Site.MaintenanceReason),
                 Client = new MaintenancePeriod(e.Site.Client!.MaintenanceStartedAt, e.Site.Client.MaintenanceEndsAt, e.Site.Client.MaintenanceStartedByName,

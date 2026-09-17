@@ -393,6 +393,9 @@ func (s *session) handle(msg *agentv1.ServerMessage) (sessionOutcome, bool, erro
 			a.watchdog.offer(body.UpdateOffer)
 		}
 		return 0, false, nil
+	case *agentv1.ServerMessage_RemoteSessionOffer:
+		a.acceptRemoteOffer(body.RemoteSessionOffer)
+		return 0, false, nil
 	case *agentv1.ServerMessage_WatchdogCertificate:
 		if a.watchdog != nil {
 			a.watchdog.certificateResponse(body.WatchdogCertificate)

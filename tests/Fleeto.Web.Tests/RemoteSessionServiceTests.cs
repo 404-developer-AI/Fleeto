@@ -49,6 +49,28 @@ public sealed class RemoteSessionServiceTests
         return endpoint;
     }
 
+    /// <summary>A managed Windows endpoint whose agent serves remote control, with one user signed in on the console and one over RDP.</summary>
+    private async Task<Endpoint> ControlEndpointAsync(string agentVersion = "0.3.0", bool online = true, string platform = "windows")
+    {
+        var endpoint = await EndpointAsync();
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        await db.Endpoints.Where(e => e.Id == endpoint.Id).ExecuteUpdateAsync(s => s
+            .SetProperty(e => e.OsPlatform, platform)
+            .SetProperty(e => e.AgentVersion, agentVersion)
+            .SetProperty(e => e.IsOnline, online)
+            .SetProperty(e => e.SignedInUsersJson,
+                "[{\"id\":\"S-1-5-21-1-1001\",\"account\":\"ACME\\\\anna\",\"sessions\":[{\"id\":\"1\",\"console\":true}]}," +
+                "{\"id\":\"S-1-5-21-1-1002\",\"account\":\"ACME\\\\bert\",\"sessions\":[{\"id\":\"3\",\"console\":false}]}]"));
+        db.AgentCertificates.Add(new AgentCertificate
+        {
+            Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, Fingerprint = Guid.NewGuid().ToString("N"),
+            PublicKeyFingerprint = "b2".PadRight(64, '0'), SerialNumber = "2", Role = AgentComponent.Agent,
+            IssuedAt = _fixture.Database.Time.GetUtcNow().UtcDateTime, ExpiresAt = _fixture.Database.Time.GetUtcNow().UtcDateTime.AddDays(90)
+        });
+        await db.SaveChangesAsync();
+        return endpoint;
+    }
+
     /// <summary>Plays fleeto-signer: signs (or refuses) the participant of the next request as soon as it appears.</summary>
     private async Task SignNextAsync(Guid endpointId, string? refusal = null)
     {
@@ -170,5 +192,47 @@ public sealed class RemoteSessionServiceTests
         Assert.Contains("did not answer in time", result.Problem);
         await using var db = _fixture.Database.DbFactory.CreateSystem();
         Assert.True(await db.RemoteSessionParticipants.AnyAsync(p => p.EndpointId == endpoint.Id && p.State == RemoteParticipantState.Failed));
+    }
+
+    [Fact]
+    public async Task Remote_control_is_served_by_the_agent_on_the_chosen_windows_session()
+    {
+        var endpoint = await ControlEndpointAsync();
+        var target = await Service.GetControlTargetAsync(WebFixtureBase.Technician(), endpoint.Id);
+        Assert.Null(target!.Problem);
+        Assert.Equal([0, 3], target.Sessions.Select(s => s.Id));
+        Assert.Equal("ACME\\bert (session 3)", target.Sessions[1].Label);
+
+        var signer = SignNextAsync(endpoint.Id);
+        var result = await Service.OpenControlAsync(WebFixtureBase.Technician(), endpoint.Id, RandomNumberGenerator.GetBytes(32), null, 3);
+        await signer;
+
+        Assert.True(result.Success, result.Problem);
+        Assert.Equal(["b2".PadRight(64, '0')], result.Value!.CertificateFingerprints);
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        var session = await db.RemoteSessions.AsNoTracking().SingleAsync(s => s.Id == result.Value.SessionId);
+        Assert.Equal(RemoteSessionKind.RemoteControl, session.Kind);
+        Assert.Equal(AgentComponent.Agent, session.Component);
+        Assert.Equal(3, session.WindowsSessionId);
+    }
+
+    [Fact]
+    public async Task Remote_control_is_refused_off_windows_on_an_old_or_offline_agent_and_for_an_unknown_windows_session()
+    {
+        var key = RandomNumberGenerator.GetBytes(32);
+        var technician = WebFixtureBase.Technician();
+        Assert.Contains("Windows endpoints", (await Service.OpenControlAsync(technician, (await ControlEndpointAsync(platform: "linux")).Id, key, null, 0)).Problem);
+        Assert.Contains("needs Fleeto 0.3.0", (await Service.OpenControlAsync(technician, (await ControlEndpointAsync("0.3.0-alpha.4")).Id, key, null, 0)).Problem);
+        Assert.Contains("offline", (await Service.OpenControlAsync(technician, (await ControlEndpointAsync(online: false)).Id, key, null, 0)).Problem);
+
+        var endpoint = await ControlEndpointAsync();
+        Assert.Contains("no longer signed in", (await Service.OpenControlAsync(technician, endpoint.Id, key, null, 7)).Problem);
+        // The console session of a signed-in user is no separate choice: the console stands for it.
+        Assert.Contains("no longer signed in", (await Service.OpenControlAsync(technician, endpoint.Id, key, null, 1)).Problem);
+        Assert.Equal(ServiceResult.ForbiddenProblem,
+            (await Service.OpenControlAsync(WebFixtureBase.CallerWith(SystemClientScope.Instance, FleetoRoles.ReadOnly), endpoint.Id, key, null, 0)).Problem);
+
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        Assert.False(await db.RemoteSessions.AnyAsync(s => s.EndpointId == endpoint.Id));
     }
 }

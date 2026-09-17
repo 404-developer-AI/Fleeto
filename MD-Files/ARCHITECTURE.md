@@ -4,8 +4,9 @@
 > `CLAUDE.md` in the repository root; this file describes how the system is put together.
 > Status: 0.0.x to 0.2.2 released (agent enrollment, gateway, signer, workers, web UI, licensing, backups, maintenance,
 > the check catalog and history, notification routing, scripts and jobs, the read-only public API, agent updates, the
-> watchdog, the Linux agent); 0.3.0 in progress (remote sessions: the relay, end-to-end encryption and the remote
-> background terminal implemented, the rest of remote background and remote control are design). Integrations are design.
+> watchdog, the Linux agent); 0.3.0 in progress (remote sessions: the relay, end-to-end encryption, the full remote
+> background — terminal, files, services, processes — and remote control on Windows implemented; the clipboard, several
+> technicians, consent and banner, H.264 and Linux X11 are design). Integrations are design.
 > Sections marked *decision pending* point to the open decisions in `CLAUDE.md`.
 
 ## 1. Deployment topology
@@ -301,6 +302,10 @@ Three kinds of tables:
     (`RemoteSessionActionReport`), which writes a `RemoteSessionAction` (participant, action, target). The report comes from the
     endpoint, so the audit is authoritative, and it never carries a file's content. The relay carries the session ciphertext
     the gateway cannot read.
+- **Remote control (0.3.0 step 3, Windows).** The screen, mouse and keyboard, served by the **agent** (not the watchdog), because
+  it needs a process in the Windows session that the agent, as SYSTEM, can start. The agent runs `internal/screen`: a helper per
+  session that captures the desktop (GDI), encodes changed tiles and injects input, and the agent relays its frames over the same
+  encrypted session as remote background. Details in §4, Remote session.
 - Reconnect with exponential backoff plus jitter.
 - Wire format: protobuf over the WebSocket, one message per binary WebSocket frame (the frame is
   the length prefix), results batched. Never one HTTP request per check result. Contract:
@@ -741,9 +746,36 @@ connection. The flow for one technician (a participant):
    at its start the gateway ends every connection left from before. The workers end participants that never connected
    within 5 minutes.
 
-Several technicians (step 4) each get their own participant, token and key exchange with the endpoint. Remote control
-(step 3) adds the screen, input and, for workstations, the policy's consent prompt and banner; servers never prompt and
-show no banner.
+**Remote control (0.3.0 step 3, Windows).** Served by the agent, not the watchdog, because showing and using the screen needs a
+process in the Windows session. The token carries the Windows session to show (`windows_session_id`, 0 for the console). The
+session is the same in every way as remote background — token, relay, key exchange, AES-256-GCM frames, idle timeout — but it
+carries the screen only: the agent ignores terminal, file, service and process frames on a remote control session, and the
+watchdog refuses a remote control token (it serves remote background only). The agent runs as SYSTEM, so it can start a helper in
+any session, including the console with the sign-in screen and UAC.
+
+- The agent starts one helper process for the session, `fleeto-agent remote-helper`, as SYSTEM in the chosen Windows session (its
+  own token, duplicated and moved to that session; needs `SeTcbPrivilege`, which SYSTEM has). The helper talks to the agent over
+  anonymous pipes only it inherits, and lives in a job object that ends it when the agent stops. It attaches its thread to the
+  input desktop and follows it as it switches (Default, Winlogon for the sign-in screen and UAC), so those are shown and usable,
+  and it follows the console to another Windows session (fast user switching). A helper that stops is started again a few times.
+- **Capture** is GDI (`BitBlt` into a DIB section, the cursor drawn in) for now: it works on every desktop, RDP sessions and VMs
+  without a GPU. DXGI desktop duplication arrives with H.264 in step 5. The image is cut into 64-pixel tiles; only changed tiles
+  travel, a run of changed tiles in a row as one rectangle, PNG when it has few colors (text, windows) and JPEG otherwise, at a
+  quality that drops on a slow link. The endpoint sends the next frame only after the browser acknowledges the last, so a slow
+  link never floods the relay. Frame types are a separate range (`0x10`–`0x1F`) next to the remote background frames.
+- **Keyboard**: a key that produces a character is sent as that character and typed with the key of the endpoint's active layout
+  and the modifiers it needs there (so AZERTY against QWERTY and the sign-in screen keep the character), a Unicode character when
+  the layout lacks a key for it; named keys and Ctrl/Alt shortcuts go as the physical scan code. The helper remembers what it holds
+  and releases everything when the window loses focus or the session ends, so no key stays stuck. **Mouse**: absolute position in
+  the shown image, buttons and wheel. **Type clipboard** enters the browser clipboard as keystrokes. **Ctrl+Alt+Del** is sent by
+  the agent service (`SendSAS`), which needs `SoftwareSASGeneration` to allow services; the agent sets it to 1 when it is missing
+  (a group policy that sets it otherwise wins), and the button says why when it is off.
+- **Reconnect** (decided 2026-09-17): a dropped session opens a **new** session in the same window with the same reason and Windows
+  session, up to three tries; the audit log then shows two sessions. Resuming the same session is not done, because the token is
+  single use and a session ends the moment nobody is connected.
+
+Several technicians (step 4) each get their own participant, token and key exchange with the endpoint. On workstations remote
+control follows the policy's consent prompt and banner (step 4); servers never prompt and show no banner.
 
 **Client creation from template.** Technician picks a client template, enters code and
 name → the sites in the template are created under the new client with their policy and
@@ -938,7 +970,11 @@ container:
   banner naming every technician (default on). Remote background never prompts. Recording of sessions is not scheduled.
 - Agent runs as SYSTEM on Windows to reach the console session, the login screen and UAC
   secure desktop; the same privilege is why the session token and signature checks are
-  never optional.
+  never optional. Remote control (0.3.0 step 3) runs a helper the agent starts as SYSTEM in
+  the chosen Windows session, over pipes only it inherits, in a job object that ends it with
+  the agent; it captures and injects input, never terminals, files or the network. A remote
+  control token is served by the agent only, a remote background token by the watchdog only,
+  and each service refuses the other's kind (§4 Remote session).
 - Clipboard: text both ways and files to the endpoint (0.3.0), disabled per policy.
 - **A script that runs as the signed-in user, accepted risk (0.2.1).** That user can read the script text while it runs:
   the interpreter has to open the file as them. The script is staged so that they can read it and not change it, and the

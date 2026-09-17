@@ -14,6 +14,13 @@ namespace Fleeto.Web.Services;
 public sealed record RemoteTarget(Guid EndpointId, string Hostname, string? ClientCode, string OsPlatform, string OsName, bool WatchdogOnline,
     string WatchdogVersion, string? Problem);
 
+/// <summary>The endpoint a remote control window is for (0.3.0 step 3), with the Windows sessions it can show.</summary>
+/// <param name="Sessions">The console first, then the remote sessions of signed-in users as the agent last reported them.</param>
+/// <param name="SessionsReportedAt">When the agent last reported the signed-in users; null when it never did.</param>
+/// <param name="Problem">Why a session cannot start now, with the next step; null when it can.</param>
+public sealed record RemoteControlTarget(Guid EndpointId, string Hostname, string? ClientCode, string OsName, EndpointClass Class,
+    IReadOnlyList<RemoteWindowsSession> Sessions, DateTime? SessionsReportedAt, string? Problem);
+
 /// <summary>What the browser needs to open the relay: the signed token and the keys the endpoint may sign its session key with.</summary>
 /// <param name="CertificateFingerprints">
 /// Lowercase hex SHA-256 of the public key of every valid certificate of the serving service. The endpoint sends its certificate key over
@@ -22,8 +29,9 @@ public sealed record RemoteTarget(Guid EndpointId, string Hostname, string? Clie
 public sealed record RemoteTicket(Guid SessionId, Guid ParticipantId, string Token, string Signature, string KeyId, IReadOnlyList<string> CertificateFingerprints);
 
 /// <summary>
-/// Remote sessions in web (0.3.0, ARCHITECTURE.md §4 Remote session): opening a remote background session writes the session, the
-/// technician's participant and a signing request, and waits for fleeto-signer to sign the single-use token. Web checks what it can for
+/// Remote sessions in web (0.3.0, ARCHITECTURE.md §4 Remote session): opening a remote background session (served by the watchdog) or a
+/// remote control session (served by the agent, Windows) writes the session, the technician's participant and a signing request, and
+/// waits for fleeto-signer to sign the single-use token. Web checks what it can for
 /// a clear answer; the signer, the gateway and the endpoint decide again.
 /// </summary>
 public sealed class RemoteSessionService
@@ -81,12 +89,99 @@ public sealed class RemoteSessionService
             endpoint.WatchdogVersion, problem);
     }
 
+    /// <summary>The endpoint for the remote control window; null when the caller may not open one or the endpoint is not visible.</summary>
+    public async Task<RemoteControlTarget?> GetControlTargetAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
+    {
+        if (!caller.CanManage)
+        {
+            return null;
+        }
+
+        await using var db = _dbFactory.Create(caller.Scope);
+        var endpoint = await db.Endpoints.AsNoTracking().Where(e => e.Id == endpointId)
+            .Select(e => new
+            {
+                e.Id, e.Hostname, e.Tier, e.Source, e.OsPlatform, e.OsName, e.IsOnline, e.AgentVersion, e.DetectedClass, e.ClassOverride,
+                e.SignedInUsersJson, e.SignedInUsersAt,
+                ClientCode = db.Clients.Where(c => c.Id == e.ClientId).Select(c => c.Code).FirstOrDefault()
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (endpoint is null)
+        {
+            return null;
+        }
+
+        var license = await _licenses.GetStatusAsync(db, cancellationToken);
+        var problem = TierRules.EffectiveTier(endpoint.Tier, license) != EndpointTier.Managed
+            ? "Remote control is only available on managed endpoints. Switch the endpoint to managed first."
+            : endpoint.Source != EndpointSource.Agent || endpoint.OsPlatform != "windows"
+                ? "Remote control runs on Windows endpoints with a Fleeto agent."
+            : !RemoteSessionRules.AgentSupportsRemoteControl(endpoint.AgentVersion)
+                ? $"The agent of this endpoint runs {(string.IsNullOrEmpty(endpoint.AgentVersion) ? "no known version" : "Fleeto " + endpoint.AgentVersion)}. Remote control needs Fleeto 0.3.0 or later; the agent updates with its update ring."
+            : !endpoint.IsOnline
+                ? "The agent of this endpoint is offline. Remote control starts when the endpoint is online."
+            : null;
+        var sessions = RemoteSessionRules.WindowsSessions(SignedInUserRules.Parse(endpoint.SignedInUsersJson));
+        return new RemoteControlTarget(endpoint.Id, endpoint.Hostname, endpoint.ClientCode, endpoint.OsName, endpoint.ClassOverride ?? endpoint.DetectedClass,
+            sessions, endpoint.SignedInUsersAt, problem);
+    }
+
     /// <summary>
     /// Opens a remote background session for the caller with the browser's ephemeral public key and waits up to 20 seconds for the signed
     /// token. The session and the request are audited whether or not the signer signs.
     /// </summary>
     public async Task<ServiceResult<RemoteTicket>> OpenBackgroundAsync(Caller caller, Guid endpointId, byte[] browserPublicKey, string? reason,
         CancellationToken cancellationToken = default)
+    {
+        var problem = CheckRequest(caller, browserPublicKey, ref reason);
+        if (problem is not null)
+        {
+            return problem;
+        }
+
+        var target = await GetBackgroundTargetAsync(caller, endpointId, cancellationToken);
+        if (target is null)
+        {
+            return ServiceResult<RemoteTicket>.NotFound("endpoint");
+        }
+
+        return target.Problem is not null
+            ? ServiceResult<RemoteTicket>.Fail(target.Problem)
+            : await OpenAsync(caller, endpointId, target.Hostname, RemoteSessionKind.RemoteBackground, AgentComponent.Watchdog, null, browserPublicKey,
+                reason, cancellationToken);
+    }
+
+    /// <summary>
+    /// Opens a remote control session (0.3.0 step 3) on the chosen Windows session: 0 for the console, otherwise a remote session the agent
+    /// reported. Waits up to 20 seconds for the signed token, like <see cref="OpenBackgroundAsync"/>.
+    /// </summary>
+    public async Task<ServiceResult<RemoteTicket>> OpenControlAsync(Caller caller, Guid endpointId, byte[] browserPublicKey, string? reason,
+        int windowsSessionId, CancellationToken cancellationToken = default)
+    {
+        var problem = CheckRequest(caller, browserPublicKey, ref reason);
+        if (problem is not null)
+        {
+            return problem;
+        }
+
+        var target = await GetControlTargetAsync(caller, endpointId, cancellationToken);
+        if (target is null)
+        {
+            return ServiceResult<RemoteTicket>.NotFound("endpoint");
+        }
+
+        if (target.Problem is not null)
+        {
+            return ServiceResult<RemoteTicket>.Fail(target.Problem);
+        }
+
+        return target.Sessions.All(s => s.Id != windowsSessionId)
+            ? ServiceResult<RemoteTicket>.Fail("That Windows session is no longer signed in. Choose the console or another session.")
+            : await OpenAsync(caller, endpointId, target.Hostname, RemoteSessionKind.RemoteControl, AgentComponent.Agent, windowsSessionId,
+                browserPublicKey, reason, cancellationToken);
+    }
+
+    private static ServiceResult<RemoteTicket>? CheckRequest(Caller caller, byte[] browserPublicKey, ref string? reason)
     {
         if (!caller.CanManage)
         {
@@ -99,29 +194,21 @@ public sealed class RemoteSessionService
         }
 
         reason = ServiceSupport.Clean(reason);
-        if (reason is { Length: > RemoteSessionRules.MaxReasonLength })
-        {
-            return ServiceResult<RemoteTicket>.Fail($"The reason can be at most {RemoteSessionRules.MaxReasonLength} characters.");
-        }
+        return reason is { Length: > RemoteSessionRules.MaxReasonLength }
+            ? ServiceResult<RemoteTicket>.Fail($"The reason can be at most {RemoteSessionRules.MaxReasonLength} characters.")
+            : null;
+    }
 
-        var target = await GetBackgroundTargetAsync(caller, endpointId, cancellationToken);
-        if (target is null)
-        {
-            return ServiceResult<RemoteTicket>.NotFound("endpoint");
-        }
-
-        if (target.Problem is not null)
-        {
-            return ServiceResult<RemoteTicket>.Fail(target.Problem);
-        }
-
+    private async Task<ServiceResult<RemoteTicket>> OpenAsync(Caller caller, Guid endpointId, string hostname, RemoteSessionKind kind,
+        AgentComponent component, int? windowsSessionId, byte[] browserPublicKey, string? reason, CancellationToken cancellationToken)
+    {
         await using var db = _dbFactory.Create(caller.Scope);
         var clientId = await db.Endpoints.Where(e => e.Id == endpointId).Select(e => e.ClientId).SingleAsync(cancellationToken);
         var now = _time.GetUtcNow().UtcDateTime;
         var name = caller.Name.Length > 200 ? caller.Name[..200] : caller.Name;
         var session = new RemoteSession
         {
-            Id = Guid.NewGuid(), ClientId = clientId, EndpointId = endpointId, Kind = RemoteSessionKind.RemoteBackground, Component = AgentComponent.Watchdog,
+            Id = Guid.NewGuid(), ClientId = clientId, EndpointId = endpointId, Kind = kind, Component = component, WindowsSessionId = windowsSessionId,
             StartedByUserId = caller.UserId, StartedByName = name, Reason = reason, CreatedAt = now
         };
         var participant = new RemoteSessionParticipant
@@ -139,7 +226,8 @@ public sealed class RemoteSessionService
         db.SigningRequests.Add(request);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.RemoteSessionRequested, "RemoteSession", session.Id.ToString(), clientId, new
         {
-            target.Hostname, EndpointId = endpointId, ParticipantId = participant.Id, Kind = session.Kind.ToString(), Reason = reason
+            Hostname = hostname, EndpointId = endpointId, ParticipantId = participant.Id, Kind = session.Kind.ToString(), WindowsSessionId = windowsSessionId,
+            Reason = reason
         }), now));
         await db.SaveChangesAsync(cancellationToken);
 
@@ -150,10 +238,12 @@ public sealed class RemoteSessionService
         }
 
         var signed = outcome.Participant!;
-        var keys = await CertificateKeysAsync(db, endpointId, AgentComponent.Watchdog, cancellationToken);
+        var keys = await CertificateKeysAsync(db, endpointId, component, cancellationToken);
         if (keys.Count == 0)
         {
-            return ServiceResult<RemoteTicket>.Fail("The watchdog of this endpoint has no valid certificate. The agent requests a new one; try again in a few minutes.");
+            return ServiceResult<RemoteTicket>.Fail(component == AgentComponent.Watchdog
+                ? "The watchdog of this endpoint has no valid certificate. The agent requests a new one; try again in a few minutes."
+                : "The agent of this endpoint has no valid certificate. Check its certificate in the endpoint detail, then try again.");
         }
 
         return ServiceResult<RemoteTicket>.Ok(new RemoteTicket(session.Id, participant.Id, Convert.ToBase64String(signed.TokenPayload!),

@@ -31,6 +31,7 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
     public const string NotManagedReason = "The endpoint is not managed. Switch it to managed before opening a remote session.";
     public const string BrowserKeyReason = "The browser sent an invalid session key. Close the window and open the session again.";
     public const string KindReason = "This kind of remote session is not available yet.";
+    public const string PlatformReason = "Remote control runs on Windows endpoints only.";
 
     private readonly SignerKeyRing _keyRing;
     private readonly LicenseService _licenses;
@@ -81,8 +82,14 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
             return SigningOutcome.Refused(MissingReason);
         }
 
-        // Remote background is served by the watchdog; remote control by the agent arrives with its own step.
-        if (session.Kind != RemoteSessionKind.RemoteBackground || session.Component != AgentComponent.Watchdog)
+        // Remote background is served by the watchdog, remote control (Windows, 0.3.0 step 3) by the agent on a chosen Windows session.
+        var servedBy = session.Kind switch
+        {
+            RemoteSessionKind.RemoteBackground when session.Component == AgentComponent.Watchdog && session.WindowsSessionId is null => Component.Watchdog,
+            RemoteSessionKind.RemoteControl when session.Component == AgentComponent.Agent && session.WindowsSessionId >= 0 => Component.Agent,
+            _ => Component.Unspecified
+        };
+        if (servedBy == Component.Unspecified)
         {
             return SigningOutcome.Refused(KindReason);
         }
@@ -100,11 +107,16 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
 
         var endpoint = await db.Endpoints.IgnoreQueryFilters().AsNoTracking()
             .Where(e => e.Id == participant.EndpointId && e.ClientId == participant.ClientId)
-            .Select(e => new { e.Id, e.SiteId, e.Tier, e.Hostname })
+            .Select(e => new { e.Id, e.SiteId, e.Tier, e.Hostname, e.OsPlatform })
             .SingleOrDefaultAsync(cancellationToken);
         if (endpoint is null)
         {
             return SigningOutcome.Refused(MissingReason);
+        }
+
+        if (session.Kind == RemoteSessionKind.RemoteControl && endpoint.OsPlatform != "windows")
+        {
+            return SigningOutcome.Refused(PlatformReason);
         }
 
         // Tier enforcement, layer 2 (the signer): the stored tier and the license must both allow managed behaviour.
@@ -129,8 +141,11 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
             SessionId = session.Id.ToString("D"),
             InstanceId = _keyRing.InstanceId.ToString("D"),
             EndpointId = endpoint.Id.ToString("D"),
-            Kind = Protocol.Agent.V1.RemoteSessionKind.RemoteBackground,
-            Component = Component.Watchdog,
+            Kind = session.Kind == RemoteSessionKind.RemoteControl
+                ? Protocol.Agent.V1.RemoteSessionKind.RemoteControl
+                : Protocol.Agent.V1.RemoteSessionKind.RemoteBackground,
+            Component = servedBy,
+            WindowsSessionId = (uint)(session.WindowsSessionId ?? 0),
             TechnicianId = participant.UserId.ToString("D"),
             TechnicianName = participant.UserName,
             BrowserPublicKey = ByteString.CopyFrom(participant.BrowserPublicKey),
@@ -156,6 +171,7 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
                 ParticipantId = participant.Id,
                 Kind = session.Kind.ToString(),
                 Technician = participant.UserName,
+                session.WindowsSessionId,
                 validUntil,
                 IdleTimeoutMinutes = idleMinutes
             }), now, cancellationToken);

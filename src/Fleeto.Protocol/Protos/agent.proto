@@ -704,6 +704,9 @@ message RemoteSessionToken {
   uint32 idle_timeout_seconds = 12;
   // From the effective policy: the largest file one transfer may carry.
   uint64 max_file_bytes = 13;
+  // Remote control on Windows (0.3.0 step 3): the Windows session to show. 0 is the console session (whichever session is attached to
+  // the console, including the sign-in screen); any other value is a signed-in session (an RDP session) as the agent reported it.
+  uint32 windows_session_id = 14;
 }
 
 enum RemoteSessionKind {

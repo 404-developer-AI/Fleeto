@@ -28,7 +28,9 @@ safe restore when an update fails, with WAL archiving removed (all found while t
 `v0.2.2-alpha.2` (2026-09-16) on the first test VPS.
 
 **0.3.0** — in progress (started 2026-09-16): remote control and remote background, planned with the developer on 2026-09-16 in
-seven steps. Step 1 (the relay, end-to-end encryption and the remote background terminal) is built.
+seven steps. Steps 1 and 2 (the relay, end-to-end encryption and the complete remote background: terminal, files, services and
+processes) are built and verified on Windows and Linux endpoints (`v0.3.0-alpha.4`, 2026-09-17). Step 3 (remote control on Windows:
+screen, mouse and keyboard) is built (`v0.3.0-alpha.5`).
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
 2026-09-15, see Later).
@@ -426,7 +428,7 @@ Steps:
    - xterm.js 6.0.0 is served from the instance (`wwwroot/lib/xterm`, verified against the npm integrity hash).
    - On Windows Server 2016 (no ConPTY) the terminal runs the shell with redirected streams: the window edits the line and sends
      it with Enter; full-screen programs do not work there.
-2. [done] **Remote background complete** (alpha.2): file explorer (browse, download, upload, rename, delete, copy within the
+2. [done] **Remote background complete** (alpha.2; fixes found on the test VPS in alpha.3 and alpha.4): file explorer (browse, download, upload, rename, delete, copy within the
    endpoint) with resumable, flow-controlled transfers up to the policy's file size cap; services (list, start, stop, restart,
    start type); processes (list with CPU, memory and user; end one); every action audited over the endpoint's control session.
    Decided while building (2026-09-17):
@@ -436,15 +438,29 @@ Steps:
      audit entry comes from the endpoint, not the browser, and never carries a file's content. Stored in `RemoteSessionActions`.
    - Downloads stream to disk with the File System Access API where the browser has it, and fall back to a Blob otherwise; a
      transfer resumes from a byte offset after the session is re-established.
-3. **Remote control on Windows** (alpha.3): session helper in the chosen Windows session (console, sign-in screen, UAC, RDP
-   sessions), capture with monitor choice, tile codec with flow control, mouse and layout-safe keyboard, Type clipboard,
-   Ctrl+Alt+Del, stuck-key release, automatic reconnect, viewer window.
-4. **Clipboard, several technicians, consent and banner** (alpha.4): text clipboard both ways, files by paste or drag and
+   - The endpoint starts sending a download when it answers the request, so the browser keeps frames of a transfer it does not
+     know yet; a download without acknowledgements for 2 minutes stops and closes the file (found in alpha.2: downloads never
+     finished and the open file could not be deleted).
+3. [done] **Remote control on Windows** (alpha.5): a helper the agent starts as SYSTEM in the chosen Windows session (console,
+   sign-in screen, UAC and RDP sessions), screen capture with monitor choice, the tile codec with flow control, mouse and a
+   layout-safe keyboard, Type clipboard, Ctrl+Alt+Del, stuck-key release, automatic reconnect and the viewer window.
+   Decided while building (2026-09-17):
+   - Capture is GDI (BitBlt) for now: it works on every desktop (sign-in screen, UAC, RDP sessions and VMs without a GPU). DXGI
+     desktop duplication moves to step 5, where the Direct3D code it needs is built for H.264 anyway.
+   - Automatic reconnect opens a **new** session in the same window (same reason and Windows session), so the audit log shows
+     two sessions; the token is single use and a session ends when nobody is connected, so resuming the same one would change how
+     the gateway and workers end sessions. Up to three tries with a short, growing delay.
+   - The agent starts one helper process per session (`fleeto-agent remote-helper`) as SYSTEM in the Windows session, over
+     anonymous pipes only it inherits, in a job object that ends it with the agent. It follows the input desktop, so the sign-in
+     screen and UAC are shown and can be used, and follows the console to another session (fast user switching).
+   - Ctrl+Alt+Del is handled by the agent service (SendSAS), not the helper; the agent sets `SoftwareSASGeneration=1` when it is
+     missing, and a group policy that sets it otherwise wins, with the reason shown on the button.
+4. **Clipboard, several technicians, consent and banner**: text clipboard both ways, files by paste or drag and
    download notice, joining a running session with each other's pointers, consent prompt, banner and timeout on workstations,
    idle timeout.
-5. **H.264 on Windows** (alpha.5): Media Foundation encoder with WebCodecs, automatic fallback, latency measured (under
+5. **H.264 on Windows**: Media Foundation encoder with WebCodecs, automatic fallback, latency measured (under
    100 ms on a LAN) and a poor link simulated.
-6. **Linux X11** (alpha.6): capture, XTEST input with keysym mapping, X selections for the clipboard, banner and consent
+6. **Linux X11**: capture, XTEST input with keysym mapping, X selections for the clipboard, banner and consent
    window on workstations, the Wayland message.
 7. **Release 0.3.0**: concurrent sessions through the gateway under load, security review of the new code, API waiting list,
    changelog, tag `v0.3.0`.

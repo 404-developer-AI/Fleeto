@@ -46,13 +46,14 @@ public sealed class RemoteSessionTokenTests
     }
 
     private async Task<RemoteSessionParticipant> CreateParticipantAsync(Endpoint endpoint, Guid userId, byte[]? browserKey = null, DateTime? createdAt = null,
-        RemoteParticipantState state = RemoteParticipantState.Requested)
+        RemoteParticipantState state = RemoteParticipantState.Requested, RemoteSessionKind kind = RemoteSessionKind.RemoteBackground,
+        AgentComponent component = AgentComponent.Watchdog, int? windowsSessionId = null)
     {
         await using var db = _fixture.Database.DbFactory.CreateSystem();
         var session = new RemoteSession
         {
-            Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, Kind = RemoteSessionKind.RemoteBackground,
-            Component = AgentComponent.Watchdog, StartedByUserId = userId, StartedByName = "Tess Tech", CreatedAt = createdAt ?? _fixture.Now
+            Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, Kind = kind,
+            Component = component, WindowsSessionId = windowsSessionId, StartedByUserId = userId, StartedByName = "Tess Tech", CreatedAt = createdAt ?? _fixture.Now
         };
         var participant = new RemoteSessionParticipant
         {
@@ -171,5 +172,41 @@ public sealed class RemoteSessionTokenTests
         Assert.Equal(SigningRequestState.Completed, request.State);
         Assert.Equal(RemoteParticipantState.Failed, failed.State);
         Assert.Null(failed.TokenSignature);
+    }
+
+    [Fact]
+    public async Task A_remote_control_token_is_for_the_agent_and_names_the_windows_session()
+    {
+        var (endpoint, technicianId) = await ScopeAsync();
+        var participant = await CreateParticipantAsync(endpoint, technicianId, kind: RemoteSessionKind.RemoteControl, component: AgentComponent.Agent,
+            windowsSessionId: 3);
+
+        var (request, signed) = await SignAsync(participant);
+
+        Assert.Equal(SigningRequestState.Completed, request.State);
+        var token = RemoteSessionToken.Parser.ParseFrom(signed.TokenPayload);
+        Assert.Equal(Component.Agent, token.Component);
+        Assert.Equal(Protocol.Agent.V1.RemoteSessionKind.RemoteControl, token.Kind);
+        Assert.Equal(3u, token.WindowsSessionId);
+    }
+
+    [Fact]
+    public async Task Remote_control_is_refused_for_the_watchdog_and_off_windows()
+    {
+        var (endpoint, technicianId) = await ScopeAsync();
+        var (_, wrongService) = await SignAsync(await CreateParticipantAsync(endpoint, technicianId, kind: RemoteSessionKind.RemoteControl,
+            component: AgentComponent.Watchdog, windowsSessionId: 0));
+        Assert.Equal(RemoteSessionTokenHandler.KindReason, wrongService.EndReason);
+
+        var (linux, linuxTechnician) = await ScopeAsync();
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.Endpoints.Where(e => e.Id == linux.Id).ExecuteUpdateAsync(s => s.SetProperty(e => e.OsPlatform, "linux"));
+        }
+
+        var (_, offWindows) = await SignAsync(await CreateParticipantAsync(linux, linuxTechnician, kind: RemoteSessionKind.RemoteControl,
+            component: AgentComponent.Agent, windowsSessionId: 0));
+        Assert.Equal(RemoteSessionTokenHandler.PlatformReason, offWindows.EndReason);
+        Assert.Null(offWindows.TokenSignature);
     }
 }

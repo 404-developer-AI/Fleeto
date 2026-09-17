@@ -21,7 +21,9 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/jobs"
 	"github.com/404-developer-AI/Fleeto/agent/internal/keystore"
 	"github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1"
+	"github.com/404-developer-AI/Fleeto/agent/internal/remote"
 	"github.com/404-developer-AI/Fleeto/agent/internal/safego"
+	"github.com/404-developer-AI/Fleeto/agent/internal/screen"
 	"github.com/404-developer-AI/Fleeto/agent/internal/signedconfig"
 	"github.com/404-developer-AI/Fleeto/agent/internal/state"
 	"github.com/404-developer-AI/Fleeto/agent/internal/update"
@@ -67,6 +69,9 @@ type Options struct {
 
 	// Watchdog makes the agent install, supervise and update the watchdog (0.2.1). Nil in foreground development mode.
 	Watchdog *WatchdogOptions
+
+	// ScreenLauncher starts the remote control helper (0.3.0); default screen.WindowsLauncher on Windows. Tests replace it.
+	ScreenLauncher screen.Launcher
 }
 
 func (o *Options) setDefaults() {
@@ -132,12 +137,17 @@ type Agent struct {
 	// signedIn is the latest list of signed-in users; nil until it was read once.
 	signedIn atomic.Pointer[agentv1.SignedInUsers]
 	watchdog *watchdogManager
+	// remote serves remote control sessions (0.3.0 step 3).
+	remote *remote.Server
 
 	mu             sync.Mutex
 	st             *state.State
 	trust          signedconfig.Trust
 	config         *agentv1.AgentConfig
 	appliedPayload []byte
+
+	// runCtx is the context of Run: remote control sessions live as long as the agent, not as long as one control connection.
+	runCtx context.Context
 
 	lastBufferError time.Time
 	nextRenewal     time.Time
@@ -211,6 +221,7 @@ func New(opts Options) (*Agent, error) {
 		return nil, fmt.Errorf("open the job spool: %w", err)
 	}
 	a.jobs = manager
+	a.remote = a.newRemoteServer()
 	if opts.Watchdog != nil {
 		watchdog, err := newWatchdogManager(a, *opts.Watchdog)
 		if err != nil {
@@ -273,6 +284,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.scheduler.Apply(cfg)
 	}
 	defer a.scheduler.Stop()
+	a.mu.Lock()
+	a.runCtx = ctx
+	a.mu.Unlock()
 	if a.watchdog != nil {
 		// A replacement of the watchdog binary that a crash interrupted is undone first.
 		update.Recover(a.store.Dir(), a.logger)

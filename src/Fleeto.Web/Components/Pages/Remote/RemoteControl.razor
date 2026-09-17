@@ -1,0 +1,288 @@
+@page "/remote/control/{EndpointId:guid}"
+@attribute [Authorize(Policy = FleetoPolicies.Technician)]
+@layout RemoteLayout
+@inherits FleetoPageBase
+@implements IAsyncDisposable
+@inject RemoteSessionService RemoteSvc
+@inject IJSRuntime JS
+@inject IConfiguration Configuration
+@inject TimeDisplay Time
+@inject ILogger<RemoteControl> Logger
+
+@* Remote control (0.3.0 step 3): the screen of a Windows endpoint, served by the agent in the chosen Windows session, end-to-end encrypted
+   between this window and the endpoint. The session runs in the browser (remote-control.js); this component asks for the signed token,
+   shows the state and lets the technician choose the Windows session before it starts. *@
+<PageTitle>@(_target is null ? "Remote control" : $"{_target.Hostname} - Remote control") - Fleeto</PageTitle>
+
+<div class="remote-header">
+    <FleetoMark Size="24" />
+    <div class="remote-title">
+        <span class="remote-hostname">@(_target?.Hostname ?? "Remote control")</span>
+        <span class="muted">
+            Remote control@(_target is null ? "" : $" · [{_target.ClientCode}] · {_target.OsName}")
+        </span>
+    </div>
+    <StatusChip Text="@StateLabel" Kind="@StateKind" Dot="true" />
+    <MudSpacer />
+    @if (_state == SessionState.Connected)
+    {
+        <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Outlined.Close" OnClick="EndAsync">End session</MudButton>
+    }
+    else if (_state is SessionState.Ended or SessionState.Failed && _target?.Problem is null)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Refresh" OnClick="StartAsync">Connect again</MudButton>
+    }
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed" NotFound="_notFound" What="endpoint">
+    @if (_idleSecondsLeft is { } left && _state == SessionState.Connected)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mx-4 mt-2" Dense="true" ContentAlignment="HorizontalAlignment.Left">
+            <div class="d-flex align-center gap-3 flex-wrap">
+                <span>The session closes in @(Math.Max(1, (left + 59) / 60)) minute@(left > 60 ? "s" : "") without input.</span>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="KeepAliveAsync">Stay connected</MudButton>
+            </div>
+        </MudAlert>
+    }
+
+    @if (_message is not null && _state is SessionState.Failed or SessionState.Ended)
+    {
+        <MudAlert Severity="@(_state == SessionState.Failed ? Severity.Error : Severity.Info)" Class="mx-4 mt-2" Dense="true">@_message</MudAlert>
+    }
+
+    @if (_state == SessionState.NotStarted && _target is { } target)
+    {
+        <div class="remote-start">
+            @if (target.Problem is not null)
+            {
+                <MudAlert Severity="Severity.Warning">@target.Problem</MudAlert>
+            }
+            else if (!_browserSupported)
+            {
+                <MudAlert Severity="Severity.Error">
+                    This browser cannot show a remote control session. Use a current version of Chrome, Edge, Firefox or Safari.
+                </MudAlert>
+            }
+            else
+            {
+                <MudText Typo="Typo.body1" Class="mb-3">
+                    Take over the screen of @target.Hostname. Everything in this window is encrypted between this browser and the endpoint; the
+                    gateway only passes it on. The session is recorded in the audit log@(target.Class == EndpointClass.Workstation ? ", and the person at the endpoint may be shown a banner and asked for consent by policy" : "").
+                </MudText>
+                <MudSelect T="int" @bind-Value="_windowsSession" Label="Windows session" Variant="Variant.Outlined" Class="mb-1">
+                    @foreach (var session in target.Sessions)
+                    {
+                        <MudSelectItem T="int" Value="@session.Id">@session.Label</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudText Typo="Typo.caption" Class="mb-3 d-block mud-text-secondary">
+                    The console shows the sign-in screen and UAC. @(target.SessionsReportedAt is { } at ? $"Signed-in users as reported {Time.Relative(at)}." : "No signed-in users reported yet.")
+                </MudText>
+                <MudTextField T="string" @bind-Value="_reason" Label="Reason (optional)" Variant="Variant.Outlined" MaxLength="@RemoteSessionRules.MaxReasonLength"
+                              HelperText="Stored with the session in the audit log." Class="mb-4" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.ScreenShare" OnClick="StartAsync">Start session</MudButton>
+            }
+        </div>
+    }
+</LoadState>
+
+<div class="remote-workspace @(_state is SessionState.Connecting or SessionState.Connected or SessionState.Ended ? "" : "hidden")" @ref="_container"></div>
+
+@code {
+    private enum SessionState
+    {
+        NotStarted,
+        Connecting,
+        Connected,
+        Ended,
+        Failed
+    }
+
+    [Parameter]
+    public Guid EndpointId { get; set; }
+
+    private RemoteControlTarget? _target;
+    private bool _notFound;
+    private bool _browserSupported = true;
+    private int _windowsSession = RemoteSessionRules.ConsoleWindowsSession;
+    private string? _reason;
+    private SessionState _state = SessionState.NotStarted;
+    private string? _message;
+    private int? _idleSecondsLeft;
+    private ElementReference _container;
+    private IJSObjectReference? _module;
+    private IJSObjectReference? _session;
+    private DotNetObjectReference<RemoteControl>? _self;
+
+    private string StateLabel => _state switch
+    {
+        SessionState.Connecting => "Connecting",
+        SessionState.Connected => "Connected",
+        SessionState.Ended => "Ended",
+        SessionState.Failed => "Not connected",
+        _ => "Not connected"
+    };
+
+    private StatusKind StateKind => _state switch
+    {
+        SessionState.Connected => StatusKind.Ok,
+        SessionState.Connecting => StatusKind.Warning,
+        SessionState.Failed => StatusKind.Error,
+        _ => StatusKind.Neutral
+    };
+
+    protected override Task OnParametersSetAsync() => LoadAsync(async caller =>
+    {
+        _target = await RemoteSvc.GetControlTargetAsync(caller, EndpointId);
+        _notFound = _target is null;
+    });
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/remote-control.js");
+        _browserSupported = await _module.InvokeAsync<bool>("supported");
+        _self = DotNetObjectReference.Create(this);
+        StateHasChanged();
+    }
+
+    private async Task StartAsync()
+    {
+        if (_module is null || _self is null || _target?.Problem is not null)
+        {
+            return;
+        }
+
+        _message = null;
+        _idleSecondsLeft = null;
+        _state = SessionState.Connecting;
+        StateHasChanged();
+        if (_session is not null)
+        {
+            await _session.InvokeVoidAsync("dispose");
+            await _session.DisposeAsync();
+        }
+
+        _session = await _module.InvokeAsync<IJSObjectReference>("createSession", _self, _container, new
+        {
+            relayUrl = Configuration["Remote:RelayUrl"] ?? string.Empty,
+            hostname = _target?.Hostname
+        });
+        await _session.InvokeVoidAsync("start");
+    }
+
+    /// <summary>Called by remote-control.js with the browser's ephemeral public key: opens the session on the chosen Windows session.</summary>
+    [JSInvokable]
+    public async Task<object> RequestTicket(string browserPublicKey)
+    {
+        byte[] key;
+        try
+        {
+            key = Convert.FromBase64String(browserPublicKey);
+        }
+        catch (FormatException)
+        {
+            return new { problem = "The browser did not create a valid session key. Close this window and open the session again." };
+        }
+
+        try
+        {
+            var result = await RemoteSvc.OpenControlAsync(await CurrentUser.GetAsync(), EndpointId, key, _reason, _windowsSession);
+            return result is { Success: true, Value: { } ticket }
+                ? new { participantId = ticket.ParticipantId, token = ticket.Token, signature = ticket.Signature, keyId = ticket.KeyId, fingerprints = ticket.CertificateFingerprints }
+                : new { problem = result.Problem ?? ServiceSupport.GenericProblem };
+        }
+        catch (AccessDeniedException)
+        {
+            return new { problem = ServiceResult.ForbiddenProblem };
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Opening a remote control session for endpoint {EndpointId} failed", EndpointId);
+            return new { problem = ServiceSupport.GenericProblem };
+        }
+    }
+
+    [JSInvokable]
+    public Task OnState(string state, string? message)
+    {
+        _state = state switch
+        {
+            "connected" => SessionState.Connected,
+            "ended" => SessionState.Ended,
+            "failed" => SessionState.Failed,
+            _ => SessionState.Connecting
+        };
+        _message = message;
+        if (_state != SessionState.Connected)
+        {
+            _idleSecondsLeft = null;
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task OnIdleWarning(int secondsLeft)
+    {
+        _idleSecondsLeft = secondsLeft;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task OnActivity()
+    {
+        if (_idleSecondsLeft is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        _idleSecondsLeft = null;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task KeepAliveAsync()
+    {
+        _idleSecondsLeft = null;
+        if (_session is not null)
+        {
+            await _session.InvokeVoidAsync("keepAlive");
+        }
+    }
+
+    private async Task EndAsync()
+    {
+        if (_session is not null)
+        {
+            await _session.InvokeVoidAsync("end");
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_session is not null)
+            {
+                await _session.InvokeVoidAsync("dispose");
+                await _session.DisposeAsync();
+            }
+
+            if (_module is not null)
+            {
+                await _module.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // The window closed; the browser ended the session with it.
+        }
+
+        _self?.Dispose();
+        Dispose();
+    }
+}

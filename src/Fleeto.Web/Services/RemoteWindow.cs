@@ -17,6 +17,18 @@ public sealed class RemoteWindow
 
     public static string BackgroundUrl(Guid endpointId) => $"/remote/background/{endpointId:D}";
 
+    public static string ControlUrl(Guid endpointId) => $"/remote/control/{endpointId:D}";
+
+    /// <summary>Opens the Remote control window (0.3.0 step 3, Windows endpoints).</summary>
+    public async Task OpenControlAsync(Guid endpointId)
+    {
+        var opened = await _js.InvokeAsync<bool>("fleeto.openWindow", ControlUrl(endpointId), "fleeto-control-" + endpointId.ToString("N"));
+        if (!opened)
+        {
+            _snackbar.Add("The browser blocked the Remote control window. Allow pop-ups for this site, then try again.", Severity.Warning);
+        }
+    }
+
     public async Task OpenBackgroundAsync(Guid endpointId)
     {
         var opened = await _js.InvokeAsync<bool>("fleeto.openWindow", BackgroundUrl(endpointId), "fleeto-background-" + endpointId.ToString("N"));

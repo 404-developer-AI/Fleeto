@@ -46,6 +46,8 @@ type Server struct {
 	Open  TerminalOpener
 	// Report records an action a technician took in a session, for the audit log (0.3.0 step 2); nil disables it.
 	Report func(participantID, action, target, detail string)
+	// Screen serves remote control sessions (0.3.0 step 3); nil where this service does not serve them.
+	Screen ScreenFactory
 	// Logger and Now are optional.
 	Logger *slog.Logger
 	Now    func() time.Time
@@ -80,6 +82,9 @@ func (s *Server) Offer(ctx context.Context, offer *agentv1.RemoteSessionOffer) (
 		return participantID, "The endpoint refused the session: " + err.Error()
 	}
 	participantID = token.GetParticipantId()
+	if token.GetKind() == agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_REMOTE_CONTROL && s.Screen == nil {
+		return participantID, "The endpoint refused the session: remote control is not supported on this platform yet."
+	}
 	// Tier enforcement, layer 4.
 	if !s.Managed() {
 		logger.Warn("refused a remote session: the endpoint is agent-only", "participant", participantID)
@@ -130,7 +135,7 @@ func (s *Server) Offer(ctx context.Context, offer *agentv1.RemoteSessionOffer) (
 		report = func(action, target, detail string) { s.Report(participantID, action, target, detail) }
 	}
 	session, err := NewSession(SessionOptions{
-		Token: token, Keys: handshake.Keys, Transport: transport, Hello: s.Hello(), Open: s.Open, Report: report, Logger: logger, Now: now,
+		Token: token, Keys: handshake.Keys, Transport: transport, Hello: s.Hello(), Open: s.Open, Report: report, Screen: s.Screen, Logger: logger, Now: now,
 	})
 	if err != nil {
 		s.active.Add(-1)

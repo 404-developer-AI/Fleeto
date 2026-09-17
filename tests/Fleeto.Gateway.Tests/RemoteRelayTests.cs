@@ -81,20 +81,23 @@ public sealed class RemoteRelayTests
     private sealed record SignedParticipant(Guid ParticipantId, Guid SessionId, byte[] Payload, byte[] Signature);
 
     private async Task<SignedParticipant> SignedParticipantAsync(Endpoint endpoint, Action<RemoteSessionToken>? edit = null, byte[]? storedPayload = null,
-        byte[]? signingKey = null)
+        byte[]? signingKey = null, bool remoteControl = false)
     {
         var now = _fixture.Database.Time.GetUtcNow().UtcDateTime;
         var user = await _fixture.Database.CreateUserAsync(FleetoRoles.Technician, displayName: "Tess Tech");
         var session = new RemoteSession
         {
-            Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, Kind = RemoteSessionKind.RemoteBackground,
-            Component = AgentComponent.Watchdog, StartedByUserId = user.Id, StartedByName = "Tess Tech", CreatedAt = now
+            Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id,
+            Kind = remoteControl ? RemoteSessionKind.RemoteControl : RemoteSessionKind.RemoteBackground,
+            Component = remoteControl ? AgentComponent.Agent : AgentComponent.Watchdog, WindowsSessionId = remoteControl ? 0 : null, StartedByUserId = user.Id, StartedByName = "Tess Tech", CreatedAt = now
         };
         var participantId = Guid.NewGuid();
         var token = new RemoteSessionToken
         {
             ParticipantId = participantId.ToString("D"), SessionId = session.Id.ToString("D"), InstanceId = _fixture.Database.InstanceId.ToString("D"),
-            EndpointId = endpoint.Id.ToString("D"), Kind = Protocol.Agent.V1.RemoteSessionKind.RemoteBackground, Component = Component.Watchdog,
+            EndpointId = endpoint.Id.ToString("D"),
+            Kind = remoteControl ? Protocol.Agent.V1.RemoteSessionKind.RemoteControl : Protocol.Agent.V1.RemoteSessionKind.RemoteBackground,
+            Component = remoteControl ? Component.Agent : Component.Watchdog,
             TechnicianId = user.Id.ToString("D"), TechnicianName = "Tess Tech", BrowserPublicKey = ByteString.CopyFrom(RandomNumberGenerator.GetBytes(32)),
             IssuedAt = Timestamp.FromDateTime(now), ValidUntil = Timestamp.FromDateTime(now.AddSeconds(60)), IdleTimeoutSeconds = 1800
         };
@@ -305,6 +308,55 @@ public sealed class RemoteRelayTests
         }, CancellationToken.None);
         var refused = await browser.ReadTextAsync();
         Assert.Equal("The endpoint refused the session: agent-only.", refused.GetProperty("message").GetString());
+        await browser.Relay.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(RemoteParticipantState.Refused, (await ReadParticipantAsync(participant.ParticipantId)).State);
+    }
+
+    [Fact]
+    public async Task Remote_control_is_offered_to_the_agent_only_the_agent_can_connect_and_its_refusal_reaches_the_browser()
+    {
+        await using var scope = await ScopeAsync();
+        var agent = await _fixture.IssueAsync(scope.Endpoint);
+        Assert.True(await scope.Harness.AllowList.ReloadAsync(CancellationToken.None));
+        var agentControl = scope.Harness.NewSession(agent.Identity(scope.Endpoint.Id));
+        Assert.True(await scope.Harness.Manager.OpenAsync(agentControl, new Hello { AgentVersion = "0.3.0", Hostname = "WS-01", Component = Component.Agent },
+            CancellationToken.None));
+
+        var participant = await SignedParticipantAsync(scope.Endpoint, remoteControl: true);
+        var browser = StartBrowser(scope, participant.ParticipantId);
+        await browser.SendHelloAsync(participant);
+        var offer = await GatewayHarness.ReadUntilAsync(agentControl, ServerMessage.BodyOneofCase.RemoteSessionOffer);
+        Assert.Equal(participant.Payload, offer.RemoteSessionOffer.Session.Payload.ToByteArray());
+
+        Assert.False(scope.Relay.IsWaitingFor(participant.ParticipantId, scope.WatchdogIdentity));
+        Assert.True(scope.Relay.IsWaitingFor(participant.ParticipantId, agent.Identity(scope.Endpoint.Id)));
+
+        // A refusal the watchdog sends for a remote control participant is not the agent's: it is ignored.
+        await scope.Harness.Manager.HandleAsync(scope.Control, new AgentMessage
+        {
+            RemoteSessionRefused = new RemoteSessionRefused { ParticipantId = participant.ParticipantId.ToString("D"), Error = "Not mine." }
+        }, CancellationToken.None);
+        Assert.True(scope.Relay.IsWaitingFor(participant.ParticipantId, agent.Identity(scope.Endpoint.Id)));
+
+        await scope.Harness.Manager.HandleAsync(agentControl, new AgentMessage
+        {
+            RemoteSessionRefused = new RemoteSessionRefused { ParticipantId = participant.ParticipantId.ToString("D"), Error = "The console session is not available." }
+        }, CancellationToken.None);
+        var refused = await browser.ReadTextAsync();
+        Assert.Equal("The console session is not available.", refused.GetProperty("message").GetString());
+        await browser.Relay.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(RemoteParticipantState.Refused, (await ReadParticipantAsync(participant.ParticipantId)).State);
+    }
+
+    [Fact]
+    public async Task Remote_control_without_a_connected_agent_is_refused()
+    {
+        await using var scope = await ScopeAsync();
+        var participant = await SignedParticipantAsync(scope.Endpoint, remoteControl: true);
+        var browser = StartBrowser(scope, participant.ParticipantId);
+        await browser.SendHelloAsync(participant);
+        var refused = await browser.ReadTextAsync();
+        Assert.Contains("The agent of this endpoint is not connected", refused.GetProperty("message").GetString());
         await browser.Relay.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(RemoteParticipantState.Refused, (await ReadParticipantAsync(participant.ParticipantId)).State);
     }

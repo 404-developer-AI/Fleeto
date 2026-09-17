@@ -29,7 +29,18 @@ export const Frame = Object.freeze({
   Request: 0x0b,
   Response: 0x0c,
   Chunk: 0x0d,
-  Transfer: 0x0e
+  Transfer: 0x0e,
+  // Remote control (0.3.0 step 3, agent/internal/screen/frames.go).
+  Start: 0x10,
+  Info: 0x11,
+  Ack: 0x12,
+  Pointer: 0x13,
+  Key: 0x14,
+  Type: 0x15,
+  SecureAttention: 0x16,
+  ReleaseKeys: 0x17,
+  Update: 0x18,
+  ControlNotice: 0x19
 });
 
 function concat(...parts) {

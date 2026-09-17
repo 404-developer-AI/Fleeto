@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/keystore"
 	"github.com/404-developer-AI/Fleeto/agent/internal/logging"
 	"github.com/404-developer-AI/Fleeto/agent/internal/platform"
+	"github.com/404-developer-AI/Fleeto/agent/internal/screen"
 	"github.com/404-developer-AI/Fleeto/agent/internal/service"
 	"github.com/404-developer-AI/Fleeto/agent/internal/state"
 	"github.com/404-developer-AI/Fleeto/agent/internal/version"
@@ -76,6 +78,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdVersion(stdout)
 	case "run":
 		return cmdRun(args[1:], stderr)
+	case screen.HelperCommand:
+		return cmdRemoteHelper(stderr)
 	case "help", "--help", "-h", "/?":
 		fmt.Fprint(stdout, usage)
 		return exitOK
@@ -324,6 +328,24 @@ func cmdRun(args []string, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 	logger.Info("agent stopped")
+	return exitOK
+}
+
+// cmdRemoteHelper serves the screen of one remote control session (0.3.0) from inside a Windows session. The agent service starts it as
+// SYSTEM with pipes for its input and output; it is not meant to be run by hand, and gives nothing a user does not have in their own
+// session when it is.
+func cmdRemoteHelper(stderr io.Writer) int {
+	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	var session uint32
+	if value, err := strconv.ParseUint(os.Getenv(screen.SessionIDEnv), 10, 32); err == nil {
+		session = uint32(value)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if err := screen.RunHelper(ctx, os.Stdin, os.Stdout, session, logger); err != nil {
+		logger.Error("the remote control helper stopped", "error", err)
+		return exitError
+	}
 	return exitOK
 }
 

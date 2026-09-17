@@ -11,6 +11,13 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
+- 0.3.0: Remote control of a Windows endpoint: take over its screen from the right-click menu or the endpoint detail, in its own
+  window. Choose the Windows session first — the console (with the sign-in screen and UAC) or a signed-in RDP session — and, once
+  connected, the monitor. The screen is shown with change detection (sharp text), the mouse and keyboard work, and the keyboard
+  keeps the right characters whatever the layout on either side, also on the sign-in screen. Buttons for Ctrl+Alt+Del and "Type
+  clipboard", and the session reconnects on its own when the connection drops. Managed Windows endpoints with the Fleeto agent of
+  0.3.0, admins and technicians. Everything in the window is encrypted between the browser and the endpoint; the gateway only
+  passes it on. The session is recorded in the audit log.
 - 0.3.0: Remote background now has a file explorer, services and processes next to the terminal, in the same encrypted window.
   Files: browse the endpoint, download a file (streamed to disk, resumable), upload a file (up to the policy's cap), and create,
   rename, delete and copy within the endpoint. Services: list them and start, stop, restart or change the start type. Processes:
