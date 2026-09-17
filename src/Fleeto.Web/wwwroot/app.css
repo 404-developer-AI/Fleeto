@@ -305,12 +305,11 @@ html, body {
 .remote-hostname { font-weight: 600; font-size: 1rem; }
 .remote-title .muted { font-size: 0.8rem; }
 .remote-start { max-width: 640px; padding: 24px 16px; }
-.remote-terminal { flex: 1; min-height: 0; padding: 8px; background: #0b1220; }
-.remote-terminal.hidden { display: none; }
-.remote-terminal .xterm { height: 100%; }
 
-/* Remote background workspace (0.3.0 step 2): tabs and the file, service and process panels. */
-.remote-workspace { display: flex; flex-direction: column; }
+/* Remote background workspace (0.3.0 step 2): tabs and the file, service and process panels. It fills the rest of the window: the
+   panels are absolutely positioned, so without a height of its own the workspace collapses and nothing below the tabs is visible. */
+.remote-workspace { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.remote-workspace.hidden { display: none; }
 .remote-connecting { padding: 24px; color: var(--mud-palette-text-secondary); }
 .remote-tabs { display: flex; gap: 4px; padding: 6px 12px 0; border-bottom: 1px solid var(--mud-palette-lines-default); background: var(--mud-palette-surface); }
 .remote-tab { border: none; background: transparent; padding: 8px 16px; border-radius: 6px 6px 0 0; cursor: pointer; font: inherit; color: var(--mud-palette-text-secondary); }
