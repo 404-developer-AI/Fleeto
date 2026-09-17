@@ -1,3 +1,9 @@
 # Findings reviewed and accepted. One fingerprint per line: <commit>:<file>:<rule>:<line>.
 # Test enrollment token in the agent enrollment tests, not a real token (reviewed 2026-09-15).
 f35fa38bcefcdcbf496ecfd8857f851f3eaf6ca8:agent/internal/enroll/enroll_test.go:generic-api-key:28
+# Throwaway X25519 and AES keys of the shared remote session test vectors (0.3.0): generated with crypto/rand by
+# agent/internal/remote/vectors_test.go for the Go and browser tests only, never used by any endpoint or instance (reviewed 2026-09-16).
+4fe2b4729c29792ee4b8d7c967ee88ec988ff172:agent/internal/remote/testdata/vectors.json:generic-api-key:3
+4fe2b4729c29792ee4b8d7c967ee88ec988ff172:agent/internal/remote/testdata/vectors.json:generic-api-key:5
+4fe2b4729c29792ee4b8d7c967ee88ec988ff172:agent/internal/remote/testdata/vectors.json:generic-api-key:10
+4fe2b4729c29792ee4b8d7c967ee88ec988ff172:agent/internal/remote/testdata/vectors.json:generic-api-key:11
