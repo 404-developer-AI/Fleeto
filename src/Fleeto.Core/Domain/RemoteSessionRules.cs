@@ -1,3 +1,5 @@
+using Fleeto.Core.Entities;
+
 namespace Fleeto.Core.Domain;
 
 /// <summary>Limits and defaults of remote sessions (0.3.0), shared by web, signer, gateway and workers. The agent mirrors them.</summary>
@@ -6,8 +8,11 @@ public static class RemoteSessionRules
     /// <summary>The first watchdog that serves remote background sessions.</summary>
     public const string MinimumWatchdogVersion = "0.3.0-alpha.1";
 
-    /// <summary>The first agent that serves remote control sessions (0.3.0 step 3, Windows).</summary>
-    public const string MinimumAgentVersion = "0.3.0-alpha.5";
+    /// <summary>
+    /// The first agent that serves remote control sessions: 0.3.0 step 3 (Windows) brought the screen, step 4 the consent prompt, banner,
+    /// clipboard and several technicians in one session. An older agent would ignore the consent and banner of the policy, so it is refused.
+    /// </summary>
+    public const string MinimumAgentVersion = "0.3.0-alpha.7";
 
     /// <summary>The Windows session id that stands for the console session: whichever session is attached to the screen.</summary>
     public const int ConsoleWindowsSession = 0;
@@ -89,6 +94,21 @@ public static class RemoteSessionRules
         return sessions;
     }
 
+    /// <summary>
+    /// What the policy means for one remote control session (0.3.0 step 4, decided 2026-09-16): the consent prompt and the banner apply to
+    /// workstations only, a server never asks and shows no banner; the clipboard switch applies to every endpoint.
+    /// </summary>
+    public static RemoteControlRules EffectiveControlRules(EndpointClass endpointClass, bool consentRequired, int consentTimeoutSeconds, bool bannerVisible,
+        bool clipboardEnabled)
+    {
+        var workstation = endpointClass == EndpointClass.Workstation;
+        return new RemoteControlRules(workstation && consentRequired, ConsentTimeoutSeconds(consentTimeoutSeconds), workstation && bannerVisible,
+            clipboardEnabled);
+    }
+
+    /// <summary>The consent timeout a policy may set, held inside the bounds.</summary>
+    public static int ConsentTimeoutSeconds(int seconds) => Math.Clamp(seconds, MinConsentTimeoutSeconds, MaxConsentTimeoutSeconds);
+
     /// <summary>The idle timeout a policy may set, held inside the bounds.</summary>
     public static int IdleTimeoutMinutes(int minutes) => Math.Clamp(minutes, MinIdleTimeoutMinutes, MaxIdleTimeoutMinutes);
 
@@ -98,6 +118,9 @@ public static class RemoteSessionRules
     /// <summary>A usable X25519 public key: 32 bytes, not all zero.</summary>
     public static bool IsValidPublicKey(ReadOnlySpan<byte> key) => key.Length == PublicKeyBytes && key.IndexOfAnyExcept((byte)0) >= 0;
 }
+
+/// <summary>The rules one remote control session follows on the endpoint (0.3.0 step 4), carried in its signed token.</summary>
+public sealed record RemoteControlRules(bool ConsentRequired, int ConsentTimeoutSeconds, bool BannerVisible, bool ClipboardEnabled);
 
 /// <summary>A Windows session a remote control session can show (0.3.0).</summary>
 /// <param name="Id">0 for the console, otherwise the Windows session number.</param>

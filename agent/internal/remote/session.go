@@ -97,17 +97,38 @@ type Hello struct {
 	Kind string `json:"kind"`
 	// WindowsSession is the Windows session a remote control session shows, 0 for the console. Set by Run.
 	WindowsSession uint32 `json:"windowsSession,omitempty"`
+	// Clipboard reports whether a remote control session synchronises the clipboard, from the token (policy). Set by Run.
+	Clipboard bool `json:"clipboard,omitempty"`
 }
 
-// ScreenHandler serves the screen of a remote control session (internal/screen.Controller).
+// ScreenHandler serves the screen of a remote control session for one technician (internal/screen.Participant).
 type ScreenHandler interface {
 	// Handle takes one remote control frame from the browser (type byte and body).
 	Handle(ctx context.Context, frame []byte)
 	Close()
 }
 
-// ScreenFactory creates the screen handler of a remote control session; send passes a frame to the browser.
-type ScreenFactory func(token *Token, send func(frame []byte) error) ScreenHandler
+// ClipboardFiles is what a screen handler offers for files on the clipboard (0.3.0 step 4): folders for pasted files, the files copied on
+// the endpoint, and placing staged files on the endpoint clipboard.
+type ClipboardFiles interface {
+	StagingBatch() (string, error)
+	CopiedFile(index int) (string, error)
+	PlaceFiles(paths []string) error
+}
+
+// ScreenPeer is what the screen of a remote control session gets from the technician's session.
+type ScreenPeer struct {
+	Token *Token
+	// Send passes a frame to the browser.
+	Send func(frame []byte) error
+	// End ends the technician's session with the reason (a consent refusal, a connection too slow for the screen).
+	End func(reason string)
+	// Report records an action for the audit log.
+	Report func(action, target, detail string)
+}
+
+// ScreenFactory creates the screen handler of a remote control session for one technician.
+type ScreenFactory func(peer ScreenPeer) ScreenHandler
 
 type openBody struct {
 	Channel int    `json:"channel"`
@@ -201,15 +222,23 @@ func (s *Session) Run(ctx context.Context) (reason string) {
 	if s.remoteControl() {
 		hello.Kind = "remote_control"
 		hello.WindowsSession = s.opts.Token.GetWindowsSessionId()
-		hello.MaxFileBytes = 0
+		hello.Clipboard = s.opts.Token.GetClipboardEnabled()
 		if s.opts.Screen == nil {
 			s.end("This endpoint does not serve remote control. Update the agent.")
 			return "remote control is not served here"
 		}
-		s.screen = s.opts.Screen(s.opts.Token, func(frame []byte) error { return s.sendFrame(ctx, frame) })
+		// The Hello goes out before the screen can send anything (a consent prompt), so the browser always sees it first.
+		if err := s.sendJSON(ctx, FrameHello, hello); err != nil {
+			return "the relay closed before the session started: " + err.Error()
+		}
+		s.screen = s.opts.Screen(ScreenPeer{
+			Token:  s.opts.Token,
+			Send:   func(frame []byte) error { return s.sendFrame(ctx, frame) },
+			End:    s.end,
+			Report: s.report,
+		})
 		defer s.screen.Close()
-	}
-	if err := s.sendJSON(ctx, FrameHello, hello); err != nil {
+	} else if err := s.sendJSON(ctx, FrameHello, hello); err != nil {
 		return "the relay closed before the session started: " + err.Error()
 	}
 	defer s.background.close()
@@ -271,13 +300,20 @@ func (s *Session) handle(ctx context.Context, frame []byte) (done bool, reason s
 	}
 	body := frame[1:]
 	if s.remoteControl() {
-		// A remote control session carries the screen only: no terminal, files, services or processes, whatever the browser sends.
+		// A remote control session carries the screen and the files of its clipboard only: no terminal, file explorer, services or
+		// processes, whatever the browser sends.
 		switch {
 		case frame[0] == FrameActivity:
 			s.touch()
 		case frame[0] == FrameEnd:
 			_ = s.opts.Transport.Close("ended by the technician")
 			return true, "ended by the technician"
+		case frame[0] == FrameRequest:
+			s.touch()
+			s.background.handleControl(ctx, body)
+		case frame[0] == FrameChunk || frame[0] == FrameTransfer:
+			s.touch()
+			s.background.handle(ctx, frame[0], body)
 		case screen.FromBrowser(frame[0]):
 			if frame[0] != screen.FrameAck {
 				s.touch()
@@ -402,6 +438,12 @@ func (s *Session) pump(ctx context.Context, channel uint16, terminal Terminal) {
 		reply.Error = waitErr.Error()
 	}
 	_ = s.sendJSON(ctx, FrameClosed, reply)
+}
+
+func (s *Session) report(action, target, detail string) {
+	if s.opts.Report != nil {
+		s.opts.Report(action, target, detail)
+	}
 }
 
 func (s *Session) remoteControl() bool {

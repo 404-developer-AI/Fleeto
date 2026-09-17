@@ -181,11 +181,12 @@ Screen takeover is built into Fleeto: no external tool, no third-party account. 
 - **Clipboard**: text in both directions; files from the technician's PC by pasting or dragging; files copied on the
   endpoint are offered for download.
 - **Several technicians** can work in the same session at once and see each other's pointers; every join has its own token
-  and audit entry.
+  and audit entry. There is at most one remote control session per Windows session: opening one where a session runs joins it.
 - **Windows session**: chosen when opening, default the console (sign-in screen and UAC included), or a signed-in RDP session.
 - **Consent and banner**: servers never prompt and show no banner. Workstations follow the policy: consent prompt on/off
-  (default off, access granted after a timeout of 30 seconds, an explicit refusal ends the session) and a banner naming the
-  technicians on/off (default on). Remote background never prompts.
+  (default off, access granted after a timeout of 30 seconds, an explicit refusal ends the session; only the first technician of a
+  session is asked, and with nobody signed in access is granted at once) and a banner naming the technicians on/off (default on).
+  Remote background never prompts.
 - **Remote background**: terminal as SYSTEM or root, file explorer (streamed, resumable, never stored on the server, at most
   10 GB per file by policy), services and processes. Audited per session, participant and action; never terminal content.
 - A session without input closes after the policy's idle timeout (default 30 minutes, warned 2 minutes before); no maximum

@@ -50,7 +50,7 @@ public sealed class RemoteSessionServiceTests
     }
 
     /// <summary>A managed Windows endpoint whose agent serves remote control, with one user signed in on the console and one over RDP.</summary>
-    private async Task<Endpoint> ControlEndpointAsync(string agentVersion = "0.3.0", bool online = true, string platform = "windows")
+    private async Task<Endpoint> ControlEndpointAsync(string agentVersion = RemoteSessionRules.MinimumAgentVersion, bool online = true, string platform = "windows")
     {
         var endpoint = await EndpointAsync();
         await using var db = _fixture.Database.DbFactory.CreateSystem();
@@ -234,5 +234,63 @@ public sealed class RemoteSessionServiceTests
 
         await using var db = _fixture.Database.DbFactory.CreateSystem();
         Assert.False(await db.RemoteSessions.AnyAsync(s => s.EndpointId == endpoint.Id));
+    }
+
+    [Fact]
+    public async Task Opening_remote_control_on_a_windows_session_with_a_running_session_joins_it()
+    {
+        var endpoint = await ControlEndpointAsync();
+        var anna = WebFixtureBase.Technician() with { Name = "Anna Admin" };
+        var signer = SignNextAsync(endpoint.Id);
+        var first = await Service.OpenControlAsync(anna, endpoint.Id, RandomNumberGenerator.GetBytes(32), "Printer", 0);
+        await signer;
+        Assert.True(first.Success, first.Problem);
+
+        var target = await Service.GetControlTargetAsync(WebFixtureBase.Technician(), endpoint.Id);
+        var running = Assert.Single(target!.Running);
+        Assert.Equal(first.Value!.SessionId, running.SessionId);
+        Assert.Equal(0, running.WindowsSessionId);
+        Assert.Equal(["Anna Admin"], running.Technicians);
+
+        // The same Windows session: a second participant on the running session, with its own token.
+        signer = SignNextAsync(endpoint.Id);
+        var joined = await Service.OpenControlAsync(WebFixtureBase.Technician(), endpoint.Id, RandomNumberGenerator.GetBytes(32), null, 0);
+        await signer;
+        Assert.True(joined.Success, joined.Problem);
+        Assert.Equal(first.Value.SessionId, joined.Value!.SessionId);
+        Assert.NotEqual(first.Value.ParticipantId, joined.Value.ParticipantId);
+
+        // Another Windows session gets its own session.
+        signer = SignNextAsync(endpoint.Id);
+        var other = await Service.OpenControlAsync(WebFixtureBase.Technician(), endpoint.Id, RandomNumberGenerator.GetBytes(32), null, 3);
+        await signer;
+        Assert.NotEqual(first.Value.SessionId, other.Value!.SessionId);
+
+        // A session whose participants all ended is not joined.
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.RemoteSessionParticipants.Where(p => p.SessionId == first.Value.SessionId)
+                .ExecuteUpdateAsync(u => u.SetProperty(p => p.State, RemoteParticipantState.Ended));
+            Assert.Equal(2, await db.RemoteSessionParticipants.CountAsync(p => p.SessionId == first.Value.SessionId));
+        }
+
+        Assert.DoesNotContain((await Service.GetControlTargetAsync(WebFixtureBase.Technician(), endpoint.Id))!.Running, r => r.SessionId == first.Value.SessionId);
+        signer = SignNextAsync(endpoint.Id);
+        var fresh = await Service.OpenControlAsync(WebFixtureBase.Technician(), endpoint.Id, RandomNumberGenerator.GetBytes(32), null, 0);
+        await signer;
+        Assert.NotEqual(first.Value.SessionId, fresh.Value!.SessionId);
+    }
+
+    [Theory]
+    [InlineData(9, null, "consent timeout")]
+    [InlineData(301, null, "consent timeout")]
+    [InlineData(30, 512L * 1024, "file size cap")]
+    [InlineData(30, 11L * 1024 * 1024 * 1024, "file size cap")]
+    public void Policy_remote_control_settings_are_validated(int consentSeconds, long? fileBytes, string problem)
+    {
+        var input = new PolicyInput("Remote", null, 30, 3600, 10, AlertSeverity.Critical, RemoteConsentTimeoutSeconds: consentSeconds,
+            RemoteMaxFileBytes: fileBytes);
+        Assert.Contains(problem, PolicyService.Validate(input));
+        Assert.Null(PolicyService.Validate(input with { RemoteConsentTimeoutSeconds = 30, RemoteMaxFileBytes = 64L * 1024 * 1024 }));
     }
 }

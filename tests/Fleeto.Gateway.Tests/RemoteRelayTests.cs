@@ -432,6 +432,31 @@ public sealed class RemoteRelayTests
         Assert.Equal(1, await db.RemoteSessionActions.CountAsync(a => a.SessionId == participant.SessionId));
     }
 
+    [Fact]
+    public async Task The_agent_reports_remote_control_actions_for_the_audit_log()
+    {
+        await using var scope = await ScopeAsync();
+        var agent = await _fixture.IssueAsync(scope.Endpoint);
+        Assert.True(await scope.Harness.AllowList.ReloadAsync(CancellationToken.None));
+        var agentControl = scope.Harness.NewSession(agent.Identity(scope.Endpoint.Id));
+        Assert.True(await scope.Harness.Manager.OpenAsync(agentControl, new Hello { AgentVersion = "0.3.0", Hostname = "WS-01", Component = Component.Agent },
+            CancellationToken.None));
+        var participant = await SignedParticipantAsync(scope.Endpoint, remoteControl: true);
+
+        await scope.Harness.Manager.HandleAsync(agentControl, new AgentMessage
+        {
+            RemoteSessionAction = new RemoteSessionActionReport
+            {
+                ParticipantId = participant.ParticipantId.ToString("D"), Action = "consent.granted", Target = @"ACMEnna", Detail = "Allowed by the user."
+            }
+        }, CancellationToken.None);
+
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        var recorded = await db.RemoteSessionActions.AsNoTracking().SingleAsync(a => a.SessionId == participant.SessionId);
+        Assert.Equal("consent.granted", recorded.Action);
+        Assert.Equal(participant.ParticipantId, recorded.ParticipantId);
+    }
+
     [Theory]
     [InlineData("https://rmm.test.example", "https://rmm.test.example", true)]
     [InlineData("https://RMM.test.example", "https://rmm.test.example/", true)]

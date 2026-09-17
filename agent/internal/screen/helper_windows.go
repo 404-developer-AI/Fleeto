@@ -58,11 +58,15 @@ func RunHelper(ctx context.Context, in io.Reader, out io.Writer, sessionID uint3
 		return WriteFrame(out, frame)
 	}
 
+	// The banner and the clipboard live on their own desktop thread (0.3.0 step 4).
+	ui := startDesktopUI(write, logger)
+	defer ui.stop()
+
 	done := make(chan error, 1)
 	go func() {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
-		h := &helper{write: write, logger: logger, session: sessionID, keyboard: NewKeyboard(), selected: -2}
+		h := &helper{write: write, logger: logger, session: sessionID, keyboard: NewKeyboard(), selected: -2, ui: ui}
 		done <- h.loop(ctx, frames)
 	}()
 	err := <-done
@@ -82,6 +86,7 @@ type helper struct {
 	logger   *slog.Logger
 	session  uint32
 	keyboard *Keyboard
+	ui       *desktopUI
 
 	desktop     windows.Handle
 	desktopName string
@@ -186,6 +191,20 @@ func (h *helper) handle(frame []byte) {
 		h.inject(h.keyboard.ReleaseAll())
 		if h.buttons != 0 {
 			h.pointer(PointerBody{X: -1, Y: -1, Buttons: 0})
+		}
+	case FrameBanner:
+		var banner BannerBody
+		if json.Unmarshal(body, &banner) == nil {
+			h.ui.setBanner(banner.Names)
+		}
+	case FrameClipboard:
+		if len(body) <= MaxClipboardBytes {
+			h.ui.setText(string(body))
+		}
+	case FramePlaceFiles:
+		var place PlaceFilesBody
+		if json.Unmarshal(body, &place) == nil {
+			h.ui.placeFiles(place.Paths)
 		}
 	}
 }

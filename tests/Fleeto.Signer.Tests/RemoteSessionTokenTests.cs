@@ -26,19 +26,22 @@ public sealed class RemoteSessionTokenTests
         _fixture = fixture;
     }
 
-    private async Task<(Endpoint Endpoint, Guid TechnicianId)> ScopeAsync(EndpointTier tier = EndpointTier.Managed, int idleMinutes = 45)
+    private async Task<(Endpoint Endpoint, Guid TechnicianId)> ScopeAsync(EndpointTier tier = EndpointTier.Managed, int idleMinutes = 45,
+        EndpointClass endpointClass = EndpointClass.Server, Action<Policy>? configure = null, string agentVersion = RemoteSessionRules.MinimumAgentVersion)
     {
         await _fixture.Database.LoadTestLicenseAsync(1000);
         var client = await _fixture.Database.CreateClientAsync();
         var site = await _fixture.Database.CreateSiteAsync(client.Id);
-        var endpoint = await _fixture.Database.CreateEndpointAsync(site, tier, "SRV-REMOTE", EndpointClass.Server);
+        var endpoint = await _fixture.Database.CreateEndpointAsync(site, tier, "SRV-REMOTE", endpointClass);
         var technician = await _fixture.Database.CreateUserAsync(FleetoRoles.Technician, displayName: "Tess Tech");
         await using var db = _fixture.Database.DbFactory.CreateSystem();
+        await db.Endpoints.Where(e => e.Id == endpoint.Id).ExecuteUpdateAsync(s => s.SetProperty(e => e.AgentVersion, agentVersion));
         var policy = new Policy
         {
             Id = Guid.NewGuid(), ClientId = client.Id, Name = "Remote " + Guid.NewGuid().ToString("N")[..6], RemoteIdleTimeoutMinutes = idleMinutes,
             CreatedAt = _fixture.Now, UpdatedAt = _fixture.Now
         };
+        configure?.Invoke(policy);
         db.Policies.Add(policy);
         db.SitePolicies.Add(new SitePolicy { SiteId = site.Id, ClientId = client.Id, PolicyId = policy.Id, CreatedAt = _fixture.Now });
         await db.SaveChangesAsync();
@@ -208,5 +211,55 @@ public sealed class RemoteSessionTokenTests
             component: AgentComponent.Agent, windowsSessionId: 0));
         Assert.Equal(RemoteSessionTokenHandler.PlatformReason, offWindows.EndReason);
         Assert.Null(offWindows.TokenSignature);
+    }
+
+    [Fact]
+    public async Task A_remote_control_token_carries_consent_and_banner_on_a_workstation_only()
+    {
+        void Strict(Policy p)
+        {
+            p.RemoteConsentRequired = true;
+            p.RemoteConsentTimeoutSeconds = 45;
+            p.RemoteBannerVisible = true;
+            p.RemoteClipboardEnabled = true;
+        }
+
+        var (workstation, technicianId) = await ScopeAsync(endpointClass: EndpointClass.Workstation, configure: Strict);
+        var (_, signed) = await SignAsync(await CreateParticipantAsync(workstation, technicianId, kind: RemoteSessionKind.RemoteControl,
+            component: AgentComponent.Agent, windowsSessionId: 0));
+        var token = RemoteSessionToken.Parser.ParseFrom(signed.TokenPayload);
+        Assert.True(token.ConsentRequired);
+        Assert.Equal(45u, token.ConsentTimeoutSeconds);
+        Assert.True(token.BannerVisible);
+        Assert.True(token.ClipboardEnabled);
+
+        // A server never asks and shows no banner, whatever the policy says; the clipboard switch applies to every endpoint.
+        var (server, serverTechnician) = await ScopeAsync(endpointClass: EndpointClass.Server, configure: Strict);
+        var (_, serverSigned) = await SignAsync(await CreateParticipantAsync(server, serverTechnician, kind: RemoteSessionKind.RemoteControl,
+            component: AgentComponent.Agent, windowsSessionId: 0));
+        var serverToken = RemoteSessionToken.Parser.ParseFrom(serverSigned.TokenPayload);
+        Assert.False(serverToken.ConsentRequired);
+        Assert.False(serverToken.BannerVisible);
+        Assert.True(serverToken.ClipboardEnabled);
+
+        var (noClipboard, noClipboardTechnician) = await ScopeAsync(endpointClass: EndpointClass.Workstation, configure: p => p.RemoteClipboardEnabled = false);
+        var (_, noClipboardSigned) = await SignAsync(await CreateParticipantAsync(noClipboard, noClipboardTechnician, kind: RemoteSessionKind.RemoteControl,
+            component: AgentComponent.Agent, windowsSessionId: 0));
+        var noClipboardToken = RemoteSessionToken.Parser.ParseFrom(noClipboardSigned.TokenPayload);
+        Assert.False(noClipboardToken.ClipboardEnabled);
+        Assert.False(noClipboardToken.ConsentRequired);
+        Assert.True(noClipboardToken.BannerVisible);
+    }
+
+    [Fact]
+    public async Task Remote_control_is_refused_for_an_agent_that_would_ignore_consent_and_banner()
+    {
+        var (endpoint, technicianId) = await ScopeAsync(endpointClass: EndpointClass.Workstation, agentVersion: "0.3.0-alpha.6");
+        var (request, refused) = await SignAsync(await CreateParticipantAsync(endpoint, technicianId, kind: RemoteSessionKind.RemoteControl,
+            component: AgentComponent.Agent, windowsSessionId: 0));
+
+        Assert.Equal(SigningRequestState.Refused, request.State);
+        Assert.Equal(RemoteSessionTokenHandler.AgentVersionReason, refused.EndReason);
+        Assert.Null(refused.TokenSignature);
     }
 }

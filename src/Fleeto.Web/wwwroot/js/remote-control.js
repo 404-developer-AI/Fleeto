@@ -1,11 +1,17 @@
 // The browser side of a remote control session (0.3.0 step 3): the same key exchange and encrypted relay as remote background (remote.js),
 // but the session carries the screen. The endpoint sends tiles (change detection, PNG for text and JPEG for the rest); this draws them on
 // a canvas and sends the mouse and keyboard back. The session key never leaves this page; the gateway relays ciphertext it cannot read.
+// Step 4 adds the clipboard (text both ways, files pasted or dropped into the window, files copied on the endpoint offered for download),
+// the other technicians in the session and their pointers, and the consent prompt on the endpoint.
 import { deriveSessionKeys, Frame, FrameCipher, fromBase64, generateBrowserKey, supported as cryptoSupported, toBase64 } from "./remote-crypto.mjs";
 import { Viewer } from "./remote-control-ui.mjs";
+import { installTransfers, transferState } from "./remote-transfers.mjs";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+
+/** The most clipboard text that is synchronised, as UTF-8 (agent/internal/screen MaxClipboardBytes). */
+export const MaxClipboardBytes = 512 * 1024;
 
 export function supported() {
   return typeof WebSocket === "function" && typeof createImageBitmap === "function" && cryptoSupported();
@@ -39,10 +45,17 @@ class ControlSession {
     this.queue = Promise.resolve();
     this.sendQueue = Promise.resolve();
     this.viewer = null;
+    this.hello = null;
     this.monitor = typeof options.monitor === "number" ? options.monitor : -2;
     // Auto reconnect (decided 2026-09-17): a dropped session opens a new one in this same window, up to a few tries.
     this.reconnects = 0;
+    // The clipboard text both sides hold; it is never sent back to where it came from.
+    this.clipboardText = null;
+    // Text copied on the endpoint that could not be written to this computer's clipboard yet (the window had no focus).
+    this.pendingClipboard = null;
+    Object.assign(this, transferState());
     this.onUnload = () => this.end(true);
+    this.onFocus = () => this.flushRemoteClipboard();
   }
 
   async start() {
@@ -89,6 +102,7 @@ class ControlSession {
       }
     };
     window.addEventListener("beforeunload", this.onUnload);
+    window.addEventListener("focus", this.onFocus);
   }
 
   async onMessage(data) {
@@ -109,8 +123,10 @@ class ControlSession {
       throw new Error("The relay sent data before the session was set up.");
     }
     const plaintext = await this.receive.open(new Uint8Array(data));
-    const type = plaintext[0];
-    const body = plaintext.subarray(1);
+    await this.onFrame(plaintext[0], plaintext.subarray(1));
+  }
+
+  async onFrame(type, body) {
     switch (type) {
       case Frame.Hello:
         this.hello = JSON.parse(decoder.decode(body));
@@ -137,6 +153,38 @@ class ControlSession {
           this.viewer.notice(JSON.parse(decoder.decode(body)).message ?? "");
         }
         break;
+      case Frame.Participants:
+        if (this.viewer) {
+          this.viewer.onParticipants(JSON.parse(decoder.decode(body)).participants ?? []);
+        }
+        break;
+      case Frame.PeerPointer:
+        if (this.viewer) {
+          this.viewer.onPeerPointer(JSON.parse(decoder.decode(body)));
+        }
+        break;
+      case Frame.Consent:
+        if (this.viewer) {
+          this.viewer.onConsent(JSON.parse(decoder.decode(body)));
+        }
+        break;
+      case Frame.Clipboard:
+        this.onRemoteClipboard(decoder.decode(body));
+        break;
+      case Frame.ClipboardFiles:
+        if (this.viewer) {
+          this.viewer.onClipboardFiles(JSON.parse(decoder.decode(body)));
+        }
+        break;
+      case Frame.Response:
+        this.resolveRequest(JSON.parse(decoder.decode(body)));
+        break;
+      case Frame.Chunk:
+        await this.onChunk(body);
+        break;
+      case Frame.Transfer:
+        await this.onTransfer(JSON.parse(decoder.decode(body)));
+        break;
       case Frame.IdleWarning:
         this.dotnet.invokeMethodAsync("OnIdleWarning", JSON.parse(decoder.decode(body)).secondsLeft ?? 120);
         break;
@@ -155,6 +203,116 @@ class ControlSession {
     }
     this.viewer.setConnected();
   }
+
+  // --- clipboard -------------------------------------------------------------
+
+  clipboardEnabled() {
+    return !!this.hello?.clipboard;
+  }
+
+  maxFileBytes() {
+    return this.hello?.maxFileBytes || 0;
+  }
+
+  // sendClipboardText gives the endpoint the text of this computer's clipboard, unless the endpoint already holds it.
+  sendClipboardText(text) {
+    if (!this.clipboardEnabled() || typeof text !== "string" || text === "" || text === this.clipboardText) {
+      return;
+    }
+    const bytes = encoder.encode(text);
+    if (bytes.length > MaxClipboardBytes) {
+      this.viewer?.notice("The text on your clipboard is larger than the 512 KB remote control synchronises. Use Type clipboard or a file instead.");
+      return;
+    }
+    this.clipboardText = text;
+    const frame = new Uint8Array(1 + bytes.length);
+    frame[0] = Frame.Clipboard;
+    frame.set(bytes, 1);
+    this.sendFrame(frame).catch(() => {});
+  }
+
+  // onRemoteClipboard puts text copied on the endpoint on this computer's clipboard; without focus it waits for the next focus or click.
+  onRemoteClipboard(text) {
+    this.clipboardText = text;
+    this.pendingClipboard = text;
+    this.flushRemoteClipboard();
+  }
+
+  async flushRemoteClipboard() {
+    const text = this.pendingClipboard;
+    if (text === null || !navigator.clipboard?.writeText) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      if (this.pendingClipboard === text) {
+        this.pendingClipboard = null;
+      }
+      this.viewer?.clipboardPending(false);
+    } catch {
+      this.viewer?.clipboardPending(true);
+    }
+  }
+
+  // pasteFiles places files from this computer on the endpoint clipboard: they are uploaded to a folder only the signed-in user of the
+  // endpoint can read, then pasted there with Ctrl+V. The folder is deleted when the session ends.
+  async pasteFiles(files) {
+    if (!this.clipboardEnabled()) {
+      this.viewer?.notice("The clipboard is turned off for this endpoint by policy, so files cannot be pasted.");
+      return;
+    }
+    const list = [...files];
+    if (list.length === 0) {
+      return;
+    }
+    const cap = this.maxFileBytes();
+    const tooLarge = cap > 0 ? list.find((f) => f.size > cap) : null;
+    if (tooLarge) {
+      this.viewer?.notice(`${tooLarge.name} is larger than the ${Math.floor(cap / (1024 * 1024))} MB the policy allows for one file.`);
+      return;
+    }
+    if (list.length > 100) {
+      this.viewer?.notice("One paste can carry at most 100 files.");
+      return;
+    }
+    let batch;
+    try {
+      batch = (await this.request("clipboard.begin")).batch;
+      for (const file of list) {
+        const progress = this.viewer?.transfer(`Pasting ${file.name}`);
+        try {
+          await this.uploadWith("clipboard.upload", { batch }, file, (sent, total) => progress?.update(sent, total));
+          progress?.done();
+        } catch (error) {
+          progress?.failed(error.message);
+          throw error;
+        }
+      }
+      const placed = await this.request("clipboard.place", { batch });
+      this.viewer?.notice(`${placed.count === 1 ? "1 file is" : placed.count + " files are"} on the endpoint clipboard. Paste on the endpoint with Ctrl+V.`);
+    } catch (error) {
+      if (error.message !== "cancelled") {
+        this.viewer?.notice("The files could not be pasted: " + error.message);
+      }
+    }
+  }
+
+  // downloadCopied saves a file copied on the endpoint to this computer.
+  async downloadCopied(index, name) {
+    const progress = this.viewer?.transfer(`Downloading ${name}`);
+    try {
+      await this.downloadWith("clipboard.download", { index, offset: 0 }, name, (received, total) => progress?.update(received, total));
+      progress?.done();
+    } catch (error) {
+      if (error.message === "cancelled") {
+        progress?.remove();
+      } else {
+        progress?.failed(error.message);
+      }
+    }
+  }
+
+  // --- input -----------------------------------------------------------------
 
   // The technician's activity keeps the idle timer alive; the endpoint counts input frames.
   activity() {
@@ -192,11 +350,14 @@ class ControlSession {
     return this.sendQueue;
   }
 
+  // --- lifecycle -------------------------------------------------------------
+
   retryOrFail(message) {
     if (this.state === "failed" || this.state === "ended") {
       return;
     }
     this.closeSocket();
+    this.closeTransfers();
     this.send = null;
     this.receive = null;
     if (this.reconnects >= 3) {
@@ -261,9 +422,11 @@ class ControlSession {
 
   close() {
     window.removeEventListener("beforeunload", this.onUnload);
+    window.removeEventListener("focus", this.onFocus);
     this.send = null;
     this.receive = null;
     this.browserKey = null;
+    this.closeTransfers();
     this.closeSocket();
   }
 
@@ -277,6 +440,8 @@ class ControlSession {
     this.close();
   }
 }
+
+installTransfers(ControlSession.prototype);
 
 export function createSession(dotnet, container, options) {
   return new ControlSession(dotnet, container, options ?? {});

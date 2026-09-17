@@ -58,14 +58,15 @@ type ControllerOptions struct {
 type Controller struct {
 	opts ControllerOptions
 
-	mu        sync.Mutex
-	helper    Helper
-	current   uint32
-	lastStart []byte
-	restarts  []time.Time
-	closed    bool
-	cancel    context.CancelFunc
-	watching  bool
+	mu         sync.Mutex
+	helper     Helper
+	current    uint32
+	lastStart  []byte
+	lastBanner []byte
+	restarts   []time.Time
+	closed     bool
+	cancel     context.CancelFunc
+	watching   bool
 }
 
 // NewController returns a controller; nothing starts until the browser sends FrameStart.
@@ -82,28 +83,35 @@ func NewController(opts ControllerOptions) *Controller {
 	return &Controller{opts: opts}
 }
 
-// Handle takes one frame from the browser (type byte and body).
+// Handle takes one frame for the helper: a browser frame, or a frame of the agent service itself (the banner, files for the clipboard).
 func (c *Controller) Handle(ctx context.Context, frame []byte) {
-	if len(frame) == 0 || !FromBrowser(frame[0]) {
+	if len(frame) == 0 || !(FromBrowser(frame[0]) || FromAgent(frame[0])) {
 		return
 	}
+	started := false
 	switch frame[0] {
 	case FrameSecureAttention:
 		if err := c.opts.SecureAttention(); err != nil {
 			c.notice(err.Error())
 		}
 		return
+	case FrameBanner:
+		// Kept, so a helper that starts later or again shows the banner too.
+		c.mu.Lock()
+		c.lastBanner = append([]byte(nil), frame...)
+		c.mu.Unlock()
 	case FrameStart:
 		c.mu.Lock()
 		c.lastStart = append([]byte(nil), frame...)
 		c.mu.Unlock()
-		if err := c.ensure(ctx); err != nil {
+		var err error
+		if started, err = c.ensure(ctx); err != nil {
 			c.notice(err.Error())
 			return
 		}
 	}
 	c.mu.Lock()
-	helper := c.helper
+	helper, banner := c.helper, c.lastBanner
 	c.mu.Unlock()
 	if helper == nil {
 		return
@@ -111,17 +119,40 @@ func (c *Controller) Handle(ctx context.Context, frame []byte) {
 	if err := WriteFrame(helper.In(), frame); err != nil {
 		c.opts.Logger.Debug("could not pass a frame to the remote control helper", "error", err)
 	}
+	if started && banner != nil {
+		_ = WriteFrame(helper.In(), banner)
+	}
 }
 
-// ensure starts the helper in the session to show when none runs.
-func (c *Controller) ensure(ctx context.Context) error {
+// Running reports whether a helper shows the screen now.
+func (c *Controller) Running() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.helper != nil
+}
+
+// CurrentSession is the Windows session the helper shows, or the one it would show: the chosen session, or the console session now.
+func (c *Controller) CurrentSession() uint32 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.helper != nil {
+		return c.current
+	}
+	if c.opts.Session != 0 {
+		return c.opts.Session
+	}
+	return c.opts.ConsoleSession()
+}
+
+// ensure starts the helper in the session to show when none runs, and reports whether it started one.
+func (c *Controller) ensure(ctx context.Context) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
-		return errors.New("the session is closing")
+		return false, errors.New("the session is closing")
 	}
 	if c.helper != nil {
-		return nil
+		return false, nil
 	}
 	if !c.watching {
 		watchCtx, cancel := context.WithCancel(ctx)
@@ -131,7 +162,10 @@ func (c *Controller) ensure(ctx context.Context) error {
 			safego.Go(c.opts.Logger, "remote control console watch", func() { c.watchConsole(watchCtx) })
 		}
 	}
-	return c.startLocked(ctx)
+	if err := c.startLocked(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (c *Controller) startLocked(ctx context.Context) error {
@@ -189,14 +223,24 @@ func (c *Controller) pump(ctx context.Context, helper Helper) {
 		return
 	}
 	err := c.startLocked(ctx)
-	start, helperNow := c.lastStart, c.helper
+	start, banner, helperNow := c.lastStart, c.lastBanner, c.helper
 	c.mu.Unlock()
 	if err != nil {
 		c.notice(err.Error())
 		return
 	}
-	if start != nil && helperNow != nil {
-		_ = WriteFrame(helperNow.In(), start)
+	replay(helperNow, start, banner)
+}
+
+// replay gives a helper that started again the last Start and banner, so it shows the same monitor and banner as before.
+func replay(helper Helper, frames ...[]byte) {
+	if helper == nil {
+		return
+	}
+	for _, frame := range frames {
+		if frame != nil {
+			_ = WriteFrame(helper.In(), frame)
+		}
 	}
 }
 
@@ -219,7 +263,7 @@ func (c *Controller) watchConsole(ctx context.Context) {
 		old := c.helper
 		c.helper = nil
 		err := c.startLocked(ctx)
-		start, helper := c.lastStart, c.helper
+		start, banner, helper := c.lastStart, c.lastBanner, c.helper
 		c.mu.Unlock()
 		_ = old.Close()
 		if err != nil {
@@ -227,9 +271,7 @@ func (c *Controller) watchConsole(ctx context.Context) {
 			continue
 		}
 		c.notice("The console switched to Windows session " + itoa(now) + ".")
-		if start != nil && helper != nil {
-			_ = WriteFrame(helper.In(), start)
-		}
+		replay(helper, start, banner)
 	}
 }
 

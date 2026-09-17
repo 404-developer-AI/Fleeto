@@ -4483,6 +4483,15 @@ type RemoteSessionToken struct {
 	// Remote control on Windows (0.3.0 step 3): the Windows session to show. 0 is the console session (whichever session is attached to
 	// the console, including the sign-in screen); any other value is a signed-in session (an RDP session) as the agent reported it.
 	WindowsSessionId uint32 `protobuf:"varint,14,opt,name=windows_session_id,json=windowsSessionId,proto3" json:"windows_session_id,omitempty"`
+	// Remote control (0.3.0 step 4), decided by the signer from the effective policy and the endpoint class: always false for a server.
+	// Ask the person signed in on the shown Windows session to allow the session first; only the first technician of a session is asked.
+	ConsentRequired bool `protobuf:"varint,15,opt,name=consent_required,json=consentRequired,proto3" json:"consent_required,omitempty"`
+	// Seconds the consent prompt waits for an answer; without one, access is granted.
+	ConsentTimeoutSeconds uint32 `protobuf:"varint,16,opt,name=consent_timeout_seconds,json=consentTimeoutSeconds,proto3" json:"consent_timeout_seconds,omitempty"`
+	// Show a banner naming every technician in the session on the endpoint's screen. Always false for a server.
+	BannerVisible bool `protobuf:"varint,17,opt,name=banner_visible,json=bannerVisible,proto3" json:"banner_visible,omitempty"`
+	// Synchronise the clipboard (text both ways, files to the endpoint, copied files offered for download). Missing means off.
+	ClipboardEnabled bool `protobuf:"varint,18,opt,name=clipboard_enabled,json=clipboardEnabled,proto3" json:"clipboard_enabled,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -4613,6 +4622,34 @@ func (x *RemoteSessionToken) GetWindowsSessionId() uint32 {
 		return x.WindowsSessionId
 	}
 	return 0
+}
+
+func (x *RemoteSessionToken) GetConsentRequired() bool {
+	if x != nil {
+		return x.ConsentRequired
+	}
+	return false
+}
+
+func (x *RemoteSessionToken) GetConsentTimeoutSeconds() uint32 {
+	if x != nil {
+		return x.ConsentTimeoutSeconds
+	}
+	return 0
+}
+
+func (x *RemoteSessionToken) GetBannerVisible() bool {
+	if x != nil {
+		return x.BannerVisible
+	}
+	return false
+}
+
+func (x *RemoteSessionToken) GetClipboardEnabled() bool {
+	if x != nil {
+		return x.ClipboardEnabled
+	}
+	return false
 }
 
 // The gateway asks the service to connect its side of the relay for a token the browser presented.
@@ -5204,7 +5241,7 @@ const file_agent_proto_rawDesc = "" +
 	"\x13SignedRemoteSession\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\fR\tsignature\x12\x15\n" +
-	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\x86\x05\n" +
+	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\xbd\x06\n" +
 	"\x12RemoteSessionToken\x12%\n" +
 	"\x0eparticipant_id\x18\x01 \x01(\tR\rparticipantId\x12\x1d\n" +
 	"\n" +
@@ -5224,7 +5261,11 @@ const file_agent_proto_rawDesc = "" +
 	"validUntil\x120\n" +
 	"\x14idle_timeout_seconds\x18\f \x01(\rR\x12idleTimeoutSeconds\x12$\n" +
 	"\x0emax_file_bytes\x18\r \x01(\x04R\fmaxFileBytes\x12,\n" +
-	"\x12windows_session_id\x18\x0e \x01(\rR\x10windowsSessionId\"T\n" +
+	"\x12windows_session_id\x18\x0e \x01(\rR\x10windowsSessionId\x12)\n" +
+	"\x10consent_required\x18\x0f \x01(\bR\x0fconsentRequired\x126\n" +
+	"\x17consent_timeout_seconds\x18\x10 \x01(\rR\x15consentTimeoutSeconds\x12%\n" +
+	"\x0ebanner_visible\x18\x11 \x01(\bR\rbannerVisible\x12+\n" +
+	"\x11clipboard_enabled\x18\x12 \x01(\bR\x10clipboardEnabled\"T\n" +
 	"\x12RemoteSessionOffer\x12>\n" +
 	"\asession\x18\x01 \x01(\v2$.fleeto.agent.v1.SignedRemoteSessionR\asession\"S\n" +
 	"\x14RemoteSessionRefused\x12%\n" +

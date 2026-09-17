@@ -40,7 +40,13 @@ export const Frame = Object.freeze({
   SecureAttention: 0x16,
   ReleaseKeys: 0x17,
   Update: 0x18,
-  ControlNotice: 0x19
+  ControlNotice: 0x19,
+  // Clipboard, several technicians and consent (0.3.0 step 4).
+  Clipboard: 0x1a,
+  Participants: 0x1b,
+  PeerPointer: 0x1c,
+  Consent: 0x1d,
+  ClipboardFiles: 0x1e
 });
 
 function concat(...parts) {

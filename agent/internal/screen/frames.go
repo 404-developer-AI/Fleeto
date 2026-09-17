@@ -35,6 +35,31 @@ const (
 	FrameUpdate byte = 0x18
 	// FrameNotice (endpoint to browser): something the technician should know. Body {message}.
 	FrameNotice byte = 0x19
+
+	// 0.3.0 step 4: clipboard, several technicians, consent.
+
+	// FrameClipboard (both ways): the clipboard text. Binary body: the text as UTF-8, at most MaxClipboardBytes.
+	FrameClipboard byte = 0x1A
+	// FrameParticipants (endpoint to browser): the technicians who see the screen. Body {participants: [{id, name, you}]}.
+	FrameParticipants byte = 0x1B
+	// FramePeerPointer (endpoint to browser): where another technician points. Body {id, x, y} in pixels of the shown image.
+	FramePeerPointer byte = 0x1C
+	// FrameConsent (endpoint to browser): the consent prompt. Body {state: "waiting" or "granted", user, secondsLeft, message}.
+	FrameConsent byte = 0x1D
+	// FrameClipboardFiles (endpoint to browser): the files copied on the endpoint, offered for download. Body {files: [{index, name,
+	// size}], folders}.
+	FrameClipboardFiles byte = 0x1E
+)
+
+// Frames between the agent service and its helper only (0.3.0 step 4); they never cross the relay.
+const (
+	// FrameBanner (agent to helper): show the banner with these technicians, or hide it for none. Body {names}.
+	FrameBanner byte = 0x20
+	// FramePlaceFiles (agent to helper): put these staged files on the clipboard. Body {paths}.
+	FramePlaceFiles byte = 0x21
+	// FrameCopiedFiles (helper to agent): the files on the clipboard now, none when it holds no files. Body {files: [{path, name, size,
+	// dir}]}.
+	FrameCopiedFiles byte = 0x22
 )
 
 // IsControlFrame reports whether a frame type belongs to remote control.
@@ -43,16 +68,19 @@ func IsControlFrame(kind byte) bool { return kind >= FrameStart && kind <= 0x1F 
 // FromBrowser reports whether the browser may send a frame type of remote control.
 func FromBrowser(kind byte) bool {
 	switch kind {
-	case FrameStart, FrameAck, FramePointer, FrameKey, FrameType, FrameSecureAttention, FrameReleaseKeys:
+	case FrameStart, FrameAck, FramePointer, FrameKey, FrameType, FrameSecureAttention, FrameReleaseKeys, FrameClipboard:
 		return true
 	}
 	return false
 }
 
-// FromHelper reports whether the helper may send a frame type to the browser.
+// FromAgent reports whether a frame type is one the agent service sends its helper on its own.
+func FromAgent(kind byte) bool { return kind == FrameBanner || kind == FramePlaceFiles }
+
+// FromHelper reports whether the helper may send a frame type to the agent service.
 func FromHelper(kind byte) bool {
 	switch kind {
-	case FrameInfo, FrameUpdate, FrameNotice:
+	case FrameInfo, FrameUpdate, FrameNotice, FrameClipboard, FrameCopiedFiles:
 		return true
 	}
 	return false
@@ -126,6 +154,71 @@ type TypeBody struct {
 
 // MaxTypeRunes bounds one Type clipboard.
 const MaxTypeRunes = 10000
+
+// MaxClipboardBytes is the most clipboard text that is synchronised, as UTF-8.
+const MaxClipboardBytes = 512 * 1024
+
+// MaxCopiedFiles is how many files copied on the endpoint are offered for download at once.
+const MaxCopiedFiles = 100
+
+// ParticipantInfo is one technician in FrameParticipants.
+type ParticipantInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	You  bool   `json:"you"`
+}
+
+// PeerPointerBody is the body of FramePeerPointer.
+type PeerPointerBody struct {
+	ID string `json:"id"`
+	X  int    `json:"x"`
+	Y  int    `json:"y"`
+}
+
+// ConsentBody is the body of FrameConsent.
+type ConsentBody struct {
+	State       string `json:"state"`
+	User        string `json:"user,omitempty"`
+	SecondsLeft int    `json:"secondsLeft,omitempty"`
+	Message     string `json:"message,omitempty"`
+}
+
+// BannerBody is the body of FrameBanner.
+type BannerBody struct {
+	Names []string `json:"names"`
+}
+
+// PlaceFilesBody is the body of FramePlaceFiles.
+type PlaceFilesBody struct {
+	Paths []string `json:"paths"`
+}
+
+// CopiedFile is a file on the endpoint clipboard.
+type CopiedFile struct {
+	Path string `json:"path"`
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+	Dir  bool   `json:"dir"`
+}
+
+// CopiedFilesBody is the body of FrameCopiedFiles.
+type CopiedFilesBody struct {
+	Files []CopiedFile `json:"files"`
+}
+
+// OfferedFile is a copied file as the browser sees it: no path, an index to download it by.
+type OfferedFile struct {
+	Index int    `json:"index"`
+	Name  string `json:"name"`
+	Size  int64  `json:"size"`
+}
+
+// ClipboardFilesBody is the body of FrameClipboardFiles.
+type ClipboardFilesBody struct {
+	Files []OfferedFile `json:"files"`
+	// Folders is how many copied folders are not offered (only files can be downloaded).
+	Folders int `json:"folders,omitempty"`
+}
 
 // NoticeBody is the body of FrameNotice.
 type NoticeBody struct {

@@ -1,12 +1,20 @@
 // The viewer of a remote control session (0.3.0 step 3): a toolbar (monitor choice, Ctrl+Alt+Del, Type clipboard, fit) and a canvas that
 // shows the endpoint's screen. It draws the tiles the endpoint sends and forwards the mouse and keyboard. It talks to the endpoint through
 // the ControlSession (remote-control.js): session.sendControl / session.sendSecureAttention / session.setMonitor.
+// Step 4 adds the technicians in the session with their pointers, the consent prompt, the clipboard (paste and drop files, text both ways)
+// and the files copied on the endpoint.
 import { Frame } from "./remote-crypto.mjs";
 
 const updateHeader = 7; // frame uint32 | flags uint8 | count uint16 (after the type byte the session already stripped)
 const tileHeader = 13; // x,y,w,h uint16 | format uint8 | length uint32
 const FlagLast = 1;
 const FormatPNG = 1;
+
+// How long the browser waits for its paste event before the paste shortcut goes to the endpoint anyway.
+const pasteWait = 300;
+
+// Pointer colors of the other technicians: distinct on the dark screen background, in both themes.
+const peerColors = ["#F59E0B", "#38BDF8", "#F472B6", "#A3E635", "#C084FC", "#FB7185", "#2DD4BF"];
 
 export class Viewer {
   constructor(session, root, options) {
@@ -23,9 +31,16 @@ export class Viewer {
     this.buttons = 0;
     this.lastMove = 0;
     this.fit = true;
+    this.participants = [];
+    this.peers = new Map();
+    this.pendingPaste = null;
+    this.ignoreUp = null;
+    this.consentTimer = null;
     this.boundKeydown = (e) => this.onKey(e, true);
     this.boundKeyup = (e) => this.onKey(e, false);
     this.boundBlur = () => this.releaseKeys();
+    this.boundPaste = (e) => this.onPaste(e);
+    this.boundResize = () => this.placePeers();
   }
 
   render() {
@@ -45,16 +60,23 @@ export class Viewer {
     this.fitButton = button("Actual size", () => this.toggleFit());
 
     this.desktopLabel = el("span", "remote-desktop muted");
+    this.participantList = el("span", "remote-participants");
 
-    toolbar.append(this.monitorSelect, this.cadButton, this.typeButton, this.fitButton, this.desktopLabel);
+    toolbar.append(this.monitorSelect, this.cadButton, this.typeButton, this.fitButton, this.desktopLabel, this.participantList);
 
     this.status = el("div", "remote-error");
+    this.clipboardBar = el("div", "remote-clipboard");
+    this.copiedFiles = el("div", "remote-copied");
+    this.transfers = el("div", "remote-transfers");
+    this.clipboardBar.append(this.copiedFiles, this.transfers);
+
     this.surface = el("div", "remote-screen");
     this.canvas = el("canvas", "remote-canvas");
     this.ctx = this.canvas.getContext("2d", { alpha: false });
-    this.surface.appendChild(this.canvas);
+    this.peerLayer = el("div", "remote-peers");
+    this.surface.append(this.canvas, this.peerLayer);
 
-    this.root.append(toolbar, this.status, this.surface);
+    this.root.append(toolbar, this.status, this.clipboardBar, this.surface);
     this.bindInput();
   }
 
@@ -144,6 +166,154 @@ export class Viewer {
     }
   }
 
+  // --- technicians -----------------------------------------------------------
+
+  onParticipants(list) {
+    this.participants = list;
+    this.participantList.replaceChildren();
+    list.forEach((p, i) => {
+      const chip = el("span", "remote-participant");
+      const dot = el("span", "remote-participant-dot");
+      dot.style.background = p.you ? "var(--mud-palette-primary)" : peerColors[i % peerColors.length];
+      chip.append(dot, document.createTextNode(p.you ? `${p.name} (you)` : p.name));
+      this.participantList.appendChild(chip);
+    });
+    // A technician who left takes their pointer along.
+    for (const id of [...this.peers.keys()]) {
+      if (!list.some((p) => p.id === id)) {
+        this.peers.get(id).marker.remove();
+        this.peers.delete(id);
+      }
+    }
+  }
+
+  onPeerPointer(pointer) {
+    const index = this.participants.findIndex((p) => p.id === pointer.id);
+    if (index < 0 || this.participants[index].you) {
+      return;
+    }
+    let peer = this.peers.get(pointer.id);
+    if (!peer) {
+      const marker = el("div", "remote-peer");
+      const color = peerColors[index % peerColors.length];
+      marker.style.setProperty("--peer-color", color);
+      const label = el("span", "remote-peer-name");
+      label.textContent = this.participants[index].name;
+      marker.appendChild(label);
+      this.peerLayer.appendChild(marker);
+      peer = { marker };
+      this.peers.set(pointer.id, peer);
+    }
+    peer.x = pointer.x;
+    peer.y = pointer.y;
+    this.placePeer(peer);
+  }
+
+  placePeers() {
+    for (const peer of this.peers.values()) {
+      this.placePeer(peer);
+    }
+  }
+
+  // placePeer puts a pointer marker where the endpoint pixel is shown, whatever the scaling and scrolling of the canvas.
+  placePeer(peer) {
+    if (!this.width || !this.height || typeof peer.x !== "number") {
+      return;
+    }
+    const canvasRect = this.canvas.getBoundingClientRect();
+    const surfaceRect = this.surface.getBoundingClientRect();
+    const left = canvasRect.left - surfaceRect.left + this.surface.scrollLeft + peer.x / this.width * canvasRect.width;
+    const top = canvasRect.top - surfaceRect.top + this.surface.scrollTop + peer.y / this.height * canvasRect.height;
+    peer.marker.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
+  }
+
+  // --- consent ---------------------------------------------------------------
+
+  onConsent(consent) {
+    clearInterval(this.consentTimer);
+    this.consentTimer = null;
+    if (consent.state === "waiting") {
+      let left = consent.secondsLeft || 0;
+      const show = () => {
+        this.status.textContent = left > 0 ? `${consent.message} ${left} s left.` : consent.message;
+      };
+      show();
+      if (left > 0) {
+        this.consentTimer = setInterval(() => {
+          left = Math.max(0, left - 1);
+          show();
+          if (left === 0) {
+            clearInterval(this.consentTimer);
+            this.consentTimer = null;
+          }
+        }, 1000);
+      }
+      return;
+    }
+    this.status.textContent = consent.message || "";
+  }
+
+  // --- clipboard -------------------------------------------------------------
+
+  onClipboardFiles(offer) {
+    this.copiedFiles.replaceChildren();
+    const files = offer.files || [];
+    if (files.length === 0 && !offer.folders) {
+      return;
+    }
+    const title = el("span", "remote-copied-title");
+    const parts = [];
+    if (files.length > 0) {
+      parts.push(files.length === 1 ? "1 file copied on the endpoint" : `${files.length} files copied on the endpoint`);
+    }
+    if (offer.folders) {
+      parts.push(offer.folders === 1 ? "1 folder cannot be downloaded" : `${offer.folders} folders cannot be downloaded`);
+    }
+    title.textContent = parts.join("; ") + (files.length > 0 ? ":" : ".");
+    this.copiedFiles.appendChild(title);
+    for (const file of files) {
+      const item = button(`${file.name} (${formatBytes(file.size)})`, () => this.session.downloadCopied(file.index, file.name));
+      item.classList.add("remote-icon-button");
+      item.title = "Download";
+      this.copiedFiles.appendChild(item);
+    }
+  }
+
+  clipboardPending(pending) {
+    if (pending) {
+      this.notice("Text was copied on the endpoint. Click the screen to put it on your clipboard.");
+    } else if (this.status.textContent.startsWith("Text was copied on the endpoint")) {
+      this.notice("");
+    }
+  }
+
+  // transfer shows the progress of a pasted or downloaded file.
+  transfer(label) {
+    const row = el("div", "remote-transfer");
+    const text = el("span");
+    text.textContent = label;
+    const bar = el("div", "remote-progress");
+    const fill = el("div", "remote-progress-fill");
+    bar.appendChild(fill);
+    row.append(text, bar);
+    this.transfers.appendChild(row);
+    return {
+      update: (done, total) => {
+        fill.style.width = total > 0 ? `${Math.round(done / total * 100)}%` : "100%";
+      },
+      done: () => {
+        fill.style.width = "100%";
+        setTimeout(() => row.remove(), 1500);
+      },
+      failed: (message) => {
+        row.classList.add("failed");
+        text.textContent = `${label}: ${message}`;
+        setTimeout(() => row.remove(), 10000);
+      },
+      remove: () => row.remove()
+    };
+  }
+
   // --- input -----------------------------------------------------------------
 
   bindInput() {
@@ -156,6 +326,16 @@ export class Viewer {
     this.canvas.addEventListener("keydown", this.boundKeydown);
     this.canvas.addEventListener("keyup", this.boundKeyup);
     this.canvas.addEventListener("blur", this.boundBlur);
+    this.surface.addEventListener("dragover", (e) => this.onDragOver(e));
+    this.surface.addEventListener("dragleave", () => this.surface.classList.remove("remote-drop"));
+    this.surface.addEventListener("drop", (e) => this.onDrop(e));
+    this.surface.addEventListener("scroll", this.boundResize);
+    if (typeof document.addEventListener === "function") {
+      document.addEventListener("paste", this.boundPaste);
+    }
+    if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+      window.addEventListener("resize", this.boundResize);
+    }
   }
 
   position(event) {
@@ -174,6 +354,10 @@ export class Viewer {
     }
     event.preventDefault();
     this.canvas.focus();
+    if (down) {
+      // A click counts as a user gesture: text copied on the endpoint can go to this computer's clipboard now.
+      this.session.flushRemoteClipboard?.();
+    }
     const p = this.position(event);
     if (!p) {
       return;
@@ -222,9 +406,7 @@ export class Viewer {
     if (this.disabled) {
       return;
     }
-    event.preventDefault();
-    this.session.activity();
-    this.session.sendControl(Frame.Key, {
+    const key = {
       code: event.code,
       key: event.key,
       down,
@@ -233,11 +415,103 @@ export class Viewer {
       shift: event.shiftKey,
       meta: event.metaKey,
       altGraph: event.getModifierState ? event.getModifierState("AltGraph") : false
-    });
+    };
+    this.session.activity();
+    if (down && this.session.clipboardEnabled?.() && isPasteShortcut(event)) {
+      // Not prevented: the browser fires its paste event, the only way to read this computer's clipboard without a permission prompt. The
+      // shortcut reaches the endpoint once the clipboard is there.
+      this.pendingPaste = { down: key, up: null };
+      clearTimeout(this.pasteTimer);
+      this.pasteTimer = setTimeout(() => this.flushPaste(), pasteWait);
+      return;
+    }
+    event.preventDefault();
+    if (!down && this.pendingPaste && this.pendingPaste.down.code === event.code) {
+      this.pendingPaste.up = key;
+      return;
+    }
+    if (!down && this.ignoreUp === event.code) {
+      this.ignoreUp = null;
+      return;
+    }
+    this.session.sendControl(Frame.Key, key);
+  }
+
+  // onPaste takes the clipboard of this computer while the screen has the focus: files are placed on the endpoint clipboard, text is
+  // synchronised and then the paste shortcut goes to the endpoint.
+  onPaste(event) {
+    if (this.disabled || !isFocused(this.canvas)) {
+      return;
+    }
+    event.preventDefault();
+    const data = event.clipboardData;
+    const files = data?.files ? [...data.files] : [];
+    if (files.length > 0) {
+      // The files still have to travel; the technician pastes on the endpoint once they are there.
+      this.cancelPaste();
+      this.session.pasteFiles(files);
+      return;
+    }
+    const text = data?.getData ? data.getData("text/plain") : "";
+    if (text) {
+      this.session.sendClipboardText(text);
+    }
+    this.flushPaste();
+  }
+
+  flushPaste() {
+    clearTimeout(this.pasteTimer);
+    const pending = this.pendingPaste;
+    this.pendingPaste = null;
+    if (!pending) {
+      return;
+    }
+    this.session.sendControl(Frame.Key, pending.down);
+    if (pending.up) {
+      this.session.sendControl(Frame.Key, pending.up);
+    }
+  }
+
+  cancelPaste() {
+    clearTimeout(this.pasteTimer);
+    const pending = this.pendingPaste;
+    this.pendingPaste = null;
+    if (pending && !pending.up) {
+      // The key is still held on this computer: its release must not reach the endpoint alone.
+      this.ignoreUp = pending.down.code;
+    }
+  }
+
+  onDragOver(event) {
+    if (this.disabled || !event.dataTransfer || ![...(event.dataTransfer.types || [])].includes("Files")) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = this.session.clipboardEnabled?.() ? "copy" : "none";
+    this.surface.classList.add("remote-drop");
+  }
+
+  onDrop(event) {
+    this.surface.classList.remove("remote-drop");
+    if (this.disabled || !event.dataTransfer) {
+      return;
+    }
+    event.preventDefault();
+    const items = [...(event.dataTransfer.items || [])];
+    const folders = items.filter((item) => item.webkitGetAsEntry?.()?.isDirectory).length;
+    const files = [...(event.dataTransfer.files || [])].filter((file, i) => !items[i]?.webkitGetAsEntry?.()?.isDirectory);
+    if (folders > 0) {
+      this.notice(files.length > 0 ? "Folders cannot be pasted; the files are." : "Folders cannot be pasted. Drop the files in them instead.");
+    }
+    if (files.length > 0) {
+      this.session.pasteFiles(files);
+    }
   }
 
   releaseKeys() {
     this.buttons = 0;
+    this.pendingPaste = null;
+    clearTimeout(this.pasteTimer);
     this.session.sendControl(Frame.ReleaseKeys, {});
   }
 
@@ -262,12 +536,14 @@ export class Viewer {
   applyFit() {
     this.canvas.classList.toggle("remote-canvas-fit", this.fit);
     this.canvas.classList.toggle("remote-canvas-actual", !this.fit);
+    this.placePeers();
   }
 
   disable() {
     this.disabled = true;
     this.buttons = 0;
-    for (const control of [this.monitorSelect, this.cadButton, this.typeButton]) {
+    clearInterval(this.consentTimer);
+    for (const control of [this.monitorSelect, this.cadButton, this.typeButton, ...(this.copiedFiles?.querySelectorAll?.("button") ?? [])]) {
       if (control) {
         control.disabled = true;
       }
@@ -276,12 +552,41 @@ export class Viewer {
 
   dispose() {
     this.disable();
+    clearTimeout(this.pasteTimer);
     if (this.canvas) {
       this.canvas.removeEventListener("keydown", this.boundKeydown);
       this.canvas.removeEventListener("keyup", this.boundKeyup);
       this.canvas.removeEventListener("blur", this.boundBlur);
     }
+    if (typeof document.removeEventListener === "function") {
+      document.removeEventListener("paste", this.boundPaste);
+    }
+    if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
+      window.removeEventListener("resize", this.boundResize);
+    }
   }
+}
+
+function isPasteShortcut(event) {
+  return ((event.ctrlKey || event.metaKey) && !event.altKey && event.code === "KeyV") || (event.shiftKey && event.code === "Insert");
+}
+
+function isFocused(node) {
+  return typeof document !== "undefined" && document.activeElement === node;
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  const units = ["KB", "MB", "GB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
 }
 
 function describeDesktop(info) {

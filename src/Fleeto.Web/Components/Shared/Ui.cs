@@ -32,6 +32,14 @@ public static class Ui
 
     public static string ClassLabel(EndpointClass endpointClass) => endpointClass == EndpointClass.Server ? "Server" : "Workstation";
 
+    /// <summary>Names as prose: "Anna", "Anna and Bert", "Anna, Bert and Carl".</summary>
+    public static string JoinList(IReadOnlyList<string> names) => names.Count switch
+    {
+        0 => "Nobody",
+        1 => names[0],
+        _ => string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1]
+    };
+
     public static string UpdateRingLabel(UpdateRing ring) => ring switch
     {
         UpdateRing.Preview => "Preview ring (at once)",

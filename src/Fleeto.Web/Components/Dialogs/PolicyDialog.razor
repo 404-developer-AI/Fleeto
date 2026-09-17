@@ -51,11 +51,35 @@
         <MudText Typo="Typo.caption" Class="muted d-block mb-3">
             Output one job may send back. The endpoint drops whatever a script writes beyond it and the job is marked truncated.
         </MudText>
-        <MudNumericField T="int" @bind-Value="_remoteIdleMinutes" Label="Remote session idle timeout (minutes)" Variant="Variant.Outlined" Class="mt-3 mb-1"
+        <MudText Typo="Typo.subtitle2" Class="mt-4">Remote sessions</MudText>
+        <MudNumericField T="int" @bind-Value="_remoteIdleMinutes" Label="Idle timeout (minutes)" Variant="Variant.Outlined" Class="mt-2 mb-1"
                          Min="@RemoteSessionRules.MinIdleTimeoutMinutes" Max="@RemoteSessionRules.MaxIdleTimeoutMinutes" />
         <MudText Typo="Typo.caption" Class="muted d-block mb-3">
-            A remote background session without input closes after this long. The technician is warned 2 minutes before.
+            A technician's remote control or remote background connection without input closes after this long. They are warned 2 minutes before.
         </MudText>
+        <MudNumericField T="int" @bind-Value="_remoteFileMegabytes" Label="File size cap (MiB)" Variant="Variant.Outlined" Class="mb-1"
+                         Min="@PolicyService.MinRemoteFileMegabytes" Max="@PolicyService.MaxRemoteFileMegabytes" />
+        <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+            The largest file one transfer may carry: downloads and uploads in remote background, and files pasted into or copied from a remote
+            control session.
+        </MudText>
+        <MudSwitch T="bool" @bind-Value="_remoteClipboard" Color="Color.Primary" Label="Synchronise the clipboard in remote control" />
+        <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+            Text copied on either side is available on the other, files pasted or dragged into the window are placed on the endpoint clipboard,
+            and files copied on the endpoint can be downloaded.
+        </MudText>
+        <MudSwitch T="bool" @bind-Value="_remoteBanner" Color="Color.Primary" Label="Show a banner on workstations during remote control" />
+        <MudText Typo="Typo.caption" Class="muted d-block mb-3">The banner names every technician in the session. Servers never show it.</MudText>
+        <MudSwitch T="bool" @bind-Value="_remoteConsent" Color="Color.Primary" Label="Ask the signed-in user before remote control on workstations" />
+        <MudText Typo="Typo.caption" Class="muted d-block mb-2">
+            The first technician of a session waits until the user allows it; a refusal ends the session. Without an answer access is granted
+            after the timeout, and with nobody signed in it is granted at once. Servers never ask.
+        </MudText>
+        @if (_remoteConsent)
+        {
+            <MudNumericField T="int" @bind-Value="_remoteConsentSeconds" Label="Consent timeout (seconds)" Variant="Variant.Outlined" Class="mb-3"
+                             Min="@RemoteSessionRules.MinConsentTimeoutSeconds" Max="@RemoteSessionRules.MaxConsentTimeoutSeconds" />
+        }
         <MaintenanceWindowEditor Windows="_windows" DefaultTimeZone="@TimeZoneOptions.IanaId(Time.Zone)" />
     </DialogContent>
     <DialogActions>
@@ -84,6 +108,11 @@
     private UpdateRing _updateRing = UpdateRing.Standard;
     private int _outputMegabytes = (int)(ScriptRules.DefaultMaxOutputBytes / ScriptRules.Mebibyte);
     private int _remoteIdleMinutes = RemoteSessionRules.DefaultIdleTimeoutMinutes;
+    private int _remoteFileMegabytes = PolicyService.MaxRemoteFileMegabytes;
+    private bool _remoteClipboard = true;
+    private bool _remoteBanner = true;
+    private bool _remoteConsent;
+    private int _remoteConsentSeconds = RemoteSessionRules.DefaultConsentTimeoutSeconds;
     private bool _busy;
 
     protected override void OnInitialized()
@@ -101,6 +130,11 @@
             _updateRing = p.UpdateRing;
             _outputMegabytes = (int)(p.MaxOutputBytes / ScriptRules.Mebibyte);
             _remoteIdleMinutes = p.RemoteIdleTimeoutMinutes;
+            _remoteFileMegabytes = (int)(p.RemoteMaxFileBytes / ScriptRules.Mebibyte);
+            _remoteClipboard = p.RemoteClipboardEnabled;
+            _remoteBanner = p.RemoteBannerVisible;
+            _remoteConsent = p.RemoteConsentRequired;
+            _remoteConsentSeconds = p.RemoteConsentTimeoutSeconds;
         }
     }
 
@@ -112,7 +146,8 @@
         try
         {
             var input = new PolicyInput(_name, _description, _heartbeat, _inventoryMinutes * 60, _offlineMinutes, _offlineSeverity,
-                _windows.Select(w => w.ToWindow()).ToList(), _scriptApproval, _updateRing, _outputMegabytes * ScriptRules.Mebibyte, _remoteIdleMinutes);
+                _windows.Select(w => w.ToWindow()).ToList(), _scriptApproval, _updateRing, _outputMegabytes * ScriptRules.Mebibyte, _remoteIdleMinutes,
+                _remoteConsent, _remoteConsentSeconds, _remoteBanner, _remoteClipboard, _remoteFileMegabytes * ScriptRules.Mebibyte);
             if (await OnSubmit(_clientId, input))
             {
                 MudDialog.Close(DialogResult.Ok(true));

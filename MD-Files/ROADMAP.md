@@ -30,7 +30,8 @@ safe restore when an update fails, with WAL archiving removed (all found while t
 **0.3.0** — in progress (started 2026-09-16): remote control and remote background, planned with the developer on 2026-09-16 in
 seven steps. Steps 1 and 2 (the relay, end-to-end encryption and the complete remote background: terminal, files, services and
 processes) are built and verified on Windows and Linux endpoints (`v0.3.0-alpha.4`, 2026-09-17). Step 3 (remote control on Windows:
-screen, mouse and keyboard) is built (`v0.3.0-alpha.5`).
+screen, mouse and keyboard) is built and verified on a Windows endpoint (`v0.3.0-alpha.6`). Step 4 (clipboard, several technicians,
+consent and banner) is built (`v0.3.0-alpha.7`).
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
 2026-09-15, see Later).
@@ -455,9 +456,28 @@ Steps:
      screen and UAC are shown and can be used, and follows the console to another session (fast user switching).
    - Ctrl+Alt+Del is handled by the agent service (SendSAS), not the helper; the agent sets `SoftwareSASGeneration=1` when it is
      missing, and a group policy that sets it otherwise wins, with the reason shown on the button.
-4. **Clipboard, several technicians, consent and banner**: text clipboard both ways, files by paste or drag and
+4. [done] **Clipboard, several technicians, consent and banner** (alpha.7): text clipboard both ways, files by paste or drag and
    download notice, joining a running session with each other's pointers, consent prompt, banner and timeout on workstations,
    idle timeout.
+   Decided while building (2026-09-17):
+   - Only the **first technician** of a session is asked for consent; everyone who joins a running session sees the screen at once,
+     and the banner names them. With nobody signed in on the shown Windows session (the sign-in screen) access is granted at once.
+     When the prompt cannot be shown, the session ends (the policy asked for consent).
+   - At most **one remote control session per Windows session**: opening Remote control where one runs joins it, with its own token
+     and key exchange. One helper serves everyone: one screen, one monitor choice, one banner. The helper sends the next frame when
+     every technician drew the last one, except a technician more than 3 seconds behind; a technician whose connection falls
+     512 frames behind is disconnected.
+   - Files pasted or dropped into the window wait in `C:\ProgramData\Fleeto\RemoteClipboard\<session>` (SYSTEM and administrators,
+     the signed-in user of the Windows session reading only) and are **deleted when the session ends**, like RDP; the agent also
+     clears the folder when it starts. They are placed on the clipboard as a copy, so pasting never moves them away.
+   - The consent prompt is a message box the agent service shows on the Windows session (`WTSSendMessage`), default button No; the
+     banner and the clipboard live in the helper, on a desktop thread of their own. The agent service, not the helper, writes the
+     pasted files, so the helper still touches no file or network.
+   - The clipboard switch of the policy applies to every endpoint; consent and banner to workstations only. Clipboard text is
+     synchronised up to 512 KB. The browser takes the technician's clipboard from its paste event, so no clipboard permission is
+     needed; the paste shortcut reaches the endpoint after the text.
+   - The agent that serves remote control must run 0.3.0-alpha.7 or later: an older one would ignore the consent prompt and banner,
+     so web and the signer refuse it.
 5. **H.264 on Windows**: Media Foundation encoder with WebCodecs, automatic fallback, latency measured (under
    100 ms on a LAN) and a poor link simulated.
 6. **Linux X11**: capture, XTEST input with keysym mapping, X selections for the clipboard, banner and consent

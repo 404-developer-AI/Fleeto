@@ -78,9 +78,16 @@
                 <MudText Typo="Typo.caption" Class="mb-3 d-block mud-text-secondary">
                     The console shows the sign-in screen and UAC. @(target.SessionsReportedAt is { } at ? $"Signed-in users as reported {Time.Relative(at)}." : "No signed-in users reported yet.")
                 </MudText>
+                @if (RunningOnChosen is { } running)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                        @Ui.JoinList(running.Technicians) @(running.Technicians.Count == 1 ? "is" : "are") in a remote control session on this Windows session.
+                        Joining shares their screen, monitor choice and input; each of you sees the others' pointers.
+                    </MudAlert>
+                }
                 <MudTextField T="string" @bind-Value="_reason" Label="Reason (optional)" Variant="Variant.Outlined" MaxLength="@RemoteSessionRules.MaxReasonLength"
                               HelperText="Stored with the session in the audit log." Class="mb-4" />
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.ScreenShare" OnClick="StartAsync">Start session</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.ScreenShare" OnClick="StartAsync">@(RunningOnChosen is null ? "Start session" : "Join session")</MudButton>
             }
         </div>
     }
@@ -122,6 +129,8 @@
         SessionState.Failed => "Not connected",
         _ => "Not connected"
     };
+
+    private RunningRemoteControl? RunningOnChosen => _target?.Running.FirstOrDefault(r => r.WindowsSessionId == _windowsSession);
 
     private StatusKind StateKind => _state switch
     {

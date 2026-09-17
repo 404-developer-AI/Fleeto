@@ -358,6 +358,10 @@ public sealed partial class AgentSessionManager : BackgroundService
                 // Remote control (0.3.0 step 3) is served by the agent, so its refusals arrive over the agent session.
                 RaiseRemoteSessionRefused(session, message.RemoteSessionRefused);
                 break;
+            case AgentMessage.BodyOneofCase.RemoteSessionAction:
+                // Remote control (0.3.0 step 4) reports clipboard file transfers and the consent answer over the agent session.
+                await RecordRemoteActionAsync(session, message.RemoteSessionAction, cancellationToken);
+                break;
             case AgentMessage.BodyOneofCase.Hello:
                 session.Close(DisconnectCode.ProtocolError, "Hello may only be sent once per connection.");
                 break;

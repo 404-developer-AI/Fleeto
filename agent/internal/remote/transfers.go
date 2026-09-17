@@ -32,7 +32,7 @@ type download struct {
 	once  sync.Once
 }
 
-func (b *background) startDownload(ctx context.Context, req requestBody) (map[string]any, error) {
+func (b *background) startDownload(ctx context.Context, req requestBody, action string) (map[string]any, error) {
 	p, err := cleanPath(req.Path)
 	if err != nil {
 		return nil, err
@@ -76,7 +76,7 @@ func (b *background) startDownload(ctx context.Context, req requestBody) (map[st
 
 	safego.Go(b.s.opts.Logger, "remote download", func() { d.run(ctx, req.Offset) })
 	// Only the download itself is the audited action, once, with the whole file as the target.
-	b.report("file.download", p, "")
+	b.report(action, p, "")
 	return map[string]any{"transfer": d.id, "size": info.Size(), "name": info.Name(), "modified": info.ModTime().UnixMilli()}, nil
 }
 
@@ -167,9 +167,10 @@ type upload struct {
 	size     int64
 	acked    int64
 	failed   bool
+	action   string
 }
 
-func (b *background) startUpload(req requestBody) (map[string]any, error) {
+func (b *background) startUpload(req requestBody, action string) (map[string]any, error) {
 	dir, err := cleanPath(req.Path)
 	if err != nil {
 		return nil, err
@@ -207,7 +208,7 @@ func (b *background) startUpload(req requestBody) (map[string]any, error) {
 		return nil, opError("upload", err)
 	}
 
-	u := &upload{b: b, file: file, partPath: part, destPath: dest, written: resume, size: req.Size, acked: resume}
+	u := &upload{b: b, file: file, partPath: part, destPath: dest, written: resume, size: req.Size, acked: resume, action: action}
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
@@ -271,7 +272,7 @@ func (b *background) finishUpload(transfer uint32, browserError string) {
 		b.sendTransfer(transfer, "error", u.written, opError("save the upload", err).Error())
 		return
 	}
-	b.report("file.upload", u.destPath, "")
+	b.report(u.action, u.destPath, "")
 	b.sendTransfer(transfer, "end", u.written, "")
 }
 

@@ -20,7 +20,8 @@ namespace Fleeto.Signer.Handlers;
 /// Decided from the database, independently of web: the participant is still waiting for its token and was requested within the last
 /// minute; its user exists, has two-factor authentication, is not locked out and is an admin or technician; the endpoint exists in the
 /// participant's client and is managed (license included); the browser key is a usable X25519 key. The token carries the effective
-/// policy's idle timeout and file size cap, and is valid for 60 seconds.
+/// policy's idle timeout and file size cap, for remote control the consent prompt, banner and clipboard as they apply to the endpoint's
+/// class, and is valid for 60 seconds.
 /// </summary>
 public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
 {
@@ -32,6 +33,8 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
     public const string BrowserKeyReason = "The browser sent an invalid session key. Close the window and open the session again.";
     public const string KindReason = "This kind of remote session is not available yet.";
     public const string PlatformReason = "Remote control runs on Windows endpoints only.";
+    public const string AgentVersionReason =
+        "The agent of this endpoint is too old for remote control. It needs Fleeto 0.3.0 or later; the agent updates with its update ring.";
 
     private readonly SignerKeyRing _keyRing;
     private readonly LicenseService _licenses;
@@ -107,7 +110,7 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
 
         var endpoint = await db.Endpoints.IgnoreQueryFilters().AsNoTracking()
             .Where(e => e.Id == participant.EndpointId && e.ClientId == participant.ClientId)
-            .Select(e => new { e.Id, e.SiteId, e.Tier, e.Hostname, e.OsPlatform })
+            .Select(e => new { e.Id, e.SiteId, e.Tier, e.Hostname, e.OsPlatform, e.AgentVersion, Class = e.ClassOverride ?? e.DetectedClass })
             .SingleOrDefaultAsync(cancellationToken);
         if (endpoint is null)
         {
@@ -117,6 +120,12 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
         if (session.Kind == RemoteSessionKind.RemoteControl && endpoint.OsPlatform != "windows")
         {
             return SigningOutcome.Refused(PlatformReason);
+        }
+
+        // An older agent would ignore the consent prompt and banner of the policy (0.3.0 step 4).
+        if (session.Kind == RemoteSessionKind.RemoteControl && !RemoteSessionRules.AgentSupportsRemoteControl(endpoint.AgentVersion))
+        {
+            return SigningOutcome.Refused(AgentVersionReason);
         }
 
         // Tier enforcement, layer 2 (the signer): the stored tier and the license must both allow managed behaviour.
@@ -133,6 +142,12 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
                      ?? await db.Policies.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, cancellationToken);
         var idleMinutes = RemoteSessionRules.IdleTimeoutMinutes(policy?.RemoteIdleTimeoutMinutes ?? RemoteSessionRules.DefaultIdleTimeoutMinutes);
         var maxFileBytes = RemoteSessionRules.MaxFileBytes(policy?.RemoteMaxFileBytes ?? RemoteSessionRules.DefaultMaxFileBytes);
+        // Consent and banner follow the policy on workstations only; a server never asks and shows no banner (0.3.0 step 4).
+        var control = session.Kind == RemoteSessionKind.RemoteControl
+            ? RemoteSessionRules.EffectiveControlRules(endpoint.Class, policy?.RemoteConsentRequired ?? false,
+                policy?.RemoteConsentTimeoutSeconds ?? RemoteSessionRules.DefaultConsentTimeoutSeconds, policy?.RemoteBannerVisible ?? true,
+                policy?.RemoteClipboardEnabled ?? true)
+            : null;
 
         var validUntil = now + RemoteSessionRules.TokenValidity;
         var payload = new RemoteSessionToken
@@ -152,7 +167,11 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
             IssuedAt = Timestamp.FromDateTime(DateTime.SpecifyKind(now, DateTimeKind.Utc)),
             ValidUntil = Timestamp.FromDateTime(DateTime.SpecifyKind(validUntil, DateTimeKind.Utc)),
             IdleTimeoutSeconds = (uint)(idleMinutes * 60),
-            MaxFileBytes = (ulong)maxFileBytes
+            MaxFileBytes = (ulong)maxFileBytes,
+            ConsentRequired = control?.ConsentRequired ?? false,
+            ConsentTimeoutSeconds = (uint)(control?.ConsentTimeoutSeconds ?? 0),
+            BannerVisible = control?.BannerVisible ?? false,
+            ClipboardEnabled = control?.ClipboardEnabled ?? false
         }.ToByteArray();
 
         participant.TokenPayload = payload;
@@ -173,7 +192,10 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
                 Technician = participant.UserName,
                 session.WindowsSessionId,
                 validUntil,
-                IdleTimeoutMinutes = idleMinutes
+                IdleTimeoutMinutes = idleMinutes,
+                ConsentRequired = control?.ConsentRequired,
+                BannerVisible = control?.BannerVisible,
+                ClipboardEnabled = control?.ClipboardEnabled
             }), now, cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);

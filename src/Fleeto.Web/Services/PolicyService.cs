@@ -13,13 +13,22 @@ public sealed record PolicyListItem(Guid Id, string Name, string? Description, G
     int HeartbeatIntervalSeconds, int InventoryIntervalSeconds, int OfflineAlertAfterMinutes, AlertSeverity OfflineAlertSeverity, int SiteCount,
     int ClientTemplateSiteCount, IReadOnlyList<MaintenanceWindow> MaintenanceWindows, bool ScriptApprovalRequired = false,
     UpdateRing UpdateRing = UpdateRing.Standard, long MaxOutputBytes = ScriptRules.DefaultMaxOutputBytes,
-    int RemoteIdleTimeoutMinutes = RemoteSessionRules.DefaultIdleTimeoutMinutes);
+    int RemoteIdleTimeoutMinutes = RemoteSessionRules.DefaultIdleTimeoutMinutes, bool RemoteConsentRequired = false,
+    int RemoteConsentTimeoutSeconds = RemoteSessionRules.DefaultConsentTimeoutSeconds, bool RemoteBannerVisible = true, bool RemoteClipboardEnabled = true,
+    long RemoteMaxFileBytes = RemoteSessionRules.DefaultMaxFileBytes);
 
 /// <param name="MaintenanceWindows">Recurring maintenance windows (0.2.0). Null keeps the current windows when updating, none when creating.</param>
 /// <param name="RemoteIdleTimeoutMinutes">Minutes a remote session may go without input (0.3.0). Null keeps the current value.</param>
+/// <param name="RemoteConsentRequired">Remote control on workstations asks the signed-in user first (0.3.0). Null keeps the current value.</param>
+/// <param name="RemoteConsentTimeoutSeconds">Seconds the consent prompt waits before access is granted. Null keeps the current value.</param>
+/// <param name="RemoteBannerVisible">Remote control on workstations shows a banner naming the technicians. Null keeps the current value.</param>
+/// <param name="RemoteClipboardEnabled">Remote control synchronises the clipboard. Null keeps the current value.</param>
+/// <param name="RemoteMaxFileBytes">The largest file one remote session transfer may carry. Null keeps the current value.</param>
 public sealed record PolicyInput(string? Name, string? Description, int HeartbeatIntervalSeconds, int InventoryIntervalSeconds,
     int OfflineAlertAfterMinutes, AlertSeverity OfflineAlertSeverity, IReadOnlyList<MaintenanceWindow>? MaintenanceWindows = null,
-    bool? ScriptApprovalRequired = null, UpdateRing? UpdateRing = null, long? MaxOutputBytes = null, int? RemoteIdleTimeoutMinutes = null);
+    bool? ScriptApprovalRequired = null, UpdateRing? UpdateRing = null, long? MaxOutputBytes = null, int? RemoteIdleTimeoutMinutes = null,
+    bool? RemoteConsentRequired = null, int? RemoteConsentTimeoutSeconds = null, bool? RemoteBannerVisible = null, bool? RemoteClipboardEnabled = null,
+    long? RemoteMaxFileBytes = null);
 
 /// <summary>Policies (global or per client). Linked, not copied: a change applies at once to every site that uses the policy.</summary>
 public sealed class PolicyService
@@ -33,6 +42,10 @@ public sealed class PolicyService
     /// <summary>The job output cap is chosen in whole mebibytes (0.2.1); the signer holds the same bounds.</summary>
     public const int MinOutputMegabytes = (int)(ScriptRules.MinOutputBytes / ScriptRules.Mebibyte);
     public const int MaxOutputMegabytes = (int)(ScriptRules.MaxOutputBytes / ScriptRules.Mebibyte);
+
+    /// <summary>The remote session file size cap is chosen in whole mebibytes (0.3.0); the signer holds the same bounds.</summary>
+    public const int MinRemoteFileMegabytes = (int)(RemoteSessionRules.MinMaxFileBytes / ScriptRules.Mebibyte);
+    public const int MaxRemoteFileMegabytes = (int)(RemoteSessionRules.MaxMaxFileBytes / ScriptRules.Mebibyte);
 
     private readonly IFleetoDbContextFactory _dbFactory;
     private readonly TimeProvider _time;
@@ -56,7 +69,8 @@ public sealed class PolicyService
                     p.IsDefault, p.HeartbeatIntervalSeconds, p.InventoryIntervalSeconds, p.OfflineAlertAfterMinutes, p.OfflineAlertSeverity,
                     db.SitePolicies.Count(l => l.PolicyId == p.Id),
                     db.ClientTemplateSites.Count(s => s.PolicyId == p.Id), Array.Empty<MaintenanceWindow>(), p.ScriptApprovalRequired, p.UpdateRing,
-                    p.MaxOutputBytes, p.RemoteIdleTimeoutMinutes),
+                    p.MaxOutputBytes, p.RemoteIdleTimeoutMinutes, p.RemoteConsentRequired, p.RemoteConsentTimeoutSeconds, p.RemoteBannerVisible,
+                    p.RemoteClipboardEnabled, p.RemoteMaxFileBytes),
                 p.MaintenanceWindowsJson
             })
             .ToListAsync(cancellationToken);
@@ -155,7 +169,8 @@ public sealed class PolicyService
 
         var input = new PolicyInput(name, source.Description, source.HeartbeatIntervalSeconds, source.InventoryIntervalSeconds,
             source.OfflineAlertAfterMinutes, source.OfflineAlertSeverity, MaintenanceWindowSchedule.Parse(source.MaintenanceWindowsJson),
-            source.ScriptApprovalRequired, source.UpdateRing, source.MaxOutputBytes, source.RemoteIdleTimeoutMinutes);
+            source.ScriptApprovalRequired, source.UpdateRing, source.MaxOutputBytes, source.RemoteIdleTimeoutMinutes, source.RemoteConsentRequired,
+            source.RemoteConsentTimeoutSeconds, source.RemoteBannerVisible, source.RemoteClipboardEnabled, source.RemoteMaxFileBytes);
         var created = await CreateAsync(caller, targetClientId, input, cancellationToken);
         if (created.Success)
         {
@@ -239,6 +254,31 @@ public sealed class PolicyService
             policy.RemoteIdleTimeoutMinutes = RemoteSessionRules.IdleTimeoutMinutes(idle);
         }
 
+        if (input.RemoteConsentRequired is { } consent)
+        {
+            policy.RemoteConsentRequired = consent;
+        }
+
+        if (input.RemoteConsentTimeoutSeconds is { } consentTimeout)
+        {
+            policy.RemoteConsentTimeoutSeconds = RemoteSessionRules.ConsentTimeoutSeconds(consentTimeout);
+        }
+
+        if (input.RemoteBannerVisible is { } banner)
+        {
+            policy.RemoteBannerVisible = banner;
+        }
+
+        if (input.RemoteClipboardEnabled is { } clipboard)
+        {
+            policy.RemoteClipboardEnabled = clipboard;
+        }
+
+        if (input.RemoteMaxFileBytes is { } fileBytes)
+        {
+            policy.RemoteMaxFileBytes = RemoteSessionRules.MaxFileBytes(fileBytes);
+        }
+
         policy.UpdatedAt = now;
     }
 
@@ -253,6 +293,11 @@ public sealed class PolicyService
         UpdateRing = policy.UpdateRing.ToString(),
         policy.MaxOutputBytes,
         policy.RemoteIdleTimeoutMinutes,
+        policy.RemoteConsentRequired,
+        policy.RemoteConsentTimeoutSeconds,
+        policy.RemoteBannerVisible,
+        policy.RemoteClipboardEnabled,
+        policy.RemoteMaxFileBytes,
         MaintenanceWindows =MaintenanceWindowSchedule.Parse(policy.MaintenanceWindowsJson).Select(MaintenanceWindows.Describe).ToList()
     };
 
@@ -297,6 +342,17 @@ public sealed class PolicyService
         if (input.RemoteIdleTimeoutMinutes is { } idle && (idle < RemoteSessionRules.MinIdleTimeoutMinutes || idle > RemoteSessionRules.MaxIdleTimeoutMinutes))
         {
             return $"The remote session idle timeout must be between {RemoteSessionRules.MinIdleTimeoutMinutes} and {RemoteSessionRules.MaxIdleTimeoutMinutes} minutes.";
+        }
+
+        if (input.RemoteConsentTimeoutSeconds is { } consent &&
+            (consent < RemoteSessionRules.MinConsentTimeoutSeconds || consent > RemoteSessionRules.MaxConsentTimeoutSeconds))
+        {
+            return $"The consent timeout must be between {RemoteSessionRules.MinConsentTimeoutSeconds} and {RemoteSessionRules.MaxConsentTimeoutSeconds} seconds.";
+        }
+
+        if (input.RemoteMaxFileBytes is { } fileBytes && (fileBytes < RemoteSessionRules.MinMaxFileBytes || fileBytes > RemoteSessionRules.MaxMaxFileBytes))
+        {
+            return $"The remote session file size cap must be between {MinRemoteFileMegabytes} and {MaxRemoteFileMegabytes} MiB.";
         }
 
         return input.MaintenanceWindows is { } windows ? MaintenanceWindows.Validate(windows) : null;

@@ -51,6 +51,9 @@ type requestBody struct {
 	StartType string `json:"startType"`
 	Pid       int32  `json:"pid"`
 	Transfer  uint32 `json:"transfer"`
+	// Batch and Index address pasted and copied files in a remote control session (0.3.0 step 4).
+	Batch int `json:"batch"`
+	Index int `json:"index"`
 }
 
 type transferBody struct {
@@ -77,10 +80,12 @@ type background struct {
 	uploads   map[uint32]*upload
 	nextID    uint32
 	closed    bool
+	// batches are the folders of files pasted in a remote control session, by the number the browser got.
+	batches map[int]string
 }
 
 func newBackground(s *Session) *background {
-	return &background{s: s, downloads: map[uint32]*download{}, uploads: map[uint32]*upload{}}
+	return &background{s: s, downloads: map[uint32]*download{}, uploads: map[uint32]*upload{}, batches: map[int]string{}}
 }
 
 func (b *background) handle(ctx context.Context, frameType byte, body []byte) {
@@ -132,9 +137,9 @@ func (b *background) dispatch(ctx context.Context, req requestBody) (map[string]
 	case "copy":
 		return b.copy(ctx, req)
 	case "download":
-		return b.startDownload(ctx, req)
+		return b.startDownload(ctx, req, "file.download")
 	case "upload":
-		return b.startUpload(req)
+		return b.startUpload(req, "file.upload")
 	case "cancel":
 		b.cancelTransfer(req.Transfer, "cancelled by the technician")
 		return nil, nil

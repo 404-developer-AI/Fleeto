@@ -11,6 +11,24 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
+- 0.3.0: Remote control clipboard. Text copied on either side is available on the other: text copied on the endpoint is put on the
+  technician's clipboard, and the technician's clipboard goes to the endpoint when they paste (Ctrl+V or Shift+Insert) in the window.
+  Files pasted or dragged into the window are placed on the endpoint clipboard, like RDP, and pasted there with Ctrl+V; they wait in a
+  folder only the signed-in user of the endpoint can read and are deleted when the session ends. Files copied on the endpoint are
+  offered for download in the window (folders are not). Transfers follow the policy's file size cap and are audited as
+  `clipboard.upload` and `clipboard.download`. The policy switch "Synchronise the clipboard in remote control" turns it off.
+- 0.3.0: Several technicians in one remote control session. Opening Remote control on a Windows session where a session already runs
+  joins it: one screen, one monitor choice, input from each technician, every join with its own token, key exchange and audit entry.
+  The window lists the technicians and shows where the others point. A technician whose connection cannot keep up is disconnected so
+  the others keep their screen.
+- 0.3.0: Consent prompt and banner for remote control on workstations, per policy. With "Ask the signed-in user before remote control
+  on workstations" on, the first technician of a session waits until the user signed in on the shown Windows session allows it; a
+  refusal ends the session, no answer within the consent timeout (10 to 300 seconds, default 30) grants access, and with nobody signed
+  in access is granted at once. Technicians who join later are not asked again. The banner at the top of the endpoint's screen names
+  every technician in the session (on by default). Servers never ask and show no banner. The answer is audited (`consent.granted`,
+  `consent.refused`, `consent.timeout`, `consent.not_asked`, `consent.failed`).
+- 0.3.0: The policy dialog shows every remote session setting: idle timeout, file size cap, clipboard, banner, consent prompt and its
+  timeout.
 - 0.3.0: Remote control of a Windows endpoint: take over its screen from the right-click menu or the endpoint detail, in its own
   window. Choose the Windows session first — the console (with the sign-in screen and UAC) or a signed-in RDP session — and, once
   connected, the monitor. The screen is shown with change detection (sharp text), the mouse and keyboard work, and the keyboard
@@ -34,8 +52,8 @@ When a third released version is added, the oldest entry moves to the top of
   its certificate key, and the browser accepts that key only by the fingerprint the instance recorded. Frames are AES-256-GCM
   with a counter nonce. The gateway relays them unread: browsers connect to `wss://<fqdn>/relay/` through the host proxy, the
   endpoint to `/v1/relay/` with its client certificate. Tier checks in web, signer, gateway and on the endpoint.
-- 0.3.0: A remote session without input closes after the policy's idle timeout (Remote session idle timeout, 5 to 480 minutes,
-  default 30), with a warning 2 minutes before.
+- 0.3.0: A remote session without input closes after the policy's idle timeout (5 to 480 minutes, default 30), with a warning
+  2 minutes before; in a session with several technicians each one's own connection closes.
 - 0.3.0: Remote sessions, their participants and actions are stored (migration `RemoteSessions`, additive) and audited:
   `remote_session.requested`, `.signed`, `.joined`, `.left` and `.refused`. Sessions that never connect end after 5 minutes;
   the history is kept 13 months. The policy stores the remote session settings of later steps (consent, banner, clipboard,

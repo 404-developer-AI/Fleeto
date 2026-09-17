@@ -707,6 +707,15 @@ message RemoteSessionToken {
   // Remote control on Windows (0.3.0 step 3): the Windows session to show. 0 is the console session (whichever session is attached to
   // the console, including the sign-in screen); any other value is a signed-in session (an RDP session) as the agent reported it.
   uint32 windows_session_id = 14;
+  // Remote control (0.3.0 step 4), decided by the signer from the effective policy and the endpoint class: always false for a server.
+  // Ask the person signed in on the shown Windows session to allow the session first; only the first technician of a session is asked.
+  bool consent_required = 15;
+  // Seconds the consent prompt waits for an answer; without one, access is granted.
+  uint32 consent_timeout_seconds = 16;
+  // Show a banner naming every technician in the session on the endpoint's screen. Always false for a server.
+  bool banner_visible = 17;
+  // Synchronise the clipboard (text both ways, files to the endpoint, copied files offered for download). Missing means off.
+  bool clipboard_enabled = 18;
 }
 
 enum RemoteSessionKind {

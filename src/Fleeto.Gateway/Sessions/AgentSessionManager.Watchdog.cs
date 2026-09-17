@@ -188,7 +188,10 @@ public sealed partial class AgentSessionManager
         }
     }
 
-    /// <summary>Records an action a technician took in a remote background session (0.3.0 step 2), as the endpoint reports it.</summary>
+    /// <summary>
+    /// Records an action a technician took in a remote session, as the endpoint reports it: files, services and processes in remote background
+    /// (0.3.0 step 2, over the watchdog session), clipboard file transfers and the consent answer in remote control (step 4, over the agent session).
+    /// </summary>
     private async Task RecordRemoteActionAsync(AgentSession session, RemoteSessionActionReport report, CancellationToken cancellationToken)
     {
         if (!Guid.TryParse(report.ParticipantId, out var participantId) || string.IsNullOrEmpty(report.Action))

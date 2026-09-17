@@ -24,7 +24,7 @@ type fakeHelper struct {
 }
 
 func newFakeHelper(session uint32) *fakeHelper {
-	h := &fakeHelper{session: session, received: make(chan []byte, 16)}
+	h := &fakeHelper{session: session, received: make(chan []byte, 256)}
 	h.inR, h.inW = io.Pipe()
 	h.outR, h.outW = io.Pipe()
 	go func() {

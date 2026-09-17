@@ -5,8 +5,8 @@
 > Status: 0.0.x to 0.2.2 released (agent enrollment, gateway, signer, workers, web UI, licensing, backups, maintenance,
 > the check catalog and history, notification routing, scripts and jobs, the read-only public API, agent updates, the
 > watchdog, the Linux agent); 0.3.0 in progress (remote sessions: the relay, end-to-end encryption, the full remote
-> background — terminal, files, services, processes — and remote control on Windows implemented; the clipboard, several
-> technicians, consent and banner, H.264 and Linux X11 are design). Integrations are design.
+> background — terminal, files, services, processes — and remote control on Windows with the clipboard, several technicians,
+> consent and banner implemented; H.264 and Linux X11 are design). Integrations are design.
 > Sections marked *decision pending* point to the open decisions in `CLAUDE.md`.
 
 ## 1. Deployment topology
@@ -104,7 +104,7 @@ AuditEntry (append-only)
 | `Maintenance` (on Client, Site, Endpoint) | `MaintenanceStartedAt?`, `MaintenanceEndsAt?`, `MaintenanceStartedByUserId?`, `MaintenanceStartedByName?`, `MaintenanceReason?` | Maintenance mode (0.2.0), stored as nullable columns on each of the three tables. Active while `MaintenanceStartedAt` is set and not in the future and `MaintenanceEndsAt` is null or in the future; ending by hand clears the columns, an end time that passes is left in place and every query compares with the current time. The reason is free text and personal data may appear in it: it is never copied into the audit log. See *Maintenance mode* in §4. |
 | **AgentCertificate** | `Id`, `ClientId`, `EndpointId`, `Role` (`agent`/`watchdog`), `Fingerprint`, `IssuedAt`, `ExpiresAt`, `RevokedAt?`, `RevokedBy?`, `RevokedReason?` | One row per issued certificate, renewals included. The gateway refuses every certificate with `RevokedAt` set. `Role` (0.2.1) decides which session the certificate may open; a renewal keeps it. |
 | **EndpointComponentState** | `EndpointId`, `Component` (`agent`/`watchdog`), `ClientId`, `InstalledVersion`, `ServiceState`, `ServiceDetail`, `ServiceStateAt?`, `UpdateVersion`, `UpdateState?`, `UpdateDetail`, `UpdateAt?`, `WaitVersion?`, `WaitReason?`, `WaitUntil?`, `WaitAt?` | Per endpoint and component (0.2.1): the service state its peer reports and the latest update report (`downloading`, `installing`, `installed`, `failed`, `rolled_back`). From 0.2.2 also the offered release the installer holds back and why (`UpdateRing`, `NextAttempt`, `RandomDelay`, `InstallerUpdate`, `RolledBack`), cleared by the next update report that is not a wait. Written by the gateway, deleted with the endpoint. |
-| **Policy** | `Id`, `ClientId?`, `Name`, settings, `UpdateRing` (`preview`/`standard`/`delayed`, default `standard`), `MaxOutputBytes` (1-200 MiB, default 50 MiB, check constraint), `MaintenanceWindowsJson`, remote session settings (0.3.0): `RemoteConsentRequired` (default off), `RemoteConsentTimeoutSeconds` (10-300, default 30), `RemoteBannerVisible` (default on), `RemoteClipboardEnabled` (default on), `RemoteIdleTimeoutMinutes` (5-480, default 30), `RemoteMaxFileBytes` (1 MiB-10 GiB, default 10 GiB) | Agent behaviour: intervals, patch behaviour, update ring (0.2.1, §4 Agent update), script permissions and **script approval required**, the job output cap (0.2.1, §4 Job), remote session rules (0.3.0; consent, banner and clipboard apply to remote control on workstations only and take effect with its steps), maintenance windows. `ClientId` null = global. |
+| **Policy** | `Id`, `ClientId?`, `Name`, settings, `UpdateRing` (`preview`/`standard`/`delayed`, default `standard`), `MaxOutputBytes` (1-200 MiB, default 50 MiB, check constraint), `MaintenanceWindowsJson`, remote session settings (0.3.0): `RemoteConsentRequired` (default off), `RemoteConsentTimeoutSeconds` (10-300, default 30), `RemoteBannerVisible` (default on), `RemoteClipboardEnabled` (default on), `RemoteIdleTimeoutMinutes` (5-480, default 30), `RemoteMaxFileBytes` (1 MiB-10 GiB, default 10 GiB) | Agent behaviour: intervals, patch behaviour, update ring (0.2.1, §4 Agent update), script permissions and **script approval required**, the job output cap (0.2.1, §4 Job), remote session rules (0.3.0; consent and banner apply to remote control on workstations only, the clipboard to remote control on every endpoint; the signer puts what applies into the session token), maintenance windows. `ClientId` null = global. |
 | **MaintenanceWindowOccurrence** | `PolicyId`, `WindowIndex`, `StartsAt`, `EndsAt`, `AppliesTo`, `Name?` | Occurrences of the policy's maintenance windows (0.2.0), stored 8 days ahead (§4, Maintenance windows). Deleted with the policy. |
 | **MonitoringTemplate** | `Id`, `ClientId?`, `Name` | Named set of `CheckDefinition`s with thresholds and alert rules. `ClientId` null = global. |
 | **CheckDefinition** | `Id`, `ClientId?`, `MonitoringTemplateId?`, `EndpointId?`, `Type`, `Interval`, `Thresholds`, `FailuresBeforeAlert`, `AppliesToClass`, `Enabled` | Interval from seconds to monthly. Owned by exactly one of a monitoring template or one endpoint (check constraint). An endpoint-only check carries the endpoint's `ClientId` (composite foreign key) and runs whatever the endpoint class. |
@@ -305,7 +305,9 @@ Three kinds of tables:
 - **Remote control (0.3.0 step 3, Windows).** The screen, mouse and keyboard, served by the **agent** (not the watchdog), because
   it needs a process in the Windows session that the agent, as SYSTEM, can start. The agent runs `internal/screen`: a helper per
   session that captures the desktop (GDI), encodes changed tiles and injects input, and the agent relays its frames over the same
-  encrypted session as remote background. Details in §4, Remote session.
+  encrypted session as remote background. From step 4 the helper also shows the banner and handles the clipboard of the Windows
+  session, several technicians share one session and helper, and the agent service asks for consent and stages pasted files.
+  Details in §4, Remote control.
 - Reconnect with exponential backoff plus jitter.
 - Wire format: protobuf over the WebSocket, one message per binary WebSocket frame (the frame is
   the length prefix), results batched. Never one HTTP request per check result. Contract:
@@ -774,8 +776,52 @@ any session, including the console with the sign-in screen and UAC.
   session, up to three tries; the audit log then shows two sessions. Resuming the same session is not done, because the token is
   single use and a session ends the moment nobody is connected.
 
-Several technicians (step 4) each get their own participant, token and key exchange with the endpoint. On workstations remote
-control follows the policy's consent prompt and banner (step 4); servers never prompt and show no banner.
+**Several technicians (0.3.0 step 4, decided 2026-09-17).** Each technician gets their own participant, token and key exchange with
+the endpoint; there is at most one remote control session per Windows session. When web opens remote control on a Windows session where
+a session still has a technician in it or on the way, it adds the participant to that session (audited `remote_session.requested` with
+`JoinsRunningSession`) instead of starting another.
+
+- The agent joins every connection that names the same session id into one **hub** (`screen.Sessions`) with one helper: one screen,
+  one monitor choice (a Start of any technician changes it for all and gives everyone a whole frame), one banner, and input from each.
+  Every frame of the helper goes to each technician over their own queue. The hub acknowledges a frame to the helper when every
+  technician drew it, except a technician who is more than 3 seconds behind someone who did; a technician whose queue reaches
+  512 frames is disconnected ("too slow to follow the screen") so the others keep their screen. A technician who leaves releases
+  every key and button; the last one ends the helper.
+- Each technician gets the list of technicians (`FrameParticipants`) and the pointer positions of the others (`FramePeerPointer`, at
+  most 25 per second), drawn over the screen with their names.
+
+**Consent and banner (0.3.0 step 4).** The signer decides from the effective policy and the endpoint class and puts the result in the
+token: `consent_required` and `banner_visible` only on a workstation, `consent_timeout_seconds`, and `clipboard_enabled` on every
+endpoint (a missing field means off). Web and the signer refuse remote control for an agent older than 0.3.0-alpha.7, which would
+ignore consent and banner.
+
+- Only the **first technician** of a session is asked (decided 2026-09-17). Until the answer, nothing of that session reaches the
+  screen: no helper starts, and the technicians who wait (the first and whoever joined meanwhile) see a countdown (`FrameConsent`).
+  The agent service shows a message box on the Windows session (`WTSSendMessage`, Yes/No, default No, topmost, the consent timeout):
+  Yes grants, No ends every waiting connection, no answer grants. With nobody signed in on the Windows session (the sign-in screen)
+  access is granted at once; when the prompt cannot be shown the session ends, because the policy asked for consent. The outcome is
+  reported for the audit log (`consent.granted`, `consent.refused`, `consent.timeout`, `consent.not_asked`, `consent.failed`, target the
+  signed-in account). Everyone who joins a granted session sees the screen at once.
+- The **banner** (when the first technician's token says so) is a click-through, topmost window at the top of the primary monitor
+  naming every technician in the session, in the brand's teal. The helper shows it on a desktop thread of its own (a thread that owns
+  windows cannot follow the input desktop), so it is part of the captured screen too.
+
+**Clipboard (0.3.0 step 4).** Only for technicians whose token enables it; the endpoint refuses clipboard frames and requests otherwise.
+
+- **Text** both ways as UTF-8 (`FrameClipboard`, at most 512 KB). The helper watches the clipboard of its window station with a
+  clipboard format listener and sends what another program copied; what a technician placed is never echoed back. The browser writes
+  the text to the technician's clipboard when the window has the focus, otherwise at the next focus or click. The browser reads the
+  technician's clipboard from the paste event (no clipboard permission): the paste shortcut (Ctrl+V, Shift+Insert) is held until the
+  text went out, and the helper sets the clipboard before it injects the next input.
+- **Files to the endpoint**, pasted or dragged into the window: the browser asks for a batch (`clipboard.begin`), uploads each file into
+  it with the transfers of remote background (`clipboard.upload`, at most the policy's file size cap, at most 100 files) and places the
+  batch (`clipboard.place`); the helper puts them on the clipboard as `CF_HDROP` with the preferred drop effect copy, so pasting copies
+  them. The **agent service** writes the files, into `%ProgramData%\Fleeto\RemoteClipboard\<session>\<batch>` with a protected DACL
+  (SYSTEM and administrators full, the user signed in on the Windows session read only), and deletes the folder when the last
+  technician leaves; the agent clears the whole folder when it starts. The helper takes its files off the clipboard when it ends.
+- **Files copied on the endpoint** are offered to the browser by index (`FrameClipboardFiles`: names and sizes, folders counted but not
+  offered); the technician downloads one with `clipboard.download`, only a file that is on the clipboard now. Uploads and downloads are
+  audited as `clipboard.upload` and `clipboard.download` with the path.
 
 **Client creation from template.** Technician picks a client template, enters code and
 name → the sites in the template are created under the new client with their policy and
@@ -975,7 +1021,11 @@ container:
   the agent; it captures and injects input, never terminals, files or the network. A remote
   control token is served by the agent only, a remote background token by the watchdog only,
   and each service refuses the other's kind (§4 Remote session).
-- Clipboard: text both ways and files to the endpoint (0.3.0), disabled per policy.
+- Clipboard (0.3.0 step 4): text both ways and files to the endpoint, disabled per policy on every endpoint. Pasted files are readable
+  only by SYSTEM, administrators and the user signed in on the shown Windows session, and deleted when the session ends; a technician
+  downloads only files copied on the endpoint, by index, never a path of their choice (remote background serves the file explorer).
+- Several technicians (0.3.0 step 4): each has their own token, key exchange and audit entries; joining a session the person at the
+  endpoint allowed does not ask again, and the banner names every technician.
 - **A script that runs as the signed-in user, accepted risk (0.2.1).** That user can read the script text while it runs:
   the interpreter has to open the file as them. The script is staged so that they can read it and not change it, and the
   run window says so before the run starts. A script that carries a secret must run as the agent's own account.
