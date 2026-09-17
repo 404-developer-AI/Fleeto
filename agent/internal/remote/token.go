@@ -54,6 +54,23 @@ func (t *Token) IdleTimeout() time.Duration {
 	return min(max(d, MinIdleTimeout), MaxIdleTimeout)
 }
 
+const (
+	// MinMaxFileBytes and MaxMaxFileBytes bound the file size cap a token may set.
+	MinMaxFileBytes = 1 << 20
+	MaxMaxFileBytes = 10 * (1 << 30)
+	// DefaultMaxFileBytes applies when a token names none.
+	DefaultMaxFileBytes = MaxMaxFileBytes
+)
+
+// MaxFileBytes is the largest file one transfer may carry, from the token (policy), held inside the bounds.
+func (t *Token) MaxFileBytes() int64 {
+	b := int64(t.GetMaxFileBytes())
+	if b <= 0 {
+		return DefaultMaxFileBytes
+	}
+	return min(max(b, MinMaxFileBytes), MaxMaxFileBytes)
+}
+
 // VerifyToken checks a signed token against the pinned trust: the signature, the instance and endpoint, the service it is meant for,
 // its validity and the browser key. Whether the endpoint is managed and whether the participant was seen before are checked by the
 // caller (Replay).

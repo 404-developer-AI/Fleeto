@@ -168,3 +168,9 @@ type platformInfo struct {
 func goArch() string {
 	return runtime.GOARCH
 }
+
+// Services lists the endpoint's services with their display name, start type and state (0.3.0), for the remote background window. It
+// returns the same data the inventory carries; on a platform without service support it returns nil.
+func Services() ([]*agentv1.ServiceItem, error) {
+	return services()
+}

@@ -160,6 +160,9 @@ public sealed partial class AgentSessionManager
             case AgentMessage.BodyOneofCase.RemoteSessionRefused:
                 RaiseRemoteSessionRefused(session, message.RemoteSessionRefused);
                 break;
+            case AgentMessage.BodyOneofCase.RemoteSessionAction:
+                await RecordRemoteActionAsync(session, message.RemoteSessionAction, cancellationToken);
+                break;
             case AgentMessage.BodyOneofCase.Hello:
                 session.Close(DisconnectCode.ProtocolError, "Hello may only be sent once per connection.");
                 break;
@@ -182,6 +185,32 @@ public sealed partial class AgentSessionManager
         catch (Exception ex)
         {
             _logger.LogError(ex, "Endpoint {EndpointId}: handling a refused remote session failed", session.EndpointId);
+        }
+    }
+
+    /// <summary>Records an action a technician took in a remote background session (0.3.0 step 2), as the endpoint reports it.</summary>
+    private async Task RecordRemoteActionAsync(AgentSession session, RemoteSessionActionReport report, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(report.ParticipantId, out var participantId) || string.IsNullOrEmpty(report.Action))
+        {
+            return;
+        }
+
+        try
+        {
+            var time = report.Time?.ToDateTime() ?? _time.GetUtcNow().UtcDateTime;
+            var recorded = await _store.RecordRemoteActionAsync(session.EndpointId, participantId, report.Action, report.Target, report.Detail, time,
+                _time.GetUtcNow().UtcDateTime, cancellationToken);
+            if (!recorded)
+            {
+                _logger.LogWarning("Endpoint {EndpointId}: a remote session action was reported for an unknown participant {ParticipantId}",
+                    session.EndpointId, participantId);
+            }
+        }
+        catch (Exception ex) when (ex is NpgsqlException or TimeoutException)
+        {
+            // An audit entry that could not be written is lost; the action itself already happened on the endpoint.
+            _logger.LogWarning(ex, "Endpoint {EndpointId}: could not record a remote session action", session.EndpointId);
         }
     }
 

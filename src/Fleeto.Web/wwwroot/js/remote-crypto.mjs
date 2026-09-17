@@ -24,7 +24,12 @@ export const Frame = Object.freeze({
   Closed: 0x07,
   IdleWarning: 0x08,
   End: 0x09,
-  Activity: 0x0a
+  Activity: 0x0a,
+  // Remote background operations (0.3.0 step 2).
+  Request: 0x0b,
+  Response: 0x0c,
+  Chunk: 0x0d,
+  Transfer: 0x0e
 });
 
 function concat(...parts) {

@@ -168,6 +168,29 @@ public sealed partial class GatewayStore
         return sessions.Count;
     }
 
+    /// <summary>
+    /// Records an action a technician took in a remote background session (0.3.0 step 2), reported by the endpoint over its control
+    /// session. The participant must belong to the reporting endpoint, so an endpoint cannot write actions for another's session. Terminal
+    /// content is never stored. Returns false when the participant is unknown for this endpoint.
+    /// </summary>
+    public async Task<bool> RecordRemoteActionAsync(Guid endpointId, Guid participantId, string action, string target, string? detail, DateTime time,
+        DateTime now, CancellationToken cancellationToken)
+    {
+        await using var command = _dataSource.CreateCommand("""
+            INSERT INTO "RemoteSessionActions" ("SessionId", "ParticipantId", "ClientId", "EndpointId", "Time", "Action", "Target", "Detail")
+            SELECT p."SessionId", p."Id", p."ClientId", p."EndpointId", $3, $4, $5, $6
+            FROM "RemoteSessionParticipants" p
+            WHERE p."Id" = $1 AND p."EndpointId" = $2
+            """);
+        command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = participantId });
+        command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = endpointId });
+        command.Parameters.Add(new NpgsqlParameter<DateTime> { TypedValue = time <= DateTime.MinValue || time > now.AddMinutes(5) ? now : time });
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = DbText.Clean(action, 50) });
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = DbText.Clean(target, 1000) });
+        command.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Varchar, Value = string.IsNullOrEmpty(detail) ? DBNull.Value : DbText.Clean(detail, 1000) });
+        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
     private static async Task EndSessionIfIdleAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid sessionId, string reason, DateTime now,
         CancellationToken cancellationToken)
     {

@@ -11,6 +11,12 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
+- 0.3.0: Remote background now has a file explorer, services and processes next to the terminal, in the same encrypted window.
+  Files: browse the endpoint, download a file (streamed to disk, resumable), upload a file (up to the policy's cap), and create,
+  rename, delete and copy within the endpoint. Services: list them and start, stop, restart or change the start type. Processes:
+  list them with CPU, memory and user, and end one. Everything runs over the encrypted session; the gateway sees only ciphertext.
+- 0.3.0: Every file, service and process action a technician takes is recorded in the audit log, reported by the endpoint over
+  its own control session (never a file's content). Stored in `RemoteSessionActions` (part of the `RemoteSessions` migration).
 - 0.3.0: Remote background with a terminal as SYSTEM or root. Opened from the right-click menu of a managed endpoint or the
   Remote background button on the endpoint detail, in its own window: PowerShell or Command Prompt on Windows (in a pseudo
   console; Windows Server 2016 gets line input), the login shell on Linux, served by the watchdog, so it also works when the

@@ -1,8 +1,8 @@
-// The browser side of a remote background session (0.3.0): key exchange, the encrypted relay connection and the terminal. Loaded as a
-// module by the Remote background window. The session key never leaves this page; the server only signs its public half.
-import { Terminal } from "../lib/xterm/xterm.mjs";
-import { FitAddon } from "../lib/xterm/addon-fit.mjs";
+// The browser side of a remote background session (0.3.0): key exchange, the encrypted relay connection, the terminal, and the file,
+// service and process workspace. Loaded as a module by the Remote background window. The session key never leaves this page; the server
+// only signs its public half. The workspace UI is in remote-ui.mjs.
 import { deriveSessionKeys, Frame, FrameCipher, fromBase64, generateBrowserKey, supported as cryptoSupported, toBase64 } from "./remote-crypto.mjs";
+import { Workspace } from "./remote-ui.mjs";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -19,20 +19,14 @@ function relayUrl(configured, participantId) {
   return `${scheme}//${window.location.host}/relay/v1/sessions/${participantId}`;
 }
 
-function frame(type, body) {
-  const bytes = body instanceof Uint8Array ? body : encoder.encode(JSON.stringify(body ?? {}));
-  const out = new Uint8Array(bytes.length + 1);
-  out[0] = type;
-  out.set(bytes, 1);
-  return out;
+function jsonFrame(type, body) {
+  return concat(Uint8Array.of(type), encoder.encode(JSON.stringify(body ?? {})));
 }
 
-function dataFrame(channel, bytes) {
-  const out = new Uint8Array(bytes.length + 3);
-  out[0] = Frame.Data;
-  out[1] = channel >> 8;
-  out[2] = channel & 0xff;
-  out.set(bytes, 3);
+function concat(a, b) {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a, 0);
+  out.set(b, a.length);
   return out;
 }
 
@@ -44,19 +38,28 @@ class RemoteSession {
     this.socket = null;
     this.send = null;
     this.receive = null;
-    this.channel = 0;
-    this.pty = true;
-    this.line = "";
     this.state = "idle";
     this.queue = Promise.resolve();
+    this.sendQueue = Promise.resolve();
+    this.hello = null;
+    this.workspace = null;
+    this.pending = new Map();
+    this.nextRequestId = 1;
+    this.downloads = new Map();
+    this.uploads = new Map();
     this.onUnload = () => this.end(true);
-    this.onResize = () => this.fit();
   }
+
+  // --- lifecycle -------------------------------------------------------------
 
   async start() {
     this.report("connecting");
-    this.createTerminal();
-    this.write("Setting up an encrypted session...\r\n");
+    this.container.replaceChildren();
+    const status = document.createElement("div");
+    status.className = "remote-connecting";
+    status.textContent = "Setting up an encrypted session…";
+    this.container.appendChild(status);
+    this.statusLine = status;
     try {
       const key = await generateBrowserKey();
       this.browserKey = key;
@@ -79,10 +82,9 @@ class RemoteSession {
     this.socket = socket;
     socket.onopen = () => {
       socket.send(JSON.stringify({ token: this.ticket.token, signature: this.ticket.signature, keyId: this.ticket.keyId }));
-      this.write("Waiting for the endpoint...\r\n");
+      this.setStatus("Waiting for the endpoint…");
     };
     socket.onmessage = (event) => {
-      // In order: every frame is decrypted with the next counter value.
       this.queue = this.queue.then(() => this.onMessage(event.data)).catch((error) => this.fail(error?.message ?? String(error)));
     };
     socket.onclose = (event) => {
@@ -93,7 +95,6 @@ class RemoteSession {
       }
     };
     window.addEventListener("beforeunload", this.onUnload);
-    window.addEventListener("resize", this.onResize);
   }
 
   async onMessage(data) {
@@ -114,135 +115,266 @@ class RemoteSession {
       throw new Error("The relay sent data before the session was set up.");
     }
     const plaintext = await this.receive.open(new Uint8Array(data));
+    const type = plaintext[0];
     const body = plaintext.subarray(1);
-    switch (plaintext[0]) {
+    switch (type) {
       case Frame.Hello:
         this.hello = JSON.parse(decoder.decode(body));
         this.state = "connected";
         this.report("connected");
-        this.terminal.clear();
-        await this.openTerminal();
+        this.startWorkspace();
         break;
-      case Frame.Opened: {
-        const opened = JSON.parse(decoder.decode(body));
-        if (opened.channel !== this.channel) {
-          break;
-        }
-        if (opened.error) {
-          this.write(`\r\n${opened.error}\r\n`);
-          this.dotnet.invokeMethodAsync("OnTerminalClosed");
-          break;
-        }
-        this.pty = opened.pty !== false;
-        this.terminal.options.convertEol = !this.pty;
-        if (!this.pty) {
-          this.write("This endpoint has no pseudo console (Windows Server 2016): type a command and press Enter. Full-screen programs do not work here.\r\n");
-        }
-        this.fit();
-        this.terminal.focus();
-        break;
-      }
-      case Frame.Data:
-        if (((body[0] << 8) | body[1]) === this.channel) {
-          this.terminal.write(body.subarray(2));
-        }
-        break;
-      case Frame.Closed: {
-        const closed = JSON.parse(decoder.decode(body));
-        if (closed.channel === this.channel) {
-          const code = typeof closed.exitCode === "number" ? ` with exit code ${closed.exitCode}` : "";
-          this.write(`\r\n\r\nThe shell ended${code}.${closed.error ? " " + closed.error : ""}\r\n`);
-          this.channel = 0;
-          this.dotnet.invokeMethodAsync("OnTerminalClosed");
-        }
-        break;
-      }
       case Frame.IdleWarning:
         this.dotnet.invokeMethodAsync("OnIdleWarning", JSON.parse(decoder.decode(body)).secondsLeft ?? 120);
         break;
       case Frame.End:
         this.finish(JSON.parse(decoder.decode(body)).reason ?? "The endpoint ended the session.");
         break;
+      case Frame.Response:
+        this.resolveRequest(JSON.parse(decoder.decode(body)));
+        break;
+      case Frame.Chunk:
+        await this.onChunk(body);
+        break;
+      case Frame.Transfer:
+        this.onTransfer(JSON.parse(decoder.decode(body)));
+        break;
       default:
-        // A newer endpoint may send frames this page does not know.
+        if (this.workspace) {
+          this.workspace.onFrame(type, body, decoder);
+        }
         break;
     }
   }
 
-  createTerminal() {
-    if (this.terminal) {
-      this.terminal.dispose();
-    }
+  startWorkspace() {
     this.container.replaceChildren();
-    this.terminal = new Terminal({
-      cursorBlink: true,
-      fontFamily: "Consolas, 'Cascadia Mono', 'DejaVu Sans Mono', monospace",
-      fontSize: 14,
-      scrollback: 10000,
-      theme: { background: "#0b1220", foreground: "#e2e8f0", cursor: "#5eead4" }
-    });
-    this.fitAddon = new FitAddon();
-    this.terminal.loadAddon(this.fitAddon);
-    this.terminal.open(this.container);
-    this.fit();
-    this.terminal.onData((data) => this.input(data));
-    this.terminal.onResize(({ cols, rows }) => {
-      if (this.channel && this.state === "connected") {
-        this.sendFrame(frame(Frame.Resize, { channel: this.channel, cols, rows }));
-      }
-    });
+    this.workspace = new Workspace(this, this.container, this.hello, this.options);
+    this.workspace.render();
   }
 
-  async openTerminal() {
+  // --- request/response ------------------------------------------------------
+
+  request(op, params = {}) {
     if (this.state !== "connected") {
-      return;
+      return Promise.reject(new Error("The session is not connected."));
     }
-    this.channel = (this.channel || this.lastChannel || 0) + 1;
-    this.lastChannel = this.channel;
-    const shells = this.hello?.shells ?? [];
-    const shell = this.options.shell && shells.includes(this.options.shell) ? this.options.shell : (shells[0] ?? this.options.shell ?? "");
-    this.line = "";
-    this.fit();
-    await this.sendFrame(frame(Frame.Open, { channel: this.channel, service: "terminal", shell, cols: this.terminal.cols, rows: this.terminal.rows }));
+    const id = "r" + this.nextRequestId++;
+    const payload = { id, op, ...params };
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error("The endpoint did not answer in time."));
+      }, 60000);
+      this.pending.set(id, { resolve, reject, timer });
+      this.sendFrame(jsonFrame(Frame.Request, payload)).catch((error) => {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(error);
+      });
+    });
   }
 
-  input(data) {
-    if (!this.channel || this.state !== "connected") {
+  resolveRequest(message) {
+    const entry = this.pending.get(message.id);
+    if (!entry) {
       return;
     }
-    this.dotnet.invokeMethodAsync("OnActivity");
-    if (this.pty) {
-      this.sendFrame(dataFrame(this.channel, encoder.encode(data)));
+    clearTimeout(entry.timer);
+    this.pending.delete(message.id);
+    if (message.ok) {
+      entry.resolve(message);
+    } else {
+      entry.reject(new Error(message.error || "The action failed."));
+    }
+  }
+
+  // --- transfers -------------------------------------------------------------
+
+  async onChunk(body) {
+    if (body.length < 4) {
       return;
     }
-    // Line input without a pseudo console: edit here, send with Enter.
-    if (data.startsWith("")) {
+    const transfer = new DataView(body.buffer, body.byteOffset, 4).getUint32(0);
+    const download = this.downloads.get(transfer);
+    if (download) {
+      await download.onChunk(body.subarray(4));
+    }
+  }
+
+  onTransfer(message) {
+    const download = this.downloads.get(message.transfer);
+    if (download) {
+      download.onControl(message);
       return;
     }
-    for (const ch of data) {
-      if (ch === "\r") {
-        this.terminal.write("\r\n");
-        this.sendFrame(dataFrame(this.channel, encoder.encode(this.line + "\r")));
-        this.line = "";
-      } else if (ch === "" || ch === "\b") {
-        if (this.line.length > 0) {
-          this.line = Array.from(this.line).slice(0, -1).join("");
-          this.terminal.write("\b \b");
+    const upload = this.uploads.get(message.transfer);
+    if (upload) {
+      upload.onControl(message);
+    }
+  }
+
+  async download(path, name, onProgress) {
+    const response = await this.request("download", { path, offset: 0 });
+    const transfer = response.transfer;
+    const sink = await createSink(name || response.name, response.size);
+    return new Promise((resolve, reject) => {
+      let received = 0;
+      let acked = 0;
+      const state = {
+        onChunk: async (data) => {
+          try {
+            await sink.write(data);
+          } catch (error) {
+            this.sendTransfer(transfer, "cancel");
+            cleanup();
+            reject(error);
+            return;
+          }
+          received += data.length;
+          if (received - acked >= 2 * 1024 * 1024 || received === response.size) {
+            acked = received;
+            this.sendTransfer(transfer, "ack", received);
+          }
+          if (onProgress) {
+            onProgress(received, response.size);
+          }
+        },
+        onControl: async (message) => {
+          if (message.kind === "end") {
+            await sink.close();
+            cleanup();
+            resolve({ size: received });
+          } else if (message.kind === "error") {
+            await sink.abort();
+            cleanup();
+            reject(new Error(message.error || "The download failed."));
+          }
+        },
+        cancel: () => {
+          this.sendTransfer(transfer, "cancel");
+          sink.abort();
+          cleanup();
+          reject(new Error("cancelled"));
         }
-      } else if (ch >= " ") {
-        this.line += ch;
-        this.terminal.write(ch);
-      }
+      };
+      const cleanup = () => this.downloads.delete(transfer);
+      this.downloads.set(transfer, state);
+    });
+  }
+
+  async upload(path, file, onProgress) {
+    const response = await this.request("upload", { path, name: file.name, size: file.size, offset: 0 });
+    const transfer = response.transfer;
+    const chunkSize = 256 * 1024;
+    const windowBytes = 4 * 1024 * 1024;
+    return new Promise((resolve, reject) => {
+      let sent = response.resumeOffset || 0;
+      let acked = sent;
+      let waiter = null;
+      const state = {
+        onControl: (message) => {
+          if (message.kind === "ack") {
+            acked = message.bytes;
+            if (waiter) {
+              const w = waiter;
+              waiter = null;
+              w();
+            }
+          } else if (message.kind === "end") {
+            cleanup();
+            resolve({ size: sent });
+          } else if (message.kind === "error") {
+            cleanup();
+            reject(new Error(message.error || "The upload failed."));
+          }
+        },
+        cancel: () => {
+          this.sendTransfer(transfer, "cancel");
+          cleanup();
+          reject(new Error("cancelled"));
+        }
+      };
+      const cleanup = () => this.uploads.delete(transfer);
+      this.uploads.set(transfer, state);
+
+      (async () => {
+        try {
+          while (sent < file.size) {
+            while (sent - acked > windowBytes) {
+              await new Promise((r) => { waiter = r; });
+            }
+            const slice = file.slice(sent, Math.min(sent + chunkSize, file.size));
+            const bytes = new Uint8Array(await slice.arrayBuffer());
+            const header = new Uint8Array(4);
+            new DataView(header.buffer).setUint32(0, transfer);
+            await this.sendFrame(jsonChunk(header, bytes));
+            sent += bytes.length;
+            if (onProgress) {
+              onProgress(sent, file.size);
+            }
+          }
+          this.sendTransfer(transfer, "end");
+        } catch (error) {
+          this.sendTransfer(transfer, "cancel");
+          cleanup();
+          reject(error);
+        }
+      })();
+    });
+  }
+
+  cancelTransfer(transfer) {
+    const d = this.downloads.get(transfer);
+    if (d) {
+      d.cancel();
+    }
+    const u = this.uploads.get(transfer);
+    if (u) {
+      u.cancel();
     }
   }
 
-  async sendFrame(plaintext) {
+  sendTransfer(transfer, kind, bytes = 0) {
+    this.sendFrame(jsonFrame(Frame.Transfer, { transfer, kind, bytes })).catch(() => {});
+  }
+
+  // --- terminal (used by the workspace) --------------------------------------
+
+  openTerminalChannel(channel, shell, cols, rows) {
+    this.sendFrame(jsonFrame(Frame.Open, { channel, service: "terminal", shell, cols, rows })).catch(() => {});
+  }
+
+  sendTerminalData(channel, bytes) {
+    const header = new Uint8Array(2);
+    new DataView(header.buffer).setUint16(0, channel);
+    this.sendFrame(concat(Uint8Array.of(Frame.Data), concat(header, bytes))).catch(() => {});
+  }
+
+  resizeTerminalChannel(channel, cols, rows) {
+    this.sendFrame(jsonFrame(Frame.Resize, { channel, cols, rows })).catch(() => {});
+  }
+
+  closeTerminalChannel(channel) {
+    this.sendFrame(jsonFrame(Frame.CloseChannel, { channel })).catch(() => {});
+  }
+
+  activity() {
+    this.dotnet.invokeMethodAsync("OnActivity");
+  }
+
+  keepAlive() {
+    this.sendFrame(jsonFrame(Frame.Activity, {})).catch(() => {});
+  }
+
+  // --- sending ---------------------------------------------------------------
+
+  sendFrame(plaintext) {
     if (!this.send || !this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      return;
+      return Promise.reject(new Error("The session is not connected."));
     }
-    // Sealed in call order, sent in the same order.
     const sealed = this.send.seal(plaintext);
-    this.sendQueue = (this.sendQueue ?? Promise.resolve()).then(async () => {
+    this.sendQueue = this.sendQueue.then(async () => {
       const bytes = await sealed;
       if (this.socket && this.socket.readyState === WebSocket.OPEN) {
         this.socket.send(bytes);
@@ -251,30 +383,21 @@ class RemoteSession {
     return this.sendQueue;
   }
 
-  keepAlive() {
-    this.sendFrame(frame(Frame.Activity, {}));
-  }
+  // --- ending ----------------------------------------------------------------
 
   end(unloading) {
     if (this.state === "connected") {
-      this.sendFrame(frame(Frame.End, { reason: "The technician ended the session." }));
+      this.sendFrame(jsonFrame(Frame.End, { reason: "The technician ended the session." })).catch(() => {});
     }
-    if (unloading) {
-      return;
-    }
-    this.finish("The session was ended.");
-  }
-
-  fit() {
-    try {
-      this.fitAddon?.fit();
-    } catch {
-      // Not visible yet.
+    if (!unloading) {
+      this.finish("The session was ended.");
     }
   }
 
-  write(text) {
-    this.terminal?.write(text);
+  setStatus(text) {
+    if (this.statusLine) {
+      this.statusLine.textContent = text;
+    }
   }
 
   report(state, message) {
@@ -286,7 +409,6 @@ class RemoteSession {
       return;
     }
     this.state = "failed";
-    this.write(`\r\n${message}\r\n`);
     this.close();
     this.report("failed", message);
   }
@@ -296,18 +418,26 @@ class RemoteSession {
       return;
     }
     this.state = "ended";
-    this.write(`\r\n\r\n${message}\r\n`);
-    // Give a queued End frame a moment to leave before closing.
+    if (this.workspace) {
+      this.workspace.disable();
+    }
     setTimeout(() => this.close(), 250);
     this.report("ended", message);
   }
 
   close() {
     window.removeEventListener("beforeunload", this.onUnload);
-    window.removeEventListener("resize", this.onResize);
     this.send = null;
     this.receive = null;
     this.browserKey = null;
+    for (const entry of this.pending.values()) {
+      clearTimeout(entry.timer);
+      entry.reject(new Error("The session ended."));
+    }
+    this.pending.clear();
+    for (const t of [...this.downloads.values(), ...this.uploads.values()]) {
+      try { t.cancel(); } catch { /* already gone */ }
+    }
     if (this.socket && this.socket.readyState <= WebSocket.OPEN) {
       this.socket.close(1000, "session ended");
     }
@@ -316,10 +446,53 @@ class RemoteSession {
   dispose() {
     this.end(true);
     this.state = "ended";
+    if (this.workspace) {
+      this.workspace.dispose();
+      this.workspace = null;
+    }
     this.close();
-    this.terminal?.dispose();
-    this.terminal = null;
   }
+}
+
+function jsonChunk(header, data) {
+  return concat(Uint8Array.of(Frame.Chunk), concat(header, data));
+}
+
+// createSink streams a download to disk with the File System Access API when it is available, or collects it and saves a Blob otherwise.
+async function createSink(name, size) {
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({ suggestedName: name });
+      const writable = await handle.createWritable();
+      return {
+        write: (data) => writable.write(data),
+        close: () => writable.close(),
+        abort: () => writable.abort().catch(() => {})
+      };
+    } catch (error) {
+      if (error && error.name === "AbortError") {
+        throw new Error("cancelled");
+      }
+      // Fall through to the Blob sink.
+    }
+  }
+  const parts = [];
+  return {
+    write: (data) => { parts.push(data.slice()); return Promise.resolve(); },
+    close: () => {
+      const url = URL.createObjectURL(new Blob(parts));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name || "download";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      parts.length = 0;
+      return Promise.resolve();
+    },
+    abort: () => { parts.length = 0; return Promise.resolve(); }
+  };
 }
 
 export function createSession(dotnet, container, options) {

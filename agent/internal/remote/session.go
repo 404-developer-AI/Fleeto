@@ -38,6 +38,16 @@ const (
 	FrameEnd byte = 0x09
 	// FrameActivity (browser to endpoint): the technician is still there (answers the idle warning).
 	FrameActivity byte = 0x0A
+
+	// Remote background operations (0.3.0 step 2). Request/response and transfers over the same encrypted session.
+	// FrameRequest (browser to endpoint): a file, service or process operation. Body {id, op, ...}.
+	FrameRequest byte = 0x0B
+	// FrameResponse (endpoint to browser): the result of a request. Body {id, ok, error?, ...result}.
+	FrameResponse byte = 0x0C
+	// FrameChunk (both ways): a slice of a file transfer. Binary: a 32-bit big-endian transfer id, then the bytes.
+	FrameChunk byte = 0x0D
+	// FrameTransfer (both ways): flow control and the end of a transfer. Body {transfer, kind, ...}.
+	FrameTransfer byte = 0x0E
 )
 
 const (
@@ -78,7 +88,9 @@ type Hello struct {
 	Shells             []string `json:"shells"`
 	PTY                bool     `json:"pty"`
 	IdleTimeoutSeconds int      `json:"idleTimeoutSeconds"`
-	Version            string   `json:"version"`
+	// MaxFileBytes is the largest file one transfer may carry, from the token (policy). Set by Run.
+	MaxFileBytes int64  `json:"maxFileBytes"`
+	Version      string `json:"version"`
 }
 
 type openBody struct {
@@ -110,8 +122,10 @@ type SessionOptions struct {
 	Transport Transport
 	Hello     Hello
 	Open      TerminalOpener
-	Logger    *slog.Logger
-	Now       func() time.Time
+	// Report records an action the technician took (files, services, processes) for the audit log; nil disables reporting.
+	Report func(action, target, detail string)
+	Logger *slog.Logger
+	Now    func() time.Time
 	// Tick is how often the idle timeout is checked; tests shorten it.
 	Tick time.Duration
 }
@@ -123,10 +137,11 @@ type Session struct {
 	send   *Cipher
 	sendMu sync.Mutex
 
-	mu        sync.Mutex
-	terminals map[uint16]Terminal
-	lastInput time.Time
-	warned    bool
+	mu         sync.Mutex
+	terminals  map[uint16]Terminal
+	lastInput  time.Time
+	warned     bool
+	background *background
 }
 
 // NewSession prepares a session with the derived keys.
@@ -148,7 +163,9 @@ func NewSession(opts SessionOptions) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Session{opts: opts, recv: recv, send: send, terminals: map[uint16]Terminal{}, lastInput: opts.Now()}, nil
+	s := &Session{opts: opts, recv: recv, send: send, terminals: map[uint16]Terminal{}, lastInput: opts.Now()}
+	s.background = newBackground(s)
+	return s, nil
 }
 
 // Run serves the session until the browser ends it, the relay drops, a frame fails authentication or the session is idle too long.
@@ -160,9 +177,11 @@ func (s *Session) Run(ctx context.Context) (reason string) {
 
 	hello := s.opts.Hello
 	hello.IdleTimeoutSeconds = int(s.opts.Token.IdleTimeout() / time.Second)
+	hello.MaxFileBytes = s.opts.Token.MaxFileBytes()
 	if err := s.sendJSON(ctx, FrameHello, hello); err != nil {
 		return "the relay closed before the session started: " + err.Error()
 	}
+	defer s.background.close()
 
 	frames := make(chan []byte)
 	readErr := make(chan error, 1)
@@ -254,6 +273,9 @@ func (s *Session) handle(ctx context.Context, frame []byte) (done bool, reason s
 		}
 	case FrameActivity:
 		s.touch()
+	case FrameRequest, FrameChunk, FrameTransfer:
+		s.touch()
+		s.background.handle(ctx, frame[0], body)
 	case FrameEnd:
 		var end endBody
 		_ = json.Unmarshal(body, &end)
@@ -348,6 +370,14 @@ func (s *Session) sendJSON(ctx context.Context, kind byte, body any) error {
 		return err
 	}
 	return s.sendFrame(ctx, append([]byte{kind}, data...))
+}
+
+// sendChunkFrame sends a binary transfer chunk: the FrameChunk type byte, then the payload (a 32-bit transfer id and the bytes).
+func (s *Session) sendChunkFrame(ctx context.Context, payload []byte) error {
+	frame := make([]byte, 1+len(payload))
+	frame[0] = FrameChunk
+	copy(frame[1:], payload)
+	return s.sendFrame(ctx, frame)
 }
 
 func (s *Session) sendFrame(ctx context.Context, plaintext []byte) error {

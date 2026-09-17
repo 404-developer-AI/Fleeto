@@ -164,10 +164,31 @@ func New(opts Options) (*Watchdog, error) {
 				Version: version.Version}
 		},
 		Open:   remote.OpenTerminal,
+		Report: w.reportRemoteAction,
 		Logger: opts.Logger,
 		Now:    opts.Now,
 	}
 	return w, nil
+}
+
+// reportRemoteAction sends an action a technician took in a remote background session to the gateway over the control session, so the
+// gateway can audit it. Never a file's content, only the action and its target.
+func (w *Watchdog) reportRemoteAction(participantID, action, target, detail string) {
+	report := &agentv1.RemoteSessionActionReport{
+		ParticipantId: participantID, Action: action, Target: clip(target, 1000), Detail: clip(detail, 1000), Time: timestamppb.New(w.opts.Now()),
+	}
+	select {
+	case w.outbox <- &agentv1.AgentMessage{Body: &agentv1.AgentMessage_RemoteSessionAction{RemoteSessionAction: report}}:
+	default:
+		w.logger.Warn("could not report a remote session action for the audit log; the outbox is full", "action", action)
+	}
+}
+
+func clip(s string, max int) string {
+	if len(s) > max {
+		return s[:max]
+	}
+	return s
 }
 
 // trust is the instance trust the agent pinned at enrollment and gave to the watchdog.

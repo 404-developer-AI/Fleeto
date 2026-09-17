@@ -44,6 +44,8 @@ type Server struct {
 	// Hello describes what the endpoint offers.
 	Hello func() Hello
 	Open  TerminalOpener
+	// Report records an action a technician took in a session, for the audit log (0.3.0 step 2); nil disables it.
+	Report func(participantID, action, target, detail string)
 	// Logger and Now are optional.
 	Logger *slog.Logger
 	Now    func() time.Time
@@ -123,8 +125,12 @@ func (s *Server) Offer(ctx context.Context, offer *agentv1.RemoteSessionOffer) (
 		_ = transport.Close("handshake failed")
 		return participantID, "The endpoint could not start the session on the relay: " + err.Error()
 	}
+	var report func(action, target, detail string)
+	if s.Report != nil {
+		report = func(action, target, detail string) { s.Report(participantID, action, target, detail) }
+	}
 	session, err := NewSession(SessionOptions{
-		Token: token, Keys: handshake.Keys, Transport: transport, Hello: s.Hello(), Open: s.Open, Logger: logger, Now: now,
+		Token: token, Keys: handshake.Keys, Transport: transport, Hello: s.Hello(), Open: s.Open, Report: report, Logger: logger, Now: now,
 	})
 	if err != nil {
 		s.active.Add(-1)

@@ -27,10 +27,6 @@
     <MudSpacer />
     @if (_state == SessionState.Connected)
     {
-        @if (_terminalClosed)
-        {
-            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Add" OnClick="OpenTerminalAsync">New terminal</MudButton>
-        }
         <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Outlined.Close" OnClick="EndAsync">End session</MudButton>
     }
     else if (_state is SessionState.Ended or SessionState.Failed && _target?.Problem is null)
@@ -71,8 +67,9 @@
             else
             {
                 <MudText Typo="Typo.body1" Class="mb-3">
-                    Open a terminal on @target.Hostname as @(target.OsPlatform == "windows" ? "SYSTEM" : "root"). Everything in this window is encrypted between this
-                    browser and the endpoint; the gateway only passes it on. The session is recorded in the audit log.
+                    Open a session on @target.Hostname as @(target.OsPlatform == "windows" ? "SYSTEM" : "root"): a terminal, the files, the services and
+                    the processes. Everything in this window is encrypted between this browser and the endpoint; the gateway only passes it on. The
+                    session and every file, service and process action are recorded in the audit log.
                 </MudText>
                 @if (target.OsPlatform == "windows")
                 {
@@ -83,13 +80,13 @@
                 }
                 <MudTextField T="string" @bind-Value="_reason" Label="Reason (optional)" Variant="Variant.Outlined" MaxLength="@RemoteSessionRules.MaxReasonLength"
                               HelperText="Stored with the session in the audit log." Class="mb-4" />
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Terminal" OnClick="StartAsync">Start session</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Dvr" OnClick="StartAsync">Start session</MudButton>
             }
         </div>
     }
 </LoadState>
 
-<div class="remote-terminal @(_state is SessionState.Connecting or SessionState.Connected or SessionState.Ended ? "" : "hidden")" @ref="_container"></div>
+<div class="remote-workspace @(_state is SessionState.Connecting or SessionState.Connected or SessionState.Ended ? "" : "hidden")" @ref="_container"></div>
 
 @code {
     private enum SessionState
@@ -112,7 +109,6 @@
     private SessionState _state = SessionState.NotStarted;
     private string? _message;
     private int? _idleSecondsLeft;
-    private bool _terminalClosed;
     private ElementReference _container;
     private IJSObjectReference? _module;
     private IJSObjectReference? _session;
@@ -167,7 +163,6 @@
 
         _message = null;
         _idleSecondsLeft = null;
-        _terminalClosed = false;
         _state = SessionState.Connecting;
         StateHasChanged();
         if (_session is not null)
@@ -253,22 +248,6 @@
 
         _idleSecondsLeft = null;
         return InvokeAsync(StateHasChanged);
-    }
-
-    [JSInvokable]
-    public Task OnTerminalClosed()
-    {
-        _terminalClosed = true;
-        return InvokeAsync(StateHasChanged);
-    }
-
-    private async Task OpenTerminalAsync()
-    {
-        if (_session is not null)
-        {
-            _terminalClosed = false;
-            await _session.InvokeVoidAsync("openTerminal");
-        }
     }
 
     private async Task KeepAliveAsync()

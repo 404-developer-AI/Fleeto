@@ -308,3 +308,46 @@ html, body {
 .remote-terminal { flex: 1; min-height: 0; padding: 8px; background: #0b1220; }
 .remote-terminal.hidden { display: none; }
 .remote-terminal .xterm { height: 100%; }
+
+/* Remote background workspace (0.3.0 step 2): tabs and the file, service and process panels. */
+.remote-workspace { display: flex; flex-direction: column; }
+.remote-connecting { padding: 24px; color: var(--mud-palette-text-secondary); }
+.remote-tabs { display: flex; gap: 4px; padding: 6px 12px 0; border-bottom: 1px solid var(--mud-palette-lines-default); background: var(--mud-palette-surface); }
+.remote-tab { border: none; background: transparent; padding: 8px 16px; border-radius: 6px 6px 0 0; cursor: pointer; font: inherit; color: var(--mud-palette-text-secondary); }
+.remote-tab.active { background: var(--mud-palette-background); color: var(--mud-palette-text-primary); font-weight: 600; box-shadow: inset 0 -2px 0 var(--mud-palette-primary); }
+.remote-panels { flex: 1; min-height: 0; position: relative; }
+.remote-panel { display: none; position: absolute; inset: 0; flex-direction: column; overflow: hidden; }
+.remote-panel.active { display: flex; }
+.remote-terminal-surface { flex: 1; min-height: 0; padding: 8px; background: #0b1220; position: relative; }
+.remote-terminal-surface .xterm { height: 100%; }
+.remote-restart { position: absolute; top: 12px; right: 16px; padding: 6px 12px; border: 1px solid var(--mud-palette-lines-default); border-radius: 6px; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); cursor: pointer; }
+.remote-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--mud-palette-lines-default); flex-wrap: wrap; }
+.remote-button { padding: 6px 12px; border: 1px solid var(--mud-palette-lines-default); border-radius: 6px; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); cursor: pointer; font: inherit; }
+.remote-button:disabled { opacity: 0.5; cursor: default; }
+.remote-icon-button { padding: 2px 8px; font-size: 0.8rem; }
+.remote-filter, .remote-startselect { padding: 6px 8px; border: 1px solid var(--mud-palette-lines-default); border-radius: 6px; background: var(--mud-palette-background); color: var(--mud-palette-text-primary); font: inherit; }
+.remote-filter { flex: 1; min-width: 160px; }
+.remote-path { padding: 6px 12px; font-family: monospace; font-size: 0.85rem; color: var(--mud-palette-text-secondary); border-bottom: 1px solid var(--mud-palette-lines-default); overflow-wrap: anywhere; }
+.remote-error { padding: 4px 12px; color: var(--mud-palette-warning-text, #b45309); font-size: 0.85rem; min-height: 1.2em; }
+.remote-transfers { padding: 0 12px; }
+.remote-transfer { padding: 6px 0; font-size: 0.85rem; }
+.remote-transfer.failed { color: var(--mud-palette-error-text, #b91c1c); }
+.remote-progress { height: 6px; background: var(--mud-palette-lines-default); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+.remote-progress-fill { height: 100%; width: 0; background: var(--mud-palette-primary); transition: width 0.2s; }
+.remote-table { flex: 1; overflow: auto; font-size: 0.85rem; }
+.remote-row { display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--mud-palette-lines-default); }
+.remote-row.remote-head { position: sticky; top: 0; background: var(--mud-palette-surface); font-weight: 600; color: var(--mud-palette-text-secondary); z-index: 1; }
+.remote-row.remote-dir { cursor: default; }
+.remote-row:hover:not(.remote-head) { background: var(--mud-palette-action-default-hover, rgba(0,0,0,0.03)); }
+.remote-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.remote-size, .remote-modified { width: 120px; color: var(--mud-palette-text-secondary); }
+.remote-actions { display: flex; gap: 4px; align-items: center; }
+.remote-svc-name { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.remote-svc-display { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.remote-svc-state, .remote-svc-start { width: 120px; }
+.remote-svc-state.ok { color: var(--mud-palette-success, #16a34a); }
+.remote-svc-state.off { color: var(--mud-palette-text-secondary); }
+.remote-svc-state.pending { color: var(--mud-palette-warning, #d97706); }
+.remote-proc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.remote-proc-pid, .remote-proc-user, .remote-proc-cpu, .remote-proc-mem { width: 90px; color: var(--mud-palette-text-secondary); }
+.muted { color: var(--mud-palette-text-secondary); font-size: 0.75rem; }

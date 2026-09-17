@@ -289,8 +289,17 @@ Three kinds of tables:
   while the signed configuration the agent applied verifies against the pinned instance key and is managed. Same trust
   model as remote control (§4 Remote session); admins and technicians, managed endpoints only, no policy switch. Every
   session and participant is recorded and audited (technician, endpoint, start, end, reason); terminal content never
-  leaves the session. Files, services and processes follow in step 2 of 0.3.0. See §5 for the accepted risk towards script
-  approval.
+  leaves the session. See §5 for the accepted risk towards script approval.
+  - **Files** (0.3.0 step 2): browse the endpoint, download a file (streamed with flow control, at most the policy's file size
+    cap, resumable from a byte offset after a reconnect), upload a file (written to a `.fleeto-part` file, then renamed), and
+    create, rename, delete and copy within the endpoint. All over the same encrypted session; the watchdog acts as SYSTEM or
+    root.
+  - **Services** (0.3.0 step 2): list them and start, stop, restart or change the start type (the service control manager on
+    Windows, systemctl on Linux). **Processes** (0.3.0 step 2): list them with a short CPU sample, memory and user, and end one.
+  - Every file, service and process action is reported to the gateway over the watchdog's own control session
+    (`RemoteSessionActionReport`), which writes a `RemoteSessionAction` (participant, action, target). The report comes from the
+    endpoint, so the audit is authoritative, and it never carries a file's content. The relay carries the session ciphertext
+    the gateway cannot read.
 - Reconnect with exponential backoff plus jitter.
 - Wire format: protobuf over the WebSocket, one message per binary WebSocket frame (the frame is
   the length prefix), results batched. Never one HTTP request per check result. Contract:

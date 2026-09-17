@@ -348,6 +348,38 @@ public sealed class RemoteRelayTests
         Assert.Equal("The endpoint is no longer managed.", (await ReadParticipantAsync(second.ParticipantId)).EndReason);
     }
 
+    [Fact]
+    public async Task The_endpoint_reports_background_actions_for_the_audit_log()
+    {
+        await using var scope = await ScopeAsync();
+        var participant = await SignedParticipantAsync(scope.Endpoint);
+
+        await scope.Harness.Manager.HandleAsync(scope.Control, new AgentMessage
+        {
+            RemoteSessionAction = new RemoteSessionActionReport
+            {
+                ParticipantId = participant.ParticipantId.ToString("D"), Action = "file.delete", Target = @"C:\temp\old.log", Detail = ""
+            }
+        }, CancellationToken.None);
+
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        var recorded = await db.RemoteSessionActions.AsNoTracking().SingleAsync(a => a.SessionId == participant.SessionId);
+        Assert.Equal("file.delete", recorded.Action);
+        Assert.Equal(@"C:\temp\old.log", recorded.Target);
+        Assert.Equal(scope.Endpoint.Id, recorded.EndpointId);
+
+        // A report for a participant of another endpoint writes nothing.
+        var other = await _fixture.CreateEndpointAsync(EndpointTier.Managed);
+        var otherWatchdog = await _fixture.IssueAsync(other, role: AgentComponent.Watchdog);
+        var otherControl = scope.Harness.NewSession(otherWatchdog.Identity(other.Id, AgentComponent.Watchdog));
+        Assert.True(await scope.Harness.Manager.OpenAsync(otherControl, new Hello { AgentVersion = "0.3.0", Component = Component.Watchdog }, CancellationToken.None));
+        await scope.Harness.Manager.HandleAsync(otherControl, new AgentMessage
+        {
+            RemoteSessionAction = new RemoteSessionActionReport { ParticipantId = participant.ParticipantId.ToString("D"), Action = "process.end", Target = "x (pid 1)" }
+        }, CancellationToken.None);
+        Assert.Equal(1, await db.RemoteSessionActions.CountAsync(a => a.SessionId == participant.SessionId));
+    }
+
     [Theory]
     [InlineData("https://rmm.test.example", "https://rmm.test.example", true)]
     [InlineData("https://RMM.test.example", "https://rmm.test.example/", true)]

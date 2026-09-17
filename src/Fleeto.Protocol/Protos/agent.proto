@@ -120,6 +120,7 @@ message AgentMessage {
     UpdateStatus update_status = 12;
     // 0.3.0
     RemoteSessionRefused remote_session_refused = 13;
+    RemoteSessionActionReport remote_session_action = 14;
   }
 }
 
@@ -721,6 +722,21 @@ message RemoteSessionRefused {
   string participant_id = 1;
   // Free text, at most 500 characters.
   string error = 2;
+}
+
+// An action a technician took inside a remote background session (0.3.0, step 2), reported by the endpoint over its own control session
+// so the gateway can audit it. The relay carries the session ciphertext the gateway cannot read; this names only the action and its
+// target, never a file's content. The gateway looks up the session, client and endpoint from the participant.
+message RemoteSessionActionReport {
+  string participant_id = 1;
+  // A short verb, e.g. file.download, file.upload, file.delete, file.rename, file.copy, file.mkdir, service.start, service.stop,
+  // service.restart, service.start_type, process.end.
+  string action = 2;
+  // What it acted on: a path, a service name, or a process (name and pid). At most 1000 characters.
+  string target = 3;
+  // Optional extra, at most 1000 characters (e.g. the new name of a rename, the start type set, the outcome).
+  string detail = 4;
+  google.protobuf.Timestamp time = 5;
 }
 
 // First binary message of the endpoint on /v1/relay/<participant id>. The gateway passes the key and signature to the browser.

@@ -426,7 +426,16 @@ Steps:
    - xterm.js 6.0.0 is served from the instance (`wwwroot/lib/xterm`, verified against the npm integrity hash).
    - On Windows Server 2016 (no ConPTY) the terminal runs the shell with redirected streams: the window edits the line and sends
      it with Enter; full-screen programs do not work there.
-2. **Remote background complete** (alpha.2): file explorer with resumable transfer, services, processes, audit per action.
+2. [done] **Remote background complete** (alpha.2): file explorer (browse, download, upload, rename, delete, copy within the
+   endpoint) with resumable, flow-controlled transfers up to the policy's file size cap; services (list, start, stop, restart,
+   start type); processes (list with CPU, memory and user; end one); every action audited over the endpoint's control session.
+   Decided while building (2026-09-17):
+   - Files, services and processes run over the same encrypted session as the terminal (request/response and binary transfer
+     frames), so they need no second connection and no server access to the content.
+   - The endpoint reports each action (file, service, process) to the gateway over its own watchdog control session, so the
+     audit entry comes from the endpoint, not the browser, and never carries a file's content. Stored in `RemoteSessionActions`.
+   - Downloads stream to disk with the File System Access API where the browser has it, and fall back to a Blob otherwise; a
+     transfer resumes from a byte offset after the session is re-established.
 3. **Remote control on Windows** (alpha.3): session helper in the chosen Windows session (console, sign-in screen, UAC, RDP
    sessions), capture with monitor choice, tile codec with flow control, mouse and layout-safe keyboard, Type clipboard,
    Ctrl+Alt+Del, stuck-key release, automatic reconnect, viewer window.
