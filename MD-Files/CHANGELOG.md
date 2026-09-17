@@ -9,6 +9,15 @@ When a third released version is added, the oldest entry moves to the top of
 
 ## [Unreleased]
 
+### Fixed
+
+- 0.3.0: Pasting files into a remote control window a second time pasted them on the endpoint instead of sending them again. While the
+  technician's own clipboard held the files, every Ctrl+V uploaded them once more and the shortcut never reached the endpoint, so
+  nothing appeared in the folder there.
+- 0.3.0: A failure in the banner and clipboard window of the endpoint can no longer stop the helper that shows the screen, and the
+  endpoint says so at once when it cannot start the banner and clipboard of its Windows session. The agent log now names why the
+  helper stopped and what the endpoint clipboard holds (counts only, never its content).
+
 ### Added
 
 - 0.3.0: Remote control clipboard. Text copied on either side is available on the other: text copied on the endpoint is put on the

@@ -61,6 +61,12 @@ func RunHelper(ctx context.Context, in io.Reader, out io.Writer, sessionID uint3
 	// The banner and the clipboard live on their own desktop thread (0.3.0 step 4).
 	ui := startDesktopUI(write, logger)
 	defer ui.stop()
+	if !ui.running.Load() {
+		// Say it at once, instead of only when a technician tries to use the clipboard.
+		data, _ := json.Marshal(NoticeBody{Message: "This endpoint could not start the banner and the clipboard of its Windows session. " +
+			"The screen, mouse and keyboard work; the clipboard does not."})
+		_ = write(append([]byte{FrameNotice}, data...))
+	}
 
 	done := make(chan error, 1)
 	go func() {
@@ -70,6 +76,7 @@ func RunHelper(ctx context.Context, in io.Reader, out io.Writer, sessionID uint3
 		done <- h.loop(ctx, frames)
 	}()
 	err := <-done
+	logger.Info("the remote control helper is stopping", "error", err)
 	select {
 	case readErr := <-readErr:
 		if errors.Is(readErr, io.EOF) {

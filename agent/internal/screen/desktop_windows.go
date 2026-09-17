@@ -240,6 +240,7 @@ func (ui *desktopUI) create() error {
 	}
 	format, _ := windows.UTF16PtrFromString("Preferred DropEffect")
 	ui.dropEffect, _, _ = procRegisterClipboardFormatW.Call(uintptr(unsafe.Pointer(format)))
+	ui.logger.Info("the banner and clipboard of the Windows session are ready")
 	return nil
 }
 
@@ -344,8 +345,18 @@ func (ui *desktopUI) notice(message string) {
 	_ = ui.write(jsonFrame(FrameNotice, NoticeBody{Message: message}))
 }
 
-func wndProc(hwnd, message, wParam, lParam uintptr) uintptr {
+// wndProc serves the banner and clipboard window. It recovers from a panic here, because a panic that unwound into Windows would take the
+// helper process with it and the technician would lose the screen.
+func wndProc(hwnd, message, wParam, lParam uintptr) (result uintptr) {
 	ui := activeUI.Load()
+	defer func() {
+		if r := recover(); r != nil {
+			result = 0
+			if ui != nil {
+				ui.logger.Error("the banner and clipboard window failed", "message", message, "error", r)
+			}
+		}
+	}()
 	if ui == nil || (ui.hwnd != 0 && hwnd != ui.hwnd) {
 		r, _, _ := procDefWindowProcW.Call(hwnd, message, wParam, lParam)
 		return r
@@ -371,6 +382,7 @@ func wndProc(hwnd, message, wParam, lParam uintptr) uintptr {
 		}
 		return 0
 	case wmClipboardUpdate:
+		ui.logger.Debug("the endpoint clipboard changed")
 		ui.clipboardChanged(hwnd)
 		return 0
 	case wmClose:
@@ -502,6 +514,7 @@ func (ui *desktopUI) clipboardChanged(hwnd uintptr) {
 		return // what a technician placed; never echoed back
 	}
 	if !openClipboard(hwnd) {
+		ui.logger.Warn("the endpoint clipboard could not be read: another program holds it")
 		return
 	}
 	var (
@@ -516,6 +529,8 @@ func (ui *desktopUI) clipboardChanged(hwnd uintptr) {
 		text, hasText = clipboardText()
 	}
 	procCloseClipboard.Call()
+	// Counts only: what was copied never reaches the log.
+	ui.logger.Info("the endpoint clipboard changed", "files", len(paths), "text", hasText)
 
 	if len(paths) > 0 || ui.offeredFiles {
 		files := make([]CopiedFile, 0, len(paths))

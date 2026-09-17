@@ -132,6 +132,21 @@ test("pasted files go to the endpoint clipboard and the shortcut does not", asyn
   assert.deepEqual(session.sent[0].body, [file]);
 });
 
+test("pasting the same files again pastes them on the endpoint", async () => {
+  installDom();
+  const session = fakeSession();
+  const file = { name: "invoice.pdf", size: 10 };
+  session.filesAlreadyPlaced = (files) => files.length === 1 && files[0] === file;
+  const viewer = await newViewer(session);
+  viewer.canvas.focus();
+  viewer.onKey(key("KeyV", { ctrlKey: true }), true);
+  viewer.onPaste({ preventDefault() {}, clipboardData: { files: [file], getData: () => "" } });
+
+  // They are on the endpoint clipboard already, so the shortcut goes there instead of sending them again.
+  assert.deepEqual(session.sent.map((s) => s.type), [0x14]);
+  assert.equal(session.sent[0].body.down, true);
+});
+
 test("with the clipboard off the shortcut is an ordinary key", async () => {
   installDom();
   const session = fakeSession(false);

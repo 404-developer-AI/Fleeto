@@ -53,6 +53,8 @@ class ControlSession {
     this.clipboardText = null;
     // Text copied on the endpoint that could not be written to this computer's clipboard yet (the window had no focus).
     this.pendingClipboard = null;
+    // The files last placed on the endpoint clipboard; pasting them again pastes them on the endpoint instead of sending them once more.
+    this.placedFiles = null;
     Object.assign(this, transferState());
     this.onUnload = () => this.end(true);
     this.onFocus = () => this.flushRemoteClipboard();
@@ -172,6 +174,8 @@ class ControlSession {
         this.onRemoteClipboard(decoder.decode(body));
         break;
       case Frame.ClipboardFiles:
+        // The endpoint clipboard changed: pasting files again has to send them again.
+        this.placedFiles = null;
         if (this.viewer) {
           this.viewer.onClipboardFiles(JSON.parse(decoder.decode(body)));
         }
@@ -231,8 +235,20 @@ class ControlSession {
     this.sendFrame(frame).catch(() => {});
   }
 
+  /** The signature of a set of files, to tell one paste from the next. */
+  static signature(files) {
+    return files.map((f) => `${f.name}:${f.size}`).join("|");
+  }
+
+  /** True when these files are the ones already on the endpoint clipboard: the paste shortcut belongs on the endpoint, not here. */
+  filesAlreadyPlaced(files) {
+    return this.placedFiles !== null && this.placedFiles === ControlSession.signature(files);
+  }
+
   // onRemoteClipboard puts text copied on the endpoint on this computer's clipboard; without focus it waits for the next focus or click.
   onRemoteClipboard(text) {
+    // Something else is on the endpoint clipboard now, so files pasted earlier have to travel again.
+    this.placedFiles = null;
     this.clipboardText = text;
     this.pendingClipboard = text;
     this.flushRemoteClipboard();
@@ -289,7 +305,9 @@ class ControlSession {
         }
       }
       const placed = await this.request("clipboard.place", { batch });
-      this.viewer?.notice(`${placed.count === 1 ? "1 file is" : placed.count + " files are"} on the endpoint clipboard. Paste on the endpoint with Ctrl+V.`);
+      this.placedFiles = ControlSession.signature(list);
+      this.viewer?.notice(`${placed.count === 1 ? "1 file is" : placed.count + " files are"} on the endpoint clipboard. ` +
+        "Press Ctrl+V on the endpoint, where you want them.");
     } catch (error) {
       if (error.message !== "cancelled") {
         this.viewer?.notice("The files could not be pasted: " + error.message);

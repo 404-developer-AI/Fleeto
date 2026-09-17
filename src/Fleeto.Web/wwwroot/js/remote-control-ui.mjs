@@ -447,6 +447,11 @@ export class Viewer {
     const data = event.clipboardData;
     const files = data?.files ? [...data.files] : [];
     if (files.length > 0) {
+      if (this.session.filesAlreadyPlaced?.(files)) {
+        // They are on the endpoint clipboard already: this paste belongs there.
+        this.flushPaste();
+        return;
+      }
       // The files still have to travel; the technician pastes on the endpoint once they are there.
       this.cancelPaste();
       this.session.pasteFiles(files);

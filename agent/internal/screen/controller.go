@@ -190,18 +190,23 @@ func (c *Controller) startLocked(ctx context.Context) error {
 
 // pump passes the helper's frames to the browser until the helper stops, then starts it again when that was not asked for.
 func (c *Controller) pump(ctx context.Context, helper Helper) {
+	// why the helper's frames ended: it stopped, or the session could not take them any more.
+	var why error
 	for {
 		frame, err := ReadFrame(helper.Out())
 		if err != nil {
+			why = err
 			break
 		}
 		if !FromHelper(frame[0]) {
 			continue
 		}
 		if err := c.opts.Send(frame); err != nil {
+			why = err
 			break
 		}
 	}
+	c.opts.Logger.Warn("the frames of the remote control helper ended", "reason", why)
 	c.mu.Lock()
 	if c.helper != helper || c.closed {
 		c.mu.Unlock()
@@ -219,6 +224,8 @@ func (c *Controller) pump(ctx context.Context, helper Helper) {
 	c.restarts = append(recent, now)
 	if len(c.restarts) > maxRestarts || ctx.Err() != nil {
 		c.mu.Unlock()
+		c.opts.Logger.Error("the remote control helper stopped too often; the screen of this session stays black",
+			"restarts", maxRestarts, "window", restartWindow)
 		c.notice("The screen of the endpoint stopped and could not be started again. End the session and open it again.")
 		return
 	}
