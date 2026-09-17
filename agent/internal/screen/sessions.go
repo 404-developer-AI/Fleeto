@@ -67,10 +67,11 @@ type SessionsOptions struct {
 	Stage  func(dir string, session uint32) error
 	Logger *slog.Logger
 	Now    func() time.Time
-	// ConsoleCheck, LagAllowance and Tick override the defaults in tests.
+	// ConsoleCheck, LagAllowance, Tick and QueueSize override the defaults in tests.
 	ConsoleCheck time.Duration
 	LagAllowance time.Duration
 	Tick         time.Duration
+	QueueSize    int
 }
 
 // Sessions keeps the running remote control sessions of an agent service, one hub per remote session id.
@@ -93,6 +94,9 @@ func NewSessions(opts SessionsOptions) *Sessions {
 	}
 	if opts.Tick <= 0 {
 		opts.Tick = hubTick
+	}
+	if opts.QueueSize <= 0 {
+		opts.QueueSize = sendQueue
 	}
 	return &Sessions{opts: opts, hubs: map[string]*hub{}}
 }
@@ -147,7 +151,7 @@ func (s *Sessions) Join(opts JoinOptions) *Participant {
 		s.hubs[opts.SessionID] = h
 		h.mu.Lock()
 	}
-	p := &Participant{h: h, opts: opts, out: make(chan []byte, sendQueue), done: make(chan struct{})}
+	p := &Participant{h: h, opts: opts, out: make(chan []byte, s.opts.QueueSize), done: make(chan struct{})}
 	h.participants = append(h.participants, p)
 	state := h.consent
 	if state == consentNone {

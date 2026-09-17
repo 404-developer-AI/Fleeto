@@ -516,20 +516,24 @@ func TestCopiedFilesAreOfferedAndPastedFilesLiveAsLongAsTheSession(t *testing.T)
 }
 
 func TestASlowTechnicianIsDisconnectedAndTheOthersKeepTheScreen(t *testing.T) {
-	h := newSessionsHarness(t, nil)
+	const queue = 8
+	h := newSessionsHarness(t, func(o *SessionsOptions) { o.QueueSize = queue })
 	anna := h.join("a", "Anna", nil)
 	bert := h.join("b", "Bert", nil)
 	start(anna)
 	helper := h.helper(0)
 	bert.block = make(chan struct{}) // Bert's connection stops
 	t.Cleanup(func() { close(bert.block) })
-	go func() {
-		for i := 0; i < sendQueue+50; i++ {
-			if WriteFrame(helper.outW, append([]byte{FrameNotice}, `{"message":"x"}`...)) != nil {
-				return
-			}
+	// Anna reads every frame as it arrives, Bert reads nothing: only Bert's queue fills.
+	for i := 0; i < 4*queue; i++ {
+		if WriteFrame(helper.outW, append([]byte{FrameNotice}, `{"message":"x"}`...)) != nil {
+			break
 		}
-	}()
+		select {
+		case <-anna.frames:
+		case <-time.After(time.Second):
+		}
+	}
 	select {
 	case reason := <-bert.ended:
 		if !strings.Contains(reason, "too slow") {
@@ -538,7 +542,12 @@ func TestASlowTechnicianIsDisconnectedAndTheOthersKeepTheScreen(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the slow technician was not disconnected")
 	}
-	for i := 0; i < sendQueue; i++ {
-		anna.next(FrameNotice)
+	// The technician who keeps up stays in the session and still gets the screen.
+	go func() { _ = WriteFrame(helper.outW, append([]byte{FrameInfo}, `{"monitor":0}`...)) }()
+	anna.next(FrameInfo)
+	select {
+	case reason := <-anna.ended:
+		t.Fatalf("the technician who keeps up was disconnected: %q", reason)
+	default:
 	}
 }
