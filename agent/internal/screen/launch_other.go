@@ -27,6 +27,9 @@ func RunHelper(context.Context, io.Reader, io.Writer, uint32, *slog.Logger) erro
 // ConsoleSession is not available off Windows.
 func ConsoleSession() uint32 { return 0 }
 
+// SessionExists is not available off Windows.
+func SessionExists(uint32) bool { return true }
+
 // SecureAttention is not available off Windows.
 func SecureAttention() error { return ErrNotSupported }
 

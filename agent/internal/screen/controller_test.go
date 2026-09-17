@@ -250,3 +250,26 @@ func TestALauncherThatPanicsBecomesANoticeNotADeadSession(t *testing.T) {
 	h.c.Handle(context.Background(), append([]byte{FrameStart}, `{"monitor":0}`...))
 	h.helper(0).expect(t, FrameStart)
 }
+
+func TestAHelperWhoseWindowsSessionEndedIsNotStartedAgain(t *testing.T) {
+	h := newControllerHarness(t, 3)
+	var gone atomic.Bool
+	h.c.opts.SessionExists = func(session uint32) bool { return session == 3 && !gone.Load() }
+	h.c.Handle(context.Background(), append([]byte{FrameStart}, `{"monitor":0}`...))
+	helper := h.helper(0)
+	helper.expect(t, FrameStart)
+
+	// The user signs out: the helper ends with its Windows session, and starting it again there is pointless.
+	gone.Store(true)
+	helper.crash()
+	notice := h.browserGets(FrameNotice)
+	if !strings.Contains(string(notice), "Windows session 3 ended") {
+		t.Fatalf("notice %s", notice[1:])
+	}
+	time.Sleep(restartDelay + 100*time.Millisecond)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.helpers) != 1 {
+		t.Fatalf("%d helpers started for a session that ended", len(h.helpers))
+	}
+}

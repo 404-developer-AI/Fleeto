@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -88,4 +90,37 @@ func waitUntil(t *testing.T, what string, condition func() bool) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %s", what)
+}
+
+// TestACopyOnTheEndpointIsNoticedWithoutANotification proves the second way the endpoint watches its clipboard: with the clipboard format
+// listener removed, the sequence number check alone still offers what another program copied. It changes the clipboard of the machine, so
+// it runs only with FLEETO_SCREEN_TEST=1 (not in CI).
+func TestACopyOnTheEndpointIsNoticedWithoutANotification(t *testing.T) {
+	if os.Getenv("FLEETO_SCREEN_TEST") != "1" {
+		t.Skip("set FLEETO_SCREEN_TEST=1 on a machine with an interactive desktop")
+	}
+	written := make(chan []byte, 32)
+	ui := startDesktopUI(func(frame []byte) error { written <- frame; return nil }, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	if !ui.running.Load() {
+		t.Fatal("the desktop thread did not start")
+	}
+	defer ui.stop()
+	// Only the poll may notice the copy.
+	ui.doWait(func() { procRemoveClipboardFormatListener.Call(ui.hwnd) })
+
+	if err := exec.Command("powershell", "-NoProfile", "-Command", "Set-Clipboard -Value 'copied by another program'").Run(); err != nil {
+		t.Fatalf("could not copy from another program: %v", err)
+	}
+
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case frame := <-written:
+			if frame[0] == FrameClipboard && strings.Contains(string(frame[1:]), "copied by another program") {
+				return
+			}
+		case <-deadline:
+			t.Fatal("the copy was not noticed without a notification")
+		}
+	}
 }

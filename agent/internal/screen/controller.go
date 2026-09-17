@@ -33,6 +33,9 @@ const (
 	// maxRestarts is how many times a helper that stopped is started again within restartWindow.
 	maxRestarts   = 3
 	restartWindow = time.Minute
+	// restartDelay lets Windows settle before the helper starts again: a helper that ended with its Windows session must not be started
+	// again in a session that is on its way out (found while testing 0.3.0 step 4).
+	restartDelay = 300 * time.Millisecond
 )
 
 // ControllerOptions configure a Controller.
@@ -44,6 +47,8 @@ type ControllerOptions struct {
 	Session uint32
 	// ConsoleSession returns the Windows session attached to the console now.
 	ConsoleSession func() uint32
+	// SessionExists reports whether a Windows session is still there; nil means it is assumed to be.
+	SessionExists func(session uint32) bool
 	// SecureAttention sends Ctrl+Alt+Del, or says why it cannot.
 	SecureAttention func() error
 	Logger          *slog.Logger
@@ -213,8 +218,33 @@ func (c *Controller) pump(ctx context.Context, helper Helper) {
 		return
 	}
 	_ = helper.Close()
+	stopped := c.current
 	c.helper = nil
+	c.mu.Unlock()
+
+	// The helper ends with its Windows session: a session that is gone is never worth another try, and a console that moved to another
+	// session is a switch, not a helper that keeps failing.
+	if c.opts.Session != 0 && c.opts.SessionExists != nil && !c.opts.SessionExists(c.opts.Session) {
+		c.opts.Logger.Info("the Windows session of this remote control session ended", "session", c.opts.Session)
+		c.notice("Windows session " + itoa(c.opts.Session) + " ended (the user signed out). Open remote control again on the console or another session.")
+		return
+	}
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(restartDelay):
+	}
+
+	c.mu.Lock()
+	if c.closed || c.helper != nil {
+		c.mu.Unlock()
+		return
+	}
 	now := c.opts.Now()
+	if c.opts.Session == 0 && c.opts.ConsoleSession() != stopped {
+		// The console switched; the helper did not fail.
+		c.restarts = nil
+	}
 	recent := c.restarts[:0]
 	for _, at := range c.restarts {
 		if now.Sub(at) < restartWindow {

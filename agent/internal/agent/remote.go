@@ -72,7 +72,8 @@ func (a *Agent) newRemoteServer() *remote.Server {
 			a.logger.Warn("could not delete files left from earlier remote control sessions", "folder", staging, "error", err)
 		}
 		sessions := screen.NewSessions(screen.SessionsOptions{
-			Launch: launch, ConsoleSession: screen.ConsoleSession, SecureAttention: screen.SecureAttention, SessionUser: screen.SessionUser,
+			Launch: launch, ConsoleSession: screen.ConsoleSession, SessionExists: screen.SessionExists,
+			SecureAttention: screen.SecureAttention, SessionUser: screen.SessionUser,
 			Consent: screen.AskConsent, StagingRoot: staging, Stage: screen.StageFolder, Logger: a.logger, Now: a.opts.Now,
 		})
 		server.Screen = func(peer remote.ScreenPeer) remote.ScreenHandler {

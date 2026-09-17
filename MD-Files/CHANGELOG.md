@@ -11,6 +11,12 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- 0.3.0: Files copied on the endpoint are offered to the technician even when Windows does not report the change: the endpoint now also
+  checks its clipboard every second. The check ran only while the banner was shown, so on a server (which never shows a banner) a copy
+  on the endpoint could go unnoticed.
+- 0.3.0: A remote control session whose Windows session ends (the user signs out) no longer starts the helper again in a session that is
+  gone: the technician is told the session ended, and a console that moves to another session no longer counts as a helper that keeps
+  failing.
 - 0.3.0: Pasting files into a remote control window a second time pasted them on the endpoint instead of sending them again. While the
   technician's own clipboard held the files, every Ctrl+V uploaded them once more and the shortcut never reached the endpoint, so
   nothing appeared in the folder there.

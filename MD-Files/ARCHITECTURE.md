@@ -809,7 +809,8 @@ ignore consent and banner.
 **Clipboard (0.3.0 step 4).** Only for technicians whose token enables it; the endpoint refuses clipboard frames and requests otherwise.
 
 - **Text** both ways as UTF-8 (`FrameClipboard`, at most 512 KB). The helper watches the clipboard of its window station with a
-  clipboard format listener and sends what another program copied; what a technician placed is never echoed back. The browser writes
+  clipboard format listener, and checks its sequence number every second so a notification that does not arrive costs a second instead
+  of the whole session, and sends what another program copied; what a technician placed is never echoed back. The browser writes
   the text to the technician's clipboard when the window has the focus, otherwise at the next focus or click. The browser reads the
   technician's clipboard from the paste event (no clipboard permission): the paste shortcut (Ctrl+V, Shift+Insert) is held until the
   text went out, and the helper sets the clipboard before it injects the next input.

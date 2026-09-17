@@ -258,6 +258,9 @@ func sessionExists(sessionID uint32) error {
 // ConsoleSession is the Windows session attached to the console.
 func ConsoleSession() uint32 { return windows.WTSGetActiveConsoleSessionId() }
 
+// SessionExists reports whether a Windows session is still there (the user did not sign out).
+func SessionExists(session uint32) bool { return sessionExists(session) == nil }
+
 const sasPolicyKey = `SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System`
 
 // SecureAttention sends Ctrl+Alt+Del to the console the way the sign-in screen expects it (SendSAS). Windows accepts that from a service

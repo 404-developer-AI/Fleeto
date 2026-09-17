@@ -55,6 +55,8 @@ type SessionsOptions struct {
 	Launch Launcher
 	// ConsoleSession returns the Windows session attached to the console now.
 	ConsoleSession func() uint32
+	// SessionExists reports whether a Windows session is still there.
+	SessionExists func(session uint32) bool
 	// SecureAttention sends Ctrl+Alt+Del, or says why it cannot.
 	SecureAttention func() error
 	// SessionUser returns the account signed in on a Windows session, "" when nobody is.
@@ -218,7 +220,8 @@ func newHub(s *Sessions, first JoinOptions) *hub {
 	h := &hub{s: s, id: first.SessionID, windows: first.WindowsSession, ctx: ctx, cancel: cancel, forwarded: true}
 	h.controller = NewController(ControllerOptions{
 		Send: h.fromHelper, Launch: s.opts.Launch, Session: first.WindowsSession, ConsoleSession: s.opts.ConsoleSession,
-		SecureAttention: s.opts.SecureAttention, Logger: s.opts.Logger, Now: s.opts.Now, ConsoleCheck: s.opts.ConsoleCheck,
+		SessionExists: s.opts.SessionExists, SecureAttention: s.opts.SecureAttention, Logger: s.opts.Logger, Now: s.opts.Now,
+		ConsoleCheck: s.opts.ConsoleCheck,
 	})
 	safego.Go(s.opts.Logger, "remote control flow", h.tick)
 	return h

@@ -56,6 +56,7 @@ var (
 	procSetClipboardData              = user32.NewProc("SetClipboardData")
 	procIsClipboardFormatAvailable    = user32.NewProc("IsClipboardFormatAvailable")
 	procGetClipboardOwner             = user32.NewProc("GetClipboardOwner")
+	procGetClipboardSequenceNumber    = user32.NewProc("GetClipboardSequenceNumber")
 	procRegisterClipboardFormatW      = user32.NewProc("RegisterClipboardFormatW")
 	procCreateSolidBrush              = gdi32.NewProc("CreateSolidBrush")
 	procCreateFontW                   = gdi32.NewProc("CreateFontW")
@@ -108,6 +109,8 @@ const (
 	desktopAccess = 0x0001 | 0x0002 | 0x0040 | 0x0080 | 0x0100 // read objects, create window, enumerate, write objects, switch
 
 	bannerTimer = 1
+	// clipboardTimer checks the clipboard even when no notification arrives, and keeps the banner on top.
+	clipboardTimer = 2
 	// bannerColor is the primary teal of the brand (#0F766E) as a COLORREF (0x00BBGGRR); the text is white.
 	bannerColor = 0x006E760F
 	textColor   = 0x00FFFFFF
@@ -159,6 +162,7 @@ type desktopUI struct {
 	running  atomic.Bool
 
 	// Used on the desktop thread only.
+	sequence     uintptr
 	names        []string
 	placedFiles  bool
 	offeredFiles bool
@@ -240,6 +244,10 @@ func (ui *desktopUI) create() error {
 	}
 	format, _ := windows.UTF16PtrFromString("Preferred DropEffect")
 	ui.dropEffect, _, _ = procRegisterClipboardFormatW.Call(uintptr(unsafe.Pointer(format)))
+	// The clipboard is watched two ways: the notification of Windows, and the sequence number every second. A missed notification then
+	// costs a second instead of the whole session (found while testing 0.3.0 step 4).
+	ui.sequence = clipboardSequence()
+	procSetTimer.Call(hwnd, clipboardTimer, 1000, 0)
 	ui.logger.Info("the banner and clipboard of the Windows session are ready")
 	return nil
 }
@@ -377,8 +385,11 @@ func wndProc(hwnd, message, wParam, lParam uintptr) (result uintptr) {
 		ui.paint(hwnd)
 		return 0
 	case wmTimer:
-		if len(ui.names) > 0 {
+		if wParam == bannerTimer && len(ui.names) > 0 {
 			ui.layoutBanner() // stay on top and centred when the resolution changes
+		}
+		if wParam == clipboardTimer {
+			ui.pollClipboard(hwnd)
 		}
 		return 0
 	case wmClipboardUpdate:
@@ -477,6 +488,7 @@ func (ui *desktopUI) putClipboard(format uintptr, data []byte, files bool) error
 	defer procCloseClipboard.Call()
 	procEmptyClipboard.Call()
 	if err := setClipboardBytes(format, data); err != nil {
+		ui.sequence = clipboardSequence()
 		return err
 	}
 	if files && ui.dropEffect != 0 {
@@ -486,6 +498,8 @@ func (ui *desktopUI) putClipboard(format uintptr, data []byte, files bool) error
 	if !files {
 		ui.placedFiles = false
 	}
+	// What a technician placed is not a copy on the endpoint: never offered back to them.
+	ui.sequence = clipboardSequence()
 	return nil
 }
 
@@ -508,8 +522,24 @@ func setClipboardBytes(format uintptr, data []byte) error {
 	return nil // the clipboard owns the memory now
 }
 
+// pollClipboard notices a change Windows did not report (the notification of a listener does not always arrive in every session).
+func (ui *desktopUI) pollClipboard(hwnd uintptr) {
+	sequence := clipboardSequence()
+	if sequence == ui.sequence {
+		return
+	}
+	ui.logger.Debug("the endpoint clipboard changed without a notification")
+	ui.clipboardChanged(hwnd)
+}
+
+func clipboardSequence() uintptr {
+	sequence, _, _ := procGetClipboardSequenceNumber.Call()
+	return sequence
+}
+
 // clipboardChanged reads what another program copied and sends it to the technicians: the text, and the files as an offer to download.
 func (ui *desktopUI) clipboardChanged(hwnd uintptr) {
+	ui.sequence = clipboardSequence()
 	if ui.ownsClipboard(hwnd) {
 		return // what a technician placed; never echoed back
 	}
