@@ -9,6 +9,13 @@ When a third released version is added, the oldest entry moves to the top of
 
 ## [Unreleased]
 
+### Added
+
+- 0.3.0: The remote control window explains the two clipboard steps the first times a technician uses them: pasting files says they travel
+  to the endpoint first and are pasted there with Ctrl+V once they arrive, and files copied on the endpoint say they cannot go on the
+  technician's own clipboard and are saved with the download button. Each explanation has "Got it" and "Do not show this again"; the choice
+  is remembered in that browser.
+
 ### Fixed
 
 - 0.3.0: The clipboard of a remote control session is served by a process that runs as the user signed in on the Windows session, so text

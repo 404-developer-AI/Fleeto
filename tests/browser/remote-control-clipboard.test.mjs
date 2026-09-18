@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 class FakeElement {
   constructor(tag) {
     this.tag = tag;
+    this.dataset = {};
     this.children = [];
     this.listeners = {};
     this.style = { setProperty: (name, value) => { this.style[name] = value; } };
@@ -41,6 +42,15 @@ class FakeElement {
 
 function installDom() {
   const written = [];
+  const stored = new Map();
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => stored.get(key) ?? null,
+      setItem: (key, value) => stored.set(key, value)
+    },
+    addEventListener() {},
+    removeEventListener() {}
+  };
   globalThis.document = {
     activeElement: null,
     createElement: (tag) => new FakeElement(tag),
@@ -53,7 +63,7 @@ function installDom() {
     value: { clipboard: { writeText: async (text) => { written.push(text); } } },
     configurable: true
   });
-  return { written };
+  return { written, stored };
 }
 
 function key(code, extra = {}) {
@@ -246,4 +256,45 @@ test("pasting files asks for a batch, uploads each file into it and places the b
   await session.pasteFiles([{ name: "huge.iso", size: 4096 }]);
   assert.equal(calls.length, 0, "a file over the policy cap is refused before anything is sent");
   assert.match(notices.at(-1), /larger than/);
+});
+
+test("the first paste and the first copy explain themselves, until the technician says they know", async () => {
+  const { stored } = installDom();
+  const session = fakeSession();
+  const viewer = await newViewer(session);
+
+  viewer.hint("paste");
+  const text = () => viewer.hintBar.children.map((c) => c.textContent).join(" ");
+  assert.match(text(), /press Ctrl\+V on the endpoint/);
+  assert.equal(viewer.hintBar.children.filter((c) => c.tag === "button").length, 2);
+
+  // "Got it" closes it for now; it comes back next time.
+  viewer.hintBar.children.find((c) => c.textContent === "Got it").click();
+  assert.equal(viewer.hintBar.children.length, 0);
+  viewer.hint("paste");
+  assert.match(text(), /sent to the endpoint first/);
+
+  // "Do not show this again" is remembered in this browser.
+  viewer.hintBar.children.find((c) => c.textContent === "Do not show this again").click();
+  assert.equal(viewer.hintBar.children.length, 0);
+  assert.equal(stored.size, 1);
+  viewer.hint("paste");
+  assert.equal(viewer.hintBar.children.length, 0);
+
+  // Copied files have their own explanation, with the download button below it.
+  viewer.onClipboardFiles({ files: [{ index: 0, name: "report.pdf", size: 10 }] });
+  assert.match(text(), /cannot be put on your own clipboard/);
+});
+
+test("a browser without storage shows the hint every time instead of failing", async () => {
+  installDom();
+  globalThis.window.localStorage = {
+    getItem() { throw new Error("storage is blocked"); },
+    setItem() { throw new Error("storage is blocked"); }
+  };
+  const viewer = await newViewer(fakeSession());
+  viewer.hint("copied");
+  viewer.hintBar.children.find((c) => c.textContent === "Do not show this again").click();
+  viewer.hint("copied");
+  assert.ok(viewer.hintBar.children.length > 0, "the hint is shown again when it cannot be remembered");
 });

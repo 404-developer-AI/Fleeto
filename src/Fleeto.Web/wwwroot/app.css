@@ -363,6 +363,9 @@ html, body {
 .remote-participant { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border: 1px solid var(--mud-palette-lines-default); border-radius: 999px; font-size: 0.8rem; white-space: nowrap; }
 .remote-participant-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .remote-clipboard { padding: 0 12px; }
+.remote-hint { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 12px 0; padding: 8px 12px; border: 1px solid var(--mud-palette-lines-default); border-left: 3px solid var(--mud-palette-primary); border-radius: 6px; background: var(--mud-palette-surface); font-size: 0.85rem; }
+.remote-hint:empty { display: none; }
+.remote-hint > span { flex: 1; min-width: 200px; }
 .remote-copied { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 0; font-size: 0.85rem; max-height: 96px; overflow: auto; }
 .remote-copied:empty { display: none; }
 .remote-copied-title { color: var(--mud-palette-text-secondary); }

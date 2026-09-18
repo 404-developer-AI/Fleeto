@@ -16,6 +16,35 @@ const pasteWait = 300;
 // Pointer colors of the other technicians: distinct on the dark screen background, in both themes.
 const peerColors = ["#F59E0B", "#38BDF8", "#F472B6", "#A3E635", "#C084FC", "#FB7185", "#2DD4BF"];
 
+// What the two clipboard actions need a word about, the first times a technician does them. "Do not show this again" is remembered in this
+// browser, per technician who signs in to it, like the collapsed sidebar.
+const hints = {
+  paste: {
+    key: "fleeto.remote.hint.paste-files",
+    message: "The files are sent to the endpoint first. When the transfer is done, press Ctrl+V on the endpoint, where you want them."
+  },
+  copied: {
+    key: "fleeto.remote.hint.copied-files",
+    message: "Files copied on the endpoint cannot be put on your own clipboard; a browser may not do that. Use the download button below to save them."
+  }
+};
+
+function hintDismissed(key) {
+  try {
+    return window.localStorage.getItem(key) === "1";
+  } catch {
+    return false; // a browser that keeps no storage shows the hint every time
+  }
+}
+
+function dismissHint(key) {
+  try {
+    window.localStorage.setItem(key, "1");
+  } catch {
+    // Nothing to remember it with; the hint returns next time.
+  }
+}
+
 export class Viewer {
   constructor(session, root, options) {
     this.session = session;
@@ -65,6 +94,7 @@ export class Viewer {
     toolbar.append(this.monitorSelect, this.cadButton, this.typeButton, this.fitButton, this.desktopLabel, this.participantList);
 
     this.status = el("div", "remote-error");
+    this.hintBar = el("div", "remote-hint");
     this.clipboardBar = el("div", "remote-clipboard");
     this.copiedFiles = el("div", "remote-copied");
     this.transfers = el("div", "remote-transfers");
@@ -76,7 +106,7 @@ export class Viewer {
     this.peerLayer = el("div", "remote-peers");
     this.surface.append(this.canvas, this.peerLayer);
 
-    this.root.append(toolbar, this.status, this.clipboardBar, this.surface);
+    this.root.append(toolbar, this.status, this.hintBar, this.clipboardBar, this.surface);
     this.bindInput();
   }
 
@@ -255,6 +285,33 @@ export class Viewer {
 
   // --- clipboard -------------------------------------------------------------
 
+  // hint explains a clipboard action the first times a technician does it, until they say they know.
+  hint(kind) {
+    const hint = hints[kind];
+    if (!hint || !this.hintBar || this.hintBar.dataset?.kind === kind || hintDismissed(hint.key)) {
+      return;
+    }
+    this.hintBar.replaceChildren();
+    if (this.hintBar.dataset) {
+      this.hintBar.dataset.kind = kind;
+    }
+    const text = el("span");
+    text.textContent = hint.message;
+    const close = () => {
+      this.hintBar.replaceChildren();
+      if (this.hintBar.dataset) {
+        this.hintBar.dataset.kind = "";
+      }
+    };
+    const got = button("Got it", close);
+    const never = button("Do not show this again", () => {
+      dismissHint(hint.key);
+      close();
+    });
+    never.classList.add("remote-icon-button");
+    this.hintBar.append(text, got, never);
+  }
+
   onClipboardFiles(offer) {
     this.copiedFiles.replaceChildren();
     const files = offer.files || [];
@@ -271,6 +328,9 @@ export class Viewer {
     }
     title.textContent = parts.join("; ") + (files.length > 0 ? ":" : ".");
     this.copiedFiles.appendChild(title);
+    if (files.length > 0) {
+      this.hint("copied");
+    }
     for (const file of files) {
       const item = button(`${file.name} (${formatBytes(file.size)})`, () => this.session.downloadCopied(file.index, file.name));
       item.classList.add("remote-icon-button");

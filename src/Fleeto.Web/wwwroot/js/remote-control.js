@@ -291,6 +291,7 @@ class ControlSession {
       this.viewer?.notice("One paste can carry at most 100 files.");
       return;
     }
+    this.viewer?.hint?.("paste");
     let batch;
     try {
       batch = (await this.request("clipboard.begin")).batch;
