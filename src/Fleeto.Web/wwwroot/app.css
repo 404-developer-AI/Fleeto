@@ -357,6 +357,7 @@ html, body {
 /* Remote control viewer (0.3.0 step 3): the toolbar, then the screen filling the rest of the window. */
 .remote-control-toolbar { align-items: center; }
 .remote-desktop { margin-left: auto; }
+.remote-stats { font-size: 0.8rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .remote-screen { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: flex-start; justify-content: center; background: #0b1220; position: relative; }
 .remote-screen.remote-drop { outline: 2px dashed var(--mud-palette-primary); outline-offset: -4px; }
 .remote-participants { display: flex; gap: 6px; flex-wrap: wrap; }

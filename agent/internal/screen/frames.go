@@ -14,7 +14,8 @@ import (
 // Frame types of remote control, inside the encrypted session (the first byte of a decrypted frame, next to the remote background
 // frames of internal/remote). Bodies are JSON unless stated otherwise. The web viewer (remote-control.js) holds the same list.
 const (
-	// FrameStart (browser to endpoint): show a monitor. Body {monitor}: an index from ScreenInfo, -1 for all monitors together.
+	// FrameStart (browser to endpoint): show a monitor. Body {monitor, codecs}: an index from ScreenInfo, -1 for all monitors together, and
+	// the codecs the browser decodes besides tiles (0.3.0 step 5: "h264"). A Start always makes the next frame whole (a key frame).
 	FrameStart byte = 0x10
 	// FrameInfo (endpoint to browser): the monitors, the one shown and its size, and the desktop (Default, Winlogon for the sign-in
 	// screen and UAC). Sent after Start and whenever it changes.
@@ -49,6 +50,11 @@ const (
 	// FrameClipboardFiles (endpoint to browser): the files copied on the endpoint, offered for download. Body {files: [{index, name,
 	// size}], folders}.
 	FrameClipboardFiles byte = 0x1E
+
+	// 0.3.0 step 5: H.264 on Windows.
+
+	// FrameVideo (endpoint to browser): a part of one H.264 frame. Binary, see VideoUpdates.
+	FrameVideo byte = 0x1F
 )
 
 // Frames between the agent service and its helper only (0.3.0 step 4); they never cross the relay.
@@ -80,7 +86,7 @@ func FromAgent(kind byte) bool { return kind == FrameBanner || kind == FramePlac
 // FromHelper reports whether the helper may send a frame type to the agent service.
 func FromHelper(kind byte) bool {
 	switch kind {
-	case FrameInfo, FrameUpdate, FrameNotice, FrameClipboard, FrameCopiedFiles:
+	case FrameInfo, FrameUpdate, FrameVideo, FrameNotice, FrameClipboard, FrameCopiedFiles:
 		return true
 	}
 	return false
@@ -95,6 +101,8 @@ const maxPipeFrame = MaxFrameBytes + 64*1024
 // StartBody is the body of FrameStart.
 type StartBody struct {
 	Monitor int `json:"monitor"`
+	// Codecs are the codecs the browser decodes besides tiles. The hub replaces them with those every technician decodes.
+	Codecs []string `json:"codecs,omitempty"`
 }
 
 // Monitor is one display of the endpoint, in virtual desktop pixels.
@@ -118,6 +126,13 @@ type InfoBody struct {
 	Desktop string `json:"desktop"`
 	// Session is the Windows session shown.
 	Session uint32 `json:"session"`
+	// Codec is how the screen is sent: "h264" or "tiles". Encoder says which H.264 encoder ("hardware" or "software"), and Fallback why
+	// the tiles are used when every browser asked for H.264.
+	Codec    string `json:"codec,omitempty"`
+	Encoder  string `json:"encoder,omitempty"`
+	Fallback string `json:"fallback,omitempty"`
+	// Capture says how the screen is captured: "dxgi" (desktop duplication) or "gdi".
+	Capture string `json:"capture,omitempty"`
 }
 
 // AckBody is the body of FrameAck.

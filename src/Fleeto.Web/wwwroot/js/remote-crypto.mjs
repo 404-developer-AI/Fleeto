@@ -46,7 +46,9 @@ export const Frame = Object.freeze({
   Participants: 0x1b,
   PeerPointer: 0x1c,
   Consent: 0x1d,
-  ClipboardFiles: 0x1e
+  ClipboardFiles: 0x1e,
+  // H.264 (0.3.0 step 5).
+  Video: 0x1f
 });
 
 function concat(...parts) {

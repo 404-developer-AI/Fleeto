@@ -22,7 +22,8 @@ import (
 // which runs one helper for all of them: one screen, one monitor choice, one banner, and input from each. The hub sends the screen to
 // every technician and waits for the slowest to draw a frame before the helper captures the next, except for a technician who lags far
 // behind. The first technician of a session is asked for consent when the policy says so; everyone who joins later sees the screen at once
-// (decided 2026-09-17).
+// (decided 2026-09-17). The screen travels as H.264 only when every technician's browser decodes it (0.3.0 step 5): the hub gives the
+// helper the codecs all of them named.
 
 // ConsentAnswer is what the person at the endpoint answered.
 type ConsentAnswer int
@@ -216,6 +217,9 @@ type hub struct {
 	frame     uint32
 	frameAcks int
 	forwarded bool
+
+	// The last Start given to the helper, with the codecs every technician decodes.
+	start *StartBody
 }
 
 func newHub(s *Sessions, first JoinOptions) *hub {
@@ -243,7 +247,7 @@ func (h *hub) fromHelper(frame []byte) error {
 		to := h.grantedLocked()
 		h.mu.Unlock()
 		broadcast(to, frame)
-	case FrameUpdate:
+	case FrameUpdate, FrameVideo:
 		number, last, ok := updateHeader(frame)
 		if !ok {
 			return nil
@@ -492,10 +496,14 @@ func (h *hub) welcome(joined []*Participant, consent *ConsentBody) {
 	if len(h.copied) > 0 {
 		offer = h.offerLocked()
 	}
-	starts := make([][]byte, 0, len(joined))
+	type pending struct {
+		p     *Participant
+		frame []byte
+	}
+	starts := make([]pending, 0, len(joined))
 	for _, p := range joined {
 		if p.pendingStart != nil {
-			starts = append(starts, p.pendingStart)
+			starts = append(starts, pending{p, p.pendingStart})
 			p.pendingStart = nil
 		}
 	}
@@ -513,8 +521,67 @@ func (h *hub) welcome(joined []*Participant, consent *ConsentBody) {
 	}
 	h.announce()
 	for _, start := range starts {
-		h.controller.Handle(h.ctx, start)
+		if frame := h.startFor(start.p, start.frame); frame != nil {
+			h.controller.Handle(h.ctx, frame)
+		}
 	}
+}
+
+// startFor takes a technician's Start and returns the Start for the helper: their monitor, and the codecs every technician who asked for
+// the screen decodes. nil when the body is not a Start.
+func (h *hub) startFor(p *Participant, frame []byte) []byte {
+	var body StartBody
+	if json.Unmarshal(frame[1:], &body) != nil {
+		return nil
+	}
+	h.mu.Lock()
+	p.codecs, p.started = body.Codecs, true
+	body.Codecs = h.codecsLocked()
+	h.start = &body
+	h.mu.Unlock()
+	return jsonFrame(FrameStart, body)
+}
+
+// codecsLocked is the codecs every granted technician who asked for the screen decodes.
+func (h *hub) codecsLocked() []string {
+	var lists [][]string
+	for _, p := range h.participants {
+		if p.granted && p.started {
+			lists = append(lists, p.codecs)
+		}
+	}
+	return commonCodecs(lists)
+}
+
+// restartIfCodecsChanged gives the helper the Start again when a technician left who held the others back to tiles, or the other way.
+func (h *hub) restartIfCodecsChanged() {
+	h.mu.Lock()
+	if h.start == nil {
+		h.mu.Unlock()
+		return
+	}
+	codecs := h.codecsLocked()
+	if len(codecs) == 0 || equalCodecs(codecs, h.start.Codecs) {
+		h.mu.Unlock()
+		return
+	}
+	body := *h.start
+	body.Codecs = codecs
+	h.start = &body
+	h.mu.Unlock()
+	h.controller.Handle(h.ctx, jsonFrame(FrameStart, body))
+}
+
+func equalCodecs(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // announce tells every technician who is in the session and shows the names on the banner.
@@ -594,6 +661,7 @@ func (h *hub) leave(p *Participant) {
 	if !empty {
 		h.controller.Handle(h.ctx, []byte{FrameReleaseKeys})
 		h.announce()
+		h.restartIfCodecsChanged()
 		if forward {
 			h.controller.Handle(h.ctx, jsonFrame(FrameAck, AckBody{Frame: number}))
 		}
@@ -628,6 +696,9 @@ type Participant struct {
 	awaitFrame   uint32
 	awaitSince   time.Time
 	lastPointer  time.Time
+	// The codecs this technician's browser decodes, from their last Start.
+	codecs  []string
+	started bool
 }
 
 // Handle takes one remote control frame of this technician's browser.
@@ -651,6 +722,10 @@ func (p *Participant) Handle(ctx context.Context, frame []byte) {
 		var ack AckBody
 		if json.Unmarshal(frame[1:], &ack) == nil {
 			h.ack(p, ack.Frame)
+		}
+	case FrameStart:
+		if start := h.startFor(p, frame); start != nil {
+			h.controller.Handle(h.ctx, start)
 		}
 	case FramePointer:
 		h.controller.Handle(h.ctx, frame)
@@ -776,9 +851,9 @@ func jsonFrame(kind byte, body any) []byte {
 	return append([]byte{kind}, data...)
 }
 
-// updateHeader reads the frame number and the last flag of a FrameUpdate (see AppendUpdate).
+// updateHeader reads the frame number and the last flag of a FrameUpdate or a FrameVideo (see Updates and VideoUpdates).
 func updateHeader(frame []byte) (number uint32, last bool, ok bool) {
-	if len(frame) < updateHeaderBytes || frame[0] != FrameUpdate {
+	if len(frame) < updateHeaderBytes || (frame[0] != FrameUpdate && frame[0] != FrameVideo) {
 		return 0, false, false
 	}
 	return binary.BigEndian.Uint32(frame[1:5]), frame[5]&FlagLast != 0, true

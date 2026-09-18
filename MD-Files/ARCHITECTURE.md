@@ -304,8 +304,8 @@ Three kinds of tables:
     the gateway cannot read.
 - **Remote control (0.3.0 step 3, Windows).** The screen, mouse and keyboard, served by the **agent** (not the watchdog), because
   it needs a process in the Windows session that the agent, as SYSTEM, can start. The agent runs `internal/screen`: a helper per
-  session that captures the desktop (GDI), encodes changed tiles and injects input, and the agent relays its frames over the same
-  encrypted session as remote background. From step 4 the helper also shows the banner, several technicians share one
+  session that captures the desktop (DXGI desktop duplication, GDI where that is not available), encodes it as H.264 or as changed
+  tiles (step 5) and injects input, and the agent relays its frames over the same encrypted session as remote background. From step 4 the helper also shows the banner, several technicians share one
   session and helper, the agent service asks for consent and stages pasted files, and the clipboard of the session is served by a second
   process that runs as the user signed in on it (`fleeto-agent remote-clipboard`).
   Details in §4, Remote control.
@@ -761,11 +761,36 @@ any session, including the console with the sign-in screen and UAC.
   anonymous pipes only it inherits, and lives in a job object that ends it when the agent stops. It attaches its thread to the
   input desktop and follows it as it switches (Default, Winlogon for the sign-in screen and UAC), so those are shown and usable,
   and it follows the console to another Windows session (fast user switching). A helper that stops is started again a few times.
-- **Capture** is GDI (`BitBlt` into a DIB section, the cursor drawn in) for now: it works on every desktop, RDP sessions and VMs
-  without a GPU. DXGI desktop duplication arrives with H.264 in step 5. The image is cut into 64-pixel tiles; only changed tiles
+- **Capture** (step 5): a whole monitor comes from DXGI desktop duplication (a few milliseconds where GDI needs tens of them for a
+  large screen); "All monitors", a rotated monitor, an RDP session and anything duplication refuses use GDI (`BitBlt` into a DIB
+  section), which works on every desktop, RDP sessions and VMs without a GPU. The first image of a new duplication comes from GDI
+  (duplication's own first frame is black), a lost duplication (desktop switch, display change) is made again after a second, and
+  the cursor is drawn in with GDI either way. With **tiles** the image is cut into 64-pixel tiles; only changed tiles
   travel, a run of changed tiles in a row as one rectangle, PNG when it has few colors (text, windows) and JPEG otherwise, at a
   quality that drops on a slow link. The endpoint sends the next frame only after the browser acknowledges the last, so a slow
   link never floods the relay. Frame types are a separate range (`0x10`–`0x1F`) next to the remote background frames.
+- **H.264** (0.3.0 step 5, decided while building 2026-09-18). The browser names the codecs it decodes in `FrameStart`
+  (`codecs: ["h264"]` where WebCodecs decodes H.264 Main profile); the hub passes the helper only the codecs every technician in
+  the session named, so one browser without H.264 keeps everyone on tiles, and gives the helper a new Start when such a browser
+  leaves. The helper encodes with Media Foundation: the GPU's hardware encoder first (an asynchronous transform driven by its
+  events), the Microsoft H.264 encoder that ships with Windows otherwise; both run on a thread of their own with COM, so the capture
+  thread can still follow the input desktop. The image is converted to NV12 (BT.709, limited range) in the helper. The encoder runs
+  Main profile, no B pictures, low-latency mode, constant bit rate, key frames only when asked: on a Start (a technician joined or
+  changed monitor), a desktop switch, a new size, an acknowledgement timeout, or a browser that asks again after a decoder error. A
+  frame is one access unit (Annex B, SPS and PPS in front of every key frame) cut into `FrameVideo` parts of at most 768 KiB; the
+  header carries the frame number and flags where `FrameUpdate` has them, so the hub's flow control treats both alike, plus the
+  size and two timings for the browser's latency estimate (capture and encoding on the endpoint, time waited after the previous
+  acknowledgement). An unchanged screen is encoded 8 more times so the picture sharpens, then nothing is sent until it changes.
+  The **bit rate** starts at half of about 0.1 bit per pixel at 25 frames a second (2 to 16 Mbit/s) and follows the link: the
+  round trip is learned from small frames, the bandwidth from frames of the planned size, and the bit rate aims at 70 percent of
+  it, dropping at once and climbing 15 percent after 10 frames with room. **Fallback to tiles** is automatic: an endpoint without
+  Media Foundation (Windows Server without the feature, N editions) or an encoder that fails while it runs (a failing hardware
+  encoder first hands over to the software one) puts that helper on tiles and says why in `FrameInfo.fallback`; a browser whose
+  decoder fails twice asks for tiles with an empty codec list. `FrameInfo` names the codec, the encoder and the capture, and the
+  window shows them with frames a second, bit rate and the latency estimate. Measured on a developer laptop (Intel Core Ultra 5,
+  3840 x 1080): capture 5.5 ms (DXGI) against 42–51 ms (GDI); 1920 x 1080 NV12 conversion 2.2 ms, encoding 6 ms (software) or
+  16 ms (Intel hardware); the output decodes in Edge with WebCodecs. Older browsers and agents keep working: a Start
+  without codecs gets tiles, and a `FrameInfo` without a codec shows as tiles.
 - **Keyboard**: a key that produces a character is sent as that character and typed with the key of the endpoint's active layout
   and the modifiers it needs there (so AZERTY against QWERTY and the sign-in screen keep the character), a Unicode character when
   the layout lacks a key for it; named keys and Ctrl/Alt shortcuts go as the physical scan code. The helper remembers what it holds

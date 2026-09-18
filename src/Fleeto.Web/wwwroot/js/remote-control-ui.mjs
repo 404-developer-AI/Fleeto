@@ -2,8 +2,9 @@
 // shows the endpoint's screen. It draws the tiles the endpoint sends and forwards the mouse and keyboard. It talks to the endpoint through
 // the ControlSession (remote-control.js): session.sendControl / session.sendSecureAttention / session.setMonitor.
 // Step 4 adds the technicians in the session with their pointers, the consent prompt, the clipboard (paste and drop files, text both ways)
-// and the files copied on the endpoint.
+// and the files copied on the endpoint. Step 5 adds H.264 (remote-video.mjs) next to the tiles, and the statistics of the stream.
 import { Frame } from "./remote-crypto.mjs";
+import { ScreenStats, VideoStream } from "./remote-video.mjs";
 
 const updateHeader = 7; // frame uint32 | flags uint8 | count uint16 (after the type byte the session already stripped)
 const tileHeader = 13; // x,y,w,h uint16 | format uint8 | length uint32
@@ -70,6 +71,13 @@ export class Viewer {
     this.boundBlur = () => this.releaseKeys();
     this.boundPaste = (e) => this.onPaste(e);
     this.boundResize = () => this.placePeers();
+    // The screen stream: the codec the endpoint uses (FrameInfo), the H.264 decoder, the statistics and when the last frame was acknowledged.
+    this.stream = {};
+    this.video = null;
+    this.stats = new ScreenStats();
+    this.lastAckAt = null;
+    this.statsTimer = null;
+    this.toldFallback = null;
   }
 
   render() {
@@ -89,9 +97,10 @@ export class Viewer {
     this.fitButton = button("Actual size", () => this.toggleFit());
 
     this.desktopLabel = el("span", "remote-desktop muted");
+    this.statsLabel = el("span", "remote-stats muted");
     this.participantList = el("span", "remote-participants");
 
-    toolbar.append(this.monitorSelect, this.cadButton, this.typeButton, this.fitButton, this.desktopLabel, this.participantList);
+    toolbar.append(this.monitorSelect, this.cadButton, this.typeButton, this.fitButton, this.desktopLabel, this.statsLabel, this.participantList);
 
     this.status = el("div", "remote-error");
     this.hintBar = el("div", "remote-hint");
@@ -108,6 +117,9 @@ export class Viewer {
 
     this.root.append(toolbar, this.status, this.hintBar, this.clipboardBar, this.surface);
     this.bindInput();
+    this.statsTimer = setInterval(() => this.renderStats(), 1000);
+    // Outside a browser (the Node tests) the timer must not keep the process alive; a browser's timer id has no unref.
+    this.statsTimer?.unref?.();
   }
 
   setConnecting() {
@@ -134,6 +146,68 @@ export class Viewer {
     }
     this.desktopLabel.textContent = describeDesktop(info);
     this.buildMonitorSelect();
+    const codec = info.codec || "tiles";
+    if (codec !== (this.stream.codec || "tiles")) {
+      this.stats.reset();
+    }
+    if (codec !== "h264" && this.video) {
+      this.video.reset();
+    }
+    this.stream = { codec, encoder: info.encoder || "", capture: info.capture || "", legacy: !info.codec };
+    if (info.fallback && info.fallback !== this.toldFallback) {
+      this.notice(info.fallback);
+    }
+    this.toldFallback = info.fallback || null;
+    this.renderStats();
+  }
+
+  // ackFrame tells the endpoint a frame is drawn, so it captures the next; the time is kept for the latency estimate.
+  ackFrame(frame, ack) {
+    this.lastAckAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+    ack(frame);
+  }
+
+  // onVideo takes a part of an H.264 frame (0.3.0 step 5); the frame is drawn and acknowledged once it is decoded.
+  onVideo(body, ack) {
+    if (!this.video) {
+      this.video = new VideoStream({
+        draw: (frame) => this.ctx.drawImage(frame, 0, 0),
+        ack: (frame) => this.ackFrame(frame, ack),
+        failed: (message) => this.session.videoFailed?.(message),
+        stats: this.stats,
+        lastAckAt: () => this.lastAckAt
+      });
+    }
+    this.video.push(body);
+  }
+
+  // renderStats shows how the screen travels: the codec, frames a second, the bit rate and, for H.264, the latency estimate.
+  renderStats() {
+    if (!this.statsLabel) {
+      return;
+    }
+    const s = this.stats.summary();
+    const parts = [describeCodec(this.stream)];
+    if (s.fps > 0 || s.bitsPerSecond > 0) {
+      parts.push(`${s.fps} fps`, formatBitrate(s.bitsPerSecond));
+    }
+    if (this.stream.codec === "h264" && s.latencyMs !== null) {
+      parts.push(`about ${s.latencyMs} ms`);
+    }
+    this.statsLabel.textContent = parts.join(" · ");
+    const title = [];
+    if (this.stream.capture) {
+      title.push(this.stream.capture === "dxgi" ? "Captured with desktop duplication." : "Captured with GDI.");
+    }
+    if (this.stream.legacy) {
+      title.push("The agent on this endpoint sends tiles only. Update it to send H.264.");
+    }
+    if (this.stream.codec === "h264" && s.breakdown) {
+      const b = s.breakdown;
+      title.push(`Latency estimate: endpoint ${Math.round(b.endpoint)} ms, network ${Math.round(b.network)} ms, ` +
+        `decoding ${Math.round(b.browser)} ms.`);
+    }
+    this.statsLabel.title = title.join(" ");
   }
 
   buildMonitorSelect() {
@@ -191,8 +265,10 @@ export class Viewer {
         // A tile that does not decode is skipped; the next full frame repairs it.
       }
     }
+    this.stats.received(body.length + 1);
     if (last) {
-      ack(frame);
+      this.stats.drawn();
+      this.ackFrame(frame, ack);
     }
   }
 
@@ -608,6 +684,12 @@ export class Viewer {
     this.disabled = true;
     this.buttons = 0;
     clearInterval(this.consentTimer);
+    clearInterval(this.statsTimer);
+    this.statsTimer = null;
+    if (this.video) {
+      this.video.close();
+      this.video = null;
+    }
     for (const control of [this.monitorSelect, this.cadButton, this.typeButton, ...(this.copiedFiles?.querySelectorAll?.("button") ?? [])]) {
       if (control) {
         control.disabled = true;
@@ -652,6 +734,20 @@ function formatBytes(bytes) {
     unit++;
   }
   return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
+}
+
+function describeCodec(stream) {
+  if (stream.codec === "h264") {
+    return stream.encoder ? `H.264, ${stream.encoder} encoder` : "H.264";
+  }
+  return "Tiles";
+}
+
+function formatBitrate(bitsPerSecond) {
+  if (bitsPerSecond >= 1000000) {
+    return `${(bitsPerSecond / 1000000).toFixed(1)} Mbit/s`;
+  }
+  return `${Math.round(bitsPerSecond / 1000)} kbit/s`;
 }
 
 function describeDesktop(info) {

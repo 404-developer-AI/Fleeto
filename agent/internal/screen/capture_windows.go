@@ -3,12 +3,15 @@
 package screen
 
 import (
+	"errors"
+	"time"
 	"unsafe"
 )
 
-// capturer copies a rectangle of the desktop the thread is attached to into a DIB section with GDI (BitBlt), and draws the mouse
-// cursor into it. GDI works everywhere: the sign-in screen, UAC, RDP sessions and virtual machines without a GPU (decided 2026-09-17;
-// DXGI desktop duplication follows with H.264). It must be used from one locked OS thread, and reset when that thread changes desktop.
+// capturer copies a rectangle of the desktop the thread is attached to into a DIB section, and draws the mouse cursor into it. A whole
+// monitor comes from DXGI desktop duplication where the GPU offers it (0.3.0 step 5); everything else, and whatever duplication refuses,
+// from GDI (BitBlt), which works everywhere: the sign-in screen, UAC, RDP sessions and virtual machines without a GPU (decided
+// 2026-09-17). It must be used from one locked OS thread, and reset when that thread changes desktop.
 type capturer struct {
 	memDC  uintptr
 	bitmap uintptr
@@ -17,9 +20,18 @@ type capturer struct {
 	width  int
 	height int
 	img    Image
+
+	dup *duplication
+	// dupRetry is when desktop duplication may be tried again after it failed.
+	dupRetry time.Time
+	// Method says how the last image was captured: "dxgi" or "gdi".
+	method string
 }
 
 func (c *capturer) reset() {
+	if c.dup != nil {
+		c.dup.close()
+	}
 	if c.memDC != 0 {
 		if c.old != 0 {
 			procSelectObject.Call(c.memDC, c.old)
@@ -29,7 +41,7 @@ func (c *capturer) reset() {
 	if c.bitmap != 0 {
 		procDeleteObject.Call(c.bitmap)
 	}
-	*c = capturer{img: c.img}
+	*c = capturer{img: c.img, dupRetry: c.dupRetry}
 }
 
 func (c *capturer) prepare(screenDC uintptr, width, height int) error {
@@ -64,11 +76,57 @@ func (c *capturer) grab(area Monitor) (*Image, error) {
 	if err := c.prepare(screenDC, area.Width, area.Height); err != nil {
 		return nil, err
 	}
+	size := area.Width * area.Height * 4
+	if c.duplicate(area, unsafe.Slice((*byte)(c.bits), size)) {
+		c.method = "dxgi"
+		return c.finish(area), nil
+	}
+	c.method = "gdi"
 	// The screen DC's origin is the primary monitor's top-left corner, as virtual desktop coordinates are.
 	if ok, _, err := procBitBlt.Call(c.memDC, 0, 0, uintptr(area.Width), uintptr(area.Height), screenDC, uintptr(int32(area.X)), uintptr(int32(area.Y)),
 		srcCopy); ok == 0 {
 		return nil, fmtCallError("BitBlt", err)
 	}
+	if c.dup != nil {
+		// A new duplication waits for its first image: this one, before the cursor is drawn into it.
+		c.dup.seed(unsafe.Slice((*byte)(c.bits), size))
+	}
+	return c.finish(area), nil
+}
+
+// duplicate fills the DIB section from desktop duplication, and reports whether it did.
+func (c *capturer) duplicate(area Monitor, bits []byte) bool {
+	if c.dup != nil && c.dup.area != area {
+		c.dup.close()
+		c.dup = nil
+	}
+	if c.dup == nil {
+		if time.Now().Before(c.dupRetry) {
+			return false
+		}
+		dup, err := openDuplication(area)
+		if err != nil {
+			c.dupRetry = time.Now().Add(duplicationRetry)
+			return false
+		}
+		c.dup = dup
+	}
+	err := c.dup.grab(bits)
+	if errors.Is(err, errNoImageYet) {
+		return false
+	}
+	if err != nil {
+		// Most often a desktop switch or a display change: GDI now, a new duplication soon.
+		c.dup.close()
+		c.dup = nil
+		c.dupRetry = time.Now().Add(time.Second)
+		return false
+	}
+	return true
+}
+
+// finish draws the cursor and copies the DIB section out.
+func (c *capturer) finish(area Monitor) *Image {
 	c.drawCursor(area)
 	size := area.Width * area.Height * 4
 	if cap(c.img.Pix) < size {
@@ -77,7 +135,7 @@ func (c *capturer) grab(area Monitor) (*Image, error) {
 	c.img.Pix = c.img.Pix[:size]
 	copy(c.img.Pix, unsafe.Slice((*byte)(c.bits), size))
 	c.img.Width, c.img.Height = area.Width, area.Height
-	return &c.img, nil
+	return &c.img
 }
 
 // drawCursor paints the endpoint's mouse cursor into the captured image, so the technician sees where it is and what it looks like.

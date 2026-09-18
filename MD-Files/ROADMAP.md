@@ -31,7 +31,9 @@ safe restore when an update fails, with WAL archiving removed (all found while t
 seven steps. Steps 1 and 2 (the relay, end-to-end encryption and the complete remote background: terminal, files, services and
 processes) are built and verified on Windows and Linux endpoints (`v0.3.0-alpha.4`, 2026-09-17). Step 3 (remote control on Windows:
 screen, mouse and keyboard) is built and verified on a Windows endpoint (`v0.3.0-alpha.6`). Step 4 (clipboard, several technicians,
-consent and banner) is built (`v0.3.0-alpha.7`).
+consent and banner) is built and verified on a Windows endpoint (`v0.3.0-alpha.14`, 2026-09-18), after `v0.3.0-alpha.8` to `alpha.13` fixed
+what the first live tests found, the clipboard above all. Step 5 (H.264 on Windows, with DXGI desktop duplication) is built
+(`v0.3.0-alpha.15`).
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
 2026-09-15, see Later).
@@ -481,8 +483,24 @@ Steps:
      needed; the paste shortcut reaches the endpoint after the text.
    - The agent that serves remote control must run 0.3.0-alpha.7 or later: an older one would ignore the consent prompt and banner,
      so web and the signer refuse it.
-5. **H.264 on Windows**: Media Foundation encoder with WebCodecs, automatic fallback, latency measured (under
+5. [done] **H.264 on Windows** (alpha.15): Media Foundation encoder with WebCodecs, automatic fallback, latency measured (under
    100 ms on a LAN) and a poor link simulated.
+   Decided while building (2026-09-18):
+   - **DXGI desktop duplication** is built in this step after all (moved here from step 3): GDI needed 42–51 ms for a 3840 x 1080
+     screen on the development laptop, DXGI 5.5 ms. It serves one whole monitor; "All monitors", rotated monitors, RDP sessions and
+     whatever it refuses keep GDI. The first image of a new duplication comes from GDI, because duplication's own first frame is black.
+   - The **hardware encoder** is tried first and the Microsoft software encoder is its fallback; a hardware encoder that fails hands
+     over to the software one in the same session, an encoder that cannot be used at all puts the session on tiles with the reason in
+     the window. The Intel encoder measured 16 ms a 1080p frame against 6 ms for the software one; it is kept first because it spares
+     the endpoint's CPU, and both stay far inside the latency budget.
+   - **H.264 only when every technician's browser decodes it**: one browser without WebCodecs keeps the whole session on tiles, and the
+     session moves to H.264 when that browser leaves. A browser whose decoder fails twice asks for tiles.
+   - The **bit rate** follows the link from the acknowledgement times: round trip from small frames, bandwidth from large ones, aim at
+     70 percent. Simulated in tests: a 1 Mbit/s link with 60 ms round trip settles at about 0.75 Mbit/s with a frame of moving content
+     in about 90 ms; a fast link far away (250 ms) keeps its bit rate; a 200 kbit/s link stops at the minimum of 250 kbit/s.
+   - **Latency** is measured per frame in the window: capture and encoding on the endpoint, half the round trip and the transfer, and
+     decoding, shown as "about N ms" next to the codec, frames a second and bit rate. The endpoint part measured 10–25 ms for a
+     1080p screen on the development laptop; the total on a LAN is checked on a test endpoint.
 6. **Linux X11**: capture, XTEST input with keysym mapping, X selections for the clipboard, banner and consent
    window on workstations, the Wayland message.
 7. **Release 0.3.0**: concurrent sessions through the gateway under load, security review of the new code, API waiting list,

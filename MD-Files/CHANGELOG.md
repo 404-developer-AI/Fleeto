@@ -11,6 +11,12 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
+- 0.3.0: Remote control on Windows sends the screen as H.264 where the endpoint can encode it (Media Foundation: the GPU's hardware
+  encoder, else the Microsoft encoder in Windows) and every technician's browser decodes it (WebCodecs). The bit rate follows the link,
+  and the tiles remain the automatic fallback: on an endpoint without Media Foundation, an encoder that fails, a browser without H.264
+  or a browser whose decoder fails. The window shows the codec, frames a second, bit rate and an estimate of the latency.
+- 0.3.0: Remote control captures a whole monitor with DXGI desktop duplication, which is many times faster than GDI on a large screen;
+  GDI stays for all monitors together, rotated monitors, RDP sessions and wherever duplication is not available.
 - 0.3.0: The remote control window explains the two clipboard steps the first times a technician uses them: pasting files says they travel
   to the endpoint first and are pasted there with Ctrl+V once they arrive, and files copied on the endpoint say they cannot go on the
   technician's own clipboard and are saved with the download button. Each explanation has "Got it" and "Do not show this again"; the choice

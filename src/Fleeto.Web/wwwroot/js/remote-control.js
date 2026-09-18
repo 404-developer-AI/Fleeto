@@ -2,10 +2,15 @@
 // but the session carries the screen. The endpoint sends tiles (change detection, PNG for text and JPEG for the rest); this draws them on
 // a canvas and sends the mouse and keyboard back. The session key never leaves this page; the gateway relays ciphertext it cannot read.
 // Step 4 adds the clipboard (text both ways, files pasted or dropped into the window, files copied on the endpoint offered for download),
-// the other technicians in the session and their pointers, and the consent prompt on the endpoint.
+// the other technicians in the session and their pointers, and the consent prompt on the endpoint. Step 5 asks the endpoint for H.264 where
+// this browser decodes it (WebCodecs); the tiles stay the fallback.
 import { deriveSessionKeys, Frame, FrameCipher, fromBase64, generateBrowserKey, supported as cryptoSupported, toBase64 } from "./remote-crypto.mjs";
 import { Viewer } from "./remote-control-ui.mjs";
 import { installTransfers, transferState } from "./remote-transfers.mjs";
+import { decodableCodecs } from "./remote-video.mjs";
+
+/** After this many decoder failures in one window, the screen stays on tiles. */
+const maxVideoFailures = 2;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -55,6 +60,9 @@ class ControlSession {
     this.pendingClipboard = null;
     // The files last placed on the endpoint clipboard; pasting them again pastes them on the endpoint instead of sending them once more.
     this.placedFiles = null;
+    // The codecs this browser decodes besides tiles (null until checked), and how often the H.264 decoder failed.
+    this.codecs = null;
+    this.videoFailures = 0;
     Object.assign(this, transferState());
     this.onUnload = () => this.end(true);
     this.onFocus = () => this.flushRemoteClipboard();
@@ -71,6 +79,9 @@ class ControlSession {
       this.viewer.setConnecting();
     }
     try {
+      if (this.codecs === null) {
+        this.codecs = await decodableCodecs();
+      }
       const key = await generateBrowserKey();
       this.browserKey = key;
       const ticket = await this.dotnet.invokeMethodAsync("RequestTicket", toBase64(key.publicKey));
@@ -135,7 +146,7 @@ class ControlSession {
         this.state = "connected";
         this.report("connected");
         this.startViewer();
-        this.sendControl(Frame.Start, { monitor: this.monitor });
+        this.sendControl(Frame.Start, this.startBody(this.monitor));
         break;
       case Frame.Info:
         // The endpoint's helper answered, so the screen works: this is a healthy session, not a crash loop. Only now is the reconnect
@@ -148,6 +159,11 @@ class ControlSession {
       case Frame.Update:
         if (this.viewer) {
           await this.viewer.onUpdate(body, (frame) => this.sendControl(Frame.Ack, { frame }));
+        }
+        break;
+      case Frame.Video:
+        if (this.viewer) {
+          this.viewer.onVideo(body, (frame) => this.sendControl(Frame.Ack, { frame }));
         }
         break;
       case Frame.ControlNotice:
@@ -344,7 +360,23 @@ class ControlSession {
 
   setMonitor(monitor) {
     this.monitor = monitor;
-    this.sendControl(Frame.Start, { monitor });
+    this.sendControl(Frame.Start, this.startBody(monitor));
+  }
+
+  /** The body of FrameStart: the monitor and the codecs this browser decodes, none once H.264 failed here. */
+  startBody(monitor) {
+    return { monitor, codecs: this.videoFailures >= maxVideoFailures ? [] : (this.codecs ?? []) };
+  }
+
+  // videoFailed handles a decoder that failed: the first time a new key frame is asked for, after that the screen continues as tiles.
+  videoFailed(message) {
+    this.videoFailures++;
+    this.viewer?.video?.reset();
+    if (this.videoFailures >= maxVideoFailures) {
+      this.viewer?.notice(`This browser could not decode the H.264 video of the endpoint (${message}). The screen continues as tiles.`);
+    }
+    // A Start makes the endpoint send a whole frame: a key frame for a new decoder, or the first frame of tiles.
+    this.sendControl(Frame.Start, this.startBody(this.monitor));
   }
 
   sendControl(type, body) {

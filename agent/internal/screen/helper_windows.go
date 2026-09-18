@@ -111,8 +111,20 @@ type helper struct {
 	awaiting    bool
 	sentAt      time.Time
 	sentBytes   int
+	ackAt       time.Time
 	lastCapture time.Time
 	buttons     int
+
+	// H.264 (0.3.0 step 5): the codecs every browser decodes, the codec in use, the stream, and why the tiles are used when the browsers
+	// asked for H.264. videoBroken keeps a helper whose encoder failed on tiles.
+	codecs      []string
+	codec       string
+	video       *videoStream
+	videoBroken bool
+	fallback    string
+	// What the last FrameInfo said about the encoder and the capture, so a change is told.
+	toldEncoder string
+	toldCapture string
 }
 
 func (h *helper) loop(ctx context.Context, frames <-chan []byte) error {
@@ -149,6 +161,10 @@ func (h *helper) cleanup() {
 	h.inject(h.keyboard.ReleaseAll())
 	h.pointer(PointerBody{X: -1, Y: -1, Buttons: 0})
 	h.capture.reset()
+	if h.video != nil {
+		h.video.close()
+		h.video = nil
+	}
 	closeDesktop(h.desktop)
 }
 
@@ -169,13 +185,20 @@ func (h *helper) handle(frame []byte) {
 		h.started = true
 		h.forceFull = true
 		h.awaiting = false
+		h.codecs = start.Codecs
+		h.chooseCodec()
 		h.sendInfo()
 	case FrameAck:
 		var ack AckBody
 		if json.Unmarshal(body, &ack) == nil && h.awaiting && ack.Frame == h.frame {
 			h.awaiting = false
+			h.ackAt = time.Now()
+			delay := h.ackAt.Sub(h.sentAt)
+			if h.video != nil {
+				h.video.acked(h.sentBytes, delay)
+			}
 			quality := DefaultQuality
-			if h.sentBytes > largeFrameBytes && time.Since(h.sentAt) > slowAck {
+			if h.sentBytes > largeFrameBytes && delay > slowAck {
 				quality = LowQuality
 			}
 			h.encoder.Quality = quality
@@ -220,9 +243,13 @@ func (h *helper) followInputDesktop() {
 		return
 	}
 	if err := setThreadDesktop(handle); err != nil {
-		closeDesktop(handle)
-		h.logger.Warn("could not follow the input desktop", "desktop", name, "error", err)
-		return
+		// Desktop duplication holds Direct3D objects on this thread; without them the switch may succeed.
+		h.capture.reset()
+		if err = setThreadDesktop(handle); err != nil {
+			closeDesktop(handle)
+			h.logger.Warn("could not follow the input desktop", "desktop", name, "error", err)
+			return
+		}
 	}
 	closeDesktop(h.desktop)
 	h.desktop, h.desktopName = handle, name
@@ -281,9 +308,57 @@ func (h *helper) area() Monitor {
 	return h.monitors[0]
 }
 
+// chooseCodec picks H.264 when every browser decodes it and this endpoint can encode it, and says why not when the browsers asked.
+func (h *helper) chooseCodec() {
+	codec := ChooseCodec(h.codecs, !h.videoBroken)
+	if codec == CodecH264 && h.video == nil {
+		video, err := newVideoStream(h.logger)
+		if err != nil {
+			h.logger.Info("remote control cannot send H.264; it sends tiles", "reason", err)
+			h.videoBroken = true
+			h.fallback = "This endpoint cannot encode H.264 (" + err.Error() + "). On Windows Server, install the Media Foundation feature."
+			codec = CodecTiles
+		} else {
+			h.video = video
+		}
+	}
+	if codec == CodecTiles && h.video != nil {
+		h.video.close()
+		h.video = nil
+	}
+	if codec != h.codec {
+		h.encoder.Reset()
+		h.forceFull = true
+	}
+	h.codec = codec
+}
+
+// videoFailed puts a helper whose H.264 encoder failed on tiles for the rest of its life.
+func (h *helper) videoFailed(err error) {
+	h.logger.Warn("the H.264 encoder failed; remote control continues with tiles", "error", err)
+	if h.video != nil {
+		h.video.close()
+		h.video = nil
+	}
+	h.videoBroken = true
+	h.fallback = "The H.264 encoder of this endpoint stopped (" + err.Error() + "). The screen continues as tiles."
+	h.codec = CodecTiles
+	h.encoder.Reset()
+	h.forceFull = true
+	h.sendInfo()
+}
+
 func (h *helper) sendInfo() {
 	area := h.area()
-	info := InfoBody{Monitors: h.monitors, Monitor: h.selected, Width: area.Width, Height: area.Height, Desktop: h.desktopName, Session: h.session}
+	info := InfoBody{Monitors: h.monitors, Monitor: h.selected, Width: area.Width, Height: area.Height, Desktop: h.desktopName, Session: h.session,
+		Codec: h.codec, Capture: h.capture.method}
+	if h.video != nil {
+		info.Encoder = h.video.kind()
+	}
+	if h.codec == CodecTiles && hasCodec(h.codecs, CodecH264) {
+		info.Fallback = h.fallback
+	}
+	h.toldEncoder, h.toldCapture = info.Encoder, info.Capture
 	if info.Monitors == nil {
 		info.Monitors = []Monitor{}
 	}
@@ -318,6 +393,10 @@ func (h *helper) maybeCapture() time.Duration {
 		h.desktopName = ""
 		return captureInterval
 	}
+	if h.codec == CodecH264 {
+		h.sendVideo(img, now)
+		return captureInterval
+	}
 	tiles, err := h.encoder.Encode(img, h.forceFull)
 	if err != nil || (len(tiles) == 0 && !h.forceFull) {
 		return captureInterval
@@ -339,7 +418,53 @@ func (h *helper) maybeCapture() time.Duration {
 	h.awaiting = true
 	h.sentAt = now
 	h.sentBytes = total
+	h.tellChanges()
 	return captureInterval
+}
+
+// sendVideo encodes a captured image as H.264 and sends it, unless the screen did not change and has settled.
+func (h *helper) sendVideo(img *Image, captured time.Time) {
+	data, key, err := h.video.frame(img, h.forceFull)
+	if err != nil {
+		h.videoFailed(err)
+		return
+	}
+	if data == nil {
+		return
+	}
+	h.forceFull = false
+	h.frame++
+	frame := VideoFrame{Number: h.frame, Key: key, Width: img.Width, Height: img.Height, Endpoint: time.Since(captured), Data: data}
+	if !h.ackAt.IsZero() && captured.After(h.ackAt) {
+		frame.Waited = captured.Sub(h.ackAt)
+	}
+	updates, err := VideoUpdates(frame)
+	if err != nil {
+		h.videoFailed(err)
+		return
+	}
+	total := 0
+	for _, update := range updates {
+		if err := h.write(update); err != nil {
+			return
+		}
+		total += len(update)
+	}
+	h.awaiting = true
+	h.sentAt = time.Now()
+	h.sentBytes = total
+	h.tellChanges()
+}
+
+// tellChanges sends FrameInfo again when the encoder or the way of capturing changed, so the technician sees what runs.
+func (h *helper) tellChanges() {
+	encoder := ""
+	if h.video != nil {
+		encoder = h.video.kind()
+	}
+	if encoder != h.toldEncoder || h.capture.method != h.toldCapture {
+		h.sendInfo()
+	}
 }
 
 // pointer moves the mouse and presses or releases the buttons that changed. X and Y are pixels of the shown image; a negative position
