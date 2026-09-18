@@ -11,6 +11,9 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- 0.3.0: Files a technician pasted into a remote control session are no longer offered back to them as files copied on the endpoint.
+  They stay on the endpoint clipboard, so after the helper of the session started again — its window no longer owning the clipboard —
+  the last pasted file appeared as a download instead of what was copied on the endpoint.
 - 0.3.0: Files copied on the endpoint are offered to the technician even when Windows does not report the change: the endpoint now also
   checks its clipboard every second. The check ran only while the banner was shown, so on a server (which never shows a banner) a copy
   on the endpoint could go unnoticed.

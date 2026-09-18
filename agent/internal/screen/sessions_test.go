@@ -479,6 +479,20 @@ func TestCopiedFilesAreOfferedAndPastedFilesLiveAsLongAsTheSession(t *testing.T)
 		t.Fatal("an unknown index was accepted")
 	}
 
+	// Files this session staged for a paste are never offered back as a copy made on the endpoint (they stay on the clipboard after the
+	// helper starts again, when its window no longer owns them).
+	staged := CopiedFilesBody{Files: []CopiedFile{{Path: filepath.Join(h.root, "11111111-1111-1111-1111-111111111111", "1", "pasted.txt"), Name: "pasted.txt", Size: 5}}}
+	go func() { _ = WriteFrame(helper.outW, jsonFrame(FrameCopiedFiles, staged)) }()
+	var cleared ClipboardFilesBody
+	if err := json.Unmarshal(anna.next(FrameClipboardFiles)[1:], &cleared); err != nil {
+		t.Fatal(err)
+	}
+	if len(cleared.Files) != 0 {
+		t.Fatalf("a staged file was offered back: %+v", cleared.Files)
+	}
+	go func() { _ = WriteFrame(helper.outW, jsonFrame(FrameCopiedFiles, copied)) }()
+	anna.next(FrameClipboardFiles)
+
 	// A technician who joins later is offered the same files.
 	bert := h.join("b", "Bert", nil)
 	bert.next(FrameClipboardFiles)

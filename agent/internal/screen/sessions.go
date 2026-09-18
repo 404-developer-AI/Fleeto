@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -272,11 +273,19 @@ func (h *hub) fromHelper(frame []byte) error {
 		if json.Unmarshal(frame[1:], &body) != nil {
 			return nil
 		}
-		if len(body.Files) > MaxCopiedFiles {
-			body.Files = body.Files[:MaxCopiedFiles]
+		// Files a technician pasted are still on the endpoint clipboard after a helper starts again, and its window no longer owns them:
+		// they must never come back as a copy made on the endpoint.
+		files := make([]CopiedFile, 0, len(body.Files))
+		for _, f := range body.Files {
+			if !underStagingRoot(f.Path, h.s.opts.StagingRoot) {
+				files = append(files, f)
+			}
+		}
+		if len(files) > MaxCopiedFiles {
+			files = files[:MaxCopiedFiles]
 		}
 		h.mu.Lock()
-		h.copied = body.Files
+		h.copied = files
 		offer := h.offerLocked()
 		to := h.clipboardLocked()
 		h.mu.Unlock()
@@ -770,6 +779,16 @@ func updateHeader(frame []byte) (number uint32, last bool, ok bool) {
 		return 0, false, false
 	}
 	return binary.BigEndian.Uint32(frame[1:5]), frame[5]&FlagLast != 0, true
+}
+
+// underStagingRoot reports whether a path is one Fleeto staged for a paste into this endpoint.
+func underStagingRoot(path, root string) bool {
+	if root == "" || path == "" {
+		return false
+	}
+	clean := strings.ToLower(filepath.Clean(path))
+	base := strings.ToLower(filepath.Clean(root))
+	return clean == base || strings.HasPrefix(clean, base+string(filepath.Separator))
 }
 
 // sanitizeID keeps the characters of a GUID only, so a session id can never name another folder.
