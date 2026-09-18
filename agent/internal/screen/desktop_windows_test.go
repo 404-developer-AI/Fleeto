@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -164,5 +165,43 @@ func TestAFileCopiedOnTheEndpointIsOffered(t *testing.T) {
 		case <-deadline:
 			t.Fatal("a file copied on the endpoint was not offered")
 		}
+	}
+}
+
+// TestTheClipboardIsReadThroughItsDataObject proves the second way the endpoint reads its clipboard: through the data object, the way a
+// normal application does. Windows Explorer on the test endpoint puts a "DataObject" marker on the clipboard and nothing else, so the
+// plain clipboard functions find no files there. It changes the clipboard of the machine, so it runs only with FLEETO_SCREEN_TEST=1.
+func TestTheClipboardIsReadThroughItsDataObject(t *testing.T) {
+	if os.Getenv("FLEETO_SCREEN_TEST") != "1" {
+		t.Skip("set FLEETO_SCREEN_TEST=1 on a machine with an interactive desktop")
+	}
+	file := filepath.Join(t.TempDir(), "through-ole.txt")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Command("powershell", "-NoProfile", "-Command", "Set-Clipboard -Path '"+file+"'").Run(); err != nil {
+		t.Fatalf("could not copy a file from another program: %v", err)
+	}
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	procOleInitialize.Call(0)
+	defer procOleUninitialize.Call()
+
+	paths, _, _ := oleClipboard()
+	if len(paths) != 1 || !strings.EqualFold(paths[0], file) {
+		t.Fatalf("the data object gave %v, want %s", paths, file)
+	}
+	if owner := clipboardOwnerName(); owner == "" {
+		t.Log("the clipboard has no owner window")
+	} else {
+		t.Logf("the clipboard belongs to %s", owner)
+	}
+
+	if err := exec.Command("powershell", "-NoProfile", "-Command", "Set-Clipboard -Value 'through the data object'").Run(); err != nil {
+		t.Fatal(err)
+	}
+	if _, text, ok := oleClipboard(); !ok || text != "through the data object" {
+		t.Fatalf("the data object gave text %q (%v)", text, ok)
 	}
 }

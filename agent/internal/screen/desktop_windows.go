@@ -114,6 +114,9 @@ const (
 	bannerTimer = 1
 	// clipboardTimer checks the clipboard even when no notification arrives, and keeps the banner on top.
 	clipboardTimer = 2
+	// maxRechecks is how often one change is read again while it holds nothing to offer: a copy is finished in a moment, and a clipboard
+	// with something else on it (an image) must not be asked again every second.
+	maxRechecks = 3
 	// bannerColor is the primary teal of the brand (#0F766E) as a COLORREF (0x00BBGGRR); the text is white.
 	bannerColor = 0x006E760F
 	textColor   = 0x00FFFFFF
@@ -167,6 +170,7 @@ type desktopUI struct {
 	// Used on the desktop thread only.
 	sequence     uintptr
 	recheck      bool
+	rechecks     int
 	names        []string
 	placedFiles  bool
 	offeredFiles bool
@@ -216,6 +220,8 @@ func (ui *desktopUI) create() error {
 			closeDesktop(windows.Handle(desk))
 		}
 	}
+	// The desktop thread runs the message loop, so it is where the clipboard data object may be used.
+	procOleInitialize.Call(0)
 	windowProcOnce.Do(func() { windowProc = windows.NewCallback(wndProc) })
 	instance, _, _ := procGetModuleHandleW.Call(0)
 	className, _ := windows.UTF16PtrFromString("FleetoRemoteControlBanner")
@@ -268,6 +274,7 @@ func (ui *desktopUI) loop() {
 	}
 	ui.running.Store(false)
 	activeUI.CompareAndSwap(ui, nil)
+	procOleUninitialize.Call()
 	procDeleteObject.Call(ui.font)
 	procDeleteObject.Call(ui.brush)
 }
@@ -581,7 +588,9 @@ func clipboardSequence() uintptr {
 
 // clipboardChanged reads what another program copied and sends it to the technicians: the text, and the files as an offer to download.
 func (ui *desktopUI) clipboardChanged(hwnd uintptr) {
-	ui.sequence = clipboardSequence()
+	if sequence := clipboardSequence(); sequence != ui.sequence {
+		ui.sequence, ui.rechecks = sequence, 0
+	}
 	if ui.ownsClipboard(hwnd) {
 		return // what a technician placed; never echoed back
 	}
@@ -601,11 +610,20 @@ func (ui *desktopUI) clipboardChanged(hwnd uintptr) {
 		text, hasText = clipboardText()
 	}
 	formats := clipboardFormats()
+	owner := clipboardOwnerName()
 	procCloseClipboard.Call()
-	// A copy that is still under way: look again on the next tick.
-	ui.recheck = len(paths) == 0 && !hasText
+
+	// A program that copies through OLE leaves a marker on the clipboard and makes the files only when they are asked for.
+	if len(paths) == 0 && !hasText {
+		paths, text, hasText = oleClipboard()
+	}
+	// A copy that is still under way: look again on the next tick, a few times.
+	ui.recheck = len(paths) == 0 && !hasText && ui.rechecks < maxRechecks
+	if ui.recheck {
+		ui.rechecks++
+	}
 	// Counts and format names only: what was copied never reaches the log.
-	ui.logger.Info("the endpoint clipboard changed", "files", len(paths), "text", hasText, "formats", strings.Join(formats, ","))
+	ui.logger.Info("the endpoint clipboard changed", "files", len(paths), "text", hasText, "formats", strings.Join(formats, ","), "owner", owner)
 
 	if len(paths) > 0 || ui.offeredFiles {
 		files := make([]CopiedFile, 0, len(paths))

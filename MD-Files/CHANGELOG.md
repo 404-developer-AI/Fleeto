@@ -11,6 +11,9 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- 0.3.0: A file copied on the endpoint is offered for download when the program that copied it puts the files on the clipboard through
+  OLE, which Windows Explorer does: the clipboard then holds a marker only and the files are made when they are asked for. The endpoint
+  now asks the clipboard's data object, the way an ordinary application does, when the plain clipboard holds nothing.
 - 0.3.0: A file copied on the endpoint is offered for download even when Windows reports only the first step of the copy. A program
   copying files empties the clipboard first and puts the files on it in a second step; the endpoint now looks again after a change that
   held nothing. When the endpoint copies files that are not on disk (a compressed folder, a cloud folder), the window says so instead of

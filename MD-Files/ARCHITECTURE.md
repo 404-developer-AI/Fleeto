@@ -811,7 +811,9 @@ ignore consent and banner.
 - **Text** both ways as UTF-8 (`FrameClipboard`, at most 512 KB). The helper watches the clipboard of its window station with a
   clipboard format listener, and checks its sequence number every second so a notification that does not arrive costs a second instead
   of the whole session; a change that holds nothing is read again on the next tick, because a program copying files empties the clipboard
-  before it fills it. It sends what another program copied; what a technician placed is never echoed back. The browser writes
+  before it fills it. What it cannot find on the plain clipboard it asks the clipboard's data object for (`OleGetClipboard`), because a
+  program that copies files, Windows Explorer among them, leaves a marker on the clipboard and renders the files only when asked. It sends
+  what another program copied; what a technician placed is never echoed back. The browser writes
   the text to the technician's clipboard when the window has the focus, otherwise at the next focus or click. The browser reads the
   technician's clipboard from the paste event (no clipboard permission): the paste shortcut (Ctrl+V, Shift+Insert) is held until the
   text went out, and the helper sets the clipboard before it injects the next input.
