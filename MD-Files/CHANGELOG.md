@@ -11,6 +11,11 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- 0.3.0: The clipboard of a remote control session is served by a process that runs as the user signed in on the Windows session, so text
+  and files travel both ways again. The clipboard of a session belongs to that user: Windows Explorer hands its copied files out through
+  OLE, and the agent, which runs as SYSTEM, could neither read what was copied there nor replace it — a file copied on the endpoint was
+  never offered for download, and text from the technician never arrived. The screen, mouse and keyboard stay with the helper that runs as
+  SYSTEM, because those need the sign-in screen and UAC. Without a signed-in user the window says the clipboard needs one.
 - 0.3.0: A file copied on the endpoint is offered for download when the program that copied it puts the files on the clipboard through
   OLE, which Windows Explorer does: the clipboard then holds a marker only and the files are made when they are asked for. The endpoint
   now asks the clipboard's data object, the way an ordinary application does, when the plain clipboard holds nothing.

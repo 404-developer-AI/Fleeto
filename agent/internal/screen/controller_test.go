@@ -273,3 +273,65 @@ func TestAHelperWhoseWindowsSessionEndedIsNotStartedAgain(t *testing.T) {
 		t.Fatalf("%d helpers started for a session that ended", len(h.helpers))
 	}
 }
+
+func TestTheClipboardGoesToTheProcessOfTheSignedInUser(t *testing.T) {
+	h := newControllerHarness(t, 0)
+	var clipboard []*fakeHelper
+	var mu sync.Mutex
+	h.c.opts.ClipboardLaunch = func(_ context.Context, id uint32) (Helper, error) {
+		helper := newFakeHelper(id)
+		mu.Lock()
+		clipboard = append(clipboard, helper)
+		mu.Unlock()
+		return helper, nil
+	}
+	ctx := context.Background()
+	h.c.Handle(ctx, append([]byte{FrameStart}, `{"monitor":0}`...))
+	h.helper(0).expect(t, FrameStart)
+
+	// The clipboard of the session is watched from the moment the screen is shown.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		started := len(clipboard)
+		mu.Unlock()
+		if started > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	mu.Lock()
+	if len(clipboard) != 1 || clipboard[0].session != 1 {
+		mu.Unlock()
+		t.Fatalf("the clipboard process was not started in the console session (%d started)", len(clipboard))
+	}
+	user := clipboard[0]
+	mu.Unlock()
+
+	h.c.Handle(ctx, append([]byte{FrameClipboard}, "from the technician"...))
+	if got := user.expect(t, FrameClipboard); string(got[1:]) != "from the technician" {
+		t.Fatalf("the clipboard process got %q", got[1:])
+	}
+	// What it finds on the clipboard reaches the browser.
+	go func() {
+		_ = WriteFrame(user.outW, jsonFrame(FrameCopiedFiles, CopiedFilesBody{Files: []CopiedFile{{Path: `C:\a.txt`, Name: "a.txt"}}}))
+	}()
+	h.browserGets(FrameCopiedFiles)
+
+	h.c.Close()
+	if !user.closed.Load() {
+		t.Fatal("the clipboard process outlived the session")
+	}
+}
+
+func TestWithoutASignedInUserTheClipboardSaysWhy(t *testing.T) {
+	h := newControllerHarness(t, 4)
+	h.c.opts.ClipboardLaunch = func(context.Context, uint32) (Helper, error) {
+		return nil, errors.New("nobody is signed in on Windows session 4, so the clipboard of that session cannot be used")
+	}
+	h.c.Handle(context.Background(), append([]byte{FrameClipboard}, "from the technician"...))
+	notice := h.browserGets(FrameNotice)
+	if !strings.Contains(string(notice), "nobody is signed in") {
+		t.Fatalf("notice %s", notice[1:])
+	}
+}

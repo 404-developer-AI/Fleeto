@@ -24,7 +24,7 @@ func TestTheBannerAndClipboardWorkOnThisDesktop(t *testing.T) {
 		t.Skip("set FLEETO_SCREEN_TEST=1 on a machine with an interactive desktop")
 	}
 	written := make(chan []byte, 16)
-	ui := startDesktopUI(func(frame []byte) error { written <- frame; return nil }, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	ui := startDesktopUI(func(frame []byte) error { written <- frame; return nil }, slog.New(slog.NewTextHandler(os.Stderr, nil)), true)
 	if !ui.running.Load() {
 		t.Fatal("the desktop thread did not start")
 	}
@@ -101,7 +101,7 @@ func TestACopyOnTheEndpointIsNoticedWithoutANotification(t *testing.T) {
 		t.Skip("set FLEETO_SCREEN_TEST=1 on a machine with an interactive desktop")
 	}
 	written := make(chan []byte, 32)
-	ui := startDesktopUI(func(frame []byte) error { written <- frame; return nil }, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	ui := startDesktopUI(func(frame []byte) error { written <- frame; return nil }, slog.New(slog.NewTextHandler(os.Stderr, nil)), true)
 	if !ui.running.Load() {
 		t.Fatal("the desktop thread did not start")
 	}
@@ -137,7 +137,7 @@ func TestAFileCopiedOnTheEndpointIsOffered(t *testing.T) {
 		t.Fatal(err)
 	}
 	written := make(chan []byte, 32)
-	ui := startDesktopUI(func(frame []byte) error { written <- frame; return nil }, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	ui := startDesktopUI(func(frame []byte) error { written <- frame; return nil }, slog.New(slog.NewTextHandler(os.Stderr, nil)), true)
 	if !ui.running.Load() {
 		t.Fatal("the desktop thread did not start")
 	}
@@ -188,10 +188,11 @@ func TestTheClipboardIsReadThroughItsDataObject(t *testing.T) {
 	procOleInitialize.Call(0)
 	defer procOleUninitialize.Call()
 
-	paths, _, _ := oleClipboard()
+	paths, _, _, result := oleClipboard()
 	if len(paths) != 1 || !strings.EqualFold(paths[0], file) {
-		t.Fatalf("the data object gave %v, want %s", paths, file)
+		t.Fatalf("the data object gave %v (%s), want %s", paths, result.Error, file)
 	}
+	t.Logf("the data object offers %v", result.Offers)
 	if owner := clipboardOwnerName(); owner == "" {
 		t.Log("the clipboard has no owner window")
 	} else {
@@ -201,7 +202,7 @@ func TestTheClipboardIsReadThroughItsDataObject(t *testing.T) {
 	if err := exec.Command("powershell", "-NoProfile", "-Command", "Set-Clipboard -Value 'through the data object'").Run(); err != nil {
 		t.Fatal(err)
 	}
-	if _, text, ok := oleClipboard(); !ok || text != "through the data object" {
+	if _, text, ok, _ := oleClipboard(); !ok || text != "through the data object" {
 		t.Fatalf("the data object gave text %q (%v)", text, ok)
 	}
 }

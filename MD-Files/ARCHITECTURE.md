@@ -305,8 +305,9 @@ Three kinds of tables:
 - **Remote control (0.3.0 step 3, Windows).** The screen, mouse and keyboard, served by the **agent** (not the watchdog), because
   it needs a process in the Windows session that the agent, as SYSTEM, can start. The agent runs `internal/screen`: a helper per
   session that captures the desktop (GDI), encodes changed tiles and injects input, and the agent relays its frames over the same
-  encrypted session as remote background. From step 4 the helper also shows the banner and handles the clipboard of the Windows
-  session, several technicians share one session and helper, and the agent service asks for consent and stages pasted files.
+  encrypted session as remote background. From step 4 the helper also shows the banner, several technicians share one
+  session and helper, the agent service asks for consent and stages pasted files, and the clipboard of the session is served by a second
+  process that runs as the user signed in on it (`fleeto-agent remote-clipboard`).
   Details in §4, Remote control.
 - Reconnect with exponential backoff plus jitter.
 - Wire format: protobuf over the WebSocket, one message per binary WebSocket frame (the frame is
@@ -807,8 +808,15 @@ ignore consent and banner.
   windows cannot follow the input desktop), so it is part of the captured screen too.
 
 **Clipboard (0.3.0 step 4).** Only for technicians whose token enables it; the endpoint refuses clipboard frames and requests otherwise.
+The clipboard of a Windows session belongs to the user signed in on it: Windows Explorer hands its copied files out through OLE, and a
+process running as SYSTEM gets nothing from it and cannot replace what is there (measured on the test endpoint, 2026-09-18). The agent
+therefore starts a second process for the session, `fleeto-agent remote-clipboard`, with that user's own token (`WTSQueryUserToken`, their
+environment, the same pipes and job object as the helper). It does nothing but the clipboard, so it can do no more than the user it runs as;
+the screen, mouse and keyboard stay with the helper that runs as SYSTEM, because those need the sign-in screen and UAC. Without a signed-in
+user (the sign-in screen) there is no clipboard, and the technician is told so when they use it. The clipboard process starts when the
+screen does, so a copy on the endpoint is offered without the technician asking, and it moves along when the console switches sessions.
 
-- **Text** both ways as UTF-8 (`FrameClipboard`, at most 512 KB). The helper watches the clipboard of its window station with a
+- **Text** both ways as UTF-8 (`FrameClipboard`, at most 512 KB). The clipboard process watches the clipboard of its window station with a
   clipboard format listener, and checks its sequence number every second so a notification that does not arrive costs a second instead
   of the whole session; a change that holds nothing is read again on the next tick, because a program copying files empties the clipboard
   before it fills it. What it cannot find on the plain clipboard it asks the clipboard's data object for (`OleGetClipboard`), because a
@@ -819,8 +827,8 @@ ignore consent and banner.
   text went out, and the helper sets the clipboard before it injects the next input.
 - **Files to the endpoint**, pasted or dragged into the window: the browser asks for a batch (`clipboard.begin`), uploads each file into
   it with the transfers of remote background (`clipboard.upload`, at most the policy's file size cap, at most 100 files) and places the
-  batch (`clipboard.place`); the helper puts them on the clipboard as `CF_HDROP` with the preferred drop effect copy, so pasting copies
-  them. The **agent service** writes the files, into `%ProgramData%\Fleeto\RemoteClipboard\<session>\<batch>` with a protected DACL
+  batch (`clipboard.place`); the clipboard process puts them on the clipboard as `CF_HDROP` with the preferred drop effect copy, so pasting
+  copies them. The **agent service** writes the files, into `%ProgramData%\Fleeto\RemoteClipboard\<session>\<batch>` with a protected DACL
   (SYSTEM and administrators full, the user signed in on the Windows session read only), and deletes the folder when the last
   technician leaves; the agent clears the whole folder when it starts. The helper takes its files off the clipboard when it ends.
 - **Files copied on the endpoint** are offered to the browser by index (`FrameClipboardFiles`: names and sizes, folders counted but not
@@ -1025,7 +1033,9 @@ container:
   the agent; it captures and injects input, never terminals, files or the network. A remote
   control token is served by the agent only, a remote background token by the watchdog only,
   and each service refuses the other's kind (§4 Remote session).
-- Clipboard (0.3.0 step 4): text both ways and files to the endpoint, disabled per policy on every endpoint. Pasted files are readable
+- Clipboard (0.3.0 step 4): text both ways and files to the endpoint, disabled per policy on every endpoint. It is served by a process with
+  the token of the user signed in on the Windows session, which can do no more than that user and never touches the screen, the input or the
+  network; the agent starts it only for a session a technician is allowed into. Pasted files are readable
   only by SYSTEM, administrators and the user signed in on the shown Windows session, and deleted when the session ends; a technician
   downloads only files copied on the endpoint, by index, never a path of their choice (remote background serves the file explorer).
 - Several technicians (0.3.0 step 4): each has their own token, key exchange and audit entries; joining a session the person at the

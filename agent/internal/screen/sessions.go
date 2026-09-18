@@ -54,6 +54,8 @@ const (
 type SessionsOptions struct {
 	// Launch starts a helper in a Windows session.
 	Launch Launcher
+	// ClipboardLaunch starts the process that serves the clipboard of a Windows session as the user signed in on it.
+	ClipboardLaunch Launcher
 	// ConsoleSession returns the Windows session attached to the console now.
 	ConsoleSession func() uint32
 	// SessionExists reports whether a Windows session is still there.
@@ -220,8 +222,9 @@ func newHub(s *Sessions, first JoinOptions) *hub {
 	ctx, cancel := context.WithCancel(context.Background())
 	h := &hub{s: s, id: first.SessionID, windows: first.WindowsSession, ctx: ctx, cancel: cancel, forwarded: true}
 	h.controller = NewController(ControllerOptions{
-		Send: h.fromHelper, Launch: s.opts.Launch, Session: first.WindowsSession, ConsoleSession: s.opts.ConsoleSession,
-		SessionExists: s.opts.SessionExists, SecureAttention: s.opts.SecureAttention, Logger: s.opts.Logger, Now: s.opts.Now,
+		Send: h.fromHelper, Launch: s.opts.Launch, ClipboardLaunch: s.opts.ClipboardLaunch, Session: first.WindowsSession,
+		ConsoleSession: s.opts.ConsoleSession,
+		SessionExists:  s.opts.SessionExists, SecureAttention: s.opts.SecureAttention, Logger: s.opts.Logger, Now: s.opts.Now,
 		ConsoleCheck: s.opts.ConsoleCheck,
 	})
 	safego.Go(s.opts.Logger, "remote control flow", h.tick)

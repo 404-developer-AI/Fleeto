@@ -167,6 +167,9 @@ type desktopUI struct {
 	commands chan func()
 	running  atomic.Bool
 
+	// watch says whether this thread follows the clipboard of the session; only the process that runs as the signed-in user does.
+	watch bool
+
 	// Used on the desktop thread only.
 	sequence     uintptr
 	recheck      bool
@@ -187,8 +190,8 @@ var (
 
 // startDesktopUI starts the desktop thread. When it cannot (no desktop, no window station), remote control works without a banner and
 // clipboard, and the technician is told why.
-func startDesktopUI(write func([]byte) error, logger *slog.Logger) *desktopUI {
-	ui := &desktopUI{write: write, logger: logger, commands: make(chan func(), 64)}
+func startDesktopUI(write func([]byte) error, logger *slog.Logger, watch bool) *desktopUI {
+	ui := &desktopUI{write: write, logger: logger, watch: watch, commands: make(chan func(), 64)}
 	ready := make(chan error, 1)
 	go func() {
 		runtime.LockOSThread()
@@ -249,16 +252,18 @@ func (ui *desktopUI) create() error {
 	}
 	ui.hwnd = hwnd
 	procSetLayeredWindowAttributes.Call(hwnd, 0, 235, lwaAlpha)
-	if ok, _, err := procAddClipboardFormatListener.Call(hwnd); ok == 0 {
-		ui.logger.Warn("the endpoint clipboard is not watched", "error", fmtCallError("AddClipboardFormatListener", err))
-	}
 	format, _ := windows.UTF16PtrFromString("Preferred DropEffect")
 	ui.dropEffect, _, _ = procRegisterClipboardFormatW.Call(uintptr(unsafe.Pointer(format)))
-	// The clipboard is watched two ways: the notification of Windows, and the sequence number every second. A missed notification then
-	// costs a second instead of the whole session (found while testing 0.3.0 step 4).
-	ui.sequence = clipboardSequence()
-	procSetTimer.Call(hwnd, clipboardTimer, 1000, 0)
-	ui.logger.Info("the banner and clipboard of the Windows session are ready")
+	if ui.watch {
+		if ok, _, err := procAddClipboardFormatListener.Call(hwnd); ok == 0 {
+			ui.logger.Warn("the clipboard of the Windows session is not watched", "error", fmtCallError("AddClipboardFormatListener", err))
+		}
+		// The clipboard is watched two ways: the notification of Windows, and the sequence number every second. A missed notification
+		// then costs a second instead of the whole session (found while testing 0.3.0 step 4).
+		ui.sequence = clipboardSequence()
+		procSetTimer.Call(hwnd, clipboardTimer, 1000, 0)
+	}
+	ui.logger.Info("the window of the Windows session is ready", "clipboard", ui.watch)
 	return nil
 }
 
@@ -412,7 +417,9 @@ func wndProc(hwnd, message, wParam, lParam uintptr) (result uintptr) {
 			procEmptyClipboard.Call()
 			procCloseClipboard.Call()
 		}
-		procRemoveClipboardFormatListener.Call(hwnd)
+		if ui.watch {
+			procRemoveClipboardFormatListener.Call(hwnd)
+		}
 		procDestroyWindow.Call(hwnd)
 		return 0
 	case wmDestroy:
@@ -556,12 +563,7 @@ func clipboardFormats() []string {
 		case cfHDrop:
 			names = append(names, "CF_HDROP")
 		default:
-			var buffer [80]uint16
-			if n, _, _ := procGetClipboardFormatNameW.Call(format, uintptr(unsafe.Pointer(&buffer[0])), uintptr(len(buffer))); n > 0 {
-				names = append(names, windows.UTF16ToString(buffer[:n]))
-			} else {
-				names = append(names, "format "+itoa(uint32(format)))
-			}
+			names = append(names, formatName(format))
 		}
 		if len(names) >= 25 {
 			break
@@ -579,6 +581,21 @@ func virtualFiles(formats []string) bool {
 		}
 	}
 	return false
+}
+
+// formatName is the name of a clipboard format, for the log.
+func formatName(format uintptr) string {
+	switch format {
+	case cfUnicodeText:
+		return "CF_UNICODETEXT"
+	case cfHDrop:
+		return "CF_HDROP"
+	}
+	var buffer [80]uint16
+	if n, _, _ := procGetClipboardFormatNameW.Call(format, uintptr(unsafe.Pointer(&buffer[0])), uintptr(len(buffer))); n > 0 {
+		return windows.UTF16ToString(buffer[:n])
+	}
+	return "format " + itoa(uint32(format))
 }
 
 func clipboardSequence() uintptr {
@@ -614,8 +631,9 @@ func (ui *desktopUI) clipboardChanged(hwnd uintptr) {
 	procCloseClipboard.Call()
 
 	// A program that copies through OLE leaves a marker on the clipboard and makes the files only when they are asked for.
+	var ole oleResult
 	if len(paths) == 0 && !hasText {
-		paths, text, hasText = oleClipboard()
+		paths, text, hasText, ole = oleClipboard()
 	}
 	// A copy that is still under way: look again on the next tick, a few times.
 	ui.recheck = len(paths) == 0 && !hasText && ui.rechecks < maxRechecks
@@ -623,7 +641,8 @@ func (ui *desktopUI) clipboardChanged(hwnd uintptr) {
 		ui.rechecks++
 	}
 	// Counts and format names only: what was copied never reaches the log.
-	ui.logger.Info("the endpoint clipboard changed", "files", len(paths), "text", hasText, "formats", strings.Join(formats, ","), "owner", owner)
+	ui.logger.Info("the endpoint clipboard changed", "files", len(paths), "text", hasText, "formats", strings.Join(formats, ","), "owner", owner,
+		"dataObject", strings.Join(ole.Offers, ","), "dataObjectError", ole.Error)
 
 	if len(paths) > 0 || ui.offeredFiles {
 		files := make([]CopiedFile, 0, len(paths))

@@ -19,6 +19,19 @@ func WindowsLauncher(*slog.Logger) Launcher {
 	return func(context.Context, uint32) (Helper, error) { return nil, ErrNotSupported }
 }
 
+// ClipboardCommand is the argument of fleeto-agent that serves the clipboard of a Windows session as the user signed in on it.
+const ClipboardCommand = "remote-clipboard"
+
+// UserLauncher is not available off Windows.
+func UserLauncher(*slog.Logger) Launcher {
+	return func(context.Context, uint32) (Helper, error) { return nil, ErrNotSupported }
+}
+
+// RunClipboardAgent is not available off Windows.
+func RunClipboardAgent(context.Context, io.Reader, io.Writer, *slog.Logger) error {
+	return ErrNotSupported
+}
+
 // RunHelper is not available off Windows.
 func RunHelper(context.Context, io.Reader, io.Writer, uint32, *slog.Logger) error {
 	return ErrNotSupported

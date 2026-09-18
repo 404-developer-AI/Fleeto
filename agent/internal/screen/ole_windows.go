@@ -3,6 +3,7 @@
 package screen
 
 import (
+	"strconv"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -27,9 +28,12 @@ var (
 const (
 	dvAspectContent = 1
 	tymedHGlobal    = 1
-	// releaseSlot and getDataSlot are the places of Release and GetData in the IDataObject vtable (IUnknown first).
-	releaseSlot = 2
-	getDataSlot = 3
+	dataDirGet      = 1
+	// The places of the methods used here in their vtables (IUnknown first): IDataObject and IEnumFORMATETC.
+	releaseSlot       = 2
+	getDataSlot       = 3
+	enumFormatEtcSlot = 8
+	enumNextSlot      = 3
 )
 
 // formatEtc is FORMATETC: what is asked of a data object.
@@ -49,36 +53,78 @@ type stgMedium struct {
 	Unk   uintptr
 }
 
+// oleResult says how reading the clipboard through its data object went, for the log; it holds no clipboard content.
+type oleResult struct {
+	// Error names the step that failed, "" when the data object answered.
+	Error string
+	// Offers are the formats the data object says it can render.
+	Offers []string
+}
+
 // oleClipboard reads the files and the text of the clipboard through its data object. It must not run while the clipboard is open.
-func oleClipboard() (paths []string, text string, hasText bool) {
+func oleClipboard() (paths []string, text string, hasText bool, result oleResult) {
 	var object uintptr
-	if hr, _, _ := procOleGetClipboard.Call(uintptr(unsafe.Pointer(&object))); hr != 0 || object == 0 {
-		return nil, "", false
+	hr, _, _ := procOleGetClipboard.Call(uintptr(unsafe.Pointer(&object)))
+	if hr != 0 || object == 0 {
+		return nil, "", false, oleResult{Error: "OleGetClipboard " + hresult(hr)}
 	}
 	defer callMethod(object, releaseSlot)
+	result.Offers = oleFormats(object)
 
-	if medium, ok := getData(object, cfHDrop); ok {
+	medium, hr := getData(object, cfHDrop)
+	if hr == 0 {
 		paths = dropNamesFrom(medium.Union)
 		procReleaseStgMedium.Call(uintptr(unsafe.Pointer(&medium)))
+	} else if len(paths) == 0 {
+		result.Error = "GetData(CF_HDROP) " + hresult(hr)
 	}
-	if medium, ok := getData(object, cfUnicodeText); ok {
+	medium, hr = getData(object, cfUnicodeText)
+	if hr == 0 {
 		text, hasText = textFrom(medium.Union)
 		procReleaseStgMedium.Call(uintptr(unsafe.Pointer(&medium)))
 	}
-	return paths, text, hasText
+	return paths, text, hasText, result
 }
 
-// getData asks the data object to render one format as memory.
-func getData(object uintptr, format uint16) (stgMedium, bool) {
+// oleFormats names what the data object offers to render.
+func oleFormats(object uintptr) []string {
+	var enum uintptr
+	vtable := *(*uintptr)(globalPointer(object))
+	method := *(*uintptr)(globalPointer(vtable + enumFormatEtcSlot*unsafe.Sizeof(uintptr(0))))
+	if hr, _, _ := syscall.SyscallN(method, object, dataDirGet, uintptr(unsafe.Pointer(&enum))); hr != 0 || enum == 0 {
+		return nil
+	}
+	defer callMethod(enum, releaseSlot)
+	enumVtable := *(*uintptr)(globalPointer(enum))
+	next := *(*uintptr)(globalPointer(enumVtable + enumNextSlot*unsafe.Sizeof(uintptr(0))))
+	var names []string
+	for len(names) < 25 {
+		var entry formatEtc
+		var fetched uint32
+		hr, _, _ := syscall.SyscallN(next, enum, 1, uintptr(unsafe.Pointer(&entry)), uintptr(unsafe.Pointer(&fetched)))
+		if hr != 0 || fetched == 0 {
+			break
+		}
+		names = append(names, formatName(uintptr(entry.Format)))
+	}
+	return names
+}
+
+func hresult(hr uintptr) string {
+	return "0x" + strconv.FormatUint(uint64(uint32(hr)), 16)
+}
+
+// getData asks the data object to render one format as memory; it returns the HRESULT, 0 when the format is there.
+func getData(object uintptr, format uint16) (stgMedium, uintptr) {
 	request := formatEtc{Format: format, Aspect: dvAspectContent, Index: -1, Tymed: tymedHGlobal}
 	var medium stgMedium
 	vtable := *(*uintptr)(globalPointer(object))
 	method := *(*uintptr)(globalPointer(vtable + getDataSlot*unsafe.Sizeof(uintptr(0))))
 	hr, _, _ := syscall.SyscallN(method, object, uintptr(unsafe.Pointer(&request)), uintptr(unsafe.Pointer(&medium)))
-	if hr != 0 || medium.Tymed != tymedHGlobal || medium.Union == 0 {
-		return stgMedium{}, false
+	if hr == 0 && (medium.Tymed != tymedHGlobal || medium.Union == 0) {
+		return stgMedium{}, 1
 	}
-	return medium, true
+	return medium, hr
 }
 
 func callMethod(object uintptr, slot uintptr) {

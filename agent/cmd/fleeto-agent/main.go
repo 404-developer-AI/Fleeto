@@ -80,6 +80,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdRun(args[1:], stderr)
 	case screen.HelperCommand:
 		return cmdRemoteHelper(stderr)
+	case screen.ClipboardCommand:
+		return cmdRemoteClipboard(stderr)
 	case "help", "--help", "-h", "/?":
 		fmt.Fprint(stdout, usage)
 		return exitOK
@@ -344,6 +346,19 @@ func cmdRemoteHelper(stderr io.Writer) int {
 	defer stop()
 	if err := screen.RunHelper(ctx, os.Stdin, os.Stdout, session, logger); err != nil {
 		logger.Error("the remote control helper stopped", "error", err)
+		return exitError
+	}
+	return exitOK
+}
+
+// cmdRemoteClipboard serves the clipboard of one Windows session (0.3.0 step 4). The agent starts it with the token of the user signed in
+// on that session, because their clipboard is theirs: a process running as SYSTEM cannot read what they copied or replace it.
+func cmdRemoteClipboard(stderr io.Writer) int {
+	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if err := screen.RunClipboardAgent(ctx, os.Stdin, os.Stdout, logger); err != nil {
+		logger.Error("the remote clipboard stopped", "error", err)
 		return exitError
 	}
 	return exitOK

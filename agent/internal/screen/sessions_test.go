@@ -13,14 +13,15 @@ import (
 )
 
 type sessionsHarness struct {
-	t       *testing.T
-	mu      sync.Mutex
-	helpers []*fakeHelper
-	s       *Sessions
-	user    atomic.Value
-	consent func(ctx context.Context, session uint32, technician string, timeout time.Duration) (ConsentAnswer, error)
-	root    string
-	staged  atomic.Int32
+	t         *testing.T
+	mu        sync.Mutex
+	helpers   []*fakeHelper
+	clipboard []*fakeHelper
+	s         *Sessions
+	user      atomic.Value
+	consent   func(ctx context.Context, session uint32, technician string, timeout time.Duration) (ConsentAnswer, error)
+	root      string
+	staged    atomic.Int32
 }
 
 func newSessionsHarness(t *testing.T, configure func(*SessionsOptions)) *sessionsHarness {
@@ -31,6 +32,13 @@ func newSessionsHarness(t *testing.T, configure func(*SessionsOptions)) *session
 			helper := newFakeHelper(id)
 			h.mu.Lock()
 			h.helpers = append(h.helpers, helper)
+			h.mu.Unlock()
+			return helper, nil
+		},
+		ClipboardLaunch: func(_ context.Context, id uint32) (Helper, error) {
+			helper := newFakeHelper(id)
+			h.mu.Lock()
+			h.clipboard = append(h.clipboard, helper)
 			h.mu.Unlock()
 			return helper, nil
 		},
@@ -68,6 +76,24 @@ func (h *sessionsHarness) helper(n int) *fakeHelper {
 		time.Sleep(5 * time.Millisecond)
 	}
 	h.t.Fatalf("helper %d was not started", n)
+	return nil
+}
+
+// clipboardHelper is the process that serves the clipboard of the Windows session, started as its signed-in user.
+func (h *sessionsHarness) clipboardHelper(n int) *fakeHelper {
+	h.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		h.mu.Lock()
+		if len(h.clipboard) > n {
+			helper := h.clipboard[n]
+			h.mu.Unlock()
+			return helper
+		}
+		h.mu.Unlock()
+		time.Sleep(5 * time.Millisecond)
+	}
+	h.t.Fatalf("the clipboard process %d was not started", n)
 	return nil
 }
 
@@ -438,20 +464,24 @@ func TestClipboardTextFollowsEachTechniciansToken(t *testing.T) {
 	start(anna)
 	helper := h.helper(0)
 
-	go func() { _ = WriteFrame(helper.outW, append([]byte{FrameClipboard}, "copied on the endpoint"...)) }()
+	clipboard := h.clipboardHelper(0)
+
+	go func() { _ = WriteFrame(clipboard.outW, append([]byte{FrameClipboard}, "copied on the endpoint"...)) }()
 	if text := anna.next(FrameClipboard); string(text[1:]) != "copied on the endpoint" {
 		t.Fatalf("text %q", text[1:])
 	}
 	bert.none(FrameClipboard)
 
 	bert.p.Handle(context.Background(), append([]byte{FrameClipboard}, "from bert"...))
-	noHelperFrame(t, helper, FrameClipboard)
+	noHelperFrame(t, clipboard, FrameClipboard)
 	anna.p.Handle(context.Background(), append([]byte{FrameClipboard}, "from anna"...))
-	if got := waitFor(t, helper, FrameClipboard); string(got[1:]) != "from anna" {
-		t.Fatalf("helper got %q", got[1:])
+	if got := waitFor(t, clipboard, FrameClipboard); string(got[1:]) != "from anna" {
+		t.Fatalf("the clipboard process got %q", got[1:])
 	}
-	anna.p.Handle(context.Background(), append([]byte{FrameClipboard}, strings.Repeat("x", MaxClipboardBytes+1)...))
+	// The clipboard never reaches the helper that shows the screen: it belongs to the signed-in user.
 	noHelperFrame(t, helper, FrameClipboard)
+	anna.p.Handle(context.Background(), append([]byte{FrameClipboard}, strings.Repeat("x", MaxClipboardBytes+1)...))
+	noHelperFrame(t, clipboard, FrameClipboard)
 }
 
 func TestCopiedFilesAreOfferedAndPastedFilesLiveAsLongAsTheSession(t *testing.T) {
@@ -460,8 +490,9 @@ func TestCopiedFilesAreOfferedAndPastedFilesLiveAsLongAsTheSession(t *testing.T)
 	start(anna)
 	helper := h.helper(0)
 
+	clipboard := h.clipboardHelper(0)
 	copied := CopiedFilesBody{Files: []CopiedFile{{Path: `C:\Users\anna\report.pdf`, Name: "report.pdf", Size: 2048}, {Path: `C:\Users\anna\Photos`, Name: "Photos", Dir: true}}}
-	go func() { _ = WriteFrame(helper.outW, jsonFrame(FrameCopiedFiles, copied)) }()
+	go func() { _ = WriteFrame(clipboard.outW, jsonFrame(FrameCopiedFiles, copied)) }()
 	var offer ClipboardFilesBody
 	if err := json.Unmarshal(anna.next(FrameClipboardFiles)[1:], &offer); err != nil {
 		t.Fatal(err)
@@ -482,7 +513,7 @@ func TestCopiedFilesAreOfferedAndPastedFilesLiveAsLongAsTheSession(t *testing.T)
 	// Files this session staged for a paste are never offered back as a copy made on the endpoint (they stay on the clipboard after the
 	// helper starts again, when its window no longer owns them).
 	staged := CopiedFilesBody{Files: []CopiedFile{{Path: filepath.Join(h.root, "11111111-1111-1111-1111-111111111111", "1", "pasted.txt"), Name: "pasted.txt", Size: 5}}}
-	go func() { _ = WriteFrame(helper.outW, jsonFrame(FrameCopiedFiles, staged)) }()
+	go func() { _ = WriteFrame(clipboard.outW, jsonFrame(FrameCopiedFiles, staged)) }()
 	var cleared ClipboardFilesBody
 	if err := json.Unmarshal(anna.next(FrameClipboardFiles)[1:], &cleared); err != nil {
 		t.Fatal(err)
@@ -490,7 +521,7 @@ func TestCopiedFilesAreOfferedAndPastedFilesLiveAsLongAsTheSession(t *testing.T)
 	if len(cleared.Files) != 0 {
 		t.Fatalf("a staged file was offered back: %+v", cleared.Files)
 	}
-	go func() { _ = WriteFrame(helper.outW, jsonFrame(FrameCopiedFiles, copied)) }()
+	go func() { _ = WriteFrame(clipboard.outW, jsonFrame(FrameCopiedFiles, copied)) }()
 	anna.next(FrameClipboardFiles)
 
 	// A technician who joins later is offered the same files.
@@ -512,7 +543,7 @@ func TestCopiedFilesAreOfferedAndPastedFilesLiveAsLongAsTheSession(t *testing.T)
 		t.Fatal(err)
 	}
 	var place PlaceFilesBody
-	if err := json.Unmarshal(waitFor(t, helper, FramePlaceFiles)[1:], &place); err != nil || len(place.Paths) != 1 {
+	if err := json.Unmarshal(waitFor(t, clipboard, FramePlaceFiles)[1:], &place); err != nil || len(place.Paths) != 1 {
 		t.Fatalf("place %+v %v", place, err)
 	}
 
@@ -524,8 +555,8 @@ func TestCopiedFilesAreOfferedAndPastedFilesLiveAsLongAsTheSession(t *testing.T)
 	if _, err := os.Stat(filepath.Dir(batch)); !os.IsNotExist(err) {
 		t.Fatal("the pasted files were not deleted when the session ended")
 	}
-	if !helper.closed.Load() || h.s.Count() != 0 {
-		t.Fatal("the helper or the session outlived the last technician")
+	if !helper.closed.Load() || !clipboard.closed.Load() || h.s.Count() != 0 {
+		t.Fatal("the helper, the clipboard process or the session outlived the last technician")
 	}
 }
 

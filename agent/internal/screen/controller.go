@@ -45,6 +45,9 @@ type ControllerOptions struct {
 	// Launch starts a helper; Session is the Windows session of the token, 0 for the console.
 	Launch  Launcher
 	Session uint32
+	// ClipboardLaunch starts the process that serves the clipboard of the Windows session as the user signed in on it (0.3.0 step 4);
+	// nil where the clipboard is not served.
+	ClipboardLaunch Launcher
 	// ConsoleSession returns the Windows session attached to the console now.
 	ConsoleSession func() uint32
 	// SessionExists reports whether a Windows session is still there; nil means it is assumed to be.
@@ -65,6 +68,8 @@ type Controller struct {
 
 	mu         sync.Mutex
 	helper     Helper
+	clipboard  Helper
+	clipTries  []time.Time
 	current    uint32
 	lastStart  []byte
 	lastBanner []byte
@@ -114,6 +119,26 @@ func (c *Controller) Handle(ctx context.Context, frame []byte) {
 			c.notice(err.Error())
 			return
 		}
+		if started {
+			// The clipboard of the session is watched from the moment the screen is shown, so a copy on the endpoint is offered without
+			// the technician asking for it. Nobody signed in is normal (the sign-in screen), so it is logged, not shown.
+			safego.Go(c.opts.Logger, "remote control clipboard", func() {
+				if _, err := c.ensureClipboard(ctx); err != nil {
+					c.opts.Logger.Info("the clipboard of the Windows session is not served", "reason", err)
+				}
+			})
+		}
+	case FrameClipboard, FramePlaceFiles:
+		// The clipboard belongs to the user signed in on the session, so it is served by their own process, not by the helper.
+		helper, err := c.ensureClipboard(ctx)
+		if err != nil {
+			c.notice(err.Error())
+			return
+		}
+		if err := WriteFrame(helper.In(), frame); err != nil {
+			c.opts.Logger.Debug("could not pass a frame to the clipboard of the Windows session", "error", err)
+		}
+		return
 	}
 	c.mu.Lock()
 	helper, banner := c.helper, c.lastBanner
@@ -129,6 +154,102 @@ func (c *Controller) Handle(ctx context.Context, frame []byte) {
 	}
 }
 
+// ensureClipboard starts the process that serves the clipboard of the session as its signed-in user, and returns it.
+func (c *Controller) ensureClipboard(ctx context.Context) (Helper, error) {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil, errors.New("the session is closing")
+	}
+	if c.clipboard != nil {
+		helper := c.clipboard
+		c.mu.Unlock()
+		return helper, nil
+	}
+	if c.opts.ClipboardLaunch == nil {
+		c.mu.Unlock()
+		return nil, errors.New("This endpoint does not serve the clipboard of a remote control session. Update the agent.")
+	}
+	now := c.opts.Now()
+	recent := c.clipTries[:0]
+	for _, at := range c.clipTries {
+		if now.Sub(at) < restartWindow {
+			recent = append(recent, at)
+		}
+	}
+	c.clipTries = append(recent, now)
+	if len(c.clipTries) > maxRestarts {
+		c.mu.Unlock()
+		return nil, errors.New("The clipboard of the endpoint stopped and could not be started again. End the session and open it again.")
+	}
+	session := c.sessionLocked()
+	c.mu.Unlock()
+	if session == 0 || session == 0xFFFFFFFF {
+		return nil, errors.New("No Windows session is attached to the console right now, so its clipboard cannot be used.")
+	}
+
+	helper, err := launch(ctx, c.opts.ClipboardLaunch, session)
+	if err != nil {
+		c.opts.Logger.Info("could not start the clipboard of the Windows session", "session", session, "error", err)
+		return nil, errors.New("The clipboard of Windows session " + itoa(session) + " cannot be used: " + err.Error())
+	}
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		_ = helper.Close()
+		return nil, errors.New("the session is closing")
+	}
+	c.clipboard = helper
+	c.mu.Unlock()
+	c.opts.Logger.Info("the clipboard of the Windows session is served by its signed-in user", "session", session)
+	safego.Go(c.opts.Logger, "remote control clipboard output", func() { c.pumpClipboard(helper) })
+	return helper, nil
+}
+
+// pumpClipboard passes what the clipboard process sends (copied files, copied text, a notice) to the browser until it stops.
+func (c *Controller) pumpClipboard(helper Helper) {
+	for {
+		frame, err := ReadFrame(helper.Out())
+		if err != nil {
+			break
+		}
+		if !FromHelper(frame[0]) {
+			continue
+		}
+		if err := c.opts.Send(frame); err != nil {
+			break
+		}
+	}
+	c.mu.Lock()
+	if c.clipboard == helper {
+		c.clipboard = nil
+	}
+	c.mu.Unlock()
+	_ = helper.Close()
+}
+
+// closeClipboard ends the clipboard process, so the next use starts one in the session that is shown now.
+func (c *Controller) closeClipboard() {
+	c.mu.Lock()
+	helper := c.clipboard
+	c.clipboard = nil
+	c.mu.Unlock()
+	if helper != nil {
+		_ = helper.Close()
+	}
+}
+
+// sessionLocked is the Windows session to work in: the chosen one, or the console session now.
+func (c *Controller) sessionLocked() uint32 {
+	if c.opts.Session != 0 {
+		return c.opts.Session
+	}
+	if c.helper != nil {
+		return c.current
+	}
+	return c.opts.ConsoleSession()
+}
+
 // Running reports whether a helper shows the screen now.
 func (c *Controller) Running() bool {
 	c.mu.Lock()
@@ -140,13 +261,7 @@ func (c *Controller) Running() bool {
 func (c *Controller) CurrentSession() uint32 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.helper != nil {
-		return c.current
-	}
-	if c.opts.Session != 0 {
-		return c.opts.Session
-	}
-	return c.opts.ConsoleSession()
+	return c.sessionLocked()
 }
 
 // ensure starts the helper in the session to show when none runs, and reports whether it started one.
@@ -309,6 +424,9 @@ func (c *Controller) watchConsole(ctx context.Context) {
 		}
 		c.notice("The console switched to Windows session " + itoa(now) + ".")
 		replay(helper, start, banner)
+		// The clipboard of the session that was left behind is not this session's any more.
+		c.closeClipboard()
+		c.clipTries = nil
 	}
 }
 
@@ -317,12 +435,12 @@ func (c *Controller) notice(message string) {
 	_ = c.opts.Send(append([]byte{FrameNotice}, data...))
 }
 
-// Close stops the helper; the helper releases every key and button it holds as it exits.
+// Close stops the helper and the clipboard process; the helper releases every key and button it holds as it exits.
 func (c *Controller) Close() {
 	c.mu.Lock()
 	c.closed = true
-	helper := c.helper
-	c.helper = nil
+	helper, clipboard := c.helper, c.clipboard
+	c.helper, c.clipboard = nil, nil
 	cancel := c.cancel
 	c.mu.Unlock()
 	if cancel != nil {
@@ -330,6 +448,9 @@ func (c *Controller) Close() {
 	}
 	if helper != nil {
 		_ = helper.Close()
+	}
+	if clipboard != nil {
+		_ = clipboard.Close()
 	}
 }
 

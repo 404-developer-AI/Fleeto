@@ -72,6 +72,9 @@ type Options struct {
 
 	// ScreenLauncher starts the remote control helper (0.3.0); default screen.WindowsLauncher on Windows. Tests replace it.
 	ScreenLauncher screen.Launcher
+	// ClipboardLauncher starts the process that serves the clipboard of a Windows session as its signed-in user (0.3.0 step 4);
+	// default screen.UserLauncher on Windows. Tests replace it.
+	ClipboardLauncher screen.Launcher
 }
 
 func (o *Options) setDefaults() {

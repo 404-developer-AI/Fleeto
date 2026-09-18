@@ -67,12 +67,16 @@ func (a *Agent) newRemoteServer() *remote.Server {
 		if launch == nil {
 			launch = screen.WindowsLauncher(a.logger)
 		}
+		clipboard := a.opts.ClipboardLauncher
+		if clipboard == nil {
+			clipboard = screen.UserLauncher(a.logger)
+		}
 		staging := filepath.Join(platform.DataDir(), remoteClipboardDir)
 		if err := screen.CleanStaging(staging); err != nil {
 			a.logger.Warn("could not delete files left from earlier remote control sessions", "folder", staging, "error", err)
 		}
 		sessions := screen.NewSessions(screen.SessionsOptions{
-			Launch: launch, ConsoleSession: screen.ConsoleSession, SessionExists: screen.SessionExists,
+			Launch: launch, ClipboardLaunch: clipboard, ConsoleSession: screen.ConsoleSession, SessionExists: screen.SessionExists,
 			SecureAttention: screen.SecureAttention, SessionUser: screen.SessionUser,
 			Consent: screen.AskConsent, StagingRoot: staging, Stage: screen.StageFolder, Logger: a.logger, Now: a.opts.Now,
 		})

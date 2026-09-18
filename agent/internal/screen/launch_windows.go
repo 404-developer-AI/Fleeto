@@ -18,8 +18,17 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
+var (
+	userenv                     = windows.NewLazySystemDLL("userenv.dll")
+	procCreateEnvironmentBlock  = userenv.NewProc("CreateEnvironmentBlock")
+	procDestroyEnvironmentBlock = userenv.NewProc("DestroyEnvironmentBlock")
+)
+
 // HelperCommand is the argument of fleeto-agent that runs the helper.
 const HelperCommand = "remote-helper"
+
+// ClipboardCommand is the argument of fleeto-agent that serves the clipboard of a Windows session as the user signed in on it.
+const ClipboardCommand = "remote-clipboard"
 
 // helperDesktop is where the helper starts; it attaches itself to the input desktop right away.
 const helperDesktop = `winsta0\default`
@@ -31,77 +40,15 @@ const SessionIDEnv = "FLEETO_REMOTE_SESSION"
 // to that session (needs SeTcbPrivilege, which SYSTEM has). The helper talks over anonymous pipes that only it inherits, so no other
 // process can connect to it, and it lives in a job object that ends it when the agent does. Its log lines go to the agent's log.
 func WindowsLauncher(logger *slog.Logger) Launcher {
-	return func(ctx context.Context, sessionID uint32) (Helper, error) {
+	return func(_ context.Context, sessionID uint32) (Helper, error) {
 		if err := sessionExists(sessionID); err != nil {
 			return nil, err
-		}
-		exe, err := os.Executable()
-		if err != nil {
-			return nil, fmt.Errorf("find the agent binary: %w", err)
 		}
 		token, err := sessionToken(sessionID)
 		if err != nil {
 			return nil, err
 		}
 		defer token.Close()
-
-		inherit := &windows.SecurityAttributes{InheritHandle: 1}
-		inherit.Length = uint32(unsafe.Sizeof(*inherit))
-		var closeLater []windows.Handle
-		closeAll := func() {
-			for _, h := range closeLater {
-				_ = windows.CloseHandle(h)
-			}
-		}
-		stdinRead, stdinWrite, err := pipe(inherit, true)
-		if err != nil {
-			return nil, err
-		}
-		stdoutRead, stdoutWrite, err := pipe(inherit, false)
-		if err != nil {
-			_ = windows.CloseHandle(stdinRead)
-			_ = windows.CloseHandle(stdinWrite)
-			return nil, err
-		}
-		stderrRead, stderrWrite, err := pipe(inherit, false)
-		if err != nil {
-			for _, h := range []windows.Handle{stdinRead, stdinWrite, stdoutRead, stdoutWrite} {
-				_ = windows.CloseHandle(h)
-			}
-			return nil, err
-		}
-		closeLater = append(closeLater, stdinRead, stdoutWrite, stderrWrite)
-
-		// Only the three pipe ends are inherited, even when other code of the agent holds inheritable handles at this moment (a job's
-		// output pipes).
-		handles := []windows.Handle{stdinRead, stdoutWrite, stderrWrite}
-		attributes, err := windows.NewProcThreadAttributeList(1)
-		if err == nil {
-			err = attributes.Update(windows.PROC_THREAD_ATTRIBUTE_HANDLE_LIST, unsafe.Pointer(&handles[0]), uintptr(len(handles))*unsafe.Sizeof(handles[0]))
-		}
-		if err != nil {
-			if attributes != nil {
-				attributes.Delete()
-			}
-			closeAll()
-			for _, h := range []windows.Handle{stdinWrite, stdoutRead, stderrRead} {
-				_ = windows.CloseHandle(h)
-			}
-			return nil, fmt.Errorf("limit the helper's handles: %w", err)
-		}
-		startup := windows.StartupInfoEx{
-			StartupInfo: windows.StartupInfo{
-				Desktop:    windows.StringToUTF16Ptr(helperDesktop),
-				Flags:      windows.STARTF_USESTDHANDLES | windows.STARTF_USESHOWWINDOW,
-				ShowWindow: windows.SW_HIDE,
-				StdInput:   stdinRead,
-				StdOutput:  stdoutWrite,
-				StdErr:     stderrWrite,
-			},
-			ProcThreadAttributeList: attributes.List(),
-		}
-		startup.Cb = uint32(unsafe.Sizeof(startup))
-		commandLine := windows.ComposeCommandLine([]string{exe, HelperCommand})
 		environment := environmentBlock([]string{
 			SessionIDEnv + "=" + itoa(sessionID),
 			"SystemRoot=" + os.Getenv("SystemRoot"),
@@ -110,55 +57,161 @@ func WindowsLauncher(logger *slog.Logger) Launcher {
 			"TEMP=" + os.Getenv("TEMP"),
 			"TMP=" + os.Getenv("TMP"),
 		})
-		var info windows.ProcessInformation
-		err = windows.CreateProcessAsUser(token, windows.StringToUTF16Ptr(exe), windows.StringToUTF16Ptr(commandLine), nil, nil, true,
-			windows.CREATE_NO_WINDOW|windows.CREATE_SUSPENDED|windows.CREATE_UNICODE_ENVIRONMENT|windows.EXTENDED_STARTUPINFO_PRESENT,
-			&environment[0], nil, &startup.StartupInfo, &info)
-		attributes.Delete()
-		closeAll()
-		if err != nil {
-			_ = windows.CloseHandle(stdinWrite)
-			_ = windows.CloseHandle(stdoutRead)
-			_ = windows.CloseHandle(stderrRead)
-			return nil, fmt.Errorf("start the helper in session %d: %w", sessionID, err)
-		}
-		job, err := killOnCloseJob()
-		if err == nil {
-			err = windows.AssignProcessToJobObject(job, info.Process)
-		}
-		if err != nil {
-			_ = windows.TerminateProcess(info.Process, 1)
-			_ = windows.CloseHandle(info.Thread)
-			_ = windows.CloseHandle(info.Process)
-			if job != 0 {
-				_ = windows.CloseHandle(job)
-			}
-			_ = windows.CloseHandle(stdinWrite)
-			_ = windows.CloseHandle(stdoutRead)
-			_ = windows.CloseHandle(stderrRead)
-			return nil, fmt.Errorf("contain the helper: %w", err)
-		}
-		if _, err := windows.ResumeThread(info.Thread); err != nil {
-			_ = windows.TerminateJobObject(job, 1)
-		}
-		_ = windows.CloseHandle(info.Thread)
-
-		h := &windowsHelper{
-			in:      os.NewFile(uintptr(stdinWrite), "fleeto-helper-in"),
-			out:     os.NewFile(uintptr(stdoutRead), "fleeto-helper-out"),
-			process: info.Process,
-			job:     job,
-		}
-		logs := os.NewFile(uintptr(stderrRead), "fleeto-helper-log")
-		go func() {
-			defer logs.Close()
-			scanner := bufio.NewScanner(logs)
-			for scanner.Scan() {
-				logger.Info("remote control helper: "+scanner.Text(), "session", sessionID)
-			}
-		}()
-		return h, nil
+		return spawnChild(logger, sessionID, HelperCommand, "remote control helper", token, &environment[0])
 	}
+}
+
+// UserLauncher starts "fleeto-agent remote-clipboard" as the user signed in on a Windows session (0.3.0 step 4). The clipboard of a
+// session belongs to that user: Windows Explorer hands its copied files out through OLE, and a process running as SYSTEM cannot get them
+// or replace what is there (seen on the test endpoint). This process therefore runs with the user's own token, in their session, and does
+// nothing but the clipboard of the session; the screen, mouse and keyboard stay with the helper that runs as SYSTEM.
+func UserLauncher(logger *slog.Logger) Launcher {
+	return func(_ context.Context, sessionID uint32) (Helper, error) {
+		if err := sessionExists(sessionID); err != nil {
+			return nil, err
+		}
+		var user windows.Token
+		if err := windows.WTSQueryUserToken(sessionID, &user); err != nil {
+			return nil, fmt.Errorf("nobody is signed in on Windows session %d, so the clipboard of that session cannot be used: %w", sessionID, err)
+		}
+		defer user.Close()
+		var primary windows.Token
+		if err := windows.DuplicateTokenEx(user, windows.MAXIMUM_ALLOWED, nil, windows.SecurityImpersonation, windows.TokenPrimary, &primary); err != nil {
+			return nil, fmt.Errorf("duplicate the token of the signed-in user: %w", err)
+		}
+		defer primary.Close()
+		environment, release, err := userEnvironment(primary)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+		return spawnChild(logger, sessionID, ClipboardCommand, "remote clipboard", primary, environment)
+	}
+}
+
+// spawnChild starts one command of the agent binary in a Windows session with the given token. It talks over anonymous pipes that only it
+// inherits, so no other process can connect to it, and it lives in a job object that ends it when the agent does. Its log lines go to the
+// agent's log with the label.
+func spawnChild(logger *slog.Logger, sessionID uint32, command, label string, token windows.Token, environment *uint16) (Helper, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("find the agent binary: %w", err)
+	}
+
+	inherit := &windows.SecurityAttributes{InheritHandle: 1}
+	inherit.Length = uint32(unsafe.Sizeof(*inherit))
+	var closeLater []windows.Handle
+	closeAll := func() {
+		for _, h := range closeLater {
+			_ = windows.CloseHandle(h)
+		}
+	}
+	stdinRead, stdinWrite, err := pipe(inherit, true)
+	if err != nil {
+		return nil, err
+	}
+	stdoutRead, stdoutWrite, err := pipe(inherit, false)
+	if err != nil {
+		_ = windows.CloseHandle(stdinRead)
+		_ = windows.CloseHandle(stdinWrite)
+		return nil, err
+	}
+	stderrRead, stderrWrite, err := pipe(inherit, false)
+	if err != nil {
+		for _, h := range []windows.Handle{stdinRead, stdinWrite, stdoutRead, stdoutWrite} {
+			_ = windows.CloseHandle(h)
+		}
+		return nil, err
+	}
+	closeLater = append(closeLater, stdinRead, stdoutWrite, stderrWrite)
+
+	// Only the three pipe ends are inherited, even when other code of the agent holds inheritable handles at this moment (a job's
+	// output pipes).
+	handles := []windows.Handle{stdinRead, stdoutWrite, stderrWrite}
+	attributes, err := windows.NewProcThreadAttributeList(1)
+	if err == nil {
+		err = attributes.Update(windows.PROC_THREAD_ATTRIBUTE_HANDLE_LIST, unsafe.Pointer(&handles[0]), uintptr(len(handles))*unsafe.Sizeof(handles[0]))
+	}
+	if err != nil {
+		if attributes != nil {
+			attributes.Delete()
+		}
+		closeAll()
+		for _, h := range []windows.Handle{stdinWrite, stdoutRead, stderrRead} {
+			_ = windows.CloseHandle(h)
+		}
+		return nil, fmt.Errorf("limit the handles of the %s: %w", label, err)
+	}
+	startup := windows.StartupInfoEx{
+		StartupInfo: windows.StartupInfo{
+			Desktop:    windows.StringToUTF16Ptr(helperDesktop),
+			Flags:      windows.STARTF_USESTDHANDLES | windows.STARTF_USESHOWWINDOW,
+			ShowWindow: windows.SW_HIDE,
+			StdInput:   stdinRead,
+			StdOutput:  stdoutWrite,
+			StdErr:     stderrWrite,
+		},
+		ProcThreadAttributeList: attributes.List(),
+	}
+	startup.Cb = uint32(unsafe.Sizeof(startup))
+	commandLine := windows.ComposeCommandLine([]string{exe, command})
+	var info windows.ProcessInformation
+	err = windows.CreateProcessAsUser(token, windows.StringToUTF16Ptr(exe), windows.StringToUTF16Ptr(commandLine), nil, nil, true,
+		windows.CREATE_NO_WINDOW|windows.CREATE_SUSPENDED|windows.CREATE_UNICODE_ENVIRONMENT|windows.EXTENDED_STARTUPINFO_PRESENT,
+		environment, nil, &startup.StartupInfo, &info)
+	attributes.Delete()
+	closeAll()
+	if err != nil {
+		_ = windows.CloseHandle(stdinWrite)
+		_ = windows.CloseHandle(stdoutRead)
+		_ = windows.CloseHandle(stderrRead)
+		return nil, fmt.Errorf("start the %s in session %d: %w", label, sessionID, err)
+	}
+	job, err := killOnCloseJob()
+	if err == nil {
+		err = windows.AssignProcessToJobObject(job, info.Process)
+	}
+	if err != nil {
+		_ = windows.TerminateProcess(info.Process, 1)
+		_ = windows.CloseHandle(info.Thread)
+		_ = windows.CloseHandle(info.Process)
+		if job != 0 {
+			_ = windows.CloseHandle(job)
+		}
+		_ = windows.CloseHandle(stdinWrite)
+		_ = windows.CloseHandle(stdoutRead)
+		_ = windows.CloseHandle(stderrRead)
+		return nil, fmt.Errorf("contain the %s: %w", label, err)
+	}
+	if _, err := windows.ResumeThread(info.Thread); err != nil {
+		_ = windows.TerminateJobObject(job, 1)
+	}
+	_ = windows.CloseHandle(info.Thread)
+
+	h := &windowsHelper{
+		in:      os.NewFile(uintptr(stdinWrite), "fleeto-helper-in"),
+		out:     os.NewFile(uintptr(stdoutRead), "fleeto-helper-out"),
+		process: info.Process,
+		job:     job,
+	}
+	logs := os.NewFile(uintptr(stderrRead), "fleeto-helper-log")
+	go func() {
+		defer logs.Close()
+		scanner := bufio.NewScanner(logs)
+		for scanner.Scan() {
+			logger.Info(label+": "+scanner.Text(), "session", sessionID)
+		}
+	}()
+	return h, nil
+}
+
+// userEnvironment is the environment of the signed-in user, so their clipboard process finds their profile.
+func userEnvironment(token windows.Token) (*uint16, func(), error) {
+	var block *uint16
+	if ok, _, err := procCreateEnvironmentBlock.Call(uintptr(unsafe.Pointer(&block)), uintptr(token), 0); ok == 0 || block == nil {
+		return nil, func() {}, fmtCallError("CreateEnvironmentBlock", err)
+	}
+	return block, func() { procDestroyEnvironmentBlock.Call(uintptr(unsafe.Pointer(block))) }, nil
 }
 
 type windowsHelper struct {

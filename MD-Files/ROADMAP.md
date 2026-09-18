@@ -471,7 +471,10 @@ Steps:
      the signed-in user of the Windows session reading only) and are **deleted when the session ends**, like RDP; the agent also
      clears the folder when it starts. They are placed on the clipboard as a copy, so pasting never moves them away.
    - The consent prompt is a message box the agent service shows on the Windows session (`WTSSendMessage`), default button No; the
-     banner and the clipboard live in the helper, on a desktop thread of their own. The agent service, not the helper, writes the
+     banner lives in the helper, on a desktop thread of its own. The **clipboard is a process of its own** that runs as the user signed in
+     on the session (`fleeto-agent remote-clipboard`, decided 2026-09-18 after measuring on the test endpoint): their Explorer hands copied
+     files out through OLE, and a process running as SYSTEM gets nothing from it and cannot replace what is there. Without a signed-in user
+     there is no clipboard, and the technician is told so. The agent service, not the helper, writes the
      pasted files, so the helper still touches no file or network.
    - The clipboard switch of the policy applies to every endpoint; consent and banner to workstations only. Clipboard text is
      synchronised up to 512 KB. The browser takes the technician's clipboard from its paste event, so no clipboard permission is
