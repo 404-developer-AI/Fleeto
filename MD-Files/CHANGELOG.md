@@ -11,6 +11,10 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- 0.3.0: A file copied on the endpoint is offered for download even when Windows reports only the first step of the copy. A program
+  copying files empties the clipboard first and puts the files on it in a second step; the endpoint now looks again after a change that
+  held nothing. When the endpoint copies files that are not on disk (a compressed folder, a cloud folder), the window says so instead of
+  staying empty, and points at Files in a remote background session.
 - 0.3.0: Files a technician pasted into a remote control session are no longer offered back to them as files copied on the endpoint.
   They stay on the endpoint clipboard, so after the helper of the session started again — its window no longer owning the clipboard —
   the last pasted file appeared as a download instead of what was copied on the endpoint.

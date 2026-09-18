@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -57,6 +58,8 @@ var (
 	procIsClipboardFormatAvailable    = user32.NewProc("IsClipboardFormatAvailable")
 	procGetClipboardOwner             = user32.NewProc("GetClipboardOwner")
 	procGetClipboardSequenceNumber    = user32.NewProc("GetClipboardSequenceNumber")
+	procEnumClipboardFormats          = user32.NewProc("EnumClipboardFormats")
+	procGetClipboardFormatNameW       = user32.NewProc("GetClipboardFormatNameW")
 	procRegisterClipboardFormatW      = user32.NewProc("RegisterClipboardFormatW")
 	procCreateSolidBrush              = gdi32.NewProc("CreateSolidBrush")
 	procCreateFontW                   = gdi32.NewProc("CreateFontW")
@@ -163,6 +166,7 @@ type desktopUI struct {
 
 	// Used on the desktop thread only.
 	sequence     uintptr
+	recheck      bool
 	names        []string
 	placedFiles  bool
 	offeredFiles bool
@@ -522,14 +526,52 @@ func setClipboardBytes(format uintptr, data []byte) error {
 	return nil // the clipboard owns the memory now
 }
 
-// pollClipboard notices a change Windows did not report (the notification of a listener does not always arrive in every session).
+// pollClipboard notices a change Windows did not report (the notification of a listener does not always arrive in every session), and
+// reads the clipboard once more after a change that held nothing: a program copying files first empties the clipboard and puts the files
+// on it in a second step, and the report of that second step does not always arrive.
 func (ui *desktopUI) pollClipboard(hwnd uintptr) {
 	sequence := clipboardSequence()
-	if sequence == ui.sequence {
+	if sequence == ui.sequence && !ui.recheck {
 		return
 	}
-	ui.logger.Debug("the endpoint clipboard changed without a notification")
+	ui.recheck = false
 	ui.clipboardChanged(hwnd)
+}
+
+// clipboardFormats names what is on the clipboard now, for the log: it tells a copy of files on disk (CF_HDROP) from one of files that
+// are not (a compressed folder, OneDrive), which remote control cannot download. The clipboard must be open.
+func clipboardFormats() []string {
+	var names []string
+	for format, _, _ := procEnumClipboardFormats.Call(0); format != 0; format, _, _ = procEnumClipboardFormats.Call(format) {
+		switch format {
+		case cfUnicodeText:
+			names = append(names, "CF_UNICODETEXT")
+		case cfHDrop:
+			names = append(names, "CF_HDROP")
+		default:
+			var buffer [80]uint16
+			if n, _, _ := procGetClipboardFormatNameW.Call(format, uintptr(unsafe.Pointer(&buffer[0])), uintptr(len(buffer))); n > 0 {
+				names = append(names, windows.UTF16ToString(buffer[:n]))
+			} else {
+				names = append(names, "format "+itoa(uint32(format)))
+			}
+		}
+		if len(names) >= 25 {
+			break
+		}
+	}
+	return names
+}
+
+// virtualFiles reports whether the clipboard holds files that are not on disk, which only a shell can fetch.
+func virtualFiles(formats []string) bool {
+	for _, name := range formats {
+		switch name {
+		case "FileGroupDescriptorW", "FileGroupDescriptor", "FileContents", "Shell IDList Array":
+			return true
+		}
+	}
+	return false
 }
 
 func clipboardSequence() uintptr {
@@ -558,9 +600,12 @@ func (ui *desktopUI) clipboardChanged(hwnd uintptr) {
 	if ok, _, _ := procIsClipboardFormatAvailable.Call(cfUnicodeText); ok != 0 {
 		text, hasText = clipboardText()
 	}
+	formats := clipboardFormats()
 	procCloseClipboard.Call()
-	// Counts only: what was copied never reaches the log.
-	ui.logger.Info("the endpoint clipboard changed", "files", len(paths), "text", hasText)
+	// A copy that is still under way: look again on the next tick.
+	ui.recheck = len(paths) == 0 && !hasText
+	// Counts and format names only: what was copied never reaches the log.
+	ui.logger.Info("the endpoint clipboard changed", "files", len(paths), "text", hasText, "formats", strings.Join(formats, ","))
 
 	if len(paths) > 0 || ui.offeredFiles {
 		files := make([]CopiedFile, 0, len(paths))
@@ -573,6 +618,10 @@ func (ui *desktopUI) clipboardChanged(hwnd uintptr) {
 		}
 		ui.offeredFiles = len(files) > 0
 		_ = ui.write(jsonFrame(FrameCopiedFiles, CopiedFilesBody{Files: files}))
+	}
+	if len(paths) == 0 && !hasText && virtualFiles(formats) {
+		ui.notice("Files were copied on the endpoint that are not files on disk (from a compressed folder or a cloud folder, for example). " +
+			"Remote control cannot download those; use Files in a remote background session.")
 	}
 	if hasText {
 		if len(text) > MaxClipboardBytes {
