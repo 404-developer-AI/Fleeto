@@ -503,15 +503,15 @@ func TestAgentOnlyConfigurationRunsNoChecks(t *testing.T) {
 	if applied.GetConfigVersion() != 4 || applied.GetError() != "" {
 		t.Fatalf("unexpected ConfigApplied %v", applied)
 	}
-	// Heartbeats keep coming (interval 1 s), but no check results for 2.5 s.
-	deadline := time.Now().Add(2500 * time.Millisecond)
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	// Heartbeats keep coming (interval 1 s), and no check result comes in between. Waiting for two heartbeats instead of a fixed time
+	// keeps the guarantee on a machine that is busy enough to delay the first one.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	heartbeats := 0
-	for {
+	for heartbeats < 2 {
 		_, data, err := c.conn.Read(ctx)
 		if err != nil {
-			break
+			t.Fatalf("expected heartbeats on an agent-only endpoint, got %d before %v", heartbeats, err)
 		}
 		var msg agentv1.AgentMessage
 		_ = proto.Unmarshal(data, &msg)
@@ -521,9 +521,6 @@ func TestAgentOnlyConfigurationRunsNoChecks(t *testing.T) {
 		if isType[*agentv1.AgentMessage_Heartbeat](&msg) {
 			heartbeats++
 		}
-	}
-	if heartbeats == 0 {
-		t.Fatal("expected heartbeats on an agent-only endpoint")
 	}
 	if a.scheduler.Count() != 0 || a.buffer.Total() != 0 {
 		t.Fatalf("expected no checks and no results, got %d checks and %d results", a.scheduler.Count(), a.buffer.Total())
