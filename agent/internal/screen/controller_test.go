@@ -189,7 +189,8 @@ func TestTheConsoleIsFollowedToAnotherSession(t *testing.T) {
 	}
 	second.expect(t, FrameStart)
 	notice := h.browserGets(FrameNotice)
-	if !strings.Contains(string(notice), "session 5") {
+	// The wording is the platform's: "Windows session 5" on Windows, the screen on Linux.
+	if !strings.Contains(string(notice), consoleSwitchedText(5)) {
 		t.Fatalf("notice %s", notice[1:])
 	}
 	if !first.closed.Load() {
