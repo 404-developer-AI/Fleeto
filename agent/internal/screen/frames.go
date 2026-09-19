@@ -66,7 +66,41 @@ const (
 	// FrameCopiedFiles (helper to agent): the files on the clipboard now, none when it holds no files. Body {files: [{path, name, size,
 	// dir}]}.
 	FrameCopiedFiles byte = 0x22
+
+	// 0.3.0 step 6, Linux: written by the launcher itself, before anything else, and never passed on from the browser or the hub.
+
+	// FrameX11 (agent to a child process): the X display to use, its cookie and the account to run as. Body X11Body. It is the first frame
+	// a Linux child reads; it arrives over the pipe so the cookie is never in an environment or on a command line.
+	FrameX11 byte = 0x23
+	// FrameConsentAsk (agent to the consent process): ask the person at the screen. Body ConsentAskBody.
+	FrameConsentAsk byte = 0x24
+	// FrameConsentAnswer (consent process to agent): the answer. Body {answer: "allowed", "refused" or "timeout"}.
+	FrameConsentAnswer byte = 0x25
 )
+
+// X11Body is the body of FrameX11.
+type X11Body struct {
+	// Display is the local display, ":0".
+	Display string `json:"display"`
+	// Cookie is the MIT-MAGIC-COOKIE-1 of the display, hex.
+	Cookie string `json:"cookie"`
+	// UID and GID are the account the child drops to before it talks to the X server.
+	UID uint32 `json:"uid"`
+	GID uint32 `json:"gid"`
+	// Session is the logind session shown, for log lines.
+	Session string `json:"session"`
+}
+
+// ConsentAskBody is the body of FrameConsentAsk.
+type ConsentAskBody struct {
+	Technician string `json:"technician"`
+	Seconds    int    `json:"seconds"`
+}
+
+// ConsentAnswerBody is the body of FrameConsentAnswer.
+type ConsentAnswerBody struct {
+	Answer string `json:"answer"`
+}
 
 // IsControlFrame reports whether a frame type belongs to remote control.
 func IsControlFrame(kind byte) bool { return kind >= FrameStart && kind <= 0x1F }

@@ -32,9 +32,10 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
     public const string NotManagedReason = "The endpoint is not managed. Switch it to managed before opening a remote session.";
     public const string BrowserKeyReason = "The browser sent an invalid session key. Close the window and open the session again.";
     public const string KindReason = "This kind of remote session is not available yet.";
-    public const string PlatformReason = "Remote control runs on Windows endpoints only.";
+    public const string PlatformReason = "Remote control runs on Windows and Linux endpoints only.";
     public const string AgentVersionReason =
-        "The agent of this endpoint is too old for remote control. It needs Fleeto 0.3.0 or later; the agent updates with its update ring.";
+        "The agent of this endpoint is too old for remote control. It needs Fleeto 0.3.0 or later (on Linux 0.3.0-alpha.16 or later); the agent updates with its update ring.";
+    public const string LinuxSessionReason = "Remote control on Linux shows the screen of the endpoint only.";
 
     private readonly SignerKeyRing _keyRing;
     private readonly LicenseService _licenses;
@@ -117,13 +118,20 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
             return SigningOutcome.Refused(MissingReason);
         }
 
-        if (session.Kind == RemoteSessionKind.RemoteControl && endpoint.OsPlatform != "windows")
+        if (session.Kind == RemoteSessionKind.RemoteControl && !RemoteSessionRules.PlatformSupportsRemoteControl(endpoint.OsPlatform))
         {
             return SigningOutcome.Refused(PlatformReason);
         }
 
-        // An older agent would ignore the consent prompt and banner of the policy (0.3.0 step 4).
-        if (session.Kind == RemoteSessionKind.RemoteControl && !RemoteSessionRules.AgentSupportsRemoteControl(endpoint.AgentVersion))
+        // Linux shows the console only (0.3.0 step 6, decided 2026-09-19).
+        if (session.Kind == RemoteSessionKind.RemoteControl && endpoint.OsPlatform == "linux" &&
+            session.WindowsSessionId != RemoteSessionRules.ConsoleWindowsSession)
+        {
+            return SigningOutcome.Refused(LinuxSessionReason);
+        }
+
+        // An older agent would ignore the consent prompt and banner of the policy (0.3.0 step 4), or not serve Linux at all (step 6).
+        if (session.Kind == RemoteSessionKind.RemoteControl && !RemoteSessionRules.AgentSupportsRemoteControl(endpoint.AgentVersion, endpoint.OsPlatform))
         {
             return SigningOutcome.Refused(AgentVersionReason);
         }

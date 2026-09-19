@@ -11,6 +11,11 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
+- 0.3.0: Remote control on Linux endpoints with X11: the screen of the console (the sign-in screen too when it runs on X11), mouse and
+  keyboard with the endpoint's own layout, the clipboard with text and files, the banner and the consent prompt on workstations, and
+  several technicians in one session. A Wayland session cannot be shown; the window says so, and remote background works. The agent's
+  processes on the display run as nobody or as the user of the session, never as root. Needs agent 0.3.0-alpha.16 or later.
+
 - 0.3.0: Remote control on Windows sends the screen as H.264 where the endpoint can encode it (Media Foundation: the GPU's hardware
   encoder, else the Microsoft encoder in Windows) and every technician's browser decodes it (WebCodecs). The bit rate follows the link,
   and the tiles remain the automatic fallback: on an endpoint without Media Foundation, an encoder that fails, a browser without H.264

@@ -65,3 +65,24 @@ func bannerText(names []string) string {
 		return "Remote control session by " + strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 	}
 }
+
+// wrapText breaks a text into lines of at most width characters at spaces; an empty line stays.
+func wrapText(text string, width int) []string {
+	var out []string
+	for _, paragraph := range strings.Split(text, "\n") {
+		line := ""
+		for _, word := range strings.Fields(paragraph) {
+			switch {
+			case line == "":
+				line = word
+			case len([]rune(line))+1+len([]rune(word)) <= width:
+				line += " " + word
+			default:
+				out = append(out, line)
+				line = word
+			}
+		}
+		out = append(out, line)
+	}
+	return out
+}

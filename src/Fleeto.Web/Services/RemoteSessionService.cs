@@ -14,12 +14,12 @@ namespace Fleeto.Web.Services;
 public sealed record RemoteTarget(Guid EndpointId, string Hostname, string? ClientCode, string OsPlatform, string OsName, bool WatchdogOnline,
     string WatchdogVersion, string? Problem);
 
-/// <summary>The endpoint a remote control window is for (0.3.0 step 3), with the Windows sessions it can show.</summary>
+/// <summary>The endpoint a remote control window is for (0.3.0 step 3), with the sessions it can show (Linux: the screen only, step 6).</summary>
 /// <param name="Sessions">The console first, then the remote sessions of signed-in users as the agent last reported them.</param>
 /// <param name="SessionsReportedAt">When the agent last reported the signed-in users; null when it never did.</param>
 /// <param name="Running">Remote control sessions that run on the endpoint now (0.3.0 step 4); opening one on the same Windows session joins it.</param>
 /// <param name="Problem">Why a session cannot start now, with the next step; null when it can.</param>
-public sealed record RemoteControlTarget(Guid EndpointId, string Hostname, string? ClientCode, string OsName, EndpointClass Class,
+public sealed record RemoteControlTarget(Guid EndpointId, string Hostname, string? ClientCode, string OsPlatform, string OsName, EndpointClass Class,
     IReadOnlyList<RemoteWindowsSession> Sessions, DateTime? SessionsReportedAt, IReadOnlyList<RunningRemoteControl> Running, string? Problem);
 
 /// <summary>A remote control session that runs now, with the technicians in it (0.3.0 step 4).</summary>
@@ -118,16 +118,16 @@ public sealed class RemoteSessionService
         var license = await _licenses.GetStatusAsync(db, cancellationToken);
         var problem = TierRules.EffectiveTier(endpoint.Tier, license) != EndpointTier.Managed
             ? "Remote control is only available on managed endpoints. Switch the endpoint to managed first."
-            : endpoint.Source != EndpointSource.Agent || endpoint.OsPlatform != "windows"
-                ? "Remote control runs on Windows endpoints with a Fleeto agent."
-            : !RemoteSessionRules.AgentSupportsRemoteControl(endpoint.AgentVersion)
-                ? $"The agent of this endpoint runs {(string.IsNullOrEmpty(endpoint.AgentVersion) ? "no known version" : "Fleeto " + endpoint.AgentVersion)}. Remote control needs Fleeto 0.3.0 or later; the agent updates with its update ring."
+            : endpoint.Source != EndpointSource.Agent || !RemoteSessionRules.PlatformSupportsRemoteControl(endpoint.OsPlatform)
+                ? "Remote control runs on Windows and Linux endpoints with a Fleeto agent."
+            : !RemoteSessionRules.AgentSupportsRemoteControl(endpoint.AgentVersion, endpoint.OsPlatform)
+                ? $"The agent of this endpoint runs {(string.IsNullOrEmpty(endpoint.AgentVersion) ? "no known version" : "Fleeto " + endpoint.AgentVersion)}. Remote control {(endpoint.OsPlatform == "linux" ? "on Linux needs Fleeto " + RemoteSessionRules.MinimumLinuxAgentVersion : "needs Fleeto 0.3.0")} or later; the agent updates with its update ring."
             : !endpoint.IsOnline
                 ? "The agent of this endpoint is offline. Remote control starts when the endpoint is online."
             : null;
-        var sessions = RemoteSessionRules.WindowsSessions(SignedInUserRules.Parse(endpoint.SignedInUsersJson));
+        var sessions = RemoteSessionRules.ControlSessions(endpoint.OsPlatform, SignedInUserRules.Parse(endpoint.SignedInUsersJson));
         var running = await RunningControlSessionsAsync(db, endpoint.Id, cancellationToken);
-        return new RemoteControlTarget(endpoint.Id, endpoint.Hostname, endpoint.ClientCode, endpoint.OsName, endpoint.ClassOverride ?? endpoint.DetectedClass,
+        return new RemoteControlTarget(endpoint.Id, endpoint.Hostname, endpoint.ClientCode, endpoint.OsPlatform, endpoint.OsName, endpoint.ClassOverride ?? endpoint.DetectedClass,
             sessions, endpoint.SignedInUsersAt, running, problem);
     }
 
@@ -203,7 +203,9 @@ public sealed class RemoteSessionService
 
         if (target.Sessions.All(s => s.Id != windowsSessionId))
         {
-            return ServiceResult<RemoteTicket>.Fail("That Windows session is no longer signed in. Choose the console or another session.");
+            return ServiceResult<RemoteTicket>.Fail(target.OsPlatform == "linux"
+                ? "Remote control on Linux shows the screen of the endpoint only."
+                : "That Windows session is no longer signed in. Choose the console or another session.");
         }
 
         var running = target.Running.FirstOrDefault(r => r.WindowsSessionId == windowsSessionId);

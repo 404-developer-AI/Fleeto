@@ -5,6 +5,7 @@ go 1.27.0
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/google/go-tpm v0.9.8
+	github.com/jezek/xgb v1.3.1
 	github.com/shirou/gopsutil/v4 v4.26.8
 	github.com/yusufpapurcu/wmi v1.2.4
 	go.etcd.io/bbolt v1.5.0

@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 	"unsafe"
@@ -29,6 +30,24 @@ const HelperCommand = "remote-helper"
 
 // ClipboardCommand is the argument of fleeto-agent that serves the clipboard of a Windows session as the user signed in on it.
 const ClipboardCommand = "remote-clipboard"
+
+// ConsentCommand runs the consent prompt of a Linux endpoint; on Windows the agent service asks through WTSSendMessage.
+const ConsentCommand = "remote-consent"
+
+// batchMode is the mode of a folder of pasted files; on Windows the folder's access list decides who reads it.
+const batchMode = 0o700
+
+// DefaultLauncher is the helper launcher of this platform.
+func DefaultLauncher(logger *slog.Logger) Launcher { return WindowsLauncher(logger) }
+
+// DefaultClipboardLauncher is the clipboard launcher of this platform.
+func DefaultClipboardLauncher(logger *slog.Logger) Launcher { return UserLauncher(logger) }
+
+// GrantFiles does nothing on Windows: the staging folder already lets the user of the session read the files.
+func GrantFiles([]string, uint32) error { return nil }
+
+// RunConsent is not used on Windows.
+func RunConsent(context.Context, io.Reader, io.Writer, *slog.Logger) error { return ErrNotSupported }
 
 // helperDesktop is where the helper starts; it attaches itself to the input desktop right away.
 const helperDesktop = `winsta0\default`
@@ -370,3 +389,18 @@ func environmentBlock(vars []string) []uint16 {
 	}
 	return append(block, 0)
 }
+
+// Wording of the session shown, for the technician (Windows: numbered sessions).
+
+func shownName(session uint32) string { return "Windows session " + itoa(session) }
+
+func noConsoleText() string { return "No Windows session is attached to the console right now." }
+
+func consoleSwitchedText(session uint32) string {
+	return "The console switched to Windows session " + itoa(session) + "."
+}
+
+func nobodySignedInText() string { return "Nobody is signed in on this Windows session" }
+
+// StagingRoot is where files pasted into remote control sessions wait: a folder in the agent's data directory.
+func StagingRoot(dataDir string) string { return filepath.Join(dataDir, "RemoteClipboard") }

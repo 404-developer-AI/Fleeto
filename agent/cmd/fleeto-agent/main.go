@@ -82,6 +82,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdRemoteHelper(stderr)
 	case screen.ClipboardCommand:
 		return cmdRemoteClipboard(stderr)
+	case screen.ConsentCommand:
+		return cmdRemoteConsent(stderr)
 	case "help", "--help", "-h", "/?":
 		fmt.Fprint(stdout, usage)
 		return exitOK
@@ -333,9 +335,9 @@ func cmdRun(args []string, stderr io.Writer) int {
 	return exitOK
 }
 
-// cmdRemoteHelper serves the screen of one remote control session (0.3.0) from inside a Windows session. The agent service starts it as
-// SYSTEM with pipes for its input and output; it is not meant to be run by hand, and gives nothing a user does not have in their own
-// session when it is.
+// cmdRemoteHelper serves the screen of one remote control session (0.3.0) from inside a Windows session, or on the X11 display of a Linux
+// endpoint (step 6). The agent service starts it as SYSTEM (Windows) or as root that drops to nobody before it opens the display (Linux),
+// with pipes for its input and output; it is not meant to be run by hand, and gives nothing a user does not have in their own session.
 func cmdRemoteHelper(stderr io.Writer) int {
 	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	var session uint32
@@ -359,6 +361,19 @@ func cmdRemoteClipboard(stderr io.Writer) int {
 	defer stop()
 	if err := screen.RunClipboardAgent(ctx, os.Stdin, os.Stdout, logger); err != nil {
 		logger.Error("the remote clipboard stopped", "error", err)
+		return exitError
+	}
+	return exitOK
+}
+
+// cmdRemoteConsent asks the person at the screen of a Linux endpoint to allow a remote control session (0.3.0 step 6). The agent starts
+// it as root; it drops to the user of the session before it opens the display.
+func cmdRemoteConsent(stderr io.Writer) int {
+	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if err := screen.RunConsent(ctx, os.Stdin, os.Stdout, logger); err != nil {
+		logger.Error("the consent prompt stopped", "error", err)
 		return exitError
 	}
 	return exitOK

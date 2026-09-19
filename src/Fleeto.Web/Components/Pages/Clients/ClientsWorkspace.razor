@@ -293,7 +293,7 @@
                                         }
                                         @if (row.Tier == EndpointTier.Managed)
                                         {
-                                            @if (row.OsPlatform == "windows")
+                                            @if (RemoteSessionRules.PlatformSupportsRemoteControl(row.OsPlatform))
                                             {
                                                 <MudMenuItem Icon="@Icons.Material.Outlined.ScreenShare" OnClick="@(() => RemoteWindow.OpenControlAsync(row.Id))">Remote control</MudMenuItem>
                                             }

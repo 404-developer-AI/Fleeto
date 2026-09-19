@@ -194,23 +194,53 @@ public sealed class RemoteSessionTokenTests
     }
 
     [Fact]
-    public async Task Remote_control_is_refused_for_the_watchdog_and_off_windows()
+    public async Task Remote_control_is_refused_for_the_watchdog_and_on_platforms_without_it()
     {
         var (endpoint, technicianId) = await ScopeAsync();
         var (_, wrongService) = await SignAsync(await CreateParticipantAsync(endpoint, technicianId, kind: RemoteSessionKind.RemoteControl,
             component: AgentComponent.Watchdog, windowsSessionId: 0));
         Assert.Equal(RemoteSessionTokenHandler.KindReason, wrongService.EndReason);
 
-        var (linux, linuxTechnician) = await ScopeAsync();
+        var (mac, macTechnician) = await ScopeAsync(agentVersion: RemoteSessionRules.MinimumLinuxAgentVersion);
         await using (var db = _fixture.Database.DbFactory.CreateSystem())
         {
-            await db.Endpoints.Where(e => e.Id == linux.Id).ExecuteUpdateAsync(s => s.SetProperty(e => e.OsPlatform, "linux"));
+            await db.Endpoints.Where(e => e.Id == mac.Id).ExecuteUpdateAsync(s => s.SetProperty(e => e.OsPlatform, "macos"));
         }
 
-        var (_, offWindows) = await SignAsync(await CreateParticipantAsync(linux, linuxTechnician, kind: RemoteSessionKind.RemoteControl,
+        var (_, unsupported) = await SignAsync(await CreateParticipantAsync(mac, macTechnician, kind: RemoteSessionKind.RemoteControl,
             component: AgentComponent.Agent, windowsSessionId: 0));
-        Assert.Equal(RemoteSessionTokenHandler.PlatformReason, offWindows.EndReason);
-        Assert.Null(offWindows.TokenSignature);
+        Assert.Equal(RemoteSessionTokenHandler.PlatformReason, unsupported.EndReason);
+        Assert.Null(unsupported.TokenSignature);
+    }
+
+    [Fact]
+    public async Task Remote_control_on_linux_needs_the_step_6_agent_and_shows_the_screen_only()
+    {
+        async Task<(Endpoint Endpoint, Guid TechnicianId)> LinuxAsync(string agentVersion)
+        {
+            var scope = await ScopeAsync(agentVersion: agentVersion);
+            await using var db = _fixture.Database.DbFactory.CreateSystem();
+            await db.Endpoints.Where(e => e.Id == scope.Endpoint.Id).ExecuteUpdateAsync(s => s.SetProperty(e => e.OsPlatform, "linux"));
+            return scope;
+        }
+
+        // An agent that serves remote control on Windows but not yet on Linux.
+        var (old, oldTechnician) = await LinuxAsync(RemoteSessionRules.MinimumAgentVersion);
+        var (_, tooOld) = await SignAsync(await CreateParticipantAsync(old, oldTechnician, kind: RemoteSessionKind.RemoteControl,
+            component: AgentComponent.Agent, windowsSessionId: 0));
+        Assert.Equal(RemoteSessionTokenHandler.AgentVersionReason, tooOld.EndReason);
+
+        var (linux, technician) = await LinuxAsync(RemoteSessionRules.MinimumLinuxAgentVersion);
+        var (_, otherSession) = await SignAsync(await CreateParticipantAsync(linux, technician, kind: RemoteSessionKind.RemoteControl,
+            component: AgentComponent.Agent, windowsSessionId: 3));
+        Assert.Equal(RemoteSessionTokenHandler.LinuxSessionReason, otherSession.EndReason);
+        Assert.Null(otherSession.TokenSignature);
+
+        var (request, screen) = await SignAsync(await CreateParticipantAsync(linux, technician, kind: RemoteSessionKind.RemoteControl,
+            component: AgentComponent.Agent, windowsSessionId: 0));
+        Assert.Equal(SigningRequestState.Completed, request.State);
+        Assert.Equal(RemoteParticipantState.Signed, screen.State);
+        Assert.NotNull(screen.TokenSignature);
     }
 
     [Fact]

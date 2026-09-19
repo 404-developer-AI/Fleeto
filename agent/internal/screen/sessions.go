@@ -70,7 +70,9 @@ type SessionsOptions struct {
 	// StagingRoot is where files pasted into a session are kept while it runs; "" where files cannot be pasted.
 	StagingRoot string
 	// Stage creates a folder for pasted files that only the system, administrators and the user of the Windows session can read.
-	Stage  func(dir string, session uint32) error
+	Stage func(dir string, session uint32) error
+	// Grant hands pasted files to the user of the session before they go on the clipboard (Linux); nil where Stage already did.
+	Grant  func(paths []string, session uint32) error
 	Logger *slog.Logger
 	Now    func() time.Time
 	// ConsoleCheck, LagAllowance, Tick and QueueSize override the defaults in tests.
@@ -422,8 +424,8 @@ func (h *hub) askConsent(first *Participant) {
 	case user == "":
 		// Nobody is there to ask (the sign-in screen): access at once (decided 2026-09-17).
 		granted, action = true, "consent.not_asked"
-		detail = "Nobody is signed in on the Windows session."
-		message = "Nobody is signed in on this Windows session, so no consent was asked."
+		detail = nobodySignedInText() + "."
+		message = nobodySignedInText() + ", so no consent was asked."
 	case h.s.opts.Consent == nil:
 		action, detail = "consent.failed", "The endpoint cannot ask for consent."
 		message = "This endpoint cannot ask for consent, and the policy requires it. The session was ended."
@@ -776,7 +778,7 @@ func (p *Participant) StagingBatch() (string, error) {
 	}
 	h.batches++
 	batch := filepath.Join(h.staging, strconv.Itoa(h.batches))
-	if err := os.Mkdir(batch, 0o700); err != nil {
+	if err := os.Mkdir(batch, batchMode); err != nil {
 		return "", fmt.Errorf("the endpoint could not prepare a folder for the files: %w", err)
 	}
 	return batch, nil
@@ -787,6 +789,11 @@ func (p *Participant) PlaceFiles(paths []string) error {
 	h := p.h
 	if !h.controller.Running() {
 		return errors.New("the screen of the endpoint is not shown; the files cannot be placed on its clipboard")
+	}
+	if h.s.opts.Grant != nil {
+		if err := h.s.opts.Grant(paths, h.controller.CurrentSession()); err != nil {
+			return fmt.Errorf("the files could not be given to the user of the endpoint: %w", err)
+		}
 	}
 	h.controller.Handle(h.ctx, jsonFrame(FramePlaceFiles, PlaceFilesBody{Paths: paths}))
 	return nil

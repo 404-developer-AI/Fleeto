@@ -63,6 +63,8 @@ var modifierScans = map[Modifier]Scan{
 	ModShift: scanCodes["ShiftLeft"],
 	ModCtrl:  scanCodes["ControlLeft"],
 	ModAlt:   scanCodes["AltLeft"],
+	// AltGr on an X11 layout (xkeys.go); a Windows layout never asks for it.
+	ModAltGr: scanCodes["AltRight"],
 }
 
 // Layout is the endpoint's active keyboard layout.
@@ -186,7 +188,7 @@ func (k *Keyboard) character(r rune, layout Layout) []Input {
 			}
 		}
 	}
-	for _, mod := range []Modifier{ModCtrl, ModAlt, ModShift} {
+	for _, mod := range []Modifier{ModCtrl, ModAlt, ModAltGr, ModShift} {
 		if need&mod != 0 && held&mod == 0 {
 			out = append(out, Input{Scan: modifierScans[mod]})
 		}
@@ -197,7 +199,7 @@ func (k *Keyboard) character(r rune, layout Layout) []Input {
 	} else {
 		out = append(out, Input{Unicode: r}, Input{Unicode: r, Up: true})
 	}
-	for _, mod := range []Modifier{ModShift, ModAlt, ModCtrl} {
+	for _, mod := range []Modifier{ModShift, ModAltGr, ModAlt, ModCtrl} {
 		if need&mod != 0 && held&mod == 0 {
 			out = append(out, Input{Scan: modifierScans[mod], Up: true})
 		}

@@ -93,6 +93,10 @@ export class Viewer {
     this.monitorSelect.style.display = "none";
 
     this.cadButton = button("Ctrl + Alt + Del", () => this.session.sendSecureAttention());
+    // Ctrl+Alt+Del is a Windows sign-in key; a Linux endpoint (0.3.0 step 6) has no use for it, so the button is not there.
+    if (this.session.hello?.platform === "linux") {
+      this.cadButton.style.display = "none";
+    }
     this.typeButton = button("Type clipboard", () => this.typeClipboard());
     this.fitButton = button("Actual size", () => this.toggleFit());
 
@@ -197,7 +201,7 @@ export class Viewer {
     this.statsLabel.textContent = parts.join(" · ");
     const title = [];
     if (this.stream.capture) {
-      title.push(this.stream.capture === "dxgi" ? "Captured with desktop duplication." : "Captured with GDI.");
+      title.push({ dxgi: "Captured with desktop duplication.", gdi: "Captured with GDI.", x11: "Captured from the X11 display." }[this.stream.capture] ?? "");
     }
     if (this.stream.legacy) {
       title.push("The agent on this endpoint sends tiles only. Update it to send H.264.");

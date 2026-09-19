@@ -16,20 +16,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const (
-	// captureInterval is the shortest time between two captures (at most 25 frames a second).
-	captureInterval = 40 * time.Millisecond
-	// idlePoll is how often the helper looks for a desktop switch while nothing is shown.
-	idlePoll = 250 * time.Millisecond
-	// ackTimeout is how long the helper waits for the browser to draw a frame before it sends the next one anyway, as a full frame.
-	ackTimeout = 10 * time.Second
-	// monitorRefresh is how often the monitor list is read again.
-	monitorRefresh = 2 * time.Second
-	// largeFrameBytes and slowAck switch to the lower JPEG quality.
-	largeFrameBytes = 400 * 1024
-	slowAck         = 300 * time.Millisecond
-)
-
 // RunHelper serves one remote control session from inside the Windows session: it reads browser frames from in and writes frames for
 // the browser to out, until in closes. It captures and injects on one locked OS thread, which follows the input desktop (sign-in screen,
 // UAC) as it changes. Run by "fleeto-agent remote-helper", started by Launch as SYSTEM in the chosen session.

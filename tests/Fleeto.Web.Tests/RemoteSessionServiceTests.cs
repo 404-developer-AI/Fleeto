@@ -221,7 +221,10 @@ public sealed class RemoteSessionServiceTests
     {
         var key = RandomNumberGenerator.GetBytes(32);
         var technician = WebFixtureBase.Technician();
-        Assert.Contains("Windows endpoints", (await Service.OpenControlAsync(technician, (await ControlEndpointAsync(platform: "linux")).Id, key, null, 0)).Problem);
+        Assert.Contains("Windows and Linux endpoints",
+            (await Service.OpenControlAsync(technician, (await ControlEndpointAsync(platform: "macos")).Id, key, null, 0)).Problem);
+        Assert.Contains("on Linux needs Fleeto " + RemoteSessionRules.MinimumLinuxAgentVersion,
+            (await Service.OpenControlAsync(technician, (await ControlEndpointAsync(platform: "linux")).Id, key, null, 0)).Problem);
         Assert.Contains("needs Fleeto 0.3.0", (await Service.OpenControlAsync(technician, (await ControlEndpointAsync("0.3.0-alpha.4")).Id, key, null, 0)).Problem);
         Assert.Contains("offline", (await Service.OpenControlAsync(technician, (await ControlEndpointAsync(online: false)).Id, key, null, 0)).Problem);
 
@@ -234,6 +237,22 @@ public sealed class RemoteSessionServiceTests
 
         await using var db = _fixture.Database.DbFactory.CreateSystem();
         Assert.False(await db.RemoteSessions.AnyAsync(s => s.EndpointId == endpoint.Id));
+    }
+
+    [Fact]
+    public async Task Remote_control_on_linux_shows_the_screen_only()
+    {
+        var endpoint = await ControlEndpointAsync(RemoteSessionRules.MinimumLinuxAgentVersion, platform: "linux");
+        var target = await Service.GetControlTargetAsync(WebFixtureBase.Technician(), endpoint.Id);
+        Assert.NotNull(target);
+        Assert.Null(target.Problem);
+        Assert.Equal("linux", target.OsPlatform);
+        var only = Assert.Single(target.Sessions);
+        Assert.Equal(RemoteSessionRules.ConsoleWindowsSession, only.Id);
+
+        // A signed-in user's session is not a choice on Linux, even when the agent reported one.
+        Assert.Contains("screen of the endpoint only",
+            (await Service.OpenControlAsync(WebFixtureBase.Technician(), endpoint.Id, RandomNumberGenerator.GetBytes(32), null, 3)).Problem);
     }
 
     [Fact]

@@ -14,6 +14,11 @@ public static class RemoteSessionRules
     /// </summary>
     public const string MinimumAgentVersion = "0.3.0-alpha.7";
 
+    /// <summary>
+    /// The first agent that serves remote control on Linux (0.3.0 step 6, X11): an older Linux agent refuses every remote control session.
+    /// </summary>
+    public const string MinimumLinuxAgentVersion = "0.3.0-alpha.16";
+
     /// <summary>The Windows session id that stands for the console session: whichever session is attached to the screen.</summary>
     public const int ConsoleWindowsSession = 0;
 
@@ -68,9 +73,27 @@ public static class RemoteSessionRules
     public static bool WatchdogSupportsRemoteBackground(string? watchdogVersion) =>
         SemanticVersion.TryParse(watchdogVersion, out _) && !SemanticVersion.IsOlder(watchdogVersion, MinimumWatchdogVersion);
 
-    /// <summary>True when the agent version serves remote control sessions.</summary>
+    /// <summary>True when the agent version serves remote control sessions on Windows.</summary>
     public static bool AgentSupportsRemoteControl(string? agentVersion) =>
         SemanticVersion.TryParse(agentVersion, out _) && !SemanticVersion.IsOlder(agentVersion, MinimumAgentVersion);
+
+    /// <summary>True when the platform has remote control: Windows, and Linux with X11 (0.3.0 step 6).</summary>
+    public static bool PlatformSupportsRemoteControl(string? osPlatform) => osPlatform is "windows" or "linux";
+
+    /// <summary>The first agent version that serves remote control on a platform.</summary>
+    public static string MinimumControlAgentVersion(string? osPlatform) => osPlatform == "linux" ? MinimumLinuxAgentVersion : MinimumAgentVersion;
+
+    /// <summary>True when the agent version serves remote control sessions on its platform.</summary>
+    public static bool AgentSupportsRemoteControl(string? agentVersion, string? osPlatform) =>
+        PlatformSupportsRemoteControl(osPlatform) && SemanticVersion.TryParse(agentVersion, out _) &&
+        !SemanticVersion.IsOlder(agentVersion, MinimumControlAgentVersion(osPlatform));
+
+    /// <summary>
+    /// The sessions a remote control session can show on a platform: on Linux only the console, the screen of the endpoint (decided
+    /// 2026-09-19); on Windows the console and the remote sessions of signed-in users.
+    /// </summary>
+    public static IReadOnlyList<RemoteWindowsSession> ControlSessions(string? osPlatform, IReadOnlyList<SignedInUserInfo> users) =>
+        osPlatform == "linux" ? [new RemoteWindowsSession(ConsoleWindowsSession, "Screen", null)] : WindowsSessions(users);
 
     /// <summary>
     /// The Windows sessions a remote control session can show: the console first, then every remote session of a signed-in user as the

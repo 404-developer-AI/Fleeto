@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"crypto/tls"
-	"path/filepath"
 	"runtime"
 	"time"
 
@@ -19,12 +18,8 @@ import (
 )
 
 // Remote control sessions (0.3.0 step 3) are served by the agent, because showing and using the screen needs the agent's helper in the
-// Windows session; remote background stays with the watchdog. Same token, relay and encryption as remote background (internal/remote).
+// Windows session, or on the X11 display of a Linux endpoint (step 6); remote background stays with the watchdog. Same token, relay and encryption as remote background (internal/remote).
 // Several technicians in one session share one helper (0.3.0 step 4, internal/screen.Sessions).
-
-// remoteClipboardDir is the folder under the Fleeto data directory where files pasted into remote control sessions wait while their
-// session runs.
-const remoteClipboardDir = "RemoteClipboard"
 
 // newRemoteServer prepares the remote control server of the agent. Where the platform does not serve remote control, the server
 // refuses every offer with the reason.
@@ -65,20 +60,20 @@ func (a *Agent) newRemoteServer() *remote.Server {
 	if screen.Supported() {
 		launch := a.opts.ScreenLauncher
 		if launch == nil {
-			launch = screen.WindowsLauncher(a.logger)
+			launch = screen.DefaultLauncher(a.logger)
 		}
 		clipboard := a.opts.ClipboardLauncher
 		if clipboard == nil {
-			clipboard = screen.UserLauncher(a.logger)
+			clipboard = screen.DefaultClipboardLauncher(a.logger)
 		}
-		staging := filepath.Join(platform.DataDir(), remoteClipboardDir)
+		staging := screen.StagingRoot(platform.DataDir())
 		if err := screen.CleanStaging(staging); err != nil {
 			a.logger.Warn("could not delete files left from earlier remote control sessions", "folder", staging, "error", err)
 		}
 		sessions := screen.NewSessions(screen.SessionsOptions{
 			Launch: launch, ClipboardLaunch: clipboard, ConsoleSession: screen.ConsoleSession, SessionExists: screen.SessionExists,
 			SecureAttention: screen.SecureAttention, SessionUser: screen.SessionUser,
-			Consent: screen.AskConsent, StagingRoot: staging, Stage: screen.StageFolder, Logger: a.logger, Now: a.opts.Now,
+			Consent: screen.AskConsent, StagingRoot: staging, Stage: screen.StageFolder, Grant: screen.GrantFiles, Logger: a.logger, Now: a.opts.Now,
 		})
 		server.Screen = func(peer remote.ScreenPeer) remote.ScreenHandler {
 			token := peer.Token

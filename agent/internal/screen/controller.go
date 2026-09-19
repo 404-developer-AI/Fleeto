@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -185,13 +186,13 @@ func (c *Controller) ensureClipboard(ctx context.Context) (Helper, error) {
 	session := c.sessionLocked()
 	c.mu.Unlock()
 	if session == 0 || session == 0xFFFFFFFF {
-		return nil, errors.New("No Windows session is attached to the console right now, so its clipboard cannot be used.")
+		return nil, errors.New(strings.TrimSuffix(noConsoleText(), ".") + ", so its clipboard cannot be used.")
 	}
 
 	helper, err := launch(ctx, c.opts.ClipboardLaunch, session)
 	if err != nil {
 		c.opts.Logger.Info("could not start the clipboard of the Windows session", "session", session, "error", err)
-		return nil, errors.New("The clipboard of Windows session " + itoa(session) + " cannot be used: " + err.Error())
+		return nil, errors.New("The clipboard of " + shownName(session) + " cannot be used: " + err.Error())
 	}
 	c.mu.Lock()
 	if c.closed {
@@ -293,13 +294,13 @@ func (c *Controller) startLocked(ctx context.Context) error {
 	if session == 0 {
 		session = c.opts.ConsoleSession()
 		if session == 0 || session == 0xFFFFFFFF {
-			return errors.New("No Windows session is attached to the console right now. Try again in a moment.")
+			return errors.New(noConsoleText() + " Try again in a moment.")
 		}
 	}
 	helper, err := launch(ctx, c.opts.Launch, session)
 	if err != nil {
 		c.opts.Logger.Warn("could not start the remote control helper", "session", session, "error", err)
-		return errors.New("The endpoint could not show Windows session " + itoa(session) + ": " + err.Error())
+		return errors.New("The endpoint could not show " + shownName(session) + ": " + err.Error())
 	}
 	c.helper = helper
 	c.current = session
@@ -422,7 +423,7 @@ func (c *Controller) watchConsole(ctx context.Context) {
 			c.notice(err.Error())
 			continue
 		}
-		c.notice("The console switched to Windows session " + itoa(now) + ".")
+		c.notice(consoleSwitchedText(now))
 		replay(helper, start, banner)
 		// The clipboard of the session that was left behind is not this session's any more.
 		c.closeClipboard()

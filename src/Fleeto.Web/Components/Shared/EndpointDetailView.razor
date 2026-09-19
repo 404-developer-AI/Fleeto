@@ -41,7 +41,7 @@
                 <div class="endpoint-detail-actions">
                     @if (CanManage && e.Tier == EndpointTier.Managed)
                     {
-                        @if (e.OsPlatform == "windows")
+                        @if (RemoteSessionRules.PlatformSupportsRemoteControl(e.OsPlatform))
                         {
                             <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.ScreenShare" OnClick="@(() => RemoteWindow.OpenControlAsync(e.Id))">
                                 Remote control

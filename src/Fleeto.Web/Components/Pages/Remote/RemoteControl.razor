@@ -11,7 +11,8 @@
 
 @* Remote control (0.3.0 step 3): the screen of a Windows endpoint, served by the agent in the chosen Windows session, end-to-end encrypted
    between this window and the endpoint. The session runs in the browser (remote-control.js); this component asks for the signed token,
-   shows the state and lets the technician choose the Windows session before it starts. *@
+   shows the state and lets the technician choose the Windows session before it starts. Step 6 adds Linux endpoints with X11, which show the
+   screen of the endpoint only. *@
 <PageTitle>@(_target is null ? "Remote control" : $"{_target.Hostname} - Remote control") - Fleeto</PageTitle>
 
 <div class="remote-header">
@@ -69,19 +70,29 @@
                     Take over the screen of @target.Hostname. Everything in this window is encrypted between this browser and the endpoint; the
                     gateway only passes it on. The session is recorded in the audit log@(target.Class == EndpointClass.Workstation ? ", and the person at the endpoint may be shown a banner and asked for consent by policy" : "").
                 </MudText>
-                <MudSelect T="int" @bind-Value="_windowsSession" Label="Windows session" Variant="Variant.Outlined" Class="mb-1">
-                    @foreach (var session in target.Sessions)
-                    {
-                        <MudSelectItem T="int" Value="@session.Id">@session.Label</MudSelectItem>
-                    }
-                </MudSelect>
-                <MudText Typo="Typo.caption" Class="mb-3 d-block mud-text-secondary">
-                    The console shows the sign-in screen and UAC. @(target.SessionsReportedAt is { } at ? $"Signed-in users as reported {Time.Relative(at)}." : "No signed-in users reported yet.")
-                </MudText>
+                @if (target.OsPlatform == "linux")
+                {
+                    @* Linux shows the screen of the endpoint only (0.3.0 step 6, decided 2026-09-19). *@
+                    <MudText Typo="Typo.caption" Class="mb-3 d-block mud-text-secondary">
+                        Shows the X11 desktop on the screen of the endpoint, or its sign-in screen when that runs on X11. A Wayland session cannot be shown; remote background works there.
+                    </MudText>
+                }
+                else
+                {
+                    <MudSelect T="int" @bind-Value="_windowsSession" Label="Windows session" Variant="Variant.Outlined" Class="mb-1">
+                        @foreach (var session in target.Sessions)
+                        {
+                            <MudSelectItem T="int" Value="@session.Id">@session.Label</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudText Typo="Typo.caption" Class="mb-3 d-block mud-text-secondary">
+                        The console shows the sign-in screen and UAC. @(target.SessionsReportedAt is { } at ? $"Signed-in users as reported {Time.Relative(at)}." : "No signed-in users reported yet.")
+                    </MudText>
+                }
                 @if (RunningOnChosen is { } running)
                 {
                     <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
-                        @Ui.JoinList(running.Technicians) @(running.Technicians.Count == 1 ? "is" : "are") in a remote control session on this Windows session.
+                        @Ui.JoinList(running.Technicians) @(running.Technicians.Count == 1 ? "is" : "are") in a remote control session on @(target.OsPlatform == "linux" ? "this screen" : "this Windows session").
                         Joining shares their screen, monitor choice and input; each of you sees the others' pointers.
                     </MudAlert>
                 }

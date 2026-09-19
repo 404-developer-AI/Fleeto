@@ -5,8 +5,8 @@
 > Status: 0.0.x to 0.2.2 released (agent enrollment, gateway, signer, workers, web UI, licensing, backups, maintenance,
 > the check catalog and history, notification routing, scripts and jobs, the read-only public API, agent updates, the
 > watchdog, the Linux agent); 0.3.0 in progress (remote sessions: the relay, end-to-end encryption, the full remote
-> background — terminal, files, services, processes — and remote control on Windows with the clipboard, several technicians,
-> consent and banner implemented; H.264 and Linux X11 are design). Integrations are design.
+> background — terminal, files, services, processes — and remote control on Windows (H.264 and tiles) and on Linux with X11, with the
+> clipboard, several technicians, consent and banner implemented). Integrations are design.
 > Sections marked *decision pending* point to the open decisions in `CLAUDE.md`.
 
 ## 1. Deployment topology
@@ -307,7 +307,8 @@ Three kinds of tables:
   session that captures the desktop (DXGI desktop duplication, GDI where that is not available), encodes it as H.264 or as changed
   tiles (step 5) and injects input, and the agent relays its frames over the same encrypted session as remote background. From step 4 the helper also shows the banner, several technicians share one
   session and helper, the agent service asks for consent and stages pasted files, and the clipboard of the session is served by a second
-  process that runs as the user signed in on it (`fleeto-agent remote-clipboard`).
+  process that runs as the user signed in on it (`fleeto-agent remote-clipboard`). Step 6 does the same on Linux with X11: the helper,
+  the clipboard process and a consent process (`fleeto-agent remote-consent`) on the display of the console.
   Details in §4, Remote control.
 - Reconnect with exponential backoff plus jitter.
 - Wire format: protobuf over the WebSocket, one message per binary WebSocket frame (the frame is
@@ -801,6 +802,42 @@ any session, including the console with the sign-in screen and UAC.
 - **Reconnect** (decided 2026-09-17): a dropped session opens a **new** session in the same window with the same reason and Windows
   session, up to three tries; the audit log then shows two sessions. Resuming the same session is not done, because the token is
   single use and a session ends the moment nobody is connected.
+
+**Remote control on Linux (0.3.0 step 6, X11, decided 2026-09-19).** The same session, hub, frames, tiles, keyboard plan, clipboard and
+consent as on Windows; only the platform layer differs. The X11 protocol is spoken in pure Go with `github.com/jezek/xgb` (the agent
+is built without cgo). Remote control on Linux needs agent 0.3.0-alpha.16 or later; web and the signer refuse an older one.
+
+- **Only the console** is shown: the active session of seat0 (`loginctl show-seat seat0`), including the sign-in screen when it runs
+  on X11 (LightDM, SDDM). Web offers no session choice for Linux, and the signer refuses any other session number. A Wayland session
+  (and the GDM sign-in screen, which is Wayland) cannot be shown: the technician is told so in the window, and remote background
+  works. A text console gets the same kind of message.
+- **The display and its cookie**: the agent (root) finds the X server of that session in `/proc` (its display, `-auth` file and VT),
+  and reads the display's MIT-MAGIC-COOKIE-1 from the server's own authority file, else from the session's `XAUTHORITY`, the user's
+  `~/.Xauthority` or GDM's file. Some of those paths come from the user, so a file is read only when it is a regular file, opened
+  without blocking, and at most 1 MiB; only a 16-byte cookie is taken from it.
+- **Children drop root before they talk to X.** The agent starts `fleeto-agent remote-helper`, `remote-clipboard` and
+  `remote-consent` as root with pipes, and gives each its display, cookie and account in the first pipe frame (`FrameX11`), never in
+  its environment or command line. Each switches the whole process to its account before it connects: the helper to **nobody**, the
+  clipboard and the consent prompt to the **user of the session**. A child that would stay root refuses to run. Children end when
+  their input closes (the agent stopped), without a parent-death signal, which Go ties to a thread.
+- **Screen**: `GetImage` of the root window (24-bit TrueColor, 32 bits a pixel, the format every PC X server gives; anything else is
+  refused with the reason), the cursor from XFIXES blended in, monitors from RandR 1.5 (the whole screen without it), tiles as on
+  Windows. H.264 is Windows only for now.
+- **Input** through XTEST. The keyboard plan of keys.go is shared: a character is typed with the keycode and level (plain, Shift,
+  AltGr as ISO_Level3_Shift, both) the X keyboard mapping has for it in the active XKB group; a physical key is its evdev code plus
+  8. A character no key has is typed through a spare keycode mapped to its keysym for the moment and given back when the helper
+  stops. Wheel notches are buttons 4 to 7. Ctrl+Alt+Del does not exist on Linux: the button is not shown.
+- **Banner**: an override-redirect window at the top of the primary monitor in the brand's teal with white text (a core font, so
+  nothing has to be installed), with an empty input shape so clicks pass through, raised every 2 seconds.
+- **Consent**: a window in the middle of the primary monitor, as the user of the session, with Allow and Deny and the seconds left;
+  Deny is the default (Enter and Escape refuse), and the keyboard is grabbed while it shows. No answer grants access (as on Windows).
+  Nobody signed in (the sign-in screen) grants access at once.
+- **Clipboard**: the CLIPBOARD selection, watched with XFIXES. Copied files are read as `x-special/gnome-copied-files` or
+  `text/uri-list` (local `file://` paths only), text as `UTF8_STRING` or `STRING`; only what is copied during the session is offered.
+  Text from the technician and pasted files are offered by owning the selection (`UTF8_STRING`, `STRING`, `TEXT`,
+  `text/plain;charset=utf-8`, and for files `text/uri-list` and `x-special/gnome-copied-files` as a copy). Data over 64 KiB travels in
+  INCR pieces both ways. Pasted files wait in `/run/fleeto-remote-clipboard` (memory; root-owned folders that others may pass through
+  but not list or write), and are handed to the user of the session (owner, mode 0600) when they go on the clipboard.
 
 **Several technicians (0.3.0 step 4, decided 2026-09-17).** Each technician gets their own participant, token and key exchange with
 the endpoint; there is at most one remote control session per Windows session. When web opens remote control on a Windows session where

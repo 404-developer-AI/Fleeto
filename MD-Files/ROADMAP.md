@@ -33,7 +33,7 @@ processes) are built and verified on Windows and Linux endpoints (`v0.3.0-alpha.
 screen, mouse and keyboard) is built and verified on a Windows endpoint (`v0.3.0-alpha.6`). Step 4 (clipboard, several technicians,
 consent and banner) is built and verified on a Windows endpoint (`v0.3.0-alpha.14`, 2026-09-18), after `v0.3.0-alpha.8` to `alpha.13` fixed
 what the first live tests found, the clipboard above all. Step 5 (H.264 on Windows, with DXGI desktop duplication) is built
-(`v0.3.0-alpha.15`).
+(`v0.3.0-alpha.15`). Step 6 (remote control on Linux with X11) is built (`v0.3.0-alpha.16`).
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
 2026-09-15, see Later).
@@ -501,8 +501,21 @@ Steps:
    - **Latency** is measured per frame in the window: capture and encoding on the endpoint, half the round trip and the transfer, and
      decoding, shown as "about N ms" next to the codec, frames a second and bit rate. The endpoint part measured 10–25 ms for a
      1080p screen on the development laptop; the total on a LAN is checked on a test endpoint.
-6. **Linux X11**: capture, XTEST input with keysym mapping, X selections for the clipboard, banner and consent
+6. [done] **Linux X11** (alpha.16): capture, XTEST input with keysym mapping, X selections for the clipboard, banner and consent
    window on workstations, the Wayland message.
+   Decided while building (2026-09-19, with the developer):
+   - The X11 protocol is spoken with **`github.com/jezek/xgb`** (pure Go, BSD-3, generated from the X protocol descriptions), since the
+     agent is built without cgo; one new dependency, checked by govulncheck.
+   - **Only the console** is shown (the active session of seat0, the sign-in screen included when it runs on X11), like the console on
+     Windows. Remote X sessions (xrdp, X2Go) are not offered.
+   - **Tested with unit tests** on the development machine, which has no Linux; the developer tests the alpha on a Linux desktop with
+     X11. None of the X11 code has run against a real X server before that test.
+   - The helper runs as **nobody**, the clipboard and consent processes as the **user of the session**; all three start as root, get
+     the display cookie over their pipe and drop root before they open the display.
+   - Pasted files wait in **`/run/fleeto-remote-clipboard`** instead of the agent's data directory, so no folder on the way is closed to
+     the user of the session.
+   - Only what is copied **during** the session is offered to the technician, as on Windows.
+   - H.264 stays Windows only; Linux sends tiles.
 7. **Release 0.3.0**: concurrent sessions through the gateway under load, security review of the new code, API waiting list,
    changelog, tag `v0.3.0`.
 

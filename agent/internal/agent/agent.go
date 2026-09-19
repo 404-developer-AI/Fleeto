@@ -70,10 +70,10 @@ type Options struct {
 	// Watchdog makes the agent install, supervise and update the watchdog (0.2.1). Nil in foreground development mode.
 	Watchdog *WatchdogOptions
 
-	// ScreenLauncher starts the remote control helper (0.3.0); default screen.WindowsLauncher on Windows. Tests replace it.
+	// ScreenLauncher starts the remote control helper (0.3.0); default screen.DefaultLauncher. Tests replace it.
 	ScreenLauncher screen.Launcher
 	// ClipboardLauncher starts the process that serves the clipboard of a Windows session as its signed-in user (0.3.0 step 4);
-	// default screen.UserLauncher on Windows. Tests replace it.
+	// default screen.DefaultClipboardLauncher. Tests replace it.
 	ClipboardLauncher screen.Launcher
 }
 
