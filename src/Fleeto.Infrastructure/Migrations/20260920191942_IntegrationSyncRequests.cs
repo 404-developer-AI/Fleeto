@@ -5,7 +5,11 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace Fleeto.Infrastructure.Migrations
 {
-    /// <inheritdoc />
+    /// <summary>
+    /// What web asks the workers to do with an integration, and what they read back (0.4.0 step 1), additive. Web has no
+    /// outbound access, so a connection test is a request on the row (<c>SyncRequestedAt</c>) that the workers run; the
+    /// tenants they read are stored with the time they were read, and web shows those.
+    /// </summary>
     public partial class IntegrationSyncRequests : Migration
     {
         /// <inheritdoc />
