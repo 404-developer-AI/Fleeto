@@ -27,13 +27,13 @@ notes moved to "Not yet scheduled" (decided 2026-09-15).
 safe restore when an update fails, with WAL archiving removed (all found while testing 0.2.1). Pre-releases `v0.2.2-alpha.1` and
 `v0.2.2-alpha.2` (2026-09-16) on the first test VPS.
 
-**0.3.0** — in progress (started 2026-09-16): remote control and remote background, planned with the developer on 2026-09-16 in
-seven steps. Steps 1 and 2 (the relay, end-to-end encryption and the complete remote background: terminal, files, services and
-processes) are built and verified on Windows and Linux endpoints (`v0.3.0-alpha.4`, 2026-09-17). Step 3 (remote control on Windows:
-screen, mouse and keyboard) is built and verified on a Windows endpoint (`v0.3.0-alpha.6`). Step 4 (clipboard, several technicians,
-consent and banner) is built and verified on a Windows endpoint (`v0.3.0-alpha.14`, 2026-09-18), after `v0.3.0-alpha.8` to `alpha.13` fixed
-what the first live tests found, the clipboard above all. Step 5 (H.264 on Windows, with DXGI desktop duplication) is built
-(`v0.3.0-alpha.15`). Step 6 (remote control on Linux with X11) is built (`v0.3.0-alpha.16`).
+**0.3.0** — released 2026-09-20 (`v0.3.0`): remote control and remote background, planned with the developer on 2026-09-16 and
+built in seven steps between 2026-09-16 and 2026-09-20. Steps 1 and 2 (the relay, end-to-end encryption and the complete remote
+background: terminal, files, services and processes, `v0.3.0-alpha.4`), step 3 (remote control on Windows: screen, mouse and
+keyboard, `v0.3.0-alpha.6`), step 4 (clipboard, several technicians, consent and banner, `v0.3.0-alpha.14`, after
+`v0.3.0-alpha.8` to `alpha.13` fixed what the first live tests found, the clipboard above all), step 5 (H.264 on Windows with
+DXGI desktop duplication, `v0.3.0-alpha.15`), step 6 (remote control on Linux with X11, `v0.3.0-alpha.16`) and step 7 (load test,
+security review and their fixes, `v0.3.0-alpha.17`) were each verified on Windows and Linux endpoints before the release.
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
 2026-09-15, see Later).
@@ -516,9 +516,8 @@ Steps:
      the user of the session.
    - Only what is copied **during** the session is offered to the technician, as on Windows.
    - H.264 stays Windows only; Linux sends tiles.
-7. **Release 0.3.0**: concurrent sessions through the gateway under load, security review of the new code, API waiting list,
-   changelog, tag `v0.3.0`.
-   Done so far (2026-09-19):
+7. [done] **Release 0.3.0** (alpha.17, released as `v0.3.0` on 2026-09-20): concurrent sessions through the gateway under load,
+   security review of the new code, API waiting list, changelog, tag `v0.3.0`.
    - **Load**: 200 sessions over 25 endpoints (8 per endpoint) through one relay with screen traffic run in CI; 800 sessions ran on the
      development laptop at 248 MiB/s with a round trip of 360 ms at the 99th percentile. Two faults found and fixed: sessions that arrived
      together could exceed the limit per endpoint, and the connection pools of the containers together asked PostgreSQL for more
@@ -527,8 +526,8 @@ Steps:
      findings, all fixed with tests: the signing bindings (see ARCHITECTURE §5), the watchdog certificate, the upload part file and the
      staging folder on Windows. About ten medium and fifteen low findings were fixed as well.
    - **API waiting list** checked: 0.3.0 was already on it; `terminal.open` and the Linux session value were added.
-   - Still open: the endpoint tests of alpha.15 (H.264), alpha.16 (Linux) and alpha.17 (these fixes), then the changelog for the release
-     and the tag `v0.3.0`.
+   - **Endpoint tests** (2026-09-20, by the developer): H.264 on Windows, remote control on Linux with X11 and the fixes of alpha.17
+     all work on real endpoints. The changelog was then written for the release and the version tagged `v0.3.0`.
 
 ## 0.4.0 — Patch management via Action1
 

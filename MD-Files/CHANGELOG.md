@@ -7,144 +7,143 @@ This file holds the `Unreleased` section and the **two most recent released vers
 When a third released version is added, the oldest entry moves to the top of
 `CHANGELOG-ARCHIVE.md` in the same commit.
 
-## [Unreleased]
+## [0.3.0] — 2026-09-20
 
-### Security
-
-- 0.3.0: What the signer signs can no longer be changed after it was requested. Database triggers keep the binding columns of jobs, remote
-  sessions and their participants as they were written, and web records what it asked for in the signing request, which the signer compares
-  with the rows. A compromised gateway could otherwise have pointed a job or a session at another endpoint, or put its own key in a remote
-  session token and taken over the session.
-- 0.3.0: A watchdog certificate is issued only when the agent signed the request with the key of its own certificate. A compromised gateway
-  could otherwise have obtained a watchdog identity and played the endpoint in a remote session. Agents older than 0.3.0-alpha.17 get no new
-  watchdog certificate; existing watchdog certificates keep working and renew as before.
-- 0.3.0: The gateway can no longer change the tier, client, site or class of an endpoint.
-- 0.3.0: An upload in a remote session no longer follows a link with the name of its temporary file, and refuses a folder that is a link, so
-  a user of the endpoint cannot make the agent overwrite a file of their choice. An upload that did not arrive whole never replaces the file.
-- 0.3.0: Files pasted into a remote control session wait in folders that are created with their access list in one step, below a base folder
-  owned by administrators (Windows) or in /run (Linux), so nobody can put a link in their place.
-- 0.3.0: A file copied on the endpoint is opened with the rights of the user who copied it, so the person at the endpoint cannot have a
-  technician download a file they may not read themselves. The clipboard process of that user can only send clipboard frames.
-- 0.3.0: Text copied on the endpoint goes on the technician's own clipboard by itself only right after they copied in the remote control
-  window; otherwise the window offers it with a button. Someone at the endpoint can no longer put text on a technician's clipboard unasked.
-- 0.3.0: Remote sessions that arrive at the same moment can no longer exceed the limit of sessions per endpoint.
-- 0.3.0: One technician can request at most 20 remote sessions a minute, so the instance's signing budget stays available to everyone.
-- 0.3.0 (Linux): the agent accepts only an X server of root or of the user of the screen, and its children check that the display socket
-  belongs to it. Files of a session (its cookie, a copied file) are read with the rights of that user, never as root. Consent is asked when
-  the screen is locked, and a session state that cannot be read counts as somebody being there.
-- 0.2.1: `systemctl` is called with `--` before the unit, and a service name may not start with a dash.
-
-### Fixed
-
-- 0.3.0: Remote sessions no longer stay "in a session" when the gateway claimed a participant and never paired it; the workers end those
-  after five minutes, and every failure after the claim ends the participant.
-- 0.3.0: A remote session token is no longer accepted in the seconds after it expired (the check now uses the time the token arrived).
-- 0.3.0: Typing a long text on a Linux endpoint no longer stalls the helper, and input that a terminal does not read no longer blocks the
-  session (with it, its idle timeout and its end).
-- 0.3.0: One session serves at most 16 requests and 16 transfers at a time, so a browser cannot fill the endpoint's memory or its handles.
-- 0.3.0: A folder can no longer be copied into one of its own folders without end, and a video frame or a screen size that cannot be real is
-  refused instead of filling the browser's memory.
-- The connection pools of the containers fit the database of an instance (gateway 40, web 30, workers 15, signer 5): under load they used to
-  ask PostgreSQL for more connections than it accepts, and a remote session then failed with "too many clients".
+Remote control and remote background: taking over the screen of a Windows or Linux endpoint, and a terminal, files, services and
+processes without touching it, all end-to-end encrypted between the browser and the endpoint. Built in seven steps between
+2026-09-16 and 2026-09-20. The pre-releases `0.3.0-alpha.1` to `0.3.0-alpha.17` were test builds on the first test VPS and on real
+Windows and Linux endpoints; what they found is in Fixed. The last step load-tested the relay (200 sessions through one gateway in
+CI, 800 on the development laptop) and reviewed every line of the new code; what that found is in Security.
 
 ### Added
 
-- 0.3.0: Remote control on Linux endpoints with X11: the screen of the console (the sign-in screen too when it runs on X11), mouse and
-  keyboard with the endpoint's own layout, the clipboard with text and files, the banner and the consent prompt on workstations, and
-  several technicians in one session. A Wayland session cannot be shown; the window says so, and remote background works. The agent's
-  processes on the display run as nobody or as the user of the session, never as root. Needs agent 0.3.0-alpha.16 or later.
-
-- 0.3.0: Remote control on Windows sends the screen as H.264 where the endpoint can encode it (Media Foundation: the GPU's hardware
-  encoder, else the Microsoft encoder in Windows) and every technician's browser decodes it (WebCodecs). The bit rate follows the link,
-  and the tiles remain the automatic fallback: on an endpoint without Media Foundation, an encoder that fails, a browser without H.264
-  or a browser whose decoder fails. The window shows the codec, frames a second, bit rate and an estimate of the latency.
-- 0.3.0: Remote control captures a whole monitor with DXGI desktop duplication, which is many times faster than GDI on a large screen;
-  GDI stays for all monitors together, rotated monitors, RDP sessions and wherever duplication is not available.
-- 0.3.0: The remote control window explains the two clipboard steps the first times a technician uses them: pasting files says they travel
-  to the endpoint first and are pasted there with Ctrl+V once they arrive, and files copied on the endpoint say they cannot go on the
-  technician's own clipboard and are saved with the download button. Each explanation has "Got it" and "Do not show this again"; the choice
-  is remembered in that browser.
-
-### Fixed
-
-- 0.3.0: The clipboard of a remote control session is served by a process that runs as the user signed in on the Windows session, so text
-  and files travel both ways again. The clipboard of a session belongs to that user: Windows Explorer hands its copied files out through
-  OLE, and the agent, which runs as SYSTEM, could neither read what was copied there nor replace it — a file copied on the endpoint was
-  never offered for download, and text from the technician never arrived. The screen, mouse and keyboard stay with the helper that runs as
-  SYSTEM, because those need the sign-in screen and UAC. Without a signed-in user the window says the clipboard needs one.
-- 0.3.0: A file copied on the endpoint is offered for download when the program that copied it puts the files on the clipboard through
-  OLE, which Windows Explorer does: the clipboard then holds a marker only and the files are made when they are asked for. The endpoint
-  now asks the clipboard's data object, the way an ordinary application does, when the plain clipboard holds nothing.
-- 0.3.0: A file copied on the endpoint is offered for download even when Windows reports only the first step of the copy. A program
-  copying files empties the clipboard first and puts the files on it in a second step; the endpoint now looks again after a change that
-  held nothing. When the endpoint copies files that are not on disk (a compressed folder, a cloud folder), the window says so instead of
-  staying empty, and points at Files in a remote background session.
-- 0.3.0: Files a technician pasted into a remote control session are no longer offered back to them as files copied on the endpoint.
-  They stay on the endpoint clipboard, so after the helper of the session started again — its window no longer owning the clipboard —
-  the last pasted file appeared as a download instead of what was copied on the endpoint.
-- 0.3.0: Files copied on the endpoint are offered to the technician even when Windows does not report the change: the endpoint now also
-  checks its clipboard every second. The check ran only while the banner was shown, so on a server (which never shows a banner) a copy
-  on the endpoint could go unnoticed.
-- 0.3.0: A remote control session whose Windows session ends (the user signs out) no longer starts the helper again in a session that is
-  gone: the technician is told the session ended, and a console that moves to another session no longer counts as a helper that keeps
-  failing.
-- 0.3.0: Pasting files into a remote control window a second time pasted them on the endpoint instead of sending them again. While the
-  technician's own clipboard held the files, every Ctrl+V uploaded them once more and the shortcut never reached the endpoint, so
-  nothing appeared in the folder there.
-- 0.3.0: A failure in the banner and clipboard window of the endpoint can no longer stop the helper that shows the screen, and the
-  endpoint says so at once when it cannot start the banner and clipboard of its Windows session. The agent log now names why the
-  helper stopped and what the endpoint clipboard holds (counts only, never its content).
-
-### Added
-
-- 0.3.0: Remote control clipboard. Text copied on either side is available on the other: text copied on the endpoint is put on the
-  technician's clipboard, and the technician's clipboard goes to the endpoint when they paste (Ctrl+V or Shift+Insert) in the window.
-  Files pasted or dragged into the window are placed on the endpoint clipboard, like RDP, and pasted there with Ctrl+V; they wait in a
-  folder only the signed-in user of the endpoint can read and are deleted when the session ends. Files copied on the endpoint are
-  offered for download in the window (folders are not). Transfers follow the policy's file size cap and are audited as
-  `clipboard.upload` and `clipboard.download`. The policy switch "Synchronise the clipboard in remote control" turns it off.
-- 0.3.0: Several technicians in one remote control session. Opening Remote control on a Windows session where a session already runs
-  joins it: one screen, one monitor choice, input from each technician, every join with its own token, key exchange and audit entry.
-  The window lists the technicians and shows where the others point. A technician whose connection cannot keep up is disconnected so
-  the others keep their screen.
-- 0.3.0: Consent prompt and banner for remote control on workstations, per policy. With "Ask the signed-in user before remote control
-  on workstations" on, the first technician of a session waits until the user signed in on the shown Windows session allows it; a
-  refusal ends the session, no answer within the consent timeout (10 to 300 seconds, default 30) grants access, and with nobody signed
-  in access is granted at once. Technicians who join later are not asked again. The banner at the top of the endpoint's screen names
-  every technician in the session (on by default). Servers never ask and show no banner. The answer is audited (`consent.granted`,
-  `consent.refused`, `consent.timeout`, `consent.not_asked`, `consent.failed`).
-- 0.3.0: The policy dialog shows every remote session setting: idle timeout, file size cap, clipboard, banner, consent prompt and its
-  timeout.
-- 0.3.0: Remote control of a Windows endpoint: take over its screen from the right-click menu or the endpoint detail, in its own
+- Remote control of a Windows endpoint: take over its screen from the right-click menu or the endpoint detail, in its own
   window. Choose the Windows session first — the console (with the sign-in screen and UAC) or a signed-in RDP session — and, once
   connected, the monitor. The screen is shown with change detection (sharp text), the mouse and keyboard work, and the keyboard
   keeps the right characters whatever the layout on either side, also on the sign-in screen. Buttons for Ctrl+Alt+Del and "Type
   clipboard", and the session reconnects on its own when the connection drops. Managed Windows endpoints with the Fleeto agent of
   0.3.0, admins and technicians. Everything in the window is encrypted between the browser and the endpoint; the gateway only
   passes it on. The session is recorded in the audit log.
-- 0.3.0: Remote background now has a file explorer, services and processes next to the terminal, in the same encrypted window.
-  Files: browse the endpoint, download a file (streamed to disk, resumable), upload a file (up to the policy's cap), and create,
-  rename, delete and copy within the endpoint. Services: list them and start, stop, restart or change the start type. Processes:
-  list them with CPU, memory and user, and end one. Everything runs over the encrypted session; the gateway sees only ciphertext.
-- 0.3.0: Every file, service and process action a technician takes is recorded in the audit log, reported by the endpoint over
-  its own control session (never a file's content). Stored in `RemoteSessionActions` (part of the `RemoteSessions` migration).
-- 0.3.0: Remote background with a terminal as SYSTEM or root. Opened from the right-click menu of a managed endpoint or the
+- Remote control on Linux endpoints with X11: the screen of the console (the sign-in screen too when it runs on X11), mouse and
+  keyboard with the endpoint's own layout, the clipboard with text and files, the banner and the consent prompt on workstations, and
+  several technicians in one session. A Wayland session cannot be shown; the window says so, and remote background works. The agent's
+  processes on the display run as nobody or as the user of the session, never as root. Needs the Fleeto agent of 0.3.0.
+- Remote control on Windows sends the screen as H.264 where the endpoint can encode it (Media Foundation: the GPU's hardware
+  encoder, else the Microsoft encoder in Windows) and every technician's browser decodes it (WebCodecs). The bit rate follows the link,
+  and the tiles remain the automatic fallback: on an endpoint without Media Foundation, an encoder that fails, a browser without H.264
+  or a browser whose decoder fails. The window shows the codec, frames a second, bit rate and an estimate of the latency.
+- Remote control captures a whole monitor with DXGI desktop duplication, which is many times faster than GDI on a large screen;
+  GDI stays for all monitors together, rotated monitors, RDP sessions and wherever duplication is not available.
+- Remote control clipboard. Text copied on either side is available on the other: text copied on the endpoint is put on the
+  technician's clipboard, and the technician's clipboard goes to the endpoint when they paste (Ctrl+V or Shift+Insert) in the window.
+  Files pasted or dragged into the window are placed on the endpoint clipboard, like RDP, and pasted there with Ctrl+V; they wait in a
+  folder only the signed-in user of the endpoint can read and are deleted when the session ends. Files copied on the endpoint are
+  offered for download in the window (folders are not). Transfers follow the policy's file size cap and are audited as
+  `clipboard.upload` and `clipboard.download`. The policy switch "Synchronise the clipboard in remote control" turns it off.
+- The remote control window explains the two clipboard steps the first times a technician uses them: pasting files says they travel
+  to the endpoint first and are pasted there with Ctrl+V once they arrive, and files copied on the endpoint say they cannot go on the
+  technician's own clipboard and are saved with the download button. Each explanation has "Got it" and "Do not show this again"; the choice
+  is remembered in that browser.
+- Several technicians in one remote control session. Opening Remote control on a Windows session where a session already runs
+  joins it: one screen, one monitor choice, input from each technician, every join with its own token, key exchange and audit entry.
+  The window lists the technicians and shows where the others point. A technician whose connection cannot keep up is disconnected so
+  the others keep their screen.
+- Consent prompt and banner for remote control on workstations, per policy. With "Ask the signed-in user before remote control
+  on workstations" on, the first technician of a session waits until the user signed in on the shown Windows session allows it; a
+  refusal ends the session, no answer within the consent timeout (10 to 300 seconds, default 30) grants access, and with nobody signed
+  in access is granted at once. Technicians who join later are not asked again. The banner at the top of the endpoint's screen names
+  every technician in the session (on by default). Servers never ask and show no banner. The answer is audited (`consent.granted`,
+  `consent.refused`, `consent.timeout`, `consent.not_asked`, `consent.failed`).
+- Remote background with a terminal as SYSTEM or root. Opened from the right-click menu of a managed endpoint or the
   Remote background button on the endpoint detail, in its own window: PowerShell or Command Prompt on Windows (in a pseudo
   console; Windows Server 2016 gets line input), the login shell on Linux, served by the watchdog, so it also works when the
   agent is broken. The shell ends when the window closes or the session ends; a new terminal can be opened in the same session.
   An optional reason is stored with the session. Needs the watchdog of Fleeto 0.3.0.
-- 0.3.0: Remote sessions are end-to-end encrypted between the browser and the endpoint. fleeto-signer signs a single-use token
+- Remote background now has a file explorer, services and processes next to the terminal, in the same encrypted window.
+  Files: browse the endpoint, download a file (streamed to disk, resumable), upload a file (up to the policy's cap), and create,
+  rename, delete and copy within the endpoint. Services: list them and start, stop, restart or change the start type. Processes:
+  list them with CPU, memory and user, and end one. Everything runs over the encrypted session; the gateway sees only ciphertext.
+- Every file, service and process action a technician takes is recorded in the audit log, reported by the endpoint over
+  its own control session (never a file's content). Stored in `RemoteSessionActions` (part of the `RemoteSessions` migration).
+- Remote sessions are end-to-end encrypted between the browser and the endpoint. fleeto-signer signs a single-use token
   per technician's connection, valid 60 seconds, with the browser's ephemeral X25519 key; the endpoint signs its own key with
   its certificate key, and the browser accepts that key only by the fingerprint the instance recorded. Frames are AES-256-GCM
   with a counter nonce. The gateway relays them unread: browsers connect to `wss://<fqdn>/relay/` through the host proxy, the
   endpoint to `/v1/relay/` with its client certificate. Tier checks in web, signer, gateway and on the endpoint.
-- 0.3.0: A remote session without input closes after the policy's idle timeout (5 to 480 minutes, default 30), with a warning
+- A remote session without input closes after the policy's idle timeout (5 to 480 minutes, default 30), with a warning
   2 minutes before; in a session with several technicians each one's own connection closes.
-- 0.3.0: Remote sessions, their participants and actions are stored (migration `RemoteSessions`, additive) and audited:
+- The policy dialog shows every remote session setting: idle timeout, file size cap, clipboard, banner, consent prompt and its
+  timeout.
+- Remote sessions, their participants and actions are stored (migration `RemoteSessions`, additive) and audited:
   `remote_session.requested`, `.signed`, `.joined`, `.left` and `.refused`. Sessions that never connect end after 5 minutes;
   the history is kept 13 months. The policy stores the remote session settings of later steps (consent, banner, clipboard,
   file size).
-- 0.3.0: install.sh gives every instance a loopback port for the relay (`RELAY_PORT`) and routes `/relay/*` to it.
+- install.sh gives every instance a loopback port for the relay (`RELAY_PORT`) and routes `/relay/*` to it.
+
+### Fixed
+
+- The clipboard of a remote control session is served by a process that runs as the user signed in on the Windows session, so text
+  and files travel both ways again. The clipboard of a session belongs to that user: Windows Explorer hands its copied files out through
+  OLE, and the agent, which runs as SYSTEM, could neither read what was copied there nor replace it — a file copied on the endpoint was
+  never offered for download, and text from the technician never arrived. The screen, mouse and keyboard stay with the helper that runs as
+  SYSTEM, because those need the sign-in screen and UAC. Without a signed-in user the window says the clipboard needs one.
+- A file copied on the endpoint is offered for download when the program that copied it puts the files on the clipboard through
+  OLE, which Windows Explorer does: the clipboard then holds a marker only and the files are made when they are asked for. The endpoint
+  now asks the clipboard's data object, the way an ordinary application does, when the plain clipboard holds nothing.
+- A file copied on the endpoint is offered for download even when Windows reports only the first step of the copy. A program
+  copying files empties the clipboard first and puts the files on it in a second step; the endpoint now looks again after a change that
+  held nothing. When the endpoint copies files that are not on disk (a compressed folder, a cloud folder), the window says so instead of
+  staying empty, and points at Files in a remote background session.
+- Files a technician pasted into a remote control session are no longer offered back to them as files copied on the endpoint.
+  They stay on the endpoint clipboard, so after the helper of the session started again — its window no longer owning the clipboard —
+  the last pasted file appeared as a download instead of what was copied on the endpoint.
+- Files copied on the endpoint are offered to the technician even when Windows does not report the change: the endpoint now also
+  checks its clipboard every second. The check ran only while the banner was shown, so on a server (which never shows a banner) a copy
+  on the endpoint could go unnoticed.
+- A remote control session whose Windows session ends (the user signs out) no longer starts the helper again in a session that is
+  gone: the technician is told the session ended, and a console that moves to another session no longer counts as a helper that keeps
+  failing.
+- Pasting files into a remote control window a second time pasted them on the endpoint instead of sending them again. While the
+  technician's own clipboard held the files, every Ctrl+V uploaded them once more and the shortcut never reached the endpoint, so
+  nothing appeared in the folder there.
+- A failure in the banner and clipboard window of the endpoint can no longer stop the helper that shows the screen, and the
+  endpoint says so at once when it cannot start the banner and clipboard of its Windows session. The agent log now names why the
+  helper stopped and what the endpoint clipboard holds (counts only, never its content).
+- Remote sessions no longer stay "in a session" when the gateway claimed a participant and never paired it; the workers end those
+  after five minutes, and every failure after the claim ends the participant.
+- A remote session token is no longer accepted in the seconds after it expired (the check now uses the time the token arrived).
+- Typing a long text on a Linux endpoint no longer stalls the helper, and input that a terminal does not read no longer blocks the
+  session (with it, its idle timeout and its end).
+- One session serves at most 16 requests and 16 transfers at a time, so a browser cannot fill the endpoint's memory or its handles.
+- A folder can no longer be copied into one of its own folders without end, and a video frame or a screen size that cannot be real is
+  refused instead of filling the browser's memory.
+- The connection pools of the containers fit the database of an instance (gateway 40, web 30, workers 15, signer 5): under load they used to
+  ask PostgreSQL for more connections than it accepts, and a remote session then failed with "too many clients".
+
+### Security
+
+- What the signer signs can no longer be changed after it was requested. Database triggers keep the binding columns of jobs, remote
+  sessions and their participants as they were written, and web records what it asked for in the signing request, which the signer compares
+  with the rows. A compromised gateway could otherwise have pointed a job or a session at another endpoint, or put its own key in a remote
+  session token and taken over the session.
+- A watchdog certificate is issued only when the agent signed the request with the key of its own certificate. A compromised gateway
+  could otherwise have obtained a watchdog identity and played the endpoint in a remote session. Agents older than 0.3.0-alpha.17 get no new
+  watchdog certificate; existing watchdog certificates keep working and renew as before.
+- The gateway can no longer change the tier, client, site or class of an endpoint.
+- An upload in a remote session no longer follows a link with the name of its temporary file, and refuses a folder that is a link, so
+  a user of the endpoint cannot make the agent overwrite a file of their choice. An upload that did not arrive whole never replaces the file.
+- Files pasted into a remote control session wait in folders that are created with their access list in one step, below a base folder
+  owned by administrators (Windows) or in /run (Linux), so nobody can put a link in their place.
+- A file copied on the endpoint is opened with the rights of the user who copied it, so the person at the endpoint cannot have a
+  technician download a file they may not read themselves. The clipboard process of that user can only send clipboard frames.
+- Text copied on the endpoint goes on the technician's own clipboard by itself only right after they copied in the remote control
+  window; otherwise the window offers it with a button. Someone at the endpoint can no longer put text on a technician's clipboard unasked.
+- Remote sessions that arrive at the same moment can no longer exceed the limit of sessions per endpoint.
+- One technician can request at most 20 remote sessions a minute, so the instance's signing budget stays available to everyone.
+- Linux: the agent accepts only an X server of root or of the user of the screen, and its children check that the display socket
+  belongs to it. Files of a session (its cookie, a copied file) are read with the rights of that user, never as root. Consent is asked when
+  the screen is locked, and a session state that cannot be read counts as somebody being there.
+- The service actions of 0.2.1 are stricter: `systemctl` is called with `--` before the unit, and a service name may not start with a dash.
 
 ## [0.2.2] — 2026-09-16
 
@@ -196,185 +195,3 @@ first test VPS.
   the spooled WAL grew by about 4.6 GB a day until it filled the disk of the first test VPS during an update. The nightly
   `pg_dump` is the backup: a restore can lose up to 24 hours of changes. An update removes the `wal-spool/` directory and
   `archive_command`; WAL archiving returns together with base backups for point-in-time recovery.
-
-## [0.2.1] — 2026-09-16
-
-The first release since 0.1.0: it holds the 0.2.0 milestone, which was not released on its own
-(entries marked "0.2.0:"), and 0.2.1. Pre-releases `0.2.0-alpha.1` to `0.2.0-alpha.5` and `0.2.1-alpha.1` to `0.2.1-alpha.6`
-(2026-09-15 and 2026-09-16) were test builds on the first test VPS; testing them on real Windows and Linux endpoints found the
-fixes listed below.
-
-### Added
-
-- Read-only public REST API at `/api/v1`: clients, sites, endpoints with status, inventory (hardware, disks, network,
-  software, services), checks and notes, alerts and jobs with their output. Keyset pagination, camelCase JSON with snake_case
-  values and UTC timestamps, problem details with a stable error code, an OpenAPI 3.1 document at `/api/v1/openapi.json`.
-  Agent-only endpoints answer checks and notes with `endpoint_not_managed`; a key limited to clients sees nothing of other
-  clients.
-- API keys under Settings, API keys (admins): a name, all clients or chosen clients, an expiry of 30 days, 90 days, 1 year
-  or none, shown once, revocable, with the last use.
-- `MD-Files/API.md`, the complete API contract for integrators, and `MD-Files/API-WAITLIST.md`, the features that are not
-  in the API yet. A test fails when the OpenAPI document and `API.md` list different endpoints.
-- Agent self-update with update rings. Each policy chooses Preview (at once), Standard (7 days) or Delayed (14 days) after
-  the instance installed the release. Settings, Agent updates (admins) shows the release, when each ring gets it, how many agents
-  run it and which updates failed, and lets an admin pause the release or release it to all rings. The endpoint detail shows the
-  installed version, service state and latest update of the agent and the watchdog.
-- Watchdog service `fleeto-watchdog` on Windows: a second service with its own certificate that keeps the agent running
-  and installs agent updates, rolling back a version that does not connect within 5 minutes. The agent installs a missing
-  watchdog, keeps it running and updates it. New alerts "Agent service stopped" (the watchdog is online, the agent is not) and
-  "Watchdog stopped" on managed endpoints; the offline alert now opens only when both are gone.
-- The gateway image carries the agent and watchdog binaries and serves them to enrolled endpoints; `install.sh` hands the
-  verified release manifest to the gateway. `tools/dev/build-agent.ps1` builds both binaries and, with `-Sign`, a signed
-  development manifest.
-- Linux agent and watchdog for Ubuntu LTS 22.04 and 24.04, Debian 12 and newer (including Proxmox VE hosts) and the RHEL
-  family 8 and 9 (RHEL, Rocky Linux, AlmaLinux). `fleeto-agent install` enrolls the endpoint and writes the systemd units
-  `fleeto-agent.service` and `fleeto-watchdog.service`, which run as root, start at boot and keep each other running; a unit an
-  administrator disabled or masked is reported and left alone. The identity key is created inside the TPM 2.0 where the endpoint
-  has one and is a root-only key file otherwise. Inventory reads the distribution, the kernel, the hardware (DMI), the packages
-  (dpkg or rpm) and the systemd services, which the check dialog offers like Windows services. Checks, scripts (sh and bash) and
-  jobs run as root; the disk check skips images, container layers and network shares.
-- Run a script on a selection of endpoints: check the endpoints in the list and choose "Run script on N endpoints"
-  in the right-click menu. The run window shows the state per endpoint while it happens, the endpoints that got no job with
-  the reason, and the output of each job. Above a threshold in Settings, Scripts (default: more than 10 endpoints) every
-  admin gets an email naming the technician, the script and where it ran, and the run writes one audit entry for the batch
-  next to the entry per job.
-- A script can run as the signed-in user instead of as SYSTEM or root. The account is chosen per run in the run window
-  and signed with the job, so the agent runs what the signer decided. The agent picks the active session, a remote desktop
-  session included, and fails the job at once when nobody is signed in. The script is staged where that user may read it but
-  not change it, runs from their own profile or home directory with their environment, and on Windows in the interactive
-  desktop, so it can show a window. Script checks keep running as the agent's own account. The agent reports the account it
-  ran the script under with the start of the job; the job output window and `runAsAccount` on Job in the API show it.
-- The cap on job output is a policy setting (1 MiB to 200 MiB, default 50 MiB) instead of a fixed 50 MiB. The signer
-  reads it from the policy of the endpoint's site when it signs the job; agent and gateway keep 200 MiB as an absolute ceiling.
-- Fleeto icon for the installed web app: a web app manifest with PNG icons (192, 512 and a maskable 512), an
-  apple-touch-icon and the theme colour, so installing Fleeto from the browser no longer shows a generic icon.
-- Agents for amd64 and arm64 on both platforms. The release manifest lists the agent and the watchdog for `windows-amd64`,
-  `windows-arm64`, `linux-amd64` and `linux-arm64`, the instance serves them at `/agent/download/<platform>`, and the install
-  command of a site is shown per operating system and picks the architecture of the endpoint itself.
-- 0.2.0: Maintenance mode for a client, a site or a managed endpoint, started from the client and site settings menus and
-  the right-click menu of the endpoint list, for 1, 4 or 24 hours, until a chosen time or until turned off, with an
-  optional reason. No check or offline alert opens or escalates while it lasts; open alerts still resolve, duplicate
-  identity alerts still open, and the first failing result afterwards opens the alert at once. The clients panel shows
-  "all" or "2/14" per client and site, the endpoint list and detail show "In maintenance until 16:00", and the endpoint
-  list has an "In maintenance" filter. Start, change, end and expiry are audit entries (without the reason).
-- 0.2.0: Check catalog: ping, TCP port, HTTP(S) URL (status, response time, expected text and certificate expiry), process
-  running, pending restart (Windows, Linux), file or folder (exists, must not exist, size, hours since the last change),
-  certificate expiry (Windows certificate store or certificate files), event log (Windows) and antivirus and firewall
-  (Windows), next to CPU, memory, disk, service and uptime. One description per type (`CheckCatalog`) drives validation,
-  evaluation, alert titles and the check dialog; a check reaches only endpoints whose platform runs it.
-- 0.2.0: Certificate recovery: an agent whose certificate expired while it was offline renews it with that certificate and the
-  same key, up to a year after expiry, unless it was revoked or replaced. Enroll again on an endpoint creates a single-use
-  install command that lets a reinstalled or long-offline agent take over the endpoint with its history; earlier certificates
-  are revoked.
-- 0.2.0: Maintenance windows in policies: recurring on chosen days at a local start time, for a duration, in a time zone, for all
-  endpoints, servers or workstations. While a window runs, endpoints of the sites that use the policy are in maintenance; the
-  endpoint list and detail name the policy.
-- 0.2.0: Routing rules per notification channel: alerts of all clients or of chosen clients, with the minimum severity and
-  resolves as before.
-- 0.2.0: Webhook notification channels next to email: generic JSON signed with an `X-Fleeto-Signature` header (secret shown
-  once, replaceable), Slack and Microsoft Teams. Retries with backoff, a circuit breaker per channel, a test message and the
-  last delivery on the notification channels page. Webhooks only go to public https addresses.
-- 0.2.0: Email through Microsoft Graph as an alternative to SMTP, with a client secret or a certificate created by Fleeto
-  (downloaded and uploaded to the app registration, then switched to). SMTP, when configured, takes over while the Graph
-  credential has expired.
-- 0.2.0: Warnings for expiring credentials (the Microsoft Graph secret or certificate): a dashboard warning from 30 days
-  before the end date and admin emails at 30, 14, 7 and 1 days and after expiry.
-- 0.2.0: Check history per check of an endpoint for the last hour, day, week, month and year: a line chart with average,
-  lowest to highest and thresholds for numeric checks, a status timeline for yes/no checks. Hourly and daily rollups kept 13
-  months, maintained by the workers together with the evaluation.
-- 0.2.0: Script library under Settings, Templates, Scripts: PowerShell and Batch scripts for Windows, sh and bash for Linux
-  and macOS, global or for one client, with a description and a timeout. Saving a change creates a new version; older versions
-  stay readable. A policy can require approval of scripts by a second admin, who confirms with an authenticator code; a
-  change needs approval again.
-- 0.2.0: Jobs: run a library script as SYSTEM or root on a managed endpoint from its Jobs tab or the right-click menu of the
-  endpoint list, valid for 1 hour, 24 hours or 7 days. The signer checks role, tier, platform, client and approval again
-  before it signs; the agent verifies the signature, the endpoint, the validity and the script hash, runs the script with
-  its timeout and sends stdout and stderr in numbered chunks that it keeps on disk until the gateway stored them. The Jobs
-  tab shows state, exit code and output (live while the job runs), the dashboard shows recent jobs, and a job waiting for
-  delivery can be cancelled. Jobs that were not signed, expired, refused or lost stay in the history with the reason.
-- 0.2.0: Script check: runs a library script on its interval; exit code 0 is OK, 1 a warning and any other code critical, and the
-  first line of output is the detail. Available in monitoring templates and on one endpoint, only for scripts of the same scope and
-  platform. Where the policy requires approval the check runs the newest approved version. A script that checks use cannot be
-  deleted.
-- 0.2.0: Services in the inventory (Windows): name, display name, start type and state. The check dialog suggests them for a
-  service check, from the endpoint or, for a monitoring template, from the endpoints that run it; typing a name still works.
-
-### Changed
-
-- **Fleeto is the only name.** The internal name Fleetify is gone from code, images (`ghcr.io/404-developer-ai/fleeto-*`),
-  Compose projects and volumes, `/opt/fleeto`, the database `fleeto` with roles `fleeto_*`, notification channels, signature
-  contexts (`fleeto-job-v1`, `fleeto-agent-config-v1`, `fleeto-license-v1`), key file prefixes, certificates, the agent and
-  watchdog services (`fleeto-agent`, `fleeto-watchdog`) and their folders, and the repository variables (`FLEETO_*`).
-  Sign-in cookies have new names, so everyone signs in again once.
-- Migration from the Fleetify names. install.sh moves a VPS with its next update: every instance and the host proxy
-  are copied to the new names (database and roles renamed, certificates kept) and updated, with the old layout left
-  untouched until each instance runs the release and used again for an instance whose update fails. The migration
-  `RenameToFleeto` renames database functions and triggers, `fleeto-tool migrate` rewraps the data keys and the signer's key material, and every endpoint
-  configuration is signed again. The install command takes a Fleetify agent over with its enrollment. setup-dev.ps1 moves a
-  development setup. Certificates, licenses, backups and key files from before the rename stay valid.
-- The branding check fails on the old name outside the migration files; `deploy/release-rollback` is `restore`.
-- The release manifest lists every agent and watchdog binary with its SHA-256 and size (`agentBinaries`). The release
-  workflow builds them reproducibly, checks that the web and gateway images contain the same binaries, and
-  `deploy/sign-release.ps1` refuses a manifest without them.
-- The watchdog is a separate program (`fleeto-watchdog.exe`) next to the agent; uninstalling the agent removes the
-  watchdog service, its key and its state as well.
-- The Servicedesk ticket reference on notes is no longer planned for 0.2.1 but listed as not yet scheduled on the roadmap
-  (decided 2026-09-15): how Fleeto and the Servicedesk work together is aligned with the Servicedesk team first.
-- 0.2.0: macOS is not supported for now (decided 2026-09-15): the UI names Windows and Linux as the platforms of checks
-  and scripts.
-- 0.2.0: The Docker networks of an instance use the MTU of the VPS uplink (detected by install.sh, 1280 to 1500), so containers
-  work on a 1400 link without relying on "packet too big" messages or MSS clamping. An update recreates the networks when
-  the MTU changed.
-- 0.2.0: The web image contains the Blazor framework script again (`_framework/blazor.web.js`): the image restored the web project
-  before its .razor files were copied, so the SDK left the script out and no page became interactive. The image build now
-  fails when the script is missing. install.sh validates the proxy configuration with the capabilities of the running
-  proxy (the first install stopped before setting the routes) and asks the NAT question on the terminal.
-- 0.2.0: install.sh supports a VPS behind a firewall or NAT whose inbound public address differs from its outbound one: it asks
-  once whether a firewall forwards TCP 80 and 443 on the address the DNS records use, stores a confirmed address and
-  suggests it for missing records. deploy/README.md describes downloading install.sh from the release directly on the VPS,
-  and deploy/sign-release.ps1 asks to confirm the image digests before signing.
-- 0.2.0: Releases come from GitHub Releases of the private repository instead of a public release host, because Steaan runs
-  every instance. install.sh asks once for a fine-grained token (release files) and a classic `read:packages` token
-  (images), checks and stores them root-only, warns before they expire, and keeps the registry login only while it runs.
-  It installs the newest published release, and pre-releases only on a VPS that runs one or while no release exists.
-  The release workflow creates a draft release; `deploy/sign-release.ps1` checks, signs, verifies and publishes it.
-  `fleeto-tool release verify` checks a signature. The signed `latest` pointer is gone.
-- 0.2.0: Pre-release versions (`0.2.0-alpha.1`): the release workflow, the install.sh bundler and install.sh accept them, and
-  install.sh orders them by semantic versioning, so `0.2.0-alpha.1` updates to `0.2.0`.
-- 0.2.0: The signing request origin trigger refuses signing request kinds it does not know for every container role.
-- 0.2.0: The type of an existing check can no longer be changed: its results and history belong to that type. Add a new check
-  instead.
-
-### Fixed
-
-- A watchdog could not be installed on an instance moved from the Fleetify layout. The rename migration replaced the rule for
-  who may request which signature with its version from before the watchdog, so the gateway's request for a watchdog certificate
-  failed with "Unknown signing request kind WatchdogCertificate". Migration `RestoreSigningRequestOrigin` writes the rule again, and
-  the rename now keeps a function that a later migration already wrote under the new name.
-- The Linux inventory no longer lists an rpm header without a name as a package called "(none)".
-- The Windows install command failed with "A positional parameter cannot be found that accepts argument 'amd64'": the
-  download address and the architecture reached `Invoke-WebRequest` as two arguments. They are now joined into one `-Uri`.
-- The endpoint Summary no longer calls a private address "Public IP". An agent that reaches the instance inside a private
-  network (the same LAN with local DNS, a VPN) connects from a private address; the Summary then shows it as "Connection address"
-  marked "private network", because the public IP is not known.
-- 0.2.0: Running a script failed on every installed instance with "permission denied for table SigningRequests": the database role
-  of web could read signing requests but not create the job signature request. Web now has INSERT on the table (the trigger still
-  allows it only jobs), and a test checks with the production grants that every container can request its own signatures.
-
-### Security
-
-- Agents and watchdogs install a binary only when the release manifest that lists it verifies against the Steaan release
-  keys compiled into them and the download matches the listed SHA-256, size and version. Older versions are never installed and a
-  rolled back version is never retried, so a compromised instance can hold an update back but never install a binary of its own.
-  Downloads need a valid agent or watchdog certificate and are limited to 20 at a time and 12 per endpoint per hour.
-- Watchdog certificates carry the role *watchdog*, taken from the database: they open only a watchdog session, which receives
-  no configurations or jobs, and cannot recover an expired certificate. The signer issues one only at the request of the gateway, for
-  an endpoint with a valid agent certificate, for a key different from the agent's, at most 3 a day, and revokes the previous one.
-- API keys are `flt_<id>_<secret>` with a 256-bit secret; only its SHA-256 is stored and compared in constant time, and the
-  key is read on every call, so a revoked or expired key stops working at once. Only the `Authorization` header authenticates an
-  API call, never a session cookie. Rate limits per address (before the key is checked) and per key (after), an audit entry for
-  every call and for a wrong secret of an existing key, and no data is sent when the audit entry cannot be written. API
-  responses are never cached.
-- 0.2.0: Jobs are signed per endpoint with the context `fleeto-job-v1` and carry the script body; a job is never run twice
-  on an agent, and a job interrupted by an agent stop is reported as lost instead of run again. Only the web role can request
-  job signatures (database trigger). A script approval code is accepted once and a wrong code counts towards the lockout.
