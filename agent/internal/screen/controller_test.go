@@ -319,6 +319,16 @@ func TestTheClipboardGoesToTheProcessOfTheSignedInUser(t *testing.T) {
 	}()
 	h.browserGets(FrameCopiedFiles)
 
+	// The clipboard process runs as the user of the session: a screen frame from it never reaches the browser (security review of 0.3.0
+	// step 7), what follows it about the clipboard does (browserGets fails on any other frame first).
+	go func() {
+		_ = WriteFrame(user.outW, lastUpdate(t, 99))
+		_ = WriteFrame(user.outW, append([]byte{FrameClipboard}, "after"...))
+	}()
+	if got := h.browserGets(FrameClipboard); string(got[1:]) != "after" {
+		t.Fatalf("browser got %q", got[1:])
+	}
+
 	h.c.Close()
 	if !user.closed.Load() {
 		t.Fatal("the clipboard process outlived the session")

@@ -42,6 +42,19 @@ public sealed class RemoteSessionService
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
 
+    /// <summary>
+    /// Session requests one technician may make a minute (security review of 0.3.0 step 7): every request writes rows and uses the signer's
+    /// budget for the whole instance, so one technician (or a stolen browser session) cannot hold remote sessions up for everyone.
+    /// </summary>
+    public const int RequestsPerUserPerMinute = 20;
+
+    private readonly System.Threading.RateLimiting.PartitionedRateLimiter<Guid> _requestLimiter =
+        System.Threading.RateLimiting.PartitionedRateLimiter.Create<Guid, Guid>(user => System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+            user, _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+            {
+                PermitLimit = RequestsPerUserPerMinute, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
+            }));
+
     private readonly IFleetoDbContextFactory _dbFactory;
     private readonly LicenseService _licenses;
     private readonly INotificationBus _bus;
@@ -231,10 +244,22 @@ public sealed class RemoteSessionService
             : null;
     }
 
+    /// <summary>Takes one of the user's session requests of this minute; false when they used them all.</summary>
+    internal bool TryTakeRequest(Guid userId)
+    {
+        using var lease = _requestLimiter.AttemptAcquire(userId);
+        return lease.IsAcquired;
+    }
+
     private async Task<ServiceResult<RemoteTicket>> OpenAsync(Caller caller, Guid endpointId, string hostname, RemoteSessionKind kind,
         AgentComponent component, int? windowsSessionId, byte[] browserPublicKey, string? reason, CancellationToken cancellationToken,
         Guid? joinSessionId = null)
     {
+        if (!TryTakeRequest(caller.UserId))
+        {
+            return ServiceResult<RemoteTicket>.Fail("You opened many remote sessions in the last minute. Wait a minute and try again.");
+        }
+
         await using var db = _dbFactory.Create(caller.Scope);
         var clientId = await db.Endpoints.Where(e => e.Id == endpointId).Select(e => e.ClientId).SingleAsync(cancellationToken);
         var now = _time.GetUtcNow().UtcDateTime;
@@ -254,7 +279,9 @@ public sealed class RemoteSessionService
         };
         var request = new SigningRequest
         {
-            Id = Guid.NewGuid(), ClientId = clientId, Kind = SigningRequestKind.RemoteSessionToken, SubjectId = participant.Id, Payload = [],
+            // What is to be signed, where no other container can change it (security review of 0.3.0 step 7).
+            Id = Guid.NewGuid(), ClientId = clientId, Kind = SigningRequestKind.RemoteSessionToken, SubjectId = participant.Id,
+            Payload = RemoteSessionBinding.Of(session, participant).ToPayload(),
             RequestedBy = "web:" + (caller.IpAddress ?? "unknown"), CreatedAt = now
         };
         if (joined is null)

@@ -30,6 +30,21 @@ public static class FleetoComponentExtensions
         _ => "db-" + component.ToString().ToLowerInvariant() + ".password"
     };
 
+    /// <summary>
+    /// PostgreSQL of an instance accepts 100 connections, 3 of them kept for the superuser. The pools of the components that run together
+    /// stay below that with room for the notification listener of each and the nightly backup, so a peak waits for a free connection
+    /// instead of failing with "too many clients" (found by the relay load test of 0.3.0 step 7, decided 2026-09-19): the gateway carries
+    /// the agents and the relay, web the technicians and the API, workers the background work, the signer one request at a time.
+    /// </summary>
+    public static int DefaultPoolSize(this FleetoComponent component) => component switch
+    {
+        FleetoComponent.Gateway => 40,
+        FleetoComponent.Web => 30,
+        FleetoComponent.Workers => 15,
+        FleetoComponent.Signer => 5,
+        _ => 5
+    };
+
     public static bool UsesRootKey(this FleetoComponent component) =>
         component is FleetoComponent.Web or FleetoComponent.Workers or FleetoComponent.Tool;
 

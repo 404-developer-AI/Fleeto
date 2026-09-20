@@ -67,13 +67,15 @@ func (a *Agent) newRemoteServer() *remote.Server {
 			clipboard = screen.DefaultClipboardLauncher(a.logger)
 		}
 		staging := screen.StagingRoot(platform.DataDir())
-		if err := screen.CleanStaging(staging); err != nil {
-			a.logger.Warn("could not delete files left from earlier remote control sessions", "folder", staging, "error", err)
+		if err := screen.PrepareStaging(staging); err != nil {
+			// Without a safe folder for them, files cannot be pasted into a session; everything else works.
+			a.logger.Warn("files cannot be pasted into remote control sessions: their folder could not be prepared", "folder", staging, "error", err)
+			staging = ""
 		}
 		sessions := screen.NewSessions(screen.SessionsOptions{
 			Launch: launch, ClipboardLaunch: clipboard, ConsoleSession: screen.ConsoleSession, SessionExists: screen.SessionExists,
 			SecureAttention: screen.SecureAttention, SessionUser: screen.SessionUser,
-			Consent: screen.AskConsent, StagingRoot: staging, Stage: screen.StageFolder, Grant: screen.GrantFiles, Logger: a.logger, Now: a.opts.Now,
+			Consent: screen.AskConsent, StagingRoot: staging, Stage: screen.StageFolder, Grant: screen.GrantFiles, OpenAsUser: screen.OpenAsSessionUser, Logger: a.logger, Now: a.opts.Now,
 		})
 		server.Screen = func(peer remote.ScreenPeer) remote.ScreenHandler {
 			token := peer.Token

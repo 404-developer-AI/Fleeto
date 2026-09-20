@@ -42,8 +42,11 @@ public sealed class RemoteSessionMaintenanceService : WorkerLoop
         var cutoff = now - RemoteSessionRules.StaleAfter;
         await using var db = _dbFactory.CreateSystem();
 
+        // Requested or signed but never connected, and claimed by the gateway but never paired (a gateway that lost its database or stopped
+        // in between): both end, so no session shows technicians that are not there (security review of 0.3.0 step 7).
         var changed = await db.RemoteSessionParticipants
-            .Where(p => (p.State == RemoteParticipantState.Requested || p.State == RemoteParticipantState.Signed) && p.CreatedAt < cutoff)
+            .Where(p => ((p.State == RemoteParticipantState.Requested || p.State == RemoteParticipantState.Signed) && p.CreatedAt < cutoff) ||
+                        (p.State == RemoteParticipantState.Connecting && p.ConnectingAt < cutoff))
             .ExecuteUpdateAsync(s => s
                 .SetProperty(p => p.State, RemoteParticipantState.Ended)
                 .SetProperty(p => p.EndedAt, now)

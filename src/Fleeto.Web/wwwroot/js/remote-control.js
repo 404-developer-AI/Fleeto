@@ -4,7 +4,7 @@
 // Step 4 adds the clipboard (text both ways, files pasted or dropped into the window, files copied on the endpoint offered for download),
 // the other technicians in the session and their pointers, and the consent prompt on the endpoint. Step 5 asks the endpoint for H.264 where
 // this browser decodes it (WebCodecs); the tiles stay the fallback.
-import { deriveSessionKeys, Frame, FrameCipher, fromBase64, generateBrowserKey, supported as cryptoSupported, toBase64 } from "./remote-crypto.mjs";
+import { deriveSessionKeys, Frame, FrameCipher, fromBase64, generateBrowserKey, supported as cryptoSupported, toBase64, wipeKeys } from "./remote-crypto.mjs";
 import { Viewer } from "./remote-control-ui.mjs";
 import { installTransfers, transferState } from "./remote-transfers.mjs";
 import { decodableCodecs } from "./remote-video.mjs";
@@ -58,6 +58,8 @@ class ControlSession {
     this.clipboardText = null;
     // Text copied on the endpoint that could not be written to this computer's clipboard yet (the window had no focus).
     this.pendingClipboard = null;
+    // Text copied on the endpoint without the technician copying in the window: offered, never written by itself.
+    this.offeredClipboard = null;
     // The files last placed on the endpoint clipboard; pasting them again pastes them on the endpoint instead of sending them once more.
     this.placedFiles = null;
     // The codecs this browser decodes besides tiles (null until checked), and how often the H.264 decoder failed.
@@ -128,6 +130,7 @@ class ControlSession {
           fromBase64(message.signature), fromBase64(message.certificatePublicKey), this.ticket.fingerprints);
         this.send = await FrameCipher.create(keys.browserToEndpoint);
         this.receive = await FrameCipher.create(keys.endpointToBrowser);
+        wipeKeys(keys);
         this.browserKey = null;
       }
       return;
@@ -261,12 +264,33 @@ class ControlSession {
     return this.placedFiles !== null && this.placedFiles === ControlSession.signature(files);
   }
 
-  // onRemoteClipboard puts text copied on the endpoint on this computer's clipboard; without focus it waits for the next focus or click.
+  // onRemoteClipboard takes text copied on the endpoint. It goes on this computer's clipboard by itself only right after the technician
+  // copied in this window; any other copy on the endpoint (the person there, a program) is offered with a button, so nobody at the
+  // endpoint can put text on the technician's clipboard unasked (security review of 0.3.0 step 7). Without focus it waits for the next
+  // focus or click.
   onRemoteClipboard(text) {
     // Something else is on the endpoint clipboard now, so files pasted earlier have to travel again.
     this.placedFiles = null;
+    if (!this.clipboardEnabled() || encoder.encode(text).length > MaxClipboardBytes) {
+      return;
+    }
     this.clipboardText = text;
-    this.pendingClipboard = text;
+    if (this.viewer?.copiedRecently?.()) {
+      this.pendingClipboard = text;
+      this.flushRemoteClipboard();
+      return;
+    }
+    this.offeredClipboard = text;
+    this.viewer?.offerClipboardText?.();
+  }
+
+  // acceptRemoteClipboard puts the offered text on this computer's clipboard; called from the technician's click.
+  acceptRemoteClipboard() {
+    if (this.offeredClipboard === null) {
+      return;
+    }
+    this.pendingClipboard = this.offeredClipboard;
+    this.offeredClipboard = null;
     this.flushRemoteClipboard();
   }
 
@@ -465,8 +489,13 @@ class ControlSession {
   }
 
   closeSocket() {
-    if (this.socket && this.socket.readyState <= WebSocket.OPEN) {
-      this.socket.close(1000, "session ended");
+    if (this.socket) {
+      // A socket that is closed on purpose must not report its close as a lost connection: that would start a second reconnect.
+      this.socket.onclose = null;
+      this.socket.onmessage = null;
+      if (this.socket.readyState <= WebSocket.OPEN) {
+        this.socket.close(1000, "session ended");
+      }
     }
     this.socket = null;
   }

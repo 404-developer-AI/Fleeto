@@ -14,6 +14,12 @@ const FormatPNG = 1;
 // How long the browser waits for its paste event before the paste shortcut goes to the endpoint anyway.
 const pasteWait = 300;
 
+// How long after the technician's copy shortcut text copied on the endpoint goes on their clipboard by itself.
+const copyWindow = 5000;
+
+// The largest screen a FrameInfo may describe; anything larger is not a screen and would make the canvas take the browser's memory.
+const maxScreenPixels = 16384;
+
 // Pointer colors of the other technicians: distinct on the dark screen background, in both themes.
 const peerColors = ["#F59E0B", "#38BDF8", "#F472B6", "#A3E635", "#C084FC", "#FB7185", "#2DD4BF"];
 
@@ -107,11 +113,12 @@ export class Viewer {
     toolbar.append(this.monitorSelect, this.cadButton, this.typeButton, this.fitButton, this.desktopLabel, this.statsLabel, this.participantList);
 
     this.status = el("div", "remote-error");
+    this.textOffer = el("div", "remote-copied");
     this.hintBar = el("div", "remote-hint");
     this.clipboardBar = el("div", "remote-clipboard");
     this.copiedFiles = el("div", "remote-copied");
     this.transfers = el("div", "remote-transfers");
-    this.clipboardBar.append(this.copiedFiles, this.transfers);
+    this.clipboardBar.append(this.textOffer, this.copiedFiles, this.transfers);
 
     this.surface = el("div", "remote-screen");
     this.canvas = el("canvas", "remote-canvas");
@@ -139,6 +146,10 @@ export class Viewer {
   }
 
   onInfo(info) {
+    if (!Number.isInteger(info.width) || !Number.isInteger(info.height) || info.width < 0 || info.height < 0 ||
+        info.width > maxScreenPixels || info.height > maxScreenPixels) {
+      return;
+    }
     this.monitors = info.monitors || [];
     this.monitor = info.monitor;
     if (this.width !== info.width || this.height !== info.height) {
@@ -419,6 +430,24 @@ export class Viewer {
     }
   }
 
+  /** True when the technician pressed a copy shortcut in this window a moment ago: what the endpoint copies now is theirs. */
+  copiedRecently() {
+    return this.lastCopyAt !== undefined && now() - this.lastCopyAt < copyWindow;
+  }
+
+  // offerClipboardText shows that text was copied on the endpoint, with a button that puts it on this computer's clipboard.
+  offerClipboardText() {
+    this.textOffer.replaceChildren();
+    const title = el("span", "remote-copied-title");
+    title.textContent = "Text was copied on the endpoint.";
+    const take = button("Copy to my clipboard", () => {
+      this.textOffer.replaceChildren();
+      this.session.acceptRemoteClipboard?.();
+    });
+    take.classList.add("remote-icon-button");
+    this.textOffer.append(title, take);
+  }
+
   clipboardPending(pending) {
     if (pending) {
       this.notice("Text was copied on the endpoint. Click the screen to put it on your clipboard.");
@@ -557,6 +586,9 @@ export class Viewer {
       altGraph: event.getModifierState ? event.getModifierState("AltGraph") : false
     };
     this.session.activity();
+    if (down && isCopyShortcut(event)) {
+      this.lastCopyAt = now();
+    }
     if (down && this.session.clipboardEnabled?.() && isPasteShortcut(event)) {
       // Not prevented: the browser fires its paste event, the only way to read this computer's clipboard without a permission prompt. The
       // shortcut reaches the endpoint once the clipboard is there.
@@ -716,6 +748,15 @@ export class Viewer {
       window.removeEventListener("resize", this.boundResize);
     }
   }
+}
+
+function isCopyShortcut(event) {
+  return ((event.ctrlKey || event.metaKey) && !event.altKey && (event.code === "KeyC" || event.code === "KeyX")) ||
+    (event.ctrlKey && event.code === "Insert");
+}
+
+function now() {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
 }
 
 function isPasteShortcut(event) {

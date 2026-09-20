@@ -8,6 +8,10 @@ export const VideoHeaderBytes = 17;
 const FlagLast = 1;
 const FlagKey = 2;
 
+/** The most one frame may take, in bytes and in parts; more is not a frame of a screen and is dropped. */
+const maxFrameBytes = 32 * 1024 * 1024;
+const maxFrameParts = 64;
+
 /** The codec name the endpoint knows (agent/internal/screen CodecH264). */
 export const CodecH264 = "h264";
 
@@ -152,6 +156,11 @@ export class VideoStream {
     }
     this.parts.chunks.push(part.data);
     this.parts.bytes += body.length + 1;
+    if (this.parts.bytes > maxFrameBytes || this.parts.chunks.length > maxFrameParts) {
+      this.parts = null;
+      this.options.failed("A video frame of the endpoint is larger than a screen can be.");
+      return;
+    }
     this.options.stats?.received(body.length + 1);
     if (!part.last) {
       return;

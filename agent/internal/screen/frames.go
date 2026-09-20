@@ -89,6 +89,12 @@ type X11Body struct {
 	GID uint32 `json:"gid"`
 	// Session is the logind session shown, for log lines.
 	Session string `json:"session"`
+	// Groups are the supplementary groups of the account (the user's, for the clipboard; none for the helper).
+	Groups []uint32 `json:"groups,omitempty"`
+	// ServerPID and ServerUIDs say which process may answer on the display socket: the child checks the peer of its connection, so a
+	// server another user started there is never talked to (security review of 0.3.0 step 7). 0 and none: not known.
+	ServerPID  int      `json:"serverPid,omitempty"`
+	ServerUIDs []uint32 `json:"serverUids,omitempty"`
 }
 
 // ConsentAskBody is the body of FrameConsentAsk.

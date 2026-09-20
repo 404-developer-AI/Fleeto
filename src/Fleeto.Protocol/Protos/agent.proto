@@ -603,6 +603,13 @@ message JobAck {
 message WatchdogCertificateRequest {
   // PKCS#10, ECDSA P-256, DER, signed with the watchdog key.
   bytes csr_der = 1;
+  // The agent vouches for its watchdog (0.3.0 step 7, security review): ECDSA P-256 (ASN.1 DER) with the key of the agent's current
+  // certificate over SHA-256("fleeto-watchdog-csr-v1" || 0x00 || csr_der). The signer issues the certificate only with it, so a
+  // compromised gateway cannot get a watchdog certificate for a key of its own.
+  bytes agent_signature = 2;
+  // Filled in by the gateway, never by the agent: the public key (SPKI, DER) of the agent certificate the connection authenticated with.
+  // The signer accepts it only when it belongs to a current agent certificate of the endpoint.
+  bytes agent_public_key = 3;
 }
 
 message WatchdogCertificateResponse {

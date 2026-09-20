@@ -257,6 +257,96 @@ func TestUploadRoundTrip(t *testing.T) {
 	}
 }
 
+// uploadWhole sends a whole file and returns the endpoint's last transfer message for it.
+func (bs *backgroundSession) uploadWhole(t *testing.T, dir, name string, data []byte) transferBody {
+	t.Helper()
+	response := bs.ok("upload", map[string]any{"path": dir, "name": name, "size": int64(len(data)), "offset": 0})
+	transfer := uint32(response["transfer"].(float64))
+	frame := make([]byte, 4)
+	binary.BigEndian.PutUint32(frame, transfer)
+	bs.browser.write(FrameChunk, append(frame, data...))
+	bs.browser.write(FrameTransfer, mustJSON(transferBody{Transfer: transfer, Kind: "end"}))
+	for {
+		kind, payload := bs.browser.read()
+		if kind != FrameTransfer {
+			continue
+		}
+		var tb transferBody
+		_ = json.Unmarshal(payload, &tb)
+		if tb.Transfer == transfer && (tb.Kind == "end" || tb.Kind == "error") {
+			return tb
+		}
+	}
+}
+
+// A local user who owns the folder plants a link with the name of the part file: the agent (root or SYSTEM) must never write through it
+// (security review of 0.3.0 step 7).
+func TestAnUploadNeverWritesThroughALinkNamedLikeThePartFile(t *testing.T) {
+	bs := startBackground(t)
+	dir := t.TempDir()
+	victim := filepath.Join(t.TempDir(), "victim.txt")
+	if err := os.WriteFile(victim, []byte("do not touch"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(dir, "setup.sh"+partSuffix)); err != nil {
+		t.Skipf("this machine cannot create symbolic links: %v", err)
+	}
+	if tb := bs.uploadWhole(t, dir, "setup.sh", []byte("the technician's file")); tb.Kind != "end" {
+		t.Fatalf("upload: %s", tb.Error)
+	}
+	if got, _ := os.ReadFile(victim); string(got) != "do not touch" {
+		t.Fatalf("the file behind the link was changed to %q", got)
+	}
+	info, err := os.Lstat(filepath.Join(dir, "setup.sh"))
+	if err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("the upload is not a regular file of its own: %v %v", info, err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "setup.sh")); string(got) != "the technician's file" {
+		t.Fatalf("upload content %q", got)
+	}
+}
+
+func TestAnUploadIntoAFolderThatIsALinkIsRefused(t *testing.T) {
+	bs := startBackground(t)
+	target := t.TempDir()
+	link := filepath.Join(t.TempDir(), "Downloads")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("this machine cannot create symbolic links: %v", err)
+	}
+	if bs.request("upload", map[string]any{"path": link, "name": "a.txt", "size": 1, "offset": 0})["ok"] == true {
+		t.Fatal("an upload into a linked folder was accepted")
+	}
+}
+
+func TestAnIncompleteUploadNeverReplacesTheFile(t *testing.T) {
+	bs := startBackground(t)
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "config.txt")
+	if err := os.WriteFile(dest, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	response := bs.ok("upload", map[string]any{"path": dir, "name": "config.txt", "size": 100, "offset": 0})
+	transfer := uint32(response["transfer"].(float64))
+	frame := make([]byte, 4)
+	binary.BigEndian.PutUint32(frame, transfer)
+	bs.browser.write(FrameChunk, append(frame, []byte("only part")...))
+	bs.browser.write(FrameTransfer, mustJSON(transferBody{Transfer: transfer, Kind: "end"}))
+	for {
+		kind, payload := bs.browser.read()
+		var tb transferBody
+		if kind != FrameTransfer || json.Unmarshal(payload, &tb) != nil || tb.Transfer != transfer {
+			continue
+		}
+		if tb.Kind != "error" {
+			t.Fatalf("an incomplete upload ended as %q", tb.Kind)
+		}
+		break
+	}
+	if got, _ := os.ReadFile(dest); string(got) != "original" {
+		t.Fatalf("the file was replaced by an incomplete upload: %q", got)
+	}
+}
+
 func TestUploadRejectsAFileOverTheCap(t *testing.T) {
 	bs := startBackground(t)
 	dir := t.TempDir()

@@ -518,6 +518,17 @@ Steps:
    - H.264 stays Windows only; Linux sends tiles.
 7. **Release 0.3.0**: concurrent sessions through the gateway under load, security review of the new code, API waiting list,
    changelog, tag `v0.3.0`.
+   Done so far (2026-09-19):
+   - **Load**: 200 sessions over 25 endpoints (8 per endpoint) through one relay with screen traffic run in CI; 800 sessions ran on the
+     development laptop at 248 MiB/s with a round trip of 360 ms at the 99th percentile. Two faults found and fixed: sessions that arrived
+     together could exceed the limit per endpoint, and the connection pools of the containers together asked PostgreSQL for more
+     connections than it accepts.
+   - **Security review** of all 0.3.0 code in five parts (server, agent background, Windows, Linux, browser). One critical and three high
+     findings, all fixed with tests: the signing bindings (see ARCHITECTURE §5), the watchdog certificate, the upload part file and the
+     staging folder on Windows. About ten medium and fifteen low findings were fixed as well.
+   - **API waiting list** checked: 0.3.0 was already on it; `terminal.open` and the Linux session value were added.
+   - Still open: the endpoint tests of alpha.15 (H.264), alpha.16 (Linux) and alpha.17 (these fixes), then the changelog for the release
+     and the tag `v0.3.0`.
 
 ## 0.4.0 — Patch management via Action1
 

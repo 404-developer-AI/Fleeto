@@ -23,7 +23,7 @@ function jsonChunk(header, data) {
 
 /** The fields a session needs before installTransfers' methods are used. */
 export function transferState() {
-  return { pending: new Map(), nextRequestId: 1, downloads: new Map(), uploads: new Map(), early: new Map() };
+  return { pending: new Map(), nextRequestId: 1, downloads: new Map(), uploads: new Map(), early: new Map(), endedTransfers: new Set() };
 }
 
 const methods = {
@@ -92,7 +92,20 @@ const methods = {
     }
   },
 
+  // transferEnded remembers a transfer that is over, so frames still on their way for it are dropped instead of kept.
+  transferEnded(transfer) {
+    if (this.endedTransfers.size >= 1024) {
+      this.endedTransfers.clear();
+    }
+    this.endedTransfers.add(transfer);
+    this.early.delete(transfer);
+  },
+
   keepEarly(transfer, frame) {
+    // Frames of a transfer that already ended, or of more transfers than a page ever waits for, are not kept.
+    if (this.endedTransfers?.has(transfer) || (!this.early.has(transfer) && this.early.size >= 16)) {
+      return;
+    }
     const entry = this.early.get(transfer) ?? { frames: [], bytes: 0 };
     entry.frames.push(frame);
     entry.bytes += frame.chunk ? frame.chunk.length : 0;
@@ -159,6 +172,13 @@ const methods = {
             return;
           }
           received += data.length;
+          if (received > response.size) {
+            // More than the endpoint said the file has: stop instead of filling the disk or, without a file picker, the memory.
+            this.sendTransfer(transfer, "cancel");
+            cleanup();
+            reject(new Error("The endpoint sent more data than the file has."));
+            return;
+          }
           if (received - acked >= 2 * 1024 * 1024 || received === response.size) {
             acked = received;
             this.sendTransfer(transfer, "ack", received);
@@ -188,6 +208,7 @@ const methods = {
       const cleanup = () => {
         state.finished = true;
         this.downloads.delete(transfer);
+        this.transferEnded(transfer);
       };
       this.registerTransfer(this.downloads, transfer, state).catch((error) => {
         cleanup();
@@ -236,6 +257,7 @@ const methods = {
       const cleanup = () => {
         state.finished = true;
         this.uploads.delete(transfer);
+        this.transferEnded(transfer);
       };
       this.registerTransfer(this.uploads, transfer, state);
 

@@ -129,7 +129,9 @@ export class Workspace {
       fontFamily: "Consolas, 'Cascadia Mono', 'DejaVu Sans Mono', monospace",
       fontSize: 14,
       scrollback: 10000,
-      theme: { background: "#0b1220", foreground: "#e2e8f0", cursor: "#5eead4" }
+      theme: { background: "#0b1220", foreground: "#e2e8f0", cursor: "#5eead4" },
+      // Links the endpoint prints (OSC 8) are never opened: a link's text can say anything (security review of 0.3.0 step 7).
+      linkHandler: { activate: () => {} }
     });
     this.fitAddon = new FitAddon();
     this.terminal.loadAddon(this.fitAddon);

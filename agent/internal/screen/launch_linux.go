@@ -53,6 +53,8 @@ type consoleX11 struct {
 	session loginSession
 	display string
 	cookie  string
+	// serverPID is the X server's process when it was found; the children accept only it, or a server of root or the session's user.
+	serverPID int
 }
 
 // findConsole finds the active session of seat0, its X server and the display's cookie.
@@ -68,7 +70,13 @@ func findConsole(ctx context.Context) (consoleX11, error) {
 		}
 		return consoleX11{}, errWayland
 	}
-	servers := xServers()
+	// Only X servers of root or of the session's user count: any user can start a process named Xorg (security review of 0.3.0 step 7).
+	var servers []xServer
+	for _, s := range xServers() {
+		if s.uid == 0 || s.uid == session.uid {
+			servers = append(servers, s)
+		}
+	}
 	var server *xServer
 	for i := range servers {
 		s := servers[i]
@@ -77,7 +85,7 @@ func findConsole(ctx context.Context) (consoleX11, error) {
 			break
 		}
 	}
-	if server == nil && session.display == "" && len(servers) == 1 {
+	if server == nil && session.display == "" && session.kind == "x11" && len(servers) == 1 {
 		server = &servers[0]
 	}
 	if server == nil {
@@ -95,7 +103,7 @@ func findConsole(ctx context.Context) (consoleX11, error) {
 	if err != nil {
 		return consoleX11{}, err
 	}
-	return consoleX11{session: session, display: server.display, cookie: cookie}, nil
+	return consoleX11{session: session, display: server.display, cookie: cookie, serverPID: server.pid}, nil
 }
 
 func describeKind(s loginSession) string {
@@ -152,17 +160,46 @@ func xServers() []xServer {
 			continue
 		}
 		args := strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00")
-		if s, ok := parseXServerCommand(args); ok {
-			out = append(out, s)
+		s, ok := parseXServerCommand(args)
+		if !ok {
+			continue
 		}
+		// The program must really be an X server, not a process that only calls itself one.
+		exe, err := os.Readlink(filepath.Join("/proc", e.Name(), "exe"))
+		if err != nil {
+			continue
+		}
+		if _, known := parseXServerCommand([]string{strings.TrimSuffix(exe, " (deleted)")}); !known {
+			continue
+		}
+		info, err := os.Stat(filepath.Join("/proc", e.Name()))
+		if err != nil {
+			continue
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			continue
+		}
+		s.pid, _ = strconv.Atoi(e.Name())
+		s.uid = stat.Uid
+		out = append(out, s)
 	}
 	return out
 }
 
 // displayCookie finds the display's cookie: in the X server's own authority file, the XAUTHORITY of the session, the user's
-// ~/.Xauthority, or the file GDM keeps for the user.
+// ~/.Xauthority, or the file GDM keeps for the user. The server's file is read as root only when root runs the server; every other file
+// is read with the rights of the session's user (security review of 0.3.0 step 7), so a path a user chose never makes root open a
+// device, a pipe or a file the user may not read.
 func displayCookie(server xServer, session loginSession) (string, error) {
 	hostname, _ := os.Hostname()
+	if server.auth != "" && server.pid != 0 && server.uid == 0 {
+		if data, err := readSmall(server.auth, 1<<20); err == nil {
+			if cookie, err := cookieForDisplay(data, server.display, hostname); err == nil {
+				return cookie, nil
+			}
+		}
+	}
 	var candidates []string
 	if server.auth != "" {
 		candidates = append(candidates, server.auth)
@@ -181,7 +218,7 @@ func displayCookie(server xServer, session loginSession) (string, error) {
 	}
 	candidates = append(candidates, fmt.Sprintf("/run/user/%d/gdm/Xauthority", session.uid))
 	for _, path := range candidates {
-		data, err := readSmall(path, 1<<20)
+		data, err := readAsUser(path, session.uid, 1<<20)
 		if err != nil {
 			continue
 		}
@@ -195,7 +232,7 @@ func displayCookie(server xServer, session loginSession) (string, error) {
 // readSmall reads the start of a regular file. Some of the paths come from the user's session (XAUTHORITY, the home folder), so a
 // named pipe or a device there must never block or feed the agent: the file is opened without blocking and must be a regular file.
 func readSmall(path string, limit int64) ([]byte, error) {
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0) // #nosec G304 -- authority files, read by the agent as root.
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW|syscall.O_NOCTTY, 0) // #nosec G304 -- the server's authority file.
 	if err != nil {
 		return nil, err
 	}
@@ -205,6 +242,44 @@ func readSmall(path string, limit int64) ([]byte, error) {
 		return nil, errors.New("not a regular file")
 	}
 	return io.ReadAll(io.LimitReader(f, limit))
+}
+
+// readAsUser reads the start of a regular file with the rights of a user (never root).
+func readAsUser(path string, uid uint32, limit int64) ([]byte, error) {
+	if uid == 0 {
+		return nil, errors.New("a file of the session is not read as root")
+	}
+	gid := uid
+	if account, err := user.LookupId(strconv.FormatUint(uint64(uid), 10)); err == nil {
+		if n, err := strconv.ParseUint(account.Gid, 10, 32); err == nil {
+			gid = uint32(n)
+		}
+	}
+	f, err := openAs(path, uid, gid)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(io.LimitReader(f, limit))
+}
+
+// supplementaryGroups lists the groups of an account besides its own.
+func supplementaryGroups(uid, gid uint32) []uint32 {
+	groups := []uint32{gid}
+	account, err := user.LookupId(strconv.FormatUint(uint64(uid), 10))
+	if err != nil {
+		return groups
+	}
+	ids, err := account.GroupIds()
+	if err != nil {
+		return groups
+	}
+	for _, id := range ids {
+		if n, err := strconv.ParseUint(id, 10, 32); err == nil && uint32(n) != gid {
+			groups = append(groups, uint32(n))
+		}
+	}
+	return groups
 }
 
 // accountIDs returns the uid and gid of an account name, or the fallback.
@@ -242,7 +317,7 @@ func DefaultLauncher(logger *slog.Logger) Launcher {
 			return nil, err
 		}
 		uid, gid := accountIDs("nobody", 65534, 65534)
-		return spawnX11Child(logger, HelperCommand, "remote control helper", console, uid, gid)
+		return spawnX11Child(logger, HelperCommand, "remote control helper", console, uid, gid, []uint32{gid})
 	}
 }
 
@@ -260,14 +335,14 @@ func DefaultClipboardLauncher(logger *slog.Logger) Launcher {
 		if err != nil {
 			return nil, err
 		}
-		return spawnX11Child(logger, ClipboardCommand, "remote clipboard", console, uid, gid)
+		return spawnX11Child(logger, ClipboardCommand, "remote clipboard", console, uid, gid, supplementaryGroups(uid, gid))
 	}
 }
 
 // spawnX11Child starts one command of the agent binary as root with pipes, and gives it the display, the cookie and the account to drop
 // to as its first frame. It ends with the agent: when the agent stops, even when it is killed, its input closes and it exits. (No
 // parent-death signal: Go ties it to the thread that started the child, which may end while the agent runs.)
-func spawnX11Child(logger *slog.Logger, command, label string, console consoleX11, uid, gid uint32) (Helper, error) {
+func spawnX11Child(logger *slog.Logger, command, label string, console consoleX11, uid, gid uint32, groups []uint32) (Helper, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, fmt.Errorf("find the agent binary: %w", err)
@@ -298,7 +373,8 @@ func spawnX11Child(logger *slog.Logger, command, label string, console consoleX1
 			logger.Info(label+": "+scanner.Text(), "session", console.session.id, "display", console.display)
 		}
 	}()
-	body, _ := json.Marshal(X11Body{Display: console.display, Cookie: console.cookie, UID: uid, GID: gid, Session: console.session.id})
+	body, _ := json.Marshal(X11Body{Display: console.display, Cookie: console.cookie, UID: uid, GID: gid, Session: console.session.id,
+		Groups: groups, ServerPID: console.serverPID, ServerUIDs: []uint32{0, console.session.uid}})
 	if err := WriteFrame(stdin, append([]byte{FrameX11}, body...)); err != nil {
 		_ = h.Close()
 		return nil, fmt.Errorf("start the %s: %w", label, err)
@@ -358,13 +434,52 @@ func EnableSoftwareSAS() (bool, error) { return false, nil }
 // Supported reports whether this platform serves remote control.
 func Supported() bool { return true }
 
-// SessionUser is the user signed in on the screen, "" on the sign-in screen.
+// SessionUser is the user signed in on the screen, "" only when the screen shows the sign-in screen and nobody is signed in on it: that is
+// the only case in which access is granted without consent. It fails closed (security review of 0.3.0 step 7): a screen locked by
+// switching to the greeter still has its user, and a session that cannot be read counts as someone being there.
 func SessionUser(uint32) string {
+	const somebody = "the person at the endpoint"
 	session, err := activeSeatSession(context.Background())
-	if err != nil || session.class != "user" || session.uid == 0 {
-		return ""
+	if err != nil {
+		return somebody
 	}
-	return session.name
+	if session.uid != 0 && session.class != "greeter" && session.class != "lock-screen" {
+		return session.name
+	}
+	// The greeter (or a lock screen) shows: somebody may still be signed in behind it.
+	names, err := seatUsers(context.Background())
+	if err != nil {
+		return somebody
+	}
+	if len(names) > 0 {
+		return names[0]
+	}
+	return ""
+}
+
+// seatUsers lists the users with a session on seat0 (other than a greeter or lock screen).
+func seatUsers(ctx context.Context) ([]string, error) {
+	tool, err := exec.LookPath("loginctl")
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, tool, "show-seat", "seat0", "--property=Sessions", "--value").Output()
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, id := range strings.Fields(string(out)) {
+		s, err := showSession(ctx, tool, id)
+		if err != nil {
+			return nil, err
+		}
+		if s.uid != 0 && s.class != "greeter" && s.class != "lock-screen" {
+			names = append(names, s.name)
+		}
+	}
+	return names, nil
 }
 
 // StageFolder creates the folder of a session's pasted files: owned by root, passable (not listable) for others, inside a root that is
@@ -421,7 +536,7 @@ func AskConsent(ctx context.Context, _ uint32, technician string, timeout time.D
 	if err != nil {
 		return ConsentRefused, err
 	}
-	child, err := spawnX11Child(slog.New(slog.DiscardHandler), ConsentCommand, "remote consent", console, uid, gid)
+	child, err := spawnX11Child(slog.New(slog.DiscardHandler), ConsentCommand, "remote consent", console, uid, gid, []uint32{gid})
 	if err != nil {
 		return ConsentRefused, err
 	}
@@ -474,3 +589,32 @@ func nobodySignedInText() string {
 // StagingRoot is where files pasted into remote control sessions wait on Linux: a folder of its own in /run (memory, empty after a
 // restart), so the path to the files passes no folder of the agent that the user of the session may not enter.
 func StagingRoot(string) string { return "/run/fleeto-remote-clipboard" }
+
+// PrepareStaging makes an empty staging root when the agent starts: files left from sessions that did not end cleanly are deleted. The
+// root lies in /run, where only root creates anything, and is owned by root, passable for others.
+func PrepareStaging(root string) error {
+	if err := CleanStaging(root); err != nil {
+		return err
+	}
+	if err := os.Mkdir(root, batchMode); err != nil {
+		return err
+	}
+	return os.Chmod(root, batchMode)
+}
+
+// OpenAsSessionUser opens a file copied on the screen of the endpoint with the rights of the user signed in there (security review of
+// 0.3.0 step 7): the path comes from that user's clipboard, so root must not read for them what they may not read themselves.
+func OpenAsSessionUser(path string, _ uint32) (*os.File, error) {
+	session, err := activeSeatSession(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	if session.class != "user" || session.uid == 0 {
+		return nil, errors.New("nobody is signed in on the screen of this endpoint")
+	}
+	uid, gid, err := sessionAccount(session)
+	if err != nil {
+		return nil, err
+	}
+	return openAs(path, uid, gid)
+}

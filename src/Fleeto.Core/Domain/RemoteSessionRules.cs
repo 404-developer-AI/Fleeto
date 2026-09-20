@@ -142,6 +142,41 @@ public static class RemoteSessionRules
     public static bool IsValidPublicKey(ReadOnlySpan<byte> key) => key.Length == PublicKeyBytes && key.IndexOfAnyExcept((byte)0) >= 0;
 }
 
+/// <summary>
+/// What web asked the signer to sign for one participant (security review of 0.3.0 step 7): written into the signing request, which only web
+/// can create and nobody can change, so the signer can compare it with the session rows other containers can update. A token is signed only
+/// when they match.
+/// </summary>
+public sealed record RemoteSessionBinding(Guid ParticipantId, Guid SessionId, Guid EndpointId, Guid UserId, string Kind, string Component,
+    int? WindowsSessionId, string BrowserPublicKey)
+{
+    private static readonly System.Text.Json.JsonSerializerOptions Json = new(System.Text.Json.JsonSerializerDefaults.Web);
+
+    public static RemoteSessionBinding Of(RemoteSession session, RemoteSessionParticipant participant) =>
+        new(participant.Id, session.Id, session.EndpointId, participant.UserId, session.Kind.ToString(), session.Component.ToString(),
+            session.WindowsSessionId, Convert.ToBase64String(participant.BrowserPublicKey));
+
+    public byte[] ToPayload() => System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(this, Json);
+
+    /// <summary>The binding in a signing request, or null when it has none or it cannot be read.</summary>
+    public static RemoteSessionBinding? FromPayload(byte[]? payload)
+    {
+        if (payload is not { Length: > 0 and < 4096 })
+        {
+            return null;
+        }
+
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<RemoteSessionBinding>(payload, Json);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+}
+
 /// <summary>The rules one remote control session follows on the endpoint (0.3.0 step 4), carried in its signed token.</summary>
 public sealed record RemoteControlRules(bool ConsentRequired, int ConsentTimeoutSeconds, bool BannerVisible, bool ClipboardEnabled);
 

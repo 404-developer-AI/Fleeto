@@ -15,7 +15,9 @@ using Fleeto.Testing;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Xunit.Abstractions;
 using Endpoint = Fleeto.Core.Entities.Endpoint;
 using RemoteSessionKind = Fleeto.Core.Entities.RemoteSessionKind;
 
@@ -29,16 +31,18 @@ namespace Fleeto.Gateway.Tests;
 /// revoking the certificate or switching the endpoint to agent-only ends the relay; only the instance's own web origin may open one.
 /// </summary>
 [Collection(GatewayCollection.Name)]
-public sealed class RemoteRelayTests
+public sealed partial class RemoteRelayTests
 {
     private static readonly (byte[] Private, byte[] Public) SigningKey = Ed25519.GenerateKeyPair();
     private const string KeyId = "relaytestkey0001";
 
     private readonly GatewayFixture _fixture;
+    private readonly ITestOutputHelper _output;
 
-    public RemoteRelayTests(GatewayFixture fixture)
+    public RemoteRelayTests(GatewayFixture fixture, ITestOutputHelper output)
     {
         _fixture = fixture;
+        _output = output;
     }
 
     private sealed class RelayScope : IAsyncDisposable
@@ -60,7 +64,7 @@ public sealed class RemoteRelayTests
         }
     }
 
-    private async Task<RelayScope> ScopeAsync(EndpointTier tier = EndpointTier.Managed)
+    private async Task<RelayScope> ScopeAsync(EndpointTier tier = EndpointTier.Managed, ILogger<RemoteRelay>? logger = null, GatewayStore? store = null)
     {
         await _fixture.Database.LoadTestLicenseAsync(1000);
         var harness = _fixture.CreateHarness();
@@ -70,9 +74,9 @@ public sealed class RemoteRelayTests
         var control = harness.NewSession(watchdog.Identity(endpoint.Id, AgentComponent.Watchdog));
         Assert.True(await harness.Manager.OpenAsync(control, new Hello { AgentVersion = "0.3.0", Hostname = "SRV-01", Component = Component.Watchdog },
             CancellationToken.None));
-        var relay = new RemoteRelay(harness.Store, harness.Manager, harness.AllowList,
+        var relay = new RemoteRelay(store ?? harness.Store, harness.Manager, harness.AllowList,
             new ProxyProtocolMiddleware(Microsoft.Extensions.Options.Options.Create(harness.Options), NullLogger<ProxyProtocolMiddleware>.Instance),
-            _fixture.Database.Bus, _fixture.Database.Time, Microsoft.Extensions.Options.Options.Create(harness.Options), NullLogger<RemoteRelay>.Instance);
+            _fixture.Database.Bus, _fixture.Database.Time, Microsoft.Extensions.Options.Options.Create(harness.Options), logger ?? NullLogger<RemoteRelay>.Instance);
         var trust = new RelayTrust(_fixture.Database.InstanceId, "https://" + TestDatabase.Fqdn,
             new Dictionary<string, byte[]> { [KeyId] = SigningKey.Public });
         return new RelayScope { Harness = harness, Relay = relay, Endpoint = endpoint, Watchdog = watchdog, Control = control, Trust = trust };

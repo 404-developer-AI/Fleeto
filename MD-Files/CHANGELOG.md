@@ -9,6 +9,44 @@ When a third released version is added, the oldest entry moves to the top of
 
 ## [Unreleased]
 
+### Security
+
+- 0.3.0: What the signer signs can no longer be changed after it was requested. Database triggers keep the binding columns of jobs, remote
+  sessions and their participants as they were written, and web records what it asked for in the signing request, which the signer compares
+  with the rows. A compromised gateway could otherwise have pointed a job or a session at another endpoint, or put its own key in a remote
+  session token and taken over the session.
+- 0.3.0: A watchdog certificate is issued only when the agent signed the request with the key of its own certificate. A compromised gateway
+  could otherwise have obtained a watchdog identity and played the endpoint in a remote session. Agents older than 0.3.0-alpha.17 get no new
+  watchdog certificate; existing watchdog certificates keep working and renew as before.
+- 0.3.0: The gateway can no longer change the tier, client, site or class of an endpoint.
+- 0.3.0: An upload in a remote session no longer follows a link with the name of its temporary file, and refuses a folder that is a link, so
+  a user of the endpoint cannot make the agent overwrite a file of their choice. An upload that did not arrive whole never replaces the file.
+- 0.3.0: Files pasted into a remote control session wait in folders that are created with their access list in one step, below a base folder
+  owned by administrators (Windows) or in /run (Linux), so nobody can put a link in their place.
+- 0.3.0: A file copied on the endpoint is opened with the rights of the user who copied it, so the person at the endpoint cannot have a
+  technician download a file they may not read themselves. The clipboard process of that user can only send clipboard frames.
+- 0.3.0: Text copied on the endpoint goes on the technician's own clipboard by itself only right after they copied in the remote control
+  window; otherwise the window offers it with a button. Someone at the endpoint can no longer put text on a technician's clipboard unasked.
+- 0.3.0: Remote sessions that arrive at the same moment can no longer exceed the limit of sessions per endpoint.
+- 0.3.0: One technician can request at most 20 remote sessions a minute, so the instance's signing budget stays available to everyone.
+- 0.3.0 (Linux): the agent accepts only an X server of root or of the user of the screen, and its children check that the display socket
+  belongs to it. Files of a session (its cookie, a copied file) are read with the rights of that user, never as root. Consent is asked when
+  the screen is locked, and a session state that cannot be read counts as somebody being there.
+- 0.2.1: `systemctl` is called with `--` before the unit, and a service name may not start with a dash.
+
+### Fixed
+
+- 0.3.0: Remote sessions no longer stay "in a session" when the gateway claimed a participant and never paired it; the workers end those
+  after five minutes, and every failure after the claim ends the participant.
+- 0.3.0: A remote session token is no longer accepted in the seconds after it expired (the check now uses the time the token arrived).
+- 0.3.0: Typing a long text on a Linux endpoint no longer stalls the helper, and input that a terminal does not read no longer blocks the
+  session (with it, its idle timeout and its end).
+- 0.3.0: One session serves at most 16 requests and 16 transfers at a time, so a browser cannot fill the endpoint's memory or its handles.
+- 0.3.0: A folder can no longer be copied into one of its own folders without end, and a video frame or a screen size that cannot be real is
+  refused instead of filling the browser's memory.
+- The connection pools of the containers fit the database of an instance (gateway 40, web 30, workers 15, signer 5): under load they used to
+  ask PostgreSQL for more connections than it accepts, and a remote session then failed with "too many clients".
+
 ### Added
 
 - 0.3.0: Remote control on Linux endpoints with X11: the screen of the console (the sign-in screen too when it runs on X11), mouse and

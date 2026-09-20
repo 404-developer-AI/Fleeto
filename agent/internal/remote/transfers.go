@@ -47,36 +47,53 @@ func (b *background) startDownload(ctx context.Context, req requestBody, action 
 	if !info.Mode().IsRegular() {
 		return nil, errors.New("only a regular file can be downloaded")
 	}
-	if info.Size() > b.maxFileBytes() {
-		return nil, fmt.Errorf("this file is larger than the %d MB a transfer may carry", b.maxFileBytes()/(1024*1024))
-	}
-	if req.Offset < 0 || req.Offset > info.Size() {
-		return nil, errors.New("the download cannot resume from there")
-	}
 	file, err := os.Open(p) // #nosec G304 -- an absolute path the authorised technician chose on their own endpoint.
 	if err != nil {
 		return nil, opError("download", err)
 	}
-	if _, err := file.Seek(req.Offset, 0); err != nil {
+	return b.serveDownload(ctx, file, p, req.Offset, action)
+}
+
+// serveDownload sends an opened file. The checks use the opened file itself, so it cannot be swapped between check and read.
+func (b *background) serveDownload(ctx context.Context, file *os.File, target string, offset int64, action string) (map[string]any, error) {
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, errors.New("only a regular file can be downloaded")
+	}
+	if info.Size() > b.maxFileBytes() {
+		_ = file.Close()
+		return nil, fmt.Errorf("this file is larger than the %d MB a transfer may carry", b.maxFileBytes()/(1024*1024))
+	}
+	if offset < 0 || offset > info.Size() {
+		_ = file.Close()
+		return nil, errors.New("the download cannot resume from there")
+	}
+	if _, err := file.Seek(offset, 0); err != nil {
 		_ = file.Close()
 		return nil, opError("download", err)
 	}
 
 	d := &download{b: b, file: file, size: info.Size(), wake: make(chan struct{}, 1), done: make(chan struct{})}
-	d.acked.Store(req.Offset)
+	d.acked.Store(offset)
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
 		_ = file.Close()
 		return nil, errors.New("the session is closing")
 	}
+	if b.transfersFull() {
+		b.mu.Unlock()
+		_ = file.Close()
+		return nil, errBusy
+	}
 	d.id = b.newTransferID()
 	b.downloads[d.id] = d
 	b.mu.Unlock()
 
-	safego.Go(b.s.opts.Logger, "remote download", func() { d.run(ctx, req.Offset) })
+	safego.Go(b.s.opts.Logger, "remote download", func() { d.run(ctx, offset) })
 	// Only the download itself is the audited action, once, with the whole file as the target.
-	b.report(action, p, "")
+	b.report(action, target, "")
 	return map[string]any{"transfer": d.id, "size": info.Size(), "name": info.Name(), "modified": info.ModTime().UnixMilli()}, nil
 }
 
@@ -161,7 +178,8 @@ type upload struct {
 	b        *background
 	id       uint32
 	file     *os.File
-	partPath string
+	part     *partFile
+	destName string
 	destPath string
 	written  int64
 	size     int64
@@ -183,38 +201,47 @@ func (b *background) startUpload(req requestBody, action string) (map[string]any
 		return nil, fmt.Errorf("a file may be at most %d MB", b.maxFileBytes()/(1024*1024))
 	}
 	dest := filepath.Join(dir, name)
-	if info, err := os.Stat(dest); err == nil && info.IsDir() {
+	if info, err := os.Lstat(dest); err == nil && info.IsDir() {
 		return nil, fmt.Errorf("%s is a folder", name)
 	}
-	part := dest + partSuffix
-	file, err := os.OpenFile(part, os.O_CREATE|os.O_WRONLY, 0o600) // #nosec G304 -- an absolute path on the technician's own endpoint.
+	// The part file is made without following links (partfile_*.go): the folder may belong to a local user.
+	part, resumed, err := openPart(dir, name+partSuffix, req.Offset > 0)
 	if err != nil {
 		return nil, opError("upload", err)
 	}
+	file := part.file
 
 	// Resume: keep at most the bytes the browser confirms it already sent, and continue there.
 	resume := int64(0)
-	if req.Offset > 0 {
+	if resumed {
 		if info, err := file.Stat(); err == nil {
 			resume = min(req.Offset, info.Size())
 		}
 	}
 	if err := file.Truncate(resume); err != nil {
 		_ = file.Close()
+		part.discard()
 		return nil, opError("upload", err)
 	}
 	if _, err := file.Seek(resume, 0); err != nil {
 		_ = file.Close()
+		part.discard()
 		return nil, opError("upload", err)
 	}
 
-	u := &upload{b: b, file: file, partPath: part, destPath: dest, written: resume, size: req.Size, acked: resume, action: action}
+	u := &upload{b: b, file: file, part: part, destName: name, destPath: dest, written: resume, size: req.Size, acked: resume, action: action}
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
 		_ = file.Close()
-		_ = os.Remove(part)
+		part.discard()
 		return nil, errors.New("the session is closing")
+	}
+	if b.transfersFull() {
+		b.mu.Unlock()
+		_ = file.Close()
+		part.discard()
+		return nil, errBusy
 	}
 	u.id = b.newTransferID()
 	b.uploads[u.id] = u
@@ -258,17 +285,21 @@ func (b *background) finishUpload(transfer uint32, browserError string) {
 		u.abort()
 		return
 	}
+	if u.written != u.size {
+		// A file that is not whole never replaces anything.
+		u.failWith("the upload ended before the whole file arrived")
+		return
+	}
 	if err := u.file.Sync(); err != nil {
 		u.failWith("the file could not be saved")
 		return
 	}
 	if err := u.file.Close(); err != nil {
-		_ = os.Remove(u.partPath)
+		u.part.discard()
 		b.sendTransfer(transfer, "error", u.written, "the file could not be saved")
 		return
 	}
-	if err := os.Rename(u.partPath, u.destPath); err != nil {
-		_ = os.Remove(u.partPath)
+	if err := u.part.commit(u.destName); err != nil {
 		b.sendTransfer(transfer, "error", u.written, opError("save the upload", err).Error())
 		return
 	}
@@ -286,7 +317,7 @@ func (u *upload) failWith(reason string) {
 	}
 	u.failed = true
 	_ = u.file.Close()
-	_ = os.Remove(u.partPath)
+	u.part.discard()
 	u.b.sendTransfer(u.id, "error", u.written, reason)
 }
 
@@ -296,7 +327,7 @@ func (u *upload) abort() {
 	}
 	u.failed = true
 	_ = u.file.Close()
-	_ = os.Remove(u.partPath)
+	u.part.discard()
 }
 
 func (b *background) maxFileBytes() int64 {

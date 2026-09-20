@@ -82,10 +82,51 @@ type background struct {
 	closed    bool
 	// batches are the folders of files pasted in a remote control session, by the number the browser got.
 	batches map[int]string
+	// busy holds a place for every request that runs; a full channel refuses the next one.
+	busy chan struct{}
 }
 
+// Limits of one session (security review of 0.3.0 step 7): a browser that asks too much at once gets an answer, not the endpoint's
+// memory and file handles.
+const (
+	// maxRequests is how many requests of a session run at the same time.
+	maxRequests = 16
+	// maxTransfers is how many uploads and downloads of a session are open at the same time.
+	maxTransfers = 16
+)
+
+var errBusy = errors.New("the endpoint is busy with other operations of this session; try again when they finish")
+
 func newBackground(s *Session) *background {
-	return &background{s: s, downloads: map[uint32]*download{}, uploads: map[uint32]*upload{}, batches: map[int]string{}}
+	return &background{s: s, downloads: map[uint32]*download{}, uploads: map[uint32]*upload{}, batches: map[int]string{},
+		busy: make(chan struct{}, maxRequests)}
+}
+
+// run runs a request on a goroutine of its own when a place is free, and answers at once that the endpoint is busy when none is.
+func (b *background) run(ctx context.Context, req requestBody, label string, serve func(context.Context, requestBody) (map[string]any, error)) {
+	select {
+	case b.busy <- struct{}{}:
+	default:
+		_ = b.s.sendJSON(ctx, FrameResponse, map[string]any{"id": req.ID, "ok": false, "error": errBusy.Error()})
+		return
+	}
+	safego.Go(b.s.opts.Logger, label, func() {
+		defer func() { <-b.busy }()
+		result, err := serve(ctx, req)
+		reply := map[string]any{"id": req.ID, "ok": err == nil}
+		if err != nil {
+			reply["error"] = err.Error()
+		}
+		for k, v := range result {
+			reply[k] = v
+		}
+		_ = b.s.sendJSON(ctx, FrameResponse, reply)
+	})
+}
+
+// transfersFull reports, with b.mu held, whether the session has the most transfers open it may.
+func (b *background) transfersFull() bool {
+	return len(b.uploads)+len(b.downloads) >= maxTransfers
 }
 
 func (b *background) handle(ctx context.Context, frameType byte, body []byte) {
@@ -96,7 +137,7 @@ func (b *background) handle(ctx context.Context, frameType byte, body []byte) {
 			return
 		}
 		// Each request runs on its own goroutine: a directory scan or a copy must not block the session's frame loop.
-		safego.Go(b.s.opts.Logger, "remote background request", func() { b.request(ctx, req) })
+		b.run(ctx, req, "remote background request", b.dispatch)
 	case FrameChunk:
 		if len(body) < 4 {
 			return
@@ -108,18 +149,6 @@ func (b *background) handle(ctx context.Context, frameType byte, body []byte) {
 			b.transferControl(t)
 		}
 	}
-}
-
-func (b *background) request(ctx context.Context, req requestBody) {
-	result, err := b.dispatch(ctx, req)
-	reply := map[string]any{"id": req.ID, "ok": err == nil}
-	if err != nil {
-		reply["error"] = err.Error()
-	}
-	for k, v := range result {
-		reply[k] = v
-	}
-	_ = b.s.sendJSON(ctx, FrameResponse, reply)
 }
 
 func (b *background) dispatch(ctx context.Context, req requestBody) (map[string]any, error) {
@@ -294,7 +323,7 @@ func (b *background) copy(ctx context.Context, req requestBody) (map[string]any,
 		dest = filepath.Join(dest, filepath.Base(src))
 	}
 	if pathsOverlap(src, dest) {
-		return nil, errors.New("a file cannot be copied onto itself")
+		return nil, errors.New("a file or folder cannot be copied onto itself or into itself")
 	}
 	if info.IsDir() {
 		err = copyTree(ctx, src, dest)
@@ -437,8 +466,17 @@ func parentPath(p string) string {
 	return parent
 }
 
-func pathsOverlap(a, b string) bool {
-	return strings.EqualFold(a, b)
+// pathsOverlap reports whether a copy of src to dest would copy onto itself or into itself (a folder into one of its own folders, which
+// would copy without end).
+func pathsOverlap(src, dest string) bool {
+	if samePathName(src, dest) {
+		return true
+	}
+	prefix := src
+	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
+		prefix += string(filepath.Separator)
+	}
+	return len(dest) > len(prefix) && samePathName(dest[:len(prefix)], prefix)
 }
 
 func copyFile(src, dest string, mode os.FileMode) error {

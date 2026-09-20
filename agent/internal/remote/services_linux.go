@@ -41,17 +41,17 @@ func unit(name string) string {
 }
 
 func startService(ctx context.Context, name string) error {
-	_, err := runSystemctl(ctx, "start", unit(name))
+	_, err := runSystemctl(ctx, "start", "--", unit(name))
 	return err
 }
 
 func stopService(ctx context.Context, name string) error {
-	_, err := runSystemctl(ctx, "stop", unit(name))
+	_, err := runSystemctl(ctx, "stop", "--", unit(name))
 	return err
 }
 
 func restartService(ctx context.Context, name string) error {
-	_, err := runSystemctl(ctx, "restart", unit(name))
+	_, err := runSystemctl(ctx, "restart", "--", unit(name))
 	return err
 }
 
@@ -59,21 +59,21 @@ func setStartType(ctx context.Context, name, startType string) error {
 	u := unit(name)
 	switch startType {
 	case "automatic", "automatic_delayed":
-		_, err := runSystemctl(ctx, "unmask", u)
+		_, err := runSystemctl(ctx, "unmask", "--", u)
 		if err != nil {
 			return err
 		}
-		_, err = runSystemctl(ctx, "enable", u)
+		_, err = runSystemctl(ctx, "enable", "--", u)
 		return err
 	case "manual":
-		_, err := runSystemctl(ctx, "unmask", u)
+		_, err := runSystemctl(ctx, "unmask", "--", u)
 		if err != nil {
 			return err
 		}
-		_, err = runSystemctl(ctx, "disable", u)
+		_, err = runSystemctl(ctx, "disable", "--", u)
 		return err
 	case "disabled":
-		_, err := runSystemctl(ctx, "mask", u)
+		_, err := runSystemctl(ctx, "mask", "--", u)
 		return err
 	default:
 		return errors.New("choose automatic, manual or disabled")
@@ -81,7 +81,7 @@ func setStartType(ctx context.Context, name, startType string) error {
 }
 
 func serviceState(ctx context.Context, name string) (string, error) {
-	out, err := runSystemctl(ctx, "show", unit(name), "--property=ActiveState")
+	out, err := runSystemctl(ctx, "show", "--property=ActiveState", "--", unit(name))
 	if err != nil {
 		return "", err
 	}

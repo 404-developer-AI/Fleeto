@@ -88,7 +88,8 @@ public sealed class AgentConnectionHandler
         });
         using var session = new AgentSession(identity, RemoteAddress(context), _options.SendQueueCapacity, _time.GetUtcNow().UtcDateTime)
         {
-            PublicIpAddress = PublicIp(context)
+            PublicIpAddress = PublicIp(context),
+            CertificatePublicKey = certificate!.PublicKey.ExportSubjectPublicKeyInfo()
         };
         await RunAsync(webSocket, session);
     }

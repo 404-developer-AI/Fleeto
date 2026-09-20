@@ -71,6 +71,9 @@ type SessionsOptions struct {
 	StagingRoot string
 	// Stage creates a folder for pasted files that only the system, administrators and the user of the Windows session can read.
 	Stage func(dir string, session uint32) error
+	// OpenAsUser opens a file copied on the endpoint with the rights of the user of the session, whose clipboard named it (security review
+	// of 0.3.0 step 7); nil opens it without following a link, as the agent.
+	OpenAsUser func(path string, session uint32) (*os.File, error)
 	// Grant hands pasted files to the user of the session before they go on the clipboard (Linux); nil where Stage already did.
 	Grant  func(paths []string, session uint32) error
 	Logger *slog.Logger
@@ -799,19 +802,28 @@ func (p *Participant) PlaceFiles(paths []string) error {
 	return nil
 }
 
-// CopiedFile returns the path of a file copied on the endpoint, by the index the browser was offered.
-func (p *Participant) CopiedFile(index int) (string, error) {
+// OpenCopiedFile opens a file copied on the endpoint, by the index the browser was offered, with the rights of the user whose clipboard
+// named it: they cannot make the technician fetch a file they may not read themselves.
+func (p *Participant) OpenCopiedFile(index int) (*os.File, string, error) {
 	h := p.h
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if index < 0 || index >= len(h.copied) {
-		return "", errors.New("that file is no longer on the endpoint clipboard; copy it again")
+		h.mu.Unlock()
+		return nil, "", errors.New("that file is no longer on the endpoint clipboard; copy it again")
 	}
 	f := h.copied[index]
+	h.mu.Unlock()
 	if f.Dir {
-		return "", errors.New("a folder cannot be downloaded; copy the files in it instead")
+		return nil, "", errors.New("a folder cannot be downloaded; copy the files in it instead")
 	}
-	return f.Path, nil
+	if h.s.opts.OpenAsUser == nil {
+		return nil, "", errors.New("files copied on this endpoint cannot be downloaded")
+	}
+	file, err := h.s.opts.OpenAsUser(f.Path, h.controller.CurrentSession())
+	if err != nil {
+		return nil, "", fmt.Errorf("the user of the endpoint cannot read %s: %w", filepath.Base(f.Path), err)
+	}
+	return file, f.Path, nil
 }
 
 // enqueue passes a frame to the technician's sender. A technician whose connection cannot keep up is disconnected.

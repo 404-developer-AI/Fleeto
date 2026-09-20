@@ -87,7 +87,12 @@ public sealed class FakeSigner : IAsyncDisposable
                     Id = request.Id, SubjectId = request.SubjectId, Payload = RecoverRequest.Parser.ParseFrom(request.Payload).CsrDer.ToByteArray()
                 }, cancellationToken),
                 SigningRequestKind.AgentEnrollment => await EnrollAsync(request, cancellationToken),
-                SigningRequestKind.WatchdogCertificate => await RenewAsync(request, cancellationToken, AgentComponent.Watchdog),
+                // The gateway passes the agent's vouched request on (0.3.0 step 7); this fake signer only issues for its CSR.
+                SigningRequestKind.WatchdogCertificate => await RenewAsync(new SigningRequest
+                {
+                    Id = request.Id, SubjectId = request.SubjectId,
+                    Payload = WatchdogCertificateRequest.Parser.ParseFrom(request.Payload).CsrDer.ToByteArray()
+                }, cancellationToken, AgentComponent.Watchdog),
                 _ => null
             };
 

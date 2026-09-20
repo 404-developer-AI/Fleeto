@@ -1,7 +1,7 @@
 // The browser side of a remote background session (0.3.0): key exchange, the encrypted relay connection, the terminal, and the file,
 // service and process workspace. Loaded as a module by the Remote background window. The session key never leaves this page; the server
 // only signs its public half. The workspace UI is in remote-ui.mjs.
-import { deriveSessionKeys, Frame, FrameCipher, fromBase64, generateBrowserKey, supported as cryptoSupported, toBase64 } from "./remote-crypto.mjs";
+import { deriveSessionKeys, Frame, FrameCipher, fromBase64, generateBrowserKey, supported as cryptoSupported, toBase64, wipeKeys } from "./remote-crypto.mjs";
 import { installTransfers, transferState } from "./remote-transfers.mjs";
 import { Workspace } from "./remote-ui.mjs";
 
@@ -107,6 +107,7 @@ class RemoteSession {
           fromBase64(message.signature), fromBase64(message.certificatePublicKey), this.ticket.fingerprints);
         this.send = await FrameCipher.create(keys.browserToEndpoint);
         this.receive = await FrameCipher.create(keys.endpointToBrowser);
+        wipeKeys(keys);
         this.browserKey = null;
       }
       return;

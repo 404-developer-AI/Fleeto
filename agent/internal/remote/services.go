@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/404-developer-AI/Fleeto/agent/internal/inventory"
@@ -67,6 +68,10 @@ func (b *background) serviceAction(ctx context.Context, req requestBody) (map[st
 func serviceName(name string) (string, error) {
 	if name == "" || len(name) > 256 {
 		return "", errors.New("choose a service")
+	}
+	// A name that starts with a dash would be read as an option by the service manager.
+	if strings.HasPrefix(name, "-") {
+		return "", errors.New("that is not a valid service name")
 	}
 	for _, r := range name {
 		// A service or unit name is letters, digits and a few punctuation marks; never a space, slash or control character.

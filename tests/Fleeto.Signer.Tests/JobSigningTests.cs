@@ -54,7 +54,8 @@ public sealed class JobSigningTests
     }
 
     private async Task<Job> CreateJobAsync(Scope scope, ScriptVersion version, Script script, Guid? initiatorId = null, TimeSpan? validity = null,
-        string? sha = null, JobState state = JobState.PendingSignature, JobRunAs runAs = JobRunAs.Service, string? runAsUserId = null)
+        string? sha = null, JobState state = JobState.PendingSignature, JobRunAs runAs = JobRunAs.Service, string? runAsUserId = null,
+        DateTime? createdAt = null)
     {
         await using var db = _fixture.Database.DbFactory.CreateSystem();
         var job = new Job
@@ -62,7 +63,7 @@ public sealed class JobSigningTests
             Id = Guid.NewGuid(), ClientId = scope.Client.Id, EndpointId = scope.Endpoint.Id, BatchId = Guid.NewGuid(), Type = JobType.Script,
             ScriptId = script.Id, ScriptVersionId = version.Id, ScriptName = script.Name, ScriptVersionNumber = version.Number, Language = script.Language,
             ScriptSha256 = sha ?? version.Sha256, TimeoutSeconds = version.TimeoutSeconds, MaxOutputBytes = ScriptRules.DefaultMaxOutputBytes,
-            CreatedAt = _fixture.Now, ValidUntil = _fixture.Now + (validity ?? TimeSpan.FromHours(24)), InitiatedByUserId = initiatorId ?? scope.TechnicianId,
+            CreatedAt = createdAt ?? _fixture.Now, ValidUntil = (createdAt ?? _fixture.Now) + (validity ?? TimeSpan.FromHours(24)), InitiatedByUserId = initiatorId ?? scope.TechnicianId,
             InitiatedByName = "Tess Tech", State = state, RunAs = runAs, RunAsUserId = runAsUserId
         };
         db.Jobs.Add(job);
@@ -186,14 +187,10 @@ public sealed class JobSigningTests
         var (_, changed) = await SignAsync(await CreateJobAsync(scope, version, script, sha: new string('a', 64)));
         Assert.Equal(JobHandler.ScriptChangedReason, changed.RefusalReason);
 
-        await using (var db = _fixture.Database.DbFactory.CreateSystem())
-        {
-            var past = _fixture.Now.AddHours(-1);
-            var job = await CreateJobAsync(scope, version, script, validity: TimeSpan.FromMinutes(1));
-            await db.Jobs.Where(j => j.Id == job.Id).ExecuteUpdateAsync(s => s.SetProperty(j => j.ValidUntil, _fixture.Now).SetProperty(j => j.CreatedAt, past));
-            var (_, expired) = await SignAsync(job);
-            Assert.Equal(JobHandler.ValidityReason, expired.RefusalReason);
-        }
+        // Requested an hour ago, valid until now: expired. (A job row cannot be changed after it was requested, so it is created that way.)
+        var job = await CreateJobAsync(scope, version, script, validity: TimeSpan.FromHours(1), createdAt: _fixture.Now.AddHours(-1));
+        var (_, expired) = await SignAsync(job);
+        Assert.Equal(JobHandler.ValidityReason, expired.RefusalReason);
 
         var (linuxScript, linuxVersion) = await _fixture.Database.CreateScriptAsync(null, scope.TechnicianId, ScriptLanguage.Bash, "echo hi");
         var (_, platform) = await SignAsync(await CreateJobAsync(scope, linuxVersion, linuxScript));

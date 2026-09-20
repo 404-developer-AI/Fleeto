@@ -213,6 +213,8 @@ func (b *xBanner) draw() {
 func (b *xBanner) keepOnTop() {
 	if b.shown {
 		b.ui.raise(b.win)
+		// Drawn again too: an Expose event may have been dropped while the helper was busy.
+		b.draw()
 	}
 }
 

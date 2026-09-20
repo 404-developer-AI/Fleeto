@@ -76,7 +76,11 @@ func RunHelper(ctx context.Context, in io.Reader, out io.Writer, _ uint32, logge
 				return
 			}
 			if ev != nil {
-				events <- ev
+				// Never block the connection's reader: when the loop is busy (typing a long text) an event is dropped, not the connection.
+				select {
+				case events <- ev:
+				default:
+				}
 			}
 		}
 	}()
@@ -150,6 +154,8 @@ func newXHelper(conn *xgb.Conn, write func([]byte) error, logger *slog.Logger, b
 	if randr.Init(conn) == nil {
 		if v, err := randr.QueryVersion(conn, 1, 5).Reply(); err == nil && (v.MajorVersion > 1 || v.MinorVersion >= 5) {
 			h.randr = true
+			// Screen changes (a new resolution, a monitor added) arrive as events; the monitors are read again at once.
+			randr.SelectInput(conn, screen.Root, randr.NotifyMaskScreenChange)
 		}
 	}
 	if ui, err := newXUI(conn, screen); err == nil {
@@ -174,13 +180,29 @@ func checkPixelFormat(setup *xproto.SetupInfo, screen *xproto.ScreenInfo) error 
 	}
 	for _, f := range setup.PixmapFormats {
 		if f.Depth == screen.RootDepth {
-			if f.BitsPerPixel == 32 && (screen.RootDepth == 24 || screen.RootDepth == 32) {
-				return nil
+			if f.BitsPerPixel != 32 || (screen.RootDepth != 24 && screen.RootDepth != 32) {
+				return fmt.Errorf("the X screen has %d-bit color, and remote control needs 24-bit color", screen.RootDepth)
 			}
-			return fmt.Errorf("the X screen has %d-bit color, and remote control needs 24-bit color", screen.RootDepth)
+			// Blue in the low byte, red in the third: the order the tiles read. A screen the other way round would show swapped colors.
+			if visual := rootVisual(screen); visual != nil && (visual.RedMask != 0xFF0000 || visual.BlueMask != 0xFF) {
+				return errors.New("the X screen stores its colors in an order this endpoint does not read")
+			}
+			return nil
 		}
 	}
 	return errors.New("the X screen has an unknown pixel format")
+}
+
+// rootVisual is the visual of the root window.
+func rootVisual(screen *xproto.ScreenInfo) *xproto.VisualInfo {
+	for _, depth := range screen.AllowedDepths {
+		for i := range depth.Visuals {
+			if depth.Visuals[i].VisualId == screen.RootVisual {
+				return &depth.Visuals[i]
+			}
+		}
+	}
+	return nil
 }
 
 func (h *xHelper) loop(ctx context.Context, frames <-chan []byte, events <-chan xgb.Event) error {

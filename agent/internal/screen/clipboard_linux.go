@@ -81,7 +81,11 @@ func RunClipboardAgent(ctx context.Context, in io.Reader, out io.Writer, logger 
 				return
 			}
 			if ev != nil {
-				events <- ev
+				// Never block the connection's reader: when the loop is busy (typing a long text) an event is dropped, not the connection.
+				select {
+				case events <- ev:
+				default:
+				}
 			}
 		}
 	}()
@@ -259,7 +263,8 @@ func (c *xClipboard) convert(target string, at xproto.Timestamp) {
 
 // converted takes the answer of the owner to a conversion.
 func (c *xClipboard) converted(e xproto.SelectionNotifyEvent) {
-	if c.reading == "" {
+	// Only the answer to the conversion in progress counts; a late answer to an earlier one is ignored.
+	if c.reading == "" || e.Target != c.atoms[c.reading] || (e.Property != 0 && e.Property != c.atoms["FLEETO_CLIPBOARD"]) {
 		return
 	}
 	if e.Property == 0 {
@@ -285,8 +290,9 @@ func (c *xClipboard) converted(e xproto.SelectionNotifyEvent) {
 
 // gatherPiece reads one piece of an INCR transfer; an empty piece ends it.
 func (c *xClipboard) gatherPiece() {
-	reply, err := xproto.GetProperty(c.conn, true, c.win, c.atoms["FLEETO_CLIPBOARD"], 0, 0, uint32(incrChunk)).Reply()
-	if err != nil {
+	reply, err := xproto.GetProperty(c.conn, true, c.win, c.atoms["FLEETO_CLIPBOARD"], 0, 0, uint32(MaxClipboardBytes/4+1024)).Reply()
+	if err != nil || reply.BytesAfter > 0 {
+		// A piece larger than the whole clipboard may be is not read on.
 		c.finish(nil)
 		return
 	}

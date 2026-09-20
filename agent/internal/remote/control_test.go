@@ -188,11 +188,12 @@ type clipboardScreen struct {
 
 func (s *clipboardScreen) StagingBatch() (string, error) { return os.MkdirTemp(s.root, "batch-") }
 
-func (s *clipboardScreen) CopiedFile(index int) (string, error) {
+func (s *clipboardScreen) OpenCopiedFile(index int) (*os.File, string, error) {
 	if index != 0 {
-		return "", errors.New("that file is no longer on the endpoint clipboard; copy it again")
+		return nil, "", errors.New("that file is no longer on the endpoint clipboard; copy it again")
 	}
-	return s.copied, nil
+	f, err := os.Open(s.copied)
+	return f, s.copied, err
 }
 
 func (s *clipboardScreen) PlaceFiles(paths []string) error {

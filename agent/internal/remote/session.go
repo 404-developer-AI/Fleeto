@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -112,7 +113,8 @@ type ScreenHandler interface {
 // the endpoint, and placing staged files on the endpoint clipboard.
 type ClipboardFiles interface {
 	StagingBatch() (string, error)
-	CopiedFile(index int) (string, error)
+	// OpenCopiedFile opens a file copied on the endpoint with the rights of the user who copied it.
+	OpenCopiedFile(index int) (*os.File, string, error)
 	PlaceFiles(paths []string) error
 }
 
@@ -393,18 +395,21 @@ func (s *Session) open(ctx context.Context, open openBody) {
 		_ = s.sendJSON(ctx, FrameOpened, reply)
 		return
 	}
-	terminal, err := s.opts.Open(open.Shell, clampSize(open.Cols, 20, 500), clampSize(open.Rows, 5, 300))
+	opened, err := s.opts.Open(open.Shell, clampSize(open.Cols, 20, 500), clampSize(open.Rows, 5, 300))
 	if err != nil {
 		reply.Error = err.Error()
 		_ = s.sendJSON(ctx, FrameOpened, reply)
 		return
 	}
+	terminal := newQueuedTerminal(opened)
 	s.mu.Lock()
 	s.terminals[channel] = terminal
 	s.mu.Unlock()
 	reply.PTY = terminal.PTY()
 	s.opts.Logger.Info("remote terminal opened", "participant", s.opts.Token.GetParticipantId(), "technician", s.opts.Token.GetTechnicianName(),
 		"shell", open.Shell)
+	// Opening a terminal is audited like the other actions of a session (never what is typed in it).
+	s.report("terminal.open", open.Shell, "")
 	if err := s.sendJSON(ctx, FrameOpened, reply); err != nil {
 		return
 	}

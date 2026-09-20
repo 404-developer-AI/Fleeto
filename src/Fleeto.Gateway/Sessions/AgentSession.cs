@@ -32,6 +32,9 @@ public sealed class AgentSession : IDisposable
     private int _agentOnlyWarned;
     private int _ring = (int)UpdateRing.Standard;
 
+    /// <summary>The public key (SubjectPublicKeyInfo) of the certificate the connection authenticated with; empty when not known.</summary>
+    public byte[] CertificatePublicKey { get; init; } = [];
+
     public AgentSession(AgentIdentity identity, string remoteAddress, int sendQueueCapacity, DateTime now)
     {
         Identity = identity;

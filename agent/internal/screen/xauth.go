@@ -123,6 +123,9 @@ type xServer struct {
 	vt      int
 	// wayland is set for Xwayland: the screen belongs to a Wayland compositor, and remote control cannot use it.
 	wayland bool
+	// pid and uid are the process and its owner, filled in from /proc; 0 when unknown.
+	pid int
+	uid uint32
 }
 
 // parseXServerCommand reads the display, the authority file and the virtual terminal from the command line of an X server (Xorg, X,

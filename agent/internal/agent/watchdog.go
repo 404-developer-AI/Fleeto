@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/http"
@@ -270,8 +272,14 @@ func (m *watchdogManager) ensureIdentity(ctx context.Context, force bool) error 
 	case <-m.certificates:
 	default:
 	}
+	// The agent vouches for its watchdog with its own certificate key (security review of 0.3.0 step 7): the signer issues a watchdog
+	// certificate only with this signature, so a compromised gateway cannot get one for a key of its own.
+	vouch, err := vouchForWatchdog(m.a.key, csr)
+	if err != nil {
+		return fmt.Errorf("sign the watchdog certificate request: %w", err)
+	}
 	if !m.a.enqueue(&agentv1.AgentMessage{Body: &agentv1.AgentMessage_WatchdogCertificate{
-		WatchdogCertificate: &agentv1.WatchdogCertificateRequest{CsrDer: csr},
+		WatchdogCertificate: &agentv1.WatchdogCertificateRequest{CsrDer: csr, AgentSignature: vouch},
 	}}) {
 		return update.Transient(errors.New("the request for a watchdog certificate could not be queued"))
 	}
@@ -392,4 +400,15 @@ func copyExecutable(from, to string) error {
 		return fmt.Errorf("install %s: %w", to, err)
 	}
 	return nil
+}
+
+// watchdogCSRContext is the context the agent's signature over a watchdog certificate request starts with; the signer uses the same.
+const watchdogCSRContext = "fleeto-watchdog-csr-v1"
+
+// vouchForWatchdog signs a watchdog certificate request with the agent's certificate key: ECDSA (ASN.1 DER) over
+// SHA-256(context || 0x00 || csr).
+func vouchForWatchdog(key crypto.Signer, csr []byte) ([]byte, error) {
+	message := append(append([]byte(watchdogCSRContext), 0), csr...)
+	digest := sha256.Sum256(message)
+	return key.Sign(rand.Reader, digest[:], crypto.SHA256)
 }

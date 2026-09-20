@@ -240,6 +240,20 @@ public sealed class RemoteSessionServiceTests
     }
 
     [Fact]
+    public void One_technician_can_request_only_so_many_sessions_a_minute()
+    {
+        var user = Guid.NewGuid();
+        for (var i = 0; i < RemoteSessionService.RequestsPerUserPerMinute; i++)
+        {
+            Assert.True(Service.TryTakeRequest(user));
+        }
+
+        Assert.False(Service.TryTakeRequest(user));
+        // Another technician is not held up by the first.
+        Assert.True(Service.TryTakeRequest(Guid.NewGuid()));
+    }
+
+    [Fact]
     public async Task Remote_control_on_linux_shows_the_screen_only()
     {
         var endpoint = await ControlEndpointAsync(RemoteSessionRules.MinimumLinuxAgentVersion, platform: "linux");

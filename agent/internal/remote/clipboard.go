@@ -8,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/404-developer-AI/Fleeto/agent/internal/safego"
 )
 
 // Files on the clipboard of a remote control session (0.3.0 step 4). The technician pastes or drags files into the window: the browser
@@ -29,17 +27,7 @@ func (b *background) handleControl(ctx context.Context, body []byte) {
 	if json.Unmarshal(body, &req) != nil || req.ID == "" {
 		return
 	}
-	safego.Go(b.s.opts.Logger, "remote control clipboard request", func() {
-		result, err := b.dispatchControl(ctx, req)
-		reply := map[string]any{"id": req.ID, "ok": err == nil}
-		if err != nil {
-			reply["error"] = err.Error()
-		}
-		for k, v := range result {
-			reply[k] = v
-		}
-		_ = b.s.sendJSON(ctx, FrameResponse, reply)
-	})
+	b.run(ctx, req, "remote control clipboard request", b.dispatchControl)
 }
 
 func (b *background) dispatchControl(ctx context.Context, req requestBody) (map[string]any, error) {
@@ -91,11 +79,11 @@ func (b *background) dispatchControl(ctx context.Context, req requestBody) (map[
 		}
 		return map[string]any{"count": len(paths)}, nil
 	case "clipboard.download":
-		path, err := files.CopiedFile(req.Index)
+		file, path, err := files.OpenCopiedFile(req.Index)
 		if err != nil {
 			return nil, err
 		}
-		return b.startDownload(ctx, requestBody{Path: path, Offset: req.Offset}, "clipboard.download")
+		return b.serveDownload(ctx, file, path, req.Offset, "clipboard.download")
 	default:
 		return nil, fmt.Errorf("%q is not available in a remote control session", req.Op)
 	}

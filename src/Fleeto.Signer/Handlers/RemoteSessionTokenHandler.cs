@@ -36,6 +36,8 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
     public const string AgentVersionReason =
         "The agent of this endpoint is too old for remote control. It needs Fleeto 0.3.0 or later (on Linux 0.3.0-alpha.16 or later); the agent updates with its update ring.";
     public const string LinuxSessionReason = "Remote control on Linux shows the screen of the endpoint only.";
+    public const string BindingReason =
+        "The remote session request was changed after it was made, so it was not signed. Open the session again, and tell an administrator if it happens again.";
 
     private readonly SignerKeyRing _keyRing;
     private readonly LicenseService _licenses;
@@ -96,6 +98,15 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
         if (servedBy == Component.Unspecified)
         {
             return SigningOutcome.Refused(KindReason);
+        }
+
+        // The rows must still say what web asked for (security review of 0.3.0 step 7): another container that can update them must never
+        // get a token for its own key, another endpoint or another kind of session.
+        if (RemoteSessionBinding.FromPayload(context.Request.Payload) is not { } binding || binding != RemoteSessionBinding.Of(session, participant))
+        {
+            _logger.LogWarning("Remote session token for participant {ParticipantId} refused: the session rows differ from the request web made",
+                participant.Id);
+            return SigningOutcome.Refused(BindingReason);
         }
 
         if (!RemoteSessionRules.IsValidPublicKey(participant.BrowserPublicKey))

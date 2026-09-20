@@ -96,6 +96,41 @@ public static class InternalCertificateAuthority
     public static string PublicKeyFingerprint(X509Certificate2 certificate) =>
         KeyIds.Sha256Hex(certificate.PublicKey.ExportSubjectPublicKeyInfo());
 
+    /// <summary>
+    /// Verifies the agent's signature over a watchdog certificate request: ECDSA P-256 (ASN.1 DER) with the key <paramref name="agentPublicKey"/>
+    /// (SubjectPublicKeyInfo) over <c>SignatureContexts.WatchdogCsr || 0x00 || csr</c>. Returns the key's fingerprint, or null when anything
+    /// does not verify.
+    /// </summary>
+    public static string? VerifyWatchdogVouch(byte[] agentPublicKey, byte[] csrDer, byte[] signature)
+    {
+        if (agentPublicKey.Length is 0 or > 1024 || signature.Length is 0 or > 256 || csrDer.Length == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var key = ECDsa.Create();
+            key.ImportSubjectPublicKeyInfo(agentPublicKey, out var read);
+            if (read != agentPublicKey.Length || key.KeySize != 256)
+            {
+                return null;
+            }
+
+            var context = System.Text.Encoding.ASCII.GetBytes(SignatureContexts.WatchdogCsr);
+            var message = new byte[context.Length + 1 + csrDer.Length];
+            context.CopyTo(message, 0);
+            csrDer.CopyTo(message, context.Length + 1);
+            return key.VerifyData(message, signature, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence)
+                ? KeyIds.Sha256Hex(agentPublicKey)
+                : null;
+        }
+        catch (CryptographicException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>SHA-256 hex of the public key in a CSR (after verifying the CSR signature).</summary>
     public static string CsrPublicKeyFingerprint(byte[] csrDer) =>
         KeyIds.Sha256Hex(LoadCsr(csrDer).PublicKey.ExportSubjectPublicKeyInfo());

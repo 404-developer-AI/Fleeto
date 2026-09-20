@@ -121,9 +121,19 @@ export async function deriveSessionKeys(browserPrivateKey, browserPublicKey, tok
   const endpointKey = await subtle.importKey("raw", endpointPublicKey, { name: "X25519" }, false, []);
   const shared = new Uint8Array(await subtle.deriveBits({ name: "X25519", public: endpointKey }, browserPrivateKey, 256));
   const hkdfKey = await subtle.importKey("raw", shared, "HKDF", false, ["deriveBits"]);
+  shared.fill(0);
   const info = concat(encoder.encode(KeyInfo), browserPublicKey, endpointPublicKey);
   const bits = new Uint8Array(await subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: payloadHash, info }, hkdfKey, 512));
-  return { browserToEndpoint: bits.slice(0, 32), endpointToBrowser: bits.slice(32, 64) };
+  const keys = { browserToEndpoint: bits.slice(0, 32), endpointToBrowser: bits.slice(32, 64) };
+  bits.fill(0);
+  // The caller imports both keys (the import copies them) and wipes these with wipeKeys.
+  return keys;
+}
+
+/** Overwrites raw session keys once they are imported, so they do not stay in the page's memory. */
+export function wipeKeys(keys) {
+  keys.browserToEndpoint.fill(0);
+  keys.endpointToBrowser.fill(0);
 }
 
 /**

@@ -214,7 +214,8 @@ func (c *Controller) pumpClipboard(helper Helper) {
 		if err != nil {
 			break
 		}
-		if !FromHelper(frame[0]) {
+		// The clipboard process runs as the user of the session: it may speak about the clipboard only, never draw the screen.
+		if !fromClipboardProcess(frame[0]) {
 			continue
 		}
 		if err := c.opts.Send(frame); err != nil {
@@ -227,6 +228,11 @@ func (c *Controller) pumpClipboard(helper Helper) {
 	}
 	c.mu.Unlock()
 	_ = helper.Close()
+}
+
+// fromClipboardProcess reports whether the clipboard process may send a frame type.
+func fromClipboardProcess(kind byte) bool {
+	return kind == FrameClipboard || kind == FrameCopiedFiles || kind == FrameNotice
 }
 
 // closeClipboard ends the clipboard process, so the next use starts one in the session that is shown now.

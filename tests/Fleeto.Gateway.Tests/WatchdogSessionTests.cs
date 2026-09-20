@@ -198,13 +198,13 @@ public sealed class WatchdogSessionTests
         var session = harness.NewSession(agent.Identity(endpoint.Id));
         Assert.True(await harness.Manager.OpenAsync(session, GatewayHarness.Hello(), CancellationToken.None));
 
-        var refused = await harness.Manager.IssueWatchdogCertificateAsync(session, agent.Csr(), CancellationToken.None);
+        var refused = await harness.Manager.IssueWatchdogCertificateAsync(session, new WatchdogCertificateRequest { CsrDer = Google.Protobuf.ByteString.CopyFrom(agent.Csr()) }, CancellationToken.None);
         Assert.NotEmpty(refused.WatchdogCertificate.Error);
         Assert.False(refused.WatchdogCertificate.Temporary);
 
         using var watchdogKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var csr = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=watchdog", watchdogKey, HashAlgorithmName.SHA256).CreateSigningRequest();
-        var issued = await harness.Manager.IssueWatchdogCertificateAsync(session, csr, CancellationToken.None);
+        var issued = await harness.Manager.IssueWatchdogCertificateAsync(session, new WatchdogCertificateRequest { CsrDer = Google.Protobuf.ByteString.CopyFrom(csr) }, CancellationToken.None);
         Assert.Empty(issued.WatchdogCertificate.Error);
 
         using var certificate = System.Security.Cryptography.X509Certificates.X509CertificateLoader.LoadCertificate(issued.WatchdogCertificate.CertificateDer.ToByteArray());
@@ -215,7 +215,7 @@ public sealed class WatchdogSessionTests
         // A watchdog session may not ask for a watchdog certificate itself.
         var watchdog = harness.NewSession(new AgentIdentity(endpoint.Id, identity.Fingerprint, identity.PublicKeyFingerprint, identity.ExpiresAt, AgentComponent.Watchdog));
         Assert.True(await harness.Manager.OpenAsync(watchdog, WatchdogHello(), CancellationToken.None));
-        Assert.NotEmpty((await harness.Manager.IssueWatchdogCertificateAsync(watchdog, csr, CancellationToken.None)).WatchdogCertificate.Error);
+        Assert.NotEmpty((await harness.Manager.IssueWatchdogCertificateAsync(watchdog, new WatchdogCertificateRequest { CsrDer = Google.Protobuf.ByteString.CopyFrom(csr) }, CancellationToken.None)).WatchdogCertificate.Error);
     }
 
     [Fact]
@@ -230,12 +230,12 @@ public sealed class WatchdogSessionTests
         var csr = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=watchdog", watchdogKey, HashAlgorithmName.SHA256).CreateSigningRequest();
 
         // No signer runs: the request times out, and the agent retries within minutes.
-        var timedOut = await harness.Manager.IssueWatchdogCertificateAsync(session, csr, CancellationToken.None);
+        var timedOut = await harness.Manager.IssueWatchdogCertificateAsync(session, new WatchdogCertificateRequest { CsrDer = Google.Protobuf.ByteString.CopyFrom(csr) }, CancellationToken.None);
         Assert.NotEmpty(timedOut.WatchdogCertificate.Error);
         Assert.True(timedOut.WatchdogCertificate.Temporary);
 
         await using var signer = new FakeSigner(_fixture, _ => "The endpoint is not enrolled.");
-        var refused = await harness.Manager.IssueWatchdogCertificateAsync(session, csr, CancellationToken.None);
+        var refused = await harness.Manager.IssueWatchdogCertificateAsync(session, new WatchdogCertificateRequest { CsrDer = Google.Protobuf.ByteString.CopyFrom(csr) }, CancellationToken.None);
         Assert.Equal("The endpoint is not enrolled.", refused.WatchdogCertificate.Error);
         Assert.False(refused.WatchdogCertificate.Temporary);
     }

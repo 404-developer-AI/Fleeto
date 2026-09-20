@@ -24,7 +24,8 @@ public sealed class DatabaseOptions
     /// <summary>Disable inside the instance's private Docker network; Require when the database is remote.</summary>
     public SslMode SslMode { get; set; } = SslMode.Disable;
 
-    public int MaxPoolSize { get; set; } = 50;
+    /// <summary>Largest connection pool of the component; 0 (the default) takes <see cref="FleetoComponentExtensions.DefaultPoolSize"/>.</summary>
+    public int MaxPoolSize { get; set; }
 
     public string BuildConnectionString(FleetoComponent component, SecretFiles secrets)
     {
@@ -36,7 +37,7 @@ public sealed class DatabaseOptions
             Username = string.IsNullOrWhiteSpace(Username) ? component.DatabaseRole() : Username,
             Password = secrets.ReadText(string.IsNullOrWhiteSpace(PasswordFile) ? component.DatabasePasswordFile() : PasswordFile),
             SslMode = SslMode,
-            MaxPoolSize = MaxPoolSize,
+            MaxPoolSize = MaxPoolSize > 0 ? MaxPoolSize : component.DefaultPoolSize(),
             ApplicationName = "fleeto-" + component.ToString().ToLowerInvariant(),
             // Keep-alive so LISTEN connections notice a dead peer.
             KeepAlive = 30

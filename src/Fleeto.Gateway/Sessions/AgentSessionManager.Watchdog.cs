@@ -345,7 +345,7 @@ public sealed partial class AgentSessionManager
         {
             try
             {
-                session.Send(await IssueWatchdogCertificateAsync(session, request.CsrDer.ToByteArray(), session.Closed));
+                session.Send(await IssueWatchdogCertificateAsync(session, request, session.Closed));
             }
             catch (OperationCanceledException)
             {
@@ -366,8 +366,9 @@ public sealed partial class AgentSessionManager
     /// Issues a certificate for the watchdog of the session's endpoint. Only an agent session may ask, and the watchdog key must differ from
     /// the key of the agent certificate this connection authenticated with; the signer checks the rest again.
     /// </summary>
-    internal async Task<ServerMessage> IssueWatchdogCertificateAsync(AgentSession session, byte[] csrDer, CancellationToken cancellationToken)
+    internal async Task<ServerMessage> IssueWatchdogCertificateAsync(AgentSession session, WatchdogCertificateRequest request, CancellationToken cancellationToken)
     {
+        var csrDer = request.CsrDer.ToByteArray();
         if (session.IsWatchdog)
         {
             return WatchdogCertificateError("Only the agent can request a watchdog certificate.");
@@ -388,7 +389,13 @@ public sealed partial class AgentSessionManager
             return WatchdogCertificateError("The watchdog needs its own key, not the key of the agent.");
         }
 
-        var outcome = await _signing.RequestAsync(SigningRequestKind.WatchdogCertificate, session.ClientId, session.EndpointId, csrDer, "gateway",
+        // The signer checks the agent's signature against the key of this connection's agent certificate, which the gateway passes on as the
+        // agent sent it (0.3.0 step 7): the gateway alone can never obtain a watchdog certificate.
+        var payload = new WatchdogCertificateRequest
+        {
+            CsrDer = request.CsrDer, AgentSignature = request.AgentSignature, AgentPublicKey = ByteString.CopyFrom(session.CertificatePublicKey)
+        }.ToByteArray();
+        var outcome = await _signing.RequestAsync(SigningRequestKind.WatchdogCertificate, session.ClientId, session.EndpointId, payload, "gateway",
             cancellationToken);
         switch (outcome.State)
         {

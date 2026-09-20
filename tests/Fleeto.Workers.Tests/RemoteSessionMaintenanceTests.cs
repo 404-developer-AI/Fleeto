@@ -32,7 +32,7 @@ public sealed class RemoteSessionMaintenanceTests
             Id = Guid.NewGuid(), SessionId = session.Id, ClientId = endpoint.ClientId, EndpointId = endpoint.Id, UserId = session.StartedByUserId, UserName = "Tech",
             BrowserPublicKey = Enumerable.Repeat((byte)7, 32).ToArray(), State = state, CreatedAt = createdAt,
             TokenPayload = state == RemoteParticipantState.Requested ? null : [1], TokenSignature = state == RemoteParticipantState.Requested ? null : [2],
-            ConnectingAt = state == RemoteParticipantState.Connected ? createdAt : null, ConnectedAt = state == RemoteParticipantState.Connected ? createdAt : null
+            ConnectingAt = state is RemoteParticipantState.Connected or RemoteParticipantState.Connecting ? createdAt : null, ConnectedAt = state == RemoteParticipantState.Connected ? createdAt : null
         };
         await using var db = _fixture.Db.DbFactory.CreateSystem();
         db.RemoteSessions.Add(session);
@@ -49,6 +49,8 @@ public sealed class RemoteSessionMaintenanceTests
         var stale = await SessionAsync(endpoint, RemoteParticipantState.Signed, TimeSpan.FromMinutes(6));
         var fresh = await SessionAsync(endpoint, RemoteParticipantState.Requested, TimeSpan.FromMinutes(1));
         var connected = await SessionAsync(endpoint, RemoteParticipantState.Connected, TimeSpan.FromHours(3));
+        // Claimed by a gateway that never paired it (it lost its database or stopped): it ends too (security review of 0.3.0 step 7).
+        var stuck = await SessionAsync(endpoint, RemoteParticipantState.Connecting, TimeSpan.FromMinutes(6));
 
         var service = new RemoteSessionMaintenanceService(_fixture.Db.DbFactory, _fixture.Heartbeat(), _fixture.Db.Time,
             NullLogger<RemoteSessionMaintenanceService>.Instance);
@@ -64,5 +66,7 @@ public sealed class RemoteSessionMaintenanceTests
         Assert.Null((await db.RemoteSessions.AsNoTracking().SingleAsync(s => s.Id == fresh.Session.Id)).EndedAt);
         Assert.Equal(RemoteParticipantState.Connected, (await db.RemoteSessionParticipants.AsNoTracking().SingleAsync(p => p.Id == connected.Participant.Id)).State);
         Assert.Null((await db.RemoteSessions.AsNoTracking().SingleAsync(s => s.Id == connected.Session.Id)).EndedAt);
+        Assert.Equal(RemoteParticipantState.Ended, (await db.RemoteSessionParticipants.AsNoTracking().SingleAsync(p => p.Id == stuck.Participant.Id)).State);
+        Assert.NotNull((await db.RemoteSessions.AsNoTracking().SingleAsync(s => s.Id == stuck.Session.Id)).EndedAt);
     }
 }

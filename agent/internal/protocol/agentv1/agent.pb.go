@@ -4133,9 +4133,16 @@ func (x *JobAck) GetSequence() uint64 {
 type WatchdogCertificateRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// PKCS#10, ECDSA P-256, DER, signed with the watchdog key.
-	CsrDer        []byte `protobuf:"bytes,1,opt,name=csr_der,json=csrDer,proto3" json:"csr_der,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	CsrDer []byte `protobuf:"bytes,1,opt,name=csr_der,json=csrDer,proto3" json:"csr_der,omitempty"`
+	// The agent vouches for its watchdog (0.3.0 step 7, security review): ECDSA P-256 (ASN.1 DER) with the key of the agent's current
+	// certificate over SHA-256("fleeto-watchdog-csr-v1" || 0x00 || csr_der). The signer issues the certificate only with it, so a
+	// compromised gateway cannot get a watchdog certificate for a key of its own.
+	AgentSignature []byte `protobuf:"bytes,2,opt,name=agent_signature,json=agentSignature,proto3" json:"agent_signature,omitempty"`
+	// Filled in by the gateway, never by the agent: the public key (SPKI, DER) of the agent certificate the connection authenticated with.
+	// The signer accepts it only when it belongs to a current agent certificate of the endpoint.
+	AgentPublicKey []byte `protobuf:"bytes,3,opt,name=agent_public_key,json=agentPublicKey,proto3" json:"agent_public_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *WatchdogCertificateRequest) Reset() {
@@ -4171,6 +4178,20 @@ func (*WatchdogCertificateRequest) Descriptor() ([]byte, []int) {
 func (x *WatchdogCertificateRequest) GetCsrDer() []byte {
 	if x != nil {
 		return x.CsrDer
+	}
+	return nil
+}
+
+func (x *WatchdogCertificateRequest) GetAgentSignature() []byte {
+	if x != nil {
+		return x.AgentSignature
+	}
+	return nil
+}
+
+func (x *WatchdogCertificateRequest) GetAgentPublicKey() []byte {
+	if x != nil {
+		return x.AgentPublicKey
 	}
 	return nil
 }
@@ -5219,9 +5240,11 @@ const file_agent_proto_rawDesc = "" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12/\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x1b.fleeto.agent.v1.JobAckKindR\x04kind\x122\n" +
 	"\x06stream\x18\x03 \x01(\x0e2\x1a.fleeto.agent.v1.JobStreamR\x06stream\x12\x1a\n" +
-	"\bsequence\x18\x04 \x01(\x04R\bsequence\"5\n" +
+	"\bsequence\x18\x04 \x01(\x04R\bsequence\"\x88\x01\n" +
 	"\x1aWatchdogCertificateRequest\x12\x17\n" +
-	"\acsr_der\x18\x01 \x01(\fR\x06csrDer\"z\n" +
+	"\acsr_der\x18\x01 \x01(\fR\x06csrDer\x12'\n" +
+	"\x0fagent_signature\x18\x02 \x01(\fR\x0eagentSignature\x12(\n" +
+	"\x10agent_public_key\x18\x03 \x01(\fR\x0eagentPublicKey\"z\n" +
 	"\x1bWatchdogCertificateResponse\x12'\n" +
 	"\x0fcertificate_der\x18\x01 \x01(\fR\x0ecertificateDer\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12\x1c\n" +

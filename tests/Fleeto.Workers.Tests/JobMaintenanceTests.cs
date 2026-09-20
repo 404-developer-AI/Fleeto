@@ -104,17 +104,21 @@ public sealed class JobMaintenanceTests
             Assert.True(await db.Jobs.AnyAsync(j => j.Id == old.Id));
         }
 
-        // The fake clock is shared; move the rows instead of the clock for the 13-month rule.
-        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        // The fake clock is shared, and a job's times cannot change after it was requested (0.3.0 step 7): for the 13-month rule, jobs
+        // requested long ago are created as such.
+        var longAgo = _fixture.Now.AddDays(-401);
+        var ancient = await JobAsync(endpoint, JobState.Succeeded, j =>
         {
-            var longAgo = _fixture.Now.AddDays(-401);
-            await db.Jobs.Where(j => j.Id == old.Id || j.Id == active.Id).ExecuteUpdateAsync(s => s
-                .SetProperty(j => j.CreatedAt, longAgo).SetProperty(j => j.ValidUntil, longAgo.AddHours(1)));
-        }
+            j.CreatedAt = longAgo; j.ValidUntil = longAgo.AddHours(1); j.CompletedAt = longAgo; j.DeliveredAt = longAgo;
+        });
+        var ancientActive = await JobAsync(endpoint, JobState.Running, j =>
+        {
+            j.CreatedAt = longAgo; j.ValidUntil = longAgo.AddHours(1); j.StartedAt = longAgo; j.DeliveredAt = longAgo;
+        });
 
         await _fixture.Retention().RunAsync(CancellationToken.None);
         await using var check = _fixture.Db.DbFactory.CreateSystem();
-        Assert.False(await check.Jobs.AnyAsync(j => j.Id == old.Id));
-        Assert.True(await check.Jobs.AnyAsync(j => j.Id == active.Id));
+        Assert.False(await check.Jobs.AnyAsync(j => j.Id == ancient.Id));
+        Assert.True(await check.Jobs.AnyAsync(j => j.Id == ancientActive.Id));
     }
 }

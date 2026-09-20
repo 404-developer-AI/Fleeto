@@ -114,7 +114,11 @@ func showConsent(ctx context.Context, conn *xgb.Conn, ask ConsentAskBody) (strin
 				return
 			}
 			if ev != nil {
-				events <- ev
+				// Never block the connection's reader: when the loop is busy (typing a long text) an event is dropped, not the connection.
+				select {
+				case events <- ev:
+				default:
+				}
 			}
 		}
 	}()

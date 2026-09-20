@@ -29,6 +29,8 @@ public sealed class WatchdogCertificateHandler : ISigningRequestHandler
         "The endpoint has no valid agent certificate, so it cannot get a watchdog certificate. Enroll the agent again with a new enrollment token.";
     public const string SameKeyReason = "The watchdog must have its own key; this key belongs to the agent. The agent will retry with a new key.";
     public const string TooManyReason = "Too many watchdog certificates were issued for this endpoint in the last 24 hours. The agent retries later.";
+    public const string NotVouchedReason =
+        "The agent of this endpoint did not sign this watchdog request with its certificate key. Update the agent to 0.3.0-alpha.17 or later; it requests the watchdog certificate again.";
 
     private readonly SignerKeyRing _keyRing;
     private readonly ILogger<WatchdogCertificateHandler> _logger;
@@ -52,7 +54,24 @@ public sealed class WatchdogCertificateHandler : ISigningRequestHandler
             return SigningOutcome.Refused(WrongRequesterReason);
         }
 
-        if (request.SubjectId is not { } endpointId || request.Payload.Length is 0 or > InputText.MaxCsrBytes)
+        if (request.SubjectId is not { } endpointId || request.Payload.Length is 0 or > InputText.MaxCsrBytes + 2048)
+        {
+            return SigningOutcome.Refused(MalformedReason);
+        }
+
+        // The payload is the agent's request with the key of the agent certificate its connection used (0.3.0 step 7).
+        Protocol.Agent.V1.WatchdogCertificateRequest vouched;
+        try
+        {
+            vouched = Protocol.Agent.V1.WatchdogCertificateRequest.Parser.ParseFrom(request.Payload);
+        }
+        catch (Google.Protobuf.InvalidProtocolBufferException)
+        {
+            return SigningOutcome.Refused(MalformedReason);
+        }
+
+        var csr = vouched.CsrDer.ToByteArray();
+        if (csr.Length is 0 or > InputText.MaxCsrBytes)
         {
             return SigningOutcome.Refused(MalformedReason);
         }
@@ -75,7 +94,7 @@ public sealed class WatchdogCertificateHandler : ISigningRequestHandler
         string csrKeyFingerprint;
         try
         {
-            csrKeyFingerprint = InternalCertificateAuthority.CsrPublicKeyFingerprint(request.Payload);
+            csrKeyFingerprint = InternalCertificateAuthority.CsrPublicKeyFingerprint(csr);
         }
         catch (InvalidOperationException)
         {
@@ -88,6 +107,16 @@ public sealed class WatchdogCertificateHandler : ISigningRequestHandler
         if (!certificates.Any(c => c.Role == AgentComponent.Agent && c.RevokedAt is null && c.ExpiresAt > now))
         {
             return SigningOutcome.Refused(NoAgentCertificateReason);
+        }
+
+        // The agent vouches for its watchdog with the key of a current agent certificate of this endpoint: a request the agent did not sign
+        // (a compromised gateway asking for a certificate for its own key) is never issued (security review of 0.3.0 step 7).
+        var vouchedBy = InternalCertificateAuthority.VerifyWatchdogVouch(vouched.AgentPublicKey.ToByteArray(), csr, vouched.AgentSignature.ToByteArray());
+        if (vouchedBy is null || !certificates.Any(c =>
+                c.Role == AgentComponent.Agent && c.RevokedAt is null && c.ExpiresAt > now && SecureCompare.HexEquals(c.PublicKeyFingerprint, vouchedBy)))
+        {
+            _logger.LogWarning("Endpoint {EndpointId}: watchdog certificate refused, the request is not signed by a current agent certificate key", endpointId);
+            return SigningOutcome.Refused(NotVouchedReason);
         }
 
         if (certificates.Any(c => c.Role == AgentComponent.Agent && SecureCompare.HexEquals(c.PublicKeyFingerprint, csrKeyFingerprint)))
@@ -106,7 +135,7 @@ public sealed class WatchdogCertificateHandler : ISigningRequestHandler
                 .SetProperty(c => c.RevokedAt, now)
                 .SetProperty(c => c.RevokedReason, "Replaced by a new watchdog certificate."), cancellationToken);
 
-        var issued = _keyRing.IssueAgentCertificate(request.Payload, endpointId, now);
+        var issued = _keyRing.IssueAgentCertificate(csr, endpointId, now);
         db.AgentCertificates.Add(new AgentCertificate
         {
             Id = Guid.NewGuid(),

@@ -5,6 +5,7 @@ package remote
 import (
 	"errors"
 	"os"
+	"strings"
 
 	"golang.org/x/sys/windows"
 )
@@ -39,3 +40,6 @@ func defaultPath() string {
 func inUse(err error) bool {
 	return errors.Is(err, windows.ERROR_SHARING_VIOLATION) || errors.Is(err, windows.ERROR_LOCK_VIOLATION)
 }
+
+// samePathName compares two paths the way the file system does: without regard to case on Windows.
+func samePathName(a, b string) bool { return strings.EqualFold(a, b) }

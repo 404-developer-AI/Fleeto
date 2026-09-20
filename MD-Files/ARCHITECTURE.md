@@ -1000,11 +1000,35 @@ container:
   admin about bulk jobs arrives with running a script on a selection of endpoints.
 - Optional four-eyes approval for scripts per policy (see §4, Script approval).
 - **Accepted residual risk**: the signer decides on database content, and web can write to
-  the database. An attacker with full control of web can create jobs that pass the checks
+  the database (what the other containers may change is limited by the triggers above). An attacker with full control of web can create jobs that pass the checks
   and have them signed, within the rate limits and, where approval is required, only for
   already approved scripts. What the signer does guarantee: the key cannot be stolen from
   web, a bug in web cannot skip the rules, every signature goes through one audited choke
   point, and the attack ends when web is cleaned up rather than when every agent is re-keyed.
+
+### What a compromised gateway cannot do (security review of 0.3.0 step 7)
+
+The gateway is the container every agent and every browser reaches, so it is the most exposed one. It keeps no key that signs anything,
+but it does write to the database and it carries the relay. The review of 0.3.0 found three ways it could still have reached further, and
+each is now closed:
+
+- **What the signer signs cannot change after it was asked for.** The gateway updates jobs, remote sessions and participants (delivery,
+  state, the join, the end), and the signer builds what it signs from those rows. Database triggers (migration `ImmutableSigningBindings`)
+  now keep the binding columns as they were inserted, for every role: a job's endpoint, script, version, run-as and validity; a session's
+  endpoint, kind, component and Windows session; a participant's session, endpoint, user and browser key. A signed payload or token cannot
+  be replaced, and nothing goes back to waiting for a signature. Web also writes what it asked for into the signing request, which only web
+  may create and nobody may update, and the signer refuses when the rows differ from it.
+- **A watchdog certificate needs the agent.** A watchdog certificate is requested by the gateway over the agent's session. The agent now
+  signs the request with the key of its own certificate (`fleeto-watchdog-csr-v1`), the gateway passes on the public key of the certificate
+  the connection authenticated with, and the signer issues only when that key belongs to a current agent certificate of the endpoint and
+  the signature verifies. Without it the gateway could have obtained a watchdog identity of its own and, with it, played the endpoint in a
+  remote session (the browser trusts the fingerprints the instance knows). Agents older than 0.3.0-alpha.17 get no new watchdog
+  certificate; their existing one keeps working and renews.
+- **The gateway cannot change what an endpoint is.** A trigger refuses a change of tier, client, site or class by the gateway role, so the
+  tier the signer and web check cannot be raised from the connection side.
+
+Remaining by design: the gateway relays session traffic it cannot read, it can refuse or drop sessions, and it sees which technician works
+on which endpoint. A compromised gateway that keeps a valid relay open is still a denial of service, never a way into a session.
 
 ### Agent identity and revocation
 
@@ -1101,7 +1125,16 @@ container:
   only by SYSTEM, administrators and the user signed in on the shown Windows session, and deleted when the session ends; a technician
   downloads only files copied on the endpoint, by index, never a path of their choice (remote background serves the file explorer).
 - Several technicians (0.3.0 step 4): each has their own token, key exchange and audit entries; joining a session the person at the
-  endpoint allowed does not ask again, and the banner names every technician.
+  endpoint allowed does not ask again, and the banner names every technician. A relay slot per endpoint is taken atomically, so sessions
+  that arrive together never exceed the limit of 8.
+- **Against the person at the endpoint (security review of 0.3.0 step 7).** The clipboard and the files of a session are what an untrusted
+  user at the endpoint could turn against the technician, so: text copied on the endpoint goes on the technician's own clipboard only right
+  after they copied in the window, and is otherwise offered with a button; a file copied on the endpoint is opened with the rights of the
+  user who copied it (impersonation on Windows, a thread with their credentials on Linux), so they cannot have the technician fetch a file
+  they may not read; the clipboard process, which runs as that user, may send the agent clipboard frames only, never the screen; and an
+  upload writes its part file without following a link, in a folder that is not a link, and only replaces the destination when the whole
+  file arrived. Files pasted into a session wait in folders the agent creates with their access list in one step (Windows: inside a base
+  folder owned by Administrators; Linux: root-owned, in `/run`), so nobody can put a link in their place.
 - **A script that runs as the signed-in user, accepted risk (0.2.1).** That user can read the script text while it runs:
   the interpreter has to open the file as them. The script is staged so that they can read it and not change it, and the
   run window says so before the run starts. A script that carries a secret must run as the agent's own account.

@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 )
 
@@ -78,3 +79,9 @@ func nobodySignedInText() string { return "Nobody is signed in on this Windows s
 
 // StagingRoot is where files pasted into remote control sessions wait: a folder in the agent's data directory.
 func StagingRoot(dataDir string) string { return filepath.Join(dataDir, "RemoteClipboard") }
+
+// PrepareStaging deletes files left from earlier sessions; files cannot be pasted on this platform.
+func PrepareStaging(root string) error { return CleanStaging(root) }
+
+// OpenAsSessionUser is not available on this platform.
+func OpenAsSessionUser(string, uint32) (*os.File, error) { return nil, ErrNotSupported }

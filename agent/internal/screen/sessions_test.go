@@ -22,6 +22,9 @@ type sessionsHarness struct {
 	consent   func(ctx context.Context, session uint32, technician string, timeout time.Duration) (ConsentAnswer, error)
 	root      string
 	staged    atomic.Int32
+	// openedAsUser is the last path opened with the rights of the session's user; refuseAsUser makes that open fail.
+	openedAsUser atomic.Value
+	refuseAsUser atomic.Bool
 }
 
 func newSessionsHarness(t *testing.T, configure func(*SessionsOptions)) *sessionsHarness {
@@ -54,6 +57,13 @@ func newSessionsHarness(t *testing.T, configure func(*SessionsOptions)) *session
 			return os.MkdirAll(dir, 0o700)
 		},
 		ConsoleCheck: time.Hour,
+		OpenAsUser: func(path string, _ uint32) (*os.File, error) {
+			h.openedAsUser.Store(path)
+			if h.refuseAsUser.Load() {
+				return nil, os.ErrPermission
+			}
+			return os.Open(os.Args[0])
+		},
 	}
 	if configure != nil {
 		configure(&opts)
@@ -500,15 +510,27 @@ func TestCopiedFilesAreOfferedAndPastedFilesLiveAsLongAsTheSession(t *testing.T)
 	if len(offer.Files) != 1 || offer.Files[0].Index != 0 || offer.Files[0].Name != "report.pdf" || offer.Folders != 1 {
 		t.Fatalf("offer %+v", offer)
 	}
-	if path, err := anna.p.CopiedFile(0); err != nil || path != `C:\Users\anna\report.pdf` {
+	// The file is opened with the rights of the user whose clipboard named it (security review of 0.3.0 step 7).
+	f, path, err := anna.p.OpenCopiedFile(0)
+	if err != nil || path != `C:\Users\anna\report.pdf` {
 		t.Fatalf("copied file %q %v", path, err)
 	}
-	if _, err := anna.p.CopiedFile(1); err == nil {
+	_ = f.Close()
+	if got := h.openedAsUser.Load(); got != `C:\Users\anna\report.pdf` {
+		t.Fatalf("opened as the user: %v", got)
+	}
+	if _, _, err := anna.p.OpenCopiedFile(1); err == nil {
 		t.Fatal("a folder was offered for download")
 	}
-	if _, err := anna.p.CopiedFile(5); err == nil {
+	if _, _, err := anna.p.OpenCopiedFile(5); err == nil {
 		t.Fatal("an unknown index was accepted")
 	}
+	// A file the user may not read is not fetched for them.
+	h.refuseAsUser.Store(true)
+	if _, _, err := anna.p.OpenCopiedFile(0); err == nil {
+		t.Fatal("a file the user cannot read was opened")
+	}
+	h.refuseAsUser.Store(false)
 
 	// Files this session staged for a paste are never offered back as a copy made on the endpoint (they stay on the clipboard after the
 	// helper starts again, when its window no longer owns them).

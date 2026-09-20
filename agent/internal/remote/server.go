@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -52,8 +53,9 @@ type Server struct {
 	Logger *slog.Logger
 	Now    func() time.Time
 
-	replay *Replay
-	active atomic.Int32
+	replayOnce sync.Once
+	replay     *Replay
+	active     atomic.Int32
 }
 
 // Offer handles one offer from the gateway. It returns an empty string when the session started, otherwise the reason it was refused,
@@ -67,9 +69,12 @@ func (s *Server) Offer(ctx context.Context, offer *agentv1.RemoteSessionOffer) (
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	if s.replay == nil {
-		s.replay = NewReplay()
-	}
+	// Offers arrive on goroutines of their own: the replay memory is made once, so no accepted participant is ever forgotten.
+	s.replayOnce.Do(func() {
+		if s.replay == nil {
+			s.replay = NewReplay()
+		}
+	})
 	participantID = peekParticipant(offer.GetSession())
 
 	trust, err := s.Trust()

@@ -69,9 +69,18 @@ public sealed class RemoteSessionTokenTests
         return participant;
     }
 
-    private async Task<(SigningRequest Request, RemoteSessionParticipant Participant)> SignAsync(RemoteSessionParticipant participant, Guid? clientId = null)
+    private async Task<(SigningRequest Request, RemoteSessionParticipant Participant)> SignAsync(RemoteSessionParticipant participant, Guid? clientId = null,
+        byte[]? payload = null)
     {
-        var request = await _fixture.ProcessAsync(SigningRequestKind.RemoteSessionToken, clientId ?? participant.ClientId, participant.Id, [],
+        // The request carries what web asked for, as RemoteSessionService writes it.
+        if (payload is null)
+        {
+            await using var rows = _fixture.Database.DbFactory.CreateSystem();
+            var session = await rows.RemoteSessions.AsNoTracking().SingleAsync(s => s.Id == participant.SessionId);
+            payload = RemoteSessionBinding.Of(session, participant).ToPayload();
+        }
+
+        var request = await _fixture.ProcessAsync(SigningRequestKind.RemoteSessionToken, clientId ?? participant.ClientId, participant.Id, payload,
             "web:198.51.100.40");
         await using var db = _fixture.Database.DbFactory.CreateSystem();
         return (request, await db.RemoteSessionParticipants.AsNoTracking().SingleAsync(p => p.Id == participant.Id));
@@ -191,6 +200,25 @@ public sealed class RemoteSessionTokenTests
         Assert.Equal(Component.Agent, token.Component);
         Assert.Equal(Protocol.Agent.V1.RemoteSessionKind.RemoteControl, token.Kind);
         Assert.Equal(3u, token.WindowsSessionId);
+    }
+
+    [Fact]
+    public async Task A_token_is_not_signed_when_the_rows_differ_from_what_web_asked_for()
+    {
+        var (endpoint, technicianId) = await ScopeAsync();
+        var participant = await CreateParticipantAsync(endpoint, technicianId);
+        await using var rows = _fixture.Database.DbFactory.CreateSystem();
+        var session = await rows.RemoteSessions.AsNoTracking().SingleAsync(s => s.Id == participant.SessionId);
+        // Another browser key than the one in the rows: as if a container had put its own key there after web asked.
+        var forged = RemoteSessionBinding.Of(session, participant) with { BrowserPublicKey = Convert.ToBase64String(Enumerable.Repeat((byte)7, 32).ToArray()) };
+
+        var (request, refused) = await SignAsync(participant, payload: forged.ToPayload());
+        Assert.Equal(SigningRequestState.Refused, request.State);
+        Assert.Equal(RemoteSessionTokenHandler.BindingReason, refused.EndReason);
+        Assert.Null(refused.TokenSignature);
+
+        var (_, empty) = await SignAsync(await CreateParticipantAsync(endpoint, technicianId), payload: []);
+        Assert.Equal(RemoteSessionTokenHandler.BindingReason, empty.EndReason);
     }
 
     [Fact]

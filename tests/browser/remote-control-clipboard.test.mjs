@@ -218,6 +218,8 @@ test("text copied on the endpoint lands on this computer's clipboard and is neve
   session.sendFrame = (frame) => { frames.push(frame); return Promise.resolve(); };
   session.hello = { clipboard: true, maxFileBytes: 1024 };
 
+  // The technician copied in the window a moment ago: the text is theirs and goes on their clipboard by itself.
+  session.viewer = { copiedRecently: () => true, clipboardPending() {} };
   await session.onFrame(0x1a, new TextEncoder().encode("copied on the endpoint"));
   await new Promise((r) => setImmediate(r));
   assert.deepEqual(written, ["copied on the endpoint"]);
@@ -232,6 +234,38 @@ test("text copied on the endpoint lands on this computer's clipboard and is neve
   session.hello = { clipboard: false };
   session.sendClipboardText("not allowed");
   assert.equal(frames.length, 1, "no clipboard text when the policy turns it off");
+});
+
+test("text copied on the endpoint without the technician copying is only offered, and taken with a click", async () => {
+  const { written } = installDom();
+  const { createSession } = await import("../../src/Fleeto.Web/wwwroot/js/remote-control.js");
+  const session = createSession({ invokeMethodAsync: async () => null }, new FakeElement("div"), {});
+  session.hello = { clipboard: true, maxFileBytes: 1024 };
+  let offered = 0;
+  session.viewer = { copiedRecently: () => false, offerClipboardText: () => offered++, clipboardPending() {} };
+
+  await session.onFrame(0x1a, new TextEncoder().encode("powershell -e AAAA"));
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(written, [], "nothing lands on the technician's clipboard unasked");
+  assert.equal(offered, 1);
+
+  session.acceptRemoteClipboard();
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(written, ["powershell -e AAAA"]);
+
+  // With the clipboard off by policy, text from the endpoint is not even offered.
+  session.hello = { clipboard: false };
+  await session.onFrame(0x1a, new TextEncoder().encode("ignored"));
+  assert.equal(offered, 1);
+});
+
+test("a copy shortcut in the window lets the next endpoint text through for a moment", async () => {
+  installDom();
+  const session = fakeSession();
+  const viewer = await newViewer(session);
+  assert.equal(viewer.copiedRecently(), false);
+  viewer.onKey(key("KeyC", { ctrlKey: true }), true);
+  assert.equal(viewer.copiedRecently(), true);
 });
 
 test("pasting files asks for a batch, uploads each file into it and places the batch", async () => {

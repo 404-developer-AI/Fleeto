@@ -4,9 +4,7 @@ package screen
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
 	"time"
 	"unsafe"
 
@@ -94,37 +92,19 @@ func AskConsent(_ context.Context, session uint32, technician string, timeout ti
 	}
 }
 
-// StageFolder creates the folder for files pasted into a session: SYSTEM and administrators in full, the user signed in on the Windows
-// session reading only. Without a signed-in user only SYSTEM and administrators have access.
+// StageFolder creates the folder for files pasted into a session inside the staging root (PrepareStaging), with its access list in the same
+// step: SYSTEM and administrators in full, the user signed in on the Windows session reading only. Without a signed-in user only SYSTEM
+// and administrators have access.
 func StageFolder(dir string, session uint32) error {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	sddl := "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
+	sddl := rootSDDL
 	var token windows.Token
 	if err := windows.WTSQueryUserToken(session, &token); err == nil {
 		user, err := token.GetTokenUser()
 		token.Close()
 		if err != nil {
-			_ = os.RemoveAll(dir)
 			return fmt.Errorf("read the user of Windows session %d: %w", session, err)
 		}
 		sddl += fmt.Sprintf("(A;OICI;GRGX;;;%s)", user.User.Sid.String())
 	}
-	descriptor, err := windows.SecurityDescriptorFromString(sddl)
-	if err != nil {
-		_ = os.RemoveAll(dir)
-		return err
-	}
-	dacl, _, err := descriptor.DACL()
-	if err != nil {
-		_ = os.RemoveAll(dir)
-		return err
-	}
-	if err := windows.SetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT,
-		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil); err != nil {
-		_ = os.RemoveAll(dir)
-		return errors.New("protect the folder: " + err.Error())
-	}
-	return nil
+	return createFolder(dir, sddl)
 }

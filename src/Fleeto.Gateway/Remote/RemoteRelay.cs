@@ -51,6 +51,10 @@ public sealed class RemoteRelay : BackgroundService
     private readonly GatewayOptions _options;
     private readonly ILogger<RemoteRelay> _logger;
     private readonly ConcurrentDictionary<Guid, Pairing> _pairings = new();
+
+    // Relay slots by endpoint, and in all, guarded by the lock on _slots: a slot is held from the verified token until the relay ends.
+    private readonly Dictionary<Guid, int> _slots = new();
+    private int _slotsTotal;
     private readonly PartitionedRateLimiter<string> _connectLimiter;
     private readonly IDisposable _statusSubscription;
     private volatile RelayTrust? _trust;
@@ -124,21 +128,71 @@ public sealed class RemoteRelay : BackgroundService
 
     internal async Task RunBrowserAsync(WebSocket browser, Guid participantId, RelayTrust trust, string? address, CancellationToken aborted)
     {
-        var now = _time.GetUtcNow().UtcDateTime;
         var hello = await ReceiveHelloAsync(browser, aborted);
+        // The time of the check is when the token arrived, not when the browser connected: waiting for the hello never extends a token.
+        var now = _time.GetUtcNow().UtcDateTime;
         if (hello is null || !TryVerifyToken(hello, trust, participantId, now, out var token, out var payload))
         {
             await FailAsync(browser, "The session token is not valid. Close this window and open the session again.");
             return;
         }
 
-        if (!Guid.TryParse(token.EndpointId, out var endpointId) || _pairings.Values.Count(p => p.Participant.EndpointId == endpointId) >= RemoteSessionRules.MaxSessionsPerEndpoint ||
-            _pairings.Count >= _options.MaxRelays)
+        // The limits are taken as a slot before anything else, atomically: sessions that arrive at the same moment could all pass a count
+        // of the running ones and exceed the limit together (found by the load test of 0.3.0 step 7).
+        if (!Guid.TryParse(token.EndpointId, out var endpointId) || !TryTakeSlot(endpointId))
         {
             await FailAsync(browser, "This endpoint already has the most remote sessions it serves at a time. Close one and try again.");
             return;
         }
 
+        try
+        {
+            await RunClaimedAsync(browser, participantId, endpointId, hello, payload, address, now, aborted);
+        }
+        finally
+        {
+            ReleaseSlot(endpointId);
+        }
+    }
+
+    /// <summary>Takes a relay slot for an endpoint when it has fewer than its limit and the relay fewer than its own.</summary>
+    private bool TryTakeSlot(Guid endpointId)
+    {
+        lock (_slots)
+        {
+            var taken = _slots.GetValueOrDefault(endpointId);
+            if (taken >= RemoteSessionRules.MaxSessionsPerEndpoint || _slotsTotal >= _options.MaxRelays)
+            {
+                return false;
+            }
+
+            _slots[endpointId] = taken + 1;
+            _slotsTotal++;
+            return true;
+        }
+    }
+
+    private void ReleaseSlot(Guid endpointId)
+    {
+        lock (_slots)
+        {
+            var taken = _slots.GetValueOrDefault(endpointId) - 1;
+            if (taken <= 0)
+            {
+                _slots.Remove(endpointId);
+            }
+            else
+            {
+                _slots[endpointId] = taken;
+            }
+
+            _slotsTotal--;
+        }
+    }
+
+    private async Task RunClaimedAsync(WebSocket browser, Guid participantId, Guid endpointId, BrowserHello hello, byte[] payload, string? address,
+        DateTime now, CancellationToken aborted)
+    {
         ClaimedParticipant? participant;
         try
         {
@@ -151,9 +205,16 @@ public sealed class RemoteRelay : BackgroundService
             return;
         }
 
-        if (participant is null || participant.EndpointId != endpointId)
+        if (participant is null)
         {
             await FailAsync(browser, "This session token was used before or has expired. Open the session again.");
+            return;
+        }
+
+        if (participant.EndpointId != endpointId)
+        {
+            // Claimed, so it is ended as refused, never left waiting.
+            await RefuseAsync(browser, participant, address, "This session token was used before or has expired. Open the session again.");
             return;
         }
 
@@ -190,7 +251,7 @@ public sealed class RemoteRelay : BackgroundService
         var pairing = new Pairing(participant, browser, address);
         if (!_pairings.TryAdd(participantId, pairing))
         {
-            await FailAsync(browser, "This session token was used before. Open the session again.");
+            await RefuseAsync(browser, participant, address, "This session token was used before. Open the session again.");
             return;
         }
 
@@ -359,12 +420,14 @@ public sealed class RemoteRelay : BackgroundService
         }
 
         var arrival = new EndpointArrival(socket, identity, hello);
-        pairing.Identity = identity;
         if (!pairing.Arrival.TrySetResult(arrival))
         {
             await CloseAsync(socket, WebSocketCloseStatus.PolicyViolation, "already connected");
             return;
         }
+
+        // Only the endpoint that won is the identity revocation is checked against.
+        pairing.Identity = identity;
 
         // A revocation between the allow list check and now still ends the session.
         if (!_allowList.IsStillAllowed(identity.Fingerprint, identity.EndpointId))

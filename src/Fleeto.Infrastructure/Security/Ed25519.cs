@@ -115,6 +115,12 @@ public static class Ed25519
 /// <summary>Signature contexts. Adding a purpose means adding a constant here, never reusing one.</summary>
 public static class SignatureContexts
 {
+    /// <summary>
+    /// The agent's ECDSA signature over a watchdog certificate request (security review of 0.3.0 step 7): the agent vouches for its watchdog
+    /// with its own certificate key. Not an Ed25519 context; kept here so every context of Fleeto is in one list.
+    /// </summary>
+    public const string WatchdogCsr = "fleeto-watchdog-csr-v1";
+
     /// <summary>Must equal ProtocolLimits.ConfigSignatureContext and the Go agent constant.</summary>
     public const string AgentConfig = "fleeto-agent-config-v1";
 
