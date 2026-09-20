@@ -23,14 +23,18 @@ type partFile struct {
 }
 
 func openPart(dir, partName string, resume bool) (*partFile, bool, error) {
-	if err := notReparsePoint(dir); err != nil {
+	// The folder's own name as Windows resolves it: the path the caller gave may be a short (8.3) name, while a handle always reports the
+	// long one. Both sides of every comparison below come from a handle.
+	realDir, err := folderPath(dir)
+	if err != nil {
 		return nil, false, err
 	}
 	path := filepath.Join(dir, partName)
+	want := filepath.Join(realDir, partName)
 	p := &partFile{dir: dir, part: partName}
 	if resume {
 		if f, err := openWithoutReparse(path, windows.OPEN_EXISTING); err == nil {
-			if info, err := f.Stat(); err == nil && info.Mode().IsRegular() && samePath(f, path) {
+			if info, err := f.Stat(); err == nil && info.Mode().IsRegular() && samePath(f, want) {
 				p.file = f
 				return p, true, nil
 			}
@@ -50,7 +54,7 @@ func openPart(dir, partName string, resume bool) (*partFile, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	if !samePath(f, path) {
+	if !samePath(f, want) {
 		// The folder was swapped for a link after the check: the new, empty file is somewhere else. It is deleted through its own handle
 		// (never by a path, which the link could redirect again), and nothing is written.
 		deleteOnClose(f)
@@ -90,17 +94,38 @@ func deleteOnClose(f *os.File) {
 	_ = windows.SetFileInformationByHandle(windows.Handle(f.Fd()), fileDispositionInfo, (*byte)(unsafe.Pointer(&del)), 4)
 }
 
-// samePath reports whether an open file is at the path the agent meant, with every link on the way resolved.
-func samePath(f *os.File, path string) bool {
+// samePath reports whether an open file is where the agent meant it to be, with every link on the way resolved.
+func samePath(f *os.File, want string) bool {
 	final, err := finalPath(windows.Handle(f.Fd()))
 	if err != nil {
 		return false
 	}
-	want, err := filepath.Abs(path)
-	if err != nil {
-		return false
-	}
 	return strings.EqualFold(filepath.Clean(final), filepath.Clean(want))
+}
+
+// folderPath opens a folder without following a link and returns its resolved path; it fails for a link or a file.
+func folderPath(dir string) (string, error) {
+	name, err := windows.UTF16PtrFromString(dir)
+	if err != nil {
+		return "", err
+	}
+	h, err := windows.CreateFile(name, windows.FILE_READ_ATTRIBUTES, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil, windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+	if err != nil {
+		return "", &os.PathError{Op: "open", Path: dir, Err: err}
+	}
+	defer windows.CloseHandle(h)
+	var info windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(h, &info); err != nil {
+		return "", err
+	}
+	if info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 {
+		return "", errors.New("the upload folder is not a folder")
+	}
+	if info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		return "", errors.New("the folder is a link; upload into the folder it points to")
+	}
+	return finalPath(h)
 }
 
 func finalPath(h windows.Handle) (string, error) {
@@ -116,26 +141,10 @@ func finalPath(h windows.Handle) (string, error) {
 	return strings.TrimPrefix(p, `\\?\`), nil
 }
 
-// notReparsePoint fails for a folder that is a junction or a symbolic link.
-func notReparsePoint(dir string) error {
-	name, err := windows.UTF16PtrFromString(dir)
-	if err != nil {
-		return err
-	}
-	attrs, err := windows.GetFileAttributes(name)
-	if err != nil {
-		return &os.PathError{Op: "open", Path: dir, Err: err}
-	}
-	if attrs&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-		return errors.New("the folder is a link; upload into the folder it points to")
-	}
-	return nil
-}
-
 func (p *partFile) commit(destName string) error {
 	part := filepath.Join(p.dir, p.part)
 	dest := filepath.Join(p.dir, destName)
-	if err := notReparsePoint(p.dir); err != nil {
+	if _, err := folderPath(p.dir); err != nil {
 		_ = os.Remove(part)
 		return err
 	}
