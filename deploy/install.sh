@@ -2,7 +2,7 @@
 # =====================================================================================================================
 # Fleeto install.sh: installs and updates Fleeto instances on an Ubuntu VPS (22.04 or 24.04, amd64). Run as root.
 #
-# Steaan runs every instance (SaaS). Releases are GitHub Releases of the private Fleeto repository. Never pipe this script
+# Steaan runs every instance (SaaS). Releases are GitHub Releases of the Fleeto repository. Never pipe this script
 # from curl into a shell. Download it from the release, verify its signature with the Steaan release public key and only
 # then run it (deploy/README.md, First install):
 #
@@ -26,7 +26,8 @@ umask 077
 # Replaced with the release version by deploy/ci/bundle-install.sh.
 readonly INSTALLER_VERSION="0.0.0-dev"
 # Releases are the published GitHub Releases v<version> of this repository, each with the assets install.sh(.sig) and
-# manifest.json(.sig). The repository and its images are private, so install.sh asks once for two read-only tokens.
+# manifest.json(.sig). The repository is public, its images are not, so install.sh asks once for two read-only tokens:
+# the release token lifts the anonymous API rate limit, the packages token reads the images.
 readonly RELEASE_REPOSITORY="${FLEETO_RELEASE_REPOSITORY:-404-developer-AI/Fleeto}"
 readonly GITHUB_API_URL="https://api.github.com"
 readonly REGISTRY="ghcr.io/404-developer-ai"
@@ -372,7 +373,7 @@ ensure_github_credentials() {
     [[ -t 0 ]] || die "install.sh has no GitHub tokens to download Fleeto releases." "Run install.sh --github-tokens once in an interactive session."
     make_work_dir
     step "GitHub access for Fleeto releases"
-    info "The Fleeto repository and its images are private. install.sh needs two read-only tokens (deploy/README.md, GitHub tokens):"
+    info "The Fleeto images are private and the release API is rate limited. install.sh needs two read-only tokens (deploy/README.md, GitHub tokens):"
     info "  1. a fine-grained token for $RELEASE_REPOSITORY with only Contents: read-only (release files);"
     info "  2. a classic token with only the read:packages scope (container images on ghcr.io)."
     info "Input is hidden."

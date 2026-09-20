@@ -13,8 +13,9 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
   `MD-Files/ROADMAP.md`. Local development runs without Docker (see `README.md`); Docker is for the VPS and CI only.
 - **Git**: always ask before committing, pushing or tagging. No intermediate commits while a version is being built.
   Tag a version only after its commits are pushed and CI is green.
-- **Source control**: git, default branch `main`, private GitHub repository
-  `404-developer-AI/Fleeto` as `origin`. Conventional commits. Secrets never enter the repository, not even in example
+- **Source control**: git, default branch `main`, public GitHub repository
+  `404-developer-AI/Fleeto` as `origin` (public since 2026-09-21, so CI runs on free GitHub Actions minutes;
+  the release images on ghcr.io stay private). Conventional commits. Secrets never enter the repository, not even in example
   files with real values; `.gitignore` blocks the usual suspects.
 - **Documentation set**: this file in the repository root, everything else in `MD-Files/`.
   Keep each file to its purpose and update the relevant file in the same commit as the
@@ -278,10 +279,11 @@ One script does both, on a fresh or an existing Ubuntu VPS: `install.sh`. It wor
 instance; a VPS can hold several. Steaan runs every instance (SaaS, decided 2026-09-15):
 customers never install Fleeto themselves.
 
-- **Releases are GitHub Releases** of the private repository; images are private packages on
+- **Releases are GitHub Releases** of the repository; the images stay private packages on
   ghcr.io. `install.sh` asks once per VPS for two read-only tokens (fine-grained Contents
-  read-only for the release files, classic `read:packages` for the images) and stores them
-  root-only. There is no public release host.
+  read-only for the release files, which also lifts the anonymous API rate limit, and classic
+  `read:packages` for the images) and stores them root-only. GitHub serves the release files;
+  there is no separate release host.
 - **Never `curl | sudo bash`.** `install.sh` is downloaded from the release with its signature
   and verified against the Steaan release public key before it runs. Every release carries a
   manifest with image digests, signed with the release key outside CI; `install.sh` verifies it

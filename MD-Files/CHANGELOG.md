@@ -31,6 +31,13 @@ When a third released version is added, the oldest entry moves to the top of
   management matches an endpoint on it instead of on the host name, which is not unique across clients and changes.
   Linux follows in 0.4.1, together with patch management for Linux endpoints.
 
+### Changed
+
+- The Fleeto repository on GitHub is public from 2026-09-21, so CI runs on free GitHub Actions minutes; the release
+  images on ghcr.io stay private. `install.sh` still asks for both read-only tokens: the release token now mainly
+  lifts the rate limit of the GitHub API, the packages token reads the images. Two addresses of a test VPS were
+  taken out of the git history in the same step, which changed the commit of every release from 0.2.1 on.
+
 ### Fixed
 
 - 0.4.0: The connection test of an integration no longer ends in "Action1 did not answer in time" on an instance. fleeto-web

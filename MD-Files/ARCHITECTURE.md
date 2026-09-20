@@ -1261,7 +1261,7 @@ are on `API-WAITLIST.md`, which every feature commit keeps up to date (CLAUDE.md
 
 `install.sh` is the only supported way to install or update the server. It operates per
 instance; a VPS can hold several. Steaan runs every instance (SaaS, decided 2026-09-15), so
-releases are GitHub Releases of the private repository and the images are private packages on
+releases are GitHub Releases of the repository and the images are private packages on
 ghcr.io. `install.sh` is never piped from `curl` into a shell: it is downloaded from the release
 with the release token, its signature is checked against the release public key taken from the
 key ceremony record (never from GitHub), and only then run (`deploy/README.md`, First install).

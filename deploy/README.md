@@ -63,7 +63,7 @@ install.sh checks both names and prints the exact records to create when they ar
 
 ## GitHub tokens
 
-Steaan runs every instance, and releases are GitHub Releases of the private repository (`RELEASING.md`). install.sh asks
+Steaan runs every instance, and releases are GitHub Releases of the repository (`RELEASING.md`); the images on ghcr.io are private. install.sh asks
 once per VPS for two read-only tokens and stores them in `/opt/fleeto/credentials/` (0700 root, files 0600):
 
 | Token | Create at | Settings | Used for |

@@ -5,8 +5,8 @@ A release is a tagged commit `vX.Y.Z` that passes CI. A pre-release for testing 
 so the final release is an update, and only a VPS that already runs a pre-release (or has no release to choose from)
 picks up pre-releases by itself.
 
-Steaan runs every instance (SaaS, decided 2026-09-15), so releases are **GitHub Releases** of the private repository
-`404-developer-AI/Fleeto`. Server images and the agent share the version number. CI builds and pushes the images and
+Steaan runs every instance (SaaS, decided 2026-09-15), so releases are **GitHub Releases** of the repository
+`404-developer-AI/Fleeto` (public since 2026-09-21; the images on ghcr.io stay private). Server images and the agent share the version number. CI builds and pushes the images and
 creates a draft release with the unsigned files; a Steaan release manager signs them outside CI with the release key
 and publishes the release. No private key is ever available to CI, a runner or a VPS.
 
