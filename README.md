@@ -2,8 +2,11 @@
 
 Remote monitoring and management (RMM) by Steaan.
 
-Status: 0.1.0, first usable release (not yet tagged). Windows agent, enrollment with mTLS, agent-only and managed
-endpoints with licensing, checks and alerts, dashboard, backups. See [`MD-Files/ROADMAP.md`](MD-Files/ROADMAP.md).
+Status: 0.3.0 released, running on the first test VPS. Windows and Linux agents, enrollment with mTLS, agent-only and
+managed endpoints with licensing, checks and alerts, dashboard, backups, jobs and scripts, remote control and remote
+background. 0.4.0 (patch management through Action1) is being built. See [`MD-Files/ROADMAP.md`](MD-Files/ROADMAP.md).
+
+Source-available, not open source: see [License](#license).
 
 ## Where to start
 
@@ -98,3 +101,12 @@ The .NET integration tests connect as the superuser from `FLEETO_TEST_ADMIN_CONN
 - Documentation, code and UI are in English.
 - Secrets never enter this repository. `.gitignore` blocks the usual suspects; CI fails on a detected secret.
 - Conventional commits. Semantic versioning, tags `vX.Y.Z`.
+
+## License
+
+Fleeto is source-available under the **Business Source License 1.1** ([`LICENSE`](LICENSE)). You may read, build, modify
+and test it; production use is not granted to anyone but Steaan, which runs every instance as a service. On the Change
+Date of 2030-09-21 each published version becomes available under the Apache License 2.0. For a commercial license,
+contact Steaan.
+
+Security reports go through GitHub private vulnerability reporting, not a public issue ([`SECURITY.md`](SECURITY.md)).

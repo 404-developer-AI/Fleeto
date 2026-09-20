@@ -36,7 +36,10 @@ When a third released version is added, the oldest entry moves to the top of
 - The Fleeto repository on GitHub is public from 2026-09-21, so CI runs on free GitHub Actions minutes; the release
   images on ghcr.io stay private. `install.sh` still asks for both read-only tokens: the release token now mainly
   lifts the rate limit of the GitHub API, the packages token reads the images. Two addresses of a test VPS were
-  taken out of the git history in the same step, which changed the commit of every release from 0.2.1 on.
+  taken out of the git history in the same step, which changed the commit of every release from 0.2.1 on. The code is
+  source-available under the Business Source License 1.1, not open source: production use stays with Steaan and every
+  published version turns into Apache-2.0 on 2030-09-21. `SECURITY.md` states how to report a vulnerability privately,
+  and GitHub secret scanning with push protection is on.
 
 ### Fixed
 

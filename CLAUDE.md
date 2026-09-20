@@ -15,7 +15,9 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
   Tag a version only after its commits are pushed and CI is green.
 - **Source control**: git, default branch `main`, public GitHub repository
   `404-developer-AI/Fleeto` as `origin` (public since 2026-09-21, so CI runs on free GitHub Actions minutes;
-  the release images on ghcr.io stay private). Conventional commits. Secrets never enter the repository, not even in example
+  the release images on ghcr.io stay private). Source-available under the Business Source License 1.1 (`LICENSE`):
+  non-production use is granted, production use only to Steaan, and each published version turns into Apache-2.0 on
+  2030-09-21. Vulnerabilities are reported privately through GitHub (`SECURITY.md`). Conventional commits. Secrets never enter the repository, not even in example
   files with real values; `.gitignore` blocks the usual suspects.
 - **Documentation set**: this file in the repository root, everything else in `MD-Files/`.
   Keep each file to its purpose and update the relevant file in the same commit as the
