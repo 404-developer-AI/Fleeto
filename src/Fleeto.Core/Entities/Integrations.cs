@@ -64,6 +64,18 @@ public class Integration
     public DateTime? LastAttemptAt { get; set; }
     public DateTime? LastSuccessAt { get; set; }
 
+    /// <summary>
+    /// Set by web when an admin asks for a connection test, cleared by the workers when they have run it. Web cannot
+    /// reach the internet (only the workers are on the egress network), so every call to the product is made there.
+    /// </summary>
+    public DateTime? SyncRequestedAt { get; set; }
+
+    /// <summary>The tenants of the account as the workers last read them, as JSON: id and name per tenant.</summary>
+    public string TenantsJson { get; set; } = "[]";
+
+    /// <summary>When the workers last read the tenants.</summary>
+    public DateTime? TenantsUpdatedAt { get; set; }
+
     public List<IntegrationMapping> Mappings { get; set; } = [];
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

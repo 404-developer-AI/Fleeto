@@ -1429,9 +1429,16 @@ integration being down never degrades agent-based monitoring.
 for the EU), with OAuth2 client credentials stored encrypted and bound to the integration row. The client holds the bearer
 token (one hour, renewed five minutes early and once more when a call is refused) and paces every call through a
 `RequestBudget`, a token bucket that allows a burst and then refills: Action1 counts its whole API against one budget per
-enterprise and recommends staying under 30 requests a minute, so Fleeto uses 20, split over the processes that call
-(`IntegrationBudgets`: web 5 for what an admin triggers, workers 15 for polling). A 429 is answered by waiting
-`details.retry_after` and trying again, at most three times per call. Paging is offset-based (`from`/`limit`, 50 per page)
+enterprise and recommends staying under 30 requests a minute, so Fleeto uses 20 (`IntegrationBudgets`). A 429 is answered
+by waiting `details.retry_after` and trying again, at most three times per call.
+
+**Every call is made by the workers**, which are the only containers on the egress network; web has no outbound NAT at all
+(§1 and `deploy/compose/compose.yml`). Settings therefore never calls Action1: saving credentials or pressing "Test
+connection" sets `Integration.SyncRequestedAt` and notifies `fleeto_integrations`, `IntegrationSyncService` in the workers
+makes the call and writes the status, the message and the organizations back, and the page follows the row until the answer
+is there. The same service refreshes the organizations every four hours, so the names an admin maps stay current, and keeps
+a circuit breaker for the refreshes it starts by itself (a test an admin asked for is always attempted). This is how every
+integration works from here on. Paging is offset-based (`from`/`limit`, 50 per page)
 and timestamps arrive as `2026-09-20_14-11-14` without a timezone, read as UTC (`Action1Api.ParseTime`).
 
 Endpoints are matched on the id of the Action1 agent, which the Fleeto agent reads on the endpoint itself

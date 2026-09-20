@@ -562,6 +562,9 @@ Steps:
    credential, the connection test and the organization-to-client mapping, and the Fleeto agent reporting the id of the
    Action1 agent installed on a Windows endpoint. The circuit breaker sits in the poller of step 2, where the calls become
    scheduled work.
+   Fixed after `v0.4.0-alpha.1` on the test VPS: the connection test ran in web, which has no outbound access at all, so
+   it could only ever time out. Every call to an external product is now made by the workers (`IntegrationSyncService`),
+   which web asks through the database and a notification. That is the rule for every integration from here on.
    Still to verify on a test endpoint before step 2 relies on it: whether the local `agent.guid` is the same value as the
    endpoint id in the Action1 API. Action1 does not document it. If it differs, the fallback is the serial number and
    device name of the Action1 endpoint record.

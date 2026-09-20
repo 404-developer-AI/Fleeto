@@ -165,9 +165,26 @@ public sealed class IntegrationServiceTests
     {
         await ResetAsync();
 
-        var result = await Integrations.TestAction1Async(WebFixture.Admin());
+        var result = await Integrations.RequestTestAsync(WebFixture.Admin());
 
         Assert.False(result.Success);
         Assert.Contains("Action1 integration", result.Problem);
+    }
+
+    [Fact]
+    public async Task A_connection_test_is_a_request_the_workers_pick_up_because_web_cannot_reach_the_internet()
+    {
+        await ResetAsync();
+        Assert.True((await Integrations.SaveAction1Async(WebFixture.Admin(), Input())).Success);
+
+        // Saving credentials already asks for a test; a new request is recorded the same way.
+        Assert.True((await Integrations.RequestTestAsync(WebFixture.Admin())).Success);
+
+        var view = await Integrations.GetAction1Async(WebFixture.Admin());
+        Assert.True(view!.TestPending);
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        var row = await db.Integrations.AsNoTracking().SingleAsync(i => i.Type == IntegrationType.Action1);
+        Assert.NotNull(row.SyncRequestedAt);
+        Assert.Empty(view.Tenants);
     }
 }

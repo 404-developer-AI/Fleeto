@@ -768,6 +768,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(i => i.EncryptedCredentials).HasMaxLength(8000);
             entity.Property(i => i.CredentialName).HasMaxLength(200);
             entity.Property(i => i.StatusMessage).HasMaxLength(1000);
+            entity.Property(i => i.TenantsJson).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
             // One enterprise per product per instance (0.4.0): its organizations map to clients.
             entity.HasIndex(i => i.Type).IsUnique();
             entity.ToTable(t => t.HasCheckConstraint("CK_Integrations_Action1",

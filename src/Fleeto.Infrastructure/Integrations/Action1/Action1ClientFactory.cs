@@ -15,13 +15,20 @@ public sealed class Action1ClientFactory
     private readonly TimeProvider _time;
     private readonly ILoggerFactory _loggers;
     private readonly RequestBudget _budget;
+    private readonly Func<HttpMessageHandler>? _handler;
 
-    public Action1ClientFactory(ISecretProtector protector, TimeProvider time, ILoggerFactory loggers, int permitsPerMinute)
+    /// <param name="handler">
+    /// A stand-in for the network, used by tests. Left out in every container, where the client builds its own hardened
+    /// handler.
+    /// </param>
+    public Action1ClientFactory(ISecretProtector protector, TimeProvider time, ILoggerFactory loggers, int permitsPerMinute,
+        Func<HttpMessageHandler>? handler = null)
     {
         _protector = protector;
         _time = time;
         _loggers = loggers;
         _budget = new RequestBudget(permitsPerMinute, time);
+        _handler = handler;
     }
 
     /// <summary>The budget every client of this process shares, for logging and tests.</summary>
@@ -51,6 +58,6 @@ public sealed class Action1ClientFactory
             return null;
         }
 
-        return new Action1Client(credentials, region, _budget, _time, _loggers.CreateLogger<Action1Client>());
+        return new Action1Client(credentials, region, _budget, _time, _loggers.CreateLogger<Action1Client>(), _handler?.Invoke());
     }
 }

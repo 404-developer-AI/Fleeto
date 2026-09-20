@@ -251,8 +251,12 @@ Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
   machine's patch state on another.
 - **Starting a deployment is an ordinary privileged action**: admins and technicians, on managed endpoints, recorded in the
   audit log like a job. No second-admin approval, because Action1 installs only what is in its own catalog.
+- **Only the workers talk to an external product.** Web runs on a network without outbound NAT (`deploy/compose/compose.yml`),
+  so it can never reach Action1: what an admin starts in Settings (a connection test, later a deployment) is a request web
+  writes to the database and notifies on `fleeto_integrations`; the workers make the call and write the result back, which the
+  page shows. Found while testing 0.4.0-alpha.1, and the rule for every integration from here on.
 - **Polling stays under Action1's budget.** Action1 recommends fewer than 30 requests a minute per enterprise, counted over
-  every API endpoint, publishes no hard limit and offers no webhooks. The workers hold one token bucket per enterprise at 20
+  every API endpoint, publishes no hard limit and offers no webhooks. The workers hold one token bucket for the instance at 20
   requests a minute for all clients together, honour `details.retry_after` from a 429, and fall back to the standard circuit
   breaker. Full patch sync per organization every 4 hours, missing-update detail only for endpoints that are not compliant, a
   rate-limited "refresh now" per client or endpoint, and a running deployment polled once a minute until it ends.

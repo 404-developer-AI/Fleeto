@@ -1,3 +1,6 @@
+using Fleeto.Core.Interfaces;
+using Fleeto.Infrastructure.Integrations;
+using Fleeto.Infrastructure.Integrations.Action1;
 using Fleeto.Workers.Alerts;
 using Fleeto.Workers.Backups;
 using Fleeto.Workers.Checks;
@@ -6,6 +9,7 @@ using Fleeto.Infrastructure.Email;
 using Fleeto.Workers.Email;
 using Fleeto.Workers.Endpoints;
 using Fleeto.Workers.Hosting;
+using Fleeto.Workers.Integrations;
 using Fleeto.Workers.Jobs;
 using Fleeto.Workers.Licensing;
 using Fleeto.Workers.Options;
@@ -15,6 +19,7 @@ using Fleeto.Workers.Webhooks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Fleeto.Workers;
 
@@ -42,6 +47,10 @@ public static class WorkersServiceCollectionExtensions
         services.AddSingleton<IPgDumpTargetProvider, PgDumpTargetProvider>();
         services.AddSingleton<PgDumpRunner>();
         services.AddSingleton<BackupDestinations>();
+        // Integrations (0.4.0): the workers are the only containers with outbound access, so every call to an external
+        // product is made here, with the whole request budget of the instance.
+        services.AddSingleton(sp => new Action1ClientFactory(sp.GetRequiredService<ISecretProtector>(), sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILoggerFactory>(), IntegrationBudgets.WorkerRequestsPerMinute));
 
         services.AddHostedService<HeartbeatFileService>();
         services.AddHostedService<ConfigChangeFanoutService>();
@@ -60,6 +69,7 @@ public static class WorkersServiceCollectionExtensions
         services.AddHostedService<CredentialExpiryService>();
         services.AddHostedService<BackupService>();
         services.AddHostedService<RetentionService>();
+        services.AddHostedService<IntegrationSyncService>();
 
         return services;
     }

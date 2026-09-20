@@ -1,8 +1,5 @@
-using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Data;
 using Fleeto.Infrastructure.Identity;
-using Fleeto.Infrastructure.Integrations;
-using Fleeto.Infrastructure.Integrations.Action1;
 using Fleeto.Web.Security;
 using Fleeto.Web.Services;
 using Microsoft.AspNetCore.Identity;
@@ -80,10 +77,8 @@ public static class WebServiceRegistration
         services.AddSingleton<ApiKeyService>();
         services.AddSingleton<AgentUpdateService>();
         services.AddSingleton<RemoteSessionService>();
-        // Integrations (0.4.0): web makes the few calls an admin triggers (test the connection, list the organizations), so it
-        // takes the smaller part of the Action1 request budget; the workers poll with the rest.
-        services.AddSingleton(sp => new Action1ClientFactory(sp.GetRequiredService<ISecretProtector>(), sp.GetRequiredService<TimeProvider>(),
-            sp.GetRequiredService<ILoggerFactory>(), IntegrationBudgets.WebRequestsPerMinute));
+        // Integrations (0.4.0): web stores the credentials and asks the workers to use them. It never calls the product
+        // itself, because it is on a network without outbound access.
         services.AddSingleton<IntegrationService>();
         services.AddScoped<RemoteWindow>();
         return services;

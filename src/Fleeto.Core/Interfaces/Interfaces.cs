@@ -94,6 +94,12 @@ public static class NotificationChannels
 
     /// <summary>Payload: agent release version. A release was paused, resumed or released to all rings (0.2.1).</summary>
     public const string AgentReleases = "fleeto_agent_releases";
+
+    /// <summary>
+    /// Payload: the integration type. An admin asked for a connection test, or changed the credentials (0.4.0). Only the
+    /// workers can reach an external product, so they do the call and write the result back.
+    /// </summary>
+    public const string Integrations = "fleeto_integrations";
 }
 
 /// <summary>Writes audit entries. The table is append-only; there is no update or delete.</summary>

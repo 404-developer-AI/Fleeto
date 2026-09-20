@@ -1,6 +1,7 @@
 @page "/settings/integrations"
 @attribute [Authorize(Policy = FleetoPolicies.Admin)]
 @inherits FleetoPageBase
+@implements IDisposable
 @using Fleeto.Core.Entities
 @using Fleeto.Core.Interfaces
 @using Fleeto.Infrastructure.Integrations.Action1
@@ -25,7 +26,8 @@
                     <MudText Typo="Typo.h6" Class="section-title">Action1</MudText>
                     @if (_integration is not null)
                     {
-                        <StatusChip Text="@StatusText(_integration.Status)" Kind="@StatusKindOf(_integration.Status)" />
+                        <StatusChip Text="@(_integration.TestPending ? "Testing" : StatusText(_integration.Status))"
+                                    Kind="@(_integration.TestPending ? StatusKind.Active : StatusKindOf(_integration.Status))" />
                     }
                 </div>
 
@@ -60,7 +62,9 @@
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="_busy">Save</MudButton>
                     @if (_integration is not null)
                     {
-                        <MudButton Variant="Variant.Outlined" OnClick="TestAsync" Disabled="_busy">Test connection</MudButton>
+                        <MudButton Variant="Variant.Outlined" OnClick="TestAsync" Disabled="_busy || _integration.TestPending">
+                            Test connection
+                        </MudButton>
                         <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="RemoveAsync" Disabled="_busy">Remove</MudButton>
                     }
                 </div>
@@ -77,16 +81,24 @@
             else
             {
                 <MudText Typo="Typo.body2" Class="muted mb-3">
-                    One organization belongs to one client, and one client to one organization.
+                    One organization belongs to one client, and one client to one organization. The workers read the
+                    organizations from Action1 every four hours and when the connection is tested.
                 </MudText>
 
-                <div class="d-flex gap-2 flex-wrap align-center mb-3">
-                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Refresh" OnClick="LoadOrganizationsAsync" Disabled="_busy">
-                        Load organizations
-                    </MudButton>
-                </div>
+                @if (_integration.Tenants.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Class="muted mb-3">
+                        No organizations read yet. Test the connection; they appear here when Action1 answers.
+                    </MudText>
+                }
+                else
+                {
+                    <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+                        @_integration.Tenants.Count organizations, read <TimeText Value="_integration.TenantsUpdatedAt" />
+                    </MudText>
+                }
 
-                @if (_organizations.Count > 0)
+                @if (_integration.Tenants.Count > 0)
                 {
                     <div class="d-flex gap-2 flex-wrap align-end mb-3">
                         <MudSelect T="Guid" @bind-Value="_mapClientId" Label="Client" Variant="Variant.Outlined" Style="min-width:200px">
@@ -96,7 +108,7 @@
                             }
                         </MudSelect>
                         <MudSelect T="string" @bind-Value="_mapTenantId" Label="Action1 organization" Variant="Variant.Outlined" Style="min-width:240px">
-                            @foreach (var organization in _organizations)
+                            @foreach (var organization in _integration.Tenants)
                             {
                                 <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
                             }
@@ -108,7 +120,7 @@
                 @if (_integration.Mappings.Count == 0)
                 {
                     <EmptyState Icon="@Icons.Material.Outlined.Link" Title="Nothing mapped yet"
-                                Text="Load the organizations and map each one to its client." />
+                                Text="Pick a client and the Action1 organization it belongs to." />
                 }
                 else
                 {
@@ -139,7 +151,7 @@
 
     private IntegrationView? _integration;
     private IReadOnlyList<IntegrationClient> _clients = [];
-    private IReadOnlyList<ExternalTenant> _organizations = [];
+    private readonly CancellationTokenSource _closed = new();
     private string? _clientId;
     private string? _clientSecret;
     private Action1Region _region = Action1Region.Europe;
@@ -165,7 +177,18 @@
         {
             _mapClientId = _clients[0].Id;
         }
+
+        if (_mapTenantId is null && _integration is { Tenants.Count: > 0 })
+        {
+            _mapTenantId = _integration.Tenants[0].Id;
+        }
     });
+
+    public void Dispose()
+    {
+        _closed.Cancel();
+        _closed.Dispose();
+    }
 
     private async Task SaveAsync()
     {
@@ -190,12 +213,38 @@
         _busy = true;
         try
         {
-            await RunAsync(caller => IntegrationSvc.TestAction1Async(caller), "Action1 answered. The credentials work.");
+            // Web cannot reach Action1 itself: the workers make the call and write the result back, usually within seconds.
+            if (!await RunAsync(caller => IntegrationSvc.RequestTestAsync(caller), "Testing the connection with Action1."))
+            {
+                return;
+            }
+
             await ReloadAsync();
         }
         finally
         {
             _busy = false;
+        }
+
+        await FollowTestAsync();
+    }
+
+    /// <summary>Reloads while the workers still have the test to run, so the answer appears without the admin refreshing.</summary>
+    private async Task FollowTestAsync()
+    {
+        for (var attempt = 0; attempt < 30 && _integration?.TestPending == true && !_closed.IsCancellationRequested; attempt++)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), _closed.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            await ReloadAsync();
+            StateHasChanged();
         }
     }
 
@@ -208,29 +257,8 @@
             {
                 _clientId = null;
                 _clientSecret = null;
-                _organizations = [];
                 await ReloadAsync();
             }
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
-
-    private async Task LoadOrganizationsAsync()
-    {
-        _busy = true;
-        try
-        {
-            var result = await RunForValueAsync(caller => IntegrationSvc.ListAction1OrganizationsAsync(caller), null);
-            if (result is { Success: true, Value: { } organizations })
-            {
-                _organizations = organizations;
-                _mapTenantId = organizations.Count > 0 ? organizations[0].Id : null;
-            }
-
-            await ReloadAsync();
         }
         finally
         {
@@ -245,7 +273,7 @@
             return;
         }
 
-        var name = _organizations.FirstOrDefault(o => o.Id == _mapTenantId)?.Name ?? string.Empty;
+        var name = _integration?.Tenants.FirstOrDefault(o => o.Id == _mapTenantId)?.Name ?? string.Empty;
         _busy = true;
         try
         {

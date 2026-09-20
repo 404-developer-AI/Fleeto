@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Audit;
@@ -19,9 +20,12 @@ public sealed record IntegrationClient(Guid Id, string Code, string Name);
 /// What Settings shows about the Action1 integration. The credentials themselves are never part of it: only which client
 /// id is in use and whether a secret is stored.
 /// </summary>
+/// <param name="TestPending">True while the workers still have to run the connection test an admin asked for.</param>
+/// <param name="Tenants">The organizations as the workers last read them, for the mapping choice.</param>
 public sealed record IntegrationView(Guid Id, IntegrationType Type, bool Enabled, Action1Region Region, string CredentialName,
     IntegrationStatus Status, string? StatusMessage, DateTime? LastAttemptAt, DateTime? LastSuccessAt,
-    IReadOnlyList<IntegrationMappingView> Mappings, DateTime UpdatedAt);
+    IReadOnlyList<IntegrationMappingView> Mappings, DateTime UpdatedAt, bool TestPending,
+    IReadOnlyList<ExternalTenant> Tenants, DateTime? TenantsUpdatedAt);
 
 /// <param name="ClientSecret">Blank when editing keeps the stored secret.</param>
 public sealed record Action1Input(string? ClientId, string? ClientSecret, Action1Region Region, bool Enabled);
@@ -34,16 +38,18 @@ public sealed record Action1Input(string? ClientId, string? ClientSecret, Action
 /// </summary>
 public sealed class IntegrationService
 {
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
     private readonly IFleetoDbContextFactory _dbFactory;
     private readonly ISecretProtector _protector;
-    private readonly Action1ClientFactory _clients;
+    private readonly INotificationBus _bus;
     private readonly TimeProvider _time;
 
-    public IntegrationService(IFleetoDbContextFactory dbFactory, ISecretProtector protector, Action1ClientFactory clients, TimeProvider time)
+    public IntegrationService(IFleetoDbContextFactory dbFactory, ISecretProtector protector, INotificationBus bus, TimeProvider time)
     {
         _dbFactory = dbFactory;
         _protector = protector;
-        _clients = clients;
+        _bus = bus;
         _time = time;
     }
 
@@ -130,6 +136,12 @@ public sealed class IntegrationService
             integration.StatusMessage = null;
         }
 
+        if (integration.Enabled)
+        {
+            // New or changed credentials prove themselves right away: the workers pick this up within a minute.
+            integration.SyncRequestedAt = now;
+        }
+
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(secretChanged ? AuditActions.CredentialChanged : AuditActions.IntegrationChanged,
             "Integration", integration.Id.ToString(), null, new
             {
@@ -141,6 +153,11 @@ public sealed class IntegrationService
                 integration.Enabled
             }), now));
         await db.SaveChangesAsync(cancellationToken);
+        if (integration.SyncRequestedAt is not null)
+        {
+            await _bus.PublishAsync(NotificationChannels.Integrations, IntegrationType.Action1.ToString(), cancellationToken);
+        }
+
         return ServiceResult.Ok();
     }
 
@@ -169,8 +186,11 @@ public sealed class IntegrationService
         return ServiceResult.Ok();
     }
 
-    /// <summary>Contacts Action1 with the stored credentials and records what came back.</summary>
-    public async Task<ServiceResult> TestAction1Async(Caller caller, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Asks the workers to contact Action1 with the stored credentials and read its organizations. Web is on a network
+    /// without outbound access, so it records the request and notifies; the result appears on the integration row.
+    /// </summary>
+    public async Task<ServiceResult> RequestTestAsync(Caller caller, CancellationToken cancellationToken = default)
     {
         if (!caller.IsAdmin)
         {
@@ -184,63 +204,10 @@ public sealed class IntegrationService
             return ServiceResult.NotFound("Action1 integration");
         }
 
-        using var client = _clients.TryCreate(integration);
-        if (client is null)
-        {
-            return ServiceResult.Fail("The stored Action1 credentials could not be read. Enter the client id and client secret again.");
-        }
-
-        var result = await client.TestConnectionAsync(cancellationToken);
-        var now = _time.GetUtcNow().UtcDateTime;
-        integration.LastAttemptAt = now;
-        integration.Status = result.Ok ? IntegrationStatus.Ok : IntegrationStatus.Failing;
-        integration.StatusMessage = result.Ok ? null : Trim(result.Message);
-        if (result.Ok)
-        {
-            integration.LastSuccessAt = now;
-        }
-
+        integration.SyncRequestedAt = _time.GetUtcNow().UtcDateTime;
         await db.SaveChangesAsync(cancellationToken);
-        return result.Ok ? ServiceResult.Ok() : ServiceResult.Fail(result.Message);
-    }
-
-    /// <summary>The organizations of the Action1 enterprise, for the mapping choice.</summary>
-    public async Task<ServiceResult<IReadOnlyList<ExternalTenant>>> ListAction1OrganizationsAsync(Caller caller,
-        CancellationToken cancellationToken = default)
-    {
-        if (!caller.IsAdmin)
-        {
-            return ServiceResult<IReadOnlyList<ExternalTenant>>.Forbidden();
-        }
-
-        await using var db = _dbFactory.CreateSystem();
-        var integration = await db.Integrations.SingleOrDefaultAsync(i => i.Type == IntegrationType.Action1, cancellationToken);
-        if (integration is null)
-        {
-            return ServiceResult<IReadOnlyList<ExternalTenant>>.NotFound("Action1 integration");
-        }
-
-        using var client = _clients.TryCreate(integration);
-        if (client is null)
-        {
-            return ServiceResult<IReadOnlyList<ExternalTenant>>.Fail(
-                "The stored Action1 credentials could not be read. Enter the client id and client secret again.");
-        }
-
-        var result = await client.ListTenantsAsync(cancellationToken);
-        var now = _time.GetUtcNow().UtcDateTime;
-        integration.LastAttemptAt = now;
-        integration.Status = result.Ok ? IntegrationStatus.Ok : IntegrationStatus.Failing;
-        integration.StatusMessage = result.Ok ? null : Trim(result.Message);
-        if (result.Ok)
-        {
-            integration.LastSuccessAt = now;
-        }
-
-        await db.SaveChangesAsync(cancellationToken);
-        return result.Ok
-            ? ServiceResult<IReadOnlyList<ExternalTenant>>.Ok(result.Value ?? [])
-            : ServiceResult<IReadOnlyList<ExternalTenant>>.Fail(result.Message);
+        await _bus.PublishAsync(NotificationChannels.Integrations, IntegrationType.Action1.ToString(), cancellationToken);
+        return ServiceResult.Ok();
     }
 
     /// <summary>Maps one Action1 organization to one client, replacing what that client was mapped to.</summary>
@@ -334,7 +301,20 @@ public sealed class IntegrationService
                     clients.TryGetValue(m.ClientId, out var name) ? name.Name : string.Empty,
                     m.ExternalTenantId, m.ExternalTenantName))
                 .OrderBy(m => m.ClientCode).ToList(),
-            integration.UpdatedAt);
+            integration.UpdatedAt, integration.SyncRequestedAt is not null, ReadTenants(integration), integration.TenantsUpdatedAt);
+
+    /// <summary>The tenants the workers stored. Unreadable JSON gives an empty list rather than an error page.</summary>
+    private static IReadOnlyList<ExternalTenant> ReadTenants(Integration integration)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<List<ExternalTenant>>(integration.TenantsJson, Json) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
 
     private static string? Trim(string? value, int max = 1000) =>
         string.IsNullOrEmpty(value) ? null : value.Length <= max ? value : value[..max];
