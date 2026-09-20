@@ -125,13 +125,13 @@ AuditEntry (append-only)
 | **RemoteSessionAction** | `Id`, `SessionId`, `ParticipantId?`, `ClientId`, `EndpointId`, `Time`, `Action`, `Target`, `Detail?` | An action inside a remote background session as the endpoint reports it (file, service or process action with its target; written from 0.3.0 step 2). Terminal content is never stored. |
 | **CheckResult** | `Time` (ingest), `ClientId`, `EndpointId`, `CheckDefinitionId`, `Status`, `Value`, `Payload` | TimescaleDB hypertable, compressed, retention policy. Deduplicated per endpoint and agent batch sequence number. |
 | **Alert** | `Id`, `ClientId`, `EndpointId`, `CheckDefinitionId`, `Severity`, `State`, `AcknowledgedBy`, `HeldUntil?`, `HeldAt?`, `HeldBy?`, timestamps | Deduplicated per endpoint and check. On hold while `HeldUntil` is in the future (§4, Alert hold). |
-| **InventorySnapshot** | `EndpointId`, `ClientId`, `ReceivedAt`, `Hash`, hardware facts, `DisksJson`, `NetworkInterfacesJson`, `SoftwareJson`, `ServicesJson` | Latest inventory, one row per endpoint. `ServicesJson` (0.2.0): name, display name, start type and state per service (at most 2,000), used to pick the service of a service check; for a monitoring template the services of the most recent 1,000 inventories of its endpoints are offered. |
+| **InventorySnapshot** | `EndpointId`, `ClientId`, `ReceivedAt`, `Hash`, hardware facts, `DisksJson`, `NetworkInterfacesJson`, `SoftwareJson`, `ServicesJson`, `Action1AgentId` | Latest inventory, one row per endpoint. `Action1AgentId` (0.4.0): the id of the Action1 agent installed next to the Fleeto agent, read on the endpoint itself and indexed, so patch state is matched on it instead of on the host name. `ServicesJson` (0.2.0): name, display name, start type and state per service (at most 2,000), used to pick the service of a service check; for a monitoring template the services of the most recent 1,000 inventories of its endpoints are offered. |
 | **CheckResultHourly**, **CheckResultDaily** | `EndpointId`, `CheckDefinitionId`, `Target`, `Bucket`, `ClientId`, `MinValue?`, `MaxValue?`, `SumValue`, `ValueCount`, `ErrorCount`, `NoResponseCount` | Check history rollups (0.2.0), maintained by the workers with the evaluation, kept 13 months. Deleted with their endpoint or check. |
 | **Note** | `Id`, `ClientId`, `EndpointId`, `AuthorId`, `AuthorName`, `Body` (markdown, at most 20,000 characters), `CreatedAt`, `UpdatedAt`, `EditedAt?` | Endpoints only (site notes were dropped). Managed endpoints only. The author edits, an admin deletes. Searchable from 0.6.0. A Servicedesk ticket reference is not yet scheduled (ROADMAP, Not yet scheduled). |
 | **NotificationChannel** | `Id`, `Name`, `Type` (`Email`, `Webhook`), `Recipients`, `WebhookFormat?` (`Generic`, `Slack`, `Teams`), `WebhookHost?`, `EncryptedWebhook?`, `MinimumSeverity`, `NotifyOnResolve`, `Enabled`, `AllClients` | Instance-wide, admins only. Routing (0.2.0): all clients or the clients in **NotificationChannelClient** (`NotificationChannelId`, `ClientId`, deleted with either side), plus minimum severity and resolves. `EncryptedWebhook` holds URL and signing secret, bound to the channel id (§5). The type cannot change. |
 | **OutboxEmail**, **OutboxWebhook** | `Id`, recipient or `NotificationChannelId`, `Category`, content or `Payload`, `Attempts`, `NextAttemptAt`, `SentAt?`, `LastError?` | Written in the transaction that changes the alert; delivered by the workers (§4, Alert notifications). Sent rows kept 30 days, given up rows 90 days. |
-| **Integration** | `Id`, `Type`, `EncryptedCredentials`, `Status` | Credentials are ciphertext, see §5. |
-| **IntegrationMapping** | `IntegrationId`, `ExternalTenantId`, `ClientId` | One external tenant (Action1 organization, Sophos tenant) maps to one client. |
+| **Integration** | `Id`, `Type`, `Enabled`, `Region?`, `EncryptedCredentials`, `CredentialName`, `Status`, `StatusMessage?`, `LastAttemptAt?`, `LastSuccessAt?` | One external product per instance (unique on `Type`, 0.4.0). Credentials are ciphertext bound to the row, see §5; `CredentialName` is the client id, for display. `Region` is the Action1 region, which decides the base URL. |
+| **IntegrationMapping** | `Id`, `IntegrationId`, `ClientId`, `ExternalTenantId`, `ExternalTenantName` | One external tenant (Action1 organization, Sophos tenant) maps to one client, and a client to one tenant: both unique per integration. Client-owned, so deleting the client removes it. |
 | **User**, **Role** | `Id`, `Email`, `PasswordHash` (Argon2id), `TotpSecret` (encrypted), roles | Roles: admin, technician, read-only. |
 | **AuditEntry** | `Time`, `ClientId?`, `ActorId` (user or API key), `Action`, `TargetType`, `TargetId`, `Details` | Append-only; no update or delete path in code or DB grants. `ClientId` null for instance-wide actions. |
 
@@ -1420,10 +1420,26 @@ enforcement with the rest of the server. `Fleeto.LoadTest` provides the 10,000-c
 
 ## 9. Integrations
 
-One interface (`IIntegration`) per connector type: `TestConnection`, `Poll`, and for
-Action1 the additional `ListMissingUpdates` and `Deploy` operations. Each connector runs in
+One interface (`IIntegration`) per connector type. It holds `TestConnection` and `ListTenants` today (0.4.0 step 1);
+`Poll`, and for Action1 `ListMissingUpdates` and `Deploy`, arrive with the patch steps. Each connector runs in
 the workers with its own schedule, timeout, retry with backoff and circuit breaker. An
 integration being down never degrades agent-based monitoring.
+
+**Action1 (0.4.0).** One enterprise per instance, in the region of the customer's Action1 account (`app.eu.action1.com`
+for the EU), with OAuth2 client credentials stored encrypted and bound to the integration row. The client holds the bearer
+token (one hour, renewed five minutes early and once more when a call is refused) and paces every call through a
+`RequestBudget`, a token bucket that allows a burst and then refills: Action1 counts its whole API against one budget per
+enterprise and recommends staying under 30 requests a minute, so Fleeto uses 20, split over the processes that call
+(`IntegrationBudgets`: web 5 for what an admin triggers, workers 15 for polling). A 429 is answered by waiting
+`details.retry_after` and trying again, at most three times per call. Paging is offset-based (`from`/`limit`, 50 per page)
+and timestamps arrive as `2026-09-20_14-11-14` without a timezone, read as UTC (`Action1Api.ParseTime`).
+
+Endpoints are matched on the id of the Action1 agent, which the Fleeto agent reads on the endpoint itself
+(`HKLM\SOFTWARE\WOW6432Node\Action1`, value `agent.guid`) and reports with its inventory; a value that is not a GUID is
+dropped rather than reported. Host names are not unique across clients and change, so they are never the join. Whether
+that local id is the same value as the endpoint id in the Action1 API is not documented by Action1 and is verified on a
+test endpoint before the patch steps use it; if it differs, the serial number and device name of the Action1 endpoint
+record are the fallback.
 
 | Integration | Data in | Actions out |
 |---|---|---|

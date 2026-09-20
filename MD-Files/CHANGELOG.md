@@ -7,6 +7,21 @@ This file holds the `Unreleased` section and the **two most recent released vers
 When a third released version is added, the oldest entry moves to the top of
 `CHANGELOG-ARCHIVE.md` in the same commit.
 
+## [Unreleased]
+
+### Added
+
+- 0.4.0: Settings, Integrations for admins: the Action1 enterprise of the instance with its client id, client secret and
+  region, a connection test, and the mapping of Action1 organizations to clients. One organization belongs to one client
+  and one client to one organization, so patch state can never land under another client. The client secret is write-only:
+  stored encrypted and bound to its row, never shown again, never in the audit log. A blank secret when editing keeps the
+  one that is stored. Fleeto stays well under the request budget Action1 recommends (20 a minute for the whole instance,
+  split over the containers that call) and waits as long as Action1 asks after a "too many requests" answer.
+- 0.4.0: The agent reports the id of the Action1 agent installed next to it on a Windows endpoint, read from the endpoint
+  itself. It is shown on the endpoint's Summary tab and as `action1AgentId` on the inventory in the public API. Patch
+  management matches an endpoint on it instead of on the host name, which is not unique across clients and changes.
+  Linux follows in 0.4.1, together with patch management for Linux endpoints.
+
 ## [0.3.0] — 2026-09-20
 
 Remote control and remote background: taking over the screen of a Windows or Linux endpoint, and a terminal, files, services and

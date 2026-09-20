@@ -259,8 +259,10 @@ Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
 - **License state is monitored**: Action1 gives 200 endpoints free per enterprise and flips endpoints above the quota to
   `Inactive`, which stops patching them. Fleeto polls the subscription usage and opens an alert for an inactive endpoint, so
   an unpatched endpoint never looks compliant.
-- **To verify before building**: whether the REST API works on the free plan ("no functionality limitations" is documented,
-  API access on that plan is not stated). Needs an Action1 account with API credentials.
+- **The REST API works on the free plan** (verified 2026-09-20 on the development account): `POST /api/3.0/oauth2/token`
+  with `client_id` and `client_secret` returns a bearer token that lasts 3600 seconds, with a refresh token. The token is a
+  Cognito ID token issued in `eu-central-1` for the EU region, so Fleeto sends it on and renews it on `expires_in` rather
+  than validating it.
 - Two shapes of the API to absorb in the connector: timestamps arrive as `YYYY-MM-DD_HH-mm-ss` without a timezone and are
   converted to ISO 8601 UTC for the Fleeto API, and paging is offset-based (`from`/`limit`, 50 by default) instead of keyset.
   There is no downloadable OpenAPI document to pin the contract against.
@@ -444,8 +446,7 @@ home-grown patch engine. Note them, do not build them. (File transfer inside rem
   the token proves MFA (`amr` claim), or is local TOTP always required on top? And may a user with
   Entra ID still sign in with a local password?
 - **Whitelabel depth**: FQDN only (v1) vs. customer logo and product name in the UI and emails.
-- **Action1**: decided on 2026-09-20, see Patch management. What is left is one fact to verify with an account: whether the
-  REST API works on the free plan.
+- **Action1**: decided and verified on 2026-09-20, see Patch management. Nothing open.
 - Final product name — "Fleeto" is a working title; a Google Play app "Fleeto" exists in vehicle fleet management. Do the BOIP/EUIPO and domain checks before public use.
 - Pricing per managed endpoint is undecided.
 - Apple platforms: not supported for now (decided 2026-09-15). When there is demand, decide the depth (monitoring only,

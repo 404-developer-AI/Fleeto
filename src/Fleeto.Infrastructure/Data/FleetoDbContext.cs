@@ -85,6 +85,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<OutboxWebhook> OutboxWebhooks => Set<OutboxWebhook>();
     public DbSet<BackupRun> BackupRuns => Set<BackupRun>();
     public DbSet<WorkerWatermark> WorkerWatermarks => Set<WorkerWatermark>();
+    public DbSet<Integration> Integrations => Set<Integration>();
+    public DbSet<IntegrationMapping> IntegrationMappings => Set<IntegrationMapping>();
 
     // Evaluated per query by EF Core (context members become query parameters).
     private bool ScopeAllClients => _scope.AllClients;
@@ -193,6 +195,9 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(i => i.CpuModel).HasMaxLength(200);
             entity.Property(i => i.Domain).HasMaxLength(255);
             entity.Property(i => i.LoggedOnUser).HasMaxLength(255);
+            entity.Property(i => i.Action1AgentId).HasMaxLength(64).HasDefaultValue(string.Empty);
+            // The patch poller looks an endpoint up by the id its Action1 agent reports (0.4.0).
+            entity.HasIndex(i => i.Action1AgentId).HasFilter("\"Action1AgentId\" <> ''");
             entity.Property(i => i.DisksJson).HasColumnType("jsonb");
             entity.Property(i => i.NetworkInterfacesJson).HasColumnType("jsonb");
             entity.Property(i => i.SoftwareJson).HasColumnType("jsonb");
@@ -753,6 +758,33 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 "(\"Type\" = 'Email' AND \"Recipients\" <> '' AND \"EncryptedWebhook\" IS NULL) OR " +
                 "(\"Type\" = 'Webhook' AND \"EncryptedWebhook\" IS NOT NULL AND \"WebhookFormat\" IS NOT NULL)"));
             entity.HasMany(c => c.Clients).WithOne().HasForeignKey(c => c.NotificationChannelId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<Integration>(entity =>
+        {
+            entity.Property(i => i.Type).HasConversion<string>().HasMaxLength(30);
+            entity.Property(i => i.Region).HasConversion<string>().HasMaxLength(30);
+            entity.Property(i => i.Status).HasConversion<string>().HasMaxLength(20);
+            entity.Property(i => i.EncryptedCredentials).HasMaxLength(8000);
+            entity.Property(i => i.CredentialName).HasMaxLength(200);
+            entity.Property(i => i.StatusMessage).HasMaxLength(1000);
+            // One enterprise per product per instance (0.4.0): its organizations map to clients.
+            entity.HasIndex(i => i.Type).IsUnique();
+            entity.ToTable(t => t.HasCheckConstraint("CK_Integrations_Action1",
+                "\"Type\" <> 'Action1' OR (\"Region\" IS NOT NULL AND \"EncryptedCredentials\" <> '')"));
+            entity.HasMany(i => i.Mappings).WithOne().HasForeignKey(m => m.IntegrationId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<IntegrationMapping>(entity =>
+        {
+            entity.Property(m => m.ExternalTenantId).HasMaxLength(200);
+            entity.Property(m => m.ExternalTenantName).HasMaxLength(200);
+            // A tenant belongs to one client, and a client to one tenant of that integration: patch state can never land
+            // under another client, and a client's compliance is never composed from two organizations.
+            entity.HasIndex(m => new { m.IntegrationId, m.ExternalTenantId }).IsUnique();
+            entity.HasIndex(m => new { m.IntegrationId, m.ClientId }).IsUnique();
+            entity.HasOne<Client>().WithMany().HasForeignKey(m => m.ClientId).OnDelete(DeleteBehavior.Cascade);
+            ClientOwned(entity);
         });
 
         builder.Entity<NotificationChannelClient>(entity =>

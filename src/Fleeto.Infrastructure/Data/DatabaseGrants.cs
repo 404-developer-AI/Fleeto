@@ -108,6 +108,9 @@ public static class DatabaseGrants
             ["NotificationChannelClients"] = Grants(web: ReadWrite, workers: Read),
             // Web queues test deliveries and reads the last delivery per channel; the workers deliver.
             ["OutboxWebhooks"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
+            // Integrations (0.4.0): an admin configures them in web; the workers poll and write back the status of the last attempt.
+            ["Integrations"] = Grants(web: ReadWrite, workers: "SELECT, UPDATE"),
+            ["IntegrationMappings"] = Grants(web: ReadWrite, workers: Read),
             ["BackupRuns"] = Grants(web: Read, workers: ReadWrite),
             ["WorkerWatermarks"] = Grants(workers: ReadWrite),
 

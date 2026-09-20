@@ -246,4 +246,10 @@ public class InventorySnapshot
 
     /// <summary>JSON array of services: name, displayName, startType, state. For picking a service in a check (0.2.0).</summary>
     public string ServicesJson { get; set; } = "[]";
+
+    /// <summary>
+    /// The id of the Action1 agent installed next to the Fleeto agent (0.4.0), read on the endpoint itself. Empty when
+    /// Action1 is not installed there. Patch state is matched on it, never on the host name.
+    /// </summary>
+    public string Action1AgentId { get; set; } = string.Empty;
 }

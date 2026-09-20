@@ -1,0 +1,339 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Text.Json;
+using Fleeto.Core.Entities;
+using Fleeto.Core.Interfaces;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
+namespace Fleeto.Infrastructure.Integrations.Action1;
+
+/// <summary>A call to Action1 that did not succeed. Permanent failures are not worth retrying without a change by an admin.</summary>
+public sealed class Action1Exception : Exception
+{
+    public Action1Exception(string message, bool permanent, Exception? inner = null) : base(message, inner)
+    {
+        IsPermanent = permanent;
+    }
+
+    public bool IsPermanent { get; }
+}
+
+/// <summary>
+/// Talks to one Action1 enterprise over its REST API (0.4.0).
+///
+/// It holds the bearer token of the OAuth2 client credentials (one hour, renewed with a margin and once more when a call
+/// is refused), paces every call through a <see cref="RequestBudget"/> because Action1 counts its whole API against one
+/// budget per enterprise, and honours the <c>retry_after</c> of a 429 over its own bookkeeping. Failures carry cause and
+/// next step for the admin and never hold a token, a secret or the client id.
+/// </summary>
+public sealed class Action1Client : IIntegration, IDisposable
+{
+    /// <summary>A token is renewed this long before it expires, so a call never travels with one that dies on the way.</summary>
+    private static readonly TimeSpan TokenMargin = TimeSpan.FromMinutes(5);
+
+    /// <summary>Attempts of one call when Action1 answers "too many requests"; its own guidance is to stop after three.</summary>
+    private const int RateLimitAttempts = 3;
+
+    /// <summary>A pause Fleeto accepts from Action1; anything longer is treated as "try again in the next round".</summary>
+    private static readonly TimeSpan MaxRetryAfter = TimeSpan.FromSeconds(60);
+
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    private readonly HttpClient _http;
+    private readonly bool _ownsHttp;
+    private readonly Action1Credentials _credentials;
+    private readonly RequestBudget _budget;
+    private readonly TimeProvider _time;
+    private readonly ILogger _logger;
+    private readonly SemaphoreSlim _tokenLock = new(1, 1);
+    private string? _token;
+    private DateTimeOffset _tokenExpiresAt;
+
+    public Action1Client(Action1Credentials credentials, Action1Region region, RequestBudget budget, TimeProvider time,
+        ILogger<Action1Client>? logger = null, HttpMessageHandler? handler = null, TimeSpan? timeout = null)
+    {
+        _credentials = credentials;
+        _budget = budget;
+        _time = time;
+        _logger = (ILogger?)logger ?? NullLogger.Instance;
+        _ownsHttp = handler is null;
+        _http = new HttpClient(handler ?? CreateHandler(), disposeHandler: _ownsHttp)
+        {
+            BaseAddress = Action1Api.BaseAddress(region),
+            Timeout = timeout ?? TimeSpan.FromSeconds(30)
+        };
+        _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+    }
+
+    public IntegrationType Type => IntegrationType.Action1;
+
+    public async Task<IntegrationResult> TestConnectionAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // One page of one record: it proves the credentials, the region and the role all work, for one request.
+            using var page = await GetAsync("organizations", "from=0&limit=1", cancellationToken);
+            var total = TotalItems(page.RootElement);
+            return IntegrationResult.Success(total == 1
+                ? "Action1 answered. The credentials reach 1 organization."
+                : $"Action1 answered. The credentials reach {total} organizations.");
+        }
+        catch (Action1Exception ex)
+        {
+            return IntegrationResult.Fail(ex.Message);
+        }
+    }
+
+    public async Task<IntegrationResult<IReadOnlyList<ExternalTenant>>> ListTenantsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var tenants = new List<ExternalTenant>();
+            for (var page = 0; page < Action1Api.MaxPages; page++)
+            {
+                using var document = await GetAsync("organizations",
+                    $"from={page * Action1Api.PageSize}&limit={Action1Api.PageSize}", cancellationToken);
+                var items = Items(document.RootElement);
+                foreach (var item in items)
+                {
+                    var id = Text(item, "id");
+                    if (!string.IsNullOrEmpty(id))
+                    {
+                        tenants.Add(new ExternalTenant(id, Text(item, "name") is { Length: > 0 } name ? name : id));
+                    }
+                }
+
+                if (items.Count < Action1Api.PageSize)
+                {
+                    break;
+                }
+            }
+
+            return IntegrationResult<IReadOnlyList<ExternalTenant>>.Success(tenants);
+        }
+        catch (Action1Exception ex)
+        {
+            return IntegrationResult<IReadOnlyList<ExternalTenant>>.Fail(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// One GET against the API, with the budget, the bearer token and the error mapping. The caller owns the returned
+    /// document. Throws <see cref="Action1Exception"/>; the patch steps of 0.4.0 build on this.
+    /// </summary>
+    internal async Task<JsonDocument> GetAsync(string path, string? query, CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            await _budget.AcquireAsync(cancellationToken);
+            using var request = new HttpRequestMessage(HttpMethod.Get, query is null ? path : $"{path}?{query}");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await GetTokenAsync(force: false, cancellationToken));
+
+            using var response = await SendAsync(request, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                try
+                {
+                    return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+                }
+                catch (JsonException ex)
+                {
+                    throw new Action1Exception("Action1 answered something Fleeto could not read. Fleeto tries again.", permanent: false, ex);
+                }
+            }
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized && attempt == 1)
+            {
+                // The token was refused (revoked, rotated or clock skew): get a new one and try this call once more.
+                await GetTokenAsync(force: true, cancellationToken);
+                continue;
+            }
+
+            if (response.StatusCode == HttpStatusCode.TooManyRequests && attempt < RateLimitAttempts)
+            {
+                var pause = await RetryAfterAsync(response, attempt, cancellationToken);
+                _budget.Pause(pause);
+                _logger.LogInformation("Action1 asked to slow down; waiting {Seconds}s before attempt {Attempt}", pause.TotalSeconds, attempt + 1);
+                await Task.Delay(pause, _time, cancellationToken);
+                continue;
+            }
+
+            throw await FailureAsync(response, cancellationToken);
+        }
+    }
+
+    private async Task<string> GetTokenAsync(bool force, CancellationToken cancellationToken)
+    {
+        var now = _time.GetUtcNow();
+        if (!force && _token is not null && now < _tokenExpiresAt - TokenMargin)
+        {
+            return _token;
+        }
+
+        await _tokenLock.WaitAsync(cancellationToken);
+        try
+        {
+            now = _time.GetUtcNow();
+            if (!force && _token is not null && now < _tokenExpiresAt - TokenMargin)
+            {
+                return _token;
+            }
+
+            // The token call counts against the same budget: Action1 counts requests across the whole API.
+            await _budget.AcquireAsync(cancellationToken);
+            using var request = new HttpRequestMessage(HttpMethod.Post, "oauth2/token")
+            {
+                Content = new FormUrlEncodedContent([
+                    new KeyValuePair<string, string>("client_id", _credentials.ClientId),
+                    new KeyValuePair<string, string>("client_secret", _credentials.ClientSecret)
+                ])
+            };
+
+            using var response = await SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw response.StatusCode switch
+                {
+                    HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => new Action1Exception(
+                        "Action1 refused the API credentials. Check the client id, the client secret and the region in Settings, Integrations, " +
+                        "and that the credentials still exist in the Action1 console.", permanent: true),
+                    HttpStatusCode.TooManyRequests => new Action1Exception(
+                        "Action1 is limiting the number of requests. Fleeto tries again.", permanent: false),
+                    _ => await FailureAsync(response, cancellationToken)
+                };
+            }
+
+            var body = await response.Content.ReadFromJsonSafeAsync(cancellationToken);
+            var token = body is null ? null : Text(body.Value, "access_token");
+            if (string.IsNullOrEmpty(token))
+            {
+                throw new Action1Exception("Action1 answered without a token. Fleeto tries again.", permanent: false);
+            }
+
+            var lifetime = body!.Value.TryGetProperty("expires_in", out var expires) && expires.TryGetInt32(out var seconds) && seconds > 0
+                ? TimeSpan.FromSeconds(seconds)
+                : TimeSpan.FromHours(1);
+            _token = token;
+            _tokenExpiresAt = _time.GetUtcNow() + lifetime;
+            return token;
+        }
+        finally
+        {
+            _tokenLock.Release();
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new Action1Exception("Action1 did not answer in time. Fleeto tries again.", permanent: false, ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new Action1Exception("Fleeto could not reach Action1. Check that the instance can reach the internet, then try again.",
+                permanent: false, ex);
+        }
+    }
+
+    /// <summary>The pause after a 429: Action1's own <c>retry_after</c> when it is sane, else its documented fallback of 2, 4, 8 seconds.</summary>
+    private static async Task<TimeSpan> RetryAfterAsync(HttpResponseMessage response, int attempt, CancellationToken cancellationToken)
+    {
+        if (response.Headers.RetryAfter?.Delta is { } delta && delta > TimeSpan.Zero)
+        {
+            return delta < MaxRetryAfter ? delta : MaxRetryAfter;
+        }
+
+        var body = await response.Content.ReadFromJsonSafeAsync(cancellationToken);
+        if (body is { } root && root.TryGetProperty("details", out var details) &&
+            details.ValueKind == JsonValueKind.Object && details.TryGetProperty("retry_after", out var retryAfter) &&
+            retryAfter.TryGetInt32(out var seconds) && seconds > 0)
+        {
+            var pause = TimeSpan.FromSeconds(seconds);
+            return pause < MaxRetryAfter ? pause : MaxRetryAfter;
+        }
+
+        return TimeSpan.FromSeconds(Math.Pow(2, attempt) * 2);
+    }
+
+    private static async Task<Action1Exception> FailureAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        var body = await response.Content.ReadFromJsonSafeAsync(cancellationToken);
+        var detail = body is { } root ? Text(root, "user_message") : null;
+
+        return response.StatusCode switch
+        {
+            HttpStatusCode.Unauthorized => new Action1Exception(
+                "Action1 refused the API credentials. Check them in Settings, Integrations.", permanent: true),
+            HttpStatusCode.Forbidden => new Action1Exception(
+                "The Action1 API credentials may not read this. Give their role access to the organizations Fleeto manages, in the Action1 console.",
+                permanent: true),
+            HttpStatusCode.NotFound => new Action1Exception(
+                "Action1 does not know this organization. Check the mapping in Settings, Integrations.", permanent: true),
+            HttpStatusCode.TooManyRequests => new Action1Exception(
+                "Action1 is limiting the number of requests. Fleeto slows down and tries again.", permanent: false),
+            _ => new Action1Exception(
+                $"Action1 answered {(int)response.StatusCode}{(string.IsNullOrEmpty(detail) ? "" : $" ({detail})")}. Fleeto tries again.",
+                permanent: false)
+        };
+    }
+
+    private static IReadOnlyList<JsonElement> Items(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return items.EnumerateArray().ToList();
+    }
+
+    private static int TotalItems(JsonElement root) =>
+        root.ValueKind == JsonValueKind.Object && root.TryGetProperty("total_items", out var total) && total.TryGetInt32(out var value)
+            ? value
+            : Items(root).Count;
+
+    private static string Text(JsonElement element, string name) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? string.Empty
+            : string.Empty;
+
+    private static HttpMessageHandler CreateHandler() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        UseProxy = false,
+        UseCookies = false,
+        ConnectTimeout = TimeSpan.FromSeconds(15),
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+    };
+
+    public void Dispose()
+    {
+        _http.Dispose();
+        _tokenLock.Dispose();
+    }
+}
+
+internal static class Action1Json
+{
+    /// <summary>Reads a JSON body, giving null when there is none or it is not JSON. Error bodies are never trusted to be well formed.</summary>
+    public static async Task<JsonElement?> ReadFromJsonSafeAsync(this HttpContent content, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var stream = await content.ReadAsStreamAsync(cancellationToken);
+            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+            return document.RootElement.Clone();
+        }
+        catch (Exception ex) when (ex is JsonException or HttpRequestException or IOException or ObjectDisposedException)
+        {
+            return null;
+        }
+    }
+}

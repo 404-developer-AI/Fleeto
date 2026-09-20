@@ -552,14 +552,19 @@ Decisions (2026-09-20, with the developer, from the Action1 documentation):
   once a minute. Action1 has no webhooks, so polling is the only way.
 - **Action1 license state** is polled (`/subscription/usage/organizations`): an endpoint above the free 200 of an enterprise
   becomes `Inactive` and stops being patched, which opens an alert instead of looking compliant.
-- **To verify first**: whether the REST API works on the free plan. Needs an Action1 account with API credentials; nothing is
-  built before that is answered.
+- **Verified 2026-09-20** on the development account: the REST API works on the free plan. The token endpoint returns a
+  bearer token of 3600 seconds with a refresh token; for the EU region it is a Cognito ID token from `eu-central-1`.
 
 Steps:
 
-1. [open] **Connector and inventory**: `Action1Integration` behind `IIntegration` (OAuth2 token cache, EU region, the shared
-   token bucket, retry with `retry_after`, circuit breaker), the settings page with the credential and the connection test,
-   organization-to-client mapping, and the Fleeto agent reporting the Action1 identity of its endpoint.
+1. [done] **Connector and inventory** (2026-09-20): `Action1Client` behind `IIntegration` (token cache, region, the shared
+   request budget, `retry_after` on a 429, messages that state cause and next step), Settings, Integrations with the
+   credential, the connection test and the organization-to-client mapping, and the Fleeto agent reporting the id of the
+   Action1 agent installed on a Windows endpoint. The circuit breaker sits in the poller of step 2, where the calls become
+   scheduled work.
+   Still to verify on a test endpoint before step 2 relies on it: whether the local `agent.guid` is the same value as the
+   endpoint id in the Action1 API. Action1 does not document it. If it differs, the fallback is the serial number and
+   device name of the Action1 endpoint record.
 2. [open] **Patch state**: full sync into the check and alert model, compliance per endpoint, site and client, missing
    updates with severity, alerts on stale patch state and on an `Inactive` Action1 endpoint, the dashboard tile, the endpoint
    detail tab.

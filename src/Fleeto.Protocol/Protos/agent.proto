@@ -267,6 +267,9 @@ message Inventory {
   string logged_on_user = 15;
   // Services on the endpoint (Windows services, systemd units, launchd jobs), for picking a service in a check. 0.2.0.
   repeated ServiceItem services = 16;
+  // The id of the Action1 agent installed next to the Fleeto agent, read on the endpoint itself (0.4.0). Empty when
+  // Action1 is not installed or the id cannot be read. Patch state is matched on it instead of on the host name.
+  string action1_agent_id = 17;
 }
 
 message ServiceItem {

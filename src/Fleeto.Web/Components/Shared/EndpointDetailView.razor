@@ -343,6 +343,10 @@
                                     <tr><td class="muted">Last boot</td><td><TimeText Value="inv.BootTime" /></td></tr>
                                     <tr><td class="muted">Domain</td><td>@(string.IsNullOrEmpty(inv.Domain) ? "-" : inv.Domain)</td></tr>
                                     <tr><td class="muted">Inventory received</td><td><TimeText Value="inv.ReceivedAt" /></td></tr>
+                                    @if (!string.IsNullOrEmpty(inv.Action1AgentId))
+                                    {
+                                        <tr><td class="muted">Action1 agent</td><td>@inv.Action1AgentId</td></tr>
+                                    }
                                 </tbody>
                             </MudSimpleTable>
                         }

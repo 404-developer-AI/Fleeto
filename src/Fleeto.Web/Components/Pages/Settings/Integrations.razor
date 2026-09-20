@@ -1,0 +1,292 @@
+@page "/settings/integrations"
+@attribute [Authorize(Policy = FleetoPolicies.Admin)]
+@inherits FleetoPageBase
+@using Fleeto.Core.Entities
+@using Fleeto.Core.Interfaces
+@using Fleeto.Infrastructure.Integrations.Action1
+@inject IntegrationService IntegrationSvc
+
+<PageTitle>Integrations - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Integrations</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            Action1 does the patch management. Fleeto reads its patch state per endpoint and maps each Action1 organization to one client.
+        </MudText>
+    </div>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    <MudGrid Spacing="3">
+        <MudItem xs="12" md="6">
+            <div class="fl-panel pa-4">
+                <div class="d-flex justify-space-between align-center mb-3">
+                    <MudText Typo="Typo.h6" Class="section-title">Action1</MudText>
+                    @if (_integration is not null)
+                    {
+                        <StatusChip Text="@StatusText(_integration.Status)" Kind="@StatusKindOf(_integration.Status)" />
+                    }
+                </div>
+
+                <MudTextField @bind-Value="_clientId" Label="Client id" Variant="Variant.Outlined" MaxLength="200" Class="mb-3"
+                              HelperText="From Configuration, Users & API Credentials in the Action1 console." />
+                <MudTextField @bind-Value="_clientSecret" Label="@(_integration is null ? "Client secret" : "Client secret (leave blank to keep the current secret)")"
+                              Variant="Variant.Outlined" InputType="InputType.Password" MaxLength="500" Class="mb-3" />
+                <MudSelect T="Action1Region" @bind-Value="_region" Label="Region" Variant="Variant.Outlined" Class="mb-1">
+                    @foreach (var region in Regions)
+                    {
+                        <MudSelectItem T="Action1Region" Value="@region">@Action1Api.RegionName(region)</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+                    The region where the Action1 account is registered. Europe keeps the patch data in the EU.
+                </MudText>
+
+                <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Class="mb-3">Enabled</MudSwitch>
+
+                @if (_integration?.StatusMessage is { Length: > 0 } problem)
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">@problem</MudAlert>
+                }
+                @if (_integration is not null)
+                {
+                    <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+                        Last attempt: <TimeText Value="_integration.LastAttemptAt" />, last success: <TimeText Value="_integration.LastSuccessAt" />
+                    </MudText>
+                }
+
+                <div class="d-flex gap-2 flex-wrap">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="_busy">Save</MudButton>
+                    @if (_integration is not null)
+                    {
+                        <MudButton Variant="Variant.Outlined" OnClick="TestAsync" Disabled="_busy">Test connection</MudButton>
+                        <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="RemoveAsync" Disabled="_busy">Remove</MudButton>
+                    }
+                </div>
+            </div>
+        </MudItem>
+
+        <MudItem xs="12" md="6">
+            <MudText Typo="Typo.h6" Class="section-title mb-2">Organizations and clients</MudText>
+            @if (_integration is null)
+            {
+                <EmptyState Icon="@Icons.Material.Outlined.Hub" Title="No Action1 credentials yet"
+                            Text="Save the client id and secret first. Fleeto then lists the organizations of the enterprise." />
+            }
+            else
+            {
+                <MudText Typo="Typo.body2" Class="muted mb-3">
+                    One organization belongs to one client, and one client to one organization.
+                </MudText>
+
+                <div class="d-flex gap-2 flex-wrap align-center mb-3">
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Refresh" OnClick="LoadOrganizationsAsync" Disabled="_busy">
+                        Load organizations
+                    </MudButton>
+                </div>
+
+                @if (_organizations.Count > 0)
+                {
+                    <div class="d-flex gap-2 flex-wrap align-end mb-3">
+                        <MudSelect T="Guid" @bind-Value="_mapClientId" Label="Client" Variant="Variant.Outlined" Style="min-width:200px">
+                            @foreach (var client in _clients)
+                            {
+                                <MudSelectItem T="Guid" Value="@client.Id">@client.Code — @client.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudSelect T="string" @bind-Value="_mapTenantId" Label="Action1 organization" Variant="Variant.Outlined" Style="min-width:240px">
+                            @foreach (var organization in _organizations)
+                            {
+                                <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="MapAsync" Disabled="_busy">Map</MudButton>
+                    </div>
+                }
+
+                @if (_integration.Mappings.Count == 0)
+                {
+                    <EmptyState Icon="@Icons.Material.Outlined.Link" Title="Nothing mapped yet"
+                                Text="Load the organizations and map each one to its client." />
+                }
+                else
+                {
+                    <MudTable Items="_integration.Mappings" Dense="true" Elevation="0">
+                        <HeaderContent>
+                            <MudTh>Client</MudTh>
+                            <MudTh>Action1 organization</MudTh>
+                            <MudTh />
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd>@context.ClientCode — @context.ClientName</MudTd>
+                            <MudTd>@(string.IsNullOrEmpty(context.TenantName) ? context.TenantId : context.TenantName)</MudTd>
+                            <MudTd Style="text-align:right">
+                                <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Disabled="_busy"
+                                               OnClick="@(() => RemoveMappingAsync(context.Id))" aria-label="Remove mapping" />
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            }
+        </MudItem>
+    </MudGrid>
+</LoadState>
+
+@code {
+    private static readonly Action1Region[] Regions =
+        [Action1Region.Europe, Action1Region.NorthAmerica, Action1Region.NorthAmerica2, Action1Region.UnitedKingdom, Action1Region.Australia];
+
+    private IntegrationView? _integration;
+    private IReadOnlyList<IntegrationClient> _clients = [];
+    private IReadOnlyList<ExternalTenant> _organizations = [];
+    private string? _clientId;
+    private string? _clientSecret;
+    private Action1Region _region = Action1Region.Europe;
+    private bool _enabled = true;
+    private Guid _mapClientId;
+    private string? _mapTenantId;
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        _integration = await IntegrationSvc.GetAction1Async(caller);
+        _clients = await IntegrationSvc.ListClientsAsync(caller);
+        if (_integration is not null)
+        {
+            _clientId = _integration.CredentialName;
+            _region = _integration.Region;
+            _enabled = _integration.Enabled;
+        }
+
+        if (_mapClientId == Guid.Empty && _clients.Count > 0)
+        {
+            _mapClientId = _clients[0].Id;
+        }
+    });
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        try
+        {
+            var input = new Action1Input(_clientId, _clientSecret, _region, _enabled);
+            if (await RunAsync(caller => IntegrationSvc.SaveAction1Async(caller, input), "The Action1 credentials were saved."))
+            {
+                _clientSecret = null;
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task TestAsync()
+    {
+        _busy = true;
+        try
+        {
+            await RunAsync(caller => IntegrationSvc.TestAction1Async(caller), "Action1 answered. The credentials work.");
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RemoveAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await RunAsync(caller => IntegrationSvc.RemoveAction1Async(caller), "The Action1 integration was removed."))
+            {
+                _clientId = null;
+                _clientSecret = null;
+                _organizations = [];
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task LoadOrganizationsAsync()
+    {
+        _busy = true;
+        try
+        {
+            var result = await RunForValueAsync(caller => IntegrationSvc.ListAction1OrganizationsAsync(caller), null);
+            if (result is { Success: true, Value: { } organizations })
+            {
+                _organizations = organizations;
+                _mapTenantId = organizations.Count > 0 ? organizations[0].Id : null;
+            }
+
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task MapAsync()
+    {
+        if (_mapClientId == Guid.Empty || string.IsNullOrEmpty(_mapTenantId))
+        {
+            return;
+        }
+
+        var name = _organizations.FirstOrDefault(o => o.Id == _mapTenantId)?.Name ?? string.Empty;
+        _busy = true;
+        try
+        {
+            if (await RunAsync(caller => IntegrationSvc.SaveMappingAsync(caller, _mapClientId, _mapTenantId!, name), "The mapping was saved."))
+            {
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RemoveMappingAsync(Guid mappingId)
+    {
+        _busy = true;
+        try
+        {
+            if (await RunAsync(caller => IntegrationSvc.RemoveMappingAsync(caller, mappingId), "The mapping was removed."))
+            {
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string StatusText(IntegrationStatus status) => status switch
+    {
+        IntegrationStatus.Ok => "Connected",
+        IntegrationStatus.Failing => "Failing",
+        _ => "Not tested"
+    };
+
+    private static StatusKind StatusKindOf(IntegrationStatus status) => status switch
+    {
+        IntegrationStatus.Ok => StatusKind.Ok,
+        IntegrationStatus.Failing => StatusKind.Error,
+        _ => StatusKind.Neutral
+    };
+}

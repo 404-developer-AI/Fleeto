@@ -70,6 +70,7 @@ One row per feature, in the table of its area. Keep it concrete enough to build 
 | Expiring credential warnings (Microsoft Graph secret or certificate) | 0.2.0 | Part of `GET /api/v1/summary`: `{name, expiresAt, expired, stopsWorking}` | Never the credential itself. |
 | Notification channels with routing rules (clients, minimum severity, resolves) and last webhook delivery | 0.2.0 | `GET /api/v1/notification-channels` | Admin data. Never webhook URLs, signing secrets or email content. |
 | Users and roles | 0.1.0 | `GET /api/v1/users` (name, email, roles, two-factor enabled) | Decide first whether this belongs in the API at all: personal data and a map of who can do what. |
+| Integrations: which external product is configured, whether its last attempt worked, and which of its tenants maps to which client (0.4.0: Action1, with its region) | 0.4.0 | `GET /api/v1/integrations` returning `[{type, enabled, region, status, statusMessage, lastAttemptAt, lastSuccessAt, mappings: [{clientId, clientCode, tenantId, tenantName}]}]` | Admin data. Never the credentials, not even the client id: it is half of a credential pair. |
 
 ## Write access: waiting for demand
 
@@ -106,6 +107,7 @@ These stay out of the API. Changing that needs an explicit decision recorded in 
 |---|---|
 | API keys (create, list, revoke) | A key must not be able to create or extend keys; key management stays with an admin in Settings. |
 | Email settings (SMTP, Microsoft Graph), backup destination, license loading | Hold secrets or change the instance itself; admin work in Settings with two-factor authentication. |
+| Integration credentials (0.4.0): saving the Action1 client id and secret, testing the connection, mapping organizations to clients | Holds a secret and changes what the instance talks to; admin work in Settings. Reading the configuration is on the waiting list above. |
 | Secrets of any kind: webhook URLs and signing secrets, enrollment tokens after creation, TOTP seeds, password hashes, signing keys, certificates' private keys, the root key | CLAUDE.md, Secrets: write-only, never returned after creation. |
 | Signed job payloads and signatures, signing requests | Internal to the signer, gateway and agent. |
 | First-admin setup, sign-in, two-factor setup, user administration actions | Account security belongs in the UI. |

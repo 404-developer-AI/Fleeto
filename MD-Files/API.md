@@ -369,7 +369,8 @@ the `title` says which), 429.
   "disks": [ { "mount": "C:", "filesystem": "NTFS", "totalBytes": 479069872128, "freeBytes": 201863462912 } ],
   "networkInterfaces": [ { "name": "Ethernet0", "macAddress": "00:50:56:a1:2b:3c", "ipAddresses": [ "10.0.0.10", "fe80::250:56ff:fea1:2b3c" ] } ],
   "software": [ { "name": "Microsoft SQL Server 2022", "version": "16.0.1000.6", "publisher": "Microsoft Corporation", "installDate": "20260902" } ],
-  "services": [ { "name": "MSSQLSERVER", "displayName": "SQL Server (MSSQLSERVER)", "startType": "automatic", "state": "running" } ]
+  "services": [ { "name": "MSSQLSERVER", "displayName": "SQL Server (MSSQLSERVER)", "startType": "automatic", "state": "running" } ],
+  "action1AgentId": "ef17c844-5b7c-4b32-9724-f2716b596639"
 }
 ```
 
@@ -708,6 +709,7 @@ not read them.
 | `disks` | array | Per disk: `mount` (`C:` or `/var`), `filesystem`, `totalBytes`, `freeBytes`. |
 | `networkInterfaces` | array | Per interface: `name`, `macAddress`, `ipAddresses` (array of strings, IPv4 and IPv6). |
 | `software` | array | Installed software, from the registry on Windows and from dpkg or rpm on Linux: `name`, `version`, `publisher`, `installDate` (as the operating system reports it, often `yyyyMMdd`; may be empty, as it is for dpkg packages). |
+| `action1AgentId` | string | The id of the Action1 agent installed on the endpoint, read on the endpoint itself (0.4.0). Empty when Action1 is not installed, when the agent is older than 0.4.0, or on Linux, where Fleeto does not read it yet. Patch management uses it to match an endpoint to its Action1 record. |
 | `services` | array | Services: Windows services, or systemd services on Linux (`name` without the `.service` suffix, `displayName` is the unit description). Per service: `name`, `displayName`, `startType` (`automatic`, `automatic_delayed` (Windows), `manual`, `disabled`, or empty when unknown; a systemd unit that is enabled, static, generated or indirect is `automatic`, one that is disabled is `manual` and a masked one is `disabled`) and `state` (`running`, `stopped`, `starting`, `stopping`, `paused` (Windows), or empty when unknown). Sorted by display name. |
 
 ### EndpointChecks

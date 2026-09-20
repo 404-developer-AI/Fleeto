@@ -186,7 +186,8 @@ public sealed record ApiService(string Name, string DisplayName, string StartTyp
 
 public sealed record ApiInventory(Guid EndpointId, DateTime ReceivedAt, string Manufacturer, string Model, string SerialNumber, ApiCpu Cpu,
     long MemoryTotalBytes, DateTime? BootTime, string Domain, string LoggedOnUser, IReadOnlyList<ApiDisk> Disks,
-    IReadOnlyList<ApiNetworkInterface> NetworkInterfaces, IReadOnlyList<ApiSoftware> Software, IReadOnlyList<ApiService> Services);
+    IReadOnlyList<ApiNetworkInterface> NetworkInterfaces, IReadOnlyList<ApiSoftware> Software, IReadOnlyList<ApiService> Services,
+    string Action1AgentId);
 
 public sealed record ApiCheck(
     Guid CheckId,

@@ -81,9 +81,11 @@ public sealed class SoftwareInfo
     public string InstallDate { get; init; } = string.Empty;
 }
 
+/// <param name="Action1AgentId">The Action1 agent installed on the endpoint (0.4.0); empty when there is none.</param>
 public sealed record InventoryView(DateTime ReceivedAt, string Manufacturer, string Model, string SerialNumber, string CpuModel, int CpuCores,
     int CpuLogicalProcessors, long MemoryTotalBytes, DateTime? BootTime, string Domain, string LoggedOnUser,
-    IReadOnlyList<DiskInfo> Disks, IReadOnlyList<NetworkInterfaceInfo> NetworkInterfaces, IReadOnlyList<SoftwareInfo> Software);
+    IReadOnlyList<DiskInfo> Disks, IReadOnlyList<NetworkInterfaceInfo> NetworkInterfaces, IReadOnlyList<SoftwareInfo> Software,
+    string Action1AgentId);
 
 public sealed record AlertView(Guid Id, Guid EndpointId, string Hostname, Guid ClientId, string ClientCode, AlertKind Kind, AlertSeverity Severity,
     AlertState State, string Title, string Detail, DateTime OpenedAt, DateTime UpdatedAt, DateTime? AcknowledgedAt, DateTime? ResolvedAt,
@@ -290,7 +292,7 @@ public sealed class EndpointService
         return new InventoryView(snapshot.ReceivedAt, snapshot.Manufacturer, snapshot.Model, snapshot.SerialNumber, snapshot.CpuModel,
             snapshot.CpuCores, snapshot.CpuLogicalProcessors, snapshot.MemoryTotalBytes, snapshot.BootTime, snapshot.Domain, snapshot.LoggedOnUser,
             ParseList<DiskInfo>(snapshot.DisksJson, endpointId), ParseList<NetworkInterfaceInfo>(snapshot.NetworkInterfacesJson, endpointId),
-            ParseList<SoftwareInfo>(snapshot.SoftwareJson, endpointId));
+            ParseList<SoftwareInfo>(snapshot.SoftwareJson, endpointId), snapshot.Action1AgentId);
     }
 
     public async Task<IReadOnlyList<AlertView>> GetAlertsAsync(Caller caller, Guid endpointId, int limit = 100, CancellationToken cancellationToken = default)

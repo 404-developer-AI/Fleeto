@@ -35,3 +35,7 @@ func services() ([]*agentv1.ServiceItem, error) {
 	// launchd jobs follow if macOS is ever supported.
 	return nil, nil
 }
+
+func action1AgentID() string {
+	return ""
+}

@@ -305,8 +305,8 @@ public sealed partial class GatewayStore
         var upsert = new NpgsqlBatchCommand("""
             INSERT INTO "InventorySnapshots" ("EndpointId", "ClientId", "ReceivedAt", "Hash", "Manufacturer", "Model", "SerialNumber",
               "CpuModel", "CpuCores", "CpuLogicalProcessors", "MemoryTotalBytes", "BootTime", "Domain", "LoggedOnUser",
-              "DisksJson", "NetworkInterfacesJson", "SoftwareJson", "ServicesJson")
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16::jsonb, $17::jsonb, $18::jsonb)
+              "DisksJson", "NetworkInterfacesJson", "SoftwareJson", "ServicesJson", "Action1AgentId")
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16::jsonb, $17::jsonb, $18::jsonb, $19)
             ON CONFLICT ("EndpointId") DO UPDATE SET
               "ReceivedAt" = EXCLUDED."ReceivedAt", "Hash" = EXCLUDED."Hash", "Manufacturer" = EXCLUDED."Manufacturer",
               "Model" = EXCLUDED."Model", "SerialNumber" = EXCLUDED."SerialNumber", "CpuModel" = EXCLUDED."CpuModel",
@@ -314,7 +314,7 @@ public sealed partial class GatewayStore
               "MemoryTotalBytes" = EXCLUDED."MemoryTotalBytes", "BootTime" = EXCLUDED."BootTime", "Domain" = EXCLUDED."Domain",
               "LoggedOnUser" = EXCLUDED."LoggedOnUser", "DisksJson" = EXCLUDED."DisksJson",
               "NetworkInterfacesJson" = EXCLUDED."NetworkInterfacesJson", "SoftwareJson" = EXCLUDED."SoftwareJson",
-              "ServicesJson" = EXCLUDED."ServicesJson"
+              "ServicesJson" = EXCLUDED."ServicesJson", "Action1AgentId" = EXCLUDED."Action1AgentId"
             """);
         upsert.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = endpointId });
         upsert.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = clientId });
@@ -337,6 +337,7 @@ public sealed partial class GatewayStore
         upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = NetworkJson(inventory) });
         upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = SoftwareJson(inventory) });
         upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = ServicesJson(inventory) });
+        upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = DbText.Clean(inventory.Action1AgentId, 64) });
         batch.BatchCommands.Add(upsert);
 
         // Batch commands take positional parameters only.

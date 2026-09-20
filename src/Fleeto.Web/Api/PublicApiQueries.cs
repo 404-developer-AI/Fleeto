@@ -238,7 +238,8 @@ public sealed class PublicApiQueries
             inventory.Disks.Select(d => new ApiDisk(d.Mount, d.Filesystem, d.TotalBytes, d.FreeBytes)).ToList(),
             inventory.NetworkInterfaces.Select(n => new ApiNetworkInterface(n.Name, n.MacAddress, n.IpAddresses)).ToList(),
             inventory.Software.Select(s => new ApiSoftware(s.Name, s.Version, s.Publisher, s.InstallDate)).ToList(),
-            services.Select(s => new ApiService(s.Name, s.DisplayName, s.StartType, s.State)).ToList()));
+            services.Select(s => new ApiService(s.Name, s.DisplayName, s.StartType, s.State)).ToList(),
+            inventory.Action1AgentId));
     }
 
     /// <summary>Null when the endpoint does not exist.</summary>

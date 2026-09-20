@@ -92,6 +92,8 @@ func Collect(ctx context.Context, logger *slog.Logger) *agentv1.Inventory {
 	} else {
 		logger.Warn("inventory: services could not be listed", "error", err)
 	}
+	// The Action1 agent next to us, so the server can match this endpoint to its patch state (0.4.0).
+	inv.Action1AgentId = action1AgentID()
 
 	Normalize(inv)
 	return inv
