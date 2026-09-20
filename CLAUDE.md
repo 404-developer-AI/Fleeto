@@ -235,7 +235,35 @@ delegated to **Action1** through its REST API, integrated like every other conne
 missing updates, triggers and tracks deployments, and raises alerts on stale patch state.
 The Action1 agent runs next to the Fleeto agent; Fleeto can push the Action1 installer as a
 signed job. Platforms that Action1 does not cover show "not covered by patch management"
-rather than a home-grown fallback. See the open decisions for what still has to be verified.
+rather than a home-grown fallback.
+
+Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
+
+- **Windows first** (0.4.0), Linux in 0.4.1. Action1 patches Windows 8.1 and Server 2008 or newer, macOS and Linux x64;
+  Windows 7 and Server 2003 are out and are the platforms that show "not covered by patch management". A Linux endpoint
+  shows no patch data at all until 0.4.1 and is left out of the compliance counts: saying it is not covered would be untrue.
+- **One enterprise credential per instance.** Action1 API credentials are OAuth2 client credentials created in the Action1
+  console, scoped by role, and reach every organization of the enterprise; the instance stores one set (encrypted, like every
+  integration credential) and maps organizations to clients. Use the EU region (`app.eu.action1.com`) so patch data stays in
+  the EU. Credentials per client are not built until a customer needs them.
+- **Endpoints are matched by the Action1 identity the Fleeto agent reads** on the endpoint itself (the installed Action1
+  agent) and reports with its inventory. Hostnames are not unique across clients and change; a wrong match would show one
+  machine's patch state on another.
+- **Starting a deployment is an ordinary privileged action**: admins and technicians, on managed endpoints, recorded in the
+  audit log like a job. No second-admin approval, because Action1 installs only what is in its own catalog.
+- **Polling stays under Action1's budget.** Action1 recommends fewer than 30 requests a minute per enterprise, counted over
+  every API endpoint, publishes no hard limit and offers no webhooks. The workers hold one token bucket per enterprise at 20
+  requests a minute for all clients together, honour `details.retry_after` from a 429, and fall back to the standard circuit
+  breaker. Full patch sync per organization every 4 hours, missing-update detail only for endpoints that are not compliant, a
+  rate-limited "refresh now" per client or endpoint, and a running deployment polled once a minute until it ends.
+- **License state is monitored**: Action1 gives 200 endpoints free per enterprise and flips endpoints above the quota to
+  `Inactive`, which stops patching them. Fleeto polls the subscription usage and opens an alert for an inactive endpoint, so
+  an unpatched endpoint never looks compliant.
+- **To verify before building**: whether the REST API works on the free plan ("no functionality limitations" is documented,
+  API access on that plan is not stated). Needs an Action1 account with API credentials.
+- Two shapes of the API to absorb in the connector: timestamps arrive as `YYYY-MM-DD_HH-mm-ss` without a timezone and are
+  converted to ISO 8601 UTC for the Fleeto API, and paging is offset-based (`from`/`limit`, 50 by default) instead of keyset.
+  There is no downloadable OpenAPI document to pin the contract against.
 
 ## Install and update
 
@@ -416,9 +444,8 @@ home-grown patch engine. Note them, do not build them. (File transfer inside rem
   the token proves MFA (`amr` claim), or is local TOTP always required on top? And may a user with
   Entra ID still sign in with a local password?
 - **Whitelabel depth**: FQDN only (v1) vs. customer logo and product name in the UI and emails.
-- **Action1**: to be worked out when the Action1 milestone starts: platform coverage (Windows
-  confirmed; Linux to check), API rate limits, licensing model, and how Action1
-  organizations map to Fleeto clients.
+- **Action1**: decided on 2026-09-20, see Patch management. What is left is one fact to verify with an account: whether the
+  REST API works on the free plan.
 - Final product name — "Fleeto" is a working title; a Google Play app "Fleeto" exists in vehicle fleet management. Do the BOIP/EUIPO and domain checks before public use.
 - Pricing per managed endpoint is undecided.
 - Apple platforms: not supported for now (decided 2026-09-15). When there is demand, decide the depth (monitoring only,

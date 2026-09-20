@@ -531,10 +531,42 @@ Steps:
 
 ## 0.4.0 — Patch management via Action1
 
-- Action1 integration: organization-to-client mapping, patch compliance per endpoint, site
-  and client, missing updates, deployment start and tracking, alerts on stale patch state.
-- Push the Action1 agent as a signed job.
-- Dashboard tile for patch compliance.
+Patch management is delegated to Action1; Fleeto shows its state, starts deployments and alerts on them. The rules are in
+`CLAUDE.md` (Patch management: Action1).
+
+Decisions (2026-09-20, with the developer, from the Action1 documentation):
+
+- **Windows in 0.4.0, Linux in 0.4.1.** Action1 patches Windows 8.1 and Server 2008 or newer, macOS 12 or newer and Linux
+  x64 (Debian, Ubuntu, RHEL, Rocky, Alma, SLES, Fedora and more; shipped 2025-11-20, not labelled preview). Windows 7 and
+  Server 2003 are out of scope for Action1 and show "not covered by patch management". Linux endpoints show no patch data at
+  all in 0.4.0 and stay out of the compliance counts, because calling them uncovered would be untrue.
+- **One Action1 enterprise credential per instance** (OAuth2 client credentials from the Action1 console, stored encrypted),
+  with an organization-to-client mapping. The EU region `app.eu.action1.com` keeps patch data in the EU. A deployment must be
+  started per organization: `orgId=all` works for reading but is refused for running an automation.
+- **Endpoint matching by the Action1 identity the Fleeto agent reads** from the installed Action1 agent and reports with its
+  inventory, not by hostname.
+- **Deployments**: admins and technicians, managed endpoints, audited like a job, without a second-admin approval.
+- **Polling**: one token bucket per enterprise at 20 requests a minute for every client together (Action1 recommends fewer
+  than 30 and publishes no hard limit), `details.retry_after` from a 429 honoured, full sync per organization every 4 hours,
+  missing-update detail only where an endpoint is not compliant, a rate-limited "refresh now", a running deployment polled
+  once a minute. Action1 has no webhooks, so polling is the only way.
+- **Action1 license state** is polled (`/subscription/usage/organizations`): an endpoint above the free 200 of an enterprise
+  becomes `Inactive` and stops being patched, which opens an alert instead of looking compliant.
+- **To verify first**: whether the REST API works on the free plan. Needs an Action1 account with API credentials; nothing is
+  built before that is answered.
+
+Steps:
+
+1. [open] **Connector and inventory**: `Action1Integration` behind `IIntegration` (OAuth2 token cache, EU region, the shared
+   token bucket, retry with `retry_after`, circuit breaker), the settings page with the credential and the connection test,
+   organization-to-client mapping, and the Fleeto agent reporting the Action1 identity of its endpoint.
+2. [open] **Patch state**: full sync into the check and alert model, compliance per endpoint, site and client, missing
+   updates with severity, alerts on stale patch state and on an `Inactive` Action1 endpoint, the dashboard tile, the endpoint
+   detail tab.
+3. [open] **Deployments**: start a deployment from an endpoint or a selection, track its instance per endpoint, audit it, and
+   push the Action1 agent as a signed job (the installer URL comes from `GET /endpoints/agent-installation/{orgId}/…`).
+4. [open] **Release 0.4.0**: API waiting list or `API.md` for everything new, changelog, tag `v0.4.0`. A pre-release
+   `v0.4.0-alpha.N` after every step that can be tested on endpoints.
 
 ## 0.5.0 — Integrations
 
