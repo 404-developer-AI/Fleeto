@@ -18,6 +18,14 @@ When a third released version is added, the oldest entry moves to the top of
   one that is stored. The workers make every call to Action1 and read its organizations again every four hours, so the
   names stay current. Fleeto stays well under the request budget Action1 recommends (20 a minute for the whole instance)
   and waits as long as Action1 asks after a "too many requests" answer.
+- 0.4.0: Patch state from Action1 per managed endpoint: the Patches tab on the endpoint detail shows whether it is up to
+  date, how many updates it misses (critical and other), whether a restart is pending and which updates are missing with
+  their severity. The dashboard has a patch compliance tile, and the clients workspace shows compliance of the selected
+  client or site. The workers read it every four hours, matched on the Action1 agent id of the endpoint and only within
+  the client the organization is mapped to; detail is read for endpoints that miss something. An endpoint Action1 no
+  longer patches (above the licensed number of the subscription) or has not seen for a week opens an alert, because its
+  state cannot be trusted; missing updates themselves are state, not an alert. Agent-only endpoints have no patch state,
+  endpoints in maintenance open no alert, and `GET /api/v1/endpoints/{endpointId}/patches` gives the same data in the API.
 - 0.4.0: The agent reports the id of the Action1 agent installed next to it on a Windows endpoint, read from the endpoint
   itself. It is shown on the endpoint's Summary tab and as `action1AgentId` on the inventory in the public API. Patch
   management matches an endpoint on it instead of on the host name, which is not unique across clients and changes.

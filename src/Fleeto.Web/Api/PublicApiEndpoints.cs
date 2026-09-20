@@ -112,6 +112,21 @@ internal static class PublicApiEndpoints
             .WithName("getEndpointInventory").WithTags("Endpoints").WithSummary("Get the latest inventory of an endpoint: hardware, disks, network, software, services.")
             .Produces<ApiInventory>().ProducesProblem(StatusCodes.Status404NotFound);
 
+        api.MapGet("/endpoints/{endpointId:guid}/patches", async (HttpContext http, PublicApiQueries queries, Guid endpointId,
+                CancellationToken cancellationToken) =>
+            {
+                var read = await queries.GetPatchStateAsync(http.ApiCaller(), endpointId, cancellationToken);
+                return read is null ? ApiProblems.NotFoundResult("endpoint")
+                    : !read.Managed ? ApiProblems.NotManagedResult("Patch management")
+                    : read.Value is null ? ApiProblems.Problem(StatusCodes.Status404NotFound, ApiProblems.NotFound,
+                        "Patch management does not cover this endpoint.",
+                        "Connect Action1 in Settings, Integrations, map the client to an organization, and install the Action1 agent on the endpoint.")
+                    : Results.Ok(read.Value);
+            })
+            .WithName("getEndpointPatches").WithTags("Endpoints")
+            .WithSummary("Get the patch state of a managed endpoint: compliance, missing updates and whether patch management still covers it.")
+            .Produces<ApiPatchState>().ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict);
+
         api.MapGet("/endpoints/{endpointId:guid}/checks", async (HttpContext http, PublicApiQueries queries, Guid endpointId,
                 CancellationToken cancellationToken) =>
             {

@@ -119,6 +119,78 @@ public sealed class Action1Client : IIntegration, IDisposable
     }
 
     /// <summary>
+    /// The endpoints of one organization with their patch counts (0.4.0 step 2). Action1 returns the counts only when they
+    /// are asked for by name, which costs it more work, so nothing else asks for extended fields.
+    /// </summary>
+    public async Task<IntegrationResult<IReadOnlyList<Action1Endpoint>>> ListEndpointsAsync(string organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var endpoints = new List<Action1Endpoint>();
+            for (var page = 0; page < Action1Api.MaxPages; page++)
+            {
+                using var document = await GetAsync($"endpoints/managed/{Uri.EscapeDataString(organizationId)}",
+                    $"from={page * Action1Api.PageSize}&limit={Action1Api.PageSize}&fields=missing_updates", cancellationToken);
+                var items = Items(document.RootElement);
+                foreach (var item in items)
+                {
+                    if (Action1Endpoint.From(item, organizationId) is { } endpoint)
+                    {
+                        endpoints.Add(endpoint);
+                    }
+                }
+
+                if (items.Count < Action1Api.PageSize)
+                {
+                    break;
+                }
+            }
+
+            return IntegrationResult<IReadOnlyList<Action1Endpoint>>.Success(endpoints);
+        }
+        catch (Action1Exception ex)
+        {
+            return IntegrationResult<IReadOnlyList<Action1Endpoint>>.Fail(ex.Message);
+        }
+    }
+
+    /// <summary>The updates one endpoint is missing (0.4.0 step 2). Only asked for an endpoint that misses something.</summary>
+    public async Task<IntegrationResult<IReadOnlyList<Action1MissingUpdate>>> ListMissingUpdatesAsync(string organizationId,
+        string endpointId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var updates = new List<Action1MissingUpdate>();
+            for (var page = 0; page < Action1Api.MaxPages; page++)
+            {
+                using var document = await GetAsync(
+                    $"endpoints/managed/{Uri.EscapeDataString(organizationId)}/{Uri.EscapeDataString(endpointId)}/missing-updates",
+                    $"from={page * Action1Api.PageSize}&limit={Action1Api.PageSize}", cancellationToken);
+                var items = Items(document.RootElement);
+                foreach (var item in items)
+                {
+                    if (Action1MissingUpdate.From(item) is { } update)
+                    {
+                        updates.Add(update);
+                    }
+                }
+
+                if (items.Count < Action1Api.PageSize)
+                {
+                    break;
+                }
+            }
+
+            return IntegrationResult<IReadOnlyList<Action1MissingUpdate>>.Success(updates);
+        }
+        catch (Action1Exception ex)
+        {
+            return IntegrationResult<IReadOnlyList<Action1MissingUpdate>>.Fail(ex.Message);
+        }
+    }
+
+    /// <summary>
     /// One GET against the API, with the budget, the bearer token and the error mapping. The caller owns the returned
     /// document. Throws <see cref="Action1Exception"/>; the patch steps of 0.4.0 build on this.
     /// </summary>
@@ -284,7 +356,7 @@ public sealed class Action1Client : IIntegration, IDisposable
         };
     }
 
-    private static IReadOnlyList<JsonElement> Items(JsonElement root)
+    internal static IReadOnlyList<JsonElement> Items(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
         {
@@ -299,7 +371,7 @@ public sealed class Action1Client : IIntegration, IDisposable
             ? value
             : Items(root).Count;
 
-    private static string Text(JsonElement element, string name) =>
+    internal static string Text(JsonElement element, string name) =>
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? string.Empty
             : string.Empty;

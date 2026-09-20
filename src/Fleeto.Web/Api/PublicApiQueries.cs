@@ -36,16 +36,18 @@ public sealed class PublicApiQueries
     private readonly EndpointService _endpoints;
     private readonly EndpointCheckService _checks;
     private readonly JobService _jobs;
+    private readonly PatchService _patches;
     private readonly TimeProvider _time;
 
     public PublicApiQueries(IFleetoDbContextFactory dbFactory, LicenseService licenses, EndpointService endpoints, EndpointCheckService checks,
-        JobService jobs, TimeProvider time)
+        JobService jobs, PatchService patches, TimeProvider time)
     {
         _dbFactory = dbFactory;
         _licenses = licenses;
         _endpoints = endpoints;
         _checks = checks;
         _jobs = jobs;
+        _patches = patches;
         _time = time;
     }
 
@@ -240,6 +242,35 @@ public sealed class PublicApiQueries
             inventory.Software.Select(s => new ApiSoftware(s.Name, s.Version, s.Publisher, s.InstallDate)).ToList(),
             services.Select(s => new ApiService(s.Name, s.DisplayName, s.StartType, s.State)).ToList(),
             inventory.Action1AgentId));
+    }
+
+    /// <summary>
+    /// The patch state of one endpoint (0.4.0). Null when the endpoint does not exist; a managed endpoint that patch
+    /// management does not cover gives a value of null, which the route turns into "no patch state".
+    /// </summary>
+    public async Task<ManagedRead<ApiPatchState?>?> GetPatchStateAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken)
+    {
+        caller.EnsureView();
+        var view = await _patches.GetAsync(caller, endpointId, cancellationToken);
+        if (view is null)
+        {
+            return null;
+        }
+
+        if (!view.Managed)
+        {
+            return new ManagedRead<ApiPatchState?>(false, null);
+        }
+
+        if (view.State is not { } state)
+        {
+            return new ManagedRead<ApiPatchState?>(true, null);
+        }
+
+        return new ManagedRead<ApiPatchState?>(true, new ApiPatchState(endpointId, Map(state.Coverage), state.IsCompliant,
+            state.MissingCritical, state.MissingOther, state.RebootRequired, UtcOrNull(state.ProductLastSeenAt), state.ProductAgentVersion,
+            Utc(state.UpdatedAt), UtcOrNull(view.DetailUpdatedAt),
+            view.Missing.Select(u => new ApiMissingUpdate(u.Id, u.Name, u.Vendor, u.Version, u.KbNumber, Map(u.Severity), u.RebootNeeded)).ToList()));
     }
 
     /// <summary>Null when the endpoint does not exist.</summary>
@@ -496,6 +527,24 @@ public sealed class PublicApiQueries
         AlertKind.DuplicateIdentity => ApiAlertKind.DuplicateIdentity,
         AlertKind.AgentStopped => ApiAlertKind.AgentStopped,
         AlertKind.WatchdogStopped => ApiAlertKind.WatchdogStopped,
+        AlertKind.PatchState => ApiAlertKind.PatchState,
+        _ => throw Unmapped(value)
+    };
+
+    internal static ApiPatchSeverity Map(PatchSeverity value) => value switch
+    {
+        PatchSeverity.Unspecified => ApiPatchSeverity.Unspecified,
+        PatchSeverity.Low => ApiPatchSeverity.Low,
+        PatchSeverity.Moderate => ApiPatchSeverity.Moderate,
+        PatchSeverity.Important => ApiPatchSeverity.Important,
+        PatchSeverity.Critical => ApiPatchSeverity.Critical,
+        _ => throw Unmapped(value)
+    };
+
+    internal static ApiPatchCoverage Map(PatchCoverage value) => value switch
+    {
+        PatchCoverage.Active => ApiPatchCoverage.Active,
+        PatchCoverage.Inactive => ApiPatchCoverage.Inactive,
         _ => throw Unmapped(value)
     };
 

@@ -76,6 +76,9 @@ public class Integration
     /// <summary>When the workers last read the tenants.</summary>
     public DateTime? TenantsUpdatedAt { get; set; }
 
+    /// <summary>When the workers last read the patch state of every mapped tenant (0.4.0 step 2).</summary>
+    public DateTime? PatchSyncedAt { get; set; }
+
     public List<IntegrationMapping> Mappings { get; set; } = [];
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

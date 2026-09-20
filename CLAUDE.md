@@ -248,7 +248,8 @@ Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
   the EU. Credentials per client are not built until a customer needs them.
 - **Endpoints are matched by the Action1 identity the Fleeto agent reads** on the endpoint itself (the installed Action1
   agent) and reports with its inventory. Hostnames are not unique across clients and change; a wrong match would show one
-  machine's patch state on another.
+  machine's patch state on another. Verified on a test endpoint 2026-09-20: the `agent.guid` in the registry of the Action1
+  agent is the same value as the endpoint id in the Action1 console and API, so the match is that id and nothing else.
 - **Starting a deployment is an ordinary privileged action**: admins and technicians, on managed endpoints, recorded in the
   audit log like a job. No second-admin approval, because Action1 installs only what is in its own catalog.
 - **Only the workers talk to an external product.** Web runs on a network without outbound NAT (`deploy/compose/compose.yml`),

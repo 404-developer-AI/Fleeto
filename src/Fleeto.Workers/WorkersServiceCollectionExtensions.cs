@@ -70,6 +70,7 @@ public static class WorkersServiceCollectionExtensions
         services.AddHostedService<BackupService>();
         services.AddHostedService<RetentionService>();
         services.AddHostedService<IntegrationSyncService>();
+        services.AddHostedService<PatchSyncService>();
 
         return services;
     }

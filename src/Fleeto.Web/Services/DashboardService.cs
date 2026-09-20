@@ -16,7 +16,7 @@ public sealed record CredentialWarning(string Name, DateTime ExpiresAt, bool Exp
 
 public sealed record DashboardData(int EndpointsOnline, int EndpointsOffline, int OpenCritical, int OpenWarning, int AgentsOutOfDate,
     LicenseUsage License, BackupTile Backups, IReadOnlyList<AlertView> OpenAlerts, IReadOnlyList<AuditEntryView> RecentActivity,
-    IReadOnlyList<CredentialWarning> CredentialWarnings);
+    IReadOnlyList<CredentialWarning> CredentialWarnings, PatchCompliance Patches);
 
 /// <summary>Dashboard tiles, the open alert list and recent activity.</summary>
 public sealed class DashboardService
@@ -25,14 +25,16 @@ public sealed class DashboardService
     private readonly LicenseService _licenses;
     private readonly SettingsStore _settings;
     private readonly TimeProvider _time;
+    private readonly PatchService _patches;
     private readonly ILogger<DashboardService> _logger;
 
-    public DashboardService(IFleetoDbContextFactory dbFactory, LicenseService licenses, SettingsStore settings, TimeProvider time,
-        ILogger<DashboardService> logger)
+    public DashboardService(IFleetoDbContextFactory dbFactory, LicenseService licenses, SettingsStore settings, PatchService patches,
+        TimeProvider time, ILogger<DashboardService> logger)
     {
         _dbFactory = dbFactory;
         _licenses = licenses;
         _settings = settings;
+        _patches = patches;
         _time = time;
         _logger = logger;
     }
@@ -70,9 +72,10 @@ public sealed class DashboardService
 
         var license = await _licenses.GetUsageAsync(cancellationToken);
         var backups = await GetBackupTileAsync(db, cancellationToken);
+        var patches = await _patches.GetComplianceAsync(caller, cancellationToken: cancellationToken);
 
         return new DashboardData(online, total - online, critical, warning, outOfDate, license, backups, openAlerts, activity,
-            await GetCredentialWarningsAsync(now, cancellationToken));
+            await GetCredentialWarningsAsync(now, cancellationToken), patches);
     }
 
     private async Task<IReadOnlyList<CredentialWarning>> GetCredentialWarningsAsync(DateTime now, CancellationToken cancellationToken)

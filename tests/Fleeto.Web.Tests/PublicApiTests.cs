@@ -435,6 +435,8 @@ public sealed class PublicApiTests
         foreach (var value in Enum.GetValues<JobResult>()) PublicApiQueries.Map(value);
         foreach (var value in Enum.GetValues<JobOutputState>()) PublicApiQueries.Map(value);
         foreach (var value in Enum.GetValues<ScriptLanguage>()) PublicApiQueries.Map(value);
+        foreach (var value in Enum.GetValues<PatchSeverity>()) PublicApiQueries.Map(value);
+        foreach (var value in Enum.GetValues<PatchCoverage>()) PublicApiQueries.Map(value);
         foreach (var value in Enum.GetValues<MaintenanceSource>())
         {
             PublicApiQueries.Map(new EffectiveMaintenance(value, DateTime.UtcNow, null, null, null));

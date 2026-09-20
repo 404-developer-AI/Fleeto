@@ -80,6 +80,7 @@ public static class WebServiceRegistration
         // Integrations (0.4.0): web stores the credentials and asks the workers to use them. It never calls the product
         // itself, because it is on a network without outbound access.
         services.AddSingleton<IntegrationService>();
+        services.AddSingleton<PatchService>();
         services.AddScoped<RemoteWindow>();
         return services;
     }

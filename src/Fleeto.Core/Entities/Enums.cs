@@ -109,7 +109,12 @@ public enum AlertKind
     /// <summary>The watchdog is online but the agent is not: its service is stopped, or it runs without connecting (0.2.1).</summary>
     AgentStopped,
     /// <summary>The agent is online but its watchdog is not (0.2.1).</summary>
-    WatchdogStopped
+    WatchdogStopped,
+    /// <summary>
+    /// The patch state of the endpoint cannot be trusted (0.4.0): the patch management product has not seen it for too
+    /// long, or it no longer patches the endpoint at all.
+    /// </summary>
+    PatchState
 }
 
 /// <summary>The Fleeto services on an endpoint (0.2.1). Also the role of an agent certificate. Stored by name.</summary>

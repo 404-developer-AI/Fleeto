@@ -5,6 +5,7 @@
 @inject EndpointCheckService CheckSvc
 @inject NoteService NoteSvc
 @inject JobService JobSvc
+@inject PatchService PatchSvc
 @inject ScriptService ScriptSvc
 @inject IDialogService DialogService
 @inject TimeProvider Clock
@@ -74,6 +75,9 @@
                 <MudTabPanel Text="Jobs" Icon="@Icons.Material.Outlined.Terminal">
                     @Jobs(e)
                 </MudTabPanel>
+                <MudTabPanel Text="Patches" Icon="@Icons.Material.Outlined.Security">
+                    @Patches()
+                </MudTabPanel>
                 <MudTabPanel Text="History" Icon="@Icons.Material.Outlined.History">
                     @History()
                 </MudTabPanel>
@@ -91,7 +95,8 @@
     private const int SoftwareTab = 2;
     private const int NotesTab = 3;
     private const int JobsTab = 4;
-    private const int HistoryTab = 5;
+    private const int PatchesTab = 5;
+    private const int HistoryTab = 6;
 
     [Parameter, EditorRequired]
     public Guid EndpointId { get; set; }
@@ -113,6 +118,7 @@
     private NotePage? _notes;
     private List<NoteView> _noteItems = [];
     private IReadOnlyList<JobListItem>? _jobs;
+    private EndpointPatchView? _patches;
     private IReadOnlyList<AlertView> _alerts = [];
     private IReadOnlyList<EndpointEventView> _events = [];
     private IReadOnlyList<AuditEntryView> _audit = [];
@@ -181,6 +187,9 @@
                 break;
             case JobsTab:
                 _jobs = await JobSvc.ListForEndpointAsync(caller, EndpointId);
+                break;
+            case PatchesTab:
+                _patches = await PatchSvc.GetAsync(caller, EndpointId);
                 break;
             case HistoryTab:
                 _alerts = await EndpointSvc.GetAlertsAsync(caller, EndpointId, 50);
@@ -785,6 +794,109 @@
                 <MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" />
             </PagerContent>
         </MudTable>
+    };
+
+    private RenderFragment Patches() => __builder =>
+    {
+        var patches = _patches;
+        if (patches is null)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.Security" Title="Loading" Text="Reading the patch state of this endpoint." />
+        }
+        else if (!patches.Managed)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.Security" Title="Patch management needs a managed endpoint"
+                        Text="Switch this endpoint to managed to see its patch state." />
+        }
+        else if (!patches.Configured)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.Security" Title="No patch management for this client"
+                        Text="Connect Action1 in Settings, Integrations and map this client to an Action1 organization." />
+        }
+        else if (patches.State is not { } state)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.Security" Title="Not covered by patch management"
+                        Text="Action1 does not report this endpoint. Install the Action1 agent on it; Fleeto matches it as soon as its own agent reports the Action1 agent." />
+        }
+        else
+        {
+            <div class="d-flex gap-4 flex-wrap align-center mb-3">
+                <StatusChip Text="@(state.Coverage == PatchCoverage.Inactive ? "Not patched" : state.IsCompliant ? "Up to date" : "Updates missing")"
+                            Kind="@(state.Coverage == PatchCoverage.Inactive ? StatusKind.Error : state.IsCompliant ? StatusKind.Ok : StatusKind.Warning)" />
+                @if (state.RebootRequired)
+                {
+                    <StatusChip Text="Restart pending" Kind="StatusKind.Warning" />
+                }
+                <MudText Typo="Typo.body2" Class="muted">
+                    Read <TimeText Value="state.UpdatedAt" />, Action1 last saw this endpoint <TimeText Value="state.ProductLastSeenAt" />
+                </MudText>
+            </div>
+
+            @if (state.Coverage == PatchCoverage.Inactive)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                    Action1 does not patch this endpoint. Endpoints above the licensed number of the Action1 subscription become inactive.
+                </MudAlert>
+            }
+
+            <MudSimpleTable Dense="true" Elevation="0" Class="detail-table mb-4" Style="max-width:420px">
+                <tbody>
+                    <tr><td class="muted">Missing, critical</td><td>@state.MissingCritical</td></tr>
+                    <tr><td class="muted">Missing, other</td><td>@state.MissingOther</td></tr>
+                    <tr><td class="muted">Action1 agent</td><td>@(string.IsNullOrEmpty(state.ProductAgentVersion) ? "-" : state.ProductAgentVersion)</td></tr>
+                </tbody>
+            </MudSimpleTable>
+
+            @if (patches.Missing.Count == 0)
+            {
+                @if (state.IsCompliant)
+                {
+                    <EmptyState Icon="@Icons.Material.Outlined.CheckCircle" Title="Nothing missing"
+                                Text="Action1 reports no missing updates for this endpoint." />
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2" Class="muted">
+                        The list of missing updates is read in the next pass; the counts above are current.
+                    </MudText>
+                }
+            }
+            else
+            {
+                <MudText Typo="Typo.body2" Class="muted mb-2">
+                    @patches.Missing.Count missing updates, read <TimeText Value="patches.DetailUpdatedAt" />
+                </MudText>
+                <MudTable Items="patches.Missing" Dense="true" Elevation="0">
+                    <HeaderContent>
+                        <MudTh>Update</MudTh>
+                        <MudTh>Vendor</MudTh>
+                        <MudTh>Version</MudTh>
+                        <MudTh>Severity</MudTh>
+                        <MudTh>Restart</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>
+                            @context.Name
+                            @if (!string.IsNullOrEmpty(context.KbNumber))
+                            {
+                                <span class="muted"> (@context.KbNumber)</span>
+                            }
+                        </MudTd>
+                        <MudTd>@context.Vendor</MudTd>
+                        <MudTd>@context.Version</MudTd>
+                        <MudTd>
+                            <StatusChip Text="@context.Severity.ToString()"
+                                        Kind="@(context.Severity == PatchSeverity.Critical ? StatusKind.Error
+                                                : context.Severity == PatchSeverity.Important ? StatusKind.Warning : StatusKind.Neutral)" />
+                        </MudTd>
+                        <MudTd>@(context.RebootNeeded ? "Possibly" : "No")</MudTd>
+                    </RowTemplate>
+                    <PagerContent>
+                        <MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" />
+                    </PagerContent>
+                </MudTable>
+            }
+        }
     };
 
     private RenderFragment NoInventory() => __builder =>

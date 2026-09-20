@@ -565,12 +565,15 @@ Steps:
    Fixed after `v0.4.0-alpha.1` on the test VPS: the connection test ran in web, which has no outbound access at all, so
    it could only ever time out. Every call to an external product is now made by the workers (`IntegrationSyncService`),
    which web asks through the database and a notification. That is the rule for every integration from here on.
-   Still to verify on a test endpoint before step 2 relies on it: whether the local `agent.guid` is the same value as the
-   endpoint id in the Action1 API. Action1 does not document it. If it differs, the fallback is the serial number and
-   device name of the Action1 endpoint record.
-2. [open] **Patch state**: full sync into the check and alert model, compliance per endpoint, site and client, missing
-   updates with severity, alerts on stale patch state and on an `Inactive` Action1 endpoint, the dashboard tile, the endpoint
-   detail tab.
+   Verified on a test endpoint (2026-09-20): the `agent.guid` the Fleeto agent reads is the same value as the endpoint id
+   Action1 itself uses, so step 2 matches on that id. The fallback on serial number and device name is not needed.
+2. [done] **Patch state** (2026-09-20): `PatchSyncService` reads the endpoints of every mapped organization every four
+   hours, matches them on the Action1 agent id within the mapped client only, and stores compliance per endpoint with the
+   missing updates of endpoints that are not compliant (detail capped at 200 endpoints per pass, so one large client
+   cannot spend the request budget). Alerts of kind `patch_state` open when Action1 no longer patches an endpoint or has
+   not seen it for a week, and resolve when it does again; maintenance, the agent-only tier and a license without the
+   managed tier keep them quiet. The Patches tab on the endpoint detail, the dashboard tile and a compliance line per
+   client and site show it, and `GET /api/v1/endpoints/{endpointId}/patches` is in `API.md`.
 3. [open] **Deployments**: start a deployment from an endpoint or a selection, track its instance per endpoint, audit it, and
    push the Action1 agent as a signed job (the installer URL comes from `GET /endpoints/agent-installation/{orgId}/…`).
 4. [open] **Release 0.4.0**: API waiting list or `API.md` for everything new, changelog, tag `v0.4.0`. A pre-release

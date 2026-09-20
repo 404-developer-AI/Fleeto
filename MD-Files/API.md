@@ -184,6 +184,7 @@ section 9.
 | `GET /api/v1/endpoints` | Page of Endpoint |
 | `GET /api/v1/endpoints/{endpointId}` | Endpoint |
 | `GET /api/v1/endpoints/{endpointId}/inventory` | Inventory |
+| `GET /api/v1/endpoints/{endpointId}/patches` | PatchState |
 | `GET /api/v1/endpoints/{endpointId}/checks` | EndpointChecks |
 | `GET /api/v1/endpoints/{endpointId}/notes` | Page of Note |
 | `GET /api/v1/alerts` | Page of Alert |
@@ -371,6 +372,42 @@ the `title` says which), 429.
   "software": [ { "name": "Microsoft SQL Server 2022", "version": "16.0.1000.6", "publisher": "Microsoft Corporation", "installDate": "20260902" } ],
   "services": [ { "name": "MSSQLSERVER", "displayName": "SQL Server (MSSQLSERVER)", "startType": "automatic", "state": "running" } ],
   "action1AgentId": "ef17c844-5b7c-4b32-9724-f2716b596639"
+}
+```
+
+### GET /api/v1/endpoints/{endpointId}/patches
+
+Gets the patch state of a managed endpoint as Action1 last reported it (from Fleeto 0.4.0). Fleeto does not patch itself:
+Action1 does, and this is what it says.
+
+Answers `409 endpoint_not_managed` for an agent-only endpoint, and `404 not_found` when the endpoint does not exist or
+patch management does not cover it — no Action1 integration for its client, no Action1 agent on the endpoint, or Action1
+does not know it yet. Counts are refreshed every four hours; the list of missing updates is read for endpoints that miss
+something, which can be one pass behind the counts. `detailUpdatedAt` says when that list was read.
+
+```json
+{
+  "endpointId": "2b5f1b7a-6d0c-4f0e-9bcd-3f9a0f1d7e21",
+  "coverage": "active",
+  "compliant": false,
+  "missingCritical": 1,
+  "missingOther": 2,
+  "rebootRequired": false,
+  "productLastSeenAt": "2026-09-20T18:41:02Z",
+  "productAgentVersion": "2.0.33",
+  "updatedAt": "2026-09-20T19:02:11Z",
+  "detailUpdatedAt": "2026-09-20T19:02:14Z",
+  "missing": [
+    {
+      "id": "Microsoft_Windows_Server_2022_1570243626751_builtin",
+      "name": "2026-09 Cumulative Update for Windows Server 2022",
+      "vendor": "Microsoft",
+      "version": "10.0.20348.2700",
+      "kbNumber": "KB5034123",
+      "severity": "critical",
+      "rebootNeeded": true
+    }
+  ]
 }
 ```
 
@@ -691,6 +728,25 @@ maintenance window of its policy) the one that lasts longest is shown.
 | `createdAt` | timestamp | |
 | `updatedAt` | timestamp | |
 
+### PatchState
+
+The patch state of one managed endpoint (0.4.0), read from Action1 and stored per endpoint. Fleeto keeps no patch history
+of its own; Action1 has it.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `endpointId` | UUID | |
+| `coverage` | string | [Patch coverage](#patch-coverage). `inactive` means Action1 no longer patches this endpoint, so the counts below say nothing about its real state. |
+| `compliant` | boolean | True when the endpoint misses no update Action1 knows about. |
+| `missingCritical` | integer | Missing updates the vendor calls critical. |
+| `missingOther` | integer | Missing updates of every other severity. |
+| `rebootRequired` | boolean | Action1 says the endpoint waits for a restart to finish its updates. |
+| `productLastSeenAt` | timestamp, nullable | When Action1 last had contact with the endpoint. An endpoint it has not seen for over a week opens an alert of kind `patch_state`. |
+| `productAgentVersion` | string | The version of the Action1 agent on the endpoint. Action1 updates its own agent; Fleeto only reports what is there. |
+| `updatedAt` | timestamp | When Fleeto last read the counts. |
+| `detailUpdatedAt` | timestamp, nullable | When Fleeto last read `missing`. Null while no detail has been read. |
+| `missing` | array | The missing updates, most severe first: `id` (the id in Action1, which a deployment names), `name`, `vendor`, `version`, `kbNumber` (Windows only, else empty), `severity` ([Patch severity](#patch-severity)), `rebootNeeded`. Empty for a compliant endpoint, and empty when the detail has not been read yet while the counts say something is missing. |
+
 ### Inventory
 
 Reported by the agent. The values come from the endpoint as reported and are empty strings or `0` when the agent could
@@ -871,7 +927,18 @@ Parameters that were never set are left out of `parameters`, and the check uses 
 `check` (a check crossed its threshold), `offline` (the agent and its watchdog stopped connecting), `duplicate_identity`
 (the same agent certificate connected twice at once, for example a cloned virtual machine), `agent_stopped` (the watchdog
 is online but the agent is not: its service is stopped or it does not connect; from Fleeto 0.2.1), `watchdog_stopped`
-(the agent is online but its watchdog is not; from Fleeto 0.2.1).
+(the agent is online but its watchdog is not; from Fleeto 0.2.1), `patch_state` (patch management does not patch the
+endpoint any more, or has not seen it for over a week; from Fleeto 0.4.0).
+
+### Patch severity
+
+`critical`, `important`, `moderate`, `low`, `unspecified`. The words of the vendor of the update, as Action1 reports them;
+anything Fleeto does not recognise is `unspecified` rather than something worse or better than it is.
+
+### Patch coverage
+
+`active` (patch management patches this endpoint), `inactive` (it knows the endpoint but does not patch it, for example
+because the endpoint is above the licensed number of the Action1 subscription, so its state is not to be trusted).
 
 ### Severity
 

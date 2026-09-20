@@ -86,6 +86,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<BackupRun> BackupRuns => Set<BackupRun>();
     public DbSet<WorkerWatermark> WorkerWatermarks => Set<WorkerWatermark>();
     public DbSet<Integration> Integrations => Set<Integration>();
+    public DbSet<EndpointPatchState> EndpointPatchStates => Set<EndpointPatchState>();
+    public DbSet<EndpointMissingUpdate> EndpointMissingUpdates => Set<EndpointMissingUpdate>();
     public DbSet<IntegrationMapping> IntegrationMappings => Set<IntegrationMapping>();
 
     // Evaluated per query by EF Core (context members become query parameters).
@@ -758,6 +760,34 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 "(\"Type\" = 'Email' AND \"Recipients\" <> '' AND \"EncryptedWebhook\" IS NULL) OR " +
                 "(\"Type\" = 'Webhook' AND \"EncryptedWebhook\" IS NOT NULL AND \"WebhookFormat\" IS NOT NULL)"));
             entity.HasMany(c => c.Clients).WithOne().HasForeignKey(c => c.NotificationChannelId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<EndpointPatchState>(entity =>
+        {
+            entity.HasKey(p => p.EndpointId);
+            entity.Property(p => p.ExternalEndpointId).HasMaxLength(64);
+            entity.Property(p => p.ExternalTenantId).HasMaxLength(200);
+            entity.Property(p => p.Coverage).HasConversion<string>().HasMaxLength(20);
+            entity.Property(p => p.ProductAgentVersion).HasMaxLength(50);
+            entity.Ignore(p => p.IsCompliant);
+            // The dashboard and the client rollups count per client: how many endpoints have patch state, and how many of
+            // those miss something.
+            entity.HasIndex(p => new { p.ClientId, p.MissingCritical });
+            EndpointChild(entity, p => new { p.EndpointId, p.ClientId });
+            ClientOwned(entity);
+        });
+
+        builder.Entity<EndpointMissingUpdate>(entity =>
+        {
+            entity.Property(u => u.ExternalUpdateId).HasMaxLength(200);
+            entity.Property(u => u.Name).HasMaxLength(300);
+            entity.Property(u => u.Vendor).HasMaxLength(200);
+            entity.Property(u => u.Version).HasMaxLength(100);
+            entity.Property(u => u.KbNumber).HasMaxLength(20);
+            entity.Property(u => u.Severity).HasConversion<string>().HasMaxLength(20);
+            entity.HasIndex(u => new { u.EndpointId, u.Severity });
+            EndpointChild(entity, u => new { u.EndpointId, u.ClientId });
+            ClientOwned(entity);
         });
 
         builder.Entity<Integration>(entity =>

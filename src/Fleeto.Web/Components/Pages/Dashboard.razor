@@ -66,6 +66,20 @@
                     <div class="stat-detail">Current version @FleetoVersion.Current</div>
                 </div>
             </MudItem>
+            @if (data.Patches.Covered > 0)
+            {
+                <MudItem xs="12" sm="6" md="4" lg="2">
+                    <div class="stat-card fl-panel @(data.Patches.NotPatched > 0 || data.Patches.MissingCritical > 0 ? "stat-warning" : "")">
+                        <div class="stat-label">Patch compliance</div>
+                        <div class="stat-number">@data.Patches.Percentage%</div>
+                        <div class="stat-detail">
+                            @data.Patches.Compliant of @data.Patches.Covered up to date@(data.Patches.MissingCritical > 0
+                                ? $", {data.Patches.MissingCritical} missing critical" : "")@(data.Patches.NotPatched > 0
+                                ? $", {data.Patches.NotPatched} not patched" : "")
+                        </div>
+                    </div>
+                </MudItem>
+            }
             <MudItem xs="12" sm="6" md="4" lg="2">
                 <div class="stat-card fl-panel @(data.License.Status.State is LicenseState.Missing or LicenseState.Expired ? "stat-warning" : "")">
                     <div class="stat-label">Licenses</div>

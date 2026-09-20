@@ -44,7 +44,27 @@ public enum ApiAlertKind
     [JsonStringEnumMemberName("offline")] Offline,
     [JsonStringEnumMemberName("duplicate_identity")] DuplicateIdentity,
     [JsonStringEnumMemberName("agent_stopped")] AgentStopped,
-    [JsonStringEnumMemberName("watchdog_stopped")] WatchdogStopped
+    [JsonStringEnumMemberName("watchdog_stopped")] WatchdogStopped,
+    [JsonStringEnumMemberName("patch_state")] PatchState
+}
+
+/// <summary>How severe the vendor of an update calls it (0.4.0).</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ApiPatchSeverity>))]
+public enum ApiPatchSeverity
+{
+    [JsonStringEnumMemberName("unspecified")] Unspecified,
+    [JsonStringEnumMemberName("low")] Low,
+    [JsonStringEnumMemberName("moderate")] Moderate,
+    [JsonStringEnumMemberName("important")] Important,
+    [JsonStringEnumMemberName("critical")] Critical
+}
+
+/// <summary>Whether patch management still patches the endpoint (0.4.0).</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ApiPatchCoverage>))]
+public enum ApiPatchCoverage
+{
+    [JsonStringEnumMemberName("active")] Active,
+    [JsonStringEnumMemberName("inactive")] Inactive
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<ApiAlertSeverity>))]
@@ -183,6 +203,15 @@ public sealed record ApiNetworkInterface(string Name, string MacAddress, IReadOn
 public sealed record ApiSoftware(string Name, string Version, string Publisher, string InstallDate);
 
 public sealed record ApiService(string Name, string DisplayName, string StartType, string State);
+
+/// <summary>One update an endpoint is missing, as patch management reports it (0.4.0).</summary>
+public sealed record ApiMissingUpdate(string Id, string Name, string Vendor, string Version, string KbNumber, ApiPatchSeverity Severity,
+    bool RebootNeeded);
+
+/// <summary>The patch state of one endpoint (0.4.0), as patch management last reported it.</summary>
+public sealed record ApiPatchState(Guid EndpointId, ApiPatchCoverage Coverage, bool Compliant, int MissingCritical, int MissingOther,
+    bool RebootRequired, DateTime? ProductLastSeenAt, string ProductAgentVersion, DateTime UpdatedAt, DateTime? DetailUpdatedAt,
+    IReadOnlyList<ApiMissingUpdate> Missing);
 
 public sealed record ApiInventory(Guid EndpointId, DateTime ReceivedAt, string Manufacturer, string Model, string SerialNumber, ApiCpu Cpu,
     long MemoryTotalBytes, DateTime? BootTime, string Domain, string LoggedOnUser, IReadOnlyList<ApiDisk> Disks,

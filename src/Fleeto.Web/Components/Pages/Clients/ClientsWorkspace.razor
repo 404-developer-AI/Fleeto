@@ -7,6 +7,7 @@
 @inject ClientTemplateService ClientTemplates
 @inject SiteService SiteSvc
 @inject EndpointService EndpointSvc
+@inject PatchService PatchSvc
 @inject EnrollmentService EnrollmentSvc
 @inject JobService JobSvc
 @inject MaintenanceService MaintenanceSvc
@@ -96,6 +97,10 @@
                 <div class="workspace-header-text">
                     <MudText Typo="Typo.h4" Class="page-title">@HeaderTitle</MudText>
                     <MudText Typo="Typo.body2" Class="muted">@HeaderSubtitle</MudText>
+                    @if (PatchSummary is { } patchSummary)
+                    {
+                        <MudText Typo="Typo.body2" Class="muted">@patchSummary</MudText>
+                    }
                     @if (ScopeMaintenance is { } scopeMaintenance)
                     {
                         <div class="mt-1"><MaintenanceChip Maintenance="scopeMaintenance" SourceName="@ScopeMaintenanceSource" /></div>
@@ -362,6 +367,7 @@
     private SiteSummary? _site;
 
     private EndpointListPage? _page;
+    private PatchCompliance _patches = PatchCompliance.None;
     private bool _rowsLoading = true;
     private int _tab = ServersTab;
     private string? _endpointSearch;
@@ -383,6 +389,16 @@
     private string PageTitleText => _site is not null ? _site.Name : _client is not null ? _client.Code : "Clients";
 
     private string HeaderTitle => _site is not null ? _site.Name : _client is not null ? $"[{_client.Code}] {_client.Name}" : "All clients";
+
+    /// <summary>
+    /// Patch compliance of the selection, shown only where patch management actually covers endpoints (0.4.0): a client
+    /// without an Action1 mapping says nothing rather than "0%".
+    /// </summary>
+    private string? PatchSummary => _patches.Covered == 0
+        ? null
+        : $"Patches: {_patches.Percentage}% up to date ({_patches.Compliant} of {_patches.Covered})" +
+          (_patches.MissingCritical > 0 ? $", {_patches.MissingCritical} missing critical" : string.Empty) +
+          (_patches.NotPatched > 0 ? $", {_patches.NotPatched} not patched" : string.Empty);
 
     private string HeaderSubtitle
     {
@@ -533,6 +549,7 @@
             _site = null;
             _client = null;
             _notFound = false;
+            _patches = await PatchSvc.GetComplianceAsync(caller, SiteId is null ? ClientId : null, SiteId);
             if (SiteId is { } siteId)
             {
                 _site = await SiteSvc.GetSummaryAsync(caller, siteId);

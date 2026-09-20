@@ -1443,14 +1443,28 @@ and timestamps arrive as `2026-09-20_14-11-14` without a timezone, read as UTC (
 
 Endpoints are matched on the id of the Action1 agent, which the Fleeto agent reads on the endpoint itself
 (`HKLM\SOFTWARE\WOW6432Node\Action1`, value `agent.guid`) and reports with its inventory; a value that is not a GUID is
-dropped rather than reported. Host names are not unique across clients and change, so they are never the join. Whether
-that local id is the same value as the endpoint id in the Action1 API is not documented by Action1 and is verified on a
-test endpoint before the patch steps use it; if it differs, the serial number and device name of the Action1 endpoint
-record are the fallback.
+dropped rather than reported. Host names are not unique across clients and change, so they are never the join. Action1
+does not document the relation between that local value and the endpoint id of its API, but a test endpoint showed them
+to be the same value (2026-09-20), which is what the patch steps match on. An endpoint whose id Fleeto does not know (no
+Action1 agent, an agent older than 0.4.0, or Linux until 0.4.1) has no patch state, and says so rather than guessing.
+
+**Patch state (0.4.0 step 2).** `PatchSyncService` in the workers reads the endpoints of every mapped organization every
+four hours: one listing per organization gives the counts of missing updates, and only endpoints that miss something cost
+a second call for their detail, capped at 200 endpoints per pass so one large client cannot spend the budget of the
+instance. State is stored per endpoint (`EndpointPatchStates`, `EndpointMissingUpdates`), always replaced, never kept as
+history: Action1 has the history. An endpoint Action1 stops reporting loses its state rather than keeping one that was
+true a week ago.
+
+The alert kind `patch_state` covers what makes the state untrustworthy, not the updates themselves: Action1 no longer
+patches the endpoint (`subscription_status` inactive, which happens above the licensed number of its subscription), or it
+has not seen the endpoint for more than a week. Missing updates are state the UI shows, not an alert, because a patch
+window that has not run yet is normal. The alert follows the ordinary rules: maintenance opens none, an agent-only
+endpoint has none, and a license without the managed tier resolves the ones that are open.
 
 | Integration | Data in | Actions out |
 |---|---|---|
 | Action1 | Patch compliance, missing updates, deployment status per endpoint | Start deployment, install Action1 agent via signed job |
+
 | Sophos Central | Endpoint health, detections | None in v1 |
 | Veeam | Backup job status | None in v1 |
 | Proxmox VE | Host and VM inventory and health | None in v1 |
