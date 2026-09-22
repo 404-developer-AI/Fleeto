@@ -127,6 +127,18 @@ internal static class PublicApiEndpoints
             .WithSummary("Get the patch state of a managed endpoint: compliance, missing updates and whether patch management still covers it.")
             .Produces<ApiPatchState>().ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict);
 
+        api.MapGet("/endpoints/{endpointId:guid}/patch-deployments", async (HttpContext http, PublicApiQueries queries, Guid endpointId,
+                int? limit, CancellationToken cancellationToken) =>
+            {
+                var read = await queries.GetDeploymentsAsync(http.ApiCaller(), endpointId, limit ?? 10, cancellationToken);
+                return read is null ? ApiProblems.NotFoundResult("endpoint")
+                    : !read.Managed ? ApiProblems.NotManagedResult("Patch management")
+                    : Results.Ok(read.Value);
+            })
+            .WithName("getEndpointPatchDeployments").WithTags("Endpoints")
+            .WithSummary("List the deployments of updates that touched a managed endpoint, newest first.")
+            .Produces<IReadOnlyList<ApiDeployment>>().ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict);
+
         api.MapGet("/endpoints/{endpointId:guid}/checks", async (HttpContext http, PublicApiQueries queries, Guid endpointId,
                 CancellationToken cancellationToken) =>
             {

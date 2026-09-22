@@ -22,6 +22,7 @@ namespace Fleeto.Workers.Retention;
 /// policy drops whole chunks).</item>
 /// <item>Check results of deleted endpoints: found through their evaluation cursors (all ages, by endpoint index) and by a
 /// scan of recent results (results that were never evaluated).</item>
+/// <item>Deployments of updates after the job retention, once they are no longer running (0.4.0).</item>
 /// <item>Ingest batches after 7 days, finished signing requests and check run requests after 7 days, processed endpoint events after 30 days,
 /// sent emails after 30 days and failed ones after 90 days, agent certificates and enrollment tokens 30 days after they
 /// expired or were used up, and the evaluation cursors of deleted endpoints.</item>
@@ -132,6 +133,13 @@ public sealed class RetentionService : WorkerLoop
           SELECT "Id" FROM "Jobs" WHERE "CreatedAt" < @cutoff AND "State" NOT IN ('PendingSignature', 'Queued', 'Running') LIMIT 5000)
         """;
 
+    // Targets and chosen updates go with their deployment (foreign key cascade). One still running is never removed
+    // (0.4.0 step 3); a deployment is part of the patch history of its endpoints, so it follows the job retention.
+    private const string DeletePatchDeploymentsSql = """
+        DELETE FROM "PatchDeployments" WHERE "Id" IN (
+          SELECT "Id" FROM "PatchDeployments" WHERE "RequestedAt" < @cutoff AND "State" NOT IN ('Requested', 'Running') LIMIT 5000)
+        """;
+
     // Participants and actions go with their session (foreign key cascade). A session still open is never removed.
     private const string DeleteRemoteSessionsSql = """
         DELETE FROM "RemoteSessions" WHERE "Id" IN (
@@ -206,6 +214,8 @@ public sealed class RetentionService : WorkerLoop
             () => [new NpgsqlParameter("cutoff", now.AddDays(-90)), new NpgsqlParameter("maxAttempts", OutboxWebhookService.MaxAttempts)], cancellationToken);
         deleted["JobOutputChunks"] = await DeleteInBatchesAsync(DeleteJobOutputSql, () => [new NpgsqlParameter("cutoff", now - JobOutputRetention)], cancellationToken);
         deleted["Jobs"] = await DeleteInBatchesAsync(DeleteJobsSql, () => [new NpgsqlParameter("cutoff", now - JobRetention)], cancellationToken);
+        deleted["PatchDeployments"] = await DeleteInBatchesAsync(DeletePatchDeploymentsSql,
+            () => [new NpgsqlParameter("cutoff", now - JobRetention)], cancellationToken);
         deleted["RemoteSessions"] = await DeleteInBatchesAsync(DeleteRemoteSessionsSql,
             () => [new NpgsqlParameter("cutoff", now - RemoteSessionRules.HistoryRetention)], cancellationToken);
         deleted["AgentCertificates"] = await DeleteInBatchesAsync(DeleteAgentCertificatesSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))], cancellationToken);

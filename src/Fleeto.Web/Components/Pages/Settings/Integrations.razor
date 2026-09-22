@@ -128,17 +128,28 @@
                         <HeaderContent>
                             <MudTh>Client</MudTh>
                             <MudTh>Action1 organization</MudTh>
+                            <MudTh>Agent installer link</MudTh>
                             <MudTh />
                         </HeaderContent>
                         <RowTemplate>
                             <MudTd>@context.ClientCode — @context.ClientName</MudTd>
                             <MudTd>@(string.IsNullOrEmpty(context.TenantName) ? context.TenantId : context.TenantName)</MudTd>
+                            <MudTd>
+                                <MudTextField T="string" Value="@InstallerUrl(context)" ValueChanged="@(value => SaveInstallerUrlAsync(context.Id, value))"
+                                              Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="false" Disabled="_busy"
+                                              Placeholder="https://app.eu.action1.com/agent/…/Windows/agent.msi" Style="min-width:320px" />
+                            </MudTd>
                             <MudTd Style="text-align:right">
                                 <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Disabled="_busy"
                                                OnClick="@(() => RemoveMappingAsync(context.Id))" aria-label="Remove mapping" />
                             </MudTd>
                         </RowTemplate>
                     </MudTable>
+                    <MudText Typo="Typo.caption" Class="muted d-block mt-2">
+                        The installer link lets Fleeto install the Action1 agent on a Windows endpoint that patch management does not cover yet.
+                        Fleeto reads it from Action1 where Action1 offers it; otherwise copy it per organization from the Action1 console, under
+                        Endpoints, Add endpoints.
+                    </MudText>
                 }
             }
         </MudItem>
@@ -278,6 +289,25 @@
         try
         {
             if (await RunAsync(caller => IntegrationSvc.SaveMappingAsync(caller, _mapClientId, _mapTenantId!, name), "The mapping was saved."))
+            {
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string InstallerUrl(IntegrationMappingView mapping) => mapping.AgentInstallerUrl;
+
+    private async Task SaveInstallerUrlAsync(Guid mappingId, string? url)
+    {
+        _busy = true;
+        try
+        {
+            if (await RunAsync(caller => IntegrationSvc.SaveAgentInstallerUrlAsync(caller, mappingId, url),
+                    string.IsNullOrWhiteSpace(url) ? "The installer link was removed." : "The installer link was saved."))
             {
                 await ReloadAsync();
             }

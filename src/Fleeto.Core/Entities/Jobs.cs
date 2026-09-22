@@ -62,7 +62,14 @@ public class ScriptVersion
 
 public enum JobType
 {
-    Script
+    /// <summary>A script from the library, chosen by a technician.</summary>
+    Script,
+
+    /// <summary>
+    /// Installs the Action1 agent on a Windows endpoint (0.4.0 step 3). There is no script version: fleeto-signer
+    /// composes the body from the installer link of the client's Action1 organization (see <c>Action1AgentInstall</c>).
+    /// </summary>
+    Action1Agent
 }
 
 public enum JobState

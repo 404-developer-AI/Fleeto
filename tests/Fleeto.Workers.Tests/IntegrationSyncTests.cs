@@ -151,10 +151,66 @@ public sealed class IntegrationSyncTests
     }
 
     /// <summary>Answers like Action1 does, and counts what was asked.</summary>
+    [Fact]
+    public async Task The_agent_installer_link_is_read_where_the_product_offers_it_and_a_pasted_one_is_kept()
+    {
+        var integration = await SeedAsync();
+        const string url = "https://app.eu.action1.com/agent/9f2c/Windows/agent(Contoso).msi";
+        var client = await _fixture.Db.CreateClientAsync("AIL" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        var pasted = await _fixture.Db.CreateClientAsync("AIP" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            db.IntegrationMappings.Add(new IntegrationMapping
+            {
+                Id = Guid.NewGuid(), IntegrationId = integration.Id, ClientId = client.Id, ExternalTenantId = "org-1",
+                ExternalTenantName = "Contoso", CreatedAt = _fixture.Now
+            });
+            db.IntegrationMappings.Add(new IntegrationMapping
+            {
+                Id = Guid.NewGuid(), IntegrationId = integration.Id, ClientId = pasted.Id, ExternalTenantId = "org-2",
+                ExternalTenantName = "Fabrikam", AgentInstallerUrl = "https://app.eu.action1.com/agent/typed/Windows/agent.msi",
+                CreatedAt = _fixture.Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await Service(new StubHandler { AgentInstaller = url }).SyncAsync(CancellationToken.None);
+
+        await using (var read = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var mappings = await read.IntegrationMappings.AsNoTracking().Where(m => m.IntegrationId == integration.Id).ToListAsync();
+            Assert.Equal(url, mappings.Single(m => m.ClientId == client.Id).AgentInstallerUrl);
+            Assert.All(mappings, m => Assert.NotNull(m.AgentInstallerReadAt));
+        }
+
+        // The product stops offering a link: what is stored stays, so an admin's own link is never thrown away.
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            foreach (var mapping in await db.IntegrationMappings.Where(m => m.IntegrationId == integration.Id).ToListAsync())
+            {
+                mapping.AgentInstallerReadAt = _fixture.Now - IntegrationSyncService.AgentInstallerInterval - TimeSpan.FromMinutes(1);
+            }
+
+            var row = await db.Integrations.SingleAsync(i => i.Id == integration.Id);
+            row.SyncRequestedAt = _fixture.Now;
+            await db.SaveChangesAsync();
+        }
+
+        await Service(new StubHandler()).SyncAsync(CancellationToken.None);
+
+        await using var after = _fixture.Db.DbFactory.CreateSystem();
+        var kept = await after.IntegrationMappings.AsNoTracking().Where(m => m.IntegrationId == integration.Id).ToListAsync();
+        Assert.Equal(url, kept.Single(m => m.ClientId == client.Id).AgentInstallerUrl);
+        Assert.Equal("https://app.eu.action1.com/agent/typed/Windows/agent.msi", kept.Single(m => m.ClientId == pasted.Id).AgentInstallerUrl);
+    }
+
     private sealed class StubHandler : HttpMessageHandler
     {
         public int Calls { get; private set; }
         public HttpStatusCode TokenStatus { get; init; } = HttpStatusCode.OK;
+
+        /// <summary>The Windows installer link Action1 hands out, or null when it does not offer one.</summary>
+        public string? AgentInstaller { get; init; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -164,6 +220,15 @@ public sealed class IntegrationSyncTests
                 return Task.FromResult(TokenStatus == HttpStatusCode.OK
                     ? Json(HttpStatusCode.OK, """{"access_token":"token","expires_in":3600,"token_type":"Bearer"}""")
                     : Json(TokenStatus, """{"user_message":"refused"}"""));
+            }
+
+            if (request.RequestUri.AbsolutePath.Contains("/agent-installation/", StringComparison.Ordinal))
+            {
+                // Action1 offers a link for the first organization only, as it does for an organization whose agent
+                // deployment has not been set up.
+                return Task.FromResult(AgentInstaller is null || !request.RequestUri.AbsolutePath.EndsWith("org-1", StringComparison.Ordinal)
+                    ? Json(HttpStatusCode.NotFound, """{"user_message":"unknown"}""")
+                    : Json(HttpStatusCode.OK, $$"""{"platforms":[{"platform":"Windows","url":"{{AgentInstaller}}"}]}"""));
             }
 
             return Task.FromResult(Json(HttpStatusCode.OK,

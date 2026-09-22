@@ -574,8 +574,25 @@ Steps:
    not seen it for a week, and resolve when it does again; maintenance, the agent-only tier and a license without the
    managed tier keep them quiet. The Patches tab on the endpoint detail, the dashboard tile and a compliance line per
    client and site show it, and `GET /api/v1/endpoints/{endpointId}/patches` is in `API.md`.
-3. [open] **Deployments**: start a deployment from an endpoint or a selection, track its instance per endpoint, audit it, and
-   push the Action1 agent as a signed job (the installer URL comes from `GET /endpoints/agent-installation/{orgId}/…`).
+3. [done] **Deployments** (2026-09-21): a technician deploys every missing update or the updates they tick on one endpoint,
+   from the Patches tab or from a selection in the endpoint list. Web writes a `PatchDeployment` per client (Action1 runs a
+   deployment inside one organization) and may only insert it; `PatchDeploymentService` in the workers hands it to Action1
+   as a policy instance that runs once, follows `endpoint_results` every minute and closes the deployment when every
+   endpoint has an end state. Decided while building:
+   - **restarting is a choice per deployment, off by default** (not a policy field): with it on, Action1 shows Fleeto's own
+     message and restarts after 30 minutes; Fleeto never restarts an endpoint itself;
+   - **now only.** Scheduling a deployment for later is not built: Fleeto already has maintenance windows, and two places
+     that hold a planning would disagree;
+   - a status Action1 words differently than Fleeto knows becomes `Unknown` with Action1's own word, never a guess at
+     success; a deployment Action1 has not finished after a day is abandoned with its open endpoints on `Unknown`;
+   - at most ten deployments are handled per pass, and a deployment that ends asks for a fresh patch sync;
+   - **installing the Action1 agent** is a job of type `Action1Agent` whose script nobody writes: the signer composes it
+     from the installer link of the client's organization and refuses when that link changed after the technician asked.
+     The link is read from `GET /endpoints/agent-installation/{orgId}` where Action1 hands it out, and can otherwise be
+     pasted per organization in Settings, Integrations — Action1 documents no contract for it, so Fleeto does not depend
+     on one;
+   - found while building: the workers had read-only rights on the organization mapping while they keep its name current,
+     so a renamed organization made the four-hourly refresh fail (fixed, see `CHANGELOG.md`).
 4. [open] **Release 0.4.0**: API waiting list or `API.md` for everything new, changelog, tag `v0.4.0`. A pre-release
    `v0.4.0-alpha.N` after every step that can be tested on endpoints.
 

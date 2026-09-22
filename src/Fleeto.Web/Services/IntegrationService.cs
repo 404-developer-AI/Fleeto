@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Audit;
@@ -11,7 +12,12 @@ using Microsoft.EntityFrameworkCore;
 namespace Fleeto.Web.Services;
 
 /// <summary>One client mapped to a tenant of the integration, for the mapping list.</summary>
-public sealed record IntegrationMappingView(Guid Id, Guid ClientId, string ClientCode, string ClientName, string TenantId, string TenantName);
+/// <param name="AgentInstallerUrl">
+/// Where the Action1 agent installer of this organization is downloaded (0.4.0 step 3). Read from Action1 when it hands
+/// it out, otherwise pasted from the Action1 console. Empty means Fleeto cannot install that agent for this client.
+/// </param>
+public sealed record IntegrationMappingView(Guid Id, Guid ClientId, string ClientCode, string ClientName, string TenantId, string TenantName,
+    string AgentInstallerUrl);
 
 /// <summary>A client of this instance, for the mapping choice.</summary>
 public sealed record IntegrationClient(Guid Id, string Code, string Name);
@@ -269,6 +275,43 @@ public sealed class IntegrationService
         return ServiceResult.Ok();
     }
 
+    /// <summary>
+    /// Stores the link to the Action1 agent installer of one mapping (0.4.0 step 3), as an admin copies it from the
+    /// Action1 console under Endpoints, Add endpoints. An empty value clears it, which stops Fleeto offering to install
+    /// that agent. The link is checked here and again by the signer, which is what puts it in a job.
+    /// </summary>
+    public async Task<ServiceResult> SaveAgentInstallerUrlAsync(Caller caller, Guid mappingId, string? url,
+        CancellationToken cancellationToken = default)
+    {
+        if (!caller.IsAdmin)
+        {
+            return ServiceResult.Forbidden();
+        }
+
+        url = (url ?? string.Empty).Trim();
+        if (url.Length > 0 && !Action1AgentInstall.IsValidInstallerUrl(url))
+        {
+            return ServiceResult.Fail(
+                "That is not an Action1 agent installer link. Copy the download link from the Action1 console (Endpoints, Add endpoints); " +
+                "it is an https link on action1.com ending in .msi.");
+        }
+
+        await using var db = _dbFactory.CreateSystem();
+        var mapping = await db.IntegrationMappings.SingleOrDefaultAsync(m => m.Id == mappingId, cancellationToken);
+        if (mapping is null)
+        {
+            return ServiceResult.NotFound("mapping");
+        }
+
+        mapping.AgentInstallerUrl = url;
+        mapping.AgentInstallerReadAt = _time.GetUtcNow().UtcDateTime;
+        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.IntegrationMappingChanged, "Integration", mapping.IntegrationId.ToString(),
+            mapping.ClientId, new { Change = url.Length == 0 ? "installer link removed" : "installer link set", TenantId = mapping.ExternalTenantId }),
+            _time.GetUtcNow().UtcDateTime));
+        await db.SaveChangesAsync(cancellationToken);
+        return ServiceResult.Ok();
+    }
+
     /// <summary>Removes one mapping. The client keeps its endpoints; they simply have no patch state any more.</summary>
     public async Task<ServiceResult> RemoveMappingAsync(Caller caller, Guid mappingId, CancellationToken cancellationToken = default)
     {
@@ -299,7 +342,7 @@ public sealed class IntegrationService
                 .Select(m => new IntegrationMappingView(m.Id, m.ClientId,
                     clients.TryGetValue(m.ClientId, out var c) ? c.Code : string.Empty,
                     clients.TryGetValue(m.ClientId, out var name) ? name.Name : string.Empty,
-                    m.ExternalTenantId, m.ExternalTenantName))
+                    m.ExternalTenantId, m.ExternalTenantName, m.AgentInstallerUrl))
                 .OrderBy(m => m.ClientCode).ToList(),
             integration.UpdatedAt, integration.SyncRequestedAt is not null, ReadTenants(integration), integration.TenantsUpdatedAt);
 

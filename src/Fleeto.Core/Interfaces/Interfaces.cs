@@ -100,6 +100,12 @@ public static class NotificationChannels
     /// workers can reach an external product, so they do the call and write the result back.
     /// </summary>
     public const string Integrations = "fleeto_integrations";
+
+    /// <summary>
+    /// Payload: PatchDeployment id. A technician started a deployment, or the workers changed one (0.4.0 step 3). Web
+    /// writes the request and follows the row; only the workers can reach the patch management product.
+    /// </summary>
+    public const string PatchDeployments = "fleeto_patch_deployments";
 }
 
 /// <summary>Writes audit entries. The table is append-only; there is no update or delete.</summary>
@@ -212,6 +218,15 @@ public static class AuditActions
     public const string CredentialChanged = "settings.credential_changed";
     public const string NotificationChannelChanged = "notification_channel.changed";
     public const string BackupStarted = "backup.started";
+
+    /// <summary>A technician asked for updates to be deployed (0.4.0 step 3); one entry per client of the run.</summary>
+    public const string PatchDeploymentStarted = "patch_deployment.started";
+
+    /// <summary>The patch management product accepted the deployment and named it.</summary>
+    public const string PatchDeploymentAccepted = "patch_deployment.accepted";
+
+    /// <summary>The deployment ended: completed, refused by the product, or no longer followed.</summary>
+    public const string PatchDeploymentEnded = "patch_deployment.ended";
 
     public const string IntegrationChanged = "integration.changed";
     public const string IntegrationRemoved = "integration.removed";

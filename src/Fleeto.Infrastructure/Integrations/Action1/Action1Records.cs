@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Fleeto.Core.Entities;
 
 namespace Fleeto.Infrastructure.Integrations.Action1;
@@ -87,11 +89,37 @@ public sealed record Action1MissingUpdate(string Id, string Name, string Vendor,
             id,
             name,
             Action1Client.Text(item, "vendor"),
-            Action1Client.Text(item, "version"),
+            VersionOf(item),
             Action1Client.Text(item, "kb_number"),
             ParseSeverity(Action1Client.Text(item, "security_severity")),
             Action1Client.Text(item, "reboot_needed") is { Length: > 0 } reboot &&
             !reboot.Equals("No", StringComparison.OrdinalIgnoreCase) && !reboot.Equals("Unknown", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// The version Action1 would install. It reports the update itself with a list of versions, newest first, and some
+    /// answers carry the version flat; both are read, because a deployment has to name the version of every package
+    /// (0.4.0 step 3). An update without a version can still be shown, but it cannot be deployed by name.
+    /// </summary>
+    private static string VersionOf(JsonElement item)
+    {
+        if (Action1Client.Text(item, "version") is { Length: > 0 } flat)
+        {
+            return flat;
+        }
+
+        if (item.TryGetProperty("versions", out var versions) && versions.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var version in versions.EnumerateArray())
+            {
+                if (Action1Client.Text(version, "version") is { Length: > 0 } nested)
+                {
+                    return nested;
+                }
+            }
+        }
+
+        return string.Empty;
     }
 
     /// <summary>
@@ -106,5 +134,97 @@ public sealed record Action1MissingUpdate(string Id, string Name, string Vendor,
         "moderate" => PatchSeverity.Moderate,
         "low" => PatchSeverity.Low,
         _ => PatchSeverity.Unspecified
+    };
+}
+
+/// <summary>
+/// A deployment of updates Fleeto asks Action1 to run now (0.4.0 step 3). Action1 calls it a policy instance: an
+/// automation that runs once, on the endpoints it names.
+/// </summary>
+/// <param name="Name">The name of the deployment in the Action1 console; it names Fleeto so an admin knows where it came from.</param>
+/// <param name="Summary">One line about what is installed, shown by Action1 next to the deployment.</param>
+/// <param name="EndpointIds">The Action1 ids of the endpoints, never host names.</param>
+/// <param name="Packages">The packages to install with their version, empty when every missing update goes.</param>
+/// <param name="AutoReboot">True lets Action1 restart the endpoint by itself to finish the updates.</param>
+public sealed record Action1Deployment(string Name, string Summary, IReadOnlyList<string> EndpointIds,
+    IReadOnlyList<Action1Package> Packages, bool AutoReboot, string RebootMessage, int RebootTimeoutSeconds, int RetryMinutes)
+{
+    /// <summary>
+    /// The body Action1 expects. The packages are an object per package, keyed by its id with the version as value, which
+    /// is the shape Action1's own tooling builds; <c>default</c> means every update the endpoint misses.
+    /// </summary>
+    public JsonObject ToJson()
+    {
+        var packages = new JsonArray();
+        if (Packages.Count == 0)
+        {
+            packages.Add(new JsonObject { ["default"] = "default" });
+        }
+        else
+        {
+            foreach (var package in Packages)
+            {
+                packages.Add(new JsonObject { [package.Id] = package.Version });
+            }
+        }
+
+        var reboot = new JsonObject { ["auto_reboot"] = AutoReboot ? "yes" : "no" };
+        if (AutoReboot)
+        {
+            reboot["show_message"] = "yes";
+            reboot["message_text"] = RebootMessage;
+            reboot["timeout"] = RebootTimeoutSeconds;
+        }
+
+        return new JsonObject
+        {
+            ["name"] = Name,
+            ["retry_minutes"] = RetryMinutes.ToString(CultureInfo.InvariantCulture),
+            ["endpoints"] = new JsonArray([.. EndpointIds.Select(id => (JsonNode)new JsonObject { ["id"] = id, ["type"] = "Endpoint" })]),
+            ["actions"] = new JsonArray(new JsonObject
+            {
+                ["name"] = "Deploy Update",
+                ["template_id"] = "deploy_update",
+                ["params"] = new JsonObject
+                {
+                    ["display_summary"] = Summary,
+                    ["scope"] = Packages.Count == 0 ? "All" : "Specified",
+                    ["packages"] = packages,
+                    ["reboot_options"] = reboot
+                }
+            })
+        };
+    }
+}
+
+/// <summary>One package of a deployment: the id Action1 knows the update by, and the version to install.</summary>
+public sealed record Action1Package(string Id, string Version);
+
+/// <summary>
+/// What Action1 reports for one endpoint of a deployment (0.4.0 step 3). Action1 words its status in its own vocabulary
+/// and documents no list of values, so a word Fleeto does not know becomes <see cref="PatchDeploymentTargetState.Unknown"/>
+/// with the word itself as the message: showing what Action1 said beats guessing what it meant.
+/// </summary>
+public sealed record Action1EndpointResult(string EndpointId, PatchDeploymentTargetState State, string Status)
+{
+    public static Action1EndpointResult? From(JsonElement item)
+    {
+        var id = Action1Client.Text(item, "endpoint_id") is { Length: > 0 } endpoint ? endpoint : Action1Client.Text(item, "id");
+        if (string.IsNullOrEmpty(id))
+        {
+            return null;
+        }
+
+        var status = Action1Client.Text(item, "status") is { Length: > 0 } text ? text : Action1Client.Text(item, "state");
+        return new Action1EndpointResult(id, ParseState(status), status);
+    }
+
+    public static PatchDeploymentTargetState ParseState(string? value) => (value ?? string.Empty).Trim().ToLowerInvariant() switch
+    {
+        "succeeded" or "success" or "completed" or "complete" or "ok" or "installed" => PatchDeploymentTargetState.Succeeded,
+        "failed" or "failure" or "error" or "cancelled" or "canceled" => PatchDeploymentTargetState.Failed,
+        "running" or "in progress" or "in_progress" or "inprogress" or "started" or "executing" => PatchDeploymentTargetState.Running,
+        "pending" or "scheduled" or "queued" or "waiting" or "not started" or "new" => PatchDeploymentTargetState.Pending,
+        _ => PatchDeploymentTargetState.Unknown
     };
 }

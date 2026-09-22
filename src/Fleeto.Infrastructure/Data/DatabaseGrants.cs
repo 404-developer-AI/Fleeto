@@ -111,9 +111,16 @@ public static class DatabaseGrants
             // Patch state (0.4.0): the workers read it from the patch management product, web and the public API show it.
             ["EndpointPatchStates"] = Grants(web: Read, workers: ReadWrite),
             ["EndpointMissingUpdates"] = Grants(web: Read, workers: ReadWrite),
+            // Deployments (0.4.0 step 3): web writes what a technician asked for, the workers hand it to the product and
+            // write back what it reports. Web never updates a deployment, so it cannot claim an outcome of its own.
+            ["PatchDeployments"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
+            ["PatchDeploymentUpdates"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
+            ["PatchDeploymentTargets"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
             // Integrations (0.4.0): an admin configures them in web; the workers poll and write back the status of the last attempt.
             ["Integrations"] = Grants(web: ReadWrite, workers: "SELECT, UPDATE"),
-            ["IntegrationMappings"] = Grants(web: ReadWrite, workers: Read),
+            // The workers keep the tenant name and the agent installer link of a mapping current (0.4.0); the signer reads
+            // the link, because it composes the job that installs the product's agent and trusts no URL from web.
+            ["IntegrationMappings"] = Grants(web: ReadWrite, signer: Read, workers: "SELECT, UPDATE"),
             ["BackupRuns"] = Grants(web: Read, workers: ReadWrite),
             ["WorkerWatermarks"] = Grants(workers: ReadWrite),
 

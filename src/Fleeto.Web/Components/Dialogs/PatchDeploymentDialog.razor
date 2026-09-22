@@ -1,0 +1,113 @@
+@implements IDisposable
+@inject PatchService PatchSvc
+@inject CurrentUser CurrentUser
+@inject LiveUpdates Live
+
+@* One deployment run (0.4.0 step 3): what Action1 reports per endpoint, refreshed live, and the endpoints that got nothing.
+   A selection that spans clients is one deployment per client, because Action1 runs a deployment inside one organization. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Deploying updates on @Ui.Count(_endpointCount, "endpoint")</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (Skipped.Count > 0)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                @Ui.Count(Skipped.Count, "endpoint") got no deployment.
+            </MudAlert>
+            <MudTable T="JobRunTarget" Items="Skipped" Dense="true" Elevation="0" Class="mb-4">
+                <HeaderContent>
+                    <MudTh>Endpoint</MudTh>
+                    <MudTh>Reason</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd><strong>@context.Hostname</strong></MudTd>
+                    <MudTd class="muted">@context.Problem</MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+
+        @if (_deployments.Count == 0)
+        {
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+        }
+        else
+        {
+            @foreach (var deployment in _deployments)
+            {
+                <div class="d-flex flex-wrap align-center gap-2 mb-2">
+                    <StatusChip Text="@Ui.DeploymentStateLabel(deployment.State)" Kind="@Ui.DeploymentStateKind(deployment.State)" />
+                    <MudText Typo="Typo.body2" Class="muted">
+                        @(deployment.Scope == PatchDeploymentScope.Specified
+                            ? Ui.Count(deployment.UpdateNames.Count, "update")
+                            : "Every missing update")
+                        · @(deployment.AutoReboot ? "restart allowed" : "no restart")
+                        · started <TimeText Value="deployment.RequestedAt" />
+                    </MudText>
+                </div>
+                @if (deployment.StatusMessage is { Length: > 0 } message)
+                {
+                    <MudAlert Severity="@(deployment.State == PatchDeploymentState.Failed ? Severity.Error : Severity.Info)" Dense="true" Class="mb-2">
+                        @message
+                    </MudAlert>
+                }
+                <MudTable T="DeploymentTargetView" Items="deployment.Targets" Dense="true" Elevation="0" Class="mb-4">
+                    <HeaderContent>
+                        <MudTh>Endpoint</MudTh>
+                        <MudTh>State</MudTh>
+                        <MudTh>Action1</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd><strong>@context.Hostname</strong></MudTd>
+                        <MudTd><StatusChip Text="@Ui.DeploymentTargetLabel(context.State)" Kind="@Ui.DeploymentTargetKind(context.State)" /></MudTd>
+                        <MudTd class="muted">@(context.Message ?? "-")</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+            <MudText Typo="Typo.caption" Class="muted">
+                Action1 installs the updates; Fleeto follows it for a day. This window can be closed: the state stays on the Patches tab of
+                each endpoint.
+            </MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Close">Done</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public Guid BatchId { get; set; }
+    [Parameter] public IReadOnlyList<JobRunTarget> Skipped { get; set; } = [];
+
+    private IReadOnlyList<DeploymentView> _deployments = [];
+    private int _endpointCount;
+    private DebouncedRefresh? _refresh;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _refresh = new DebouncedRefresh(() => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));
+        Live.PatchDeploymentsChanged += OnChanged;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var caller = await CurrentUser.GetAsync();
+        _deployments = await PatchSvc.ListBatchAsync(caller, BatchId);
+        _endpointCount = _deployments.Sum(d => d.Targets.Count);
+    }
+
+    // The payload is a deployment id, not an endpoint id, so every change reloads this run rather than matching on it.
+    private void OnChanged(Guid _) => _refresh?.Trigger();
+
+    private void Close() => MudDialog.Close(DialogResult.Ok(true));
+
+    public void Dispose()
+    {
+        Live.PatchDeploymentsChanged -= OnChanged;
+        _refresh?.Dispose();
+    }
+}

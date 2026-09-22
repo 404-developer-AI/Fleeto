@@ -67,6 +67,36 @@ public enum ApiPatchCoverage
     [JsonStringEnumMemberName("inactive")] Inactive
 }
 
+/// <summary>What a deployment installs (0.4.0).</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ApiDeploymentScope>))]
+public enum ApiDeploymentScope
+{
+    [JsonStringEnumMemberName("all_missing")] AllMissing,
+    [JsonStringEnumMemberName("specified")] Specified
+}
+
+/// <summary>Where a deployment stands (0.4.0).</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ApiDeploymentState>))]
+public enum ApiDeploymentState
+{
+    [JsonStringEnumMemberName("requested")] Requested,
+    [JsonStringEnumMemberName("running")] Running,
+    [JsonStringEnumMemberName("completed")] Completed,
+    [JsonStringEnumMemberName("failed")] Failed,
+    [JsonStringEnumMemberName("abandoned")] Abandoned
+}
+
+/// <summary>What patch management reports for one endpoint of a deployment (0.4.0).</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ApiDeploymentTargetState>))]
+public enum ApiDeploymentTargetState
+{
+    [JsonStringEnumMemberName("pending")] Pending,
+    [JsonStringEnumMemberName("running")] Running,
+    [JsonStringEnumMemberName("succeeded")] Succeeded,
+    [JsonStringEnumMemberName("failed")] Failed,
+    [JsonStringEnumMemberName("unknown")] Unknown
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter<ApiAlertSeverity>))]
 public enum ApiAlertSeverity
 {
@@ -212,6 +242,17 @@ public sealed record ApiMissingUpdate(string Id, string Name, string Vendor, str
 public sealed record ApiPatchState(Guid EndpointId, ApiPatchCoverage Coverage, bool Compliant, int MissingCritical, int MissingOther,
     bool RebootRequired, DateTime? ProductLastSeenAt, string ProductAgentVersion, DateTime UpdatedAt, DateTime? DetailUpdatedAt,
     IReadOnlyList<ApiMissingUpdate> Missing);
+
+/// <summary>What one endpoint of a deployment did, as patch management reports it (0.4.0).</summary>
+public sealed record ApiDeploymentTarget(Guid EndpointId, string Hostname, ApiDeploymentTargetState State, string? Message);
+
+/// <summary>
+/// One deployment of updates started from Fleeto (0.4.0). It covers one client, so a run over several clients appears as
+/// one deployment per client with the same <c>batchId</c>.
+/// </summary>
+public sealed record ApiDeployment(Guid Id, Guid BatchId, Guid ClientId, ApiDeploymentScope Scope, bool AutoReboot,
+    ApiDeploymentState State, string? StatusMessage, string RequestedByName, DateTime RequestedAt, DateTime? CompletedAt,
+    IReadOnlyList<string> Updates, IReadOnlyList<ApiDeploymentTarget> Targets);
 
 public sealed record ApiInventory(Guid EndpointId, DateTime ReceivedAt, string Manufacturer, string Model, string SerialNumber, ApiCpu Cpu,
     long MemoryTotalBytes, DateTime? BootTime, string Domain, string LoggedOnUser, IReadOnlyList<ApiDisk> Disks,

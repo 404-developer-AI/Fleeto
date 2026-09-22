@@ -119,6 +119,9 @@
     private List<NoteView> _noteItems = [];
     private IReadOnlyList<JobListItem>? _jobs;
     private EndpointPatchView? _patches;
+    private IReadOnlyList<DeploymentView> _deployments = [];
+    private HashSet<MissingUpdateView> _chosenUpdates = [];
+    private bool _installingAgent;
     private IReadOnlyList<AlertView> _alerts = [];
     private IReadOnlyList<EndpointEventView> _events = [];
     private IReadOnlyList<AuditEntryView> _audit = [];
@@ -133,6 +136,7 @@
         Live.CheckResultsChanged += OnEndpointChange;
         Live.AlertChanged += OnAlertChange;
         Live.JobsChanged += OnJobsChange;
+        Live.PatchDeploymentsChanged += OnDeploymentChange;
     }
 
     protected override async Task OnParametersSetAsync()
@@ -190,6 +194,9 @@
                 break;
             case PatchesTab:
                 _patches = await PatchSvc.GetAsync(caller, EndpointId);
+                _deployments = await PatchSvc.ListDeploymentsAsync(caller, EndpointId);
+                // An update that is no longer missing cannot stay chosen, or a deployment would name something that is gone.
+                _chosenUpdates = [.. _chosenUpdates.Where(u => _patches?.Missing.Any(m => m.Id == u.Id) == true)];
                 break;
             case HistoryTab:
                 _alerts = await EndpointSvc.GetAlertsAsync(caller, EndpointId, 50);
@@ -219,6 +226,15 @@
     private void OnJobsChange(Guid id)
     {
         if (_tab == JobsTab && (id == EndpointId || id == Guid.Empty))
+        {
+            _refresh?.Trigger();
+        }
+    }
+
+    // The payload is a deployment id, so the tab reloads its own deployments rather than matching on an endpoint id.
+    private void OnDeploymentChange(Guid _)
+    {
+        if (_tab == PatchesTab)
         {
             _refresh?.Trigger();
         }
@@ -816,7 +832,16 @@
         else if (patches.State is not { } state)
         {
             <EmptyState Icon="@Icons.Material.Outlined.Security" Title="Not covered by patch management"
-                        Text="Action1 does not report this endpoint. Install the Action1 agent on it; Fleeto matches it as soon as its own agent reports the Action1 agent." />
+                        Text="Action1 does not report this endpoint. It needs the Action1 agent; Fleeto matches the endpoint as soon as its own agent reports that agent." />
+            @if (CanManage && patches.CanInstallAgent)
+            {
+                <div class="d-flex justify-center">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.InstallDesktop"
+                               Disabled="_installingAgent" OnClick="InstallAction1AgentAsync">
+                        Install Action1 agent
+                    </MudButton>
+                </div>
+            }
         }
         else
         {
@@ -847,6 +872,23 @@
                 </tbody>
             </MudSimpleTable>
 
+            @if (CanManage && state.Coverage == PatchCoverage.Active && !state.IsCompliant)
+            {
+                <div class="d-flex gap-2 flex-wrap mb-3">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.SystemUpdateAlt"
+                               OnClick="@(() => DeployAsync(null))">
+                        Deploy all missing updates
+                    </MudButton>
+                    @if (_chosenUpdates.Count > 0)
+                    {
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.PlaylistAddCheck"
+                                   OnClick="@(() => DeployAsync([.. _chosenUpdates]))">
+                            Deploy @Ui.Count(_chosenUpdates.Count, "chosen update")
+                        </MudButton>
+                    }
+                </div>
+            }
+
             @if (patches.Missing.Count == 0)
             {
                 @if (state.IsCompliant)
@@ -866,7 +908,8 @@
                 <MudText Typo="Typo.body2" Class="muted mb-2">
                     @patches.Missing.Count missing updates, read <TimeText Value="patches.DetailUpdatedAt" />
                 </MudText>
-                <MudTable Items="patches.Missing" Dense="true" Elevation="0">
+                <MudTable T="MissingUpdateView" Items="patches.Missing" Dense="true" Elevation="0"
+                          MultiSelection="@(CanManage && state.Coverage == PatchCoverage.Active)" @bind-SelectedItems="_chosenUpdates">
                     <HeaderContent>
                         <MudTh>Update</MudTh>
                         <MudTh>Vendor</MudTh>
@@ -896,8 +939,130 @@
                     </PagerContent>
                 </MudTable>
             }
+
+            @if (_deployments.Count > 0)
+            {
+                <MudText Typo="Typo.h6" Class="section-title mt-4 mb-2">Deployments</MudText>
+                <MudTable T="DeploymentView" Items="_deployments" Dense="true" Elevation="0">
+                    <HeaderContent>
+                        <MudTh>Started</MudTh>
+                        <MudTh>What</MudTh>
+                        <MudTh>This endpoint</MudTh>
+                        <MudTh>Deployment</MudTh>
+                        <MudTh>By</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd><TimeText Value="context.RequestedAt" /></MudTd>
+                        <MudTd>
+                            @(context.Scope == PatchDeploymentScope.Specified
+                                ? Ui.Count(context.UpdateNames.Count, "update")
+                                : "Every missing update")@(context.AutoReboot ? ", restart allowed" : "")
+                        </MudTd>
+                        <MudTd>
+                            @if (context.Targets.FirstOrDefault(t => t.EndpointId == EndpointId) is { } target)
+                            {
+                                <StatusChip Text="@Ui.DeploymentTargetLabel(target.State)" Kind="@Ui.DeploymentTargetKind(target.State)" />
+                                @if (target.Message is { Length: > 0 } message)
+                                {
+                                    <span class="muted"> @message</span>
+                                }
+                            }
+                        </MudTd>
+                        <MudTd><StatusChip Text="@Ui.DeploymentStateLabel(context.State)" Kind="@Ui.DeploymentStateKind(context.State)" /></MudTd>
+                        <MudTd class="muted">@context.RequestedByName</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
         }
     };
+
+    /// <summary>
+    /// Starts a deployment on this endpoint: every missing update, or the ones chosen in the list. What is deployed is
+    /// decided by the service again; this only asks and then shows what the product reports.
+    /// </summary>
+    private async Task DeployAsync(IReadOnlyList<MissingUpdateView>? chosen)
+    {
+        if (_endpoint is not { } endpoint)
+        {
+            return;
+        }
+
+        var updateIds = chosen?.Select(u => u.Id).ToList();
+        var parameters = new DialogParameters<DeployUpdatesDialog>
+        {
+            { d => d.EndpointIds, new[] { endpoint.Id } },
+            { d => d.TargetLabel, endpoint.Hostname },
+            { d => d.UpdateNames, chosen?.Select(u => u.Version.Length == 0 ? u.Name : $"{u.Name} {u.Version}").ToList() ?? [] },
+            { d => d.OnSubmit, async (bool autoReboot) =>
+                {
+                    var started = await RunForValueAsync(caller => PatchSvc.StartDeploymentAsync(caller, [endpoint.Id], updateIds, autoReboot), null);
+                    if (started?.Value is not { } run)
+                    {
+                        return false;
+                    }
+
+                    _chosenUpdates = [];
+                    await ShowDeploymentAsync(run);
+                    return true;
+                } }
+        };
+        var dialog = await DialogService.ShowAsync<DeployUpdatesDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        await dialog.Result;
+    }
+
+    /// <summary>
+    /// Puts the Action1 agent on this endpoint as a signed job, so patch management can cover it. The signer writes what
+    /// runs; this only asks for it and shows where the result appears.
+    /// </summary>
+    private async Task InstallAction1AgentAsync()
+    {
+        if (_endpoint is not { } endpoint || _installingAgent)
+        {
+            return;
+        }
+
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Install the Action1 agent on {endpoint.Hostname}" },
+            {
+                d => d.Message,
+                "Fleeto sends a signed job that downloads the Action1 agent of this client's organization and installs it silently, without a restart. " +
+                "The endpoint keeps its Fleeto agent; the Action1 agent runs next to it. Its patch state appears after the endpoint has reported its next inventory."
+            },
+            { d => d.ConfirmText, "Install agent" }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if ((await dialog.Result)!.Canceled)
+        {
+            return;
+        }
+
+        _installingAgent = true;
+        try
+        {
+            if (await RunAsync(caller => PatchSvc.InstallAgentAsync(caller, endpoint.Id),
+                    "The installation was started. Its result appears on the Jobs tab."))
+            {
+                await RefreshAsync();
+            }
+        }
+        finally
+        {
+            _installingAgent = false;
+        }
+    }
+
+    private async Task ShowDeploymentAsync(DeploymentStartResult run)
+    {
+        var parameters = new DialogParameters<PatchDeploymentDialog>
+        {
+            { d => d.BatchId, run.BatchId },
+            { d => d.Skipped, run.Skipped }
+        };
+        var dialog = await DialogService.ShowAsync<PatchDeploymentDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        await dialog.Result;
+        await RefreshAsync();
+    }
 
     private RenderFragment NoInventory() => __builder =>
     {
@@ -1287,6 +1452,7 @@
         Live.CheckResultsChanged -= OnEndpointChange;
         Live.AlertChanged -= OnAlertChange;
         Live.JobsChanged -= OnJobsChange;
+        Live.PatchDeploymentsChanged -= OnDeploymentChange;
         _refresh?.Dispose();
         base.Dispose();
     }

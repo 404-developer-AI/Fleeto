@@ -26,6 +26,18 @@ When a third released version is added, the oldest entry moves to the top of
   longer patches (above the licensed number of the subscription) or has not seen for a week opens an alert, because its
   state cannot be trusted; missing updates themselves are state, not an alert. Agent-only endpoints have no patch state,
   endpoints in maintenance open no alert, and `GET /api/v1/endpoints/{endpointId}/patches` gives the same data in the API.
+- 0.4.0: Deploying updates from Fleeto: on the Patches tab of an endpoint every missing update or the updates a technician
+  ticks in the list, and from the endpoint list every missing update on a selection. The deployment runs in Action1; Fleeto
+  shows per endpoint what Action1 reports, live, and keeps the run in the history of every endpoint it touched. Restarting
+  is a choice per deployment and is off by default; with it on, the signed-in user gets a message and half an hour before
+  Action1 restarts the endpoint. Managed endpoints only, admins and technicians, audited like a job. A deployment Action1
+  refuses says why and installs nothing; one Action1 has not finished after a day is no longer followed and says so instead
+  of claiming success. `GET /api/v1/endpoints/{endpointId}/patch-deployments` gives the same data in the API.
+- 0.4.0: Installing the Action1 agent from Fleeto on a Windows endpoint that patch management does not cover yet, from the
+  Patches tab. It is a signed job whose script Fleeto writes itself: fleeto-signer composes it from the installer link of
+  the client's Action1 organization and refuses when that link changed since the technician asked. The link is read from
+  Action1 where Action1 hands it out and can otherwise be pasted per organization in Settings, Integrations. The
+  installation is silent and never restarts the endpoint.
 - 0.4.0: The agent reports the id of the Action1 agent installed next to it on a Windows endpoint, read from the endpoint
   itself. It is shown on the endpoint's Summary tab and as `action1AgentId` on the inventory in the public API. Patch
   management matches an endpoint on it instead of on the host name, which is not unique across clients and changes.
@@ -43,6 +55,9 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- 0.4.0: The workers may change the organization mapping of an integration again. They keep the name of an Action1
+  organization current, but had read-only rights on that table, so a renamed organization made the four-hourly refresh
+  fail on an instance. Found while building 0.4.0 step 3.
 - 0.4.0: The connection test of an integration no longer ends in "Action1 did not answer in time" on an instance. fleeto-web
   runs on a network without outbound access, so it can never reach an external product; it now records what an admin asked
   for and the workers, which do have outbound access, make the call and write the result back. The page shows "Testing"

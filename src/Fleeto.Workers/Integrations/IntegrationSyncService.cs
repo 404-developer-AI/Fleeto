@@ -27,6 +27,9 @@ public sealed class IntegrationSyncService : WorkerLoop
     /// <summary>How often the tenants are read again without anybody asking.</summary>
     public static readonly TimeSpan RefreshInterval = TimeSpan.FromHours(4);
 
+    /// <summary>How often the link to the product's own agent installer is read again per tenant (0.4.0 step 3).</summary>
+    public static readonly TimeSpan AgentInstallerInterval = TimeSpan.FromHours(24);
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private readonly IFleetoDbContextFactory _dbFactory;
@@ -154,9 +157,34 @@ public sealed class IntegrationSyncService : WorkerLoop
             {
                 mapping.ExternalTenantName = name;
             }
+
+            await ReadAgentInstallerAsync(client, mapping, now, cancellationToken);
         }
 
         _logger.LogInformation("{Type}: {Count} tenants read", integration.Type, tenants.Count);
+    }
+
+    /// <summary>
+    /// Keeps the link to the product's own agent installer current for one tenant (0.4.0 step 3), so an endpoint without
+    /// that agent can be given one. It is read once a day at most: the link rarely changes and every call counts against
+    /// the request budget of the whole instance. A link an admin pasted is only replaced by one the product itself gives,
+    /// never cleared.
+    /// </summary>
+    private async Task ReadAgentInstallerAsync(Action1Client client, IntegrationMapping mapping, DateTime now,
+        CancellationToken cancellationToken)
+    {
+        if (mapping.AgentInstallerReadAt is { } read && now - read < AgentInstallerInterval)
+        {
+            return;
+        }
+
+        var result = await client.GetAgentInstallerUrlAsync(mapping.ExternalTenantId, cancellationToken);
+        mapping.AgentInstallerReadAt = now;
+        if (result.Ok && result.Value is { Length: > 0 } url && url != mapping.AgentInstallerUrl)
+        {
+            mapping.AgentInstallerUrl = url.Length <= 500 ? url : string.Empty;
+            _logger.LogInformation("The agent installer link of tenant {Tenant} was read from the product", mapping.ExternalTenantId);
+        }
     }
 
     private static string? Trim(string? value, int max = 1000) =>

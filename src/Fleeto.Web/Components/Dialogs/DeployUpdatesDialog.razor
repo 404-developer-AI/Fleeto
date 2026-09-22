@@ -1,0 +1,97 @@
+@using Fleeto.Core.Domain
+@* Starts a deployment of updates through the patch management product, on one endpoint or a selection (0.4.0 step 3). *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Deploy updates on @TargetLabel</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (UpdateNames.Count > 0)
+        {
+            <MudText Typo="Typo.body2" Class="mb-2">Action1 installs @Ui.Count(UpdateNames.Count, "chosen update"):</MudText>
+            <MudSimpleTable Dense="true" Elevation="0" Class="detail-table mb-3">
+                <tbody>
+                    @foreach (var name in UpdateNames.Take(MaxNamed))
+                    {
+                        <tr><td>@name</td></tr>
+                    }
+                    @if (UpdateNames.Count > MaxNamed)
+                    {
+                        <tr><td class="muted">and @(UpdateNames.Count - MaxNamed) more</td></tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">
+                Action1 installs every update it reports as missing on @(EndpointIds.Count == 1 ? "this endpoint" : "these endpoints").
+                What is missing can have changed since Fleeto last read it.
+            </MudText>
+        }
+
+        <MudSwitch T="bool" @bind-Value="_autoReboot" Color="Color.Primary" Label="Let Action1 restart the endpoint when an update needs it" />
+        <MudText Typo="Typo.caption" Class="muted d-block mb-2">
+            @if (_autoReboot)
+            {
+                <text>
+                    A signed-in user sees a message and has @(PatchRules.RebootTimeoutSeconds / 60) minutes to save their work; then the endpoint
+                    restarts, whether it is a workstation or a server.
+                </text>
+            }
+            else
+            {
+                <text>
+                    Nothing is restarted. Updates that need a restart stay pending until the endpoint restarts, so its patch state keeps saying
+                    a restart is due.
+                </text>
+            }
+        </MudText>
+
+        <MudText Typo="Typo.caption" Class="muted d-block">
+            The deployment runs in Action1, not in Fleeto: it starts as soon as the workers hand it over, and endpoints that are offline are
+            retried by Action1 for a day. Fleeto shows what Action1 reports per endpoint.
+        </MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">Deploy</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    /// <summary>Updates named in the dialog; the rest is counted, so the window stays readable for a long list.</summary>
+    private const int MaxNamed = 10;
+
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public IReadOnlyCollection<Guid> EndpointIds { get; set; } = [];
+    [Parameter, EditorRequired] public string TargetLabel { get; set; } = string.Empty;
+
+    /// <summary>The chosen updates; empty means every missing update goes.</summary>
+    [Parameter] public IReadOnlyList<string> UpdateNames { get; set; } = [];
+
+    /// <summary>Starts the deployment with the chosen restart behaviour and returns true when it was accepted.</summary>
+    [Parameter] public Func<bool, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+
+    private bool _autoReboot;
+    private bool _busy;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(_autoReboot))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

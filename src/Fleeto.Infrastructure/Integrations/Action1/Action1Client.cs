@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Microsoft.Extensions.Logging;
@@ -81,7 +83,7 @@ public sealed class Action1Client : IIntegration, IDisposable
         }
         catch (Action1Exception ex)
         {
-            return IntegrationResult.Fail(ex.Message);
+            return IntegrationResult.Fail(ex.Message, ex.IsPermanent);
         }
     }
 
@@ -114,7 +116,7 @@ public sealed class Action1Client : IIntegration, IDisposable
         }
         catch (Action1Exception ex)
         {
-            return IntegrationResult<IReadOnlyList<ExternalTenant>>.Fail(ex.Message);
+            return IntegrationResult<IReadOnlyList<ExternalTenant>>.Fail(ex.Message, ex.IsPermanent);
         }
     }
 
@@ -151,7 +153,7 @@ public sealed class Action1Client : IIntegration, IDisposable
         }
         catch (Action1Exception ex)
         {
-            return IntegrationResult<IReadOnlyList<Action1Endpoint>>.Fail(ex.Message);
+            return IntegrationResult<IReadOnlyList<Action1Endpoint>>.Fail(ex.Message, ex.IsPermanent);
         }
     }
 
@@ -186,7 +188,155 @@ public sealed class Action1Client : IIntegration, IDisposable
         }
         catch (Action1Exception ex)
         {
-            return IntegrationResult<IReadOnlyList<Action1MissingUpdate>>.Fail(ex.Message);
+            return IntegrationResult<IReadOnlyList<Action1MissingUpdate>>.Fail(ex.Message, ex.IsPermanent);
+        }
+    }
+
+    /// <summary>
+    /// Where the Action1 agent installer of one organization is downloaded (0.4.0 step 3), or an empty string when
+    /// Action1 does not hand it out over the API. Action1 documents no contract for this, so a refusal is not an error
+    /// here: an admin can paste the link from the Action1 console instead, and Settings says so.
+    /// </summary>
+    public async Task<IntegrationResult<string>> GetAgentInstallerUrlAsync(string organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var document = await GetAsync($"endpoints/agent-installation/{Uri.EscapeDataString(organizationId)}", null, cancellationToken);
+            return IntegrationResult<string>.Success(WindowsInstaller(document.RootElement) ?? string.Empty);
+        }
+        catch (Action1Exception ex) when (ex.IsPermanent)
+        {
+            // The route is not there, or these credentials may not read it: Fleeto asks the admin for the link instead.
+            _logger.LogInformation("Action1 did not hand out an agent installer link for organization {Tenant}: {Message}",
+                organizationId, ex.Message);
+            return IntegrationResult<string>.Success(string.Empty);
+        }
+        catch (Action1Exception ex)
+        {
+            return IntegrationResult<string>.Fail(ex.Message, ex.IsPermanent);
+        }
+    }
+
+    /// <summary>
+    /// The Windows installer link in an answer whose shape Action1 does not document: a URL under a field that names the
+    /// platform, in a list of items, or one URL field at the top. Only an https link to the Action1 account's own region
+    /// is accepted, so a wrong answer can never turn into a download from somewhere else.
+    /// </summary>
+    private string? WindowsInstaller(JsonElement root)
+    {
+        foreach (var candidate in Urls(root))
+        {
+            if (Uri.TryCreate(candidate, UriKind.Absolute, out var url) && url.Scheme == Uri.UriSchemeHttps &&
+                url.Host.Equals(_http.BaseAddress!.Host, StringComparison.OrdinalIgnoreCase) &&
+                url.AbsolutePath.EndsWith(".msi", StringComparison.OrdinalIgnoreCase))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> Urls(JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.String when element.GetString() is { Length: > 0 } text:
+                yield return text;
+                break;
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
+                {
+                    foreach (var url in Urls(item))
+                    {
+                        yield return url;
+                    }
+                }
+
+                break;
+            case JsonValueKind.Object:
+                foreach (var property in element.EnumerateObject())
+                {
+                    foreach (var url in Urls(property.Value))
+                    {
+                        yield return url;
+                    }
+                }
+
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Starts a deployment of updates now (0.4.0 step 3) and returns the id Action1 gave it, which is what the workers
+    /// follow. Action1 runs a deployment inside one organization: <c>orgId=all</c> reads but never runs.
+    /// </summary>
+    public async Task<IntegrationResult<string>> StartDeploymentAsync(string organizationId, Action1Deployment deployment,
+        CancellationToken cancellationToken = default)
+    {
+        if (deployment.EndpointIds.Count == 0)
+        {
+            return IntegrationResult<string>.Fail("A deployment needs at least one endpoint.", permanent: true);
+        }
+
+        try
+        {
+            using var document = await RequestAsync(HttpMethod.Post, $"policies/instances/{Uri.EscapeDataString(organizationId)}", null,
+                deployment.ToJson(), cancellationToken);
+            var id = Text(document.RootElement, "id");
+            if (string.IsNullOrEmpty(id))
+            {
+                // Without an id Fleeto cannot follow the deployment, and claiming it runs would be a guess. Action1 may
+                // well have accepted it, so the message says where to look.
+                return IntegrationResult<string>.Fail(
+                    "Action1 accepted the deployment but did not name it, so Fleeto cannot follow it. Check the automation in the Action1 console.",
+                    permanent: true);
+            }
+
+            return IntegrationResult<string>.Success(id);
+        }
+        catch (Action1Exception ex)
+        {
+            return IntegrationResult<string>.Fail(ex.Message, ex.IsPermanent);
+        }
+    }
+
+    /// <summary>
+    /// What Action1 reports per endpoint for a running deployment (0.4.0 step 3). An empty list means Action1 knows the
+    /// deployment but has nothing to say about its endpoints yet.
+    /// </summary>
+    public async Task<IntegrationResult<IReadOnlyList<Action1EndpointResult>>> ListDeploymentResultsAsync(string organizationId,
+        string deploymentId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var results = new List<Action1EndpointResult>();
+            for (var page = 0; page < Action1Api.MaxPages; page++)
+            {
+                using var document = await GetAsync(
+                    $"policies/instances/{Uri.EscapeDataString(organizationId)}/{Uri.EscapeDataString(deploymentId)}/endpoint_results",
+                    $"from={page * Action1Api.PageSize}&limit={Action1Api.PageSize}", cancellationToken);
+                var items = Items(document.RootElement);
+                foreach (var item in items)
+                {
+                    if (Action1EndpointResult.From(item) is { } result)
+                    {
+                        results.Add(result);
+                    }
+                }
+
+                if (items.Count < Action1Api.PageSize)
+                {
+                    break;
+                }
+            }
+
+            return IntegrationResult<IReadOnlyList<Action1EndpointResult>>.Success(results);
+        }
+        catch (Action1Exception ex)
+        {
+            return IntegrationResult<IReadOnlyList<Action1EndpointResult>>.Fail(ex.Message, ex.IsPermanent);
         }
     }
 
@@ -194,12 +344,25 @@ public sealed class Action1Client : IIntegration, IDisposable
     /// One GET against the API, with the budget, the bearer token and the error mapping. The caller owns the returned
     /// document. Throws <see cref="Action1Exception"/>; the patch steps of 0.4.0 build on this.
     /// </summary>
-    internal async Task<JsonDocument> GetAsync(string path, string? query, CancellationToken cancellationToken)
+    internal Task<JsonDocument> GetAsync(string path, string? query, CancellationToken cancellationToken) =>
+        RequestAsync(HttpMethod.Get, path, query, body: null, cancellationToken);
+
+    /// <summary>
+    /// One call against the API, with the budget, the bearer token and the error mapping. The caller owns the returned
+    /// document. A <paramref name="body"/> is sent as JSON, which is how a deployment is started (0.4.0 step 3).
+    /// </summary>
+    private async Task<JsonDocument> RequestAsync(HttpMethod method, string path, string? query, JsonNode? body,
+        CancellationToken cancellationToken)
     {
         for (var attempt = 1; ; attempt++)
         {
             await _budget.AcquireAsync(cancellationToken);
-            using var request = new HttpRequestMessage(HttpMethod.Get, query is null ? path : $"{path}?{query}");
+            using var request = new HttpRequestMessage(method, query is null ? path : $"{path}?{query}");
+            if (body is not null)
+            {
+                request.Content = new StringContent(body.ToJsonString(Json), Encoding.UTF8, "application/json");
+            }
+
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await GetTokenAsync(force: false, cancellationToken));
 
             using var response = await SendAsync(request, cancellationToken);

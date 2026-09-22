@@ -132,6 +132,9 @@ AuditEntry (append-only)
 | **OutboxEmail**, **OutboxWebhook** | `Id`, recipient or `NotificationChannelId`, `Category`, content or `Payload`, `Attempts`, `NextAttemptAt`, `SentAt?`, `LastError?` | Written in the transaction that changes the alert; delivered by the workers (§4, Alert notifications). Sent rows kept 30 days, given up rows 90 days. |
 | **Integration** | `Id`, `Type`, `Enabled`, `Region?`, `EncryptedCredentials`, `CredentialName`, `Status`, `StatusMessage?`, `LastAttemptAt?`, `LastSuccessAt?` | One external product per instance (unique on `Type`, 0.4.0). Credentials are ciphertext bound to the row, see §5; `CredentialName` is the client id, for display. `Region` is the Action1 region, which decides the base URL. |
 | **IntegrationMapping** | `Id`, `IntegrationId`, `ClientId`, `ExternalTenantId`, `ExternalTenantName` | One external tenant (Action1 organization, Sophos tenant) maps to one client, and a client to one tenant: both unique per integration. Client-owned, so deleting the client removes it. |
+| **EndpointPatchState**, **EndpointMissingUpdate** | `EndpointId`, `ClientId`, `ExternalEndpointId`, `ExternalTenantId`, `Coverage`, `MissingCritical`, `MissingOther`, `RebootRequired`, `ProductLastSeenAt?`, `ProductAgentVersion`, `UpdatedAt`; per update `ExternalUpdateId`, `Name`, `Vendor`, `Version`, `KbNumber`, `Severity`, `RebootNeeded` | Patch state per endpoint as the product last reported it (0.4.0), replaced on every sync and never kept as history. Detail rows exist only for endpoints that miss something. |
+| **PatchDeployment** | `Id`, `ClientId`, `BatchId`, `ExternalTenantId`, `ExternalDeploymentId`, `Scope` (`AllMissing`, `Specified`), `AutoReboot`, `State` (`Requested`, `Running`, `Completed`, `Failed`, `Abandoned`), `StatusMessage?`, `RequestedByUserId`, `RequestedByName`, `RequestedAt`, `StartedAt?`, `CompletedAt?`, `PolledAt?` | One deployment of updates (0.4.0 step 3), always within one client, because the product runs it per tenant. Web may only insert; the workers own every later change, so no state can be claimed that the product did not report. |
+| **PatchDeploymentTarget**, **PatchDeploymentUpdate** | Target: `Id`, `DeploymentId`, `ClientId`, `EndpointId`, `ExternalEndpointId`, `Hostname`, `State` (`Pending`, `Running`, `Succeeded`, `Failed`, `Unknown`), `Message?`, `UpdatedAt`. Update: `Id`, `DeploymentId`, `ClientId`, `ExternalUpdateId`, `Name`, `Version` | One row per endpoint of a deployment (unique per deployment and endpoint, so a re-read updates it), and one per chosen package. The host name is a copy from the moment it started, so the history reads the same after a rename. |
 | **User**, **Role** | `Id`, `Email`, `PasswordHash` (Argon2id), `TotpSecret` (encrypted), roles | Roles: admin, technician, read-only. |
 | **AuditEntry** | `Time`, `ClientId?`, `ActorId` (user or API key), `Action`, `TargetType`, `TargetId`, `Details` | Append-only; no update or delete path in code or DB grants. `ClientId` null for instance-wide actions. |
 
@@ -1420,8 +1423,9 @@ enforcement with the rest of the server. `Fleeto.LoadTest` provides the 10,000-c
 
 ## 9. Integrations
 
-One interface (`IIntegration`) per connector type. It holds `TestConnection` and `ListTenants` today (0.4.0 step 1);
-`Poll`, and for Action1 `ListMissingUpdates` and `Deploy`, arrive with the patch steps. Each connector runs in
+One interface (`IIntegration`) per connector type. It holds `TestConnection` and `ListTenants`; the Action1 client adds
+`ListEndpoints` and `ListMissingUpdates` (step 2) and `StartDeployment` and `ListDeploymentResults` (step 3), which stay
+on the connector until a second product needs the same shape. Each connector runs in
 the workers with its own schedule, timeout, retry with backoff and circuit breaker. An
 integration being down never degrades agent-based monitoring.
 
@@ -1454,6 +1458,35 @@ a second call for their detail, capped at 200 endpoints per pass so one large cl
 instance. State is stored per endpoint (`EndpointPatchStates`, `EndpointMissingUpdates`), always replaced, never kept as
 history: Action1 has the history. An endpoint Action1 stops reporting loses its state rather than keeping one that was
 true a week ago.
+
+**Deployments (0.4.0 step 3).** A technician deploys updates from the Patches tab of an endpoint (everything missing, or
+the updates they tick in the list) or from the endpoint list on a selection (everything missing). Web writes a
+`PatchDeployment` per client with a target per endpoint and notifies `fleeto_patch_deployments`; it may only insert those
+rows, so every later state comes from the product. `PatchDeploymentService` in the workers hands the deployment to
+Action1 as a policy instance that runs once (`POST /policies/instances/{orgId}`, action `deploy_update`), stores the id it
+gets back and reads `endpoint_results` once a minute until every endpoint has an end state, at most ten deployments per
+pass so one busy moment cannot spend the request budget. A status Action1 words differently than Fleeto knows becomes
+`Unknown` with Action1's own word as the message, never a guess at success. A deployment the product refuses fails with
+its message and nothing is installed; one that is not finished after a day is abandoned, with its open endpoints on
+`Unknown`, because an endpoint that was offline all day never reports. When a deployment ends, the patch state of the
+instance is read again instead of showing for up to four hours what was just installed. A deployment that is no longer
+running is part of the patch history of its endpoints and is kept as long as the job history.
+
+Restarting is a choice per deployment, off by default: with it on, Action1 shows the signed-in user Fleeto's own message
+and restarts after 30 minutes. Fleeto never restarts an endpoint itself. Starting a deployment is an ordinary privileged
+action (admins and technicians, managed endpoints only) and is audited like a job: one entry when the technician starts
+it, one when the product accepts it and one when it ends, with the counts per outcome.
+
+**Installing the Action1 agent (0.4.0 step 3).** An endpoint without the Action1 agent has no patch state at all, so
+Fleeto can put it there as a job of type `Action1Agent`. It is the one job whose script nobody writes: **fleeto-signer
+composes the body itself** from the installer link of the client's organization (`IntegrationMapping.AgentInstallerUrl`,
+read from Action1 once a day where Action1 hands it out, otherwise pasted by an admin in Settings), and signs that. Web
+names the endpoint and binds the job to the body that link gives at that moment (its SHA-256 in `ScriptSha256`, which
+`TR_Jobs_Binding` freezes); the signer composes the body again and refuses when the link has changed since, so nothing
+runs that the technician did not ask for. A link is only accepted when it is https, on Action1's own domain and an MSI,
+with nothing in it that could end the quoted string it lands in (`Action1AgentInstall`). The job runs as SYSTEM, installs
+silently and never restarts. Windows only; Linux follows with 0.4.1. There is no script in the library, so script
+approval does not apply — the same accepted risk as the agent update itself, documented in §5.
 
 The alert kind `patch_state` covers what makes the state untrustworthy, not the updates themselves: Action1 no longer
 patches the endpoint (`subscription_status` inactive, which happens above the licensed number of its subscription), or it

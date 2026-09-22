@@ -28,15 +28,20 @@ public sealed record ExternalTenant(string Id, string Name);
 /// The outcome of one call to an external product. <paramref name="Message"/> is shown to the admin, so it states cause
 /// and next step and never holds a token, a secret or a URL with one in it.
 /// </summary>
-public record IntegrationResult(bool Ok, string Message)
+/// <param name="Permanent">
+/// True when trying again changes nothing without an admin: refused credentials, a tenant the product does not know, a
+/// request it will not accept. False for anything that may pass on the next attempt, such as a timeout or a rate limit.
+/// </param>
+public record IntegrationResult(bool Ok, string Message, bool Permanent = false)
 {
     public static IntegrationResult Success(string message = "") => new(true, message);
-    public static IntegrationResult Fail(string message) => new(false, message);
+    public static IntegrationResult Fail(string message, bool permanent = false) => new(false, message, permanent);
 }
 
 /// <summary>An outcome that carries data when it succeeded.</summary>
-public sealed record IntegrationResult<T>(bool Ok, string Message, T? Value) : IntegrationResult(Ok, Message)
+public sealed record IntegrationResult<T>(bool Ok, string Message, T? Value, bool Permanent = false)
+    : IntegrationResult(Ok, Message, Permanent)
 {
     public static IntegrationResult<T> Success(T value) => new(true, string.Empty, value);
-    public static new IntegrationResult<T> Fail(string message) => new(false, message, default);
+    public static new IntegrationResult<T> Fail(string message, bool permanent = false) => new(false, message, default, permanent);
 }

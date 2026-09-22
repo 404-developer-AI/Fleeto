@@ -88,6 +88,9 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<Integration> Integrations => Set<Integration>();
     public DbSet<EndpointPatchState> EndpointPatchStates => Set<EndpointPatchState>();
     public DbSet<EndpointMissingUpdate> EndpointMissingUpdates => Set<EndpointMissingUpdate>();
+    public DbSet<PatchDeployment> PatchDeployments => Set<PatchDeployment>();
+    public DbSet<PatchDeploymentUpdate> PatchDeploymentUpdates => Set<PatchDeploymentUpdate>();
+    public DbSet<PatchDeploymentTarget> PatchDeploymentTargets => Set<PatchDeploymentTarget>();
     public DbSet<IntegrationMapping> IntegrationMappings => Set<IntegrationMapping>();
 
     // Evaluated per query by EF Core (context members become query parameters).
@@ -790,6 +793,48 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             ClientOwned(entity);
         });
 
+        builder.Entity<PatchDeployment>(entity =>
+        {
+            entity.Property(d => d.ExternalTenantId).HasMaxLength(200);
+            entity.Property(d => d.ExternalDeploymentId).HasMaxLength(200);
+            entity.Property(d => d.Scope).HasConversion<string>().HasMaxLength(20);
+            entity.Property(d => d.State).HasConversion<string>().HasMaxLength(20);
+            entity.Property(d => d.StatusMessage).HasMaxLength(1000);
+            entity.Property(d => d.RequestedByName).HasMaxLength(200);
+            entity.Ignore(d => d.IsOpen);
+            entity.HasAlternateKey(d => new { d.Id, d.ClientId });
+            entity.HasOne<Client>().WithMany().HasForeignKey(d => d.ClientId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(d => d.Updates).WithOne().HasForeignKey(u => u.DeploymentId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(d => d.Targets).WithOne().HasForeignKey(t => t.DeploymentId).OnDelete(DeleteBehavior.Cascade);
+            // The workers pick up what still needs work; the UI reads the newest per client.
+            entity.HasIndex(d => d.State).HasFilter("\"State\" IN ('Requested', 'Running')");
+            entity.HasIndex(d => new { d.ClientId, d.RequestedAt }).IsDescending(false, true);
+            entity.HasIndex(d => d.BatchId);
+            ClientOwned(entity);
+        });
+
+        builder.Entity<PatchDeploymentUpdate>(entity =>
+        {
+            entity.Property(u => u.ExternalUpdateId).HasMaxLength(200);
+            entity.Property(u => u.Name).HasMaxLength(300);
+            entity.Property(u => u.Version).HasMaxLength(100);
+            entity.HasIndex(u => u.DeploymentId);
+            ClientOwned(entity);
+        });
+
+        builder.Entity<PatchDeploymentTarget>(entity =>
+        {
+            entity.Property(t => t.ExternalEndpointId).HasMaxLength(64);
+            entity.Property(t => t.Hostname).HasMaxLength(255);
+            entity.Property(t => t.State).HasConversion<string>().HasMaxLength(20);
+            entity.Property(t => t.Message).HasMaxLength(1000);
+            // One row per endpoint in a deployment: a re-delivered result updates it instead of adding another.
+            entity.HasIndex(t => new { t.DeploymentId, t.EndpointId }).IsUnique();
+            entity.HasIndex(t => new { t.EndpointId, t.UpdatedAt }).IsDescending(false, true);
+            EndpointChild(entity, t => new { t.EndpointId, t.ClientId });
+            ClientOwned(entity);
+        });
+
         builder.Entity<Integration>(entity =>
         {
             entity.Property(i => i.Type).HasConversion<string>().HasMaxLength(30);
@@ -810,6 +855,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
         {
             entity.Property(m => m.ExternalTenantId).HasMaxLength(200);
             entity.Property(m => m.ExternalTenantName).HasMaxLength(200);
+            entity.Property(m => m.AgentInstallerUrl).HasMaxLength(500);
             // A tenant belongs to one client, and a client to one tenant of that integration: patch state can never land
             // under another client, and a client's compliance is never composed from two organizations.
             entity.HasIndex(m => new { m.IntegrationId, m.ExternalTenantId }).IsUnique();

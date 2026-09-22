@@ -185,6 +185,7 @@ section 9.
 | `GET /api/v1/endpoints/{endpointId}` | Endpoint |
 | `GET /api/v1/endpoints/{endpointId}/inventory` | Inventory |
 | `GET /api/v1/endpoints/{endpointId}/patches` | PatchState |
+| `GET /api/v1/endpoints/{endpointId}/patch-deployments` | Array of Deployment |
 | `GET /api/v1/endpoints/{endpointId}/checks` | EndpointChecks |
 | `GET /api/v1/endpoints/{endpointId}/notes` | Page of Note |
 | `GET /api/v1/alerts` | Page of Alert |
@@ -409,6 +410,50 @@ something, which can be one pass behind the counts. `detailUpdatedAt` says when 
     }
   ]
 }
+```
+
+### GET /api/v1/endpoints/{endpointId}/patch-deployments
+
+Lists the deployments of updates that touched a managed endpoint, newest first (from Fleeto 0.4.0). A deployment is
+started by a technician in Fleeto and carried out by Action1; what every endpoint did is what Action1 reports, not what
+Fleeto expects. A deployment covers one client, so a run over several clients appears as one deployment per client with
+the same `batchId`.
+
+| Path parameter | Type | Meaning |
+|---|---|---|
+| `endpointId` | UUID | The id of the endpoint. |
+
+| Query parameter | Type | Default | Meaning |
+|---|---|---|---|
+| `limit` | integer | 10 | Deployments to return, 1 to 50. |
+
+Response `200`: an array of [Deployment](#deployment), which is empty when this endpoint has never been part of one.
+Errors: 401, 404 (the endpoint does not exist), 409 `endpoint_not_managed`, 429.
+
+```json
+[
+  {
+    "id": "f6c2a1d4-9b3e-4b7a-8c15-2d4e6f8a0b12",
+    "batchId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "clientId": "c0a80101-0000-4000-8000-000000000001",
+    "scope": "specified",
+    "autoReboot": false,
+    "state": "completed",
+    "statusMessage": null,
+    "requestedByName": "Sam Jansen",
+    "requestedAt": "2026-09-21T09:14:52Z",
+    "completedAt": "2026-09-21T09:38:10Z",
+    "updates": [ "Google Chrome 126.0.6478.115" ],
+    "targets": [
+      {
+        "endpointId": "2b5f1b7a-6d0c-4f0e-9bcd-3f9a0f1d7e21",
+        "hostname": "ACME-WS-014",
+        "state": "succeeded",
+        "message": null
+      }
+    ]
+  }
+]
 ```
 
 ### GET /api/v1/endpoints/{endpointId}/checks
@@ -747,6 +792,26 @@ of its own; Action1 has it.
 | `detailUpdatedAt` | timestamp, nullable | When Fleeto last read `missing`. Null while no detail has been read. |
 | `missing` | array | The missing updates, most severe first: `id` (the id in Action1, which a deployment names), `name`, `vendor`, `version`, `kbNumber` (Windows only, else empty), `severity` ([Patch severity](#patch-severity)), `rebootNeeded`. Empty for a compliant endpoint, and empty when the detail has not been read yet while the counts say something is missing. |
 
+### Deployment
+
+One deployment of updates started in Fleeto and carried out by Action1 (0.4.0). It belongs to one client, because Action1
+runs a deployment inside one organization.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | UUID | |
+| `batchId` | UUID | Shared by every deployment started in one action, also across clients. |
+| `clientId` | UUID | The client of the deployment. |
+| `scope` | string | [Deployment scope](#deployment-scope). |
+| `autoReboot` | boolean | True when Action1 may restart an endpoint by itself to finish the updates. |
+| `state` | string | [Deployment state](#deployment-state). |
+| `statusMessage` | string, nullable | Cause and next step when something went wrong, in the wording an admin sees in Fleeto. Null while nothing is wrong. |
+| `requestedByName` | string | The technician who started it (personal data). |
+| `requestedAt` | timestamp | When it was started in Fleeto. |
+| `completedAt` | timestamp, nullable | When every endpoint had an answer, or Fleeto stopped following it. Null while it runs. |
+| `updates` | array of string | The chosen updates with their version, for a deployment of scope `specified`. Empty for `all_missing`, where Action1 decides what is missing at the moment it runs. |
+| `targets` | array | One per endpoint: `endpointId`, `hostname` (as it was when the deployment started), `state` ([Deployment target state](#deployment-target-state)) and `message` (what Action1 said, null when it said nothing). |
+
 ### Inventory
 
 Reported by the agent. The values come from the endpoint as reported and are empty strings or `0` when the agent could
@@ -939,6 +1004,26 @@ anything Fleeto does not recognise is `unspecified` rather than something worse 
 
 `active` (patch management patches this endpoint), `inactive` (it knows the endpoint but does not patch it, for example
 because the endpoint is above the licensed number of the Action1 subscription, so its state is not to be trusted).
+
+### Deployment scope
+
+`all_missing` (every update Action1 reports as missing on the endpoints at the moment it runs), `specified` (only the
+updates the technician chose, listed in `updates`).
+
+### Deployment state
+
+| Value | Meaning |
+|---|---|
+| `requested` | Written in Fleeto; not handed to Action1 yet. Normally a matter of seconds. |
+| `running` | Action1 accepted the deployment and is working through the endpoints. |
+| `completed` | Every endpoint reached an end state. That includes endpoints where the installation failed, so read `targets`. |
+| `failed` | Action1 refused the deployment; nothing was installed. `statusMessage` says why. |
+| `abandoned` | Action1 did not finish within a day, so Fleeto stopped following it. What happened afterwards is in the Action1 console. |
+
+### Deployment target state
+
+`pending` (handed to Action1, not started on this endpoint), `running`, `succeeded`, `failed`, `unknown` (the deployment
+ended without Action1 saying what happened here, or it used a word Fleeto does not know, which is then in `message`).
 
 ### Severity
 

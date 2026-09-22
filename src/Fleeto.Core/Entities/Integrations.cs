@@ -101,5 +101,15 @@ public class IntegrationMapping
     /// <summary>The name of that tenant as the product last reported it, for display.</summary>
     public string ExternalTenantName { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Where the installer of the product's own agent for this tenant is downloaded (0.4.0 step 3). The workers read it
+    /// from the product when it hands it out and an admin can paste it from the product's console; empty means Fleeto
+    /// cannot install that agent for this client, and says so instead of pushing a job that would fail.
+    /// </summary>
+    public string AgentInstallerUrl { get; set; } = string.Empty;
+
+    /// <summary>When the workers last tried to read <see cref="AgentInstallerUrl"/> from the product.</summary>
+    public DateTime? AgentInstallerReadAt { get; set; }
+
     public DateTime CreatedAt { get; set; }
 }

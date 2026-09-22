@@ -282,6 +282,9 @@
                                         <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="RunScriptOnSelectionAsync">
                                             Run script on @Ui.Count(_selected.Count, "endpoint")
                                         </MudMenuItem>
+                                        <MudMenuItem Icon="@Icons.Material.Outlined.SystemUpdateAlt" OnClick="DeployUpdatesOnSelectionAsync">
+                                            Deploy updates on @Ui.Count(_selected.Count, "endpoint")
+                                        </MudMenuItem>
                                         <MudMenuItem Icon="@Icons.Material.Outlined.Deselect" OnClick="ClearSelection">Clear selection</MudMenuItem>
                                         <MudDivider />
                                     }
@@ -304,6 +307,7 @@
                                             }
                                             <MudMenuItem Icon="@Icons.Material.Outlined.Terminal" OnClick="@(() => RemoteWindow.OpenBackgroundAsync(row.Id))">Remote background</MudMenuItem>
                                             <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="@(() => RunScriptAsync(row))">Run script</MudMenuItem>
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.SystemUpdateAlt" OnClick="@(() => DeployUpdatesAsync([row.Id], row.Hostname))">Deploy updates</MudMenuItem>
                                             @MaintenanceMenuItems(MaintenanceTarget.Endpoint, row.Id, row.Hostname, false, row.OwnMaintenanceActive ? row.OwnMaintenance : null)
                                         }
                                         <MudMenuItem Icon="@Icons.Material.Outlined.Replay" OnClick="@(() => EnrollAgainAsync(row))">Enroll again</MudMenuItem>
@@ -867,6 +871,62 @@
             { d => d.AdminsNotified, started.AdminsNotified }
         };
         var batchDialog = await DialogService.ShowAsync<JobBatchDialog>(null, show, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        await batchDialog.Result;
+    }
+
+    private async Task DeployUpdatesOnSelectionAsync()
+    {
+        var ids = _selected.ToList();
+        if (ids.Count == 0)
+        {
+            return;
+        }
+
+        if (ids.Count > PatchRules.MaxEndpointsPerDeployment)
+        {
+            Snackbar.Add($"A deployment reaches at most {PatchRules.MaxEndpointsPerDeployment} endpoints. Narrow the selection.", Severity.Warning);
+            return;
+        }
+
+        await DeployUpdatesAsync(ids, Ui.Count(ids.Count, "endpoint"));
+    }
+
+    /// <summary>
+    /// Deploys every missing update on the given endpoints. Choosing single updates happens on the Patches tab of one
+    /// endpoint, where the technician can see what they are choosing.
+    /// </summary>
+    private async Task DeployUpdatesAsync(IReadOnlyList<Guid> endpointIds, string label)
+    {
+        DeploymentStartResult? run = null;
+        var parameters = new DialogParameters<DeployUpdatesDialog>
+        {
+            { d => d.EndpointIds, endpointIds },
+            { d => d.TargetLabel, label },
+            { d => d.OnSubmit, async (bool autoReboot) =>
+                {
+                    var result = await RunForValueAsync(caller => PatchSvc.StartDeploymentAsync(caller, endpointIds, null, autoReboot), null);
+                    run = result?.Value;
+                    return run is not null;
+                } }
+        };
+        var dialog = await DialogService.ShowAsync<DeployUpdatesDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        await dialog.Result;
+        if (run is not { } started)
+        {
+            return;
+        }
+
+        if (endpointIds.Count > 1)
+        {
+            ClearSelection();
+        }
+
+        var show = new DialogParameters<PatchDeploymentDialog>
+        {
+            { d => d.BatchId, started.BatchId },
+            { d => d.Skipped, started.Skipped }
+        };
+        var batchDialog = await DialogService.ShowAsync<PatchDeploymentDialog>(null, show, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
         await batchDialog.Result;
     }
 

@@ -38,6 +38,11 @@ public sealed class JobHandler : ISigningRequestHandler
     public const string ChosenUserAgentReason =
         "The agent of this endpoint is too old to run a script as a chosen user. Wait until it runs Fleeto 0.2.2 or later, or run it as the signed-in user.";
     public const string ValidityReason = "The job's validity window is invalid or has passed. Start the job again with a validity of at most 7 days.";
+    public const string AgentPlatformReason = "The Action1 agent can only be installed on a Windows endpoint from Fleeto. Linux follows in 0.4.1.";
+    public const string AgentInstallerReason =
+        "There is no Action1 agent installer link for this client. Add it in Settings, Integrations, next to the organization of this client.";
+    public const string AgentInstallerChangedReason =
+        "The Action1 agent installer link of this client changed after the job was started. Start the installation again.";
 
     private readonly SignerKeyRing _keyRing;
     private readonly LicenseService _licenses;
@@ -74,7 +79,8 @@ public sealed class JobHandler : ISigningRequestHandler
             return SigningOutcome.Completed(null);
         }
 
-        if (job.Type != JobType.Script || job.ValidUntil <= now || job.ValidUntil > job.CreatedAt + ScriptRules.MaxValidity + TimeSpan.FromMinutes(5) ||
+        if (job.Type is not (JobType.Script or JobType.Action1Agent) || job.ValidUntil <= now ||
+            job.ValidUntil > job.CreatedAt + ScriptRules.MaxValidity + TimeSpan.FromMinutes(5) ||
             job.ValidUntil > now + ScriptRules.MaxValidity + TimeSpan.FromMinutes(5))
         {
             return SigningOutcome.Refused(ValidityReason);
@@ -99,6 +105,13 @@ public sealed class JobHandler : ISigningRequestHandler
         if (TierRules.EffectiveTier(endpoint.Tier, license) != EndpointTier.Managed)
         {
             return SigningOutcome.Refused(NotManagedReason);
+        }
+
+        // The job that installs the Action1 agent carries no script: the signer writes the body itself from the installer
+        // link of the client's organization, so nothing a user can edit decides what runs (0.4.0 step 3).
+        if (job.Type == JobType.Action1Agent)
+        {
+            return await SignAgentInstallAsync(db, job, endpoint.Id, endpoint.Hostname, endpoint.OsPlatform, now, cancellationToken);
         }
 
         var version = job.ScriptVersionId is { } versionId
@@ -202,6 +215,89 @@ public sealed class JobHandler : ISigningRequestHandler
         await db.SaveChangesAsync(cancellationToken);
         _logger.LogInformation("Signed job {JobId} ({Script} v{Version}) for endpoint {EndpointId}", job.Id, job.ScriptName, job.ScriptVersionNumber, endpoint.Id);
         return SigningOutcome.Completed(null, new PendingNotification(NotificationChannels.Jobs, endpoint.Id.ToString()));
+    }
+
+    /// <summary>
+    /// Signs the job that installs the Action1 agent (0.4.0 step 3). Everything it runs comes from the signer: the body
+    /// from <see cref="Action1AgentInstall"/> and the download link from the integration mapping of the job's client, so
+    /// web can pick the endpoint but never what happens on it. Windows only, because Action1 has no Linux agent in Fleeto
+    /// until 0.4.1, and script approval does not apply: there is no script to approve.
+    /// </summary>
+    private async Task<SigningOutcome> SignAgentInstallAsync(Infrastructure.Data.FleetoDbContext db, Job job, Guid endpointId,
+        string hostname, string osPlatform, DateTime now, CancellationToken cancellationToken)
+    {
+        if (!ScriptLanguages.RunsOn(ScriptLanguage.PowerShell, osPlatform))
+        {
+            return SigningOutcome.Refused(AgentPlatformReason);
+        }
+
+        var installerUrl = await db.IntegrationMappings.IgnoreQueryFilters().AsNoTracking()
+            .Where(m => m.ClientId == job.ClientId)
+            .Select(m => m.AgentInstallerUrl)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (!Action1AgentInstall.IsValidInstallerUrl(installerUrl))
+        {
+            return SigningOutcome.Refused(AgentInstallerReason);
+        }
+
+        var body = Action1AgentInstall.Body(installerUrl!);
+        var sha256 = ScriptLanguages.Sha256(body);
+        // The technician asked to install from the link as it was then. An admin who changes it in between changes what
+        // would run, so the job is refused instead of signed over something nobody chose.
+        if (!SecureCompare.HexEquals(sha256, job.ScriptSha256))
+        {
+            return SigningOutcome.Refused(AgentInstallerChangedReason);
+        }
+
+        var payload = new JobPayload
+        {
+            JobId = job.Id.ToString("D"),
+            InstanceId = _keyRing.InstanceId.ToString("D"),
+            EndpointId = endpointId.ToString("D"),
+            Type = Protocol.Agent.V1.JobType.Script,
+            ValidUntil = Timestamp.FromDateTime(DateTime.SpecifyKind(job.ValidUntil, DateTimeKind.Utc)),
+            InitiatedBy = job.InitiatedByName,
+            TimeoutSeconds = Action1AgentInstall.TimeoutSeconds,
+            MaxOutputBytes = Action1AgentInstall.MaxOutputBytes,
+            RunAs = Protocol.Agent.V1.JobRunAs.Service,
+            RunAsUserId = string.Empty,
+            Script = new ScriptJob
+            {
+                Language = AgentConfigBuilder.ToProto(ScriptLanguage.PowerShell),
+                Name = Action1AgentInstall.JobName,
+                Version = 1,
+                Body = body,
+                Sha256 = sha256
+            }
+        }.ToByteArray();
+
+        job.Payload = payload;
+        job.Signature = _keyRing.Sign(SignatureContexts.Job, payload);
+        job.SigningKeyId = _keyRing.SigningKeyId;
+        job.SignedAt = now;
+        // Language and the body hash are part of what was requested and cannot change any more (TR_Jobs_Binding).
+        job.ScriptName = Action1AgentInstall.JobName;
+        job.TimeoutSeconds = Action1AgentInstall.TimeoutSeconds;
+        job.MaxOutputBytes = Action1AgentInstall.MaxOutputBytes;
+        job.State = JobState.Queued;
+
+        await SignerAudit.WriteAsync(db, new AuditRecord(AuditActions.JobSigned, "Job", job.Id.ToString(), job.ClientId, AuditActorType.System,
+            "fleeto-signer", "fleeto-signer",
+            new
+            {
+                Hostname = hostname,
+                EndpointId = endpointId,
+                job.ScriptName,
+                job.ScriptSha256,
+                job.ValidUntil,
+                InitiatedBy = job.InitiatedByName,
+                // The link itself is not a secret, but it names the customer's organization, so only its host is recorded.
+                InstallerHost = new Uri(installerUrl!).Host
+            }), now, cancellationToken);
+
+        await db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Signed the Action1 agent install job {JobId} for endpoint {EndpointId}", job.Id, endpointId);
+        return SigningOutcome.Completed(null, new PendingNotification(NotificationChannels.Jobs, endpointId.ToString()));
     }
 
     /// <summary>Marks the job refused with the signer's reason, after the handler's own writes were rolled back.</summary>

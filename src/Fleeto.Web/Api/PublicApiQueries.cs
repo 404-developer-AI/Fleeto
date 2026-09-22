@@ -273,6 +273,32 @@ public sealed class PublicApiQueries
             view.Missing.Select(u => new ApiMissingUpdate(u.Id, u.Name, u.Vendor, u.Version, u.KbNumber, Map(u.Severity), u.RebootNeeded)).ToList()));
     }
 
+    /// <summary>
+    /// The deployments that touched one endpoint, newest first (0.4.0 step 3). Null when the endpoint does not exist;
+    /// an agent-only endpoint has no deployments, which the route answers as such.
+    /// </summary>
+    public async Task<ManagedRead<IReadOnlyList<ApiDeployment>>?> GetDeploymentsAsync(Caller caller, Guid endpointId, int limit,
+        CancellationToken cancellationToken)
+    {
+        caller.EnsureView();
+        var view = await _patches.GetAsync(caller, endpointId, cancellationToken);
+        if (view is null)
+        {
+            return null;
+        }
+
+        if (!view.Managed)
+        {
+            return new ManagedRead<IReadOnlyList<ApiDeployment>>(false, null);
+        }
+
+        var deployments = await _patches.ListDeploymentsAsync(caller, endpointId, limit, cancellationToken);
+        return new ManagedRead<IReadOnlyList<ApiDeployment>>(true, [.. deployments.Select(d => new ApiDeployment(
+            d.Id, d.BatchId, d.ClientId, Map(d.Scope), d.AutoReboot, Map(d.State), d.StatusMessage, d.RequestedByName,
+            Utc(d.RequestedAt), UtcOrNull(d.CompletedAt), d.UpdateNames,
+            [.. d.Targets.Select(t => new ApiDeploymentTarget(t.EndpointId, t.Hostname, Map(t.State), t.Message))]))]);
+    }
+
     /// <summary>Null when the endpoint does not exist.</summary>
     public async Task<ManagedRead<ApiEndpointChecks>?> GetChecksAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken)
     {
@@ -545,6 +571,33 @@ public sealed class PublicApiQueries
     {
         PatchCoverage.Active => ApiPatchCoverage.Active,
         PatchCoverage.Inactive => ApiPatchCoverage.Inactive,
+        _ => throw Unmapped(value)
+    };
+
+    internal static ApiDeploymentScope Map(PatchDeploymentScope value) => value switch
+    {
+        PatchDeploymentScope.AllMissing => ApiDeploymentScope.AllMissing,
+        PatchDeploymentScope.Specified => ApiDeploymentScope.Specified,
+        _ => throw Unmapped(value)
+    };
+
+    internal static ApiDeploymentState Map(PatchDeploymentState value) => value switch
+    {
+        PatchDeploymentState.Requested => ApiDeploymentState.Requested,
+        PatchDeploymentState.Running => ApiDeploymentState.Running,
+        PatchDeploymentState.Completed => ApiDeploymentState.Completed,
+        PatchDeploymentState.Failed => ApiDeploymentState.Failed,
+        PatchDeploymentState.Abandoned => ApiDeploymentState.Abandoned,
+        _ => throw Unmapped(value)
+    };
+
+    internal static ApiDeploymentTargetState Map(PatchDeploymentTargetState value) => value switch
+    {
+        PatchDeploymentTargetState.Pending => ApiDeploymentTargetState.Pending,
+        PatchDeploymentTargetState.Running => ApiDeploymentTargetState.Running,
+        PatchDeploymentTargetState.Succeeded => ApiDeploymentTargetState.Succeeded,
+        PatchDeploymentTargetState.Failed => ApiDeploymentTargetState.Failed,
+        PatchDeploymentTargetState.Unknown => ApiDeploymentTargetState.Unknown,
         _ => throw Unmapped(value)
     };
 

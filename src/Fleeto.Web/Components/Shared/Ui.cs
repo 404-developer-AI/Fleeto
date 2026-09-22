@@ -272,6 +272,42 @@ public static class Ui
         _ => StatusKind.Neutral
     };
 
+    /// <summary>How a deployment is named in the UI (0.4.0 step 3). It says what Action1 is doing, not what Fleeto hopes.</summary>
+    public static string DeploymentStateLabel(PatchDeploymentState state) => state switch
+    {
+        PatchDeploymentState.Requested => "Starting",
+        PatchDeploymentState.Running => "Running",
+        PatchDeploymentState.Completed => "Finished",
+        PatchDeploymentState.Failed => "Not started",
+        _ => "No longer followed"
+    };
+
+    public static StatusKind DeploymentStateKind(PatchDeploymentState state) => state switch
+    {
+        PatchDeploymentState.Completed => StatusKind.Ok,
+        PatchDeploymentState.Requested or PatchDeploymentState.Running => StatusKind.Active,
+        PatchDeploymentState.Failed => StatusKind.Error,
+        _ => StatusKind.Warning
+    };
+
+    public static string DeploymentTargetLabel(PatchDeploymentTargetState state) => state switch
+    {
+        PatchDeploymentTargetState.Pending => "Waiting",
+        PatchDeploymentTargetState.Running => "Installing",
+        PatchDeploymentTargetState.Succeeded => "Installed",
+        PatchDeploymentTargetState.Failed => "Failed",
+        _ => "Unknown"
+    };
+
+    public static StatusKind DeploymentTargetKind(PatchDeploymentTargetState state) => state switch
+    {
+        PatchDeploymentTargetState.Succeeded => StatusKind.Ok,
+        PatchDeploymentTargetState.Running => StatusKind.Active,
+        PatchDeploymentTargetState.Failed => StatusKind.Error,
+        PatchDeploymentTargetState.Unknown => StatusKind.Warning,
+        _ => StatusKind.Neutral
+    };
+
     /// <summary>
     /// True when the agent connected from a private or special-use address (same LAN with local DNS, VPN): its public IP is then not
     /// known, so the Summary does not call the address public. Uses the same ranges as the webhook address policy.
