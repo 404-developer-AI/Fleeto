@@ -39,7 +39,8 @@ security review and their fixes, `v0.3.0-alpha.17`) were each verified on Window
 2026-09-20 and built in three steps between 2026-09-20 and 2026-09-22. Step 1 (the connector, Settings, Integrations and the
 Action1 agent id in the inventory, `v0.4.0-alpha.1` and `v0.4.0-alpha.2`), step 2 (patch state per endpoint, client and site
 with its alerts, `v0.4.0-alpha.3`) and step 3 (deployments and installing the Action1 agent, `v0.4.0-alpha.4`) were each
-verified on the first test VPS and on real Windows endpoints before the release. Linux patch management follows in 0.4.1.
+verified on the first test VPS and on real Windows endpoints before the release. Patch management on Linux was planned as
+0.4.1 and moved to "Not yet scheduled" on 2026-09-23.
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
 2026-09-15, see Later).
@@ -542,9 +543,9 @@ Patch management is delegated to Action1; Fleeto shows its state, starts deploym
 
 Decisions (2026-09-20, with the developer, from the Action1 documentation):
 
-- **Windows in 0.4.0, Linux in 0.4.1.** Action1 patches Windows 8.1 and Server 2008 or newer, macOS 12 or newer and Linux
-  x64 (Debian, Ubuntu, RHEL, Rocky, Alma, SLES, Fedora and more; shipped 2025-11-20, not labelled preview). Windows 7 and
-  Server 2003 are out of scope for Action1 and show "not covered by patch management". Linux endpoints show no patch data at
+- **Windows in 0.4.0, Linux later** (planned as 0.4.1 on 2026-09-20, moved to "Not yet scheduled" on 2026-09-23).
+  Action1 patches Windows 8.1 and Server 2008 or newer, macOS 12 or newer and Linux x64 (Debian, Ubuntu, RHEL, Rocky,
+  Alma, SLES, Fedora and more; shipped 2025-11-20, not labelled preview). Windows 7 and Server 2003 are out of scope for Action1 and show "not covered by patch management". Linux endpoints show no patch data at
   all in 0.4.0 and stay out of the compliance counts, because calling them uncovered would be untrue.
 - **One Action1 enterprise credential per instance** (OAuth2 client credentials from the Action1 console, stored encrypted),
   with an organization-to-client mapping. The EU region `app.eu.action1.com` keeps patch data in the EU. A deployment must be
@@ -608,32 +609,93 @@ Steps:
      exposed on purpose". The dashboard summary entry on the waiting list now names patch compliance as well.
    - **Changelog**: the 0.4.0 entry written, 0.2.2 moved to `CHANGELOG-ARCHIVE.md`, the version `0.4.0`.
 
-## 0.4.1 — Patch management on Linux
+## 0.5.0 — Sign-in with Microsoft Entra ID
 
-- The Fleeto agent reads the id of the Action1 agent on a Linux endpoint, as it already does on Windows, so a Linux endpoint
-  can be matched to its Action1 record.
-- Linux endpoints get patch state, missing updates and deployments, and join the compliance counts of their client and site.
-  Until then they show no patch data at all, because calling them uncovered would be untrue.
-- Whatever testing 0.4.0 on more endpoints turns up.
+The other integrations (Sophos, Veeam, Proxmox, vCenter) moved to "Not yet scheduled" on 2026-09-23; 0.5.0 is the Entra ID
+sign-in alone.
 
-## 0.5.0 — Integrations
+Decisions (2026-09-23, with the developer):
 
-- Sophos Central (endpoint health, detections).
-- Veeam (backup job status).
-- Proxmox VE and VMware vCenter (host and VM inventory and health).
-- Integration health on the dashboard.
-- Sign-in with Microsoft Entra ID (OpenID Connect) next to local accounts: an admin configures the
-  tenant, client id and client secret (or certificate) in Settings; users are linked to a local user
-  with its role and client restriction (no automatic account creation without an admin decision).
-  The secret is stored encrypted in the database like every other secret.
-- The Entra ID client secret or certificate uses the expiring-credentials warnings from 0.2.0; after
-  expiry the warning states that sign-in with Entra ID stopped working.
+- **The instance owner's own people, nobody else.** Sign-in with Entra ID is for the customer that owns the instance: its
+  own staff in its own Microsoft tenant. Everybody else — the people of the clients that customer manages, and any external
+  identity — signs in with a local account, as today. One instance therefore holds exactly one tenant id, and a token from
+  another tenant is refused. A guest account in the owner's tenant is an external identity, so it is refused as well.
+- **A user is linked by an admin**, never created automatically: the local user holds the role, and unlinking or disabling
+  it closes the door. A local user that is limited to clients cannot be linked (that limit exists for API keys today and
+  comes to users later).
+- **Matched on the immutable identifiers of the token** (`oid` and `tid`), never on the email address: an address changes
+  and can be handed to somebody else, and that would hand over an account with it.
+- **Two factors, whichever way a user comes in**: an Entra ID token that proves MFA through its `amr` claim replaces the
+  local TOTP step; a token that does not prove MFA gets the local TOTP step on top. Fleeto reads the claim, it never
+  assumes MFA because the tenant is configured for it.
+- **A linked user has no local password**: one way in, one place to disable an account. At least one local admin keeps a
+  password and TOTP as the break-glass account for an Entra ID outage, and Settings refuses to link or delete the last one,
+  with a message that says why.
+- The client secret or certificate is stored encrypted like every other secret and uses the expiring-credential warnings of
+  0.2.0; after expiry the warning states that sign-in with Entra ID stopped working.
+- Audited: configuring the sign-in, linking and unlinking a user, a refused token with its reason, and the way each sign-in
+  came in.
+- No placeholder UI: the "Sign in with Microsoft" button appears on the sign-in page only when an admin has configured and
+  enabled it.
 
-## 0.6.0 — Logs, search and retention
+- **Only the workers talk to Microsoft** (decided 2026-09-23, the rule of 0.4.0 applied to sign-in): fleeto-web has no
+  outbound access, so it cannot reach `login.microsoftonline.com`. The browser is redirected to Microsoft by the browser
+  itself, and the authorization code that comes back is exchanged by the workers: web writes the code and the PKCE verifier
+  encrypted in a row, notifies on `fleeto_sign_ins` and waits for the outcome; the workers exchange the code, validate the
+  id_token and write back the claims Fleeto needs, never a token. The request is typed, not a proxy, so the client secret
+  never travels to web: the workers read it from the settings themselves.
 
-- Log and event collection by the agent; full-text search under 1 second at 10,000 endpoints.
-- Retention policies per data type, continuous aggregates for dashboards.
-- Global search across clients, sites, endpoints, notes.
+Steps:
+
+1. [built, not tested on a tenant yet] **Configuration, linking and the sign-in** (2026-09-23): Settings, Sign-in for
+   admins (tenant id, client id, client secret, the redirect URI to register, enable), stored encrypted; the authorization
+   code flow with PKCE, state and nonce in a data-protected cookie; the exchange by the workers (`SignInExchangeService`,
+   `EntraSignInClient`) with the `tid` check and guests refused; linking and unlinking a user in Settings, Users; the button
+   on the sign-in page only when it is enabled; the expiring-credential warning; audit entries including the way every
+   sign-in came in. An Entra ID sign-in still asks the local authenticator code in this step: a test build must never be
+   weaker than what it replaces. Decided while building:
+   - **a client secret**, not a certificate: the certificate credential of the Graph email settings needs its own upload and
+     switch flow, which is not worth it before somebody asks. What both share (tenant endpoints, input checks, the
+     certificate Fleeto creates, the client assertion) moved to `MicrosoftIdentity`, so a certificate can be added without
+     touching the sign-in;
+   - the exchange is a **typed request**, not a proxy of HTTP calls: the workers read the client secret from the settings
+     themselves, so it never travels to web;
+   - **an admin enters the object id** of the Entra ID account. Fleeto reads nothing from the directory, so it needs no
+     Graph permissions, and it never matches a sign-in on an email address;
+   - a refusal stays vague in the browser and precise in the audit log, so the page does not say which accounts exist.
+   - Still open: a pre-release `v0.5.0-alpha.N` and a test against a real tenant, with a real app registration.
+2. [built, not tested on a tenant yet] **Two factors, no local password and break-glass** (2026-09-23): a token whose
+   `amr` claim proves multi-factor authentication signs the user in without the local authenticator step; the session carries
+   that fact in a claim and `TwoFactorGate` re-reads the link on every request, so unlinking a user ends the exemption at
+   once. A token that does not prove MFA keeps the authenticator step, and a linked user without an authenticator still gets
+   the restricted setup session. Linking removes the local password; the password form answers a linked account as it answers
+   a wrong password. The last admin with a password cannot be linked, demoted or deleted. Decided while building:
+   - **an admin can set a password for a user** (Settings, Users): unlinking would otherwise leave that user with no way in
+     at all, and the sign-in page has always said to ask an admin for a reset while nothing could do it. Open sessions of
+     that user end, two-factor authentication is untouched;
+   - **"local admin" means a password and no link**, counted in the database, so the rule cannot be walked around by
+     linking one admin after another;
+   - found while building: Identity rebuilds the principal of a session every five minutes when it validates the security
+     stamp, from the user store, which does not know how that session signed in. Without carrying the claim over, a session
+     that came in through Entra ID lost its second factor halfway and was sent to the setup page
+     (`SecurityStampValidatorOptions.OnRefreshingPrincipal`, `TwoFactorGate.CarryOverSecondFactor`).
+   - Still open: the pre-release and the test against a real tenant, together with step 1.
+3. **Release 0.5.0** — the sign-in configuration onto `API-WAITLIST.md` (admin data, never the secret), changelog,
+   `ARCHITECTURE.md` §5 for how the sign-in is anchored, tag `v0.5.0`.
+
+## 0.6.0 — Refactors, fixes and clean-up
+
+A release without new features: what the versions before it left behind. The list grows while 0.5.0 is built; an item is
+written down here the moment it is found, with what it costs and why it matters. Logs, search and retention were 0.6.0
+until 2026-09-23 and are now under "Not yet scheduled".
+
+- Build warnings: `RemoteControl.razor` hides `Time` of `FleetoPageBase` (CS0108), a duplicate `using` in
+  `GraphEmailTests` (CS0105), and three `SqlQueryRaw` calls that EF flags (EF1003, in `EndpointHealthService`,
+  `CheckCatalogTests` and `EndpointCheckRuleTests`) — check each one and either use `SqlQuery` or suppress it with a
+  reason.
+- A pass over the pages that inherit `FleetoPageBase`: 0.4.0 had one that replaced the inherited clean-up instead of
+  running its own next to it, so look for the same shape elsewhere.
+- Whatever the open items of 0.1.0 and the known limitations above still hold that is not hardening work (0.7.0).
 
 ## 0.7.0 — Hardening
 
@@ -648,14 +710,30 @@ Steps:
 
 ## 1.0.0 — General availability
 
-- Everything above complete, tested and documented.
+- Everything above complete, tested and documented, including the subjects under "Not yet scheduled": they are part of the
+  v1 scope in `CLAUDE.md` and each one needs a version of its own before 1.0.0 (decided 2026-09-23).
 - Product name, trademark and domain checks done.
 - Pricing per managed endpoint decided.
 - API field names frozen.
 
 ## Not yet scheduled
 
-Wanted, but not in a version yet: the version is chosen once the open questions are answered.
+Wanted, but not in a version yet: the version is chosen once the open questions are answered. These subjects stay part of
+  the v1 scope in `CLAUDE.md` (decided 2026-09-23), so each one gets a version before 1.0.0.
+
+- Patch management on Linux (planned as 0.4.1, moved here on 2026-09-23): the Fleeto agent reads the id of the Action1
+  agent on a Linux endpoint as it already does on Windows, and Linux endpoints get patch state, missing updates,
+  deployments and a place in the compliance counts. Until then a Linux endpoint shows no patch data at all and stays out
+  of the counts, because calling it uncovered would be untrue.
+
+- The integrations other than Action1 (planned as 0.5.0, moved here on 2026-09-23): Sophos Central (endpoint health,
+  detections), Veeam (backup job status), Proxmox VE and VMware vCenter (host and VM inventory and health), and
+  integration health on the dashboard. The connector architecture and the rules they follow are in `CLAUDE.md`
+  (Integrations) and `ARCHITECTURE.md` §11; Action1 is the worked example.
+
+- Logs, search and retention (planned as 0.6.0, moved here on 2026-09-23): log and event collection by the agent with
+  full-text search under a second at 10,000 endpoints, retention policies per data type with continuous aggregates for
+  the dashboards, and a global search across clients, sites, endpoints and notes.
 
 - Point-in-time recovery (removed WAL archiving on 2026-09-16 until this exists): physical base backups (`pg_basebackup`)
   plus WAL archiving to the off-VPS destination, both encrypted like the nightly dump, a bounded spool on the VPS, and a

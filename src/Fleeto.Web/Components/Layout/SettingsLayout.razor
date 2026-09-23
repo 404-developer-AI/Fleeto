@@ -19,6 +19,7 @@
             <AuthorizeView Policy="@FleetoPolicies.Admin">
                 <div class="settings-group-title">Administration</div>
                 @Item("/settings/users", Icons.Material.Outlined.People, "Users")
+                @Item("/settings/sign-in", Icons.Material.Outlined.Login, "Sign-in")
                 @Item("/settings/licensing", Icons.Material.Outlined.WorkspacePremium, "Licensing")
                 @Item("/settings/email", Icons.Material.Outlined.Email, "Email")
                 @Item("/settings/notification-channels", Icons.Material.Outlined.Campaign, "Notification channels")

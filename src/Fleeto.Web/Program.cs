@@ -58,7 +58,16 @@ builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(WebServiceRegistr
     .AddFleetoIdentityStores();
 
 // A changed security stamp (password, roles, two-factor reset, deletion) ends other sessions within five minutes.
-builder.Services.Configure<SecurityStampValidatorOptions>(options => options.ValidationInterval = TimeSpan.FromMinutes(5));
+builder.Services.Configure<SecurityStampValidatorOptions>(options =>
+{
+    options.ValidationInterval = TimeSpan.FromMinutes(5);
+    // The refreshed principal is built from the user store, which does not know how this session signed in (0.5.0).
+    options.OnRefreshingPrincipal = context =>
+    {
+        TwoFactorGate.CarryOverSecondFactor(context.CurrentPrincipal, context.NewPrincipal);
+        return Task.CompletedTask;
+    };
+});
 
 builder.Services.ConfigureApplicationCookie(options =>
 {
@@ -182,6 +191,7 @@ app.UseAntiforgery();
 
 app.MapStaticAssets();
 app.MapAccountEndpoints();
+app.MapEntraSignInEndpoints();
 app.MapOperationalEndpoints();
 app.MapFleetoPublicApi();
 app.MapRazorComponents<App>()

@@ -70,6 +70,7 @@ public static class WebServiceRegistration
         services.AddSingleton<ClientTemplateService>();
         services.AddSingleton<UserAdminService>();
         services.AddSingleton<SettingsService>();
+        services.AddSingleton<SignInSettingsService>();
         services.AddSingleton<NotificationChannelService>();
         services.AddSingleton<ScriptService>();
         services.AddSingleton<JobService>();

@@ -1,0 +1,132 @@
+@page "/settings/sign-in"
+@attribute [Authorize(Policy = FleetoPolicies.Admin)]
+@inherits FleetoPageBase
+@inject SignInSettingsService SignInSvc
+
+<PageTitle>Sign-in - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Sign-in</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            Let the people of your own organization sign in with Microsoft Entra ID. Everybody else, including the people of
+            the clients you manage, signs in with a local account.
+        </MudText>
+    </div>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    <MudGrid Spacing="3">
+        <MudItem xs="12" md="6">
+            <div class="fl-panel pa-4">
+                <div class="d-flex justify-space-between align-center mb-3">
+                    <MudText Typo="Typo.h6" Class="section-title">Microsoft Entra ID</MudText>
+                    @if (_view is not null)
+                    {
+                        <StatusChip Text="@(_view.Enabled ? "On" : _view.IsComplete ? "Off" : "Not configured")"
+                                    Kind="@(_view.Enabled ? StatusKind.Ok : StatusKind.Neutral)" />
+                    }
+                </div>
+
+                <MudTextField @bind-Value="_tenantId" Label="Directory (tenant) ID" Variant="Variant.Outlined" MaxLength="255" Class="mb-3"
+                              HelperText="The tenant of your own organization, or its domain such as contoso.onmicrosoft.com. A token from another tenant is refused, and so is a guest of this tenant." />
+                <MudTextField @bind-Value="_clientId" Label="Application (client) ID" Variant="Variant.Outlined" MaxLength="100" Class="mb-3"
+                              HelperText="From the app registration you created for Fleeto." />
+                <MudTextField @bind-Value="_clientSecret"
+                              Label="@(_view?.HasClientSecret == true ? "Client secret (leave blank to keep the current secret)" : "Client secret")"
+                              Variant="Variant.Outlined" InputType="InputType.Password" MaxLength="1000" Class="mb-3"
+                              HelperText="The secret value, not the secret ID. It is stored encrypted and never shown again." />
+                <MudDatePicker @bind-Date="_secretExpiresOn" Label="End date of the client secret" Variant="Variant.Outlined" Class="mb-3"
+                               HelperText="As shown under Certificates & secrets. Fleeto warns before it expires." />
+
+                <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Class="mb-3">
+                    Offer Microsoft Entra ID on the sign-in page
+                </MudSwitch>
+
+                @if (_view is { ClientSecretExpiresAt: { } expires })
+                {
+                    <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+                        The client secret expires <TimeText Value="expires" />.
+                    </MudText>
+                }
+
+                <div class="d-flex gap-2 flex-wrap">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="_busy">Save</MudButton>
+                </div>
+            </div>
+        </MudItem>
+
+        <MudItem xs="12" md="6">
+            <MudText Typo="Typo.h6" Class="section-title mb-2">What to set up in Entra ID</MudText>
+            <MudText Typo="Typo.body2" Class="muted mb-3">
+                Create an app registration in your own tenant, single tenant, with this redirect URI of type Web:
+            </MudText>
+            <div class="fl-panel pa-3 mb-3">
+                <code>@(_view?.RedirectUri)</code>
+            </div>
+            <MudText Typo="Typo.body2" Class="muted mb-3">
+                Fleeto asks for the sign-in scopes only (openid, profile, email) and reads nothing else from the directory.
+                Give the app registration a client secret and enter it here with its end date.
+            </MudText>
+            <MudText Typo="Typo.body2" Class="muted mb-3">
+                A user signs in with Entra ID once an admin has linked their Fleeto user to an Entra ID account, in
+                <MudLink Href="/settings/users">Users</MudLink>. Fleeto creates no users of its own from a sign-in.
+                @if (_view is not null)
+                {
+                    <span> @LinkedText</span>
+                }
+            </MudText>
+            <MudAlert Severity="Severity.Info" Dense="true">
+                A sign-in through Entra ID counts as two factors when the token says Microsoft asked for a second one;
+                otherwise Fleeto asks the authenticator code on top. A linked user has no Fleeto password, and one admin
+                always keeps a password as the way in when Microsoft is unavailable.
+            </MudAlert>
+        </MudItem>
+    </MudGrid>
+</LoadState>
+
+@code {
+    private SignInView? _view;
+    private string? _tenantId;
+    private string? _clientId;
+    private string? _clientSecret;
+    private DateTime? _secretExpiresOn;
+    private bool _enabled;
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private string LinkedText => _view!.LinkedUsers switch
+    {
+        0 => "No user is linked yet.",
+        1 => "One user is linked.",
+        var count => $"{count} users are linked."
+    };
+
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        _view = await SignInSvc.GetAsync(caller);
+        _tenantId = _view.TenantId;
+        _clientId = _view.ClientId;
+        _enabled = _view.Enabled;
+        _secretExpiresOn = _view.ClientSecretExpiresAt?.Date;
+        _clientSecret = null;
+    });
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        try
+        {
+            var input = new SignInInput(_enabled, _tenantId, _clientId, _clientSecret, _secretExpiresOn);
+            if (await RunAsync(caller => SignInSvc.SaveAsync(caller, input), "The sign-in settings were saved."))
+            {
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

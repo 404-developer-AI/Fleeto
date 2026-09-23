@@ -1,9 +1,11 @@
+using System.Security.Claims;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Data;
 using Fleeto.Infrastructure.Identity;
 using Fleeto.Web.Security;
 using Fleeto.Web.Services;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -54,6 +56,15 @@ public static class AccountEndpoints
         }
 
         var user = await users.FindByEmailAsync(email);
+        if (user is { IsLinkedToEntra: true })
+        {
+            // A linked user has no password at all (0.5.0); the answer stays the same as for a wrong password, so the form
+            // does not say which accounts sign in with Microsoft. The button for that is on the page.
+            await audit.WriteAsync(UserRecord(AuditActions.LoginFailed, user, context,
+                new { Route = "password", Reason = "the account signs in with Microsoft Entra ID" }));
+            return Results.Redirect("/account/login?error=invalid" + returnQuery);
+        }
+
         if (user is not null)
         {
             // lockoutOnFailure: repeated wrong passwords lock the account (5 attempts, 15 minutes).
@@ -63,7 +74,7 @@ public static class AccountEndpoints
                 // Succeeded means the account has no two-factor authentication yet: the session is restricted to the setup
                 // page until it is done (TwoFactorEnforcementMiddleware).
                 await RecordLoginAsync(users, user, time);
-                await audit.WriteAsync(UserRecord(AuditActions.LoginSucceeded, user, context, new { TwoFactor = "not set up" }));
+                await audit.WriteAsync(UserRecord(AuditActions.LoginSucceeded, user, context, new { Route = "password", TwoFactor = "not set up" }));
                 return Results.Redirect("/account/setup-2fa");
             }
 
@@ -73,7 +84,7 @@ public static class AccountEndpoints
             }
 
             await audit.WriteAsync(UserRecord(AuditActions.LoginFailed, user, context,
-                new { Reason = result.IsLockedOut ? "locked out" : result.IsNotAllowed ? "not allowed" : "wrong password" }));
+                new { Route = "password", Reason = result.IsLockedOut ? "locked out" : result.IsNotAllowed ? "not allowed" : "wrong password" }));
             if (result.IsLockedOut)
             {
                 return Results.Redirect("/account/login?error=lockedout");
@@ -82,7 +93,7 @@ public static class AccountEndpoints
         else
         {
             await audit.WriteAsync(new AuditRecord(AuditActions.LoginFailed, "User", "unknown", null, AuditActorType.User, "unknown",
-                email.Length > 200 ? email[..200] : email, new { Reason = "unknown email address" }, context.RemoteIp()));
+                email.Length > 200 ? email[..200] : email, new { Route = "password", Reason = "unknown email address" }, context.RemoteIp()));
         }
 
         // The same answer for an unknown address and a wrong password, so the form does not reveal which accounts exist.
@@ -108,6 +119,12 @@ public static class AccountEndpoints
             return Results.Redirect("/account/two-factor?error=invalid");
         }
 
+        // Which way the first factor came in (0.5.0): the Entra ID sign-in puts it on the two-factor identity.
+        var route = (await context.AuthenticateAsync(IdentityConstants.TwoFactorUserIdScheme)).Principal?
+            .FindFirst(ClaimTypes.AuthenticationMethod)?.Value == EntraSignInEndpoints.EntraRoute
+            ? EntraSignInEndpoints.EntraRoute
+            : "password";
+
         var result = isRecoveryCode
             ? await signIn.TwoFactorRecoveryCodeSignInAsync(code)
             : await signIn.TwoFactorAuthenticatorSignInAsync(code, isPersistent: false, rememberClient: false);
@@ -116,12 +133,12 @@ public static class AccountEndpoints
         {
             await RecordLoginAsync(users, user, time);
             await audit.WriteAsync(UserRecord(AuditActions.LoginSucceeded, user, context,
-                new { TwoFactor = isRecoveryCode ? "recovery code" : "authenticator app" }));
+                new { Route = route, TwoFactor = isRecoveryCode ? "recovery code" : "authenticator app" }));
             return Results.Redirect(returnUrl);
         }
 
         await audit.WriteAsync(UserRecord(AuditActions.LoginFailed, user, context,
-            new { Reason = result.IsLockedOut ? "locked out" : isRecoveryCode ? "wrong recovery code" : "wrong two-factor code" }));
+            new { Route = route, Reason = result.IsLockedOut ? "locked out" : isRecoveryCode ? "wrong recovery code" : "wrong two-factor code" }));
         return result.IsLockedOut ? Results.Redirect("/account/login?error=lockedout") : Results.Redirect("/account/two-factor?error=invalid");
     }
 

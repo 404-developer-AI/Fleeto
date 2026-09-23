@@ -19,6 +19,9 @@
     <!-- Agent protocol -->
     <PackageVersion Include="Google.Protobuf" Version="3.36.1" />
     <PackageVersion Include="Grpc.Tools" Version="2.84.0" />
+    <!-- Sign-in with Microsoft Entra ID (0.5.0): discovery, JWKS and id_token validation in the workers -->
+    <PackageVersion Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.23.0" />
+    <PackageVersion Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.23.0" />
     <!-- Workers -->
     <PackageVersion Include="MailKit" Version="4.18.0" />
     <PackageVersion Include="AWSSDK.S3" Version="4.0.103.2" />

@@ -3,6 +3,7 @@
 @attribute [AllowWithoutTwoFactor]
 @attribute [ExcludeFromInteractiveRouting]
 @layout LoginLayout
+@inject SignInSettingsService SignInSvc
 
 <PageTitle>Sign in - Fleeto</PageTitle>
 
@@ -39,10 +40,24 @@
         <button type="submit" class="login-button">Sign in</button>
     </form>
 
+    @if (_entraOffered)
+    {
+        <div class="login-divider"><span>or</span></div>
+        <form method="post" action="/api/account/entra/start">
+            <AntiforgeryToken />
+            <input type="hidden" name="ReturnUrl" value="@EndpointExtensions.SafeReturnUrl(ReturnUrl)" />
+            <button type="submit" class="login-button login-button-secondary">Sign in with Microsoft</button>
+        </form>
+    }
+
     <p class="login-footer">Forgot your password or lost your authenticator? Ask an admin of this instance to reset it.</p>
 </div>
 
 @code {
+    private bool _entraOffered;
+
+    protected override async Task OnInitializedAsync() => _entraOffered = await SignInSvc.IsEntraOfferedAsync();
+
     [SupplyParameterFromQuery(Name = "error")]
     private string? Error { get; set; }
 
@@ -58,6 +73,9 @@
         "lockedout" => "Too many failed attempts. This account is locked for 15 minutes; try again after that.",
         "twofactorexpired" => "The sign-in expired before the code was entered. Sign in again.",
         "expired" => "The page was open too long to submit safely. Sign in again.",
+        "entraoff" => "Signing in with Microsoft is not available on this instance. Sign in with your Fleeto account.",
+        "entrastate" => "The sign-in with Microsoft took too long or was interrupted. Start it again.",
+        "entra" => "Signing in with Microsoft did not work. Try again, or sign in with your Fleeto account; an admin can see why in the audit log.",
         _ => "The email address or password is not correct. Check both and try again."
     };
 }

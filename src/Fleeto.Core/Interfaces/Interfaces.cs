@@ -106,6 +106,13 @@ public static class NotificationChannels
     /// writes the request and follows the row; only the workers can reach the patch management product.
     /// </summary>
     public const string PatchDeployments = "fleeto_patch_deployments";
+
+    /// <summary>
+    /// Payload: SignInExchange id. Somebody is signing in with Microsoft Entra ID (0.5.0) and web wrote the authorization
+    /// code; the workers exchange it, because only they can reach Microsoft. Raised again when the outcome is written, so
+    /// the sign-in does not wait for its next poll.
+    /// </summary>
+    public const string SignIns = "fleeto_sign_ins";
 }
 
 /// <summary>Writes audit entries. The table is append-only; there is no update or delete.</summary>
@@ -231,6 +238,13 @@ public static class AuditActions
     public const string IntegrationChanged = "integration.changed";
     public const string IntegrationRemoved = "integration.removed";
     public const string IntegrationMappingChanged = "integration.mapping_changed";
+
+    /// <summary>The Entra ID sign-in of the instance was configured, changed or turned off (0.5.0).</summary>
+    public const string SignInConfigured = "sign_in.configured";
+
+    /// <summary>A user was linked to an Entra ID account, or the link was removed (0.5.0).</summary>
+    public const string UserLinked = "user.linked";
+    public const string UserUnlinked = "user.unlinked";
 
     public const string RemoteSessionRequested = "remote_session.requested";
     public const string RemoteSessionSigned = "remote_session.signed";

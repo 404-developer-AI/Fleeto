@@ -86,6 +86,9 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<BackupRun> BackupRuns => Set<BackupRun>();
     public DbSet<WorkerWatermark> WorkerWatermarks => Set<WorkerWatermark>();
     public DbSet<Integration> Integrations => Set<Integration>();
+
+    /// <summary>Authorization codes of a sign-in with Entra ID that wait for the workers (0.5.0).</summary>
+    public DbSet<SignInExchange> SignInExchanges => Set<SignInExchange>();
     public DbSet<EndpointPatchState> EndpointPatchStates => Set<EndpointPatchState>();
     public DbSet<EndpointMissingUpdate> EndpointMissingUpdates => Set<EndpointMissingUpdate>();
     public DbSet<PatchDeployment> PatchDeployments => Set<PatchDeployment>();
@@ -104,6 +107,11 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
         builder.Entity<ApplicationUser>(entity =>
         {
             entity.Property(u => u.DisplayName).HasMaxLength(200);
+            // Sign-in with Entra ID (0.5.0): one Entra account belongs to at most one user of this instance.
+            entity.Property(u => u.EntraTenantId).HasMaxLength(255);
+            entity.Property(u => u.EntraAccount).HasMaxLength(320);
+            entity.HasIndex(u => u.EntraObjectId).IsUnique();
+            entity.Ignore(u => u.IsLinkedToEntra);
         });
 
         builder.Entity<Client>(entity =>
@@ -833,6 +841,17 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(t => new { t.EndpointId, t.UpdatedAt }).IsDescending(false, true);
             EndpointChild(entity, t => new { t.EndpointId, t.ClientId });
             ClientOwned(entity);
+        });
+
+        builder.Entity<SignInExchange>(entity =>
+        {
+            entity.Property(e => e.EncryptedRequest).HasMaxLength(8000);
+            entity.Property(e => e.EncryptedClaims).HasMaxLength(8000);
+            entity.Property(e => e.RedirectUri).HasMaxLength(500);
+            entity.Property(e => e.State).HasConversion<string>().HasMaxLength(20);
+            entity.Property(e => e.FailureReason).HasMaxLength(500);
+            // The workers pick up what is waiting; retention removes what an abandoned browser left behind.
+            entity.HasIndex(e => new { e.State, e.CreatedAt });
         });
 
         builder.Entity<Integration>(entity =>

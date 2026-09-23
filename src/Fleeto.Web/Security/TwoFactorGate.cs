@@ -9,9 +9,20 @@ namespace Fleeto.Web.Security;
 /// Two-factor authentication is mandatory for every user. A user who signed in with a password but has not set up
 /// TOTP yet gets a restricted session: only the setup pages work until setup completes. The database is the source of
 /// truth, so completing setup takes effect on the next request without a new sign-in.
+/// <para>
+/// From 0.5.0 a second factor can also come from Microsoft Entra ID: when the id_token of the sign-in proved
+/// multi-factor authentication, the session carries <see cref="SecondFactorClaim"/> and the user needs no local
+/// authenticator. The link in the database is checked again on every request, so unlinking a user ends that exemption.
+/// </para>
 /// </summary>
 public sealed class TwoFactorGate
 {
+    /// <summary>Claim on a session whose second factor came from somewhere else than the local authenticator (0.5.0).</summary>
+    public const string SecondFactorClaim = "fleeto:second-factor";
+
+    /// <summary>Value of <see cref="SecondFactorClaim"/> when Microsoft Entra ID proved the second factor.</summary>
+    public const string EntraSecondFactor = "entra";
+
     private readonly IFleetoDbContextFactory _dbFactory;
 
     public TwoFactorGate(IFleetoDbContextFactory dbFactory)
@@ -26,18 +37,48 @@ public sealed class TwoFactorGate
             return true;
         }
 
-        return await RequiresSetupAsync(userId, cancellationToken);
+        return await RequiresSetupAsync(userId, user.HasClaim(SecondFactorClaim, EntraSecondFactor), cancellationToken);
     }
 
     /// <summary>True when the user has not enabled two-factor authentication, or no longer exists. Fails closed.</summary>
-    public async Task<bool> RequiresSetupAsync(Guid userId, CancellationToken cancellationToken = default)
+    public Task<bool> RequiresSetupAsync(Guid userId, CancellationToken cancellationToken = default) =>
+        RequiresSetupAsync(userId, entraSecondFactor: false, cancellationToken);
+
+    /// <param name="entraSecondFactor">
+    /// True when this session signed in through Entra ID with a token that proved multi-factor authentication. It counts
+    /// only while the user is still linked, so the exemption cannot outlive the link.
+    /// </param>
+    public async Task<bool> RequiresSetupAsync(Guid userId, bool entraSecondFactor, CancellationToken cancellationToken = default)
     {
         await using var db = _dbFactory.CreateSystem();
-        var enabled = await db.Users.AsNoTracking()
+        var found = await db.Users.AsNoTracking()
             .Where(u => u.Id == userId)
-            .Select(u => (bool?)u.TwoFactorEnabled)
+            .Select(u => new { u.TwoFactorEnabled, u.EntraObjectId })
             .FirstOrDefaultAsync(cancellationToken);
-        return enabled != true;
+        if (found is null)
+        {
+            return true;
+        }
+
+        return !found.TwoFactorEnabled && !(entraSecondFactor && found.EntraObjectId is not null);
+    }
+
+    /// <summary>
+    /// Keeps <see cref="SecondFactorClaim"/> on a session whose principal Identity rebuilds when it validates the security
+    /// stamp (every five minutes). The rebuilt principal comes from the user store, which does not know how this session
+    /// signed in, so without this the session would lose its second factor halfway and be sent to the setup page.
+    /// </summary>
+    public static void CarryOverSecondFactor(ClaimsPrincipal? current, ClaimsPrincipal? refreshed)
+    {
+        if (current?.FindFirst(SecondFactorClaim) is not { } claim || refreshed?.Identities.FirstOrDefault() is not { } identity)
+        {
+            return;
+        }
+
+        if (!refreshed.HasClaim(claim.Type, claim.Value))
+        {
+            identity.AddClaim(new Claim(claim.Type, claim.Value));
+        }
     }
 
     public static bool TryGetUserId(ClaimsPrincipal user, out Guid userId)

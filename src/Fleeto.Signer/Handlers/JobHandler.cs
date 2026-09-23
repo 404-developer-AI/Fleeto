@@ -38,7 +38,7 @@ public sealed class JobHandler : ISigningRequestHandler
     public const string ChosenUserAgentReason =
         "The agent of this endpoint is too old to run a script as a chosen user. Wait until it runs Fleeto 0.2.2 or later, or run it as the signed-in user.";
     public const string ValidityReason = "The job's validity window is invalid or has passed. Start the job again with a validity of at most 7 days.";
-    public const string AgentPlatformReason = "The Action1 agent can only be installed on a Windows endpoint from Fleeto. Linux follows in 0.4.1.";
+    public const string AgentPlatformReason = "The Action1 agent can only be installed on a Windows endpoint from Fleeto. Install it on a Linux endpoint from the Action1 console.";
     public const string AgentInstallerReason =
         "There is no Action1 agent installer link for this client. Add it in Settings, Integrations, next to the organization of this client.";
     public const string AgentInstallerChangedReason =
@@ -220,8 +220,8 @@ public sealed class JobHandler : ISigningRequestHandler
     /// <summary>
     /// Signs the job that installs the Action1 agent (0.4.0 step 3). Everything it runs comes from the signer: the body
     /// from <see cref="Action1AgentInstall"/> and the download link from the integration mapping of the job's client, so
-    /// web can pick the endpoint but never what happens on it. Windows only, because Action1 has no Linux agent in Fleeto
-    /// until 0.4.1, and script approval does not apply: there is no script to approve.
+    /// web can pick the endpoint but never what happens on it. Windows only, because Fleeto does not put the Action1 agent
+    /// on a Linux endpoint yet, and script approval does not apply: there is no script to approve.
     /// </summary>
     private async Task<SigningOutcome> SignAgentInstallAsync(Infrastructure.Data.FleetoDbContext db, Job job, Guid endpointId,
         string hostname, string osPlatform, DateTime now, CancellationToken cancellationToken)

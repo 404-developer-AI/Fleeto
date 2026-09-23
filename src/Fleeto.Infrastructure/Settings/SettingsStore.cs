@@ -26,6 +26,9 @@ public static class SettingKeys
     /// </summary>
     public const string CredentialWarningPrefix = "credentials.warned.";
 
+    /// <summary><see cref="Identity.EntraSignInSettings"/>, encrypted (client secret). Sign-in with Entra ID (0.5.0).</summary>
+    public const string EntraSignIn = "auth.entra";
+
     /// <summary><see cref="BackupSettings"/>, encrypted (contains storage credentials).</summary>
     public const string Backup = "backup.settings";
 

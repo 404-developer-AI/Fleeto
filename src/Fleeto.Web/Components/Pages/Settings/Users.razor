@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = FleetoPolicies.Admin)]
 @inherits FleetoPageBase
 @inject UserAdminService UserSvc
+@inject SignInSettingsService SignInSvc
 @inject IDialogService DialogService
 
 <PageTitle>Users - Fleeto</PageTitle>
@@ -20,6 +21,10 @@
             <MudTh>User</MudTh>
             <MudTh>Roles</MudTh>
             <MudTh>Two-factor</MudTh>
+            @if (_entraConfigured)
+            {
+                <MudTh>Sign-in</MudTh>
+            }
             <MudTh>Last sign-in</MudTh>
             <MudTh Style="width:220px"></MudTh>
         </HeaderContent>
@@ -34,12 +39,41 @@
             </MudTd>
             <MudTd>@string.Join(", ", context.Roles)</MudTd>
             <MudTd><StatusChip Text="@(context.TwoFactorEnabled ? "On" : "Not set up")" Kind="@(context.TwoFactorEnabled ? StatusKind.Ok : StatusKind.Neutral)" /></MudTd>
+            @if (_entraConfigured)
+            {
+                <MudTd>
+                    @if (context.EntraObjectId is not null)
+                    {
+                        <StatusChip Text="Microsoft" Kind="StatusKind.Ok" />
+                        <div class="muted" style="font-size:0.8125rem">@context.EntraAccount</div>
+                    }
+                    else
+                    {
+                        <span class="muted">Local account</span>
+                    }
+                </MudTd>
+            }
             <MudTd><TimeText Value="context.LastLoginAt" /></MudTd>
             <MudTd Style="white-space:nowrap">
                 <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => RolesAsync(context))">Roles</MudButton>
                 @if (context.TwoFactorEnabled)
                 {
                     <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => ResetTwoFactorAsync(context))">Reset 2FA</MudButton>
+                }
+                @if (_entraConfigured)
+                {
+                    @if (context.EntraObjectId is null)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => LinkAsync(context))">Link</MudButton>
+                    }
+                    else
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => UnlinkAsync(context))">Unlink</MudButton>
+                    }
+                }
+                @if (context.EntraObjectId is null)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => SetPasswordAsync(context))">Password</MudButton>
                 }
                 @if (context.Id != Caller?.UserId)
                 {
@@ -52,6 +86,7 @@
 
 @code {
     private IReadOnlyList<UserListItem> _users = [];
+    private bool _entraConfigured;
 
     protected override Task OnInitializedAsync() => ReloadAsync();
 
@@ -61,7 +96,57 @@
 
     protected override void OnParametersSet() => OpenCreateFromQuery(New, CreateAsync);
 
-    private Task ReloadAsync() => LoadAsync(async caller => _users = await UserSvc.ListAsync(caller));
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        _users = await UserSvc.ListAsync(caller);
+        _entraConfigured = (await SignInSvc.GetAsync(caller)).IsComplete;
+    });
+
+    private async Task LinkAsync(UserListItem user)
+    {
+        var parameters = new DialogParameters<EntraLinkDialog>
+        {
+            { d => d.Email, user.Email },
+            { d => d.Account, user.EntraAccount },
+            { d => d.OnSubmit, (objectId, account) => RunAsync(caller => UserSvc.LinkEntraAsync(caller, user.Id, objectId, account),
+                "The user was linked to Microsoft Entra ID.") }
+        };
+        var dialog = await DialogService.ShowAsync<EntraLinkDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task SetPasswordAsync(UserListItem user)
+    {
+        var parameters = new DialogParameters<SetPasswordDialog>
+        {
+            { d => d.Email, user.Email },
+            { d => d.OnSubmit, password => RunAsync(caller => UserSvc.SetPasswordAsync(caller, user.Id, password),
+                "The password was set. The user signs in with it and their authenticator code.") }
+        };
+        var dialog = await DialogService.ShowAsync<SetPasswordDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task UnlinkAsync(UserListItem user)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Unlink {user.Email} from Microsoft Entra ID" },
+            { d => d.Message, "This user has no password, so set one with Password after unlinking. Their open sessions end now." },
+            { d => d.ConfirmText, "Unlink" }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => UserSvc.UnlinkEntraAsync(caller, user.Id), "The link was removed."))
+        {
+            await ReloadAsync();
+        }
+    }
 
     private async Task CreateAsync()
     {

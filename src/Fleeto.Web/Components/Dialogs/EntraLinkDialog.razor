@@ -1,0 +1,55 @@
+@* Link a user to an Entra ID account (0.5.0): the object id of that account, which Fleeto matches the sign-in on. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Link @Email to Microsoft Entra ID</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="muted mb-3">
+            This user then signs in with Microsoft instead of with a Fleeto password, which is removed: one way in. Fleeto asks
+            the authenticator code only when the token does not say Microsoft already asked for a second factor. Only accounts
+            of your own tenant can be linked; a guest of the tenant is refused at sign-in.
+        </MudText>
+        <MudTextField @bind-Value="_objectId" Label="Object ID of the Entra ID user" Variant="Variant.Outlined" MaxLength="100" AutoFocus="true"
+                      Class="mb-3"
+                      HelperText="In the Entra ID portal under Users, on the user itself. Fleeto never matches on the email address: an address changes and can be given to somebody else." />
+        <MudTextField @bind-Value="_account" Label="Account name (optional)" Variant="Variant.Outlined" MaxLength="320" Class="mb-1"
+                      HelperText="For display in this list. The sign-in fills it in by itself." />
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">Link</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public string Email { get; set; } = string.Empty;
+    [Parameter] public string? Account { get; set; }
+    [Parameter] public Func<string?, string?, Task<bool>> OnSubmit { get; set; } = (_, _) => Task.FromResult(true);
+
+    private string? _objectId;
+    private string? _account;
+    private bool _busy;
+
+    protected override void OnInitialized() => _account = Account;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(_objectId, _account))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

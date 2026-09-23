@@ -261,6 +261,10 @@ html, body {
 .login-info { background: var(--fl-primary-tint); border: 1px solid var(--fl-primary-tint-strong); border-radius: 8px; padding: 11px 14px; margin-bottom: 20px; color: var(--fl-primary-hover); font-size: 0.875rem; }
 .login-button { width: 100%; padding: 11px; background: var(--fl-primary); color: #fff; border: none; border-radius: 8px; font-size: 0.9375rem; font-weight: 600; font-family: inherit; cursor: pointer; }
 .login-button:hover { background: var(--fl-primary-hover); }
+.login-button-secondary { background: var(--fl-surface); color: var(--fl-text); border: 1px solid var(--fl-border-strong); }
+.login-button-secondary:hover { background: var(--fl-surface-hover, #F5F5F4); }
+.login-divider { display: flex; align-items: center; gap: 12px; margin: 18px 0; color: var(--fl-text-secondary); font-size: 0.8125rem; }
+.login-divider::before, .login-divider::after { content: ""; flex: 1; height: 1px; background: var(--fl-border); }
 .link-button { background: none; border: none; cursor: pointer; color: var(--fl-text-secondary); text-decoration: underline; font-size: 0.875rem; font-family: inherit; }
 .login-footer { margin-top: 22px; text-align: center; font-size: 0.8125rem; color: var(--fl-text-secondary); }
 .qr-code { width: 184px; margin: 8px auto 16px; padding: 8px; background: #fff; border: 1px solid var(--fl-border); border-radius: 8px; }

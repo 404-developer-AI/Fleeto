@@ -1,4 +1,5 @@
 using Fleeto.Core.Domain;
+using Fleeto.Infrastructure.Identity;
 
 namespace Fleeto.Infrastructure.Settings;
 
@@ -40,6 +41,20 @@ public static class ExpiringCredentials
                     : "Create a new certificate in Settings, Email, upload it to the app registration and switch to it.",
                 "/settings/email",
                 smtp is not null && !string.IsNullOrWhiteSpace(smtp.Host) && !string.IsNullOrWhiteSpace(smtp.FromAddress)));
+        }
+
+        if (await settings.GetAsync<EntraSignInSettings>(SettingKeys.EntraSignIn, cancellationToken) is
+            { Enabled: true, CredentialExpiresAt: { } signInExpiresAt })
+        {
+            list.Add(new ExpiringCredential(
+                "auth.entra.client-secret",
+                "The Microsoft Entra ID client secret for signing in",
+                DateTime.SpecifyKind(signInExpiresAt, DateTimeKind.Utc),
+                "signing in with Microsoft Entra ID; local accounts keep working",
+                "Create a new client secret in the app registration and save it with its end date in Settings, Sign-in.",
+                "/settings/sign-in",
+                // Local accounts are the fallback: every user that is not linked still signs in with a password and a code.
+                FallbackInUse: true));
         }
 
         return list;

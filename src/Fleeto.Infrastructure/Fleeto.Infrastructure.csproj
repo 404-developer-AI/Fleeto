@@ -10,6 +10,8 @@
     <PackageReference Include="BouncyCastle.Cryptography" />
     <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" />
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Fleeto.Infrastructure.Tests" />

@@ -1184,6 +1184,47 @@ on which endpoint. A compromised gateway that keeps a valid relay open is still 
   backups, generation of the backup key pair with the private half offline, who holds what.
 - A rehearsed restore of an instance backup onto a fresh VPS using those keys.
 
+### Sign-in with Microsoft Entra ID (0.5.0)
+
+Sign-in with Entra ID is for the customer that owns the instance and its own Microsoft tenant. The people of the clients that
+customer manages, and any external identity, sign in with a local account (`CLAUDE.md`, Sign-in).
+
+The flow is the authorization code flow with PKCE, split over two containers because **web has no outbound access** (§1):
+
+1. Web builds the redirect to `login.microsoftonline.com/<tenant>/oauth2/v2.0/authorize` itself — nothing secret travels in
+   it — and keeps the state, the nonce and the PKCE verifier in one data-protected cookie (`__Host-fleeto-entra`, ten minutes,
+   `SameSite=Lax` so the redirect back carries it while a cross-site post does not).
+2. Microsoft sends the browser back to `/api/account/entra/callback` with the code. Web checks the state against its cookie
+   and writes a `SignInExchange` row: the code and the verifier as one ciphertext bound to that row, and a notification on
+   `fleeto_sign_ins`. It then waits for the row, at most twenty seconds.
+3. The workers exchange the code at the token endpoint with the client secret they read from the settings themselves, so the
+   secret never travels to web. They validate the id_token against the signing keys from the tenant's OpenID Connect metadata
+   (issuer, audience, lifetime, signature) and then apply Fleeto's own rules (`SignInTokenRules`): the `tid` claim must be the
+   tenant of the discovered issuer, and a guest of that tenant (`acct=1`, or an `idp` that is not the issuer) is refused.
+   They write back only what Fleeto needs — object id, tenant, account name, display name, whether `amr` proves MFA, and the
+   nonce — encrypted and bound to the row. Never a token, never a refresh token, never directory data.
+4. Web compares the nonce with its cookie, finds the user whose `EntraObjectId` matches, and deletes the row: an
+   authorization code and the claims never outlive the sign-in. A row nobody finished is deleted by the workers after ten
+   minutes.
+
+- **An admin links a user**, Fleeto never creates one from a token, and the link is the object id (`oid`) of the account, not
+  an email address: an address changes and can be given to somebody else, which would hand over the account with it. One
+  Entra account belongs to at most one user (a unique index).
+- **Two factors either way.** A token whose `amr` claim proves multi-factor authentication signs the user in without the
+  local authenticator step: the session carries `fleeto:second-factor=entra`, and `TwoFactorGate` accepts that only while the
+  user is still linked, so unlinking ends the exemption on the next request rather than when the session expires. A token
+  that does not prove MFA gets the authenticator step on top, exactly as a password does.
+- **A linked user has no local password.** Linking removes it, which also changes the security stamp, so sessions that signed
+  in with it end. The password form answers a linked account the same way it answers a wrong password, so it never reveals
+  which accounts sign in with Microsoft. An admin gives a user a password again in Settings, Users, which is also the reset
+  the sign-in page points at.
+- **Break-glass.** At least one admin keeps a password of the instance (not linked, password set, counted in the database):
+  the last such admin cannot be linked, demoted or deleted. A problem at Microsoft therefore never locks a customer out of
+  its own instance, and the rule cannot be walked around by linking admins one after another.
+- Why a refusal stays vague in the browser: the page says the sign-in did not work and names the local account as the way in,
+  while the reason (another tenant, a guest, no linked user) goes to the audit log. A precise message would tell an outsider
+  which accounts exist in this instance.
+
 ### Other controls
 
 - Containers non-root, read-only filesystems where possible, no Docker socket in app
@@ -1451,7 +1492,8 @@ Endpoints are matched on the id of the Action1 agent, which the Fleeto agent rea
 dropped rather than reported. Host names are not unique across clients and change, so they are never the join. Action1
 does not document the relation between that local value and the endpoint id of its API, but a test endpoint showed them
 to be the same value (2026-09-20), which is what the patch steps match on. An endpoint whose id Fleeto does not know (no
-Action1 agent, an agent older than 0.4.0, or Linux until 0.4.1) has no patch state, and says so rather than guessing.
+Action1 agent, an agent older than 0.4.0, or Linux, which patch management does not cover yet) has no patch state, and
+says so rather than guessing.
 
 **Patch state (0.4.0 step 2).** `PatchSyncService` in the workers reads the endpoints of every mapped organization every
 four hours: one listing per organization gives the counts of missing updates, and only endpoints that miss something cost
@@ -1486,7 +1528,7 @@ names the endpoint and binds the job to the body that link gives at that moment 
 `TR_Jobs_Binding` freezes); the signer composes the body again and refuses when the link has changed since, so nothing
 runs that the technician did not ask for. A link is only accepted when it is https, on Action1's own domain and an MSI,
 with nothing in it that could end the quoted string it lands in (`Action1AgentInstall`). The job runs as SYSTEM, installs
-silently and never restarts. Windows only; Linux follows with 0.4.1. There is no script in the library, so script
+silently and never restarts. Windows only; Linux is not covered yet. There is no script in the library, so script
 approval does not apply — the same accepted risk as the agent update itself, documented in §5.
 
 The alert kind `patch_state` covers what makes the state untrustworthy, not the updates themselves: Action1 no longer

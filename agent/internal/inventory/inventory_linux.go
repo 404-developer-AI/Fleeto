@@ -366,7 +366,7 @@ func output(ctx context.Context, name string, args ...string) (string, error) {
 }
 
 // action1AgentID is Windows-only for now: Action1 keeps its agent id in a configuration file under /var/opt/action1/
-// whose name Action1 does not document. Patch management for Linux endpoints arrives in 0.4.1, and the file is read here
+// whose name Action1 does not document. Patch management does not cover Linux endpoints yet, and the file is read here
 // once it has been seen on a real endpoint.
 func action1AgentID() string {
 	return ""

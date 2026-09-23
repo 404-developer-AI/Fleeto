@@ -116,6 +116,9 @@ public static class DatabaseGrants
             ["PatchDeployments"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
             ["PatchDeploymentUpdates"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
             ["PatchDeploymentTargets"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
+            // Sign-in with Entra ID (0.5.0): web writes the authorization code and reads the outcome, the workers exchange it
+            // and write the claims back. Web may delete its own row as soon as the sign-in is done.
+            ["SignInExchanges"] = Grants(web: "SELECT, INSERT, DELETE", workers: ReadWrite),
             // Integrations (0.4.0): an admin configures them in web; the workers poll and write back the status of the last attempt.
             ["Integrations"] = Grants(web: ReadWrite, workers: "SELECT, UPDATE"),
             // The workers keep the tenant name and the agent installer link of a mapping current (0.4.0); the signer reads

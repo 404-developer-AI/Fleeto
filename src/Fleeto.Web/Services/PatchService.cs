@@ -379,7 +379,7 @@ public sealed class PatchService
 
         if (!ScriptLanguages.RunsOn(ScriptLanguage.PowerShell, endpoint.OsPlatform))
         {
-            return ServiceResult.Fail("Fleeto installs the Action1 agent on Windows endpoints only. Linux follows in 0.4.1.");
+            return ServiceResult.Fail("Fleeto installs the Action1 agent on Windows endpoints only. Install it on a Linux endpoint from the Action1 console.");
         }
 
         var installerUrl = await db.IntegrationMappings.AsNoTracking()

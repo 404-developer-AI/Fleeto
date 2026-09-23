@@ -1,4 +1,5 @@
 using Fleeto.Core.Interfaces;
+using Fleeto.Infrastructure.Identity;
 using Fleeto.Infrastructure.Integrations;
 using Fleeto.Infrastructure.Integrations.Action1;
 using Fleeto.Workers.Alerts;
@@ -15,6 +16,7 @@ using Fleeto.Workers.Licensing;
 using Fleeto.Workers.Options;
 using Fleeto.Workers.Remote;
 using Fleeto.Workers.Retention;
+using Fleeto.Workers.SignIn;
 using Fleeto.Workers.Webhooks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -52,6 +54,10 @@ public static class WorkersServiceCollectionExtensions
         services.AddSingleton(sp => new Action1ClientFactory(sp.GetRequiredService<ISecretProtector>(), sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<ILoggerFactory>(), IntegrationBudgets.WorkerRequestsPerMinute));
 
+        // Sign-in with Entra ID (0.5.0): the metadata and signing keys of the tenant are cached here, so they are read
+        // once rather than per sign-in.
+        services.AddSingleton(sp => new EntraSignInClientFactory(sp.GetRequiredService<ILoggerFactory>()));
+
         services.AddHostedService<HeartbeatFileService>();
         services.AddHostedService<ConfigChangeFanoutService>();
         services.AddHostedService<CheckEvaluationService>();
@@ -72,6 +78,7 @@ public static class WorkersServiceCollectionExtensions
         services.AddHostedService<IntegrationSyncService>();
         services.AddHostedService<PatchSyncService>();
         services.AddHostedService<PatchDeploymentService>();
+        services.AddHostedService<SignInExchangeService>();
 
         return services;
     }

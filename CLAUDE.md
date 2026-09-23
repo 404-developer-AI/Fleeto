@@ -9,9 +9,10 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 - **Language**: conversation with the developer is always in Dutch. Documentation, code,
   comments, commit messages, log messages and UI text are always in English.
 - **Current phase**: 0.4.0 (patch management via Action1 on Windows) is released (2026-09-23) and runs on the first test
-  VPS, built in three steps with a pre-release `v0.4.0-alpha.N` after each one. Next is 0.4.1 (patch management on Linux)
-  and then 0.5.0 (the other integrations) in `MD-Files/ROADMAP.md`. Local development runs without Docker (see
-  `README.md`); Docker is for the VPS and CI only.
+  VPS, built in three steps with a pre-release `v0.4.0-alpha.N` after each one. Next is 0.5.0 (sign-in with Microsoft
+  Entra ID) in `MD-Files/ROADMAP.md`, then 0.6.0 (refactors, fixes and clean-up). Patch management on Linux and the other
+  integrations moved to "Not yet scheduled" on 2026-09-23. Local development runs without Docker (see `README.md`); Docker
+  is for the VPS and CI only.
 - **Git**: always ask before committing, pushing or tagging. No intermediate commits while a version is being built.
   Tag a version only after its commits are pushed and CI is green.
 - **Source control**: git, default branch `main`, public GitHub repository
@@ -203,6 +204,33 @@ Screen takeover is built into Fleeto: no external tool, no third-party account. 
 - Platforms: Windows 10 and Server 2016 or newer; Linux with X11 (Wayland shows that remote control is not supported, remote
   background works). macOS is not supported for now (decided 2026-09-15; possibly later when there is demand).
 
+## Sign-in and two-factor authentication
+
+Every user signs in with two factors. Local accounts use a password (Argon2id) and TOTP. Sign-in with **Microsoft Entra ID**
+(OpenID Connect) comes in 0.5.0; decisions of 2026-09-23:
+
+- An admin configures the tenant, client id and client secret (or certificate) in Settings. The secret is stored encrypted
+  like every other secret and uses the expiring-credential warnings of 0.2.0; after expiry the warning states that sign-in
+  with Entra ID stopped working.
+- **The owner's own people, nobody else.** Entra ID sign-in is for the customer that owns the instance and its own
+  Microsoft tenant. The people of the clients that customer manages, and any external identity, sign in with a local
+  account. An instance holds one tenant id: a token from another tenant is refused, and so is a guest account in the
+  owner's tenant.
+- **A user is linked to a local user by an admin.** No account is created automatically: the local user holds the role and
+  the client restriction, and unlinking or disabling it closes the door. A user limited to clients is never linked.
+- **Matched on `oid` and `tid` from the token**, never on the email address: an address changes and can be given to
+  somebody else, which would hand over the account with it.
+- **An Entra ID token that proves MFA replaces the local TOTP step**, read from the `amr` claim of the token itself; a token
+  that does not prove MFA gets the local TOTP step on top. Fleeto never assumes MFA because a tenant is configured for it.
+- **A linked user has no local password**: one way in, one place to disable an account. Linking removes the password, and
+  the password form answers a linked account as it answers a wrong password. At least one admin keeps a password and TOTP as
+  the break-glass account for an Entra ID outage: Settings refuses to link, demote or delete the last one. An admin sets a
+  password for a user in Settings, Users, which is also the reset for somebody who lost theirs.
+- **Only the workers talk to Microsoft**, as for every external product: the browser is redirected to Microsoft by itself,
+  and the authorization code that comes back is exchanged by the workers, which validate the id_token and write back the
+  claims Fleeto needs, never a token. The request is typed rather than a proxy, so the client secret stays with the workers.
+- Configuring the sign-in, linking or unlinking a user and the way each sign-in came in are all in the audit log.
+
 ## Public API
 
 Every instance exposes a versioned REST API (`/api/v1`) so the customer can pull data out of
@@ -243,9 +271,10 @@ rather than a home-grown fallback.
 
 Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
 
-- **Windows first** (0.4.0), Linux in 0.4.1. Action1 patches Windows 8.1 and Server 2008 or newer, macOS and Linux x64;
+- **Windows first** (0.4.0), Linux later (planned as 0.4.1, moved to "Not yet scheduled" on 2026-09-23). Action1 patches
+  Windows 8.1 and Server 2008 or newer, macOS and Linux x64;
   Windows 7 and Server 2003 are out and are the platforms that show "not covered by patch management". A Linux endpoint
-  shows no patch data at all until 0.4.1 and is left out of the compliance counts: saying it is not covered would be untrue.
+  shows no patch data at all for now and is left out of the compliance counts: saying it is not covered would be untrue.
 - **One enterprise credential per instance.** Action1 API credentials are OAuth2 client credentials created in the Action1
   console, scoped by role, and reach every organization of the enterprise; the instance stores one set (encrypted, like every
   integration credential) and maps organizations to clients. Use the EU region (`app.eu.action1.com`) so patch data stays in
@@ -341,7 +370,8 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
 - **Command authorization**: every job records who initiated it, when, on which endpoints, with what payload. Immutable audit log for all privileged actions (script run, script approval, patch, remote control session, credential change, API key change, license change, login, permission change, certificate revocation, client or site deletion).
 - **Remote control** is the highest-risk feature: single-use tokens per participant, end-to-end encryption, visible on workstations by policy, policy-controlled consent on workstations, audited, managed endpoints only.
 - **Remote terminal** (0.3.0): interactive terminal as SYSTEM or root in the remote background session, with the same session token and end-to-end encryption as remote control, audited per session and participant, managed endpoints only. Available to admins and technicians also where script approval is required: accepted risk, documented in `MD-Files/ARCHITECTURE.md` §5.
-- **Web/API**: 2FA (TOTP) for all users, session hardening, per-endpoint rate limiting, strict input validation, parameterized queries only, CSP with a nonce and without unsafe-inline for scripts (styles need `'unsafe-inline'` because MudBlazor renders inline style attributes). API keys hashed at rest, scoped, revocable.
+- **Web/API**: 2FA (TOTP) for all local users and MFA through Entra ID for linked users (see Sign-in and two-factor
+  authentication), session hardening, per-endpoint rate limiting, strict input validation, parameterized queries only, CSP with a nonce and without unsafe-inline for scripts (styles need `'unsafe-inline'` because MudBlazor renders inline style attributes). API keys hashed at rest, scoped, revocable.
 - **Least privilege**: containers run as non-root, read-only filesystems where possible, no Docker socket exposure to app containers, one database role per container. Instances on the same VPS share nothing but the host proxy: separate networks, volumes and secrets. The host proxy is not secret-free: it holds the TLS keys of every instance FQDN on the VPS, so it is pinned, minimally configured and its admin API is local only.
 - **Multi-tenancy discipline**: every query is scoped by client; every client-owned table carries its own `ClientId` (denormalized on purpose, kept consistent by composite foreign keys to the parent); write tests that prove cross-client reads fail. Instances are separate stacks, so cross-instance access is impossible by construction, not by a filter.
 - Dependency policy: minimal, well-maintained packages; `dotnet list package --vulnerable` and `govulncheck` in CI; fail the build on known CVEs.
@@ -452,9 +482,7 @@ home-grown patch engine. Note them, do not build them. (File transfer inside rem
 
 ## Open decisions (revisit before building)
 
-- **Entra ID sign-in and 2FA** (0.5.0): does an Entra ID sign-in replace the local TOTP step when
-  the token proves MFA (`amr` claim), or is local TOTP always required on top? And may a user with
-  Entra ID still sign in with a local password?
+- **Entra ID sign-in and 2FA**: decided on 2026-09-23, see Sign-in and two-factor authentication. Nothing open.
 - **Whitelabel depth**: FQDN only (v1) vs. customer logo and product name in the UI and emails.
 - **Action1**: decided and verified on 2026-09-20, see Patch management. Nothing open.
 - Final product name — "Fleeto" is a working title; a Google Play app "Fleeto" exists in vehicle fleet management. Do the BOIP/EUIPO and domain checks before public use.
