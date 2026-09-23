@@ -2,11 +2,12 @@
 
 > Technical reference for Fleeto. Rules and priorities live in
 > `CLAUDE.md` in the repository root; this file describes how the system is put together.
-> Status: 0.0.x to 0.3.0 released (agent enrollment, gateway, signer, workers, web UI, licensing, backups, maintenance,
+> Status: 0.0.x to 0.4.0 released (agent enrollment, gateway, signer, workers, web UI, licensing, backups, maintenance,
 > the check catalog and history, notification routing, scripts and jobs, the read-only public API, agent updates, the
-> watchdog, the Linux agent, and remote sessions: the relay, end-to-end encryption, the full remote background — terminal,
+> watchdog, the Linux agent, remote sessions: the relay, end-to-end encryption, the full remote background — terminal,
 > files, services, processes — and remote control on Windows (H.264 and tiles) and on Linux with X11, with the clipboard,
-> several technicians, consent and banner). Integrations are design.
+> several technicians, consent and banner; and patch management through Action1 on Windows: patch state, deployments and
+> installing the Action1 agent). The other integrations (Sophos, Veeam, Proxmox, vCenter) are design.
 > Sections marked *decision pending* point to the open decisions in `CLAUDE.md`.
 
 ## 1. Deployment topology

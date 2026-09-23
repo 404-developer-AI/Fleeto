@@ -4,6 +4,57 @@ Released versions older than the two kept in `CHANGELOG.md`, newest first. Entri
 moved here verbatim when `CHANGELOG.md` would otherwise hold three released versions, in
 the same commit as the new release. Archived entries are never edited.
 
+## [0.2.2] — 2026-09-16
+
+Found while testing 0.2.1 on the first test VPS: why an agent or watchdog update waits, choosing the user a script runs as, and
+a safe restore when an update fails. Pre-releases `0.2.2-alpha.1` and `0.2.2-alpha.2` (2026-09-16) were test builds on the
+first test VPS.
+
+### Added
+
+- The agent and the watchdog log once per release why they do not install an offered newer release yet: waiting for the
+  update ring, for the next attempt after a failure (with its time), until the agent runs the release itself, or a version
+  that was rolled back before. Before, such a wait was silent in the log.
+- The endpoint detail states what the agent and watchdog updates wait for: the update ring with the ring of the site and the
+  day it reaches the release (or that the release is paused), the next attempt after a failure, the random delay, the agent's
+  own update before the watchdog's, or a version rolled back before. The installer reports the wait to the gateway (update state
+  `waiting` with a reason and the seconds until it ends); stored in `EndpointComponentStates` (migration
+  `ComponentUpdateWait`, additive).
+
+- Choose the user a script runs as. The agent reports the signed-in users with their sessions (heartbeat, when the list
+  changes), and the run window for one endpoint lists them with the time of the report next to "whoever is signed in". The
+  choice (SID on Windows, uid on Linux) is signed with the job; the signer signs it only for an agent from 0.2.2, and the agent
+  runs the script only in a session of that user and fails the job when that user is not signed in. The job history names the
+  chosen user; `runAsChosenAccount` on Job in the API. Stored on `Endpoints` and `Jobs` (migration `ChosenSignedInUser`,
+  additive).
+- Run a script for all signed-in users, on one endpoint or a selection: one job per user the agent last reported, each signed
+  for that user, with its own result and output. Endpoints where nobody was signed in or whose agent is older than 0.2.2 get no
+  job, with the reason; a run creates at most 500 jobs. The run window names the user of each job, and the admin notice
+  threshold still counts endpoints.
+
+### Changed
+
+- An agent or watchdog update that fails for a transient reason (the gateway or the signer could not answer right now, or the
+  connection dropped during the download) is retried after 1 minute, doubling up to an hour, instead of after an hour. A refusal,
+  a download that does not match the signed manifest or a failing service change still waits an hour. The gateway marks a
+  watchdog certificate error as `temporary` when the signer did not answer (additive protocol field).
+
+### Fixed
+
+- A failed update no longer loses the instance database when its rollback cannot restore the backup. install.sh checks the
+  free disk space before an update (the backup, a second copy of the database and the new images) and changes nothing when
+  it is short. A restore waits for a healthy PostgreSQL, checks that the backup can be read, restores into a separate
+  database and replaces the instance database only when the restore is complete. When a restore still fails, the backup is
+  moved out of the rotation to `backups/kept/`, and the next install.sh run starts the update again from the previous
+  configuration.
+
+### Removed
+
+- WAL archiving. Without a physical base backup the archived WAL could not be restored, and without a backup destination
+  the spooled WAL grew by about 4.6 GB a day until it filled the disk of the first test VPS during an update. The nightly
+  `pg_dump` is the backup: a restore can lose up to 24 hours of changes. An update removes the `wal-spool/` directory and
+  `archive_command`; WAL archiving returns together with base backups for point-in-time recovery.
+
 ## [0.2.1] — 2026-09-16
 
 The first release since 0.1.0: it holds the 0.2.0 milestone, which was not released on its own

@@ -119,7 +119,7 @@ public sealed class IntegrationServiceTests
         // Mapping the same client to another organization replaces its mapping instead of adding a second one.
         Assert.True((await Integrations.SaveMappingAsync(WebFixture.Admin(), first.Id, "org-2", "Contoso EU")).Success);
         var view = await Integrations.GetAction1Async(WebFixture.Admin());
-        var mapping = Assert.Single(view!.Mappings.Where(m => m.ClientId == first.Id));
+        var mapping = Assert.Single(view!.Mappings, m => m.ClientId == first.Id);
         Assert.Equal("org-2", mapping.TenantId);
         Assert.Equal("Contoso EU", mapping.TenantName);
         Assert.Equal(first.Code, mapping.ClientCode);

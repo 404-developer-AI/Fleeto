@@ -35,11 +35,17 @@ keyboard, `v0.3.0-alpha.6`), step 4 (clipboard, several technicians, consent and
 DXGI desktop duplication, `v0.3.0-alpha.15`), step 6 (remote control on Linux with X11, `v0.3.0-alpha.16`) and step 7 (load test,
 security review and their fixes, `v0.3.0-alpha.17`) were each verified on Windows and Linux endpoints before the release.
 
+**0.4.0** — released 2026-09-23 (`v0.4.0`): patch management through Action1 on Windows, planned with the developer on
+2026-09-20 and built in three steps between 2026-09-20 and 2026-09-22. Step 1 (the connector, Settings, Integrations and the
+Action1 agent id in the inventory, `v0.4.0-alpha.1` and `v0.4.0-alpha.2`), step 2 (patch state per endpoint, client and site
+with its alerts, `v0.4.0-alpha.3`) and step 3 (deployments and installing the Action1 agent, `v0.4.0-alpha.4`) were each
+verified on the first test VPS and on real Windows endpoints before the release. Linux patch management follows in 0.4.1.
+
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
 2026-09-15, see Later).
 
-**Deployment**: Steaan runs every instance (SaaS, decided 2026-09-15); releases are GitHub Releases of the private
-repository.
+**Deployment**: Steaan runs every instance (SaaS, decided 2026-09-15); releases are GitHub Releases of the public
+repository, with the images as private packages on ghcr.io (public since 2026-09-21).
 
 Markers: [done] built and tested, [open] still to do.
 
@@ -529,7 +535,7 @@ Steps:
    - **Endpoint tests** (2026-09-20, by the developer): H.264 on Windows, remote control on Linux with X11 and the fixes of alpha.17
      all work on real endpoints. The changelog was then written for the release and the version tagged `v0.3.0`.
 
-## 0.4.0 — Patch management via Action1
+## 0.4.0 — Patch management via Action1 (released 2026-09-23)
 
 Patch management is delegated to Action1; Fleeto shows its state, starts deployments and alerts on them. The rules are in
 `CLAUDE.md` (Patch management: Action1).
@@ -593,8 +599,22 @@ Steps:
      on one;
    - found while building: the workers had read-only rights on the organization mapping while they keep its name current,
      so a renamed organization made the four-hourly refresh fail (fixed, see `CHANGELOG.md`).
-4. [open] **Release 0.4.0**: API waiting list or `API.md` for everything new, changelog, tag `v0.4.0`. A pre-release
-   `v0.4.0-alpha.N` after every step that can be tested on endpoints.
+4. [done] **Release 0.4.0** (released as `v0.4.0` on 2026-09-23): API waiting list or `API.md` for everything new,
+   changelog, tag `v0.4.0`. A pre-release `v0.4.0-alpha.N` after every step that can be tested on endpoints.
+   - **Endpoint tests** (by the developer): `v0.4.0-alpha.4` was tested on the first test VPS with Windows endpoints and
+     works; the earlier steps were tested on `v0.4.0-alpha.1` to `v0.4.0-alpha.3`.
+   - **API**: patch state, patch deployments and `action1AgentId` are in `API.md`; starting a deployment, installing the
+     Action1 agent and reading the integration configuration are on `API-WAITLIST.md`, and the credentials are in "Not
+     exposed on purpose". The dashboard summary entry on the waiting list now names patch compliance as well.
+   - **Changelog**: the 0.4.0 entry written, 0.2.2 moved to `CHANGELOG-ARCHIVE.md`, the version `0.4.0`.
+
+## 0.4.1 — Patch management on Linux
+
+- The Fleeto agent reads the id of the Action1 agent on a Linux endpoint, as it already does on Windows, so a Linux endpoint
+  can be matched to its Action1 record.
+- Linux endpoints get patch state, missing updates and deployments, and join the compliance counts of their client and site.
+  Until then they show no patch data at all, because calling them uncovered would be untrue.
+- Whatever testing 0.4.0 on more endpoints turns up.
 
 ## 0.5.0 — Integrations
 

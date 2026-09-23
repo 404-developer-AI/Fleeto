@@ -1,7 +1,6 @@
 @page "/settings/integrations"
 @attribute [Authorize(Policy = FleetoPolicies.Admin)]
 @inherits FleetoPageBase
-@implements IDisposable
 @using Fleeto.Core.Entities
 @using Fleeto.Core.Interfaces
 @using Fleeto.Infrastructure.Integrations.Action1
@@ -195,10 +194,11 @@
         }
     });
 
-    public void Dispose()
+    public override void Dispose()
     {
         _closed.Cancel();
         _closed.Dispose();
+        base.Dispose();
     }
 
     private async Task SaveAsync()

@@ -2,9 +2,10 @@
 
 Remote monitoring and management (RMM) by Steaan.
 
-Status: 0.3.0 released, running on the first test VPS. Windows and Linux agents, enrollment with mTLS, agent-only and
+Status: 0.4.0 released, running on the first test VPS. Windows and Linux agents, enrollment with mTLS, agent-only and
 managed endpoints with licensing, checks and alerts, dashboard, backups, jobs and scripts, remote control and remote
-background. 0.4.0 (patch management through Action1) is being built. See [`MD-Files/ROADMAP.md`](MD-Files/ROADMAP.md).
+background, and patch management through Action1 on Windows. 0.4.1 adds patch management on Linux. See
+[`MD-Files/ROADMAP.md`](MD-Files/ROADMAP.md).
 
 Source-available, not open source: see [License](#license).
 

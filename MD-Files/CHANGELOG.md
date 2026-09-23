@@ -7,18 +7,24 @@ This file holds the `Unreleased` section and the **two most recent released vers
 When a third released version is added, the oldest entry moves to the top of
 `CHANGELOG-ARCHIVE.md` in the same commit.
 
-## [Unreleased]
+## [0.4.0] — 2026-09-23
+
+Patch management through Action1: Fleeto shows per endpoint, client and site what Action1 reports about updates, deploys the
+missing ones and alerts when a patch state cannot be trusted. Fleeto keeps no catalog and no patch engine of its own. Built in
+three steps between 2026-09-20 and 2026-09-22. The pre-releases `0.4.0-alpha.1` to `0.4.0-alpha.4` were test builds on the first
+test VPS and on real Windows endpoints; what they found is in Fixed. Windows only: a Linux endpoint shows no patch state and stays
+out of the compliance counts until 0.4.1, because calling it uncovered would be untrue.
 
 ### Added
 
-- 0.4.0: Settings, Integrations for admins: the Action1 enterprise of the instance with its client id, client secret and
+- Settings, Integrations for admins: the Action1 enterprise of the instance with its client id, client secret and
   region, a connection test, and the mapping of Action1 organizations to clients. One organization belongs to one client
   and one client to one organization, so patch state can never land under another client. The client secret is write-only:
   stored encrypted and bound to its row, never shown again, never in the audit log. A blank secret when editing keeps the
   one that is stored. The workers make every call to Action1 and read its organizations again every four hours, so the
   names stay current. Fleeto stays well under the request budget Action1 recommends (20 a minute for the whole instance)
   and waits as long as Action1 asks after a "too many requests" answer.
-- 0.4.0: Patch state from Action1 per managed endpoint: the Patches tab on the endpoint detail shows whether it is up to
+- Patch state from Action1 per managed endpoint: the Patches tab on the endpoint detail shows whether it is up to
   date, how many updates it misses (critical and other), whether a restart is pending and which updates are missing with
   their severity. The dashboard has a patch compliance tile, and the clients workspace shows compliance of the selected
   client or site. The workers read it every four hours, matched on the Action1 agent id of the endpoint and only within
@@ -26,19 +32,19 @@ When a third released version is added, the oldest entry moves to the top of
   longer patches (above the licensed number of the subscription) or has not seen for a week opens an alert, because its
   state cannot be trusted; missing updates themselves are state, not an alert. Agent-only endpoints have no patch state,
   endpoints in maintenance open no alert, and `GET /api/v1/endpoints/{endpointId}/patches` gives the same data in the API.
-- 0.4.0: Deploying updates from Fleeto: on the Patches tab of an endpoint every missing update or the updates a technician
+- Deploying updates from Fleeto: on the Patches tab of an endpoint every missing update or the updates a technician
   ticks in the list, and from the endpoint list every missing update on a selection. The deployment runs in Action1; Fleeto
   shows per endpoint what Action1 reports, live, and keeps the run in the history of every endpoint it touched. Restarting
   is a choice per deployment and is off by default; with it on, the signed-in user gets a message and half an hour before
   Action1 restarts the endpoint. Managed endpoints only, admins and technicians, audited like a job. A deployment Action1
   refuses says why and installs nothing; one Action1 has not finished after a day is no longer followed and says so instead
   of claiming success. `GET /api/v1/endpoints/{endpointId}/patch-deployments` gives the same data in the API.
-- 0.4.0: Installing the Action1 agent from Fleeto on a Windows endpoint that patch management does not cover yet, from the
+- Installing the Action1 agent from Fleeto on a Windows endpoint that patch management does not cover yet, from the
   Patches tab. It is a signed job whose script Fleeto writes itself: fleeto-signer composes it from the installer link of
   the client's Action1 organization and refuses when that link changed since the technician asked. The link is read from
   Action1 where Action1 hands it out and can otherwise be pasted per organization in Settings, Integrations. The
   installation is silent and never restarts the endpoint.
-- 0.4.0: The agent reports the id of the Action1 agent installed next to it on a Windows endpoint, read from the endpoint
+- The agent reports the id of the Action1 agent installed next to it on a Windows endpoint, read from the endpoint
   itself. It is shown on the endpoint's Summary tab and as `action1AgentId` on the inventory in the public API. Patch
   management matches an endpoint on it instead of on the host name, which is not unique across clients and changes.
   Linux follows in 0.4.1, together with patch management for Linux endpoints.
@@ -55,10 +61,13 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
-- 0.4.0: The workers may change the organization mapping of an integration again. They keep the name of an Action1
+- Settings, Integrations releases the page when it is closed. Its own clean-up replaced the one it inherits instead of
+  running next to it, so the page stayed subscribed to the time zone of the signed-in user after it was closed. Found while
+  preparing the release.
+- The workers may change the organization mapping of an integration again. They keep the name of an Action1
   organization current, but had read-only rights on that table, so a renamed organization made the four-hourly refresh
   fail on an instance. Found while building 0.4.0 step 3.
-- 0.4.0: The connection test of an integration no longer ends in "Action1 did not answer in time" on an instance. fleeto-web
+- The connection test of an integration no longer ends in "Action1 did not answer in time" on an instance. fleeto-web
   runs on a network without outbound access, so it can never reach an external product; it now records what an admin asked
   for and the workers, which do have outbound access, make the call and write the result back. The page shows "Testing"
   until the answer is there. Found while testing 0.4.0-alpha.1.
@@ -200,54 +209,3 @@ CI, 800 on the development laptop) and reviewed every line of the new code; what
   belongs to it. Files of a session (its cookie, a copied file) are read with the rights of that user, never as root. Consent is asked when
   the screen is locked, and a session state that cannot be read counts as somebody being there.
 - The service actions of 0.2.1 are stricter: `systemctl` is called with `--` before the unit, and a service name may not start with a dash.
-
-## [0.2.2] — 2026-09-16
-
-Found while testing 0.2.1 on the first test VPS: why an agent or watchdog update waits, choosing the user a script runs as, and
-a safe restore when an update fails. Pre-releases `0.2.2-alpha.1` and `0.2.2-alpha.2` (2026-09-16) were test builds on the
-first test VPS.
-
-### Added
-
-- The agent and the watchdog log once per release why they do not install an offered newer release yet: waiting for the
-  update ring, for the next attempt after a failure (with its time), until the agent runs the release itself, or a version
-  that was rolled back before. Before, such a wait was silent in the log.
-- The endpoint detail states what the agent and watchdog updates wait for: the update ring with the ring of the site and the
-  day it reaches the release (or that the release is paused), the next attempt after a failure, the random delay, the agent's
-  own update before the watchdog's, or a version rolled back before. The installer reports the wait to the gateway (update state
-  `waiting` with a reason and the seconds until it ends); stored in `EndpointComponentStates` (migration
-  `ComponentUpdateWait`, additive).
-
-- Choose the user a script runs as. The agent reports the signed-in users with their sessions (heartbeat, when the list
-  changes), and the run window for one endpoint lists them with the time of the report next to "whoever is signed in". The
-  choice (SID on Windows, uid on Linux) is signed with the job; the signer signs it only for an agent from 0.2.2, and the agent
-  runs the script only in a session of that user and fails the job when that user is not signed in. The job history names the
-  chosen user; `runAsChosenAccount` on Job in the API. Stored on `Endpoints` and `Jobs` (migration `ChosenSignedInUser`,
-  additive).
-- Run a script for all signed-in users, on one endpoint or a selection: one job per user the agent last reported, each signed
-  for that user, with its own result and output. Endpoints where nobody was signed in or whose agent is older than 0.2.2 get no
-  job, with the reason; a run creates at most 500 jobs. The run window names the user of each job, and the admin notice
-  threshold still counts endpoints.
-
-### Changed
-
-- An agent or watchdog update that fails for a transient reason (the gateway or the signer could not answer right now, or the
-  connection dropped during the download) is retried after 1 minute, doubling up to an hour, instead of after an hour. A refusal,
-  a download that does not match the signed manifest or a failing service change still waits an hour. The gateway marks a
-  watchdog certificate error as `temporary` when the signer did not answer (additive protocol field).
-
-### Fixed
-
-- A failed update no longer loses the instance database when its rollback cannot restore the backup. install.sh checks the
-  free disk space before an update (the backup, a second copy of the database and the new images) and changes nothing when
-  it is short. A restore waits for a healthy PostgreSQL, checks that the backup can be read, restores into a separate
-  database and replaces the instance database only when the restore is complete. When a restore still fails, the backup is
-  moved out of the rotation to `backups/kept/`, and the next install.sh run starts the update again from the previous
-  configuration.
-
-### Removed
-
-- WAL archiving. Without a physical base backup the archived WAL could not be restored, and without a backup destination
-  the spooled WAL grew by about 4.6 GB a day until it filled the disk of the first test VPS during an update. The nightly
-  `pg_dump` is the backup: a restore can lose up to 24 hours of changes. An update removes the `wal-spool/` directory and
-  `archive_command`; WAL archiving returns together with base backups for point-in-time recovery.
