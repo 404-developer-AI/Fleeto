@@ -120,7 +120,8 @@ public sealed class MicrosoftRequestService : WorkerLoop
     /// <summary>The credential of the sign-in, the tenant check and whether users can be chosen from Microsoft.</summary>
     private async Task<IReadOnlyList<MicrosoftCheck>> TestSignInAsync(CancellationToken cancellationToken)
     {
-        var credential = await SignInCredentialAsync(cancellationToken);
+        var settings = await _settings.GetAsync<EntraSignInSettings>(SettingKeys.EntraSignIn, cancellationToken);
+        var credential = CredentialOf(settings);
         if (credential is null)
         {
             return [new(MicrosoftCheckStatus.Failed, "Save the tenant, the client ID and the client secret in Settings, Sign-in first.")];
@@ -146,7 +147,8 @@ public sealed class MicrosoftRequestService : WorkerLoop
                 $"{MicrosoftGraphClient.UserReadAll} is not granted, so users cannot be chosen from Microsoft; linking by object ID still works. " +
                 "Add it as an application permission of Microsoft Graph and grant admin consent."));
 
-        AddExtraRoles(checks, token, MicrosoftGraphClient.UserReadAll, "The sign-in");
+        checks.Add(TenantCheck(await _graph.ReadTenantMfaAsync(token, cancellationToken), settings!.MicrosoftHandlesSecondFactor));
+        AddExtraRoles(checks, token, [MicrosoftGraphClient.UserReadAll, MicrosoftGraphClient.PolicyReadAll], "The sign-in");
         checks.Add(new(MicrosoftCheckStatus.Info,
             "The redirect URI and the sign-in permissions (openid, profile, email) cannot be checked from here. Sign in with Microsoft once to check them."));
         return checks;
@@ -187,28 +189,55 @@ public sealed class MicrosoftRequestService : WorkerLoop
                 : new(MicrosoftCheckStatus.Failed,
                     $"{MicrosoftGraphClient.MailSend} is not granted, so Fleeto cannot send email. Add it as an application permission of Microsoft Graph and grant admin consent.")
         };
-        AddExtraRoles(checks, token, MicrosoftGraphClient.MailSend, "Email");
+        AddExtraRoles(checks, token, [MicrosoftGraphClient.MailSend], "Email");
         checks.Add(new(MicrosoftCheckStatus.Info,
             $"Whether Fleeto may send as {settings.SenderAddress} depends on the Exchange application access policy, which only a message shows. Send a test email to check it."));
         return checks;
     }
 
-    /// <summary>Least privilege: a registration that can do more than Fleeto needs is worth a warning.</summary>
-    private static void AddExtraRoles(List<MicrosoftCheck> checks, GraphToken token, string needed, string what)
+    /// <summary>
+    /// How the tenant asks for a second factor, as far as Fleeto may see it. Worse when the second factor of linked users is
+    /// left to Microsoft (Settings, Sign-in), because then nothing else asks for one.
+    /// </summary>
+    private static MicrosoftCheck TenantCheck(TenantMfaState? tenant, bool leftToMicrosoft)
     {
-        var extra = token.Roles.Where(r => !string.Equals(r, needed, StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal).ToList();
+        const string Switch = "\"Microsoft handles the second factor of linked users\"";
+        return tenant switch
+        {
+            null => new(MicrosoftCheckStatus.Info,
+                $"Fleeto cannot see whether your tenant asks for a second factor. Grant the application permission {MicrosoftGraphClient.PolicyReadAll} " +
+                "with admin consent to let this test check Security Defaults and Conditional Access."),
+            { SecurityDefaults: true } => new(MicrosoftCheckStatus.Ok,
+                "Security Defaults is on: Microsoft asks for a second factor when it considers one necessary, not at every sign-in."),
+            { EnabledConditionalAccessPolicies: > 0 and var count } => new(MicrosoftCheckStatus.Ok,
+                $"{count} Conditional Access {(count == 1 ? "policy is" : "policies are")} on. Check that one requires multi-factor authentication for Fleeto."),
+            { EnabledConditionalAccessPolicies: 0 } => new(leftToMicrosoft ? MicrosoftCheckStatus.Failed : MicrosoftCheckStatus.Warning,
+                "Neither Security Defaults nor a Conditional Access policy is on, so Microsoft asks for no second factor. " +
+                (leftToMicrosoft
+                    ? $"Linked users now sign in to Fleeto with one factor: require multi-factor authentication in the tenant, or switch {Switch} off."
+                    : $"Keep {Switch} off until the tenant requires multi-factor authentication.")),
+            _ => new(MicrosoftCheckStatus.Info,
+                "Security Defaults is off, and Fleeto could not read the Conditional Access policies (they need Entra ID P1). " +
+                "Check in the tenant that multi-factor authentication is required.")
+        };
+    }
+
+    /// <summary>Least privilege: a registration that can do more than Fleeto needs is worth a warning.</summary>
+    private static void AddExtraRoles(List<MicrosoftCheck> checks, GraphToken token, IReadOnlyList<string> needed, string what)
+    {
+        var extra = token.Roles.Where(r => !needed.Contains(r, StringComparer.OrdinalIgnoreCase)).Order(StringComparer.Ordinal).ToList();
         if (extra.Count > 0)
         {
             checks.Add(new(MicrosoftCheckStatus.Warning,
-                $"The app registration also holds {string.Join(", ", extra)}. {what} needs only {needed}; remove the rest, so its credential can do no more than that."));
+                $"The app registration also holds {string.Join(", ", extra)}. {what} needs only {string.Join(" and ", needed)}; remove the rest, so its credential can do no more than that."));
         }
     }
 
-    private async Task<AppCredential?> SignInCredentialAsync(CancellationToken cancellationToken)
-    {
-        var settings = await _settings.GetAsync<EntraSignInSettings>(SettingKeys.EntraSignIn, cancellationToken);
-        return settings is { IsComplete: true } ? new AppCredential(settings.TenantId, settings.ClientId, settings.ClientSecret, null) : null;
-    }
+    private async Task<AppCredential?> SignInCredentialAsync(CancellationToken cancellationToken) =>
+        CredentialOf(await _settings.GetAsync<EntraSignInSettings>(SettingKeys.EntraSignIn, cancellationToken));
+
+    private static AppCredential? CredentialOf(EntraSignInSettings? settings) =>
+        settings is { IsComplete: true } ? new AppCredential(settings.TenantId, settings.ClientId, settings.ClientSecret, null) : null;
 
     private async Task<GraphToken> SearchTokenAsync(AppCredential credential, CancellationToken cancellationToken)
     {

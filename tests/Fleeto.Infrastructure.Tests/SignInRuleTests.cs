@@ -49,6 +49,22 @@ public sealed class SignInRuleTests
     }
 
     [Fact]
+    public void The_second_factor_comes_from_the_token_or_from_the_setting_and_otherwise_from_Fleeto()
+    {
+        var proven = SignInTokenRules.Check(Facts(amr: ["pwd", "mfa"]), Issuer).Claims!;
+        var single = SignInTokenRules.Check(Facts(amr: []), Issuer).Claims!;
+        var strict = new EntraSignInSettings();
+        var delegated = new EntraSignInSettings { MicrosoftHandlesSecondFactor = true };
+
+        Assert.Equal(EntraSignIn.ProvenSecondFactor, EntraSignIn.SecondFactorSource(proven, strict));
+        // A token that proves it wins over the setting, so the audit log says which of the two let the person in.
+        Assert.Equal(EntraSignIn.ProvenSecondFactor, EntraSignIn.SecondFactorSource(proven, delegated));
+        Assert.Equal(EntraSignIn.DelegatedSecondFactor, EntraSignIn.SecondFactorSource(single, delegated));
+        // Off by default: Fleeto asks its own code.
+        Assert.Null(EntraSignIn.SecondFactorSource(single, strict));
+    }
+
+    [Fact]
     public void A_token_of_the_configured_tenant_is_accepted()
     {
         var outcome = SignInTokenRules.Check(Facts(), Issuer);

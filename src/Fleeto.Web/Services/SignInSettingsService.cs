@@ -13,12 +13,15 @@ namespace Fleeto.Web.Services;
 /// </summary>
 /// <param name="RedirectUri">The URI to register as a redirect URI of the app registration.</param>
 /// <param name="LinkedUsers">How many users sign in with Entra ID today.</param>
+/// <param name="MicrosoftHandlesSecondFactor">Linked users need no Fleeto authenticator code; the tenant is responsible.</param>
 public sealed record SignInView(bool Enabled, string TenantId, string ClientId, bool HasClientSecret, DateTime? ClientSecretExpiresAt,
-    bool IsComplete, string RedirectUri, int LinkedUsers);
+    bool IsComplete, string RedirectUri, int LinkedUsers, bool MicrosoftHandlesSecondFactor = false);
 
 /// <param name="NewClientSecret">A new secret value; blank keeps the stored one.</param>
 /// <param name="ClientSecretExpiresOn">The end date of the secret as the app registration shows it (a date, UTC).</param>
-public sealed record SignInInput(bool Enabled, string? TenantId, string? ClientId, string? NewClientSecret, DateTime? ClientSecretExpiresOn);
+/// <param name="MicrosoftHandlesSecondFactor">Leave the second factor of linked users to the tenant (off by default).</param>
+public sealed record SignInInput(bool Enabled, string? TenantId, string? ClientId, string? NewClientSecret, DateTime? ClientSecretExpiresOn,
+    bool MicrosoftHandlesSecondFactor = false);
 
 /// <summary>
 /// Sign-in with Microsoft Entra ID for admins (0.5.0). The client secret is write-only: it is stored encrypted and never
@@ -46,7 +49,8 @@ public sealed class SignInSettingsService
         var instance = await InstanceQueries.GetInstanceAsync(db, cancellationToken);
         var linked = await db.Users.AsNoTracking().CountAsync(u => u.EntraObjectId != null, cancellationToken);
         return new SignInView(settings.Enabled, settings.TenantId, settings.ClientId, !string.IsNullOrEmpty(settings.ClientSecret),
-            settings.ClientSecretExpiresAt, settings.IsComplete, EntraSignIn.RedirectUri(instance.WebBaseUrl), linked);
+            settings.ClientSecretExpiresAt, settings.IsComplete, EntraSignIn.RedirectUri(instance.WebBaseUrl), linked,
+            settings.MicrosoftHandlesSecondFactor);
     }
 
     /// <summary>
@@ -122,7 +126,8 @@ public sealed class SignInSettingsService
             ClientId = clientId!,
             CredentialType = EntraCredentialType.ClientSecret,
             ClientSecret = secret,
-            ClientSecretExpiresAt = expiresAt
+            ClientSecretExpiresAt = expiresAt,
+            MicrosoftHandlesSecondFactor = input.MicrosoftHandlesSecondFactor
         };
 
         if (updated.Enabled && !updated.IsComplete)
@@ -132,9 +137,28 @@ public sealed class SignInSettingsService
 
         await _settings.SetAsync(SettingKeys.EntraSignIn, updated, encrypted: true, caller.UserId, cancellationToken);
         await using var db = _dbFactory.CreateSystem();
+        var sessionsEnded = 0;
+        if (current.MicrosoftHandlesSecondFactor && !updated.MicrosoftHandlesSecondFactor)
+        {
+            // Sessions that came in without a Fleeto code because the tenant was trusted must not outlive that trust: a new
+            // security stamp ends them within the validation interval, and the next sign-in asks the code again.
+            sessionsEnded = await db.Database.ExecuteSqlRawAsync(
+                "UPDATE \"AspNetUsers\" SET \"SecurityStamp\" = upper(replace(gen_random_uuid()::text, '-', '')), " +
+                "\"ConcurrencyStamp\" = gen_random_uuid()::text WHERE \"EntraObjectId\" IS NOT NULL", cancellationToken);
+        }
+
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(secretChanged ? AuditActions.CredentialChanged : AuditActions.SignInConfigured,
             "Setting", SettingKeys.EntraSignIn, null,
-            new { updated.Enabled, updated.TenantId, updated.ClientId, SecretChanged = secretChanged, updated.ClientSecretExpiresAt }), now));
+            new
+            {
+                updated.Enabled,
+                updated.TenantId,
+                updated.ClientId,
+                SecretChanged = secretChanged,
+                updated.ClientSecretExpiresAt,
+                updated.MicrosoftHandlesSecondFactor,
+                SessionsEnded = sessionsEnded
+            }), now));
         await db.SaveChangesAsync(cancellationToken);
         return ServiceResult.Ok();
     }

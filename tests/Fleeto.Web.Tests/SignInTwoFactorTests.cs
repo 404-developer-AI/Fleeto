@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Fleeto.Core.Entities;
+using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Identity;
 using Fleeto.Infrastructure.Settings;
 using Fleeto.Web.Security;
@@ -203,13 +204,55 @@ public sealed class SignInTwoFactorTests
         TwoFactorGate.CarryOverSecondFactor(current, null);
     }
 
-    private static ClaimsPrincipal Principal(Guid userId, bool entraSecondFactor)
+    [Fact]
+    public async Task A_second_factor_left_to_Microsoft_counts_while_linked_and_switching_it_off_ends_the_sessions()
+    {
+        var admin = WebFixtureBase.Admin();
+        await ConfigureAsync(admin);
+        var linked = await CreateUserAsync(admin, FleetoRoles.Technician);
+        Assert.True((await Users.LinkEntraAsync(admin, linked, Guid.NewGuid().ToString("D"), null)).Success);
+        var local = await CreateUserAsync(admin, FleetoRoles.Technician);
+
+        // A session that came in while the tenant handles the second factor needs no local authenticator, while linked.
+        Assert.False(await Gate.RequiresSetupAsync(Principal(linked, TwoFactorGate.DelegatedSecondFactor)));
+        Assert.True(await Gate.RequiresSetupAsync(Principal(local, TwoFactorGate.DelegatedSecondFactor)));
+
+        var today = _fixture.Database.Time.GetUtcNow().UtcDateTime.Date;
+        Assert.True((await SignIn.SaveAsync(admin, new SignInInput(true, TenantId, ClientId, null, today.AddDays(60), MicrosoftHandlesSecondFactor: true))).Success);
+        Assert.True((await SignIn.GetAsync(admin)).MicrosoftHandlesSecondFactor);
+        var linkedStamp = await StampAsync(linked);
+        var localStamp = await StampAsync(local);
+
+        // Switching it off ends the sessions of linked users, which came in without a Fleeto code; local users keep theirs.
+        Assert.True((await SignIn.SaveAsync(admin, new SignInInput(true, TenantId, ClientId, null, today.AddDays(60)))).Success);
+        Assert.False((await SignIn.GetAsync(admin)).MicrosoftHandlesSecondFactor);
+        Assert.NotEqual(linkedStamp, await StampAsync(linked));
+        Assert.Equal(localStamp, await StampAsync(local));
+
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        var entry = await db.AuditEntries.AsNoTracking().Where(a => a.Action == AuditActions.SignInConfigured)
+            .OrderByDescending(a => a.Id).FirstAsync();
+        using var details = System.Text.Json.JsonDocument.Parse(entry.DetailsJson);
+        Assert.False(details.RootElement.GetProperty("microsoftHandlesSecondFactor").GetBoolean());
+        Assert.True(details.RootElement.GetProperty("sessionsEnded").GetInt32() >= 1);
+    }
+
+    private async Task<string?> StampAsync(Guid userId)
+    {
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        return await db.Users.AsNoTracking().Where(u => u.Id == userId).Select(u => u.SecurityStamp).SingleAsync();
+    }
+
+    private static ClaimsPrincipal Principal(Guid userId, bool entraSecondFactor) =>
+        Principal(userId, entraSecondFactor ? TwoFactorGate.EntraSecondFactor : null);
+
+    private static ClaimsPrincipal Principal(Guid userId, string? secondFactor)
     {
         var identity = new ClaimsIdentity("test");
         identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, userId.ToString()));
-        if (entraSecondFactor)
+        if (secondFactor is not null)
         {
-            identity.AddClaim(new Claim(TwoFactorGate.SecondFactorClaim, TwoFactorGate.EntraSecondFactor));
+            identity.AddClaim(new Claim(TwoFactorGate.SecondFactorClaim, secondFactor));
         }
 
         return new ClaimsPrincipal(identity);

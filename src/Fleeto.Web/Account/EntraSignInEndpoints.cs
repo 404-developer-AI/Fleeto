@@ -213,21 +213,23 @@ public static class EntraSignInEndpoints
         // Only a sign-in that finishes here counts as a sign-in; when the authenticator code is still to come, that step
         // records it, exactly as it does after a password.
         var twoFactorEnabled = await users.GetTwoFactorEnabledAsync(user);
-        if (claims.MfaProven || !twoFactorEnabled)
+        var secondFactor = EntraSignIn.SecondFactorSource(claims, configured);
+        if (secondFactor is not null || !twoFactorEnabled)
         {
             user.LastLoginAt = now;
         }
 
         await users.UpdateAsync(user);
 
-        if (claims.MfaProven)
+        if (secondFactor is not null)
         {
-            // Microsoft already asked for a second factor (the amr claim of the token says so), so Fleeto does not ask for
-            // one on top. The session carries that fact; TwoFactorGate checks the link again on every request, so unlinking
-            // the user ends the exemption without waiting for the session to expire.
-            await signIn.SignInWithClaimsAsync(user, isPersistent: false,
-                [new Claim(TwoFactorGate.SecondFactorClaim, TwoFactorGate.EntraSecondFactor)]);
-            await audit.WriteAsync(SuccessRecord(user, context, claims, "Microsoft Entra ID"));
+            // Either the token says Microsoft asked for a second factor (amr), or the customer leaves the second factor of
+            // linked users to its tenant (Settings, Sign-in). Fleeto does not ask for one on top. The session carries which
+            // of the two it was; TwoFactorGate checks the link again on every request, so unlinking the user ends the
+            // exemption, and switching the setting off ends the sessions of linked users.
+            await signIn.SignInWithClaimsAsync(user, isPersistent: false, [new Claim(TwoFactorGate.SecondFactorClaim, secondFactor)]);
+            await audit.WriteAsync(SuccessRecord(user, context, claims,
+                secondFactor == EntraSignIn.ProvenSecondFactor ? "Microsoft Entra ID" : "left to Microsoft"));
             return Results.Redirect(pending.ReturnUrl);
         }
 

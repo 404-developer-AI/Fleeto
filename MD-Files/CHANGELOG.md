@@ -19,9 +19,12 @@ When a third released version is added, the oldest entry moves to the top of
   the object id of the account rather than on an email address. Configuring the sign-in, linking and unlinking, and the way
   every sign-in came in are in the audit log. Fleeto warns before the client secret expires; after it expires local accounts
   keep working.
-- 0.5.0: Every sign-in keeps two factors, whichever way it comes in. When the token of a sign-in with Entra ID says
-  Microsoft asked for a second factor, Fleeto does not ask for its authenticator code on top; when it does not say so, the
-  code is asked as always. A linked user has no Fleeto password at all — linking removes it, and the password form answers a
+- 0.5.0: You decide who asks for the second factor of people who sign in with Microsoft. By default Fleeto asks its own
+  authenticator code after a sign-in with Entra ID. When your tenant requires multi-factor authentication, switch on
+  "Microsoft handles the second factor of linked users" in Settings, Sign-in, and Fleeto asks no code on top: your tenant is
+  then responsible for it. Switching it off ends the sessions of linked users. The test on that page tells you whether your
+  tenant has Security Defaults or Conditional Access on, and every sign-in with Entra ID records in the audit log how
+  Microsoft says the person signed in. Local accounts always keep the Fleeto code. A linked user has no Fleeto password at all — linking removes it, and the password form answers a
   linked account exactly as it answers a wrong password, so it tells nobody which accounts sign in with Microsoft. One admin
   always keeps a password as the way in when Microsoft is unavailable: the last such admin cannot be linked, demoted or
   deleted, with a message that says why.

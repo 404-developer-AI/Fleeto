@@ -47,6 +47,15 @@
                     Offer Microsoft Entra ID on the sign-in page
                 </MudSwitch>
 
+                <MudSwitch T="bool" @bind-Value="_microsoftSecondFactor" Color="Color.Primary" Class="mb-1">
+                    Microsoft handles the second factor of linked users
+                </MudSwitch>
+                <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+                    Linked users then sign in without the Fleeto authenticator code. Fleeto cannot see whether your tenant asks for
+                    a second factor, so require multi-factor authentication there first, with Security Defaults or Conditional
+                    Access. Local accounts always keep their code. Switching this off ends the sessions of linked users.
+                </MudText>
+
                 @if (_view is { ClientSecretExpiresAt: { } expires })
                 {
                     <MudText Typo="Typo.caption" Class="muted d-block mb-3">
@@ -91,9 +100,10 @@
                 }
             </MudText>
             <MudAlert Severity="Severity.Info" Dense="true">
-                A sign-in through Entra ID counts as two factors when the token says Microsoft asked for a second one;
-                otherwise Fleeto asks the authenticator code on top. A linked user has no Fleeto password, and one admin
-                always keeps a password as the way in when Microsoft is unavailable.
+                A sign-in through Entra ID asks the Fleeto authenticator code on top, unless you leave the second factor to
+                Microsoft with the switch on the left. Microsoft does not say in the token whether it asked for one, so that
+                switch puts the second factor of linked users in the hands of your tenant. A linked user has no Fleeto
+                password, and one admin always keeps a password as the way in when Microsoft is unavailable.
             </MudAlert>
         </MudItem>
     </MudGrid>
@@ -106,6 +116,7 @@
     private string? _clientSecret;
     private DateTime? _secretExpiresOn;
     private bool _enabled;
+    private bool _microsoftSecondFactor;
     private bool _busy;
     private bool _testing;
     private IReadOnlyList<MicrosoftCheck>? _checks;
@@ -149,6 +160,7 @@
         _tenantId = _view.TenantId;
         _clientId = _view.ClientId;
         _enabled = _view.Enabled;
+        _microsoftSecondFactor = _view.MicrosoftHandlesSecondFactor;
         _secretExpiresOn = _view.ClientSecretExpiresAt?.Date;
         _clientSecret = null;
     });
@@ -158,7 +170,7 @@
         _busy = true;
         try
         {
-            var input = new SignInInput(_enabled, _tenantId, _clientId, _clientSecret, _secretExpiresOn);
+            var input = new SignInInput(_enabled, _tenantId, _clientId, _clientSecret, _secretExpiresOn, _microsoftSecondFactor);
             if (await RunAsync(caller => SignInSvc.SaveAsync(caller, input), "The sign-in settings were saved."))
             {
                 await ReloadAsync();

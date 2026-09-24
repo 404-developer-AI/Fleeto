@@ -31,6 +31,12 @@ public sealed record DirectoryUser(Guid ObjectId, string DisplayName, string? Us
 /// <summary>The credential of an app registration: a client secret or the certificate Fleeto created for it.</summary>
 public sealed record AppCredential(string TenantId, string ClientId, string? ClientSecret, string? CertificatePfx);
 
+/// <summary>
+/// Whether the tenant asks for a second factor at all, as far as the app registration may read it: Security Defaults on,
+/// or how many Conditional Access policies are on (null when Fleeto could not read them).
+/// </summary>
+public sealed record TenantMfaState(bool SecurityDefaults, int? EnabledConditionalAccessPolicies);
+
 /// <summary>An app-only access token for Microsoft Graph and the application permissions it carries.</summary>
 public sealed record GraphToken(string AccessToken, DateTimeOffset ExpiresAt, IReadOnlyList<string> Roles);
 
@@ -81,6 +87,9 @@ public sealed class MicrosoftGraphClient : IDisposable
 
     /// <summary>The application permission that lets Settings list the users of the tenant.</summary>
     public const string UserReadAll = "User.Read.All";
+
+    /// <summary>The optional application permission that lets the test of the sign-in see how the tenant asks for MFA.</summary>
+    public const string PolicyReadAll = "Policy.Read.All";
 
     /// <summary>The application permission Microsoft Graph email needs.</summary>
     public const string MailSend = "Mail.Send";
@@ -187,6 +196,65 @@ public sealed class MicrosoftGraphClient : IDisposable
         }
 
         throw new MicrosoftGraphException($"Microsoft Graph answered {(int)response.StatusCode}. Try again in a minute.");
+    }
+
+    /// <summary>
+    /// Whether the tenant asks for a second factor: Security Defaults, else the Conditional Access policies that are on.
+    /// Null when the registration may not read the policies (no <see cref="PolicyReadAll"/>). Fleeto only reports this to
+    /// the admin; it never decides a sign-in on it.
+    /// </summary>
+    public async Task<TenantMfaState?> ReadTenantMfaAsync(GraphToken token, CancellationToken cancellationToken = default)
+    {
+        using var defaultsRequest = GraphRequest(token, $"{GraphBase}/policies/identitySecurityDefaultsEnforcementPolicy");
+        using var defaults = await SendAsync(defaultsRequest, "Microsoft Graph", cancellationToken);
+        if (defaults.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
+        {
+            return null;
+        }
+
+        if (!defaults.IsSuccessStatusCode)
+        {
+            throw new MicrosoftGraphException($"Microsoft Graph answered {(int)defaults.StatusCode}. Try again in a minute.");
+        }
+
+        if (ReadBool(await defaults.Content.ReadAsStringAsync(cancellationToken), "isEnabled"))
+        {
+            return new TenantMfaState(true, null);
+        }
+
+        // Conditional Access needs Entra ID P1; without it, or without the permission, Graph refuses the list.
+        using var policiesRequest = GraphRequest(token, $"{GraphBase}/identity/conditionalAccess/policies?$select=id,state");
+        using var policies = await SendAsync(policiesRequest, "Microsoft Graph", cancellationToken);
+        if (!policies.IsSuccessStatusCode)
+        {
+            return new TenantMfaState(false, null);
+        }
+
+        try
+        {
+            using var json = JsonDocument.Parse(await policies.Content.ReadAsStringAsync(cancellationToken));
+            var enabled = json.RootElement.TryGetProperty("value", out var values) && values.ValueKind == JsonValueKind.Array
+                ? values.EnumerateArray().Count(v => string.Equals(Text(v, "state"), "enabled", StringComparison.OrdinalIgnoreCase))
+                : 0;
+            return new TenantMfaState(false, enabled);
+        }
+        catch (JsonException)
+        {
+            return new TenantMfaState(false, null);
+        }
+    }
+
+    private static bool ReadBool(string body, string name)
+    {
+        try
+        {
+            using var json = JsonDocument.Parse(body);
+            return json.RootElement.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.True;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     /// <summary>

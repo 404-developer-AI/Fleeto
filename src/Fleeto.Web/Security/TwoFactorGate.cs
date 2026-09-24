@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Fleeto.Infrastructure.Data;
+using Fleeto.Infrastructure.Identity;
 using Microsoft.AspNetCore.Components.Endpoints;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,8 +12,9 @@ namespace Fleeto.Web.Security;
 /// truth, so completing setup takes effect on the next request without a new sign-in.
 /// <para>
 /// From 0.5.0 a second factor can also come from Microsoft Entra ID: when the id_token of the sign-in proved
-/// multi-factor authentication, the session carries <see cref="SecondFactorClaim"/> and the user needs no local
-/// authenticator. The link in the database is checked again on every request, so unlinking a user ends that exemption.
+/// multi-factor authentication, or the customer leaves the second factor of linked users to its tenant, the session carries
+/// <see cref="SecondFactorClaim"/> and the user needs no local authenticator. The link in the database is checked again on
+/// every request, so unlinking a user ends that exemption.
 /// </para>
 /// </summary>
 public sealed class TwoFactorGate
@@ -21,7 +23,10 @@ public sealed class TwoFactorGate
     public const string SecondFactorClaim = "fleeto:second-factor";
 
     /// <summary>Value of <see cref="SecondFactorClaim"/> when Microsoft Entra ID proved the second factor.</summary>
-    public const string EntraSecondFactor = "entra";
+    public const string EntraSecondFactor = EntraSignIn.ProvenSecondFactor;
+
+    /// <summary>Value of <see cref="SecondFactorClaim"/> when the customer leaves the second factor to its tenant.</summary>
+    public const string DelegatedSecondFactor = EntraSignIn.DelegatedSecondFactor;
 
     private readonly IFleetoDbContextFactory _dbFactory;
 
@@ -37,7 +42,8 @@ public sealed class TwoFactorGate
             return true;
         }
 
-        return await RequiresSetupAsync(userId, user.HasClaim(SecondFactorClaim, EntraSecondFactor), cancellationToken);
+        return await RequiresSetupAsync(userId,
+            user.HasClaim(SecondFactorClaim, EntraSecondFactor) || user.HasClaim(SecondFactorClaim, DelegatedSecondFactor), cancellationToken);
     }
 
     /// <summary>True when the user has not enabled two-factor authentication, or no longer exists. Fails closed.</summary>
@@ -45,7 +51,8 @@ public sealed class TwoFactorGate
         RequiresSetupAsync(userId, entraSecondFactor: false, cancellationToken);
 
     /// <param name="entraSecondFactor">
-    /// True when this session signed in through Entra ID with a token that proved multi-factor authentication. It counts
+    /// True when this session signed in through Entra ID with a token that proved multi-factor authentication, or while the
+    /// customer left the second factor to its tenant (switching that off ends these sessions). It counts
     /// only while the user is still linked, so the exemption cannot outlive the link.
     /// </param>
     public async Task<bool> RequiresSetupAsync(Guid userId, bool entraSecondFactor, CancellationToken cancellationToken = default)

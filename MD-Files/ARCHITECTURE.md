@@ -1225,7 +1225,13 @@ The flow is the authorization code flow with PKCE, split over two containers bec
 - **Two factors either way.** A token whose `amr` claim proves multi-factor authentication signs the user in without the
   local authenticator step: the session carries `fleeto:second-factor=entra`, and `TwoFactorGate` accepts that only while the
   user is still linked, so unlinking ends the exemption on the next request rather than when the session expires. A token
-  that does not prove MFA gets the authenticator step on top, exactly as a password does. The audit entry and the log of
+  that does not prove MFA gets the authenticator step on top, exactly as a password does — unless the customer leaves the
+  second factor of linked users to its tenant ("Microsoft handles the second factor of linked users", off by default). The
+  v2.0 id_token carries no `amr` in practice, so that switch is how most customers skip the Fleeto code; the session then
+  carries `fleeto:second-factor=microsoft`, and switching it off rotates the security stamp of every linked user, so those
+  sessions end within the validation interval. The test in Settings reads whether the tenant has Security Defaults or
+  Conditional Access policies on (optional `Policy.Read.All`) and fails when the switch is on while the tenant asks for no
+  second factor. The audit entry and the log of
   every sign-in through Entra ID name the `amr`, `acr` and `acrs` of the token (short names only), so an admin can see why
   Fleeto did or did not ask its own code.
 - **A linked user has no local password.** Linking removes it, which also changes the security stamp, so sessions that signed

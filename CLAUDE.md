@@ -223,8 +223,13 @@ Every user signs in with two factors. Local accounts use a password (Argon2id) a
   enters the object id.
 - **Matched on `oid` and `tid` from the token**, never on the email address: an address changes and can be given to
   somebody else, which would hand over the account with it.
-- **An Entra ID token that proves MFA replaces the local TOTP step**, read from the `amr` claim of the token itself; a token
-  that does not prove MFA gets the local TOTP step on top. Fleeto never assumes MFA because a tenant is configured for it.
+- **The second factor of a linked user is the customer's choice** (decided 2026-09-24, after testing showed that the v2.0
+  id_token of Entra ID carries no `amr`, also after MFA, and that Conditional Access is not available to tenants on Security
+  Defaults). By default Fleeto asks its own TOTP after a sign-in with Entra ID. An admin can switch on "Microsoft handles the
+  second factor of linked users": the customer's tenant is then responsible for MFA, and Fleeto asks no code. Switching it
+  off ends the sessions of linked users. A token that does prove MFA through `amr` still skips the code either way. Local
+  accounts always keep TOTP. The test in Settings reports whether the tenant has Security Defaults or Conditional Access on
+  (with the optional `Policy.Read.All`), and fails when the switch is on while the tenant asks for no second factor.
 - **A linked user has no local password**: one way in, one place to disable an account. Linking removes the password, and
   the password form answers a linked account as it answers a wrong password. At least one admin keeps a password and TOTP as
   the break-glass account for an Entra ID outage: Settings refuses to link, demote or delete the last one. An admin sets a

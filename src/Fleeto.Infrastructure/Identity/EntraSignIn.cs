@@ -31,6 +31,14 @@ public sealed record EntraSignInSettings
     /// <summary>The end date entered with the secret; Entra ID does not reveal it to the application.</summary>
     public DateTime? ClientSecretExpiresAt { get; init; }
 
+    /// <summary>
+    /// True when the customer leaves the second factor of linked users to its own tenant (decided 2026-09-24): a sign-in with
+    /// Entra ID then needs no Fleeto authenticator code, whether or not the token says Microsoft asked for one. Off by
+    /// default; an admin switches it on knowingly, because Fleeto cannot see whether the tenant requires multi-factor
+    /// authentication. Local accounts always keep their own code.
+    /// </summary>
+    public bool MicrosoftHandlesSecondFactor { get; init; }
+
     /// <summary>The expiry of the credential in use, or null when there is none.</summary>
     [JsonIgnore]
     public DateTime? CredentialExpiresAt => string.IsNullOrEmpty(ClientSecret) ? null : ClientSecretExpiresAt;
@@ -94,6 +102,22 @@ public static class EntraSignIn
         new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "mfa", "otp", "fido", "hwk", "sms", "phr", "phm" };
 
     public static string RedirectUri(string webBaseUrl) => webBaseUrl.TrimEnd('/') + CallbackPath;
+
+    /// <summary>
+    /// Where the second factor of an Entra ID sign-in comes from, as the value of the session claim; null when Fleeto asks
+    /// its own authenticator code. The token proving multi-factor authentication wins over the setting, so the audit log says
+    /// which of the two let the person in.
+    /// </summary>
+    public static string? SecondFactorSource(SignInClaims claims, EntraSignInSettings settings) =>
+        claims.MfaProven ? ProvenSecondFactor
+        : settings.MicrosoftHandlesSecondFactor ? DelegatedSecondFactor
+        : null;
+
+    /// <summary>The token of the sign-in proved multi-factor authentication (its <c>amr</c> claim).</summary>
+    public const string ProvenSecondFactor = "entra";
+
+    /// <summary>The customer leaves the second factor to its tenant (<see cref="EntraSignInSettings.MicrosoftHandlesSecondFactor"/>).</summary>
+    public const string DelegatedSecondFactor = "microsoft";
 
     /// <summary>A random value for the state, the nonce and the PKCE verifier: 256 bits, URL-safe.</summary>
     public static string NewRandomValue() => Base64Url(RandomNumberGenerator.GetBytes(32));

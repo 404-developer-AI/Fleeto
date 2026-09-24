@@ -32,7 +32,7 @@ public sealed class MicrosoftRequestTests : IAsyncLifetime
     public async Task A_test_of_the_sign_in_reports_the_credential_and_the_permission_to_read_users()
     {
         await ConfigureSignInAsync();
-        var microsoft = new FakeMicrosoft { Roles = [MicrosoftGraphClient.UserReadAll] };
+        var microsoft = new FakeMicrosoft { Roles = [MicrosoftGraphClient.UserReadAll, MicrosoftGraphClient.PolicyReadAll], SecurityDefaults = true };
         var id = await AskAsync(MicrosoftRequestKind.TestSignIn);
 
         await Service(microsoft).AnswerWaitingAsync(CancellationToken.None);
@@ -40,9 +40,10 @@ public sealed class MicrosoftRequestTests : IAsyncLifetime
         var request = await ReadAsync(id);
         Assert.Equal(MicrosoftRequestState.Completed, request!.State);
         var checks = MicrosoftAnswers.Checks(request.ResultJson);
-        Assert.Equal([MicrosoftCheckStatus.Ok, MicrosoftCheckStatus.Ok, MicrosoftCheckStatus.Info], checks.Select(c => c.Status));
+        Assert.Equal([MicrosoftCheckStatus.Ok, MicrosoftCheckStatus.Ok, MicrosoftCheckStatus.Ok, MicrosoftCheckStatus.Info], checks.Select(c => c.Status));
         Assert.Contains("client secret are correct", checks[0].Text);
         Assert.Contains(MicrosoftGraphClient.UserReadAll, checks[1].Text);
+        Assert.Contains("Security Defaults is on", checks[2].Text);
         // The answer holds no secret and no token.
         Assert.DoesNotContain(Secret, request.ResultJson);
         Assert.DoesNotContain("eyJ", request.ResultJson);
@@ -63,6 +64,31 @@ public sealed class MicrosoftRequestTests : IAsyncLifetime
         Assert.Equal(MicrosoftCheckStatus.Warning, checks[1].Status);
         Assert.Contains("object ID", checks[1].Text);
         Assert.Contains(checks, c => c.Status == MicrosoftCheckStatus.Warning && c.Text.Contains("also holds Mail.Send"));
+        // Without Policy.Read.All the test says it cannot see how the tenant asks for a second factor.
+        Assert.Contains(checks, c => c.Status == MicrosoftCheckStatus.Info && c.Text.Contains(MicrosoftGraphClient.PolicyReadAll));
+    }
+
+    [Theory]
+    [InlineData(2, false, MicrosoftCheckStatus.Ok)]
+    [InlineData(0, false, MicrosoftCheckStatus.Warning)]
+    [InlineData(0, true, MicrosoftCheckStatus.Failed)]
+    public async Task A_tenant_that_asks_for_no_second_factor_is_reported_and_worst_when_Microsoft_handles_it(int policies, bool leftToMicrosoft,
+        MicrosoftCheckStatus expected)
+    {
+        await ConfigureSignInAsync(leftToMicrosoft);
+        var microsoft = new FakeMicrosoft
+        {
+            Roles = [MicrosoftGraphClient.UserReadAll, MicrosoftGraphClient.PolicyReadAll],
+            SecurityDefaults = false,
+            ConditionalAccessPolicies = policies
+        };
+        var id = await AskAsync(MicrosoftRequestKind.TestSignIn);
+
+        await Service(microsoft).AnswerWaitingAsync(CancellationToken.None);
+
+        var tenant = MicrosoftAnswers.Checks((await ReadAsync(id))!.ResultJson)[2];
+        Assert.Equal(expected, tenant.Status);
+        Assert.Contains(policies > 0 ? "Conditional Access policies are on" : "Neither Security Defaults nor", tenant.Text);
     }
 
     [Fact]
@@ -176,7 +202,7 @@ public sealed class MicrosoftRequestTests : IAsyncLifetime
         new(_fixture.Db.DbFactory, _fixture.Db.Bus, _fixture.Settings(), new MicrosoftGraphClient(_fixture.Db.Time, handler: microsoft),
             _fixture.Heartbeat(), _fixture.Db.Time, NullLogger<MicrosoftRequestService>.Instance);
 
-    private async Task ConfigureSignInAsync()
+    private async Task ConfigureSignInAsync(bool microsoftHandlesSecondFactor = false)
     {
         await _fixture.Settings().SetAsync(SettingKeys.EntraSignIn, new EntraSignInSettings
         {
@@ -184,7 +210,8 @@ public sealed class MicrosoftRequestTests : IAsyncLifetime
             TenantId = Tenant,
             ClientId = ClientId,
             ClientSecret = Secret,
-            ClientSecretExpiresAt = _fixture.Now.AddDays(90)
+            ClientSecretExpiresAt = _fixture.Now.AddDays(90),
+            MicrosoftHandlesSecondFactor = microsoftHandlesSecondFactor
         }, encrypted: true, userId: null);
         await ClearAsync();
     }
@@ -225,6 +252,11 @@ public sealed class MicrosoftRequestTests : IAsyncLifetime
         public int? TokenError { get; init; }
         public string Users { get; init; } = "[]";
 
+        /// <summary>Null: the registration may not read the policies (403).</summary>
+        public bool? SecurityDefaults { get; init; }
+
+        public int ConditionalAccessPolicies { get; init; }
+
         public List<string> TokenBodies { get; } = [];
         public List<string> SearchUris { get; } = [];
         public bool ConsistencyLevelEventual { get; private set; }
@@ -243,6 +275,20 @@ public sealed class MicrosoftRequestTests : IAsyncLifetime
             if (request.Headers.Authorization?.Parameter != AccessToken())
             {
                 return Json(HttpStatusCode.Unauthorized, "{}");
+            }
+
+            if (uri.Contains("/policies/identitySecurityDefaultsEnforcementPolicy", StringComparison.Ordinal))
+            {
+                return SecurityDefaults is { } on
+                    ? Json(HttpStatusCode.OK, $$"""{"isEnabled":{{(on ? "true" : "false")}}}""")
+                    : Json(HttpStatusCode.Forbidden, """{"error":{"code":"Authorization_RequestDenied"}}""");
+            }
+
+            if (uri.Contains("/identity/conditionalAccess/policies", StringComparison.Ordinal))
+            {
+                var states = string.Join(",", Enumerable.Range(0, ConditionalAccessPolicies).Select(i => $$"""{"id":"p{{i}}","state":"enabled"}""")
+                    .Append("""{"id":"off","state":"disabled"}"""));
+                return Json(HttpStatusCode.OK, $$"""{"value":[{{states}}]}""");
             }
 
             if (uri.Contains("$top=1&", StringComparison.Ordinal))

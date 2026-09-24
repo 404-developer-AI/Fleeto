@@ -702,6 +702,14 @@ Steps:
      `acrs` of every sign-in with Entra ID to the audit log and the log, so the next test shows what Microsoft sends; if
      `amr` is missing, the way out is an authentication context of Conditional Access, requested by Fleeto and proven by
      `acrs`.
+   - The test on `v0.5.0-alpha.4` showed `amr`, `acr` and `acrs` all missing after MFA at Microsoft. An authentication
+     context was not chosen, because Conditional Access needs Entra ID P1 and many tenants run Security Defaults. Decided
+     2026-09-24 instead: **the second factor of linked users is the customer's choice**. "Microsoft handles the second factor
+     of linked users" in Settings, Sign-in (off by default, audited) makes a sign-in with Entra ID skip the Fleeto code, and
+     switching it off ends the sessions of linked users through their security stamp. The session claim says which way the
+     second factor came (`entra` proven by the token, `microsoft` left to the tenant). The test of the sign-in reads Security
+     Defaults and the Conditional Access policies with the optional `Policy.Read.All`, and fails when the switch is on while
+     the tenant asks for no second factor.
    - Still open: the test against a real tenant, together with step 1.
 3. [built, not tested on a tenant yet] **Users from the tenant, a test and a guide** (2026-09-24, asked for after testing
    `v0.5.0-alpha.1`): "Add from Microsoft" in Settings, Users creates a user linked to a chosen account, with its roles and

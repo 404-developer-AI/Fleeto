@@ -32,7 +32,9 @@
                 <li>
                     To choose users from Microsoft in Settings, Users, add the <strong>application</strong> permission
                     <strong>User.Read.All</strong> of Microsoft Graph. Without it, you link a user by the object ID of its account.
-                    Then choose <strong>Grant admin consent</strong> for your tenant.
+                    Optionally add the application permission <strong>Policy.Read.All</strong> as well: it lets the test on this page
+                    see whether your tenant asks for a second factor (Security Defaults or Conditional Access). Then choose
+                    <strong>Grant admin consent</strong> for your tenant.
                 </li>
                 <li>
                     Under <strong>Certificates &amp; secrets</strong>, choose <strong>New client secret</strong>. Copy the
@@ -41,6 +43,13 @@
                 <li>
                     Optional: under <strong>Enterprise applications</strong>, open the same application, set <strong>Assignment required</strong>
                     to Yes under Properties and assign the people who may use it. Fleeto still lets in only the users an admin linked.
+                </li>
+                <li>
+                    Decide who asks for the second factor of linked users. Microsoft does not say in the token whether it asked
+                    for one, so by default Fleeto asks its own authenticator code after a sign-in with Microsoft. If your tenant
+                    requires multi-factor authentication (Security Defaults, or a Conditional Access policy), switch on
+                    <strong>Microsoft handles the second factor of linked users</strong>: your tenant is then responsible for it.
+                    Local accounts always keep the Fleeto code.
                 </li>
                 <li>
                     Save this page and choose <strong>Test settings</strong>. Then add or link users in
