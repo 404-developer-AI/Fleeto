@@ -42,6 +42,12 @@ with its alerts, `v0.4.0-alpha.3`) and step 3 (deployments and installing the Ac
 verified on the first test VPS and on real Windows endpoints before the release. Patch management on Linux was planned as
 0.4.1 and moved to "Not yet scheduled" on 2026-09-23.
 
+**0.5.0** — released 2026-09-24 (`v0.5.0`): sign-in with Microsoft Entra ID, planned with the developer on 2026-09-23 and built
+in three steps between 2026-09-23 and 2026-09-24. Steps 1 and 2 (configuration, linking, the sign-in, two factors, no local
+password and break-glass, `v0.5.0-alpha.1`) and step 3 (users from the tenant, a test and a guide, `v0.5.0-alpha.2`) were
+tested on the first test VPS against a real tenant; `v0.5.0-alpha.3` to `alpha.6` fixed what that found and settled who asks
+the second factor of linked users.
+
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
 2026-09-15, see Later).
 
@@ -609,7 +615,7 @@ Steps:
      exposed on purpose". The dashboard summary entry on the waiting list now names patch compliance as well.
    - **Changelog**: the 0.4.0 entry written, 0.2.2 moved to `CHANGELOG-ARCHIVE.md`, the version `0.4.0`.
 
-## 0.5.0 — Sign-in with Microsoft Entra ID
+## 0.5.0 — Sign-in with Microsoft Entra ID (released 2026-09-24)
 
 The other integrations (Sophos, Veeam, Proxmox, vCenter) moved to "Not yet scheduled" on 2026-09-23; 0.5.0 is the Entra ID
 sign-in alone.
@@ -625,7 +631,8 @@ Decisions (2026-09-23, with the developer):
   comes to users later).
 - **Matched on the immutable identifiers of the token** (`oid` and `tid`), never on the email address: an address changes
   and can be handed to somebody else, and that would hand over an account with it.
-- **Two factors, whichever way a user comes in**: an Entra ID token that proves MFA through its `amr` claim replaces the
+- **Two factors, whichever way a user comes in** (superseded on 2026-09-24, see step 2: the token carries no `amr`, and the
+  customer decides who asks the second factor of linked users): an Entra ID token that proves MFA through its `amr` claim replaces the
   local TOTP step; a token that does not prove MFA gets the local TOTP step on top. Fleeto reads the claim, it never
   assumes MFA because the tenant is configured for it.
 - **A linked user has no local password**: one way in, one place to disable an account. At least one local admin keeps a
@@ -656,7 +663,7 @@ Decisions (2026-09-23, with the developer):
 
 Steps:
 
-1. [built, not tested on a tenant yet] **Configuration, linking and the sign-in** (2026-09-23): Settings, Sign-in for
+1. [done] **Configuration, linking and the sign-in** (2026-09-23): Settings, Sign-in for
    admins (tenant id, client id, client secret, the redirect URI to register, enable), stored encrypted; the authorization
    code flow with PKCE, state and nonce in a data-protected cookie; the exchange by the workers (`SignInExchangeService`,
    `EntraSignInClient`) with the `tid` check and guests refused; linking and unlinking a user in Settings, Users; the button
@@ -676,8 +683,8 @@ Steps:
      CSP `form-action 'self'` also applies to the redirect after a form post, so the browser blocked the redirect to
      Microsoft without a message while every click counted against the rate limit. The sign-in page, and only that page,
      now allows `https://login.microsoftonline.com` in `form-action` (`SecurityHeadersMiddleware.FormActionSources`).
-   - Still open: a test against a real tenant, with a real app registration.
-2. [built, not tested on a tenant yet] **Two factors, no local password and break-glass** (2026-09-23): a token whose
+   - Tested against a real tenant and app registration on `v0.5.0-alpha.1` to `alpha.6`.
+2. [done] **Two factors, no local password and break-glass** (2026-09-23): a token whose
    `amr` claim proves multi-factor authentication signs the user in without the local authenticator step; the session carries
    that fact in a claim and `TwoFactorGate` re-reads the link on every request, so unlinking a user ends the exemption at
    once. A token that does not prove MFA keeps the authenticator step, and a linked user without an authenticator still gets
@@ -715,8 +722,8 @@ Steps:
      remote sessions. One rule now serves the gate and `CurrentUser` (`TwoFactorGate.HasSecondFactor`), and the signer
      counts a user linked to Entra ID as having two factors (it sees the link, not the session). Approving a script still
      asks a fresh code of the Fleeto authenticator, also of a linked admin.
-   - Still open: the test against a real tenant, together with step 1.
-3. [built, not tested on a tenant yet] **Users from the tenant, a test and a guide** (2026-09-24, asked for after testing
+   - Tested against a real tenant together with step 1, up to `v0.5.0-alpha.6`.
+3. [done] **Users from the tenant, a test and a guide** (2026-09-24, asked for after testing
    `v0.5.0-alpha.1`): "Add from Microsoft" in Settings, Users creates a user linked to a chosen account, with its roles and
    without a password; the link dialog chooses the account the same way, with the object id as the fallback. "Test settings"
    on Settings, Sign-in and "Test Microsoft Graph settings" on Settings, Email check the saved app registration; a set-up
@@ -730,9 +737,10 @@ Steps:
      request per keystroke;
    - searching the tenant and testing a registration are **not audited**: they change nothing, like the connection test of
      an integration. Adding and linking a user are audited as before.
-   - Still open: a test against a real tenant, with `User.Read.All` granted and without it.
-4. **Release 0.5.0** — the sign-in configuration onto `API-WAITLIST.md` (admin data, never the secret), changelog,
-   `ARCHITECTURE.md` §5 for how the sign-in is anchored, tag `v0.5.0`.
+   - Tested against a real tenant on `v0.5.0-alpha.2` to `alpha.6`.
+4. [done] **Release 0.5.0** (released as `v0.5.0` on 2026-09-24): the sign-in configuration on `API-WAITLIST.md` (admin
+   data, never the secret) and what stays out of the API, changelog, `ARCHITECTURE.md` §5 for how the sign-in is anchored.
+   Like 0.4.0, no load test and no separate security review: the release asked for neither.
 
 ## 0.6.0 — Refactors, fixes and clean-up
 
