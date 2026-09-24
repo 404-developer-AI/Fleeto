@@ -168,6 +168,12 @@ public static class EntraSignInEndpoints
             return Results.Redirect("/account/login?error=entrastate");
         }
 
+        // What Microsoft says about how the person signed in, whichever way the sign-in continues: the claims that decide
+        // whether Fleeto asks its own authenticator code, so an admin can see why it did.
+        loggerFactory.CreateLogger("Fleeto.Web.Account.EntraSignIn").LogInformation(
+            "A sign-in with Microsoft Entra ID came in with amr {Amr}, acr {Acr} and acrs {Acrs}; multi-factor authentication proven: {MfaProven}",
+            Describe(claims.Methods), claims.AuthenticationClass ?? "none", Describe(claims.AuthenticationContexts), claims.MfaProven);
+
         if (!Guid.TryParse(claims.ObjectId, out var objectId))
         {
             await FailAsync(audit, context, "The sign-in did not name the account", claims.Account);
@@ -290,7 +296,18 @@ public static class EntraSignInEndpoints
     private static AuditRecord SuccessRecord(ApplicationUser user, HttpContext context, SignInClaims claims, string twoFactor) =>
         new(AuditActions.LoginSucceeded, "User", user.Id.ToString(), null, AuditActorType.User, user.Id.ToString(),
             string.IsNullOrEmpty(user.DisplayName) ? user.Email ?? string.Empty : user.DisplayName,
-            new { Route = EntraRoute, Account = claims.Account, claims.MfaProven, TwoFactor = twoFactor }, context.RemoteIp());
+            new
+            {
+                Route = EntraRoute,
+                Account = claims.Account,
+                claims.MfaProven,
+                TwoFactor = twoFactor,
+                Amr = Describe(claims.Methods),
+                Acr = claims.AuthenticationClass ?? "none",
+                Acrs = Describe(claims.AuthenticationContexts)
+            }, context.RemoteIp());
+
+    private static string Describe(IReadOnlyList<string> values) => values.Count == 0 ? "none" : string.Join(",", values);
 
     private static Task FailAsync(IAuditLog audit, HttpContext context, string reason, string? account) =>
         audit.WriteAsync(new AuditRecord(AuditActions.LoginFailed, "User", "unknown", null, AuditActorType.User, "unknown",

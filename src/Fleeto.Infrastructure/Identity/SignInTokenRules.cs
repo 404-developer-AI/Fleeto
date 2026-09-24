@@ -10,6 +10,8 @@ namespace Fleeto.Infrastructure.Identity;
 /// <param name="AuthenticationMethods">The <c>amr</c> claim, empty when the token does not have it.</param>
 /// <param name="IdentityProvider">The <c>idp</c> claim: present and different from the issuer for a guest of the tenant.</param>
 /// <param name="AccountType">The <c>acct</c> claim: 0 for a member of the tenant, 1 for a guest.</param>
+/// <param name="AuthenticationClass">The <c>acr</c> claim, when the token has one.</param>
+/// <param name="AuthenticationContexts">The <c>acrs</c> claim: the Conditional Access authentication contexts the sign-in satisfied.</param>
 public sealed record SignInTokenFacts(
     string? Issuer,
     string? TenantId,
@@ -19,7 +21,9 @@ public sealed record SignInTokenFacts(
     int? AccountType,
     string? Nonce,
     string? Account,
-    string? DisplayName);
+    string? DisplayName,
+    string? AuthenticationClass = null,
+    IReadOnlyList<string>? AuthenticationContexts = null);
 
 /// <summary>Either the claims Fleeto keeps, or why the token is refused.</summary>
 public sealed record SignInTokenOutcome(SignInClaims? Claims, string? Refusal)
@@ -65,8 +69,22 @@ public static class SignInTokenRules
 
         var mfaProven = facts.AuthenticationMethods.Any(EntraSignIn.MultiFactorMethods.Contains);
         return SignInTokenOutcome.Accept(new SignInClaims(objectId.ToString("D"), facts.TenantId!, Trim(facts.Account, 320),
-            Trim(facts.DisplayName, 200), mfaProven, facts.Nonce));
+            Trim(facts.DisplayName, 200), mfaProven, facts.Nonce)
+        {
+            Methods = Names(facts.AuthenticationMethods),
+            AuthenticationClass = Names(facts.AuthenticationClass is null ? [] : [facts.AuthenticationClass]).FirstOrDefault(),
+            AuthenticationContexts = Names(facts.AuthenticationContexts ?? [])
+        });
     }
+
+    /// <summary>
+    /// Names of methods or contexts as they may go into the audit log: short identifiers only, at most ten. A token is
+    /// validated before this, but what lands in the log is still limited to what such a name can look like.
+    /// </summary>
+    internal static IReadOnlyList<string> Names(IEnumerable<string> values) =>
+        values.Where(v => v is { Length: > 0 and <= 40 } && v.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-' or '.' or ':'))
+            .Take(10)
+            .ToList();
 
     /// <summary>The tenant of an issuer such as <c>https://login.microsoftonline.com/&lt;tenant&gt;/v2.0</c>.</summary>
     public static string? TenantIdOf(string? issuer)

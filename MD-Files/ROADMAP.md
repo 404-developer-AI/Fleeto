@@ -696,6 +696,12 @@ Steps:
      admin with a password, yet deleting, demoting or linking it was refused as if it were the last one. The rule now applies
      only to an admin that signs in with a password itself (`UserAdminService.SignsInWithPassword`), and Settings, Users shows
      "No password" for an unlinked user without one.
+   - found while testing `v0.5.0-alpha.3`: after multi-factor authentication at Microsoft, with a Conditional Access policy
+     that requires it, Fleeto still asked to set up its own authenticator: the id_token did not prove MFA the way Fleeto
+     reads it. Whether the v2.0 id_token carries `amr` at all is not certain. `v0.5.0-alpha.4` writes the `amr`, `acr` and
+     `acrs` of every sign-in with Entra ID to the audit log and the log, so the next test shows what Microsoft sends; if
+     `amr` is missing, the way out is an authentication context of Conditional Access, requested by Fleeto and proven by
+     `acrs`.
    - Still open: the test against a real tenant, together with step 1.
 3. [built, not tested on a tenant yet] **Users from the tenant, a test and a guide** (2026-09-24, asked for after testing
    `v0.5.0-alpha.1`): "Add from Microsoft" in Settings, Users creates a user linked to a chosen account, with its roles and

@@ -58,7 +58,17 @@ public sealed record SignInExchangeRequest(string Code, string CodeVerifier);
 /// <param name="DisplayName">The <c>name</c> claim, for display.</param>
 /// <param name="MfaProven">The <c>amr</c> claim names multi-factor authentication; false whenever it does not say so.</param>
 /// <param name="Nonce">The nonce of the token, which web compares with the one it started the sign-in with.</param>
-public sealed record SignInClaims(string ObjectId, string TenantId, string? Account, string? DisplayName, bool MfaProven, string? Nonce);
+public sealed record SignInClaims(string ObjectId, string TenantId, string? Account, string? DisplayName, bool MfaProven, string? Nonce)
+{
+    /// <summary>The <c>amr</c> values of the token, for the audit log: how Microsoft says the person signed in.</summary>
+    public IReadOnlyList<string> Methods { get; init; } = [];
+
+    /// <summary>The <c>acr</c> claim of the token, for the audit log.</summary>
+    public string? AuthenticationClass { get; init; }
+
+    /// <summary>The <c>acrs</c> claim: the Conditional Access authentication contexts the sign-in satisfied.</summary>
+    public IReadOnlyList<string> AuthenticationContexts { get; init; } = [];
+}
 
 /// <summary>
 /// The sign-in flow with Entra ID (0.5.0): the authorization code flow with PKCE. Web builds the redirect to Microsoft and

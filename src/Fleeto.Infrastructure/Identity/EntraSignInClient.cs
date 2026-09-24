@@ -112,7 +112,22 @@ public sealed class EntraSignInClient : IDisposable
             accountType,
             Claim(token, "nonce"),
             Claim(token, "preferred_username") ?? Claim(token, "upn") ?? Claim(token, "email"),
-            Claim(token, "name"));
+            Claim(token, "name"),
+            Claim(token, "acr"),
+            Strings(token, "acrs"));
+    }
+
+    /// <summary>A claim that is an array of strings, or a single string, as a list; empty when the token does not have it.</summary>
+    private static IReadOnlyList<string> Strings(JsonWebToken token, string type)
+    {
+        if (!token.TryGetClaim(type, out _))
+        {
+            return [];
+        }
+
+        return token.TryGetPayloadValue<string[]>(type, out var values) && values is not null
+            ? values
+            : token.TryGetPayloadValue<string>(type, out var value) && value is not null ? [value] : [];
     }
 
     private static string? Claim(JsonWebToken token, string type) => token.TryGetClaim(type, out var claim) ? claim.Value : null;

@@ -55,6 +55,9 @@ public sealed class SignInExchangeTests : IDisposable
         Assert.Equal(Tenant, claims.TenantId);
         Assert.Equal("tech@contoso.com", claims.Account);
         Assert.True(claims.MfaProven);
+        // How Microsoft says the person signed in travels with the claims, for the audit log.
+        Assert.Equal(["pwd", "mfa"], claims.Methods);
+        Assert.Equal(["c1"], claims.AuthenticationContexts);
 
         // No token, code or secret is kept: the row holds the request and the claims, both encrypted and bound to the row.
         Assert.DoesNotContain("the-code", exchange.EncryptedClaims);
@@ -178,6 +181,7 @@ public sealed class SignInExchangeTests : IDisposable
                 ["tid"] = tenantId,
                 ["oid"] = ObjectId,
                 ["amr"] = new[] { "pwd", "mfa" },
+                ["acrs"] = new[] { "c1" },
                 ["acct"] = 0,
                 ["nonce"] = "nonce-value",
                 ["preferred_username"] = "tech@contoso.com",

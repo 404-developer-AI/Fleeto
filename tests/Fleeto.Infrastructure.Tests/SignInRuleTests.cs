@@ -25,6 +25,30 @@ public sealed class SignInRuleTests
         new(issuer ?? Issuer, tenantId, objectId, amr ?? ["pwd"], idp, acct, nonce, account, name);
 
     [Fact]
+    public void How_Microsoft_says_the_person_signed_in_is_kept_for_the_audit_log_as_short_names_only()
+    {
+        var facts = Facts(amr: ["pwd", "mfa", "not a name", new string('x', 41)]) with
+        {
+            AuthenticationClass = "1",
+            AuthenticationContexts = ["c1", "<script>"]
+        };
+
+        var claims = SignInTokenRules.Check(facts, Issuer).Claims!;
+
+        Assert.Equal(["pwd", "mfa"], claims.Methods);
+        Assert.Equal("1", claims.AuthenticationClass);
+        Assert.Equal(["c1"], claims.AuthenticationContexts);
+        Assert.True(claims.MfaProven);
+
+        // A token without them leaves them empty rather than guessing.
+        var bare = SignInTokenRules.Check(Facts(amr: []), Issuer).Claims!;
+        Assert.Empty(bare.Methods);
+        Assert.Null(bare.AuthenticationClass);
+        Assert.Empty(bare.AuthenticationContexts);
+        Assert.False(bare.MfaProven);
+    }
+
+    [Fact]
     public void A_token_of_the_configured_tenant_is_accepted()
     {
         var outcome = SignInTokenRules.Check(Facts(), Issuer);
