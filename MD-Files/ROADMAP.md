@@ -710,6 +710,11 @@ Steps:
      second factor came (`entra` proven by the token, `microsoft` left to the tenant). The test of the sign-in reads Security
      Defaults and the Conditional Access policies with the optional `Policy.Read.All`, and fails when the switch is on while
      the tenant asks for no second factor.
+   - found while testing `v0.5.0-alpha.5`: a linked admin that came in with a second factor from Microsoft got past the gate
+     but could open no page, because `CurrentUser` counted only a local authenticator; the signer did the same for jobs and
+     remote sessions. One rule now serves the gate and `CurrentUser` (`TwoFactorGate.HasSecondFactor`), and the signer
+     counts a user linked to Entra ID as having two factors (it sees the link, not the session). Approving a script still
+     asks a fresh code of the Fleeto authenticator, also of a linked admin.
    - Still open: the test against a real tenant, together with step 1.
 3. [built, not tested on a tenant yet] **Users from the tenant, a test and a guide** (2026-09-24, asked for after testing
    `v0.5.0-alpha.1`): "Add from Microsoft" in Settings, Users creates a user linked to a chosen account, with its roles and

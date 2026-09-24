@@ -64,9 +64,12 @@ public sealed class CurrentUser
         await using var db = _dbFactory.CreateSystem();
         var user = await db.Users.AsNoTracking()
             .Where(u => u.Id == userId)
-            .Select(u => new { u.Id, u.DisplayName, u.Email, u.TwoFactorEnabled, u.LockoutEnd })
+            .Select(u => new { u.Id, u.DisplayName, u.Email, u.TwoFactorEnabled, u.EntraObjectId, u.LockoutEnd })
             .FirstOrDefaultAsync(cancellationToken);
-        if (user is null || !user.TwoFactorEnabled || user.LockoutEnd > now)
+        // Two factors by the same rule as TwoFactorGate: a user that signed in through Entra ID with a second factor from
+        // Microsoft has no local authenticator, and must not be turned away by every page after the gate let it in.
+        if (user is null || !TwoFactorGate.HasSecondFactor(user.TwoFactorEnabled, user.EntraObjectId, TwoFactorGate.HasMicrosoftSecondFactor(state.User)) ||
+            user.LockoutEnd > now)
         {
             _cached = null;
             return null;

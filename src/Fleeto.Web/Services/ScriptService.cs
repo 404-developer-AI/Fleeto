@@ -337,7 +337,11 @@ public sealed class ScriptService
             var user = await users.FindByIdAsync(caller.UserId.ToString());
             if (user is null || !user.TwoFactorEnabled)
             {
-                return ServiceResult.Fail("Your account has no two-factor authentication. Set it up, then approve the script.");
+                // Approval asks a fresh code of the Fleeto authenticator, also of an admin that signs in with Microsoft: the code
+                // is the proof that this admin, now, approves this version.
+                return ServiceResult.Fail(user?.IsLinkedToEntra == true
+                    ? "Approving a script asks a code from the Fleeto authenticator app, also when you sign in with Microsoft. Set one up at /account/setup-2fa, then approve the script."
+                    : "Your account has no two-factor authentication. Set it up, then approve the script.");
             }
 
             if (await users.IsLockedOutAsync(user))

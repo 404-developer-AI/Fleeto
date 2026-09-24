@@ -42,9 +42,19 @@ public sealed class TwoFactorGate
             return true;
         }
 
-        return await RequiresSetupAsync(userId,
-            user.HasClaim(SecondFactorClaim, EntraSecondFactor) || user.HasClaim(SecondFactorClaim, DelegatedSecondFactor), cancellationToken);
+        return await RequiresSetupAsync(userId, HasMicrosoftSecondFactor(user), cancellationToken);
     }
+
+    /// <summary>The session came in through Entra ID with a second factor from Microsoft: proven by the token, or left to the tenant.</summary>
+    public static bool HasMicrosoftSecondFactor(ClaimsPrincipal user) =>
+        user.HasClaim(SecondFactorClaim, EntraSecondFactor) || user.HasClaim(SecondFactorClaim, DelegatedSecondFactor);
+
+    /// <summary>
+    /// The one rule for "this session has two factors", for the gate and for <see cref="CurrentUser"/> alike: a local
+    /// authenticator, or a second factor from Microsoft on a session of a user that is still linked.
+    /// </summary>
+    public static bool HasSecondFactor(bool twoFactorEnabled, Guid? entraObjectId, bool microsoftSecondFactor) =>
+        twoFactorEnabled || (microsoftSecondFactor && entraObjectId is not null);
 
     /// <summary>True when the user has not enabled two-factor authentication, or no longer exists. Fails closed.</summary>
     public Task<bool> RequiresSetupAsync(Guid userId, CancellationToken cancellationToken = default) =>
@@ -67,7 +77,7 @@ public sealed class TwoFactorGate
             return true;
         }
 
-        return !found.TwoFactorEnabled && !(entraSecondFactor && found.EntraObjectId is not null);
+        return !HasSecondFactor(found.TwoFactorEnabled, found.EntraObjectId, entraSecondFactor);
     }
 
     /// <summary>

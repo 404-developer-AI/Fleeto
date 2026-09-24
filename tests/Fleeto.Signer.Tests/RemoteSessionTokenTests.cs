@@ -155,6 +155,24 @@ public sealed class RemoteSessionTokenTests
     }
 
     [Fact]
+    public async Task A_user_linked_to_Entra_ID_counts_as_having_two_factors()
+    {
+        // A user that signs in with Microsoft has no local authenticator: its second factor comes from Microsoft, and web lets
+        // such a session in only with one (0.5.0). Found on v0.5.0-alpha.5, where such an admin could open no page at all.
+        var (endpoint, _) = await ScopeAsync();
+        var linked = await _fixture.Database.CreateUserAsync(FleetoRoles.Technician, twoFactor: false);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.Users.Where(u => u.Id == linked.Id).ExecuteUpdateAsync(s => s.SetProperty(u => u.EntraObjectId, Guid.NewGuid()));
+        }
+
+        var (request, signed) = await SignAsync(await CreateParticipantAsync(endpoint, linked.Id));
+
+        Assert.Equal(SigningRequestState.Completed, request.State);
+        Assert.Equal(RemoteParticipantState.Signed, signed.State);
+    }
+
+    [Fact]
     public async Task Refused_for_an_old_request_an_invalid_browser_key_or_another_client()
     {
         var (endpoint, technicianId) = await ScopeAsync();

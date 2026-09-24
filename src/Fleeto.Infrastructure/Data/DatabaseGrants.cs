@@ -148,8 +148,9 @@ public static class DatabaseGrants
         ("AuditEntries", DatabaseRoles.Gateway, ["Id"]),
         ("AuditEntries", DatabaseRoles.Signer, ["Id"]),
         // The signer checks that the initiator and the approver of a job still exist, are not locked out and hold the right role;
-        // never password hashes, security stamps or two-factor data.
-        ("AspNetUsers", DatabaseRoles.Signer, ["Id", "LockoutEnd", "TwoFactorEnabled"]),
+        // never password hashes, security stamps or two-factor secrets. Whether a user is linked to Entra ID (0.5.0) tells it
+        // that the second factor comes from Microsoft.
+        ("AspNetUsers", DatabaseRoles.Signer, ["Id", "LockoutEnd", "TwoFactorEnabled", "EntraObjectId"]),
         ("AspNetUserRoles", DatabaseRoles.Signer, ["UserId", "RoleId"]),
         ("AspNetRoles", DatabaseRoles.Signer, ["Id", "NormalizedName"]),
     ];

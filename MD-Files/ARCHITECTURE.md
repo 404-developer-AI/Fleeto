@@ -1229,7 +1229,9 @@ The flow is the authorization code flow with PKCE, split over two containers bec
   second factor of linked users to its tenant ("Microsoft handles the second factor of linked users", off by default). The
   v2.0 id_token carries no `amr` in practice, so that switch is how most customers skip the Fleeto code; the session then
   carries `fleeto:second-factor=microsoft`, and switching it off rotates the security stamp of every linked user, so those
-  sessions end within the validation interval. The test in Settings reads whether the tenant has Security Defaults or
+  sessions end within the validation interval. Every page and service reads the same rule as the gate
+  (`TwoFactorGate.HasSecondFactor`); the signer, which sees no session, counts a user linked to Entra ID as having two
+  factors. Approving a script keeps asking a fresh code of the Fleeto authenticator, also of a linked admin. The test in Settings reads whether the tenant has Security Defaults or
   Conditional Access policies on (optional `Policy.Read.All`) and fails when the switch is on while the tenant asks for no
   second factor. The audit entry and the log of
   every sign-in through Entra ID name the `amr`, `acr` and `acrs` of the token (short names only), so an admin can see why

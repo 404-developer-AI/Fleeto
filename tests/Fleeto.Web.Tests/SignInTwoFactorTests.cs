@@ -149,6 +149,8 @@ public sealed class SignInTwoFactorTests
         // not linked, but has no password either, as after testing a link (found on v0.5.0-alpha.2).
         var breakGlass = await CreateUserAsync(admin, FleetoRoles.Admin);
         var unlinked = await CreateUserAsync(admin, FleetoRoles.Admin);
+        // A linked admin of its own, so the rule about the last admin of all never answers instead, whatever ran before.
+        await CreateUserAsync(admin, FleetoRoles.Admin);
         var others = (await Users.ListAsync(admin))
             .Where(u => u.Id != breakGlass && u.Id != unlinked && u.Roles.Contains(FleetoRoles.Admin) && u.EntraObjectId is null)
             .ToList();
@@ -235,6 +237,44 @@ public sealed class SignInTwoFactorTests
         using var details = System.Text.Json.JsonDocument.Parse(entry.DetailsJson);
         Assert.False(details.RootElement.GetProperty("microsoftHandlesSecondFactor").GetBoolean());
         Assert.True(details.RootElement.GetProperty("sessionsEnded").GetInt32() >= 1);
+    }
+
+    [Fact]
+    public async Task Every_page_accepts_a_session_with_a_second_factor_from_Microsoft()
+    {
+        // Found on v0.5.0-alpha.5: the gate let a linked admin in without a local authenticator, and then CurrentUser turned
+        // every page and service away because it only counted the local authenticator.
+        var admin = WebFixtureBase.Admin();
+        await ConfigureAsync(admin);
+        var linked = await CreateUserAsync(admin, FleetoRoles.Admin);
+        Assert.True((await Users.LinkEntraAsync(admin, linked, Guid.NewGuid().ToString("D"), null)).Success);
+        var local = await CreateUserAsync(admin, FleetoRoles.Technician);
+
+        Assert.NotNull(await Current(Principal(linked, TwoFactorGate.DelegatedSecondFactor)).TryGetAsync());
+        Assert.NotNull(await Current(Principal(linked, TwoFactorGate.EntraSecondFactor)).TryGetAsync());
+        var caller = await Current(Principal(linked, TwoFactorGate.DelegatedSecondFactor)).GetAsync();
+        Assert.True(caller.IsAdmin);
+
+        // Without a second factor from Microsoft, or for a user that is not linked, nothing changes: no caller.
+        Assert.Null(await Current(Principal(linked, secondFactor: null)).TryGetAsync());
+        Assert.Null(await Current(Principal(local, TwoFactorGate.DelegatedSecondFactor)).TryGetAsync());
+
+        // Put the instance back as the other tests expect it: every admin but the ones they create signs in with a password.
+        Assert.True((await Users.UnlinkEntraAsync(admin, linked)).Success);
+        Assert.True((await Users.SetPasswordAsync(admin, linked, Password)).Success);
+    }
+
+    private CurrentUser Current(ClaimsPrincipal principal) =>
+        new(new FixedAuthenticationState(principal), _fixture.Database.DbFactory, new Microsoft.AspNetCore.Http.HttpContextAccessor(), _fixture.Database.Time);
+
+    private sealed class FixedAuthenticationState : Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider
+    {
+        private readonly ClaimsPrincipal _principal;
+
+        public FixedAuthenticationState(ClaimsPrincipal principal) => _principal = principal;
+
+        public override Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState> GetAuthenticationStateAsync() =>
+            Task.FromResult(new Microsoft.AspNetCore.Components.Authorization.AuthenticationState(_principal));
     }
 
     private async Task<string?> StampAsync(Guid userId)

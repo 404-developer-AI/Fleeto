@@ -80,15 +80,17 @@ public static class ScriptCheckResolver
 
     /// <summary>
     /// True when the user exists, has two-factor authentication, holds one of the normalized roles and, with <paramref name="lockedOutAt"/>,
-    /// is not locked out at that time.
+    /// is not locked out at that time. A user linked to Entra ID counts as having two factors: its second factor comes from
+    /// Microsoft, and web lets such a session in only with one (0.5.0). The signer cannot see the session, only the link.
     /// </summary>
     public static async Task<bool> UserHasRoleAsync(FleetoDbContext db, Guid userId, DateTime? lockedOutAt, CancellationToken cancellationToken,
         params string[] normalizedRoles)
     {
         var user = await db.Users.AsNoTracking().Where(u => u.Id == userId)
-            .Select(u => new { u.LockoutEnd, u.TwoFactorEnabled })
+            .Select(u => new { u.LockoutEnd, u.TwoFactorEnabled, Linked = u.EntraObjectId != null })
             .SingleOrDefaultAsync(cancellationToken);
-        if (user is null || !user.TwoFactorEnabled || (lockedOutAt is { } now && user.LockoutEnd > new DateTimeOffset(now, TimeSpan.Zero)))
+        if (user is null || !(user.TwoFactorEnabled || user.Linked) ||
+            (lockedOutAt is { } now && user.LockoutEnd > new DateTimeOffset(now, TimeSpan.Zero)))
         {
             return false;
         }
