@@ -139,6 +139,49 @@ public sealed class SignInTwoFactorTests
     }
 
     [Fact]
+    public async Task An_admin_without_a_password_does_not_count_and_is_never_held_back_by_the_rule()
+    {
+        var admin = WebFixtureBase.Admin();
+        await ConfigureAsync(admin);
+
+        // Every admin but one linked, so one admin signs in with a password. Then an admin that was linked and unlinked: it is
+        // not linked, but has no password either, as after testing a link (found on v0.5.0-alpha.2).
+        var breakGlass = await CreateUserAsync(admin, FleetoRoles.Admin);
+        var unlinked = await CreateUserAsync(admin, FleetoRoles.Admin);
+        var others = (await Users.ListAsync(admin))
+            .Where(u => u.Id != breakGlass && u.Id != unlinked && u.Roles.Contains(FleetoRoles.Admin) && u.EntraObjectId is null)
+            .ToList();
+        foreach (var other in others)
+        {
+            Assert.True((await Users.LinkEntraAsync(admin, other.Id, Guid.NewGuid().ToString("D"), null)).Success);
+        }
+
+        Assert.True((await Users.LinkEntraAsync(admin, unlinked, Guid.NewGuid().ToString("D"), null)).Success);
+        Assert.True((await Users.UnlinkEntraAsync(admin, unlinked)).Success);
+        var listed = (await Users.ListAsync(admin)).Single(u => u.Id == unlinked);
+        Assert.Null(listed.EntraObjectId);
+        Assert.False(listed.HasPassword);
+
+        // Taking it away cannot remove the last way in with a password, so nothing refuses it.
+        var demote = await Users.SetRolesAsync(admin, unlinked, [FleetoRoles.Technician]);
+        Assert.True(demote.Success, demote.Problem);
+        Assert.True((await Users.SetRolesAsync(admin, unlinked, [FleetoRoles.Admin])).Success);
+        var link = await Users.LinkEntraAsync(admin, unlinked, Guid.NewGuid().ToString("D"), null);
+        Assert.True(link.Success, link.Problem);
+        var delete = await Users.DeleteAsync(admin, unlinked);
+        Assert.True(delete.Success, delete.Problem);
+
+        // The one with a password is still held back.
+        Assert.Contains("last admin that signs in with a password", (await Users.DeleteAsync(admin, breakGlass)).Problem);
+
+        foreach (var other in others)
+        {
+            Assert.True((await Users.UnlinkEntraAsync(admin, other.Id)).Success);
+            Assert.True((await Users.SetPasswordAsync(admin, other.Id, Password)).Success);
+        }
+    }
+
+    [Fact]
     public void The_second_factor_of_a_session_survives_the_security_stamp_refresh()
     {
         var userId = Guid.NewGuid();

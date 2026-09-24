@@ -12,8 +12,9 @@ namespace Fleeto.Web.Services;
 
 /// <param name="EntraObjectId">The Entra ID account this user signs in with (0.5.0), or null for a local account.</param>
 /// <param name="EntraAccount">The account name of the link, for display.</param>
+/// <param name="HasPassword">False for a linked user, and for an unlinked one that has not been given a password yet.</param>
 public sealed record UserListItem(Guid Id, string Email, string DisplayName, IReadOnlyList<string> Roles, bool TwoFactorEnabled, bool LockedOut,
-    DateTime CreatedAt, DateTime? LastLoginAt, Guid? EntraObjectId = null, string? EntraAccount = null);
+    DateTime CreatedAt, DateTime? LastLoginAt, Guid? EntraObjectId = null, string? EntraAccount = null, bool HasPassword = true);
 
 /// <summary>
 /// User administration (admins only). Every operation runs in its own service scope, so the Identity context is never
@@ -53,7 +54,7 @@ public sealed class UserAdminService
             .ToListAsync(cancellationToken);
         return users.Select(u => new UserListItem(u.Id, u.Email ?? string.Empty, u.DisplayName,
             roles.Where(r => r.UserId == u.Id).Select(r => r.Name!).OrderBy(r => r).ToList(),
-            u.TwoFactorEnabled, u.LockoutEnd > now, u.CreatedAt, u.LastLoginAt, u.EntraObjectId, u.EntraAccount)).ToList();
+            u.TwoFactorEnabled, u.LockoutEnd > now, u.CreatedAt, u.LastLoginAt, u.EntraObjectId, u.EntraAccount, u.PasswordHash != null)).ToList();
     }
 
     public async Task<ServiceResult<Guid>> CreateAsync(Caller caller, string? email, string? displayName, string? temporaryPassword,
@@ -158,7 +159,7 @@ public sealed class UserAdminService
                 return ServiceResult.Fail("This is the last admin. Give another user the admin role first.");
             }
 
-            if (!user.IsLinkedToEntra && await CountLocalAdminsAsync(db, cancellationToken) <= 1)
+            if (SignsInWithPassword(user) && await CountLocalAdminsAsync(db, cancellationToken) <= 1)
             {
                 return ServiceResult.Fail(LastLocalAdminProblem);
             }
@@ -266,7 +267,7 @@ public sealed class UserAdminService
 
         // Break-glass: one admin keeps a password and an authenticator, so an outage at Microsoft cannot lock the customer
         // out of its own instance.
-        if (!user.IsLinkedToEntra && await users.IsInRoleAsync(user, FleetoRoles.Admin) &&
+        if (SignsInWithPassword(user) && await users.IsInRoleAsync(user, FleetoRoles.Admin) &&
             await CountLocalAdminsAsync(db, cancellationToken) <= 1)
         {
             return ServiceResult.Fail(LastLocalAdminProblem);
@@ -528,7 +529,7 @@ public sealed class UserAdminService
                 return ServiceResult.Fail("This is the last admin and cannot be deleted. Give another user the admin role first.");
             }
 
-            if (!user.IsLinkedToEntra && await CountLocalAdminsAsync(db, cancellationToken) <= 1)
+            if (SignsInWithPassword(user) && await CountLocalAdminsAsync(db, cancellationToken) <= 1)
             {
                 return ServiceResult.Fail(LastLocalAdminProblem);
             }
@@ -581,6 +582,13 @@ public sealed class UserAdminService
             .Join(db.Users.Where(u => u.EntraObjectId == null && u.PasswordHash != null), id => id, u => u.Id, (id, _) => id)
             .CountAsync(cancellationToken);
     }
+
+    /// <summary>
+    /// Whether this user is one of the admins <see cref="CountLocalAdminsAsync"/> counts, once it is an admin: not linked and
+    /// holding a password. Only removing such a user can take away the last way in with a password; a user without a password
+    /// (an unlinked one that has not been given a new password yet) never could.
+    /// </summary>
+    private static bool SignsInWithPassword(ApplicationUser user) => !user.IsLinkedToEntra && user.PasswordHash is not null;
 
     private static string? RoleProblem(IReadOnlyCollection<string> roles)
     {

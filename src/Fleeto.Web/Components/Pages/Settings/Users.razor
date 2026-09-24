@@ -53,9 +53,14 @@
                         <StatusChip Text="Microsoft" Kind="StatusKind.Ok" />
                         <div class="muted" style="font-size:0.8125rem">@context.EntraAccount</div>
                     }
-                    else
+                    else if (context.HasPassword)
                     {
                         <span class="muted">Local account</span>
+                    }
+                    else
+                    {
+                        <StatusChip Text="No password" Kind="StatusKind.Warning" />
+                        <div class="muted" style="font-size:0.8125rem">Set one with Password</div>
                     }
                 </MudTd>
             }
