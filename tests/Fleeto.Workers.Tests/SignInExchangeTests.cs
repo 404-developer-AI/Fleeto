@@ -186,7 +186,13 @@ public sealed class SignInExchangeTests : IDisposable
         });
     }
 
-    public void Dispose() => _key.Dispose();
+    public void Dispose()
+    {
+        _key.Dispose();
+        // The client secret of these tests would otherwise raise expiry warnings in tests that move the clock by months.
+        using var db = _fixture.Db.DbFactory.CreateSystem();
+        db.Settings.Where(s => s.Key == SettingKeys.EntraSignIn).ExecuteDelete();
+    }
 
     /// <summary>The metadata of the tenant as the workers cache it.</summary>
     private sealed class StaticConfiguration : IConfigurationManager<OpenIdConnectConfiguration>

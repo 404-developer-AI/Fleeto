@@ -35,7 +35,8 @@ public static class SecurityHeadersMiddleware
             }, context);
 
             var headers = context.Response.Headers;
-            headers["Content-Security-Policy"] = BuildContentSecurityPolicy(nonce, WebSocketSources(context) + relaySource);
+            headers["Content-Security-Policy"] = BuildContentSecurityPolicy(nonce, WebSocketSources(context) + relaySource,
+                FormActionSources(context));
             headers["X-Content-Type-Options"] = "nosniff";
             headers["X-Frame-Options"] = "DENY";
             headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
@@ -61,12 +62,23 @@ public static class SecurityHeadersMiddleware
         return $" {uri.Scheme}://{uri.Authority}";
     }
 
-    internal static string BuildContentSecurityPolicy(string nonce, string webSocketSources) =>
+    /// <summary>
+    /// The sign-in page posts "Sign in with Microsoft" to this origin, which answers with a redirect to Microsoft. Browsers
+    /// hold that redirect to form-action as well, so only the sign-in page names Microsoft's sign-in origin (0.5.0); every
+    /// other page keeps its forms on this origin.
+    /// </summary>
+    internal static string FormActionSources(HttpContext context) =>
+        context.Request.Path.Equals(LoginPath, StringComparison.OrdinalIgnoreCase) ? " " + MicrosoftSignInOrigin : string.Empty;
+
+    internal const string LoginPath = "/account/login";
+    internal const string MicrosoftSignInOrigin = "https://login.microsoftonline.com";
+
+    internal static string BuildContentSecurityPolicy(string nonce, string webSocketSources, string formActionSources = "") =>
         "default-src 'self'; " +
         "base-uri 'self'; " +
         "object-src 'none'; " +
         "frame-ancestors 'none'; " +
-        "form-action 'self'; " +
+        $"form-action 'self'{formActionSources}; " +
         "img-src 'self' data:; " +
         // The web app manifest and its icons come from the instance itself.
         "manifest-src 'self'; " +

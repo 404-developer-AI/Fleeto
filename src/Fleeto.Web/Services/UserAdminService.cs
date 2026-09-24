@@ -215,8 +215,8 @@ public sealed class UserAdminService
 
     /// <summary>
     /// Links a user to an Entra ID account (0.5.0), so it signs in with Microsoft instead of with a password. The object id
-    /// comes from the user in the Entra ID portal: an admin enters it, because Fleeto reads nothing from the directory and
-    /// never matches on an email address, which changes and can be given to somebody else.
+    /// comes from a search of the tenant in Settings, or an admin enters it from the Entra ID portal when the app registration
+    /// may not read users. Fleeto never matches on an email address, which changes and can be given to somebody else.
     /// </summary>
     public async Task<ServiceResult> LinkEntraAsync(Caller caller, Guid userId, string? objectId, string? account,
         CancellationToken cancellationToken = default)
@@ -301,6 +301,103 @@ public sealed class UserAdminService
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return ServiceResult.Ok();
+    }
+
+    /// <summary>
+    /// Adds a user that signs in with Microsoft only (0.5.0): an admin picks an account of the tenant and gives it roles. The
+    /// user is created linked and without a password, so there is one way in; nothing is created by a sign-in itself.
+    /// </summary>
+    public async Task<ServiceResult<Guid>> CreateFromEntraAsync(Caller caller, Guid objectId, string? email, string? displayName, string? account,
+        IReadOnlyCollection<string> roles, CancellationToken cancellationToken = default)
+    {
+        if (!caller.IsAdmin)
+        {
+            return ServiceResult<Guid>.Forbidden();
+        }
+
+        if (objectId == Guid.Empty)
+        {
+            return ServiceResult<Guid>.Fail("Choose a user of your tenant.");
+        }
+
+        var cleanEmail = ServiceSupport.Clean(email);
+        if (!ServiceSupport.IsValidEmail(cleanEmail))
+        {
+            return ServiceResult<Guid>.Fail("This account has no email address Fleeto can use. Give it a mail address in Microsoft 365, or add the user with New user and link it.");
+        }
+
+        var cleanName = ServiceSupport.Clean(displayName) ?? cleanEmail!;
+        if (cleanName.Length > 200)
+        {
+            cleanName = cleanName[..200];
+        }
+
+        var cleanAccount = ServiceSupport.Clean(account);
+        if (cleanAccount is { Length: > 320 })
+        {
+            return ServiceResult<Guid>.Fail("The account name is at most 320 characters.");
+        }
+
+        if (RoleProblem(roles) is { } roleProblem)
+        {
+            return ServiceResult<Guid>.Fail(roleProblem);
+        }
+
+        var settings = await _settings.GetAsync<EntraSignInSettings>(SettingKeys.EntraSignIn, cancellationToken);
+        if (settings is null || !settings.IsComplete)
+        {
+            return ServiceResult<Guid>.Fail("Sign-in with Microsoft Entra ID is not configured yet. Configure it in Settings, Sign-in first.");
+        }
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var db = scope.ServiceProvider.GetRequiredService<FleetoDbContext>();
+        if (await db.Users.AsNoTracking().Where(u => u.EntraObjectId == objectId).Select(u => u.Email).FirstOrDefaultAsync(cancellationToken) is { } takenBy)
+        {
+            return ServiceResult<Guid>.Fail($"That Entra ID account is already linked to {takenBy}.");
+        }
+
+        if (await users.FindByEmailAsync(cleanEmail!) is not null)
+        {
+            return ServiceResult<Guid>.Fail("A user with this email address already exists. Link that user with Link instead.");
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        var user = new ApplicationUser
+        {
+            Id = Guid.NewGuid(),
+            UserName = cleanEmail,
+            Email = cleanEmail,
+            EmailConfirmed = true,
+            DisplayName = cleanName,
+            CreatedAt = now,
+            EntraObjectId = objectId,
+            EntraTenantId = Guid.TryParse(settings.TenantId, out var tenant) ? tenant.ToString("D") : null,
+            EntraAccount = cleanAccount,
+            EntraLinkedAt = now
+        };
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        // No password: a linked user signs in with Microsoft only.
+        var created = await users.CreateAsync(user);
+        if (!created.Succeeded)
+        {
+            return ServiceResult<Guid>.Fail(Describe(created));
+        }
+
+        var added = await users.AddToRolesAsync(user, roles.Distinct());
+        if (!added.Succeeded)
+        {
+            return ServiceResult<Guid>.Fail(Describe(added));
+        }
+
+        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.UserCreated, "User", user.Id.ToString(), null,
+            new { user.Email, user.DisplayName, Roles = roles }), now));
+        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.UserLinked, "User", user.Id.ToString(), null,
+            new { user.Email, EntraObjectId = objectId, Account = cleanAccount, PasswordRemoved = false }), now));
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return ServiceResult<Guid>.Ok(user.Id);
     }
 
     /// <summary>Removes the Entra ID link, after which the user signs in with a local account again.</summary>

@@ -382,3 +382,5 @@ html, body {
 .remote-canvas-fit { max-width: 100%; max-height: 100%; object-fit: contain; }
 .remote-canvas-actual { max-width: none; max-height: none; }
 .muted { color: var(--mud-palette-text-secondary); font-size: 0.75rem; }
+.guide-steps { padding-left: 1.25rem; margin: 0; }
+.guide-steps li { margin-bottom: 0.75rem; font-size: 0.875rem; line-height: 1.5; }

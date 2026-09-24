@@ -89,6 +89,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
 
     /// <summary>Authorization codes of a sign-in with Entra ID that wait for the workers (0.5.0).</summary>
     public DbSet<SignInExchange> SignInExchanges => Set<SignInExchange>();
+    public DbSet<MicrosoftRequest> MicrosoftRequests => Set<MicrosoftRequest>();
     public DbSet<EndpointPatchState> EndpointPatchStates => Set<EndpointPatchState>();
     public DbSet<EndpointMissingUpdate> EndpointMissingUpdates => Set<EndpointMissingUpdate>();
     public DbSet<PatchDeployment> PatchDeployments => Set<PatchDeployment>();
@@ -852,6 +853,17 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(e => e.FailureReason).HasMaxLength(500);
             // The workers pick up what is waiting; retention removes what an abandoned browser left behind.
             entity.HasIndex(e => new { e.State, e.CreatedAt });
+        });
+
+        builder.Entity<MicrosoftRequest>(entity =>
+        {
+            entity.Property(r => r.Kind).HasConversion<string>().HasMaxLength(30);
+            entity.Property(r => r.State).HasConversion<string>().HasMaxLength(20);
+            entity.Property(r => r.Query).HasMaxLength(100);
+            entity.Property(r => r.ResultJson).HasMaxLength(64000);
+            entity.Property(r => r.FailureReason).HasMaxLength(500);
+            // The workers pick up what is waiting and delete what nobody read.
+            entity.HasIndex(r => new { r.State, r.CreatedAt });
         });
 
         builder.Entity<Integration>(entity =>

@@ -3,6 +3,9 @@
 @inherits FleetoPageBase
 @using Fleeto.Infrastructure.Settings
 @inject SettingsService SettingsSvc
+@inject MicrosoftDirectoryService DirectorySvc
+@inject IDialogService DialogService
+@using Fleeto.Infrastructure.Identity
 @inject IJSRuntime JS
 
 <PageTitle>Email - Fleeto</PageTitle>
@@ -39,7 +42,10 @@
     </div>
 
     <div class="fl-panel pa-4 mb-4" style="max-width:720px">
-        <MudText Typo="Typo.h6">Microsoft Graph</MudText>
+        <div class="d-flex justify-space-between align-center">
+            <MudText Typo="Typo.h6">Microsoft Graph</MudText>
+            <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.HelpOutline" OnClick="GuideAsync">Set-up guide</MudButton>
+        </div>
         <MudText Typo="Typo.body2" Class="muted mb-3">
             An app registration in Microsoft Entra ID with the Mail.Send application permission and admin consent. Limit it to the sending
             mailbox with an Exchange application access policy, so the registration cannot send as anyone else.
@@ -103,7 +109,18 @@
                 </MudText>
             </div>
         }
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveGraphAsync" Disabled="_busy">Save Microsoft Graph settings</MudButton>
+        <div class="d-flex gap-2 flex-wrap">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveGraphAsync" Disabled="_busy">Save Microsoft Graph settings</MudButton>
+            <MudButton Variant="Variant.Outlined" OnClick="TestGraphAsync" Disabled="@(_busy || !_graphComplete)">Test Microsoft Graph settings</MudButton>
+        </div>
+        <MudText Typo="Typo.caption" Class="muted d-block mt-2">
+            The test uses the saved settings: it signs in to your tenant as the app registration and checks its permissions, without sending a message.
+        </MudText>
+        @if (_testing)
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mt-3" />
+        }
+        <MicrosoftTestResults Checks="_checks" />
     </div>
 
     <div class="fl-panel pa-4" style="max-width:720px">
@@ -152,8 +169,30 @@
     private string? _fromAddress;
     private string? _fromName = "Fleeto";
     private bool _busy;
+    private bool _testing;
+    private IReadOnlyList<MicrosoftCheck>? _checks;
 
     protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private async Task GuideAsync()
+    {
+        var parameters = new DialogParameters<MicrosoftSetupGuideDialog> { { d => d.Guide, MicrosoftGuide.Email } };
+        await DialogService.ShowAsync<MicrosoftSetupGuideDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+    }
+
+    private async Task TestGraphAsync()
+    {
+        _busy = _testing = true;
+        _checks = null;
+        try
+        {
+            _checks = (await RunForValueAsync(caller => DirectorySvc.TestEmailAsync(caller), null))?.Value;
+        }
+        finally
+        {
+            _busy = _testing = false;
+        }
+    }
 
     private Task ReloadAsync() => LoadAsync(async caller =>
     {

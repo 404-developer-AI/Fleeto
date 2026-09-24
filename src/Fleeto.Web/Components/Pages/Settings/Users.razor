@@ -12,7 +12,13 @@
         <MudText Typo="Typo.h4" Class="page-title">Users</MudText>
         <MudText Typo="Typo.body2" Class="muted">People who can sign in to this instance. Every user signs in with two-factor authentication.</MudText>
     </div>
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PersonAdd" OnClick="CreateAsync">New user</MudButton>
+    <div class="d-flex gap-2">
+        @if (_entraConfigured)
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Custom.Brands.Microsoft" OnClick="AddFromMicrosoftAsync">Add from Microsoft</MudButton>
+        }
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PersonAdd" OnClick="CreateAsync">New user</MudButton>
+    </div>
 </div>
 
 <LoadState Loading="Loading" Failed="LoadFailed">
@@ -112,6 +118,20 @@
                 "The user was linked to Microsoft Entra ID.") }
         };
         var dialog = await DialogService.ShowAsync<EntraLinkDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task AddFromMicrosoftAsync()
+    {
+        var parameters = new DialogParameters<EntraUserDialog>
+        {
+            { d => d.OnSubmit, (user, roles) => RunAsync(caller => UserSvc.CreateFromEntraAsync(caller, user.ObjectId, user.Email, user.DisplayName,
+                user.Account, roles), $"{user.DisplayName} was added and signs in with Microsoft.") }
+        };
+        var dialog = await DialogService.ShowAsync<EntraUserDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         if (!(await dialog.Result)!.Canceled)
         {
             await ReloadAsync();

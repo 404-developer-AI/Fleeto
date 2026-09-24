@@ -1,0 +1,35 @@
+@* The outcome of a test of an app registration (0.5.0): one line per check, with cause and next step. *@
+@using Fleeto.Infrastructure.Identity
+
+@if (Checks is { Count: > 0 })
+{
+    <div class="d-flex flex-column gap-2 mt-3">
+        @foreach (var check in Checks)
+        {
+            <div class="d-flex gap-2 align-start">
+                <MudIcon Icon="@IconOf(check.Status)" Color="@ColorOf(check.Status)" Size="Size.Small" Class="mt-1" />
+                <MudText Typo="Typo.body2">@check.Text</MudText>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public IReadOnlyList<MicrosoftCheck>? Checks { get; set; }
+
+    private static string IconOf(MicrosoftCheckStatus status) => status switch
+    {
+        MicrosoftCheckStatus.Ok => Icons.Material.Outlined.CheckCircle,
+        MicrosoftCheckStatus.Warning => Icons.Material.Outlined.WarningAmber,
+        MicrosoftCheckStatus.Failed => Icons.Material.Outlined.ErrorOutline,
+        _ => Icons.Material.Outlined.Info
+    };
+
+    private static Color ColorOf(MicrosoftCheckStatus status) => status switch
+    {
+        MicrosoftCheckStatus.Ok => Color.Success,
+        MicrosoftCheckStatus.Warning => Color.Warning,
+        MicrosoftCheckStatus.Failed => Color.Error,
+        _ => Color.Info
+    };
+}

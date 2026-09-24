@@ -1,0 +1,94 @@
+@* How to create the app registration in Microsoft Entra ID for the sign-in or for Graph email (0.5.0), step by step, with
+   the permissions each one needs and nothing more. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(Guide == MicrosoftGuide.SignIn ? "Set up the sign-in with Microsoft Entra ID" : "Set up email through Microsoft Graph")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="muted mb-3">
+            In the Microsoft Entra admin center (entra.microsoft.com), with an account that may create app registrations and grant
+            admin consent. Use a separate app registration for the sign-in and for email, so each credential can do only its own job.
+        </MudText>
+        <ol class="guide-steps">
+            @if (Guide == MicrosoftGuide.SignIn)
+            {
+                <li>
+                    Go to <strong>Identity, Applications, App registrations</strong> and choose <strong>New registration</strong>. Name it
+                    for example "Fleeto sign-in" and choose <strong>Accounts in this organizational directory only (single tenant)</strong>.
+                    Under Redirect URI choose the platform <strong>Web</strong> and enter:
+                    <div class="fl-panel pa-2 my-2"><code>@RedirectUri</code></div>
+                    Then choose Register.
+                </li>
+                <li>On <strong>Overview</strong>, copy the <strong>Directory (tenant) ID</strong> and the <strong>Application (client) ID</strong> to this page.</li>
+                <li>
+                    Under <strong>Authentication</strong>, leave <strong>Access tokens</strong> and <strong>ID tokens</strong> under implicit grant
+                    off: Fleeto uses the authorization code flow with PKCE.
+                </li>
+                <li>
+                    Under <strong>API permissions</strong>, the sign-in needs the delegated Microsoft Graph permissions <strong>openid</strong>,
+                    <strong>profile</strong> and <strong>email</strong>. The delegated <strong>User.Read</strong> that a new registration gets is
+                    not used and can be removed.
+                </li>
+                <li>
+                    To choose users from Microsoft in Settings, Users, add the <strong>application</strong> permission
+                    <strong>User.Read.All</strong> of Microsoft Graph. Without it, you link a user by the object ID of its account.
+                    Then choose <strong>Grant admin consent</strong> for your tenant.
+                </li>
+                <li>
+                    Under <strong>Certificates &amp; secrets</strong>, choose <strong>New client secret</strong>. Copy the
+                    <strong>Value</strong> (not the Secret ID) and its end date to this page. Fleeto warns before the secret expires.
+                </li>
+                <li>
+                    Optional: under <strong>Enterprise applications</strong>, open the same application, set <strong>Assignment required</strong>
+                    to Yes under Properties and assign the people who may use it. Fleeto still lets in only the users an admin linked.
+                </li>
+                <li>
+                    Save this page and choose <strong>Test settings</strong>. Then add or link users in
+                    <MudLink Href="/settings/users">Users</MudLink> and switch the sign-in on.
+                </li>
+            }
+            else
+            {
+                <li>
+                    Go to <strong>Identity, Applications, App registrations</strong> and choose <strong>New registration</strong>. Name it
+                    for example "Fleeto email", choose <strong>single tenant</strong> and leave the redirect URI empty.
+                </li>
+                <li>On <strong>Overview</strong>, copy the <strong>Directory (tenant) ID</strong> and the <strong>Application (client) ID</strong> to this page.</li>
+                <li>
+                    Under <strong>API permissions</strong>, add the <strong>application</strong> permission <strong>Mail.Send</strong> of
+                    Microsoft Graph and choose <strong>Grant admin consent</strong>. Remove the delegated <strong>User.Read</strong>: it is not used.
+                </li>
+                <li>
+                    Credential, recommended: choose Certificate on this page, <strong>Create certificate</strong>, download it and upload it
+                    under <strong>Certificates &amp; secrets, Certificates</strong>, then switch to it here. The private key never leaves
+                    Fleeto. Or use a client secret: <strong>New client secret</strong>, and copy its Value and end date to this page.
+                </li>
+                <li>
+                    Mail.Send lets the registration send as any mailbox of the tenant. Limit it to the mailbox Fleeto sends as, in
+                    Exchange Online with an application access policy (<code>New-ApplicationAccessPolicy</code> with
+                    <code>-AccessRight RestrictAccess</code> and a mail-enabled security group that holds the mailbox) or with RBAC for
+                    Applications.
+                </li>
+                <li>
+                    Save this page and choose <strong>Test Microsoft Graph settings</strong>, then <strong>Send test email</strong>: only a
+                    message shows whether Fleeto may send as the mailbox.
+                </li>
+            }
+        </ol>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public MicrosoftGuide Guide { get; set; }
+
+    /// <summary>The redirect URI of the sign-in; unused for email.</summary>
+    [Parameter] public string? RedirectUri { get; set; }
+
+    private void Close() => MudDialog.Close();
+}

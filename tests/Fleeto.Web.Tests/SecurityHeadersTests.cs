@@ -20,6 +20,7 @@ public class SecurityHeadersTests
         app.UseFleetoSecurityHeaders();
         app.MapGet("/", (HttpContext context) => Results.Content(
             $"<html><body>{context.Items[SecurityHeadersMiddleware.NonceItemKey]}</body></html>", "text/html"));
+        app.MapGet("/account/login", () => Results.Content("<html><body></body></html>", "text/html"));
         await app.StartAsync();
         return app;
     }
@@ -53,6 +54,20 @@ public class SecurityHeadersTests
         Assert.Equal("strict-origin-when-cross-origin", first.Headers.GetValues("Referrer-Policy").Single());
         Assert.Equal("DENY", first.Headers.GetValues("X-Frame-Options").Single());
         Assert.Contains("no-store", first.Headers.CacheControl!.ToString());
+    }
+
+    [Fact]
+    public async Task Only_the_sign_in_page_may_send_a_form_on_to_Microsoft()
+    {
+        await using var app = await StartAsync();
+        var client = app.GetTestClient();
+
+        static string FormAction(HttpResponseMessage response) => response.Headers.GetValues("Content-Security-Policy").Single()
+            .Split(';').Select(d => d.Trim()).Single(d => d.StartsWith("form-action ", StringComparison.Ordinal));
+
+        // "Sign in with Microsoft" posts to this origin, which redirects to Microsoft; form-action covers that redirect.
+        Assert.Equal("form-action 'self' https://login.microsoftonline.com", FormAction(await client.GetAsync("/account/login")));
+        Assert.Equal("form-action 'self'", FormAction(await client.GetAsync("/")));
     }
 
     [Theory]

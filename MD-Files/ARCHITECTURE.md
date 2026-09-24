@@ -1209,7 +1209,19 @@ The flow is the authorization code flow with PKCE, split over two containers bec
 
 - **An admin links a user**, Fleeto never creates one from a token, and the link is the object id (`oid`) of the account, not
   an email address: an address changes and can be given to somebody else, which would hand over the account with it. One
-  Entra account belongs to at most one user (a unique index).
+  Entra account belongs to at most one user (a unique index). An admin picks the account from the tenant, or adds a new user
+  from it with its roles (linked and without a password), when the app registration of the sign-in holds the application
+  permission `User.Read.All`; without it, the admin enters the object id by hand.
+- **Questions from Settings to Microsoft** follow the same split. Testing the app registration of the sign-in or of Graph
+  email, and searching the users of the tenant, are a `MicrosoftRequest` row that web writes and announces on
+  `fleeto_microsoft_requests`; the workers (`MicrosoftRequestService`) answer with the credential they read from the settings,
+  and web reads the answer and deletes the row. A test gets an app-only token, reads the application permissions from its
+  `roles` claim, asks Graph for one user to see whether `User.Read.All` really works, and warns about permissions the
+  registration holds beyond what it needs. A search asks Graph for members with an enabled account (`userType eq 'Member'`,
+  an advanced query), never guests, at most 25, with the search text reduced to letters, digits and the characters of an
+  account name, so it cannot change the query. The token is reused while it is valid, so typing does not cost a token request
+  per keystroke. Rows older than two minutes are deleted by the workers, answered or not: names from the directory do not
+  linger. Web has `SELECT, INSERT, DELETE` on the table and never writes an answer.
 - **Two factors either way.** A token whose `amr` claim proves multi-factor authentication signs the user in without the
   local authenticator step: the session carries `fleeto:second-factor=entra`, and `TwoFactorGate` accepts that only while the
   user is still linked, so unlinking ends the exemption on the next request rather than when the session expires. A token
@@ -1221,6 +1233,9 @@ The flow is the authorization code flow with PKCE, split over two containers bec
 - **Break-glass.** At least one admin keeps a password of the instance (not linked, password set, counted in the database):
   the last such admin cannot be linked, demoted or deleted. A problem at Microsoft therefore never locks a customer out of
   its own instance, and the rule cannot be walked around by linking admins one after another.
+- **The sign-in page may send a form on to Microsoft.** "Sign in with Microsoft" posts to web, which answers with a redirect
+  to `login.microsoftonline.com`; browsers apply the CSP `form-action` to that redirect as well, so the sign-in page, and only
+  that page, adds `https://login.microsoftonline.com` to `form-action`. Every other page keeps `form-action 'self'`.
 - Why a refusal stays vague in the browser: the page says the sign-in did not work and names the local account as the way in,
   while the reason (another tenant, a guest, no linked user) goes to the audit log. A precise message would tell an outsider
   which accounts exist in this instance.

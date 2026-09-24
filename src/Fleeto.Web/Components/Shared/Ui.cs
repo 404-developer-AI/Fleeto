@@ -404,3 +404,10 @@ public static class Ui
         _ => "status-neutral"
     };
 }
+
+/// <summary>Which app registration the set-up guide of Settings explains (0.5.0).</summary>
+public enum MicrosoftGuide
+{
+    SignIn,
+    Email
+}

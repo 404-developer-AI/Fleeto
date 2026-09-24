@@ -25,6 +25,13 @@ When a third released version is added, the oldest entry moves to the top of
   linked account exactly as it answers a wrong password, so it tells nobody which accounts sign in with Microsoft. One admin
   always keeps a password as the way in when Microsoft is unavailable: the last such admin cannot be linked, demoted or
   deleted, with a message that says why.
+- 0.5.0: Choose people from your Microsoft tenant. With the User.Read.All application permission on the app registration of
+  the sign-in, "Add from Microsoft" in Settings, Users adds a user from an account of your tenant with the roles you give
+  it, and linking an existing user picks the account the same way. Only members with an enabled account are offered, never
+  guests. Without the permission, you link a user by the object ID of its account, as before.
+- 0.5.0: "Test settings" on Settings, Sign-in and "Test Microsoft Graph settings" on Settings, Email check the saved app
+  registration: that Fleeto can sign in to the tenant with it, which permissions it has, and which it holds beyond what
+  Fleeto needs. Both pages have a set-up guide with every step and permission.
 - 0.5.0: An admin can set a password for a user in Settings, Users. Needed after removing an Entra ID link, and it is what
   the sign-in page has always pointed at for somebody who lost their password. Their open sessions end, and two-factor
   authentication is untouched: a password alone is never enough.

@@ -2,6 +2,9 @@
 @attribute [Authorize(Policy = FleetoPolicies.Admin)]
 @inherits FleetoPageBase
 @inject SignInSettingsService SignInSvc
+@inject MicrosoftDirectoryService DirectorySvc
+@inject IDialogService DialogService
+@using Fleeto.Infrastructure.Identity
 
 <PageTitle>Sign-in - Fleeto</PageTitle>
 
@@ -13,6 +16,7 @@
             the clients you manage, signs in with a local account.
         </MudText>
     </div>
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.HelpOutline" OnClick="GuideAsync">Set-up guide</MudButton>
 </div>
 
 <LoadState Loading="Loading" Failed="LoadFailed">
@@ -52,7 +56,16 @@
 
                 <div class="d-flex gap-2 flex-wrap">
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="_busy">Save</MudButton>
+                    <MudButton Variant="Variant.Outlined" OnClick="TestAsync" Disabled="@(_busy || _view?.IsComplete != true)">Test settings</MudButton>
                 </div>
+                <MudText Typo="Typo.caption" Class="muted d-block mt-2">
+                    The test uses the saved settings: it signs in to your tenant as the app registration and checks what it may do.
+                </MudText>
+                @if (_testing)
+                {
+                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mt-3" />
+                }
+                <MicrosoftTestResults Checks="_checks" />
             </div>
         </MudItem>
 
@@ -65,8 +78,9 @@
                 <code>@(_view?.RedirectUri)</code>
             </div>
             <MudText Typo="Typo.body2" Class="muted mb-3">
-                Fleeto asks for the sign-in scopes only (openid, profile, email) and reads nothing else from the directory.
-                Give the app registration a client secret and enter it here with its end date.
+                The sign-in asks for openid, profile and email only. With the application permission User.Read.All, you choose
+                users from Microsoft in Users; without it, you link them by object ID. Give the app registration a client secret
+                and enter it here with its end date. The set-up guide has every step.
             </MudText>
             <MudText Typo="Typo.body2" Class="muted mb-3">
                 A user signs in with Entra ID once an admin has linked their Fleeto user to an Entra ID account, in
@@ -93,8 +107,34 @@
     private DateTime? _secretExpiresOn;
     private bool _enabled;
     private bool _busy;
+    private bool _testing;
+    private IReadOnlyList<MicrosoftCheck>? _checks;
 
     protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private async Task GuideAsync()
+    {
+        var parameters = new DialogParameters<MicrosoftSetupGuideDialog>
+        {
+            { d => d.Guide, MicrosoftGuide.SignIn },
+            { d => d.RedirectUri, _view?.RedirectUri }
+        };
+        await DialogService.ShowAsync<MicrosoftSetupGuideDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+    }
+
+    private async Task TestAsync()
+    {
+        _busy = _testing = true;
+        _checks = null;
+        try
+        {
+            _checks = (await RunForValueAsync(caller => DirectorySvc.TestSignInAsync(caller), null))?.Value;
+        }
+        finally
+        {
+            _busy = _testing = false;
+        }
+    }
 
     private string LinkedText => _view!.LinkedUsers switch
     {

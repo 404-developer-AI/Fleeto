@@ -644,6 +644,15 @@ Decisions (2026-09-23, with the developer):
   encrypted in a row, notifies on `fleeto_sign_ins` and waits for the outcome; the workers exchange the code, validate the
   id_token and write back the claims Fleeto needs, never a token. The request is typed, not a proxy, so the client secret
   never travels to web: the workers read it from the settings themselves.
+- **Users can be chosen from the tenant** (decided 2026-09-24, after testing `v0.5.0-alpha.1`; this reverses "Fleeto reads
+  nothing from the directory" of step 1): with the application permission `User.Read.All` on the app registration of the
+  sign-in, an admin picks an account of the tenant to link, or adds a new user from it with its roles. Only members with an
+  enabled account are offered, never guests. Without the permission, linking by object id keeps working. The link is still the
+  object id, never the address.
+- **Settings tests the app registration** of the sign-in and of Graph email, and explains how to create it (decided
+  2026-09-24): a test signs in to the tenant as the registration, reports per line what works, what is missing and what the
+  registration holds beyond what Fleeto needs, and says what cannot be checked from Fleeto (the redirect URI, and whether
+  Graph may send as the mailbox). The test uses the saved settings, never unsaved ones: the secret stays with the workers.
 
 Steps:
 
@@ -660,10 +669,14 @@ Steps:
      touching the sign-in;
    - the exchange is a **typed request**, not a proxy of HTTP calls: the workers read the client secret from the settings
      themselves, so it never travels to web;
-   - **an admin enters the object id** of the Entra ID account. Fleeto reads nothing from the directory, so it needs no
-     Graph permissions, and it never matches a sign-in on an email address;
+   - **an admin enters the object id** of the Entra ID account, and Fleeto never matches a sign-in on an email address.
+     Choosing the account from the tenant followed in step 3;
    - a refusal stays vague in the browser and precise in the audit log, so the page does not say which accounts exist.
-   - Still open: a pre-release `v0.5.0-alpha.N` and a test against a real tenant, with a real app registration.
+   - Pre-release `v0.5.0-alpha.1` (2026-09-23). Found while testing it: "Sign in with Microsoft" did nothing, because the
+     CSP `form-action 'self'` also applies to the redirect after a form post, so the browser blocked the redirect to
+     Microsoft without a message while every click counted against the rate limit. The sign-in page, and only that page,
+     now allows `https://login.microsoftonline.com` in `form-action` (`SecurityHeadersMiddleware.FormActionSources`).
+   - Still open: a test against a real tenant, with a real app registration.
 2. [built, not tested on a tenant yet] **Two factors, no local password and break-glass** (2026-09-23): a token whose
    `amr` claim proves multi-factor authentication signs the user in without the local authenticator step; the session carries
    that fact in a claim and `TwoFactorGate` re-reads the link on every request, so unlinking a user ends the exemption at
@@ -679,8 +692,23 @@ Steps:
      stamp, from the user store, which does not know how that session signed in. Without carrying the claim over, a session
      that came in through Entra ID lost its second factor halfway and was sent to the setup page
      (`SecurityStampValidatorOptions.OnRefreshingPrincipal`, `TwoFactorGate.CarryOverSecondFactor`).
-   - Still open: the pre-release and the test against a real tenant, together with step 1.
-3. **Release 0.5.0** — the sign-in configuration onto `API-WAITLIST.md` (admin data, never the secret), changelog,
+   - Still open: the test against a real tenant, together with step 1.
+3. [built, not tested on a tenant yet] **Users from the tenant, a test and a guide** (2026-09-24, asked for after testing
+   `v0.5.0-alpha.1`): "Add from Microsoft" in Settings, Users creates a user linked to a chosen account, with its roles and
+   without a password; the link dialog chooses the account the same way, with the object id as the fallback. "Test settings"
+   on Settings, Sign-in and "Test Microsoft Graph settings" on Settings, Email check the saved app registration; a set-up
+   guide on both pages lists every step and permission. Web writes each question as a `MicrosoftRequest`, and
+   `MicrosoftRequestService` in the workers answers it with `MicrosoftGraphClient`. Decided while building:
+   - **`User.Read.All` on the app registration of the sign-in**, not a registration of its own: it is the registration that
+     represents the owner's people in Fleeto, and the email registration stays limited to `Mail.Send`;
+   - the test **asks Graph for one user** rather than trusting the `roles` claim alone, so it reports what Microsoft really
+     allows; the claim is used to name permissions the registration holds beyond what it needs;
+   - a search returns **at most 25 members**, and the token is **reused while it is valid**, so typing does not cost a token
+     request per keystroke;
+   - searching the tenant and testing a registration are **not audited**: they change nothing, like the connection test of
+     an integration. Adding and linking a user are audited as before.
+   - Still open: a test against a real tenant, with `User.Read.All` granted and without it.
+4. **Release 0.5.0** — the sign-in configuration onto `API-WAITLIST.md` (admin data, never the secret), changelog,
    `ARCHITECTURE.md` §5 for how the sign-in is anchored, tag `v0.5.0`.
 
 ## 0.6.0 — Refactors, fixes and clean-up
@@ -693,6 +721,10 @@ until 2026-09-23 and are now under "Not yet scheduled".
   `GraphEmailTests` (CS0105), and three `SqlQueryRaw` calls that EF flags (EF1003, in `EndpointHealthService`,
   `CheckCatalogTests` and `EndpointCheckRuleTests`) — check each one and either use `SqlQuery` or suppress it with a
   reason.
+- Two token requests for Microsoft (found 2026-09-24): `GraphEmailSession` (email delivery) and `MicrosoftGraphClient`
+  (Settings) each build the client credentials request and translate the AADSTS codes. Let email delivery use
+  `MicrosoftGraphClient.GetTokenAsync`, so a new refusal code is handled in one place. Small, but touches email delivery,
+  so it waits for a release without features.
 - A pass over the pages that inherit `FleetoPageBase`: 0.4.0 had one that replaced the inherited clean-up instead of
   running its own next to it, so look for the same shape elsewhere.
 - Whatever the open items of 0.1.0 and the known limitations above still hold that is not hardening work (0.7.0).

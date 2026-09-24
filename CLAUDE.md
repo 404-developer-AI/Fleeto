@@ -217,7 +217,10 @@ Every user signs in with two factors. Local accounts use a password (Argon2id) a
   account. An instance holds one tenant id: a token from another tenant is refused, and so is a guest account in the
   owner's tenant.
 - **A user is linked to a local user by an admin.** No account is created automatically: the local user holds the role and
-  the client restriction, and unlinking or disabling it closes the door. A user limited to clients is never linked.
+  the client restriction, and unlinking or disabling it closes the door. A user limited to clients is never linked. With
+  the application permission `User.Read.All` on the app registration of the sign-in, the admin picks the account from the
+  tenant or adds a new user from it with its roles (decided 2026-09-24); members only, never guests. Without it, the admin
+  enters the object id.
 - **Matched on `oid` and `tid` from the token**, never on the email address: an address changes and can be given to
   somebody else, which would hand over the account with it.
 - **An Entra ID token that proves MFA replaces the local TOTP step**, read from the `amr` claim of the token itself; a token
@@ -230,6 +233,8 @@ Every user signs in with two factors. Local accounts use a password (Argon2id) a
   and the authorization code that comes back is exchanged by the workers, which validate the id_token and write back the
   claims Fleeto needs, never a token. The request is typed rather than a proxy, so the client secret stays with the workers.
 - Configuring the sign-in, linking or unlinking a user and the way each sign-in came in are all in the audit log.
+- Settings tests the app registration of the sign-in and of Graph email through the workers and shows a set-up guide for
+  each (2026-09-24).
 
 ## Public API
 

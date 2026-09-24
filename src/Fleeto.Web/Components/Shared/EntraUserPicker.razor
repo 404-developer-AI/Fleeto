@@ -1,0 +1,58 @@
+@* Choose a user of the tenant by name, account or address (0.5.0). The workers search Microsoft; a user already linked to
+   Fleeto is shown but cannot be chosen. When the app registration may not read users, the reason shows below the field. *@
+@using Fleeto.Infrastructure.Identity
+@inject MicrosoftDirectoryService DirectorySvc
+@inject CurrentUser CurrentUser
+
+<MudAutocomplete T="DirectoryUserView" Value="Value" ValueChanged="ValueChanged" SearchFunc="SearchAsync" DebounceInterval="400"
+                 ToStringFunc="@(u => u?.ToString())" ItemDisabledFunc="@(u => u.LinkedTo is not null)" Label="@Label"
+                 Variant="Variant.Outlined" ShowProgressIndicator="true" ResetValueOnEmptyText="true" AutoFocus="true" Class="mb-1"
+                 HelperText="@($"Type a name, account or address. Shows at most {MicrosoftGraphClient.SearchLimit} members of your tenant; guests are left out.")">
+    <ItemTemplate Context="user">
+        <div>
+            <div>@user.DisplayName</div>
+            <div class="muted" style="font-size:0.75rem">
+                @user.Account@(user.LinkedTo is null ? "" : $" · already linked to {user.LinkedTo}")
+            </div>
+        </div>
+    </ItemTemplate>
+    <NoItemsTemplate>
+        <MudText Typo="Typo.body2" Class="pa-2 muted">@(_problem ?? "No member of your tenant matches.")</MudText>
+    </NoItemsTemplate>
+</MudAutocomplete>
+@if (_problem is not null)
+{
+    <MudText Typo="Typo.caption" Color="Color.Warning" Class="d-block mb-2">@_problem</MudText>
+}
+
+@code {
+    [Parameter] public DirectoryUserView? Value { get; set; }
+    [Parameter] public EventCallback<DirectoryUserView?> ValueChanged { get; set; }
+    [Parameter] public string Label { get; set; } = "User in Microsoft Entra ID";
+
+    private string? _problem;
+
+    private async Task<IEnumerable<DirectoryUserView>> SearchAsync(string? text, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var caller = await CurrentUser.GetAsync(cancellationToken);
+            var result = await DirectorySvc.SearchUsersAsync(caller, text, cancellationToken);
+            _problem = result.Success ? null : result.Problem;
+            return result.Value ?? [];
+        }
+        catch (OperationCanceledException)
+        {
+            return [];
+        }
+        catch (Exception)
+        {
+            _problem = ServiceSupport.GenericProblem;
+            return [];
+        }
+        finally
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+}

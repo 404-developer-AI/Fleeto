@@ -1,0 +1,78 @@
+@* Add a user from Microsoft Entra ID (0.5.0): choose a member of the tenant and give it roles. The user signs in with
+   Microsoft only and has no Fleeto password. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Add a user from Microsoft</MudText>
+    </TitleContent>
+    <DialogContent>
+        <EntraUserPicker @bind-Value="_selected" />
+        <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+            The user signs in with Microsoft and has no Fleeto password. Fleeto asks the authenticator code only when the token
+            does not say Microsoft already asked for a second factor.
+        </MudText>
+        <MudText Typo="Typo.subtitle2" Class="mb-1">Roles</MudText>
+        <MudCheckBox T="bool" Value="@_roles.Contains(FleetoRoles.Admin)" ValueChanged="@(v => Toggle(FleetoRoles.Admin, v))" Color="Color.Primary"
+                     Label="Admin: everything, including Settings" />
+        <MudCheckBox T="bool" Value="@_roles.Contains(FleetoRoles.Technician)" ValueChanged="@(v => Toggle(FleetoRoles.Technician, v))" Color="Color.Primary"
+                     Label="Technician: manage clients, sites, endpoints, templates and alerts" />
+        <MudCheckBox T="bool" Value="@_roles.Contains(FleetoRoles.ReadOnly)" ValueChanged="@(v => Toggle(FleetoRoles.ReadOnly, v))" Color="Color.Primary"
+                     Label="Read-only: view everything outside Settings" />
+        @if (_problem is not null)
+        {
+            <MudText Typo="Typo.body2" Color="Color.Warning" Class="d-block mt-2">@_problem</MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">Add user</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public Func<DirectoryUserView, IReadOnlyCollection<string>, Task<bool>> OnSubmit { get; set; } = (_, _) => Task.FromResult(true);
+
+    private DirectoryUserView? _selected;
+    private HashSet<string> _roles = [FleetoRoles.Technician];
+    private string? _problem;
+    private bool _busy;
+
+    private void Toggle(string role, bool selected)
+    {
+        if (selected)
+        {
+            _roles.Add(role);
+        }
+        else
+        {
+            _roles.Remove(role);
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _problem = null;
+        if (_selected is null)
+        {
+            _problem = "Choose a user of your tenant.";
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(_selected, _roles.ToList()))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

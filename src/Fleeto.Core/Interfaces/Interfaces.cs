@@ -113,6 +113,12 @@ public static class NotificationChannels
     /// the sign-in does not wait for its next poll.
     /// </summary>
     public const string SignIns = "fleeto_sign_ins";
+
+    /// <summary>
+    /// Payload: MicrosoftRequest id. An admin tested an app registration or searched the users of the tenant (0.5.0); only
+    /// the workers can reach Microsoft, so they answer and web reads the answer from the row.
+    /// </summary>
+    public const string MicrosoftRequests = "fleeto_microsoft_requests";
 }
 
 /// <summary>Writes audit entries. The table is append-only; there is no update or delete.</summary>

@@ -1,4 +1,5 @@
-@* Link a user to an Entra ID account (0.5.0): the object id of that account, which Fleeto matches the sign-in on. *@
+@* Link a user to an Entra ID account (0.5.0): chosen from the tenant, or by the object id of that account when the app
+   registration may not read users. Fleeto matches the sign-in on the object id, never on an address. *@
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">Link @Email to Microsoft Entra ID</MudText>
@@ -9,11 +10,24 @@
             the authenticator code only when the token does not say Microsoft already asked for a second factor. Only accounts
             of your own tenant can be linked; a guest of the tenant is refused at sign-in.
         </MudText>
-        <MudTextField @bind-Value="_objectId" Label="Object ID of the Entra ID user" Variant="Variant.Outlined" MaxLength="100" AutoFocus="true"
-                      Class="mb-3"
-                      HelperText="In the Entra ID portal under Users, on the user itself. Fleeto never matches on the email address: an address changes and can be given to somebody else." />
-        <MudTextField @bind-Value="_account" Label="Account name (optional)" Variant="Variant.Outlined" MaxLength="320" Class="mb-1"
-                      HelperText="For display in this list. The sign-in fills it in by itself." />
+        @if (!_manual)
+        {
+            <EntraUserPicker @bind-Value="_selected" />
+            <MudLink Typo="Typo.caption" OnClick="@(() => _manual = true)">Enter the object ID instead</MudLink>
+        }
+        else
+        {
+            <MudTextField @bind-Value="_objectId" Label="Object ID of the Entra ID user" Variant="Variant.Outlined" MaxLength="100" AutoFocus="true"
+                          Class="mb-3"
+                          HelperText="In the Entra ID portal under Users, on the user itself. Fleeto never matches on the email address: an address changes and can be given to somebody else." />
+            <MudTextField @bind-Value="_account" Label="Account name (optional)" Variant="Variant.Outlined" MaxLength="320" Class="mb-1"
+                          HelperText="For display in this list. The sign-in fills it in by itself." />
+            <MudLink Typo="Typo.caption" OnClick="@(() => _manual = false)">Choose from Microsoft instead</MudLink>
+        }
+        @if (_problem is not null)
+        {
+            <MudText Typo="Typo.body2" Color="Color.Warning" Class="d-block mt-2">@_problem</MudText>
+        }
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
@@ -29,8 +43,11 @@
     [Parameter] public string? Account { get; set; }
     [Parameter] public Func<string?, string?, Task<bool>> OnSubmit { get; set; } = (_, _) => Task.FromResult(true);
 
+    private DirectoryUserView? _selected;
+    private bool _manual;
     private string? _objectId;
     private string? _account;
+    private string? _problem;
     private bool _busy;
 
     protected override void OnInitialized() => _account = Account;
@@ -39,10 +56,20 @@
 
     private async Task SubmitAsync()
     {
+        _problem = null;
+        if (!_manual && _selected is null)
+        {
+            _problem = "Choose a user of your tenant, or enter the object ID instead.";
+            return;
+        }
+
         _busy = true;
         try
         {
-            if (await OnSubmit(_objectId, _account))
+            var linked = _manual
+                ? await OnSubmit(_objectId, _account)
+                : await OnSubmit(_selected!.ObjectId.ToString("D"), _selected.Account);
+            if (linked)
             {
                 MudDialog.Close(DialogResult.Ok(true));
             }

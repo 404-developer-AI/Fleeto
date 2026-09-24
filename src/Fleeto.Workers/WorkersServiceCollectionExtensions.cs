@@ -57,6 +57,7 @@ public static class WorkersServiceCollectionExtensions
         // Sign-in with Entra ID (0.5.0): the metadata and signing keys of the tenant are cached here, so they are read
         // once rather than per sign-in.
         services.AddSingleton(sp => new EntraSignInClientFactory(sp.GetRequiredService<ILoggerFactory>()));
+        services.AddSingleton(sp => new MicrosoftGraphClient(sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<MicrosoftGraphClient>>()));
 
         services.AddHostedService<HeartbeatFileService>();
         services.AddHostedService<ConfigChangeFanoutService>();
@@ -79,6 +80,7 @@ public static class WorkersServiceCollectionExtensions
         services.AddHostedService<PatchSyncService>();
         services.AddHostedService<PatchDeploymentService>();
         services.AddHostedService<SignInExchangeService>();
+        services.AddHostedService<MicrosoftRequestService>();
 
         return services;
     }
