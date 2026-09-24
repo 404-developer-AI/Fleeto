@@ -286,8 +286,12 @@
         {
             // The window closed; the browser ended the session with it.
         }
-
-        _self?.Dispose();
-        Dispose();
+        finally
+        {
+            // Blazor calls only DisposeAsync on a component that has both, so the clean-up of FleetoPageBase runs from here,
+            // whatever the browser answered.
+            _self?.Dispose();
+            Dispose();
+        }
     }
 }

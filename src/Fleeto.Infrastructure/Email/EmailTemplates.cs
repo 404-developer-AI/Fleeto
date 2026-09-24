@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Net;
 using System.Text;
+using Fleeto.Core.Domain;
+using Fleeto.Core.Entities;
 
 namespace Fleeto.Infrastructure.Email;
 
@@ -280,6 +282,69 @@ public static class EmailTemplates
 
         return new EmailContent(Subject($"{name} of {instanceFqdn} has expired"), html, Footer(text));
     }
+
+    /// <summary>At most this many alerts are listed in a digest email; the rest is counted.</summary>
+    public const int DigestMaxLines = 100;
+
+    /// <summary>
+    /// Alert notifications combined during a flood (0.6.0): grouped by client and site, newest first within each, each with
+    /// what happened, the endpoint and a link. Everything after <see cref="DigestMaxLines"/> is counted, not listed.
+    /// </summary>
+    public static EmailContent AlertDigest(string instanceFqdn, IReadOnlyList<Notifications.DigestLine> lines, string alertsUrl)
+    {
+        var shown = lines.OrderByDescending(l => l.At).Take(DigestMaxLines).ToList();
+        var more = lines.Count - shown.Count;
+        var html = new StringBuilder();
+        var text = new StringBuilder();
+        foreach (var client in shown.GroupBy(l => (l.ClientCode, l.ClientName)).OrderBy(g => g.Key.ClientCode, StringComparer.Ordinal))
+        {
+            foreach (var site in client.GroupBy(l => l.SiteName).OrderBy(g => g.Key, StringComparer.CurrentCultureIgnoreCase))
+            {
+                html.Append($"""<p style="margin:16px 0 4px;font-weight:600">{Enc(client.Key.ClientName)} ({Enc(client.Key.ClientCode)}) · {Enc(site.Key)}</p>""");
+                html.Append($"""<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-top:1px solid {BorderColor}">""");
+                text.Append('\n').Append(client.Key.ClientName).Append(" (").Append(client.Key.ClientCode).Append(") - ").Append(site.Key).Append('\n');
+                foreach (var line in site)
+                {
+                    var state = line.Event == NotificationEvent.Resolved ? "Resolved" : line.Severity.ToString();
+                    html.Append($"""
+                        <tr><td style="padding:8px 0;border-bottom:1px solid {BorderColor}">
+                          <span style="color:{DigestColor(line)};font-size:13px;font-weight:600">{Enc(state)}</span>
+                          <a href="{Enc(line.EndpointUrl)}" style="color:{TextColor};text-decoration:none">{Enc(line.Headline)}</a><br>
+                          <span style="color:{MutedColor};font-size:13px">{Enc(line.Hostname)} · {Enc(Utc(line.At))}</span>
+                        </td></tr>
+                        """);
+                    text.Append("- [").Append(state).Append("] ").Append(line.Headline).Append(" (").Append(line.Hostname).Append(", ")
+                        .Append(Utc(line.At)).Append(")\n  ").Append(line.EndpointUrl).Append('\n');
+                }
+
+                html.Append("</table>");
+            }
+        }
+
+        var moreHtml = more > 0 ? $"""<p style="margin:16px 0 0">And {more} more. The alerts page lists them all.</p>""" : string.Empty;
+        var moreText = more > 0 ? $"\nAnd {more} more. The alerts page lists them all.\n" : string.Empty;
+        var body = Layout($"""
+            <p style="margin:0 0 8px">{lines.Count} alert notifications from {Enc(instanceFqdn)} are combined in this email, because
+            more arrived in a short time than Fleeto sends one by one. More of them follow as one email every
+            {(int)Notifications.NotificationDigest.Window.TotalMinutes} minutes for as long as it lasts.</p>
+            {html}
+            {moreHtml}
+            <div style="height:24px"></div>
+            {Button(alertsUrl, "Open the alerts")}
+            """);
+        var plain = $"""
+            {lines.Count} alert notifications from {instanceFqdn} are combined in this email, because more arrived in a short time
+            than Fleeto sends one by one. More of them follow as one email every {(int)Notifications.NotificationDigest.Window.TotalMinutes} minutes for as long as it lasts.
+            {text}{moreText}
+            Open the alerts: {alertsUrl}
+            """;
+
+        return new EmailContent(Subject($"{lines.Count} alert notifications from {instanceFqdn}"), body, Footer(plain));
+    }
+
+    private static string DigestColor(Notifications.DigestLine line) => line.Event == NotificationEvent.Resolved
+        ? BrandColor
+        : line.Severity == AlertSeverity.Critical ? CriticalColor : WarningColor;
 
     private static string Capitalize(string value) => value.Length == 0 ? value : char.ToUpperInvariant(value[0]) + value[1..];
 

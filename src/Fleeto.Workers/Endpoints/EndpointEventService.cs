@@ -18,10 +18,31 @@ namespace Fleeto.Workers.Endpoints;
 /// The duplicate identity alert opens for agent-only endpoints too: it is a security signal about the instance, not a
 /// monitoring feature, and hiding a cloned identity would be lying about the endpoint.
 /// </para>
+/// <para>
+/// It resolves on its own once it has been open for <see cref="DuplicateQuietPeriod"/> without a new duplicate connection
+/// (0.6.0): a copy that is still running keeps connecting and keeps it open, one that was switched off or re-enrolled stops.
+/// </para>
 /// </summary>
 public sealed class EndpointEventService : WorkerLoop
 {
     internal const int BatchSize = 500;
+
+    /// <summary>How long a duplicate identity must stay quiet before its alert resolves (decided 2026-09-24).</summary>
+    public static readonly TimeSpan DuplicateQuietPeriod = TimeSpan.FromHours(24);
+
+    public const string ResolvedReasonDuplicateQuiet = "No second connection with this agent identity for 24 hours";
+
+    // Open duplicate identity alerts that are older than the quiet period and saw no duplicate connection within it. Events
+    // not yet processed count as well; the index on ("EndpointId", "Time") keeps the check per alert cheap.
+    private const string ResolveQuietDuplicatesSql = """
+        UPDATE "Alerts" a
+        SET "State" = 'Resolved', "ResolvedAt" = @now, "UpdatedAt" = @now, "ResolvedReason" = @reason
+        WHERE a."Kind" = 'DuplicateIdentity' AND a."State" <> 'Resolved' AND a."OpenedAt" <= @cutoff
+          AND NOT EXISTS (
+            SELECT 1 FROM "EndpointEvents" e
+            WHERE e."EndpointId" = a."EndpointId" AND e."Kind" = 'DuplicateIdentity' AND e."Time" > @cutoff)
+        RETURNING a."Id" AS "Value"
+        """;
 
     private readonly IFleetoDbContextFactory _dbFactory;
     private readonly INotificationBus _bus;
@@ -48,8 +69,39 @@ public sealed class EndpointEventService : WorkerLoop
 
     protected override void OnStopping() => _subscription?.Dispose();
 
-    protected override async Task<bool> RunOnceAsync(CancellationToken cancellationToken) =>
-        await ProcessPendingAsync(cancellationToken) >= BatchSize;
+    protected override async Task<bool> RunOnceAsync(CancellationToken cancellationToken)
+    {
+        var more = await ProcessPendingAsync(cancellationToken) >= BatchSize;
+        await ResolveQuietDuplicatesAsync(cancellationToken);
+        return more;
+    }
+
+    /// <summary>Resolves the duplicate identity alerts that stayed quiet for <see cref="DuplicateQuietPeriod"/>. Returns how many.</summary>
+    public async Task<int> ResolveQuietDuplicatesAsync(CancellationToken cancellationToken)
+    {
+        var now = Time.GetUtcNow().UtcDateTime;
+        List<Guid> resolved;
+        await using (var db = _dbFactory.CreateSystem())
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            resolved = await db.Database.SqlQueryRaw<Guid>(ResolveQuietDuplicatesSql,
+                    new NpgsqlParameter("now", now), new NpgsqlParameter("cutoff", now - DuplicateQuietPeriod),
+                    new NpgsqlParameter("reason", ResolvedReasonDuplicateQuiet))
+                .ToListAsync(cancellationToken);
+            if (resolved.Count == 0)
+            {
+                return 0;
+            }
+
+            await _notifier.AddNotificationsAsync(db, resolved.Select(id => new AlertTransition(id, NotificationEvent.Resolved)).ToList(), cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        Logger.LogInformation("Resolved {Count} duplicate identity alerts that stayed quiet for 24 hours", resolved.Count);
+        await AlertCleanup.PublishAsync(_bus, resolved, cancellationToken);
+        return resolved.Count;
+    }
 
     public static string DuplicateIdentityTitle(string hostname) =>
         $"Two endpoints use the agent identity of {hostname}. Revoke the agent on the endpoint page and enroll the copies again.";

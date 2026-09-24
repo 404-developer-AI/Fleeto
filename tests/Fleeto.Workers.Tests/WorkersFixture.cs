@@ -74,8 +74,10 @@ public sealed class WorkersFixture : IAsyncLifetime
         new(Db.DbFactory, Db.Bus, new AlertNotificationService(Db.Time), Heartbeat(), Db.Time, NullLogger<EndpointEventService>.Instance);
 
     public OutboxEmailService Outbox(IEmailTransportFactory transports, EmailOptions? options = null) =>
-        new(Db.DbFactory, Db.Bus, transports, MsOptions.Create(options ?? new EmailOptions { CircuitBreakerFailures = 1000 }), Heartbeat(),
+        new(Db.DbFactory, Db.Bus, transports, Bundler(), MsOptions.Create(options ?? new EmailOptions { CircuitBreakerFailures = 1000 }), Heartbeat(),
             Db.Time, NullLogger<OutboxEmailService>.Instance);
+
+    public Fleeto.Workers.Alerts.NotificationBundler Bundler() => new(Db.DbFactory, Db.Time, NullLogger<Fleeto.Workers.Alerts.NotificationBundler>.Instance);
 
     public LicenseMonitorService LicenseMonitor() =>
         new(Db.DbFactory, Db.Licenses, Db.SecretProtector, Heartbeat(), Db.Time, NullLogger<LicenseMonitorService>.Instance);

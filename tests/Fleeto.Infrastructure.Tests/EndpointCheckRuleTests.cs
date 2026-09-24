@@ -16,6 +16,11 @@ namespace Fleeto.Infrastructure.Tests;
 [Collection(DatabaseCollection.Name)]
 public class EndpointCheckRuleTests
 {
+    // Asks the database whether check @checkId applies to endpoint @endpointId, by the SQL twin of the C# rule.
+    private static readonly string AppliesQuerySql =
+        """SELECT EXISTS (SELECT 1 FROM "CheckDefinitions" d JOIN "Endpoints" e ON e."Id" = @endpointId WHERE d."Id" = @checkId AND """ +
+        EffectiveCheckResolver.AppliesSql + """) AS "Value" """;
+
     private readonly TestDatabase _db;
 
     public EndpointCheckRuleTests(DatabaseFixture fixture) => _db = fixture.Database;
@@ -241,8 +246,7 @@ public class EndpointCheckRuleTests
         foreach (var definition in all)
         {
             var applies = await context.Database.SqlQueryRaw<bool>(
-                    """SELECT EXISTS (SELECT 1 FROM "CheckDefinitions" d JOIN "Endpoints" e ON e."Id" = @endpointId WHERE d."Id" = @checkId AND """ +
-                    EffectiveCheckResolver.AppliesSql + """) AS "Value" """,
+                    AppliesQuerySql,
                     new NpgsqlParameter("endpointId", endpoint.Id), new NpgsqlParameter("checkId", definition.Id))
                 .SingleAsync();
             Assert.True(applies == resolved.Any(c => c.Id == definition.Id), $"SQL and C# disagree on check '{definition.Name}'");

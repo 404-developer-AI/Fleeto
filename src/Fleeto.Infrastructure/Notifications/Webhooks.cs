@@ -190,6 +190,33 @@ public static class WebhookPayloads
         };
     }
 
+    /// <summary>At most this many alerts are listed in a Slack or Teams digest; the rest is counted.</summary>
+    public const int DigestMaxLines = 30;
+
+    /// <summary>
+    /// Alert notifications combined during a flood (0.6.0), for Slack and Teams only: a generic webhook always gets every
+    /// notification on its own. Newest first, one line per alert with client, site and endpoint.
+    /// </summary>
+    public static string Digest(WebhookFormat format, IReadOnlyList<DigestLine> lines, string alertsUrl)
+    {
+        var shown = lines.OrderByDescending(l => l.At).Take(DigestMaxLines).ToList();
+        var items = shown.Select(l =>
+            $"{(l.Event == NotificationEvent.Resolved ? "Resolved" : l.Severity.ToString())} · [{l.ClientCode}] {l.SiteName} · {l.Hostname}: {l.Headline}").ToList();
+        if (lines.Count > shown.Count)
+        {
+            items.Add($"And {lines.Count - shown.Count} more. The alerts page lists them all.");
+        }
+
+        var headline = $"{lines.Count} alert notifications, combined because more arrived in a short time than Fleeto posts one by one";
+        var critical = shown.Any(l => l.Event != NotificationEvent.Resolved && l.Severity == AlertSeverity.Critical);
+        return format switch
+        {
+            WebhookFormat.Slack => Slack(headline, [], Trim(string.Join('\n', items)), alertsUrl, "Open the alerts"),
+            WebhookFormat.Teams => Teams(headline, [], Trim(string.Join("\n\n", items)), alertsUrl, "Open the alerts", critical ? "Attention" : "Warning"),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "A generic webhook gets every notification on its own.")
+        };
+    }
+
     private static List<(string Name, string Value)> Facts(AlertNotification alert)
     {
         var facts = new List<(string, string)>

@@ -16,6 +16,11 @@ namespace Fleeto.Infrastructure.Tests;
 [Collection(DatabaseCollection.Name)]
 public sealed class CheckCatalogTests
 {
+    // Asks the database whether check @checkId applies to endpoint @endpointId, by the SQL twin of the C# rule.
+    private static readonly string AppliesQuerySql =
+        """SELECT EXISTS (SELECT 1 FROM "CheckDefinitions" d JOIN "Endpoints" e ON e."Id" = @endpointId WHERE d."Id" = @checkId AND """ +
+        EffectiveCheckResolver.AppliesSql + """) AS "Value" """;
+
     private readonly TestDatabase _db;
 
     public CheckCatalogTests(DatabaseFixture fixture) => _db = fixture.Database;
@@ -228,8 +233,7 @@ public sealed class CheckCatalogTests
             foreach (var definition in checks)
             {
                 var applies = await context.Database.SqlQueryRaw<bool>(
-                        """SELECT EXISTS (SELECT 1 FROM "CheckDefinitions" d JOIN "Endpoints" e ON e."Id" = @endpointId WHERE d."Id" = @checkId AND """ +
-                        EffectiveCheckResolver.AppliesSql + """) AS "Value" """,
+                        AppliesQuerySql,
                         new NpgsqlParameter("endpointId", endpointId), new NpgsqlParameter("checkId", definition.Id))
                     .SingleAsync();
                 Assert.Equal(checkIds.Contains(definition.Id), applies);

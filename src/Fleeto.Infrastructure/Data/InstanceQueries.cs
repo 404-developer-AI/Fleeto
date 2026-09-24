@@ -11,6 +11,7 @@ public sealed record InstanceInfo(Guid InstanceId, string Fqdn, string WebBaseUr
     public string LicensingUrl => $"{WebBaseUrl}/settings/licensing";
     public string BackupsUrl => $"{WebBaseUrl}/settings/backups";
     public string AuditLogUrl => $"{WebBaseUrl}/settings/audit-log";
+    public string AlertsUrl => $"{WebBaseUrl}/alerts";
 }
 
 /// <summary>Reads the instance identity and admin email addresses.</summary>

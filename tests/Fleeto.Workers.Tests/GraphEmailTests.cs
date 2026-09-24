@@ -4,8 +4,8 @@ using System.Text;
 using System.Text.Json;
 using Fleeto.Core.Entities;
 using Fleeto.Infrastructure.Email;
+using Fleeto.Infrastructure.Identity;
 using Fleeto.Infrastructure.Settings;
-using Fleeto.Infrastructure.Email;
 using Fleeto.Workers.Licensing;
 using Fleeto.Workers.Options;
 using Microsoft.EntityFrameworkCore;
@@ -43,6 +43,8 @@ public sealed class GraphEmailTests
         }
     }
 
+    private MicrosoftGraphClient Microsoft(FakeHandler handler) => new(_fixture.Db.Time, handler: handler);
+
     private static HttpResponseMessage Json(HttpStatusCode status, string json) =>
         new(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 
@@ -75,7 +77,7 @@ public sealed class GraphEmailTests
         var tokens = new int[1];
         var handler = new FakeHandler();
         handler.Respond = (request, _) => Graph(request, () => new HttpResponseMessage(HttpStatusCode.Accepted), tokens);
-        await using var session = new GraphEmailSession(SecretSettings(_fixture.Now.AddDays(90)), new HttpClient(handler), _fixture.Db.Time);
+        await using var session = new GraphEmailSession(SecretSettings(_fixture.Now.AddDays(90)), Microsoft(handler), new HttpClient(handler), _fixture.Db.Time);
 
         await session.SendAsync(Email(), CancellationToken.None);
         await session.SendAsync(Email("second@contoso.com"), CancellationToken.None);
@@ -104,7 +106,7 @@ public sealed class GraphEmailTests
         var handler = new FakeHandler();
         handler.Respond = (request, _) => Graph(request,
             () => Json(HttpStatusCode.BadRequest, """{"error":{"code":"ErrorInvalidRecipients","message":"x"}}"""), tokens);
-        await using (var session = new GraphEmailSession(SecretSettings(_fixture.Now.AddDays(90)), new HttpClient(handler), _fixture.Db.Time))
+        await using (var session = new GraphEmailSession(SecretSettings(_fixture.Now.AddDays(90)), Microsoft(handler), new HttpClient(handler), _fixture.Db.Time))
         {
             var refused = await Assert.ThrowsAsync<EmailDeliveryException>(() => session.SendAsync(Email(), CancellationToken.None));
             Assert.True(refused.IsPermanent);
@@ -112,7 +114,7 @@ public sealed class GraphEmailTests
 
         handler.Respond = (_, _) => Json(HttpStatusCode.Unauthorized,
             """{"error":"invalid_client","error_description":"AADSTS7000222: The provided client secret keys are expired. Trace ID: abc","error_codes":[7000222]}""");
-        await using (var session = new GraphEmailSession(SecretSettings(_fixture.Now.AddDays(90)), new HttpClient(handler), _fixture.Db.Time))
+        await using (var session = new GraphEmailSession(SecretSettings(_fixture.Now.AddDays(90)), Microsoft(handler), new HttpClient(handler), _fixture.Db.Time))
         {
             var expired = await Assert.ThrowsAsync<EmailDeliveryException>(() => session.SendAsync(Email(), CancellationToken.None));
             Assert.False(expired.IsPermanent);
@@ -126,7 +128,7 @@ public sealed class GraphEmailTests
             ? new HttpResponseMessage(HttpStatusCode.Unauthorized)
             : new HttpResponseMessage(HttpStatusCode.Accepted), tokens);
         tokens[0] = 0;
-        await using (var session = new GraphEmailSession(SecretSettings(_fixture.Now.AddDays(90)), new HttpClient(handler), _fixture.Db.Time))
+        await using (var session = new GraphEmailSession(SecretSettings(_fixture.Now.AddDays(90)), Microsoft(handler), new HttpClient(handler), _fixture.Db.Time))
         {
             await session.SendAsync(Email(), CancellationToken.None);
             Assert.Equal(2, tokens[0]);
@@ -145,7 +147,7 @@ public sealed class GraphEmailTests
         var tokens = new int[1];
         var handler = new FakeHandler();
         handler.Respond = (request, _) => Graph(request, () => new HttpResponseMessage(HttpStatusCode.Accepted), tokens);
-        await using var session = new GraphEmailSession(settings, new HttpClient(handler), _fixture.Db.Time);
+        await using var session = new GraphEmailSession(settings, Microsoft(handler), new HttpClient(handler), _fixture.Db.Time);
 
         await session.SendAsync(Email(), CancellationToken.None);
 
@@ -185,7 +187,7 @@ public sealed class GraphEmailTests
     {
         var smtp = new SmtpSettings { Host = "smtp.test.example", FromAddress = "fleeto@test.example" };
         using var factory = new EmailTransportFactory(_fixture.Settings(), MsOptions.Create(new EmailOptions()), NullLoggerFactory.Instance,
-            _fixture.Db.Time, new FakeHandler());
+            _fixture.Db.Time, new MicrosoftGraphClient(_fixture.Db.Time, handler: new FakeHandler()), new FakeHandler());
 
         await WithEmailSettingsAsync(SecretSettings(_fixture.Now.AddDays(10)), smtp, async () =>
         {

@@ -127,4 +127,46 @@ public sealed class EndpointHealthTests
         await using var check = _fixture.Db.DbFactory.CreateSystem();
         Assert.False(await check.EndpointEvents.AnyAsync(e => e.EndpointId == endpoint.Id && e.ProcessedAt == null));
     }
+
+    [Fact]
+    public async Task A_duplicate_identity_alert_resolves_after_24_quiet_hours_only()
+    {
+        // 0.6.0: a copy that is still running keeps connecting and keeps the alert open; one that stopped lets it resolve.
+        var (_, site) = await _fixture.CreateClientAndSiteAsync();
+
+        async Task<Guid> DuplicateAsync(string hostname, TimeSpan openedAgo, TimeSpan? lastDuplicateAgo)
+        {
+            var endpoint = await _fixture.Db.CreateEndpointAsync(site, hostname: hostname);
+            await using var db = _fixture.Db.DbFactory.CreateSystem();
+            db.Alerts.Add(new Alert
+            {
+                Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, Kind = AlertKind.DuplicateIdentity, Target = string.Empty,
+                Severity = AlertSeverity.Critical, State = AlertState.Open, Title = EndpointEventService.DuplicateIdentityTitle(hostname),
+                OpenedAt = _fixture.Now - openedAgo, UpdatedAt = _fixture.Now - openedAgo
+            });
+            if (lastDuplicateAgo is { } ago)
+            {
+                db.EndpointEvents.Add(new EndpointEvent
+                {
+                    ClientId = endpoint.ClientId, EndpointId = endpoint.Id, Kind = EndpointEventKind.DuplicateIdentity,
+                    Time = _fixture.Now - ago, ProcessedAt = _fixture.Now - ago
+                });
+            }
+
+            await db.SaveChangesAsync();
+            return endpoint.Id;
+        }
+
+        var quiet = await DuplicateAsync("WS-QUIET", TimeSpan.FromHours(30), TimeSpan.FromHours(25));
+        var stillRunning = await DuplicateAsync("WS-RUNNING", TimeSpan.FromHours(30), TimeSpan.FromHours(1));
+        var recent = await DuplicateAsync("WS-RECENT", TimeSpan.FromHours(2), lastDuplicateAgo: null);
+
+        Assert.True(await _fixture.EndpointEvents().ResolveQuietDuplicatesAsync(CancellationToken.None) >= 1);
+
+        var resolved = Assert.Single(await AlertsAsync(quiet, AlertKind.DuplicateIdentity));
+        Assert.Equal(AlertState.Resolved, resolved.State);
+        Assert.Equal(EndpointEventService.ResolvedReasonDuplicateQuiet, resolved.ResolvedReason);
+        Assert.NotEqual(AlertState.Resolved, Assert.Single(await AlertsAsync(stillRunning, AlertKind.DuplicateIdentity)).State);
+        Assert.NotEqual(AlertState.Resolved, Assert.Single(await AlertsAsync(recent, AlertKind.DuplicateIdentity)).State);
+    }
 }

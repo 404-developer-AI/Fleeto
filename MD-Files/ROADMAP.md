@@ -120,25 +120,25 @@ Built together with 0.1.0 in one piece of work, without separate patch releases.
 Listed as open before the 0.1.0 tag; the tag was set as a historical marker, so they stay a checklist for the first
 production release.
 
-1. [open] Local test by the developer (web UI click-through, agent install as a Windows service). [done] Partly on the
-   first test VPS (2026-09-15): sign-in, UI and a Windows agent.
+1. [done] Local test by the developer (web UI click-through, agent install as a Windows service): on the first test VPS
+   from 2026-09-15, with every pre-release since.
 2. [done] First CI run on GitHub (Docker image builds, tests with TimescaleDB, gitleaks over the history), green since
    2026-09-15.
-3. [done] First install on a VPS (2026-09-15, one instance behind NAT). [open] Two instances on one VPS; restore of a
+3. [done] First install on a VPS (2026-09-15, one instance behind NAT). [0.7.0] Two instances on one VPS; restore of a
    backup onto a fresh VPS.
-4. [open] Load test at 10,000 simulated agents.
+4. [0.7.0] Load test at 10,000 simulated agents.
 5. [done] Repository variables `FLEETO_LICENSE_PUBLIC_KEYS` and `FLEETO_RELEASE_PUBLIC_KEYS` set, with test keys
-   (2026-09-15). [open] Key ceremony document and production keys (release, license) on hardware tokens.
+   (2026-09-15). [0.7.0] Key ceremony document and production keys (release, license) on hardware tokens.
 
 ### Known limitations of 0.1.0
 
 - The Linux agent follows in 0.2.1; macOS is not supported for now.
 - An agent offline past its certificate expiry (90 days, renewal from day 60) cannot reconnect and
   must be enrolled again as a new endpoint. [done] Recovery built in 0.2.0.
-- The web data protection key ring is stored unencrypted on its volume.
+- The web data protection key ring is stored unencrypted on its volume. [0.6.0]
 - No email throttling or digest during a mass outage; duplicate identity alerts do not resolve on
-  their own.
-- S3 uploads are single-part (5 GB per backup file).
+  their own. [0.6.0]
+- S3 uploads are single-part (5 GB per backup file). [0.6.0]
 
 ## 0.2.0 — Full monitoring, jobs and API
 
@@ -742,23 +742,54 @@ Steps:
    data, never the secret) and what stays out of the API, changelog, `ARCHITECTURE.md` §5 for how the sign-in is anchored.
    Like 0.4.0, no load test and no separate security review: the release asked for neither.
 
-## 0.6.0 — Refactors, fixes and clean-up
+## 0.6.0 — Refactors, fixes, clean-up and what the developer wants before testing
 
-A release without new features: what the versions before it left behind. The list grows while 0.5.0 is built; an item is
-written down here the moment it is found, with what it costs and why it matters. Logs, search and retention were 0.6.0
-until 2026-09-23 and are now under "Not yet scheduled".
+Started as a release without new features: what the versions before it left behind. On 2026-09-24 the developer made it a
+large release instead: everything wanted before the next round of testing goes into 0.6.0, features included, and it is
+tested and released as a whole. An item is written down here the moment it is found or asked for, with what it costs and
+why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are now under "Not yet scheduled".
 
-- Build warnings: `RemoteControl.razor` hides `Time` of `FleetoPageBase` (CS0108), a duplicate `using` in
+- [done] Build warnings: `RemoteControl.razor` hides `Time` of `FleetoPageBase` (CS0108), a duplicate `using` in
   `GraphEmailTests` (CS0105), and three `SqlQueryRaw` calls that EF flags (EF1003, in `EndpointHealthService`,
   `CheckCatalogTests` and `EndpointCheckRuleTests`) — check each one and either use `SqlQuery` or suppress it with a
-  reason.
-- Two token requests for Microsoft (found 2026-09-24): `GraphEmailSession` (email delivery) and `MicrosoftGraphClient`
+  reason. Done: the page uses the inherited `Time`, and the three statements are named fields built from constant SQL,
+  like every other statement (fixed fragments, never input, so no suppression was needed). The build has no warnings.
+- [done] Two token requests for Microsoft (found 2026-09-24): `GraphEmailSession` (email delivery) and `MicrosoftGraphClient`
   (Settings) each build the client credentials request and translate the AADSTS codes. Let email delivery use
   `MicrosoftGraphClient.GetTokenAsync`, so a new refusal code is handled in one place. Small, but touches email delivery,
-  so it waits for a release without features.
-- A pass over the pages that inherit `FleetoPageBase`: 0.4.0 had one that replaced the inherited clean-up instead of
-  running its own next to it, so look for the same shape elsewhere.
-- Whatever the open items of 0.1.0 and the known limitations above still hold that is not hardening work (0.7.0).
+  so it waits for a release without features. Done: `GraphEmailSession` asks `MicrosoftGraphClient` for its token,
+  and `GraphMail.Credential` is the one mapping from the email settings to the credential, used by delivery and the test.
+- [done] A pass over the pages that inherit `FleetoPageBase`: 0.4.0 had one that replaced the inherited clean-up instead of
+  running its own next to it, so look for the same shape elsewhere. Done over all 28: every override calls the base and
+  cleans up what it subscribed. Two things fixed: `CheckHistoryDialog` called `base.OnInitialized()` a second time from
+  `OnInitializedAsync`, which subscribed it twice to the time zone and unsubscribed it once (the subscription in the base is
+  now idempotent as well); and the two remote pages, which Blazor disposes only through `DisposeAsync`, now run the base
+  clean-up in a `finally`, so a browser error during disposal can no longer skip it.
+- [done] Whatever the open items of 0.1.0 and the known limitations above still hold that is not hardening work (0.7.0).
+  Gone through on 2026-09-24: the open items are either done or already part of 0.7.0, and the four known limitations that
+  still hold are the next four items, in this order (agreed with the developer).
+- [done] **The key ring of web encrypted at rest.** The ASP.NET Core data protection keys (they protect the authentication
+  cookies and antiforgery tokens) are stored unencrypted on the volume of web, so whoever reads that volume can forge a
+  session. Encrypt them with the root key through the same envelope encryption as every other secret. Done: every key is
+  sealed with a data key of its own purpose (`keyring`, created by `migrate`), and a key stored unencrypted is revoked and
+  deleted when web starts, so nothing it protected is accepted any more. Everybody signs in again once after the update.
+  Found while testing it: on Windows, building a chain for a certificate whose issuer is not trusted throws instead of
+  answering false; the gateway now treats that as a chain that is not trusted (fail closed), as Linux already did.
+- [done] **Duplicate identity alerts resolve on their own.** The alert for a certificate connecting twice at once (a cloned
+  VM) stays open until somebody resolves it. It resolves on its own after 24 hours without a new duplicate connection
+  (decided 2026-09-24). Done: the endpoint events worker resolves an alert that has been open for 24 hours when no duplicate
+  connection came in during them, with its reason and the usual resolve notifications.
+- [done] **Backups over 5 GB to S3.** Uploads use one `PutObject`, which S3 caps at 5 GB per file. Use a multipart upload
+  above a threshold: it needs only `s3:PutObject`, so the write-only credentials stay enough. Done: above 128 MB in parts of
+  64 MB or more (at most 10,000), each part with its own attempts and time limit. A failed upload is aborted when the
+  credentials allow it (`s3:AbortMultipartUpload` removes only unfinished uploads, never a backup); otherwise its parts stay
+  until a lifecycle rule for incomplete uploads removes them, which the backup settings now ask for.
+- [done] **Email during a mass outage.** When many endpoints go offline at once, every recipient gets an email per alert.
+  Throttle or combine them into a digest (moved into 0.6.0 by the developer on 2026-09-24). Decided with the developer on
+  2026-09-24: per email address, the first 5 alert emails within 10 minutes go out on their own, the rest as one digest per
+  10 minutes for as long as it lasts, grouped by client and site; resolves are combined the same way; Slack and Teams
+  channels get the same digest per channel, and generic webhooks keep one message per alert. Done as described in
+  `ARCHITECTURE.md` §4 (Notifications during a flood).
 
 ## 0.7.0 — Hardening
 
@@ -766,6 +797,7 @@ until 2026-09-23 and are now under "Not yet scheduled".
   the per-instance footprint and how many instances fit on one VPS size.
 - External security review of enrollment, signing, secrets handling, licensing, remote
   control and multi-tenancy.
+- Key ceremony document, and the production release and license keys on hardware tokens (open since 0.1.0).
 - Restore rehearsed again for several instances on one VPS; unattended reboot recovery
   verified with several instances on one VPS.
 - GDPR deliverables: data inventory, data processing agreement template, breach procedure,

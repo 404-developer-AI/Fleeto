@@ -47,7 +47,7 @@ public sealed class BackupOptions
     /// <summary>Upload attempts per file before the upload counts as failed.</summary>
     public int UploadAttempts { get; set; } = 3;
 
-    /// <summary>Timeout of one upload request.</summary>
+    /// <summary>Timeout of one upload request: the whole file, or one part of a multipart upload to S3.</summary>
     public int UploadTimeoutMinutes { get; set; } = 60;
 }
 

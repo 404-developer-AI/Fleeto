@@ -56,6 +56,12 @@ internal static class CertificateChains
 
             return issuers;
         }
+        catch (CryptographicException)
+        {
+            // Windows throws instead of answering false when the issuer is not in the trust store (seen 2026-09-24): an
+            // error while building is a chain that is not trusted.
+            return null;
+        }
         finally
         {
             foreach (var element in chain.ChainElements)

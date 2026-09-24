@@ -61,7 +61,8 @@ public sealed class NotificationChannelService
             if (channel.Type == NotificationChannelType.Webhook)
             {
                 last = await db.OutboxWebhooks.AsNoTracking()
-                    .Where(w => w.NotificationChannelId == channel.Id && (w.SentAt != null || w.LastError != null))
+                    // A notification combined into a digest (0.6.0) did not go out itself; the digest row says how delivery went.
+                    .Where(w => w.NotificationChannelId == channel.Id && w.BundledInto == null && (w.SentAt != null || w.LastError != null))
                     .OrderByDescending(w => w.CreatedAt)
                     .Select(w => new ChannelDelivery(w.SentAt ?? w.CreatedAt, w.SentAt != null, w.LastError, w.SentAt == null && w.Attempts >= WebhookTargets.MaxDeliveryAttempts))
                     .FirstOrDefaultAsync(cancellationToken);

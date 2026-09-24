@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Fleeto.Core.Entities;
 using Fleeto.Infrastructure.Email;
+using Fleeto.Infrastructure.Identity;
 using Fleeto.Infrastructure.Settings;
 using MimeKit;
 
@@ -11,22 +12,25 @@ namespace Fleeto.Workers.Email;
 
 /// <summary>
 /// Sends through Microsoft Graph <c>sendMail</c> as the configured mailbox, with the client credentials flow (client secret or
-/// certificate assertion). One token per pass, renewed when it is about to expire or refused. Graph takes one HTML body; the
-/// plain-text alternative is not sent. Failures carry cause and next step, never tokens or secrets.
+/// certificate assertion) of <see cref="MicrosoftGraphClient"/>, the one place that asks Microsoft for a token. One token per
+/// pass, renewed when it is about to expire or refused. Graph takes one HTML body; the plain-text alternative is not sent.
+/// Failures carry cause and next step, never tokens or secrets.
 /// </summary>
 internal sealed class GraphEmailSession : IEmailSession
 {
+    private const string SettingsPage = "Settings, Email";
     private static readonly TimeSpan TokenMargin = TimeSpan.FromMinutes(5);
 
     private readonly GraphMailSettings _settings;
+    private readonly MicrosoftGraphClient _microsoft;
     private readonly HttpClient _http;
     private readonly TimeProvider _time;
-    private string? _token;
-    private DateTimeOffset _tokenExpiresAt;
+    private GraphToken? _token;
 
-    public GraphEmailSession(GraphMailSettings settings, HttpClient http, TimeProvider time)
+    public GraphEmailSession(GraphMailSettings settings, MicrosoftGraphClient microsoft, HttpClient http, TimeProvider time)
     {
         _settings = settings;
+        _microsoft = microsoft;
         _http = http;
         _time = time;
     }
@@ -94,59 +98,25 @@ internal sealed class GraphEmailSession : IEmailSession
 
     private async Task<string> GetTokenAsync(CancellationToken cancellationToken)
     {
-        var now = _time.GetUtcNow();
-        if (_token is not null && now < _tokenExpiresAt - TokenMargin)
+        if (_token is not null && _time.GetUtcNow() < _token.ExpiresAt - TokenMargin)
         {
-            return _token;
+            return _token.AccessToken;
         }
 
-        var form = new List<KeyValuePair<string, string>>
+        if (GraphMail.Credential(_settings) is not { } credential)
         {
-            new("client_id", _settings.ClientId),
-            new("scope", GraphMail.Scope),
-            new("grant_type", "client_credentials")
-        };
-        if (_settings.CredentialType == GraphCredentialType.Certificate)
-        {
-            if (_settings.CertificatePfx is null)
-            {
-                throw new EmailDeliveryException("No certificate is in use for Microsoft Graph. Create one in Settings, Email.", permanent: false);
-            }
-
-            form.Add(new("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"));
-            form.Add(new("client_assertion", GraphMail.ClientAssertion(_settings.CertificatePfx, _settings.TenantId, _settings.ClientId, now)));
-        }
-        else
-        {
-            form.Add(new("client_secret", _settings.ClientSecret ?? string.Empty));
+            throw new EmailDeliveryException($"No certificate is in use for Microsoft Graph. Create one in {SettingsPage}.", permanent: false);
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, GraphMail.TokenEndpoint(_settings.TenantId)) { Content = new FormUrlEncodedContent(form) };
-        using var response = await PostAsync(request, "Microsoft Entra ID", cancellationToken);
-        if (!response.IsSuccessStatusCode)
+        try
         {
-            var aadsts = await EntraErrorAsync(response, cancellationToken);
-            throw new EmailDeliveryException(aadsts switch
-            {
-                "AADSTS7000222" => "The Microsoft Graph client secret has expired. Create a new secret in the app registration and save it in Settings, Email.",
-                "AADSTS7000215" => "Microsoft Entra ID refused the client secret. Enter the secret value (not its ID) in Settings, Email.",
-                "AADSTS700027" or "AADSTS700024" => "Microsoft Entra ID refused the certificate. Upload the certificate from Settings, Email to the app registration.",
-                "AADSTS700016" => "Microsoft Entra ID does not know the application ID. Check it in Settings, Email.",
-                "AADSTS90002" or "AADSTS900023" => "Microsoft Entra ID does not know the tenant. Check the tenant ID in Settings, Email.",
-                _ => $"Microsoft Entra ID refused the sign-in ({aadsts ?? ((int)response.StatusCode).ToString(System.Globalization.CultureInfo.InvariantCulture)}). Check the tenant ID, application ID and credential in Settings, Email."
-            }, permanent: false);
+            _token = await _microsoft.GetTokenAsync(credential, SettingsPage, cancellationToken);
+            return _token.AccessToken;
         }
-
-        using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
-        if (!json.RootElement.TryGetProperty("access_token", out var accessToken) || accessToken.GetString() is not { Length: > 0 } value)
+        catch (MicrosoftGraphException ex)
         {
-            throw new EmailDeliveryException("Microsoft Entra ID answered without an access token. Fleeto tries again.", permanent: false);
+            throw new EmailDeliveryException(ex.Message, permanent: false, ex);
         }
-
-        var lifetime = json.RootElement.TryGetProperty("expires_in", out var expiresIn) && expiresIn.TryGetInt32(out var secondsValue) ? secondsValue : 3599;
-        _token = value;
-        _tokenExpiresAt = now.AddSeconds(lifetime);
-        return value;
     }
 
     private async Task<HttpResponseMessage> PostAsync(HttpRequestMessage request, string service, CancellationToken cancellationToken)
@@ -173,26 +143,6 @@ internal sealed class GraphEmailSession : IEmailSession
             using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
             return json.RootElement.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object &&
                    error.TryGetProperty("code", out var code) ? Safe(code.GetString()) : null;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>The AADSTS code from a token error; the description is not kept (it carries trace and correlation ids).</summary>
-    private static async Task<string?> EntraErrorAsync(HttpResponseMessage response, CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
-            if (json.RootElement.TryGetProperty("error_codes", out var codes) && codes.ValueKind == JsonValueKind.Array && codes.GetArrayLength() > 0 &&
-                codes[0].TryGetInt32(out var first))
-            {
-                return "AADSTS" + first.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            }
-
-            return json.RootElement.TryGetProperty("error", out var error) ? Safe(error.GetString()) : null;
         }
         catch (JsonException)
         {

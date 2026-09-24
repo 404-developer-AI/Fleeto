@@ -2,6 +2,7 @@ using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Data;
 using Fleeto.Infrastructure.Notifications;
+using Fleeto.Workers.Alerts;
 using Fleeto.Workers.Common;
 using Fleeto.Infrastructure.Email;
 using Fleeto.Workers.Email;
@@ -23,6 +24,11 @@ namespace Fleeto.Workers.Webhooks;
 /// A delivery whose channel was disabled or turned into an email channel before it went out is given up, not sent.
 /// Woken by <c>fleeto_outbox_webhooks</c>, polls every 30 seconds.
 /// </para>
+/// <para>
+/// Each pass first combines the alert notifications of Slack and Teams channels during a flood
+/// (<see cref="NotificationBundler"/>, 0.6.0); generic webhooks are never combined. When combining fails, the notifications
+/// go out one by one.
+/// </para>
 /// </summary>
 public sealed class OutboxWebhookService : WorkerLoop
 {
@@ -32,18 +38,20 @@ public sealed class OutboxWebhookService : WorkerLoop
     private readonly IFleetoDbContextFactory _dbFactory;
     private readonly INotificationBus _bus;
     private readonly IWebhookSender _sender;
+    private readonly NotificationBundler _bundler;
     private readonly ISecretProtector _protector;
     private readonly WebhookOptions _options;
     private readonly Dictionary<Guid, CircuitBreaker> _breakers = [];
     private IDisposable? _subscription;
 
-    public OutboxWebhookService(IFleetoDbContextFactory dbFactory, INotificationBus bus, IWebhookSender sender, ISecretProtector protector,
-        IOptions<WebhookOptions> options, WorkerHeartbeat heartbeat, TimeProvider time, ILogger<OutboxWebhookService> logger)
+    public OutboxWebhookService(IFleetoDbContextFactory dbFactory, INotificationBus bus, IWebhookSender sender, NotificationBundler bundler,
+        ISecretProtector protector, IOptions<WebhookOptions> options, WorkerHeartbeat heartbeat, TimeProvider time, ILogger<OutboxWebhookService> logger)
         : base("outbox-webhook", heartbeat, time, logger)
     {
         _dbFactory = dbFactory;
         _bus = bus;
         _sender = sender;
+        _bundler = bundler;
         _protector = protector;
         _options = options.Value;
     }
@@ -78,6 +86,15 @@ public sealed class OutboxWebhookService : WorkerLoop
     /// <summary>Attempts one batch of due deliveries. Returns the number attempted.</summary>
     public async Task<int> DeliverPendingAsync(CancellationToken cancellationToken)
     {
+        try
+        {
+            await _bundler.BundleWebhooksAsync(MaxAttempts, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Logger.LogWarning(ex, "Combining chat notifications failed; they go out one by one");
+        }
+
         var batchSize = Math.Max(1, _options.BatchSize);
         var now = Time.GetUtcNow().UtcDateTime;
         var paused = _breakers.Where(b => b.Value.IsOpen).Select(b => b.Key).ToArray();

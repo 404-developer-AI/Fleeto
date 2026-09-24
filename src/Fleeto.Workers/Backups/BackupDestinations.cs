@@ -13,18 +13,50 @@ using Microsoft.Extensions.Options;
 namespace Fleeto.Workers.Backups;
 
 /// <summary>
-/// Encrypts files with the backup public key and uploads them to the configured destination. S3 uploads use PutObject
-/// only, so write-only credentials (no read, no delete) are enough: a compromised VPS cannot read or remove backups.
+/// Encrypts files with the backup public key and uploads them to the configured destination. S3 uploads need
+/// <c>s3:PutObject</c> only, so write-only credentials (no read, no delete) are enough: a compromised VPS cannot read or remove
+/// backups. A file above <see cref="MultipartThreshold"/> goes up in parts (0.6.0), since one PutObject stops at 5 GB; the
+/// parts of the multipart API fall under the same permission.
 /// </summary>
 public sealed class BackupDestinations
 {
+    /// <summary>S3 accepts at most this many parts per upload.</summary>
+    public const int MaxParts = 10_000;
+
+    /// <summary>S3 needs every part but the last to be at least this large.</summary>
+    public const long MinPartSize = 5L * 1024 * 1024;
+
     private readonly BackupOptions _options;
     private readonly ILogger<BackupDestinations> _logger;
+    private readonly Func<BackupSettings, AmazonS3Config, IAmazonS3> _createS3;
 
     public BackupDestinations(IOptions<BackupOptions> options, ILogger<BackupDestinations> logger)
+        : this(options, logger, (settings, config) => new AmazonS3Client(new BasicAWSCredentials(settings.S3AccessKeyId, settings.S3SecretAccessKey), config))
+    {
+    }
+
+    /// <param name="createS3">Only for tests: the S3 client for the settings and configuration.</param>
+    internal BackupDestinations(IOptions<BackupOptions> options, ILogger<BackupDestinations> logger, Func<BackupSettings, AmazonS3Config, IAmazonS3> createS3)
     {
         _options = options.Value;
         _logger = logger;
+        _createS3 = createS3;
+    }
+
+    /// <summary>A file larger than this is uploaded to S3 in parts.</summary>
+    public long MultipartThreshold { get; internal set; } = 128L * 1024 * 1024;
+
+    /// <summary>The smallest part of a multipart upload; larger when the file would need more than <see cref="MaxParts"/>.</summary>
+    public long PartSize { get; internal set; } = 64L * 1024 * 1024;
+
+    /// <summary>
+    /// The size of every part but the last, and how many parts a file of <paramref name="fileSize"/> bytes needs: at least
+    /// <paramref name="partSize"/>, and large enough to stay within <see cref="MaxParts"/>.
+    /// </summary>
+    public static (long PartSize, int Parts) PlanParts(long fileSize, long partSize)
+    {
+        var size = Math.Max(Math.Max(partSize, MinPartSize), (fileSize + MaxParts - 1) / MaxParts);
+        return (size, (int)Math.Max(1, (fileSize + size - 1) / size));
     }
 
     /// <summary>Object key of a database dump: <c>&lt;prefix&gt;/&lt;instance id&gt;/&lt;yyyy&gt;/&lt;MM&gt;/fleeto-&lt;UTC timestamp&gt;.dump.fbk</c>.</summary>
@@ -90,6 +122,10 @@ public sealed class BackupDestinations
 
         switch (settings.DestinationType)
         {
+            case BackupDestinationType.S3 when new FileInfo(localFile).Length > MultipartThreshold:
+                // Each part has its own attempts and time limit: a large dump must not start over, or run out of time, as a whole.
+                await UploadToS3InPartsAsync(settings, localFile, objectKey, cancellationToken);
+                break;
             case BackupDestinationType.S3:
                 await UploadToS3Async(settings, localFile, objectKey, timeout.Token);
                 break;
@@ -101,7 +137,7 @@ public sealed class BackupDestinations
         }
     }
 
-    private async Task UploadToS3Async(BackupSettings settings, string localFile, string objectKey, CancellationToken cancellationToken)
+    private AmazonS3Config S3Config(BackupSettings settings)
     {
         var config = new AmazonS3Config
         {
@@ -127,7 +163,12 @@ public sealed class BackupDestinations
             config.RegionEndpoint = RegionEndpoint.GetBySystemName(settings.S3Region);
         }
 
-        using var client = new AmazonS3Client(new BasicAWSCredentials(settings.S3AccessKeyId, settings.S3SecretAccessKey), config);
+        return config;
+    }
+
+    private async Task UploadToS3Async(BackupSettings settings, string localFile, string objectKey, CancellationToken cancellationToken)
+    {
+        using var client = _createS3(settings, S3Config(settings));
         await client.PutObjectAsync(new PutObjectRequest
         {
             BucketName = settings.S3Bucket,
@@ -136,6 +177,87 @@ public sealed class BackupDestinations
             ContentType = "application/octet-stream",
             UseChunkEncoding = false
         }, cancellationToken);
+    }
+
+    private async Task UploadToS3InPartsAsync(BackupSettings settings, string localFile, string objectKey, CancellationToken cancellationToken)
+    {
+        var fileSize = new FileInfo(localFile).Length;
+        var (partSize, parts) = PlanParts(fileSize, PartSize);
+        using var client = _createS3(settings, S3Config(settings));
+        var upload = await client.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
+        {
+            BucketName = settings.S3Bucket,
+            Key = objectKey,
+            ContentType = "application/octet-stream"
+        }, cancellationToken);
+
+        try
+        {
+            var etags = new List<PartETag>(parts);
+            for (var number = 1; number <= parts; number++)
+            {
+                var position = (number - 1) * partSize;
+                var size = Math.Min(partSize, fileSize - position);
+                var part = number;
+                var response = await Retry.WithBackoffAsync(async ct =>
+                    {
+                        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        timeout.CancelAfter(TimeSpan.FromMinutes(Math.Max(1, _options.UploadTimeoutMinutes)));
+                        return await client.UploadPartAsync(new UploadPartRequest
+                        {
+                            BucketName = settings.S3Bucket,
+                            Key = objectKey,
+                            UploadId = upload.UploadId,
+                            PartNumber = part,
+                            FilePath = localFile,
+                            FilePosition = position,
+                            PartSize = size,
+                            UseChunkEncoding = false
+                        }, timeout.Token);
+                    },
+                    Math.Max(1, _options.UploadAttempts), TimeSpan.FromSeconds(10),
+                    (ex, attempt) => _logger.LogWarning("Part {Part} of {Parts} of {ObjectKey} failed (attempt {Attempt}): {Error}", part, parts, objectKey, attempt, Describe(ex)),
+                    cancellationToken);
+                etags.Add(new PartETag(part, response.ETag));
+            }
+
+            await client.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
+            {
+                BucketName = settings.S3Bucket,
+                Key = objectKey,
+                UploadId = upload.UploadId,
+                PartETags = etags
+            }, cancellationToken);
+            _logger.LogInformation("Uploaded {ObjectKey} in {Parts} parts ({Bytes} bytes)", objectKey, parts, fileSize);
+        }
+        catch
+        {
+            await AbortQuietlyAsync(client, settings, objectKey, upload.UploadId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Removes the parts of a failed upload when the credentials allow it. Write-only credentials usually do not, so a failure
+    /// here is expected: a lifecycle rule on the bucket removes incomplete uploads (Settings, Backups says so).
+    /// </summary>
+    private async Task AbortQuietlyAsync(IAmazonS3 client, BackupSettings settings, string objectKey, string uploadId)
+    {
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            await client.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
+            {
+                BucketName = settings.S3Bucket,
+                Key = objectKey,
+                UploadId = uploadId
+            }, timeout.Token);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogInformation("The parts of the failed upload of {ObjectKey} stay until the lifecycle rule of the bucket removes them: {Error}",
+                objectKey, Describe(ex));
+        }
     }
 
     private static async Task CopyToDirectoryAsync(string directory, string localFile, string objectKey, CancellationToken cancellationToken)

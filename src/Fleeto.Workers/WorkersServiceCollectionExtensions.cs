@@ -44,6 +44,7 @@ public static class WorkersServiceCollectionExtensions
 
         services.AddSingleton<WorkerHeartbeat>();
         services.AddSingleton<AlertNotificationService>();
+        services.AddSingleton<NotificationBundler>();
         services.AddSingleton<IEmailTransportFactory, EmailTransportFactory>();
         services.AddSingleton<IWebhookSender, HttpWebhookSender>();
         services.AddSingleton<IPgDumpTargetProvider, PgDumpTargetProvider>();

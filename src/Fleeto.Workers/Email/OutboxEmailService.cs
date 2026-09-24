@@ -1,6 +1,7 @@
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Data;
 using Fleeto.Infrastructure.Email;
+using Fleeto.Workers.Alerts;
 using Fleeto.Workers.Common;
 using Fleeto.Workers.Hosting;
 using Fleeto.Workers.Options;
@@ -18,6 +19,10 @@ namespace Fleeto.Workers.Email;
 /// A pass claims its emails by moving their next attempt ten minutes ahead before sending, so a second workers process
 /// or a crash mid-pass cannot send the same email twice within that window.
 /// </para>
+/// <para>
+/// Each pass first combines alert emails during a flood (<see cref="NotificationBundler"/>, 0.6.0). When that fails, the
+/// emails go out one by one: a digest is a courtesy, delivery is not.
+/// </para>
 /// </summary>
 public sealed class OutboxEmailService : WorkerLoop
 {
@@ -28,18 +33,20 @@ public sealed class OutboxEmailService : WorkerLoop
     private readonly IFleetoDbContextFactory _dbFactory;
     private readonly INotificationBus _bus;
     private readonly IEmailTransportFactory _transports;
+    private readonly NotificationBundler _bundler;
     private readonly EmailOptions _options;
     private readonly CircuitBreaker _breaker;
     private DateTimeOffset _lastNotConfiguredLog = DateTimeOffset.MinValue;
     private IDisposable? _subscription;
 
     public OutboxEmailService(IFleetoDbContextFactory dbFactory, INotificationBus bus, IEmailTransportFactory transports,
-        IOptions<EmailOptions> options, WorkerHeartbeat heartbeat, TimeProvider time, ILogger<OutboxEmailService> logger)
+        NotificationBundler bundler, IOptions<EmailOptions> options, WorkerHeartbeat heartbeat, TimeProvider time, ILogger<OutboxEmailService> logger)
         : base("outbox-email", heartbeat, time, logger)
     {
         _dbFactory = dbFactory;
         _bus = bus;
         _transports = transports;
+        _bundler = bundler;
         _options = options.Value;
         _breaker = new CircuitBreaker(_options.CircuitBreakerFailures, TimeSpan.FromMinutes(_options.CircuitBreakerPauseMinutes), time);
     }
@@ -76,6 +83,15 @@ public sealed class OutboxEmailService : WorkerLoop
         if (_breaker.IsOpen)
         {
             return 0;
+        }
+
+        try
+        {
+            await _bundler.BundleEmailsAsync(MaxAttempts, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Logger.LogWarning(ex, "Combining alert emails failed; they go out one by one");
         }
 
         var batchSize = Math.Max(1, _options.BatchSize);

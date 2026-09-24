@@ -43,14 +43,14 @@ else
     builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
 }
 
-// Antiforgery tokens and authentication cookies are protected with these keys, so they must survive restarts.
-// Known gap (revisit): the key ring is stored unencrypted in its directory; protecting it with a certificate or the root key
-// is planned. The directory is a volume only the web container mounts.
+// Antiforgery tokens and authentication cookies are protected with these keys, so they must survive restarts. The directory is
+// a volume only the web container mounts, and every key in it is sealed with the root key (0.6.0).
 var keysDirectory = Environment.ExpandEnvironmentVariables(builder.Configuration["DataProtection:KeysDirectory"] ?? "/app/keys");
 Directory.CreateDirectory(keysDirectory);
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(keysDirectory))
-    .SetApplicationName("Fleeto.Web");
+    .SetApplicationName("Fleeto.Web")
+    .ProtectKeysWithRootKey();
 
 builder.Services.AddFleetoInfrastructure(builder.Configuration, FleetoComponent.Web);
 
@@ -140,6 +140,8 @@ try
 {
     app.Services.GetRequiredService<ISecretProtector>();
     app.Services.GetRequiredService<Npgsql.NpgsqlDataSource>();
+    KeyRingProtection.RetireUnencryptedKeys(app.Services.GetRequiredService<Microsoft.AspNetCore.DataProtection.KeyManagement.IKeyManager>(),
+        new DirectoryInfo(keysDirectory), app.Logger);
 }
 catch (Exception ex)
 {

@@ -918,6 +918,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(e => e.Category).HasMaxLength(50);
             entity.Property(e => e.LastError).HasMaxLength(1000);
             entity.HasIndex(e => e.NextAttemptAt).HasFilter("\"SentAt\" IS NULL").HasDatabaseName("IX_OutboxEmails_Pending");
+            // What was sent to one address lately, for the flood limit (0.6.0).
+            entity.HasIndex(e => new { e.ToAddress, e.CreatedAt });
         });
 
         builder.Entity<BackupRun>(entity =>

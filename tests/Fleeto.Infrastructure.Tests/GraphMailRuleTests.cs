@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Fleeto.Core.Domain;
 using Fleeto.Infrastructure.Email;
+using Fleeto.Infrastructure.Identity;
 using Fleeto.Infrastructure.Settings;
 
 namespace Fleeto.Infrastructure.Tests;
@@ -87,7 +88,7 @@ public class GraphMailRuleTests
         Assert.False(publicOnly.HasPrivateKey);
 
         var clientId = Guid.NewGuid().ToString();
-        var assertion = GraphMail.ClientAssertion(certificate.PfxBase64, "contoso.onmicrosoft.com", clientId, new DateTimeOffset(now));
+        var assertion = MicrosoftIdentity.ClientAssertion(certificate.PfxBase64, "contoso.onmicrosoft.com", clientId, new DateTimeOffset(now));
         var parts = assertion.Split('.');
         Assert.Equal(3, parts.Length);
 
@@ -104,6 +105,27 @@ public class GraphMailRuleTests
         using var rsa = publicOnly.GetRSAPublicKey()!;
         Assert.True(rsa.VerifyData(Encoding.ASCII.GetBytes(parts[0] + "." + parts[1]), FromBase64Url(parts[2]), HashAlgorithmName.SHA256,
             RSASignaturePadding.Pkcs1));
+    }
+
+    [Fact]
+    public void The_credential_for_the_token_is_the_one_the_settings_choose()
+    {
+        // Delivery and the test in Settings both ask MicrosoftGraphClient for the token with this credential (0.6.0), and it
+        // prefers a certificate whenever one is given: a certificate kept after switching back to a secret must not go along.
+        var settings = new GraphMailSettings
+        {
+            TenantId = "contoso.onmicrosoft.com", ClientId = Guid.NewGuid().ToString(), ClientSecret = "secret-value", CertificatePfx = "pfx"
+        };
+
+        var secret = GraphMail.Credential(settings)!;
+        Assert.Equal(("contoso.onmicrosoft.com", settings.ClientId, "secret-value", (string?)null),
+            (secret.TenantId, secret.ClientId, secret.ClientSecret, secret.CertificatePfx));
+
+        var certificate = GraphMail.Credential(settings with { CredentialType = GraphCredentialType.Certificate })!;
+        Assert.Null(certificate.ClientSecret);
+        Assert.Equal("pfx", certificate.CertificatePfx);
+
+        Assert.Null(GraphMail.Credential(settings with { CredentialType = GraphCredentialType.Certificate, CertificatePfx = null }));
     }
 
     private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');

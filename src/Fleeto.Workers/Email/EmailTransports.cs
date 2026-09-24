@@ -1,5 +1,6 @@
 using Fleeto.Core.Entities;
 using Fleeto.Infrastructure.Email;
+using Fleeto.Infrastructure.Identity;
 using Fleeto.Infrastructure.Settings;
 using Fleeto.Workers.Options;
 using MailKit.Net.Smtp;
@@ -49,21 +50,26 @@ public sealed class EmailTransportFactory : IEmailTransportFactory, IDisposable
     private readonly EmailOptions _options;
     private readonly ILoggerFactory _loggerFactory;
     private readonly TimeProvider _time;
+    private readonly MicrosoftGraphClient _microsoft;
     private readonly HttpClient _graphHttp;
     private DateTimeOffset _lastFallbackLog = DateTimeOffset.MinValue;
 
-    public EmailTransportFactory(SettingsStore settings, IOptions<EmailOptions> options, ILoggerFactory loggerFactory, TimeProvider time)
-        : this(settings, options, loggerFactory, time, new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5), AllowAutoRedirect = false })
+    public EmailTransportFactory(SettingsStore settings, IOptions<EmailOptions> options, ILoggerFactory loggerFactory, TimeProvider time,
+        MicrosoftGraphClient microsoft)
+        : this(settings, options, loggerFactory, time, microsoft,
+            new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5), AllowAutoRedirect = false })
     {
     }
 
+    /// <param name="graphHandler">The HTTP handler of the sendMail calls; the token comes from <paramref name="microsoft"/>.</param>
     internal EmailTransportFactory(SettingsStore settings, IOptions<EmailOptions> options, ILoggerFactory loggerFactory, TimeProvider time,
-        HttpMessageHandler graphHandler)
+        MicrosoftGraphClient microsoft, HttpMessageHandler graphHandler)
     {
         _settings = settings;
         _options = options.Value;
         _loggerFactory = loggerFactory;
         _time = time;
+        _microsoft = microsoft;
         _graphHttp = new HttpClient(graphHandler) { Timeout = TimeSpan.FromSeconds(Math.Max(5, _options.SmtpTimeoutSeconds)) };
     }
 
@@ -79,7 +85,7 @@ public sealed class EmailTransportFactory : IEmailTransportFactory, IDisposable
             var now = _time.GetUtcNow();
             if (graph.CredentialExpiresAt > now.UtcDateTime || !smtpConfigured)
             {
-                return new GraphEmailSession(graph, _graphHttp, _time);
+                return new GraphEmailSession(graph, _microsoft, _graphHttp, _time);
             }
 
             if (now - _lastFallbackLog >= FallbackLogInterval)

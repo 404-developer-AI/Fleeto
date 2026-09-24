@@ -44,7 +44,7 @@ public sealed class WebhookNotificationTests
     }
 
     private OutboxWebhookService Outbox(IWebhookSender sender, int breakerFailures = 1000) =>
-        new(_fixture.Db.DbFactory, _fixture.Db.Bus, sender, _fixture.Db.SecretProtector,
+        new(_fixture.Db.DbFactory, _fixture.Db.Bus, sender, _fixture.Bundler(), _fixture.Db.SecretProtector,
             MsOptions.Create(new WebhookOptions { CircuitBreakerFailures = breakerFailures, CircuitBreakerPauseMinutes = 5 }), _fixture.Heartbeat(),
             _fixture.Db.Time, NullLogger<OutboxWebhookService>.Instance);
 

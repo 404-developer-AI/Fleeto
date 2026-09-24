@@ -15,7 +15,10 @@ public static class SecretPurposes
     public const string License = "license";
     public const string Identity = "identity";
 
-    public static readonly IReadOnlyList<string> All = [Settings, License, Identity];
+    /// <summary>The data protection key ring of web (0.6.0): the keys behind authentication cookies and antiforgery tokens.</summary>
+    public const string KeyRing = "keyring";
+
+    public static readonly IReadOnlyList<string> All = [Settings, License, Identity, KeyRing];
 }
 
 /// <summary>The root key (KEK) of the instance, loaded from its secret file.</summary>

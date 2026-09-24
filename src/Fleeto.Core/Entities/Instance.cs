@@ -259,6 +259,18 @@ public class OutboxWebhook
     public DateTime? SentAt { get; set; }
     public string? LastError { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// The alert as one line of a digest (JSON of <c>DigestLine</c>), for alert notifications that may be combined during a
+    /// flood (0.6.0); null for everything else, which always goes out on its own.
+    /// </summary>
+    public string? DigestLine { get; set; }
+
+    /// <summary>
+    /// The digest this notification went out in, instead of on its own (0.6.0). <see cref="SentAt"/> is then the moment it
+    /// was combined; whether the digest itself arrived is on the digest row.
+    /// </summary>
+    public Guid? BundledInto { get; set; }
 }
 
 /// <summary>Email outbox. Written by web and workers, delivered by the workers with retry and backoff.</summary>
@@ -275,6 +287,18 @@ public class OutboxEmail
     public DateTime? SentAt { get; set; }
     public string? LastError { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// The alert as one line of a digest (JSON of <c>DigestLine</c>), for alert notifications that may be combined during a
+    /// flood (0.6.0); null for everything else, which always goes out on its own.
+    /// </summary>
+    public string? DigestLine { get; set; }
+
+    /// <summary>
+    /// The digest this notification went out in, instead of on its own (0.6.0). <see cref="SentAt"/> is then the moment it
+    /// was combined; whether the digest itself arrived is on the digest row.
+    /// </summary>
+    public Guid? BundledInto { get; set; }
 }
 
 /// <summary>One backup attempt.</summary>

@@ -110,6 +110,8 @@ public sealed class AlertNotificationService
             var notification = new AlertNotification(transition.Kind, alert.Id, alert.Title, alert.Detail, alert.Severity, alert.OpenedAt,
                 alert.ResolvedAt, alert.ResolvedReason, alert.EndpointId, alert.Hostname, alert.SiteId, alert.SiteName, alert.ClientId,
                 alert.ClientCode, alert.ClientName, instance.EndpointUrl(alert.EndpointId));
+            // Emails and chat channels may be combined into a digest during a flood (0.6.0); a generic webhook never is.
+            var digestLine = NotificationDigest.Serialize(NotificationDigest.Line(notification));
             foreach (var channel in receiving.Where(c => c is { Type: NotificationChannelType.Webhook, WebhookFormat: not null }))
             {
                 var id = Guid.NewGuid();
@@ -120,7 +122,8 @@ public sealed class AlertNotificationService
                     Category = NotificationRouting.EventName(transition.Kind),
                     Payload = WebhookPayloads.Alert(channel.WebhookFormat!.Value, id, instance.Fqdn, notification, now),
                     NextAttemptAt = now,
-                    CreatedAt = now
+                    CreatedAt = now,
+                    DigestLine = channel.WebhookFormat == WebhookFormat.Generic ? null : digestLine
                 });
                 added++;
             }
@@ -147,7 +150,9 @@ public sealed class AlertNotificationService
 
             foreach (var recipient in recipients)
             {
-                db.OutboxEmails.Add(OutboxEmails.Create(recipient, content, category, now));
+                var email = OutboxEmails.Create(recipient, content, category, now);
+                email.DigestLine = digestLine;
+                db.OutboxEmails.Add(email);
                 added++;
             }
         }

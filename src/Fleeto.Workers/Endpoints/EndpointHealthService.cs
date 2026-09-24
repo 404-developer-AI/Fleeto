@@ -104,13 +104,25 @@ public sealed class EndpointHealthService : WorkerLoop
         RETURNING a."Id" AS "Value"
         """;
 
-    /// <summary>Resolves service alerts of one kind whose condition no longer holds: @condition is the SQL that must be true to resolve.</summary>
+    /// <summary>Resolves service alerts of kind @kind whose condition no longer holds; each statement below adds the condition.</summary>
     private const string ResolveServiceAlertSql = """
         UPDATE "Alerts" a
         SET "State" = 'Resolved', "ResolvedAt" = @now, "UpdatedAt" = @now, "ResolvedReason" = @reason
         FROM "Endpoints" e
         WHERE e."Id" = a."EndpointId" AND a."Kind" = @kind AND a."State" <> 'Resolved' AND
         """;
+
+    private const string ReturningAlertIdSql = """
+         RETURNING a."Id" AS "Value"
+        """;
+
+    private const string ResolveWhenAgentOnlineSql = ResolveServiceAlertSql + """ e."IsOnline" """ + ReturningAlertIdSql;
+
+    private const string ResolveWhenWatchdogOnlineSql = ResolveServiceAlertSql + """ e."WatchdogOnline" """ + ReturningAlertIdSql;
+
+    private const string ResolveWhenBothOfflineSql = ResolveServiceAlertSql + """ NOT e."IsOnline" AND NOT e."WatchdogOnline" """ + ReturningAlertIdSql;
+
+    private const string ResolveWhenAgentOfflineSql = ResolveServiceAlertSql + """ NOT e."IsOnline" """ + ReturningAlertIdSql;
 
     private const string ServiceCandidatesSelect = """
         SELECT e."Id" AS "EndpointId", e."ClientId" AS "ClientId", e."Hostname" AS "Hostname",
@@ -153,7 +165,7 @@ public sealed class EndpointHealthService : WorkerLoop
         SET "State" = 'Resolved', "ResolvedAt" = @now, "UpdatedAt" = @now, "ResolvedReason" = @reason
         FROM "Endpoints" e
         """ + " " + EffectivePolicyJoin + " " + """
-        WHERE e."Id" = a."EndpointId" AND a."Kind" = 'Offline' AND a."State" <> 'Resolved' AND pol."OfflineAlertAfterMinutes" <= 0
+        WHERE e."Id" = a."EndpointId" AND a."Kind" = @kind AND a."State" <> 'Resolved' AND pol."OfflineAlertAfterMinutes" <= 0
         RETURNING a."Id" AS "Value"
         """;
 
@@ -229,7 +241,8 @@ public sealed class EndpointHealthService : WorkerLoop
                 new NpgsqlParameter("now", now), new NpgsqlParameter("reason", ResolvedReasonWatchdogOnline)).ToListAsync(cancellationToken));
             resolved.AddRange(await AlertCleanup.ResolveNotManagedAsync(db, AlertKind.Offline, license, now, cancellationToken));
             resolved.AddRange(await db.Database.SqlQueryRaw<Guid>(ResolveDisabledSql,
-                new NpgsqlParameter("now", now), new NpgsqlParameter("reason", ResolvedReasonDisabled)).ToListAsync(cancellationToken));
+                new NpgsqlParameter("now", now), new NpgsqlParameter("reason", ResolvedReasonDisabled),
+                new NpgsqlParameter("kind", nameof(AlertKind.Offline))).ToListAsync(cancellationToken));
             transitions.AddRange(resolved.Distinct().Select(id => new AlertTransition(id, NotificationEvent.Resolved)));
 
             var candidates = await db.Database.SqlQueryRaw<OfflineCandidate>(OfflineCandidatesSql,
@@ -297,15 +310,15 @@ public sealed class EndpointHealthService : WorkerLoop
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
             var resolved = new List<Guid>();
-            foreach (var (kind, condition, reason) in new (AlertKind, string, string)[]
+            foreach (var (kind, sql, reason) in new (AlertKind, string, string)[]
                      {
-                         (AlertKind.AgentStopped, "e.\"IsOnline\"", ResolvedReasonAgentOnline),
-                         (AlertKind.AgentStopped, "NOT e.\"IsOnline\" AND NOT e.\"WatchdogOnline\"", ResolvedReasonBothOffline),
-                         (AlertKind.WatchdogStopped, "e.\"WatchdogOnline\"", ResolvedReasonWatchdogBack),
-                         (AlertKind.WatchdogStopped, "NOT e.\"IsOnline\"", ResolvedReasonBothOffline)
+                         (AlertKind.AgentStopped, ResolveWhenAgentOnlineSql, ResolvedReasonAgentOnline),
+                         (AlertKind.AgentStopped, ResolveWhenBothOfflineSql, ResolvedReasonBothOffline),
+                         (AlertKind.WatchdogStopped, ResolveWhenWatchdogOnlineSql, ResolvedReasonWatchdogBack),
+                         (AlertKind.WatchdogStopped, ResolveWhenAgentOfflineSql, ResolvedReasonBothOffline)
                      })
             {
-                resolved.AddRange(await db.Database.SqlQueryRaw<Guid>(ResolveServiceAlertSql + " " + condition + " RETURNING a.\"Id\" AS \"Value\"",
+                resolved.AddRange(await db.Database.SqlQueryRaw<Guid>(sql,
                     new NpgsqlParameter("now", now), new NpgsqlParameter("reason", reason), new NpgsqlParameter("kind", kind.ToString()))
                     .ToListAsync(cancellationToken));
             }
@@ -313,7 +326,7 @@ public sealed class EndpointHealthService : WorkerLoop
             foreach (var kind in new[] { AlertKind.AgentStopped, AlertKind.WatchdogStopped })
             {
                 resolved.AddRange(await AlertCleanup.ResolveNotManagedAsync(db, kind, license, now, cancellationToken));
-                resolved.AddRange(await db.Database.SqlQueryRaw<Guid>(ResolveDisabledSql.Replace("'Offline'", "@kind", StringComparison.Ordinal),
+                resolved.AddRange(await db.Database.SqlQueryRaw<Guid>(ResolveDisabledSql,
                     new NpgsqlParameter("now", now), new NpgsqlParameter("reason", ResolvedReasonDisabled), new NpgsqlParameter("kind", kind.ToString()))
                     .ToListAsync(cancellationToken));
             }

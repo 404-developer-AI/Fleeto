@@ -9,6 +9,35 @@ When a third released version is added, the oldest entry moves to the top of
 
 ## [Unreleased]
 
+### Added
+
+- Alert notifications during a flood are combined. Per email address, and per Slack or Teams channel, the first five
+  alert notifications within ten minutes go out on their own; after that, one email or message every ten minutes lists
+  the rest, grouped by client and site, resolves included. Generic webhooks still get every notification on its own, and
+  emails that are not about alerts are never combined.
+- Backups larger than 128 MB go to S3 as a multipart upload, so a backup is no longer limited to 5 GB. The write-only
+  credentials stay enough. Add a lifecycle rule that removes incomplete multipart uploads to the bucket: Settings, Backups
+  now asks for it.
+
+### Changed
+
+- An alert about two endpoints using the same agent identity resolves on its own once it has been open for 24 hours
+  without a new second connection.
+- Email through Microsoft Graph gets its token the same way as the tests in Settings, so a refusal from Microsoft reads
+  the same in both places.
+
+### Fixed
+
+- The check history dialog no longer keeps a handler after it closes, and the remote control and remote background
+  windows always clean up after themselves.
+- The gateway refuses a certificate from an unknown authority also when it runs on Windows, instead of failing on it.
+- The build has no warnings left.
+
+### Security
+
+- The keys that protect sign-in cookies are stored encrypted with the root key of the instance. Keys stored before this
+  version are withdrawn when Fleeto starts, so everybody signs in once more after the update.
+
 ## [0.5.0] — 2026-09-24
 
 Sign-in with Microsoft Entra ID for the people of the organization that owns the instance, with users chosen from its own

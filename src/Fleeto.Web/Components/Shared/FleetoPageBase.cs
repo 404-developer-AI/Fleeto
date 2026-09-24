@@ -33,6 +33,8 @@ public abstract class FleetoPageBase : ComponentBase, IDisposable
 
     protected override void OnInitialized()
     {
+        // Idempotent: a page that calls this twice must still be unsubscribed by the one call in Dispose (0.6.0).
+        Time.ZoneChanged -= OnZoneChanged;
         Time.ZoneChanged += OnZoneChanged;
     }
 
@@ -147,6 +149,10 @@ public abstract class FleetoPageBase : ComponentBase, IDisposable
 
     private void OnZoneChanged() => InvokeAsync(StateHasChanged);
 
+    /// <summary>
+    /// Unsubscribes from the time zone. A page that also implements <see cref="IAsyncDisposable"/> gets only its DisposeAsync
+    /// called by Blazor, so it must call this itself, in a finally block.
+    /// </summary>
     public virtual void Dispose()
     {
         Time.ZoneChanged -= OnZoneChanged;

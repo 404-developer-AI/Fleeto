@@ -4,8 +4,8 @@ Remote monitoring and management (RMM) by Steaan.
 
 Status: 0.5.0 released, running on the first test VPS. Windows and Linux agents, enrollment with mTLS, agent-only and
 managed endpoints with licensing, checks and alerts, dashboard, backups, jobs and scripts, remote control and remote
-background, patch management through Action1 on Windows, and sign-in with Microsoft Entra ID. 0.6.0 is a release of
-refactors and fixes. See
+background, patch management through Action1 on Windows, and sign-in with Microsoft Entra ID. 0.6.0 is a large release of
+refactors, fixes and what is wanted before the next round of testing. See
 [`MD-Files/ROADMAP.md`](MD-Files/ROADMAP.md).
 
 Source-available, not open source: see [License](#license).

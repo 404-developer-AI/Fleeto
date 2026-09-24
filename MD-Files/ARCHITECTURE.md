@@ -128,7 +128,7 @@ AuditEntry (append-only)
 | **Alert** | `Id`, `ClientId`, `EndpointId`, `CheckDefinitionId`, `Severity`, `State`, `AcknowledgedBy`, `HeldUntil?`, `HeldAt?`, `HeldBy?`, timestamps | Deduplicated per endpoint and check. On hold while `HeldUntil` is in the future (§4, Alert hold). |
 | **InventorySnapshot** | `EndpointId`, `ClientId`, `ReceivedAt`, `Hash`, hardware facts, `DisksJson`, `NetworkInterfacesJson`, `SoftwareJson`, `ServicesJson`, `Action1AgentId` | Latest inventory, one row per endpoint. `Action1AgentId` (0.4.0): the id of the Action1 agent installed next to the Fleeto agent, read on the endpoint itself and indexed, so patch state is matched on it instead of on the host name. `ServicesJson` (0.2.0): name, display name, start type and state per service (at most 2,000), used to pick the service of a service check; for a monitoring template the services of the most recent 1,000 inventories of its endpoints are offered. |
 | **CheckResultHourly**, **CheckResultDaily** | `EndpointId`, `CheckDefinitionId`, `Target`, `Bucket`, `ClientId`, `MinValue?`, `MaxValue?`, `SumValue`, `ValueCount`, `ErrorCount`, `NoResponseCount` | Check history rollups (0.2.0), maintained by the workers with the evaluation, kept 13 months. Deleted with their endpoint or check. |
-| **Note** | `Id`, `ClientId`, `EndpointId`, `AuthorId`, `AuthorName`, `Body` (markdown, at most 20,000 characters), `CreatedAt`, `UpdatedAt`, `EditedAt?` | Endpoints only (site notes were dropped). Managed endpoints only. The author edits, an admin deletes. Searchable from 0.6.0. A Servicedesk ticket reference is not yet scheduled (ROADMAP, Not yet scheduled). |
+| **Note** | `Id`, `ClientId`, `EndpointId`, `AuthorId`, `AuthorName`, `Body` (markdown, at most 20,000 characters), `CreatedAt`, `UpdatedAt`, `EditedAt?` | Endpoints only (site notes were dropped). Managed endpoints only. The author edits, an admin deletes. Searchable once logs and search are built (ROADMAP, Not yet scheduled). A Servicedesk ticket reference is not yet scheduled (ROADMAP, Not yet scheduled). |
 | **NotificationChannel** | `Id`, `Name`, `Type` (`Email`, `Webhook`), `Recipients`, `WebhookFormat?` (`Generic`, `Slack`, `Teams`), `WebhookHost?`, `EncryptedWebhook?`, `MinimumSeverity`, `NotifyOnResolve`, `Enabled`, `AllClients` | Instance-wide, admins only. Routing (0.2.0): all clients or the clients in **NotificationChannelClient** (`NotificationChannelId`, `ClientId`, deleted with either side), plus minimum severity and resolves. `EncryptedWebhook` holds URL and signing secret, bound to the channel id (§5). The type cannot change. |
 | **OutboxEmail**, **OutboxWebhook** | `Id`, recipient or `NotificationChannelId`, `Category`, content or `Payload`, `Attempts`, `NextAttemptAt`, `SentAt?`, `LastError?` | Written in the transaction that changes the alert; delivered by the workers (§4, Alert notifications). Sent rows kept 30 days, given up rows 90 days. |
 | **Integration** | `Id`, `Type`, `Enabled`, `Region?`, `EncryptedCredentials`, `CredentialName`, `Status`, `StatusMessage?`, `LastAttemptAt?`, `LastSuccessAt?` | One external product per instance (unique on `Type`, 0.4.0). Credentials are ciphertext bound to the row, see §5; `CredentialName` is the client id, for display. `Region` is the Action1 region, which decides the base URL. |
@@ -389,7 +389,8 @@ again with a new token.
 **Duplicate agent identity.** A second connection with a certificate that already has a
 live connection is refused → the endpoint gets an alert "Duplicate agent identity" → the
 technician revokes the certificate and enrolls the copies again, each with its own
-identity.
+identity. The alert resolves on its own once it has been open for 24 hours without a new
+duplicate connection (0.6.0): a copy that still runs keeps reconnecting and keeps it open.
 
 **Agent update (0.2.1).** `install.sh` places the release manifest it verified, with its signature, in the instance
 directory; the gateway reads it read-only (`Gateway:ReleaseDirectory`), verifies the signature against the release keys it
@@ -517,6 +518,17 @@ site names, the alert title and detail and a link, never check output. A deliver
 disabled or deleted before it went out is dropped. The notification channels page shows the last delivery
 per webhook channel and can send a test message.
 
+**Notifications during a flood (0.6.0).** Every pass of the email and webhook outbox starts by combining alert
+notifications (`NotificationBundler`, rule in `NotificationDigest`, decided with the developer on 2026-09-24): per email
+address, and per Slack or Teams channel, the first 5 within 10 minutes go out on their own; what comes after is written
+into one digest per 10 minutes in the same outbox, for as long as the flood lasts. Opened, escalated, resolved and
+hold-ended notifications all count. A generic webhook always gets every notification on its own, and an email that is
+not an alert is never combined. Each alert notification carries its digest line (JSON) from the moment it is queued; a
+combined row is marked with its digest (`BundledInto`) and counts as done, and the digest is delivered, retried and given
+up like any other row. The digest email lists at most 100 alerts grouped by client and site, a chat digest at most 30,
+the rest counted, each with a link to the alerts page. An advisory lock keeps two workers processes from bundling the
+same rows; when bundling fails, the notifications go out one by one.
+
 **Email delivery (0.2.0).** Settings, Email chooses SMTP or Microsoft Graph. Graph uses an app registration
 with the `Mail.Send` application permission, limited to the sending mailbox by an Exchange application
 access policy, and the client credentials flow: a client secret (its end date entered with it, since Entra
@@ -524,6 +536,8 @@ ID does not reveal it) or, recommended, a certificate Fleeto creates (RSA 3072, 
 waits as pending until the admin has downloaded its public part, uploaded it to the app registration and
 switched to it, so sending never stops during a renewal; the private key never leaves the instance. The
 workers request one token per delivery pass and send HTML through `sendMail` without saving to Sent Items.
+The token comes from `MicrosoftGraphClient`, the one place that asks Microsoft for an app-only token and
+translates its refusals, shared with the tests in Settings and the sign-in (0.6.0).
 While the Graph credential has expired and SMTP is configured as well, email goes through SMTP, so the
 warning about the expired credential still arrives. Graph can only be chosen when complete and must stay
 complete while chosen.
@@ -926,7 +940,10 @@ the file is encrypted on the VPS (ephemeral X25519 with the backup public key, H
 chunked AES-256-GCM; see §5 Backups) before it touches the network
 → uploaded to the off-VPS destination with write-only credentials → the destination's own
 lifecycle rule deletes backups after the retention period. The VPS can create backups but
-cannot read or delete them.
+cannot read or delete them. A file above 128 MB goes to S3 as a multipart upload (0.6.0; one PutObject stops at 5 GB),
+in parts of 64 MB or more, each with its own attempts and time limit; the multipart calls need `s3:PutObject` only. The
+parts of a failed upload are aborted when the credentials allow it, otherwise a second lifecycle rule on the bucket
+removes incomplete uploads.
 
 ## 5. Security architecture
 
@@ -942,13 +959,16 @@ Per instance, on the VPS
     └─ wraps → data keys (DEKs)      in the DB, one per purpose
                   └─ encrypt →       integration credentials, SMTP, Microsoft Graph secret or certificate key,
                                      webhook URLs and signing secrets, Action1, backup destination credentials,
-                                     TOTP seeds, license document
+                                     TOTP seeds, license document, the data protection key ring of web (0.6.0)
   signer key (KEK)                   Docker secret, mounted in fleeto-signer only
     └─ encrypts →                    instance signing key (ed25519): jobs, policies, check definitions, session tokens
                                      internal CA key: agent certificates, gateway server certificate
   backup public key (X25519)         in the DB; used for key agreement only (see Backups); private half offline
 ```
 
+- The data protection key ring of web (the keys behind authentication cookies and antiforgery tokens) lives on a volume
+  only web mounts, and every key in it is sealed with the `keyring` data key (0.6.0), so the volume alone cannot forge a
+  session. A key stored unencrypted by an earlier version is revoked and deleted when web starts; its sessions sign in again.
 - Hashed, not encrypted (verification only, high-entropy input): API key secrets and
   enrollment tokens, both SHA-256. User passwords: Argon2id.
 - Algorithms: AES-256-GCM for data and key wrapping, ed25519 for every signature, X25519

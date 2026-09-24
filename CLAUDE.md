@@ -9,8 +9,9 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 - **Language**: conversation with the developer is always in Dutch. Documentation, code,
   comments, commit messages, log messages and UI text are always in English.
 - **Current phase**: 0.5.0 (sign-in with Microsoft Entra ID) is released (2026-09-24) and runs on the first test VPS,
-  built in three steps and tested against a real tenant through `v0.5.0-alpha.1` to `alpha.6`. Next is 0.6.0 (refactors,
-  fixes and clean-up) in `MD-Files/ROADMAP.md`. Patch management on Linux and the other integrations moved to "Not yet
+  built in three steps and tested against a real tenant through `v0.5.0-alpha.1` to `alpha.6`. Next is 0.6.0 in `MD-Files/ROADMAP.md`:
+  refactors and fixes, and everything else the developer wants before the next round of testing, features included
+  (decided 2026-09-24); it is tested and released as a whole. Patch management on Linux and the other integrations moved to "Not yet
   scheduled" on 2026-09-23. Local development runs without Docker (see `README.md`); Docker
   is for the VPS and CI only.
 - **Git**: always ask before committing, pushing or tagging. No intermediate commits while a version is being built.
@@ -116,6 +117,9 @@ the API and the database follows it.
   keep the template linked: every value that is not overridden follows the template.
 - **Alert hold**: an unresolved alert can be put on hold until a time (at most 7 days): no emails
   and out of the open alert counts, while the alert itself stays real. Never called snooze or mute.
+- **Notifications during a flood** (0.6.0, decided 2026-09-24): per email address, and per Slack or Teams channel, the first
+  5 alert notifications within 10 minutes go out on their own and the rest as one digest per 10 minutes, resolves included.
+  Generic webhooks always get every notification on its own.
 
 UI structure:
 

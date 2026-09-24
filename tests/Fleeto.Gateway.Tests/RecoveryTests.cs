@@ -90,7 +90,17 @@ public sealed class RecoveryTests
             using var certificate = X509CertificateLoader.LoadCertificate(certificateDer);
             using var trusted = X509CertificateLoader.LoadCertificate(trustedCaDer);
             using var chain = new X509Chain { ChainPolicy = CertificateChains.CreatePolicy([trusted], CertificateChains.ClientAuthOid) };
-            var errors = chain.Build(certificate) ? SslPolicyErrors.None : SslPolicyErrors.RemoteCertificateChainErrors;
+            SslPolicyErrors errors;
+            try
+            {
+                errors = chain.Build(certificate) ? SslPolicyErrors.None : SslPolicyErrors.RemoteCertificateChainErrors;
+            }
+            catch (CryptographicException)
+            {
+                // Windows throws where Linux answers false for an issuer outside the trust store; either way not trusted.
+                errors = SslPolicyErrors.RemoteCertificateChainErrors;
+            }
+
             return AgentTlsOptions.ValidateClientCertificate(this, certificate, chain, errors);
         }
 

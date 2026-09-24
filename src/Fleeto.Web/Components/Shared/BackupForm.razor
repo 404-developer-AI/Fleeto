@@ -23,7 +23,9 @@
         <MudTextField @bind-Value="_secret" Label="@(_hasSecret ? "Secret key (leave blank to keep the current key)" : "Secret key")"
                       Variant="Variant.Outlined" InputType="InputType.Password" MaxLength="1000" Class="mb-1" />
         <MudText Typo="Typo.caption" Class="muted d-block mb-3">
-            Use credentials that can only write: no read and no delete. Set the retention period as a lifecycle rule on the bucket.
+            Use credentials that can only write: no read and no delete. Set the retention period as a lifecycle rule on the bucket,
+            together with a rule that removes incomplete multipart uploads after a few days: a large backup goes up in parts, and
+            the parts of an upload that failed stay until that rule removes them.
         </MudText>
     }
     else if (_type == BackupDestinationType.Directory)

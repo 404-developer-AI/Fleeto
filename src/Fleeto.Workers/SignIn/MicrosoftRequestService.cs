@@ -1,6 +1,7 @@
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Data;
+using Fleeto.Infrastructure.Email;
 using Fleeto.Infrastructure.Identity;
 using Fleeto.Infrastructure.Settings;
 using Fleeto.Workers.Hosting;
@@ -164,7 +165,7 @@ public sealed class MicrosoftRequestService : WorkerLoop
         }
 
         var certificate = settings.CredentialType == GraphCredentialType.Certificate;
-        if (certificate && settings.CertificatePfx is null)
+        if (GraphMail.Credential(settings) is not { } credential)
         {
             return [new(MicrosoftCheckStatus.Failed, "No certificate is in use for Microsoft Graph. Create one in Settings, Email and switch to it.")];
         }
@@ -172,8 +173,7 @@ public sealed class MicrosoftRequestService : WorkerLoop
         GraphToken token;
         try
         {
-            token = await _graph.GetTokenAsync(new AppCredential(settings.TenantId, settings.ClientId,
-                certificate ? null : settings.ClientSecret, certificate ? settings.CertificatePfx : null), EmailPage, cancellationToken);
+            token = await _graph.GetTokenAsync(credential, EmailPage, cancellationToken);
         }
         catch (MicrosoftGraphException ex)
         {

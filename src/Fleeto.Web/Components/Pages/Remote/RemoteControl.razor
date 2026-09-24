@@ -6,7 +6,6 @@
 @inject RemoteSessionService RemoteSvc
 @inject IJSRuntime JS
 @inject IConfiguration Configuration
-@inject TimeDisplay Time
 @inject ILogger<RemoteControl> Logger
 
 @* Remote control (0.3.0 step 3): the screen of a Windows endpoint, served by the agent in the chosen Windows session, end-to-end encrypted
@@ -301,8 +300,12 @@
         {
             // The window closed; the browser ended the session with it.
         }
-
-        _self?.Dispose();
-        Dispose();
+        finally
+        {
+            // Blazor calls only DisposeAsync on a component that has both, so the clean-up of FleetoPageBase runs from here,
+            // whatever the browser answered.
+            _self?.Dispose();
+            Dispose();
+        }
     }
 }
