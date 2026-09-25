@@ -4,6 +4,7 @@
 @attribute [Authorize(Policy = FleetoPolicies.Viewer)]
 @inherits FleetoPageBase
 @inject ClientService ClientSvc
+@inject TagService TagSvc
 @inject ClientTemplateService ClientTemplates
 @inject SiteService SiteSvc
 @inject EndpointService EndpointSvc
@@ -35,15 +36,54 @@
             }
         </div>
         <div class="px-3 pb-2">
-            <MudTextField T="string" Value="_clientSearch" ValueChanged="SearchClientsAsync" Placeholder="Search clients" Variant="Variant.Outlined"
-                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" Immediate="true" DebounceInterval="300"
-                          Margin="Margin.Dense" Clearable="true" />
+            <div class="d-flex align-center gap-1">
+                <MudTextField T="string" Value="_clientSearch" ValueChanged="SearchClientsAsync" Placeholder="Search clients" Variant="Variant.Outlined"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" Immediate="true" DebounceInterval="300"
+                              Margin="Margin.Dense" Clearable="true" />
+                @if (_tagOptions.Count > 0)
+                {
+                    <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" aria-label="Filter clients by tag" MaxHeight="360">
+                        <ActivatorContent>
+                            <MudBadge Dot="true" Color="Color.Primary" Visible="@(_tagFilter.Count > 0)" Overlap="true">
+                                <MudIconButton Icon="@Icons.Material.Outlined.Sell" Size="Size.Small" aria-label="Filter clients by tag" OnClick="@context.ToggleAsync" />
+                            </MudBadge>
+                        </ActivatorContent>
+                        <ChildContent>
+                            <MudMenuItem Disabled="true">Clients with every chosen tag</MudMenuItem>
+                            @foreach (var tag in _tagOptions)
+                            {
+                                <MudMenuItem AutoClose="false" OnClick="@(() => ToggleTagFilterAsync(tag.Id))">
+                                    <div class="d-flex align-center gap-2">
+                                        <MudIcon Icon="@(_tagFilter.Contains(tag.Id) ? Icons.Material.Outlined.CheckBox : Icons.Material.Outlined.CheckBoxOutlineBlank)" Size="Size.Small" />
+                                        <TagChip Name="@tag.Name" Color="tag.Color" />
+                                    </div>
+                                </MudMenuItem>
+                            }
+                            @if (_tagFilter.Count > 0)
+                            {
+                                <MudDivider />
+                                <MudMenuItem Icon="@Icons.Material.Outlined.FilterListOff" OnClick="ClearTagFilterAsync">Clear tag filter</MudMenuItem>
+                            }
+                        </ChildContent>
+                    </MudMenu>
+                }
+            </div>
+            @if (_tagFilter.Count > 0)
+            {
+                <div class="tag-list mt-2" aria-label="Tag filter">
+                    @foreach (var tag in _tagOptions.Where(t => _tagFilter.Contains(t.Id)))
+                    {
+                        <TagChip Name="@tag.Name" Color="tag.Color" Active="true" Title="@($"Stop filtering on tag {tag.Name}")"
+                                 OnClick="() => ToggleTagFilterAsync(tag.Id)" />
+                    }
+                </div>
+            }
         </div>
         <nav class="client-panel-list" aria-label="Clients and sites">
             @if (_tree.Count == 0 && !_treeLoading)
             {
                 <MudText Typo="Typo.body2" Class="muted px-4 py-2">
-                    @(string.IsNullOrEmpty(_clientSearch) ? "No clients yet." : "No clients match this search.")
+                    @(string.IsNullOrEmpty(_clientSearch) && _tagFilter.Count == 0 ? "No clients yet." : "No clients match this search.")
                 </MudText>
             }
             @foreach (var client in _tree)
@@ -55,7 +95,21 @@
                     </button>
                     <a href="@($"/clients/{client.Id}")" class="client-link" title="@($"[{client.Code}] {client.Name}")">
                         <MudIcon Icon="@Icons.Material.Outlined.Business" Size="Size.Small" Class="client-icon" />
-                        <span class="client-name">[@client.Code] @client.Name</span>
+                        <span class="client-name @(client.Tags.Count > 0 ? "client-name-fit" : "")">[@client.Code] @client.Name</span>
+                        @if (client.Tags.Count > 0)
+                        {
+                            @* At most two tags fit next to the name; the rest is counted, and the tooltip names them all. *@
+                            <span class="tree-tags" title="@($"Tags: {string.Join(", ", client.Tags.Select(t => t.Name))}")">
+                                @foreach (var tag in client.Tags.Take(2))
+                                {
+                                    <TagChip Name="@tag.Name" Color="tag.Color" />
+                                }
+                                @if (client.Tags.Count > 2)
+                                {
+                                    <span class="tag-chip tag-gray">+@(client.Tags.Count - 2)</span>
+                                }
+                            </span>
+                        }
                         @MaintenanceBadge(client.MaintenanceActive, client.InMaintenanceCount, client.EndpointCount)
                         @if (client.OpenAlertCount > 0)
                         {
@@ -101,6 +155,15 @@
                     {
                         <MudText Typo="Typo.body2" Class="muted">@patchSummary</MudText>
                     }
+                    @if (_client is { Tags.Count: > 0 } taggedClient)
+                    {
+                        <div class="tag-list mt-1" aria-label="Tags">
+                            @foreach (var tag in taggedClient.Tags)
+                            {
+                                <TagChip Name="@tag.Name" Color="tag.Color" />
+                            }
+                        </div>
+                    }
                     @if (ScopeMaintenance is { } scopeMaintenance)
                     {
                         <div class="mt-1"><MaintenanceChip Maintenance="scopeMaintenance" SourceName="@ScopeMaintenanceSource" /></div>
@@ -130,6 +193,7 @@
                         <MudMenu Label="Client settings" StartIcon="@Icons.Material.Outlined.Settings" Variant="Variant.Outlined"
                                  AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
                             <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="RenameClientAsync">Rename client</MudMenuItem>
+                            <MudMenuItem Icon="@Icons.Material.Outlined.Sell" OnClick="EditClientTagsAsync">Edit tags</MudMenuItem>
                             <MudMenuItem Icon="@Icons.Material.Outlined.CreateNewFolder" OnClick="CreateSiteAsync">New site</MudMenuItem>
                             @if (client.ClientTemplateId is not null)
                             {
@@ -301,7 +365,7 @@
                                         }
                                         @if (row.Tier == EndpointTier.Managed)
                                         {
-                                            @if (RemoteSessionRules.PlatformSupportsRemoteControl(row.OsPlatform))
+                                            @if (RemoteSessionRules.SupportsRemoteControl(row.OsPlatform, row.Desktop))
                                             {
                                                 <MudMenuItem Icon="@Icons.Material.Outlined.ScreenShare" OnClick="@(() => RemoteWindow.OpenControlAsync(row.Id))">Remote control</MudMenuItem>
                                             }
@@ -364,6 +428,8 @@
     private bool _treeLoading = true;
     private string? _clientSearch;
     private readonly HashSet<Guid> _expanded = [];
+    private IReadOnlyList<TagView> _tagOptions = [];
+    private readonly HashSet<Guid> _tagFilter = [];
 
     private string? _scopeKey;
     private bool _notFound;
@@ -535,7 +601,12 @@
 
     private async Task LoadTreeAsync()
     {
-        await LoadAsync(async caller => _tree = await ClientSvc.ListTreeAsync(caller, _clientSearch));
+        await LoadAsync(async caller =>
+        {
+            _tagOptions = await TagSvc.ListVisibleAsync(caller);
+            _tagFilter.IntersectWith(_tagOptions.Select(t => t.Id));
+            _tree = await ClientSvc.ListTreeAsync(caller, _clientSearch, _tagFilter);
+        });
         _treeLoading = false;
         if (!string.IsNullOrEmpty(_clientSearch))
         {
@@ -597,6 +668,22 @@
     private async Task SearchClientsAsync(string? value)
     {
         _clientSearch = value;
+        await LoadTreeAsync();
+    }
+
+    private async Task ToggleTagFilterAsync(Guid tagId)
+    {
+        if (!_tagFilter.Remove(tagId))
+        {
+            _tagFilter.Add(tagId);
+        }
+
+        await LoadTreeAsync();
+    }
+
+    private async Task ClearTagFilterAsync()
+    {
+        _tagFilter.Clear();
         await LoadTreeAsync();
     }
 
@@ -1157,6 +1244,23 @@
         if (!(await dialog.Result)!.Canceled)
         {
             await ReloadAllAsync();
+        }
+    }
+
+    private async Task EditClientTagsAsync()
+    {
+        var client = _client!;
+        var parameters = new DialogParameters<ClientTagsDialog>
+        {
+            { d => d.ClientCode, client.Code },
+            { d => d.Current, client.Tags },
+            { d => d.Available, _tagOptions },
+            { d => d.OnSubmit, names => RunAsync(caller => TagSvc.SetClientTagsAsync(caller, client.Id, names), "The tags were saved.") }
+        };
+        var dialog = await DialogService.ShowAsync<ClientTagsDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await Task.WhenAll(LoadScopeAsync(), LoadTreeAsync());
         }
     }
 

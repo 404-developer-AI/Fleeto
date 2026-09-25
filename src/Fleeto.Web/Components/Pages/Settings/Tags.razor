@@ -1,0 +1,93 @@
+@page "/settings/tags"
+@attribute [Authorize(Policy = FleetoPolicies.Admin)]
+@inherits FleetoPageBase
+@inject TagService TagSvc
+@inject IDialogService DialogService
+
+<PageTitle>Tags - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Tags</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            Tags are added on a client, under Client settings, Edit tags. A new tag gets a color from its name; change the name or the
+            color here, for every client that carries the tag.
+        </MudText>
+    </div>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (!_allClients)
+    {
+        <EmptyState Icon="@Icons.Material.Outlined.Sell" Title="Tags are managed by an admin for all clients"
+                    Text="Your account is limited to some clients, and a tag is shared by every client of the instance. Ask an admin without that limit." />
+    }
+    else if (_tags.Count == 0)
+    {
+        <EmptyState Icon="@Icons.Material.Outlined.Sell" Title="No tags yet"
+                    Text="Open a client, choose Client settings, Edit tags and type a tag. It appears here once it exists." />
+    }
+    else
+    {
+        <MudTable Items="_tags" Hover="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>Tag</MudTh>
+                <MudTh>Color</MudTh>
+                <MudTh>Used by</MudTh>
+                <MudTh Style="width:110px"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd><TagChip Name="@context.Name" Color="context.Color" /></MudTd>
+                <MudTd>@context.Color</MudTd>
+                <MudTd>@Ui.Count(context.ClientCount, "client")</MudTd>
+                <MudTd Style="white-space:nowrap">
+                    <MudTooltip Text="Edit"><MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" aria-label="@($"Edit tag {context.Name}")" OnClick="@(() => EditAsync(context))" /></MudTooltip>
+                    <MudTooltip Text="Delete"><MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" aria-label="@($"Delete tag {context.Name}")" OnClick="@(() => DeleteAsync(context))" /></MudTooltip>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</LoadState>
+
+@code {
+    private IReadOnlyList<TagListItem> _tags = [];
+    private bool _allClients = true;
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        _allClients = caller.Scope.AllClients;
+        _tags = _allClients ? await TagSvc.ListAsync(caller) : [];
+    });
+
+    private async Task EditAsync(TagListItem tag)
+    {
+        var parameters = new DialogParameters<TagDialog>
+        {
+            { d => d.InitialName, tag.Name },
+            { d => d.InitialColor, tag.Color },
+            { d => d.OnSubmit, (name, color) => RunAsync(caller => TagSvc.UpdateAsync(caller, tag.Id, name, color), "The tag was saved.") }
+        };
+        var dialog = await DialogService.ShowAsync<TagDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(TagListItem tag)
+    {
+        var usage = tag.ClientCount > 0 ? $"It is removed from {Ui.Count(tag.ClientCount, "client")}. " : string.Empty;
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Delete tag {tag.Name}" },
+            { d => d.Message, usage + "This cannot be undone." }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => TagSvc.DeleteAsync(caller, tag.Id), "The tag was deleted."))
+        {
+            await ReloadAsync();
+        }
+    }
+}

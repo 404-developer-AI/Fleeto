@@ -11,6 +11,12 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
+- Tags on clients, in the way of Proxmox. Type a tag on a client under Client settings, Edit tags, or pick one that
+  exists; a new tag gets a color from its name. Tags show next to the client name in the clients panel (two, and the
+  number of the others) and in the client header; the tag button next to the search filters on one or more tags, and
+  the search finds tag names. Admins rename,
+  recolor and delete tags in Settings, Tags, from a fixed palette of eleven colors. The public API returns the tags of a
+  client and filters clients on a tag with `tag`.
 - Alert notifications during a flood are combined. Per email address, and per Slack or Teams channel, the first five
   alert notifications within ten minutes go out on their own; after that, one email or message every ten minutes lists
   the rest, grouped by client and site, resolves included. Generic webhooks still get every notification on its own, and
@@ -21,6 +27,12 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Changed
 
+- Remote control is offered only on endpoints with a desktop. The agent reports whether an endpoint has one; a Linux
+  server without a display manager, graphical session or X server, and Windows Server Core and Nano Server, offer only
+  remote background. Agents older than this version keep remote control until they update. The public API shows it as
+  `desktop` on the inventory.
+- Remote control and remote background open from the right-click menu of the endpoint list only; the two buttons on
+  the endpoint detail are gone.
 - An alert about two endpoints using the same agent identity resolves on its own once it has been open for 24 hours
   without a new second connection.
 - Email through Microsoft Graph gets its token the same way as the tests in Settings, so a refusal from Microsoft reads

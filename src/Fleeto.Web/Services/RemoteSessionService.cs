@@ -119,7 +119,7 @@ public sealed class RemoteSessionService
             .Select(e => new
             {
                 e.Id, e.Hostname, e.Tier, e.Source, e.OsPlatform, e.OsName, e.IsOnline, e.AgentVersion, e.DetectedClass, e.ClassOverride,
-                e.SignedInUsersJson, e.SignedInUsersAt,
+                e.SignedInUsersJson, e.SignedInUsersAt, Desktop = e.Inventory != null ? e.Inventory.Desktop : string.Empty,
                 ClientCode = db.Clients.Where(c => c.Id == e.ClientId).Select(c => c.Code).FirstOrDefault()
             })
             .SingleOrDefaultAsync(cancellationToken);
@@ -133,6 +133,8 @@ public sealed class RemoteSessionService
             ? "Remote control is only available on managed endpoints. Switch the endpoint to managed first."
             : endpoint.Source != EndpointSource.Agent || !RemoteSessionRules.PlatformSupportsRemoteControl(endpoint.OsPlatform)
                 ? "Remote control runs on Windows and Linux endpoints with a Fleeto agent."
+            : !RemoteSessionRules.SupportsRemoteControl(endpoint.OsPlatform, endpoint.Desktop)
+                ? "This endpoint has no desktop (a Linux server without one, or Windows Server Core), so remote control has nothing to show. Use remote background for its terminal, files, services and processes."
             : !RemoteSessionRules.AgentSupportsRemoteControl(endpoint.AgentVersion, endpoint.OsPlatform)
                 ? $"The agent of this endpoint runs {(string.IsNullOrEmpty(endpoint.AgentVersion) ? "no known version" : "Fleeto " + endpoint.AgentVersion)}. Remote control {(endpoint.OsPlatform == "linux" ? "on Linux needs Fleeto " + RemoteSessionRules.MinimumLinuxAgentVersion : "needs Fleeto 0.3.0")} or later; the agent updates with its update ring."
             : !endpoint.IsOnline

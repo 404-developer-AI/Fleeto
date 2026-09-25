@@ -264,7 +264,8 @@ public sealed class AgentSessionTests
             NetworkInterfaces = { new NetworkInterface { Name = "Ethernet", MacAddress = "00:11:22:33:44:55", IpAddresses = { "192.0.2.5" } } },
             Software = { new SoftwareItem { Name = "Fleeto agent", Version = "0.1.0", Publisher = "Steaan", InstallDate = "20260914" } },
             Services = { new ServiceItem { Name = "Spooler", DisplayName = "Print Spooler", StartType = "automatic", State = "running" } },
-            Action1AgentId = "ef17c844-5b7c-4b32-9724-f2716b596639"
+            Action1AgentId = "ef17c844-5b7c-4b32-9724-f2716b596639",
+            Desktop = "none"
         };
         await harness.Manager.HandleAsync(session, new AgentMessage { Inventory = new InventoryReport { Hash = "abc", Inventory = inventory } },
             CancellationToken.None);
@@ -280,6 +281,8 @@ public sealed class AgentSessionTests
         Assert.Contains("\"startType\"", snapshot.ServicesJson);
         // The Action1 agent of the endpoint (0.4.0): how patch state is matched to this endpoint.
         Assert.Equal("ef17c844-5b7c-4b32-9724-f2716b596639", snapshot.Action1AgentId);
+        // Whether the endpoint has a desktop (0.6.0): without one, remote control is not offered.
+        Assert.Equal("none", snapshot.Desktop);
         var stored = await ReadEndpointAsync(endpoint.Id);
         Assert.Equal("SRV-NEW", stored.Hostname);
         Assert.Equal(EndpointClass.Server, stored.DetectedClass);

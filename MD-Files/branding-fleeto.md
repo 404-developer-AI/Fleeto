@@ -98,6 +98,7 @@ Use these terms consistently in UI, docs and email; do not introduce synonyms.
 | **client template** | A blueprint of sites, policies and monitoring templates used when creating a client |
 | **integration** | A connected external product (Action1, Sophos, Veeam, ...) |
 | **note** | Free-form text (markdown) attached to an endpoint |
+| **tag** | A short colored label on a client, such as `contract-gold` (0.6.0). "Edit tags", "Filter clients by tag". Never "label" or "badge" in UI text. |
 
 Intervals are written in plain language: "every 30 seconds", "every 5 minutes", "once a month".
 

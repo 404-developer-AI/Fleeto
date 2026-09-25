@@ -104,6 +104,10 @@ the API and the database follows it.
   or some endpoints are in maintenance.
 - **Monitoring template**: a named set of checks with thresholds and alert rules. Linked to a
   site, applied to all of its endpoints (class-specific checks apply to matching endpoints only).
+- **Tag** (0.6.0, decided 2026-09-25): a colored label on a client, in the way of Proxmox. Typed on the client by an admin
+  or technician and created on first use with a color from its name; one name (case-insensitive) is one tag with one color
+  across the instance, at most 10 per client. Shown in the clients panel, which filters on tags; admins rename, recolor and
+  delete tags in Settings from a fixed palette. A user limited to clients only sees the tags of those clients.
 - **Client template**: a blueprint used when creating a client. It lists the sites to
   create and the policies and monitoring templates to link to each of them. Selecting a
   template at client creation creates the sites and links in one step.
@@ -141,7 +145,7 @@ UI structure:
 - **Settings**: opened from the settings button in the sidebar footer. One workspace like
   Clients: left, a settings panel; right, the selected page. Group **Templates** (client
   templates, monitoring templates, policies) for every user, and the administration pages for
-  admins: users and roles, licensing, API keys, integrations, notification channels, retention,
+  admins: users and roles, tags, licensing, API keys, integrations, notification channels, retention,
   audit log.
 
 ## Licensing: per endpoint, two tiers
@@ -178,8 +182,8 @@ Licenses are counted **per endpoint** and belong to the instance.
 
 Screen takeover is built into Fleeto: no external tool, no third-party account. Decisions of 2026-09-16 (0.3.0):
 
-- Two kinds of session, each in its own popup window opened from the right-click menu of the endpoint list or the endpoint
-  detail: **Remote control** (the screen, served by the agent) and **Remote background** (terminal, files, services and
+- Two kinds of session, each in its own popup window opened from the right-click menu of the endpoint list (the buttons
+  on the endpoint detail were removed in 0.6.0): **Remote control** (the screen, served by the agent) and **Remote background** (terminal, files, services and
   processes without touching the screen, served by the watchdog so it also works when the agent is broken). Managed
   endpoints only; admins and technicians, never read-only. The reason is optional.
 - **Transport**: a WebSocket relay through the gateway on port 443 (`wss://<fqdn>/relay/`), no WebRTC. Image: tiles with
@@ -207,6 +211,10 @@ Screen takeover is built into Fleeto: no external tool, no third-party account. 
   `MD-Files/ARCHITECTURE.md` §4 and §5.
 - Platforms: Windows 10 and Server 2016 or newer; Linux with X11 (Wayland shows that remote control is not supported, remote
   background works). macOS is not supported for now (decided 2026-09-15; possibly later when there is demand).
+- **Only where there is a desktop** (decided 2026-09-25, 0.6.0): the agent reports whether the endpoint has a graphical desktop.
+  Without one (a Linux server without display manager, graphical session or X server; Windows Server Core and Nano Server)
+  remote control is not offered and only remote background is. An agent older than 0.6.0 reports nothing and keeps remote
+  control as before.
 
 ## Sign-in and two-factor authentication
 
@@ -488,7 +496,7 @@ home-grown patch engine. Note them, do not build them. (File transfer inside rem
 - **Fleeto is the only name**: namespaces, images, env vars, service names, database objects and user-visible text (decided
   2026-09-15; the internal name Fleetify was renamed in 0.2.1). The old name appears only in the migration code listed in
   `deploy/ci/branding-check.sh`. Run that check (`MD-Files/branding-fleeto.md` §7) before every release.
-- UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, monitoring template, client template, integration, note, remote control session, API key).
+- UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, monitoring template, client template, integration, note, tag, remote control session, API key).
 - Follow the Migrify codebase conventions where they exist (project layout, EF Core patterns, MudBlazor usage, email templates).
 - Tests: unit tests for domain logic, integration tests against real PostgreSQL in CI, the cross-client tests from Security, license-tier enforcement tests, signer rule tests (refused roles, tiers, unapproved scripts, expired jobs), certificate revocation tests, and the load-test scenario. New features without tests are not done, and neither are new features
   that are not in `MD-Files/API.md` or on `MD-Files/API-WAITLIST.md` (see Public API).

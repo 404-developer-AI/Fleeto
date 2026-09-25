@@ -10,7 +10,6 @@
 @inject IDialogService DialogService
 @inject TimeProvider Clock
 @inject LiveUpdates Live
-@inject RemoteWindow RemoteWindow
 
 <LoadState Loading="Loading" Failed="LoadFailed" NotFound="_notFound" What="endpoint">
     @if (_endpoint is { } e)
@@ -40,18 +39,7 @@
                     </div>
                 </div>
                 <div class="endpoint-detail-actions">
-                    @if (CanManage && e.Tier == EndpointTier.Managed)
-                    {
-                        @if (RemoteSessionRules.PlatformSupportsRemoteControl(e.OsPlatform))
-                        {
-                            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.ScreenShare" OnClick="@(() => RemoteWindow.OpenControlAsync(e.Id))">
-                                Remote control
-                            </MudButton>
-                        }
-                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Terminal" OnClick="@(() => RemoteWindow.OpenBackgroundAsync(e.Id))">
-                            Remote background
-                        </MudButton>
-                    }
+                    @* Remote control and remote background open from the right-click menu of the endpoint list only (0.6.0). *@
                     @if (Embedded)
                     {
                         <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.OpenInNew" Href="@($"/endpoints/{e.Id}")">Open page</MudButton>

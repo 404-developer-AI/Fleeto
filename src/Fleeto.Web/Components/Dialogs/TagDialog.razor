@@ -1,0 +1,61 @@
+@* Rename or recolor a tag (0.6.0). The change applies to every client that carries it. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Edit tag @InitialName</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" MaxLength="TagRules.MaxLength" AutoFocus="true" Immediate="true"
+                      HelperText="Letters, digits and - _ . + without spaces." Class="mb-4" />
+        <MudText Typo="Typo.body2" Class="muted mb-2">Color</MudText>
+        <div class="tag-list mb-4" role="radiogroup" aria-label="Color">
+            @foreach (var color in TagRules.Palette)
+            {
+                <TagChip Name="@color.ToString()" Color="color" Active="@(_color == color)" Title="@($"Use {color.ToString().ToLowerInvariant()}")"
+                         OnClick="() => _color = color" />
+            }
+        </div>
+        <MudText Typo="Typo.body2" Class="muted mb-1">Preview</MudText>
+        <TagChip Name="@(string.IsNullOrWhiteSpace(_name) ? InitialName : _name.Trim())" Color="_color" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public string InitialName { get; set; } = string.Empty;
+    [Parameter] public TagColor InitialColor { get; set; }
+    [Parameter] public Func<string, TagColor, Task<bool>> OnSubmit { get; set; } = (_, _) => Task.FromResult(true);
+
+    private string _name = string.Empty;
+    private TagColor _color;
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        _name = InitialName;
+        _color = InitialColor;
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(_name, _color))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

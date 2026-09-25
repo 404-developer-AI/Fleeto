@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Web.Services;
 
@@ -19,6 +20,7 @@ internal static class PublicApiEndpoints
 
         api.MapGet("/clients", async (HttpContext http, PublicApiQueries queries,
                 [Description("Part of the client code or name, case-insensitive.")] string? search,
+                [Description("Only clients with this tag, by its full name, case-insensitive.")] string? tag,
                 [Description(CursorDescription)] string? cursor, [Description(LimitDescription)] int? limit, CancellationToken cancellationToken) =>
             {
                 if (Validate(limit, search) is { } problem)
@@ -26,7 +28,13 @@ internal static class PublicApiEndpoints
                     return problem;
                 }
 
-                return Results.Ok(await queries.ListClientsAsync(http.ApiCaller(), search, cursor, limit ?? PublicApiQueries.DefaultLimit, cancellationToken));
+                if (tag?.Length > TagRules.MaxLength)
+                {
+                    return ApiProblems.InvalidParameterResult("tag", "The tag is too long.", $"A tag has at most {TagRules.MaxLength} characters.");
+                }
+
+                return Results.Ok(await queries.ListClientsAsync(http.ApiCaller(), search, tag, cursor, limit ?? PublicApiQueries.DefaultLimit,
+                    cancellationToken));
             })
             .WithName("listClients").WithTags("Clients").WithSummary("List clients, ordered by client code.")
             .Produces<ApiPage<ApiClient>>().ProducesProblem(StatusCodes.Status400BadRequest);

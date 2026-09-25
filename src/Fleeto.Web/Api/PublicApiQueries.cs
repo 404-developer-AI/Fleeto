@@ -54,7 +54,8 @@ public sealed class PublicApiQueries
     // Clients
 
     /// <summary>Ordered by code (unique), keyset on (Code, Id).</summary>
-    public async Task<ApiPage<ApiClient>> ListClientsAsync(Caller caller, string? search, string? cursor, int limit, CancellationToken cancellationToken)
+    public async Task<ApiPage<ApiClient>> ListClientsAsync(Caller caller, string? search, string? tag, string? cursor, int limit,
+        CancellationToken cancellationToken)
     {
         caller.EnsureView();
         await using var db = _dbFactory.Create(caller.Scope);
@@ -65,14 +66,21 @@ public sealed class PublicApiQueries
             clients = clients.Where(c => EF.Functions.ILike(c.Code, pattern) || EF.Functions.ILike(c.Name, pattern));
         }
 
+        if (ServiceSupport.Clean(tag) is { } tagName)
+        {
+            var normalized = TagRules.Normalize(tagName);
+            clients = clients.Where(c => db.ClientTags.Any(l => l.ClientId == c.Id && l.Tag!.NormalizedName == normalized));
+        }
+
         if (cursor is not null && ApiCursor.Require(cursor, out string code, out var id))
         {
             clients = clients.Where(c => EF.Functions.GreaterThan(ValueTuple.Create(c.Code, c.Id), ValueTuple.Create(code, id)));
         }
 
         var rows = await ProjectClients(db, clients.OrderBy(c => c.Code).ThenBy(c => c.Id).Take(limit + 1)).ToListAsync(cancellationToken);
+        var tags = await TagService.ForClientsAsync(db, rows.Select(r => r.Client.Id).ToList(), cancellationToken);
         var now = _time.GetUtcNow().UtcDateTime;
-        return Page(rows.Select(r => ToApi(r, now)).ToList(), limit, c => ApiCursor.Encode(c.Code, c.Id));
+        return Page(rows.Select(r => ToApi(r, tags.GetValueOrDefault(r.Client.Id, []), now)).ToList(), limit, c => ApiCursor.Encode(c.Code, c.Id));
     }
 
     public async Task<ApiClient?> GetClientAsync(Caller caller, Guid clientId, CancellationToken cancellationToken)
@@ -80,7 +88,13 @@ public sealed class PublicApiQueries
         caller.EnsureView();
         await using var db = _dbFactory.Create(caller.Scope);
         var row = await ProjectClients(db, db.Clients.AsNoTracking().Where(c => c.Id == clientId)).SingleOrDefaultAsync(cancellationToken);
-        return row is null ? null : ToApi(row, _time.GetUtcNow().UtcDateTime);
+        if (row is null)
+        {
+            return null;
+        }
+
+        var tags = await TagService.ForClientsAsync(db, [clientId], cancellationToken);
+        return ToApi(row, tags.GetValueOrDefault(clientId, []), _time.GetUtcNow().UtcDateTime);
     }
 
     private sealed record ClientRow(Client Client, int SiteCount, int EndpointCount);
@@ -88,9 +102,33 @@ public sealed class PublicApiQueries
     private static IQueryable<ClientRow> ProjectClients(FleetoDbContext db, IQueryable<Client> clients) =>
         clients.Select(c => new ClientRow(c, db.Sites.Count(s => s.ClientId == c.Id), db.Endpoints.Count(e => e.ClientId == c.Id)));
 
-    private static ApiClient ToApi(ClientRow row, DateTime now) =>
-        new(row.Client.Id, row.Client.Code, row.Client.Name, row.SiteCount, row.EndpointCount, Maintenance(row.Client.Maintenance, now),
-            Utc(row.Client.CreatedAt), Utc(row.Client.UpdatedAt));
+    private static ApiClient ToApi(ClientRow row, IReadOnlyList<TagView> tags, DateTime now) =>
+        new(row.Client.Id, row.Client.Code, row.Client.Name, tags.Select(t => new ApiTag(t.Name, Map(t.Color))).ToList(), row.SiteCount,
+            row.EndpointCount, Maintenance(row.Client.Maintenance, now), Utc(row.Client.CreatedAt), Utc(row.Client.UpdatedAt));
+
+    /// <summary>Null while the agent does not report it (older than 0.6.0).</summary>
+    internal static ApiDesktop? MapDesktop(string desktop) => desktop switch
+    {
+        RemoteSessionRules.DesktopGraphical => ApiDesktop.Graphical,
+        RemoteSessionRules.DesktopNone => ApiDesktop.None,
+        _ => null
+    };
+
+    internal static ApiTagColor Map(TagColor color) => color switch
+    {
+        TagColor.Red => ApiTagColor.Red,
+        TagColor.Orange => ApiTagColor.Orange,
+        TagColor.Amber => ApiTagColor.Amber,
+        TagColor.Lime => ApiTagColor.Lime,
+        TagColor.Green => ApiTagColor.Green,
+        TagColor.Teal => ApiTagColor.Teal,
+        TagColor.Cyan => ApiTagColor.Cyan,
+        TagColor.Blue => ApiTagColor.Blue,
+        TagColor.Pink => ApiTagColor.Pink,
+        TagColor.Brown => ApiTagColor.Brown,
+        TagColor.Gray => ApiTagColor.Gray,
+        _ => throw new ArgumentOutOfRangeException(nameof(color), color, null)
+    };
 
     // Sites
 
@@ -241,7 +279,7 @@ public sealed class PublicApiQueries
             inventory.NetworkInterfaces.Select(n => new ApiNetworkInterface(n.Name, n.MacAddress, n.IpAddresses)).ToList(),
             inventory.Software.Select(s => new ApiSoftware(s.Name, s.Version, s.Publisher, s.InstallDate)).ToList(),
             services.Select(s => new ApiService(s.Name, s.DisplayName, s.StartType, s.State)).ToList(),
-            inventory.Action1AgentId));
+            inventory.Action1AgentId, MapDesktop(inventory.Desktop)));
     }
 
     /// <summary>

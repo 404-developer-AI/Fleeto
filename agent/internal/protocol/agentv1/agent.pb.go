@@ -2472,8 +2472,13 @@ type Inventory struct {
 	// The id of the Action1 agent installed next to the Fleeto agent, read on the endpoint itself (0.4.0). Empty when
 	// Action1 is not installed or the id cannot be read. Patch state is matched on it instead of on the host name.
 	Action1AgentId string `protobuf:"bytes,17,opt,name=action1_agent_id,json=action1AgentId,proto3" json:"action1_agent_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Whether the endpoint has a graphical desktop that remote control can show (0.6.0): "graphical" or "none". Linux:
+	// graphical when a display manager is installed, the active session of seat0 is graphical or an X server runs. Windows:
+	// none on Server Core and Nano Server, graphical otherwise. Empty when an older agent does not report it or it cannot
+	// be read; the server then keeps offering remote control as before.
+	Desktop       string `protobuf:"bytes,18,opt,name=desktop,proto3" json:"desktop,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Inventory) Reset() {
@@ -2621,6 +2626,13 @@ func (x *Inventory) GetServices() []*ServiceItem {
 func (x *Inventory) GetAction1AgentId() string {
 	if x != nil {
 		return x.Action1AgentId
+	}
+	return ""
+}
+
+func (x *Inventory) GetDesktop() string {
+	if x != nil {
+		return x.Desktop
 	}
 	return ""
 }
@@ -5103,7 +5115,7 @@ const file_agent_proto_rawDesc = "" +
 	"request_id\x18\x02 \x01(\tR\trequestId\"_\n" +
 	"\x0fInventoryReport\x12\x12\n" +
 	"\x04hash\x18\x01 \x01(\tR\x04hash\x128\n" +
-	"\tinventory\x18\x02 \x01(\v2\x1a.fleeto.agent.v1.InventoryR\tinventory\"\xe2\x05\n" +
+	"\tinventory\x18\x02 \x01(\v2\x1a.fleeto.agent.v1.InventoryR\tinventory\"\xfc\x05\n" +
 	"\tInventory\x12\x1a\n" +
 	"\bhostname\x18\x01 \x01(\tR\bhostname\x12'\n" +
 	"\x02os\x18\x02 \x01(\v2\x17.fleeto.agent.v1.OsInfoR\x02os\x12\"\n" +
@@ -5122,7 +5134,8 @@ const file_agent_proto_rawDesc = "" +
 	"\x06domain\x18\x0e \x01(\tR\x06domain\x12$\n" +
 	"\x0elogged_on_user\x18\x0f \x01(\tR\floggedOnUser\x128\n" +
 	"\bservices\x18\x10 \x03(\v2\x1c.fleeto.agent.v1.ServiceItemR\bservices\x12(\n" +
-	"\x10action1_agent_id\x18\x11 \x01(\tR\x0eaction1AgentId\"y\n" +
+	"\x10action1_agent_id\x18\x11 \x01(\tR\x0eaction1AgentId\x12\x18\n" +
+	"\adesktop\x18\x12 \x01(\tR\adesktop\"y\n" +
 	"\vServiceItem\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x1d\n" +

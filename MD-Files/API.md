@@ -201,12 +201,13 @@ Lists the clients the key can read, ordered by client code.
 | Query parameter | Type | Required | Meaning |
 |---|---|---|---|
 | `search` | string, at most 100 characters | no | Part of the client code or name, case-insensitive. |
+| `tag` | string, at most 32 characters | no | Only clients with this tag: the full tag name, case-insensitive. |
 | `limit`, `cursor` | | no | Pagination (section 5). |
 
 Response `200`: a page of [Client](#client). Errors: 400, 401, 429.
 
 ```http
-GET /api/v1/clients?search=acme&limit=2
+GET /api/v1/clients?search=acme&tag=contract-gold&limit=2
 ```
 
 ```json
@@ -216,6 +217,10 @@ GET /api/v1/clients?search=acme&limit=2
       "id": "77c5d95d-1a92-4205-aec2-eb63037f8bde",
       "code": "ACME",
       "name": "Acme Manufacturing",
+      "tags": [
+        { "name": "contract-gold", "color": "amber" },
+        { "name": "manufacturing", "color": "blue" }
+      ],
       "siteCount": 2,
       "endpointCount": 48,
       "maintenance": null,
@@ -372,7 +377,8 @@ the `title` says which), 429.
   "networkInterfaces": [ { "name": "Ethernet0", "macAddress": "00:50:56:a1:2b:3c", "ipAddresses": [ "10.0.0.10", "fe80::250:56ff:fea1:2b3c" ] } ],
   "software": [ { "name": "Microsoft SQL Server 2022", "version": "16.0.1000.6", "publisher": "Microsoft Corporation", "installDate": "20260902" } ],
   "services": [ { "name": "MSSQLSERVER", "displayName": "SQL Server (MSSQLSERVER)", "startType": "automatic", "state": "running" } ],
-  "action1AgentId": "ef17c844-5b7c-4b32-9724-f2716b596639"
+  "action1AgentId": "ef17c844-5b7c-4b32-9724-f2716b596639",
+  "desktop": "graphical"
 }
 ```
 
@@ -700,11 +706,22 @@ Every field is always present. "Nullable" means the value can be `null`.
 | `id` | UUID | |
 | `code` | string | Short unique code in uppercase, for example `ACME`. |
 | `name` | string | |
+| `tags` | array of [Tag](#tag) | The tags of the client, ordered by name; empty when it has none. |
 | `siteCount` | integer | Sites of the client. |
 | `endpointCount` | integer | Endpoints of the client. |
 | `maintenance` | [Maintenance](#maintenance), nullable | The client's own maintenance while it is active; `null` otherwise. |
 | `createdAt` | timestamp | |
-| `updatedAt` | timestamp | |
+| `updatedAt` | timestamp | Also changes when the tags of the client change. |
+
+### Tag
+
+A tag on a client (0.6.0). Tags are typed on a client in the UI; a tag name is unique within the instance regardless of
+case, and every client that carries it shows the same name and color. A client has at most 10 tags.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `name` | string | 1 to 32 characters: letters, digits and `-` `_` `.` `+`, no spaces. |
+| `color` | string | The palette color, see [Tag color](#tag-color). |
 
 ### Site
 
@@ -831,6 +848,7 @@ not read them.
 | `networkInterfaces` | array | Per interface: `name`, `macAddress`, `ipAddresses` (array of strings, IPv4 and IPv6). |
 | `software` | array | Installed software, from the registry on Windows and from dpkg or rpm on Linux: `name`, `version`, `publisher`, `installDate` (as the operating system reports it, often `yyyyMMdd`; may be empty, as it is for dpkg packages). |
 | `action1AgentId` | string | The id of the Action1 agent installed on the endpoint, read on the endpoint itself (0.4.0). Empty when Action1 is not installed, when the agent is older than 0.4.0, or on Linux, where Fleeto does not read it yet. Patch management uses it to match an endpoint to its Action1 record. |
+| `desktop` | string, nullable | Whether the endpoint has a graphical desktop (0.6.0): `graphical`, or `none` for a Linux endpoint without a display manager, graphical session or X server and for Windows Server Core and Nano Server. `null` while the agent is older than 0.6.0. Remote control is offered only when it is not `none`; remote background works either way. |
 | `services` | array | Services: Windows services, or systemd services on Linux (`name` without the `.service` suffix, `displayName` is the unit description). Per service: `name`, `displayName`, `startType` (`automatic`, `automatic_delayed` (Windows), `manual`, `disabled`, or empty when unknown; a systemd unit that is enabled, static, generated or indirect is `automatic`, one that is disabled is `manual` and a masked one is `disabled`) and `state` (`running`, `stopped`, `starting`, `stopping`, `paused` (Windows), or empty when unknown). Sorted by display name. |
 
 ### EndpointChecks
@@ -947,6 +965,11 @@ not read them.
 ### Maintenance source
 
 `endpoint`, `site`, `client`, `policy_window` (a recurring maintenance window of the policy of the endpoint's site).
+
+### Tag color
+
+`red`, `orange`, `amber`, `lime`, `green`, `teal`, `cyan`, `blue`, `pink`, `brown`, `gray`. A new tag gets a color derived
+from its name; an admin can choose another one from this list.
 
 ### Check status
 
@@ -1126,6 +1149,8 @@ values and examples.
 
 | Fleeto | API | Change |
 |---|---|---|
+| 0.6.0 | v1 | `desktop` on Inventory (additive). |
+| 0.6.0 | v1 | `tags` on Client and the `tag` filter on `GET /api/v1/clients` (additive). |
 | 0.2.2 | v1 | `runAsChosenAccount` on Job: the user the technician chose for a `logged_on_user` job (additive). |
 | 0.2.1 | v1 | `runAsAccount` on Job: the signed-in user a `logged_on_user` job ran as (additive). |
 | 0.2.1 | v1 | `runAs` on Job: the account the script ran under on the endpoint (additive). |

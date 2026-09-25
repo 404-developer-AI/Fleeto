@@ -46,7 +46,7 @@ public sealed record EndpointListQuery(Guid? ClientId, Guid? SiteId, EndpointCla
 public sealed record EndpointRow(Guid Id, string Hostname, Guid ClientId, string ClientCode, string ClientName, Guid SiteId, string SiteName,
     bool IsOnline, EndpointTier Tier, EndpointClass EffectiveClass, string OsName, string OsVersion, string AgentVersion, string LoggedOnUser,
     DateTime? LastSeenAt, int OpenAlertCount, bool HasCriticalAlert, EffectiveMaintenance? Maintenance = null, bool OwnMaintenanceActive = false,
-    MaintenancePeriod? OwnMaintenance = null, string OsPlatform = "");
+    MaintenancePeriod? OwnMaintenance = null, string OsPlatform = "", string Desktop = "");
 
 /// <summary>
 /// One page of the endpoint list. Counts cover the whole scope and filters; <see cref="Rows"/> holds at most
@@ -82,10 +82,11 @@ public sealed class SoftwareInfo
 }
 
 /// <param name="Action1AgentId">The Action1 agent installed on the endpoint (0.4.0); empty when there is none.</param>
+/// <param name="Desktop">Whether the endpoint has a graphical desktop (0.6.0): graphical, none, or empty when the agent does not report it.</param>
 public sealed record InventoryView(DateTime ReceivedAt, string Manufacturer, string Model, string SerialNumber, string CpuModel, int CpuCores,
     int CpuLogicalProcessors, long MemoryTotalBytes, DateTime? BootTime, string Domain, string LoggedOnUser,
     IReadOnlyList<DiskInfo> Disks, IReadOnlyList<NetworkInterfaceInfo> NetworkInterfaces, IReadOnlyList<SoftwareInfo> Software,
-    string Action1AgentId);
+    string Action1AgentId, string Desktop = "");
 
 public sealed record AlertView(Guid Id, Guid EndpointId, string Hostname, Guid ClientId, string ClientCode, AlertKind Kind, AlertSeverity Severity,
     AlertState State, string Title, string Detail, DateTime OpenedAt, DateTime UpdatedAt, DateTime? AcknowledgedAt, DateTime? ResolvedAt,
@@ -204,7 +205,8 @@ public sealed class EndpointService
                 e.LastSeenAt,
                 db.Alerts.Count(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now)),
                 db.Alerts.Any(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now) &&
-                                   a.Severity == AlertSeverity.Critical), null, false, null, e.OsPlatform),
+                                   a.Severity == AlertSeverity.Critical), null, false, null, e.OsPlatform,
+                e.Inventory != null ? e.Inventory.Desktop : string.Empty),
                 Own = new MaintenancePeriod(e.MaintenanceStartedAt, e.MaintenanceEndsAt, e.MaintenanceStartedByName, e.MaintenanceReason),
                 Site = new MaintenancePeriod(e.Site.MaintenanceStartedAt, e.Site.MaintenanceEndsAt, e.Site.MaintenanceStartedByName, e.Site.MaintenanceReason),
                 Client = new MaintenancePeriod(e.Site.Client!.MaintenanceStartedAt, e.Site.Client.MaintenanceEndsAt, e.Site.Client.MaintenanceStartedByName,
@@ -292,7 +294,7 @@ public sealed class EndpointService
         return new InventoryView(snapshot.ReceivedAt, snapshot.Manufacturer, snapshot.Model, snapshot.SerialNumber, snapshot.CpuModel,
             snapshot.CpuCores, snapshot.CpuLogicalProcessors, snapshot.MemoryTotalBytes, snapshot.BootTime, snapshot.Domain, snapshot.LoggedOnUser,
             ParseList<DiskInfo>(snapshot.DisksJson, endpointId), ParseList<NetworkInterfaceInfo>(snapshot.NetworkInterfacesJson, endpointId),
-            ParseList<SoftwareInfo>(snapshot.SoftwareJson, endpointId), snapshot.Action1AgentId);
+            ParseList<SoftwareInfo>(snapshot.SoftwareJson, endpointId), snapshot.Action1AgentId, snapshot.Desktop);
     }
 
     public async Task<IReadOnlyList<AlertView>> GetAlertsAsync(Caller caller, Guid endpointId, int limit = 100, CancellationToken cancellationToken = default)

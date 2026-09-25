@@ -790,6 +790,20 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   10 minutes for as long as it lasts, grouped by client and site; resolves are combined the same way; Slack and Teams
   channels get the same digest per channel, and generic webhooks keep one message per alert. Done as described in
   `ARCHITECTURE.md` §4 (Notifications during a flood).
+- [done] **Tags on clients** (asked for by the developer on 2026-09-25). Mark clients with colored tags, as Proxmox does
+  with VMs, visible in the clients panel. Decided with the developer on 2026-09-25: typed freely on a client and created
+  on first use, with a color from its name that an admin can change in Settings; a fixed palette rather than any color,
+  so every tag stays readable; the clients panel filters on tags, and the public API returns them and filters on one.
+  Done: tables `Tags` (instance-wide name and color) and `ClientTags` (client-owned), at most 10 tags per client, the
+  filter keeps clients that carry every chosen tag, and a user limited to clients only sees the tags of those clients.
+  Renaming, recoloring and deleting are for admins who see every client. Tags on sites and endpoints are not planned.
+- [done] **Remote control only where there is a desktop** (asked for by the developer on 2026-09-25). A Linux server without
+  a desktop offered remote control, which could only fail. Decided with the developer on 2026-09-25: the agent reports
+  whether the endpoint has a graphical desktop; without one only remote background is offered, on Linux and also on
+  Windows Server Core and Nano Server. The two remote buttons on the endpoint detail are removed: both sessions open from
+  the right-click menu of the endpoint list only. Done: `Inventory.desktop` from the agent, `InventorySnapshots.Desktop`,
+  the rule in `RemoteSessionRules.SupportsRemoteControl`, `desktop` on Inventory in the public API. An agent older than 0.6.0
+  reports nothing and keeps remote control until it updates.
 
 ## 0.7.0 — Hardening
 

@@ -1,0 +1,145 @@
+@* The tags of a client (0.6.0): type a new tag or pick an existing one. A new tag gets the color of its name; admins change colors in Settings, Tags. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Tags of client @ClientCode</MudText>
+    </TitleContent>
+    <DialogContent>
+        <div class="tag-list mb-3" aria-label="Tags of this client">
+            @if (_tags.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted">This client has no tags.</MudText>
+            }
+            @foreach (var tag in _tags)
+            {
+                <span class="tag-chip @Css(tag.Color)">
+                    @tag.Name
+                    <button type="button" class="tag-remove" aria-label="@($"Remove tag {tag.Name}")" @onclick="() => Remove(tag)">
+                        <MudIcon Icon="@Icons.Material.Outlined.Close" Style="font-size:12px" />
+                    </button>
+                </span>
+            }
+        </div>
+        <div class="d-flex gap-2 align-start">
+            <MudTextField T="string" @bind-Value="_input" Label="Add a tag" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true"
+                          MaxLength="TagRules.MaxLength" AutoFocus="true" OnKeyUp="OnKeyUp" Disabled="@(_tags.Count >= TagRules.MaxPerClient)"
+                          HelperText="@($"Letters, digits and - _ . + without spaces. At most {TagRules.MaxPerClient} tags per client.")" />
+            <MudButton Variant="Variant.Outlined" Class="mt-1" OnClick="AddTyped" Disabled="@(string.IsNullOrWhiteSpace(_input) || _tags.Count >= TagRules.MaxPerClient)">Add</MudButton>
+        </div>
+        @if (_problem is not null)
+        {
+            <MudText Typo="Typo.body2" Color="Color.Error" Class="mt-1">@_problem</MudText>
+        }
+        @if (Suggestions.Count > 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted mt-3 mb-1">Existing tags</MudText>
+            <div class="tag-list">
+                @foreach (var tag in Suggestions)
+                {
+                    <TagChip Name="@tag.Name" Color="tag.Color" Title="@($"Add tag {tag.Name}")" OnClick="() => Add(tag.Name)" />
+                }
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public string ClientCode { get; set; } = string.Empty;
+    [Parameter] public IReadOnlyList<TagView> Current { get; set; } = [];
+
+    /// <summary>The tags the user may see, to pick from.</summary>
+    [Parameter] public IReadOnlyList<TagView> Available { get; set; } = [];
+
+    [Parameter] public Func<IReadOnlyList<string>, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+
+    private readonly List<TagView> _tags = [];
+    private string? _input;
+    private string? _problem;
+    private bool _busy;
+
+    protected override void OnInitialized() => _tags.AddRange(Current);
+
+    /// <summary>Existing tags not on the client yet that match what is typed, so typing narrows the list.</summary>
+    private IReadOnlyList<TagView> Suggestions => Available
+        .Where(t => _tags.All(c => TagRules.Normalize(c.Name) != TagRules.Normalize(t.Name)))
+        .Where(t => string.IsNullOrWhiteSpace(_input) || t.Name.Contains(_input.Trim(), StringComparison.OrdinalIgnoreCase))
+        .Take(40)
+        .ToList();
+
+    private static string Css(TagColor color) => "tag-" + color.ToString().ToLowerInvariant();
+
+    private void OnKeyUp(KeyboardEventArgs args)
+    {
+        if (args.Key is "Enter" or ",")
+        {
+            AddTyped();
+        }
+    }
+
+    private void AddTyped() => Add(_input?.TrimEnd(','));
+
+    private void Add(string? raw)
+    {
+        var name = TagRules.Clean(raw);
+        _problem = TagRules.Validate(name);
+        if (_problem is not null)
+        {
+            return;
+        }
+
+        if (_tags.Count >= TagRules.MaxPerClient)
+        {
+            _problem = $"A client can have at most {TagRules.MaxPerClient} tags. Remove one first.";
+            return;
+        }
+
+        if (_tags.All(t => TagRules.Normalize(t.Name) != TagRules.Normalize(name)))
+        {
+            // An existing tag keeps its own spelling and color; a new one shows the color it will get.
+            var existing = Available.FirstOrDefault(t => TagRules.Normalize(t.Name) == TagRules.Normalize(name));
+            _tags.Add(existing ?? new TagView(Guid.Empty, name, TagRules.DefaultColor(name)));
+        }
+
+        _input = null;
+    }
+
+    private void Remove(TagView tag)
+    {
+        _tags.Remove(tag);
+        _problem = null;
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        // Text typed without pressing Add still counts, as a user expects from Save.
+        if (!string.IsNullOrWhiteSpace(_input))
+        {
+            Add(_input);
+            if (_problem is not null)
+            {
+                return;
+            }
+        }
+
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(_tags.Select(t => t.Name).ToList()))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

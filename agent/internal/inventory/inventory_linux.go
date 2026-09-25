@@ -371,3 +371,55 @@ func output(ctx context.Context, name string, args ...string) (string, error) {
 func action1AgentID() string {
 	return ""
 }
+
+// displayManagerFiles mark an installed display manager: the systemd alias every display manager enables (gdm, lightdm, sddm and
+// the others) and the file Debian keeps for the chosen one.
+var displayManagerFiles = []string{"/etc/systemd/system/display-manager.service", "/etc/X11/default-display-manager"}
+
+// desktop reports whether this endpoint has a graphical desktop (0.6.0): a display manager is installed, the active session of seat0
+// is graphical, or an X server runs. A server without any of them only offers remote background.
+func desktop(ctx context.Context) string {
+	for _, path := range displayManagerFiles {
+		if _, err := os.Lstat(path); err == nil {
+			return DesktopGraphical
+		}
+	}
+	if graphicalSeatSession(ctx) || displayServerRuns() {
+		return DesktopGraphical
+	}
+	return DesktopNone
+}
+
+// graphicalSeatSession is true when the active session of seat0 draws a desktop.
+func graphicalSeatSession(ctx context.Context) bool {
+	tool, err := exec.LookPath("loginctl")
+	if err != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	id, err := output(ctx, tool, "show-seat", "seat0", "--property=ActiveSession", "--value")
+	if err != nil || strings.TrimSpace(id) == "" {
+		return false
+	}
+	sessionType, err := output(ctx, tool, "show-session", strings.TrimSpace(id), "--property=Type", "--value")
+	return err == nil && isGraphicalSessionType(sessionType)
+}
+
+// displayServerRuns is true when a process named like an X server runs.
+func displayServerRuns() bool {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if _, err := strconv.Atoi(e.Name()); err != nil {
+			continue
+		}
+		comm, err := os.ReadFile(filepath.Join("/proc", e.Name(), "comm"))
+		if err == nil && isDisplayServerName(string(comm)) {
+			return true
+		}
+	}
+	return false
+}

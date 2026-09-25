@@ -57,6 +57,7 @@ public static class WebServiceRegistration
 
         services.AddSingleton<DashboardService>();
         services.AddSingleton<ClientService>();
+        services.AddSingleton<TagService>();
         services.AddSingleton<SiteService>();
         services.AddSingleton<EnrollmentService>();
         services.AddSingleton<EndpointService>();

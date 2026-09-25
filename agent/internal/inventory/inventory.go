@@ -94,6 +94,8 @@ func Collect(ctx context.Context, logger *slog.Logger) *agentv1.Inventory {
 	}
 	// The Action1 agent next to us, so the server can match this endpoint to its patch state (0.4.0).
 	inv.Action1AgentId = action1AgentID()
+	// Whether remote control has a desktop to show; without one only remote background is offered (0.6.0).
+	inv.Desktop = desktop(ctx)
 
 	Normalize(inv)
 	return inv

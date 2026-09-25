@@ -16,7 +16,7 @@ public sealed record SiteListItem(Guid Id, string Name, string? Description, boo
     int OpenAlertCount, string? PolicyName);
 
 public sealed record ClientDetail(Guid Id, string Code, string Name, Guid? ClientTemplateId, string? TemplateName, DateTime CreatedAt,
-    IReadOnlyList<SiteListItem> Sites, MaintenancePeriod Maintenance);
+    IReadOnlyList<SiteListItem> Sites, MaintenancePeriod Maintenance, IReadOnlyList<TagView> Tags);
 
 public sealed record ClientOption(Guid Id, string Code, string Name);
 
@@ -25,7 +25,10 @@ public sealed record ClientOption(Guid Id, string Code, string Name);
 /// maintenance; <see cref="MaintenanceActive"/> is the client's own maintenance.
 /// </summary>
 public sealed record ClientTreeItem(Guid Id, string Code, string Name, int EndpointCount, int OnlineCount, int OpenAlertCount,
-    IReadOnlyList<SiteTreeItem> Sites, bool MaintenanceActive = false, int InMaintenanceCount = 0);
+    IReadOnlyList<SiteTreeItem> Sites, bool MaintenanceActive = false, int InMaintenanceCount = 0)
+{
+    public IReadOnlyList<TagView> Tags { get; init; } = [];
+}
 
 public sealed record SiteTreeItem(Guid Id, string Name, int EndpointCount, int OnlineCount, int OpenAlertCount, bool MaintenanceActive = false,
     int InMaintenanceCount = 0);
@@ -77,10 +80,12 @@ public sealed class ClientService
     }
 
     /// <summary>
-    /// Clients with their sites for the clients panel. A search on code or name keeps the matching clients; a search that
-    /// matches a site name keeps that site's client too.
+    /// Clients with their sites and tags for the clients panel. A search on code, name or tag keeps the matching clients; a search
+    /// that matches a site name keeps that site's client too. With <paramref name="tagIds"/>, only clients that carry every one of
+    /// those tags are kept.
     /// </summary>
-    public async Task<IReadOnlyList<ClientTreeItem>> ListTreeAsync(Caller caller, string? search = null, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ClientTreeItem>> ListTreeAsync(Caller caller, string? search = null, IReadOnlyCollection<Guid>? tagIds = null,
+        CancellationToken cancellationToken = default)
     {
         caller.EnsureView();
         await using var db = _dbFactory.Create(caller.Scope);
@@ -90,7 +95,14 @@ public sealed class ClientService
         {
             var pattern = ServiceSupport.LikePattern(term);
             clients = clients.Where(c => EF.Functions.ILike(c.Code, pattern) || EF.Functions.ILike(c.Name, pattern) ||
-                                         db.Sites.Any(s => s.ClientId == c.Id && EF.Functions.ILike(s.Name, pattern)));
+                                         db.Sites.Any(s => s.ClientId == c.Id && EF.Functions.ILike(s.Name, pattern)) ||
+                                         db.ClientTags.Any(l => l.ClientId == c.Id && EF.Functions.ILike(l.Tag!.Name, pattern)));
+        }
+
+        if (tagIds is { Count: > 0 })
+        {
+            var wanted = tagIds.Distinct().ToArray();
+            clients = clients.Where(c => db.ClientTags.Count(l => l.ClientId == c.Id && wanted.Contains(l.TagId)) == wanted.Length);
         }
 
         var clientRows = await clients
@@ -138,9 +150,10 @@ public sealed class ClientService
 
         var sitesByClient = siteRows.GroupBy(s => s.ClientId).ToDictionary(g => g.Key,
             g => (IReadOnlyList<SiteTreeItem>)g.Select(s => s.Item with { InMaintenanceCount = siteMaintenance.GetValueOrDefault(s.Item.Id) }).ToList());
+        var tags = await TagService.ForClientsAsync(db, clientIds, cancellationToken);
         return clientRows
             .Select(c => new ClientTreeItem(c.Id, c.Code, c.Name, c.Endpoints, c.Online, c.Alerts, sitesByClient.GetValueOrDefault(c.Id, []),
-                c.Maintenance, clientMaintenance.GetValueOrDefault(c.Id)))
+                c.Maintenance, clientMaintenance.GetValueOrDefault(c.Id)) { Tags = tags.GetValueOrDefault(c.Id, []) })
             .ToList();
     }
 
@@ -192,8 +205,9 @@ public sealed class ClientService
             .ToListAsync(cancellationToken);
 
         sites = sites.Select(s => s with { PolicyName = s.PolicyName ?? defaultPolicy }).ToList();
+        var tags = await TagService.ForClientsAsync(db, [client.Id], cancellationToken);
         return new ClientDetail(client.Id, client.Code, client.Name, client.ClientTemplateId, client.TemplateName, client.CreatedAt, sites,
-            client.Maintenance);
+            client.Maintenance, tags.GetValueOrDefault(client.Id, []));
     }
 
     /// <summary>

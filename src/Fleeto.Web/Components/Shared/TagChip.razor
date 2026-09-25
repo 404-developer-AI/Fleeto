@@ -1,0 +1,28 @@
+@* A tag of a client (0.6.0) in its palette color. With OnClick it is a button, for example to filter on the tag. *@
+@if (OnClick.HasDelegate)
+{
+    <button type="button" class="tag-chip @Css @(Active ? "tag-active" : "")" title="@Title" aria-pressed="@Active" @onclick="OnClick" @onclick:stopPropagation="true">@Name</button>
+}
+else
+{
+    <span class="tag-chip @Css" title="@Title">@Name</span>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public string Name { get; set; } = string.Empty;
+
+    [Parameter]
+    public TagColor Color { get; set; } = TagColor.Gray;
+
+    [Parameter]
+    public bool Active { get; set; }
+
+    [Parameter]
+    public string? Title { get; set; }
+
+    [Parameter]
+    public EventCallback OnClick { get; set; }
+
+    private string Css => "tag-" + Color.ToString().ToLowerInvariant();
+}

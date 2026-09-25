@@ -239,6 +239,50 @@ public sealed class RemoteSessionServiceTests
         Assert.False(await db.RemoteSessions.AnyAsync(s => s.EndpointId == endpoint.Id));
     }
 
+    [Theory]
+    [InlineData("linux")]
+    [InlineData("windows")]
+    public async Task Remote_control_is_not_offered_on_an_endpoint_without_a_desktop_and_remote_background_still_is(string platform)
+    {
+        var endpoint = await ControlEndpointAsync(RemoteSessionRules.MinimumLinuxAgentVersion, platform: platform);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            db.InventorySnapshots.Add(new InventorySnapshot
+            {
+                EndpointId = endpoint.Id, ClientId = endpoint.ClientId, ReceivedAt = _fixture.Database.Time.GetUtcNow().UtcDateTime,
+                Hash = "h", Desktop = RemoteSessionRules.DesktopNone
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var technician = WebFixtureBase.Technician();
+        var target = await Service.GetControlTargetAsync(technician, endpoint.Id);
+        Assert.Contains("has no desktop", target!.Problem);
+        Assert.Contains("has no desktop",
+            (await Service.OpenControlAsync(technician, endpoint.Id, RandomNumberGenerator.GetBytes(32), null, RemoteSessionRules.ConsoleWindowsSession)).Problem);
+
+        // The endpoint list carries it, so its menu leaves remote control out.
+        var page = await _fixture.Services.GetRequiredService<EndpointService>()
+            .ListAsync(technician, new EndpointListQuery(null, endpoint.SiteId, null, null, EndpointStatusFilter.All, null));
+        var row = Assert.Single(page.Rows);
+        Assert.False(RemoteSessionRules.SupportsRemoteControl(row.OsPlatform, row.Desktop));
+
+        var background = await Service.GetBackgroundTargetAsync(technician, endpoint.Id);
+        Assert.Null(background!.Problem);
+    }
+
+    [Fact]
+    public void Only_an_endpoint_reported_without_a_desktop_loses_remote_control()
+    {
+        Assert.True(RemoteSessionRules.SupportsRemoteControl("windows", RemoteSessionRules.DesktopGraphical));
+        Assert.True(RemoteSessionRules.SupportsRemoteControl("linux", string.Empty));
+        Assert.False(RemoteSessionRules.SupportsRemoteControl("linux", RemoteSessionRules.DesktopNone));
+        Assert.False(RemoteSessionRules.SupportsRemoteControl("windows", RemoteSessionRules.DesktopNone));
+        Assert.False(RemoteSessionRules.SupportsRemoteControl("macos", RemoteSessionRules.DesktopGraphical));
+        Assert.Equal(string.Empty, RemoteSessionRules.NormalizeDesktop("maybe"));
+        Assert.Equal(RemoteSessionRules.DesktopNone, RemoteSessionRules.NormalizeDesktop("none"));
+    }
+
     [Fact]
     public void One_technician_can_request_only_so_many_sessions_a_minute()
     {

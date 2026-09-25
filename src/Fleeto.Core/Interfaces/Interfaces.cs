@@ -158,6 +158,9 @@ public static class AuditActions
     public const string ClientUpdated = "client.updated";
     public const string ClientDeleted = "client.deleted";
     public const string ClientDetachedFromTemplate = "client.detached_from_template";
+    public const string ClientTagsChanged = "client.tags_changed";
+    public const string TagUpdated = "tag.updated";
+    public const string TagDeleted = "tag.deleted";
     public const string SiteCreated = "site.created";
     public const string SiteUpdated = "site.updated";
     public const string SiteDeleted = "site.deleted";

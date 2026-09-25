@@ -421,6 +421,35 @@ public sealed class PublicApiTests
     }
 
     [Fact]
+    public async Task Clients_carry_their_tags_and_filter_on_a_tag_within_the_scope_of_the_key()
+    {
+        var database = _fixture.Database;
+        var clientA = await database.CreateClientAsync();
+        var clientB = await database.CreateClientAsync();
+        var tag = "gold-" + Guid.NewGuid().ToString("N")[..6];
+        var tags = _fixture.Services.GetRequiredService<TagService>();
+        Assert.True((await tags.SetClientTagsAsync(WebFixtureBase.Technician(), clientA.Id, [tag, "Zeta"])).Success);
+        Assert.True((await tags.SetClientTagsAsync(WebFixtureBase.Technician(), clientB.Id, [tag])).Success);
+
+        var (_, all) = await CreateKeyAsync();
+        var client = await JsonAsync(await GetAsync(all, $"/api/v1/clients/{clientA.Id}"));
+        var shown = client.GetProperty("tags").EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToList();
+        Assert.Equal([tag, "Zeta"], shown);
+        Assert.Equal(TagRules.DefaultColor(tag).ToString().ToLowerInvariant(), client.GetProperty("tags")[0].GetProperty("color").GetString());
+
+        // The filter matches the full name without regard to case, never a part of it.
+        Assert.Equal(new[] { clientA.Id.ToString(), clientB.Id.ToString() }.Order().ToList(),
+            Ids(await JsonAsync(await GetAsync(all, $"/api/v1/clients?tag={tag.ToUpperInvariant()}&limit=200"))).Order().ToList());
+        Assert.Empty(Ids(await JsonAsync(await GetAsync(all, $"/api/v1/clients?tag={tag[..4]}"))));
+        await AssertProblemAsync(await GetAsync(all, $"/api/v1/clients?tag={new string('a', TagRules.MaxLength + 1)}"),
+            HttpStatusCode.BadRequest, ApiProblems.InvalidParameter);
+
+        // A key limited to client A finds only client A with the shared tag.
+        var (_, limited) = await CreateKeyAsync(clientA.Id);
+        Assert.Equal([clientA.Id.ToString()], Ids(await JsonAsync(await GetAsync(limited, $"/api/v1/clients?tag={tag}"))));
+    }
+
+    [Fact]
     public void Every_internal_value_has_a_public_api_value()
     {
         foreach (var value in Enum.GetValues<EndpointClass>()) PublicApiQueries.Map(value);
@@ -437,6 +466,7 @@ public sealed class PublicApiTests
         foreach (var value in Enum.GetValues<ScriptLanguage>()) PublicApiQueries.Map(value);
         foreach (var value in Enum.GetValues<PatchSeverity>()) PublicApiQueries.Map(value);
         foreach (var value in Enum.GetValues<PatchCoverage>()) PublicApiQueries.Map(value);
+        foreach (var value in Enum.GetValues<TagColor>()) PublicApiQueries.Map(value);
         foreach (var value in Enum.GetValues<MaintenanceSource>())
         {
             PublicApiQueries.Map(new EffectiveMaintenance(value, DateTime.UtcNow, null, null, null));

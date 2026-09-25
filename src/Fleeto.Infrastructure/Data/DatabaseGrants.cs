@@ -35,6 +35,9 @@ public static class DatabaseGrants
             ["AspNetRoleClaims"] = Grants(web: ReadWrite),
 
             ["Clients"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+            // Tags on clients (0.6.0): only the UI and the public API read them.
+            ["Tags"] = Grants(web: ReadWrite),
+            ["ClientTags"] = Grants(web: ReadWrite),
             ["Sites"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["Endpoints"] = Grants(web: ReadWrite, gateway: "SELECT, UPDATE", signer: "SELECT, INSERT, UPDATE", workers: "SELECT, UPDATE"),
             // The signer revokes the earlier certificates of an endpoint that enrolls again (0.2.0).

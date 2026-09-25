@@ -28,6 +28,31 @@ public enum ApiEndpointSource
     [JsonStringEnumMemberName("integration")] Integration
 }
 
+/// <summary>Whether an endpoint has a graphical desktop that remote control can show (0.6.0).</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ApiDesktop>))]
+public enum ApiDesktop
+{
+    [JsonStringEnumMemberName("graphical")] Graphical,
+    [JsonStringEnumMemberName("none")] None
+}
+
+/// <summary>The palette color of a tag on a client (0.6.0).</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ApiTagColor>))]
+public enum ApiTagColor
+{
+    [JsonStringEnumMemberName("red")] Red,
+    [JsonStringEnumMemberName("orange")] Orange,
+    [JsonStringEnumMemberName("amber")] Amber,
+    [JsonStringEnumMemberName("lime")] Lime,
+    [JsonStringEnumMemberName("green")] Green,
+    [JsonStringEnumMemberName("teal")] Teal,
+    [JsonStringEnumMemberName("cyan")] Cyan,
+    [JsonStringEnumMemberName("blue")] Blue,
+    [JsonStringEnumMemberName("pink")] Pink,
+    [JsonStringEnumMemberName("brown")] Brown,
+    [JsonStringEnumMemberName("gray")] Gray
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter<ApiMaintenanceSource>))]
 public enum ApiMaintenanceSource
 {
@@ -191,8 +216,11 @@ public sealed record ApiMaintenance(DateTime StartedAt, DateTime? EndsAt, string
 public sealed record ApiEndpointMaintenance(ApiMaintenanceSource Source, DateTime StartedAt, DateTime? EndsAt, string? StartedBy, string? Reason,
     string? PolicyName);
 
-public sealed record ApiClient(Guid Id, string Code, string Name, int SiteCount, int EndpointCount, ApiMaintenance? Maintenance, DateTime CreatedAt,
-    DateTime UpdatedAt);
+[Description("A tag on a client, with its palette color.")]
+public sealed record ApiTag(string Name, ApiTagColor Color);
+
+public sealed record ApiClient(Guid Id, string Code, string Name, IReadOnlyList<ApiTag> Tags, int SiteCount, int EndpointCount, ApiMaintenance? Maintenance,
+    DateTime CreatedAt, DateTime UpdatedAt);
 
 public sealed record ApiSite(Guid Id, Guid ClientId, string Name, string? Description, int EndpointCount, ApiMaintenance? Maintenance, DateTime CreatedAt,
     DateTime UpdatedAt);
@@ -257,7 +285,7 @@ public sealed record ApiDeployment(Guid Id, Guid BatchId, Guid ClientId, ApiDepl
 public sealed record ApiInventory(Guid EndpointId, DateTime ReceivedAt, string Manufacturer, string Model, string SerialNumber, ApiCpu Cpu,
     long MemoryTotalBytes, DateTime? BootTime, string Domain, string LoggedOnUser, IReadOnlyList<ApiDisk> Disks,
     IReadOnlyList<ApiNetworkInterface> NetworkInterfaces, IReadOnlyList<ApiSoftware> Software, IReadOnlyList<ApiService> Services,
-    string Action1AgentId);
+    string Action1AgentId, ApiDesktop? Desktop);
 
 public sealed record ApiCheck(
     Guid CheckId,

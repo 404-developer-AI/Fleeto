@@ -162,3 +162,13 @@ func stringValue(k registry.Key, name string) string {
 	}
 	return strings.TrimSpace(v)
 }
+
+// desktop reports whether this endpoint has a graphical desktop (0.6.0): none on Server Core and Nano Server.
+func desktop(context.Context) string {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion`, registry.QUERY_VALUE|registry.WOW64_64KEY)
+	if err != nil {
+		return ""
+	}
+	defer k.Close()
+	return windowsDesktop(stringValue(k, "InstallationType"))
+}

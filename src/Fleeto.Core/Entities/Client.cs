@@ -252,4 +252,10 @@ public class InventorySnapshot
     /// Action1 is not installed there. Patch state is matched on it, never on the host name.
     /// </summary>
     public string Action1AgentId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether the endpoint has a graphical desktop (0.6.0), as the agent reports it: <c>graphical</c>, <c>none</c>, or empty when
+    /// an older agent does not report it. See <see cref="Domain.RemoteSessionRules.SupportsRemoteControl"/>.
+    /// </summary>
+    public string Desktop { get; set; } = string.Empty;
 }

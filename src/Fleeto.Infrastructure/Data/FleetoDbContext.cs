@@ -33,6 +33,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
 
     public DbSet<Client> Clients => Set<Client>();
     public DbSet<Site> Sites => Set<Site>();
+    public DbSet<Tag> Tags => Set<Tag>();
+    public DbSet<ClientTag> ClientTags => Set<ClientTag>();
     public DbSet<Endpoint> Endpoints => Set<Endpoint>();
     public DbSet<AgentCertificate> AgentCertificates => Set<AgentCertificate>();
     public DbSet<EnrollmentToken> EnrollmentTokens => Set<EnrollmentToken>();
@@ -126,6 +128,24 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasQueryFilter(c => ScopeAllClients || ScopeClientIds.Contains(c.Id));
         });
 
+        // Tags (0.6.0): instance-wide names and colors; the link to a client is client-owned.
+        builder.Entity<Tag>(entity =>
+        {
+            entity.Property(t => t.Name).HasMaxLength(Core.Domain.TagRules.MaxLength);
+            entity.Property(t => t.NormalizedName).HasMaxLength(Core.Domain.TagRules.MaxLength);
+            entity.Property(t => t.Color).HasConversion<string>().HasMaxLength(20);
+            entity.HasIndex(t => t.NormalizedName).IsUnique();
+        });
+
+        builder.Entity<ClientTag>(entity =>
+        {
+            entity.HasKey(l => new { l.ClientId, l.TagId });
+            entity.HasOne<Client>().WithMany().HasForeignKey(l => l.ClientId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(l => l.Tag).WithMany().HasForeignKey(l => l.TagId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(l => l.TagId);
+            ClientOwned(entity);
+        });
+
         builder.Entity<Site>(entity =>
         {
             entity.Property(s => s.Name).HasMaxLength(100);
@@ -210,6 +230,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(i => i.Domain).HasMaxLength(255);
             entity.Property(i => i.LoggedOnUser).HasMaxLength(255);
             entity.Property(i => i.Action1AgentId).HasMaxLength(64).HasDefaultValue(string.Empty);
+            entity.Property(i => i.Desktop).HasMaxLength(20).HasDefaultValue(string.Empty);
             // The patch poller looks an endpoint up by the id its Action1 agent reports (0.4.0).
             entity.HasIndex(i => i.Action1AgentId).HasFilter("\"Action1AgentId\" <> ''");
             entity.Property(i => i.DisksJson).HasColumnType("jsonb");

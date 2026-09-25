@@ -80,6 +80,25 @@ public static class RemoteSessionRules
     /// <summary>True when the platform has remote control: Windows, and Linux with X11 (0.3.0 step 6).</summary>
     public static bool PlatformSupportsRemoteControl(string? osPlatform) => osPlatform is "windows" or "linux";
 
+    /// <summary>The agent reports that the endpoint has a graphical desktop (0.6.0).</summary>
+    public const string DesktopGraphical = "graphical";
+
+    /// <summary>
+    /// The agent reports that the endpoint has no desktop (0.6.0): Linux without a display manager, graphical session or X server,
+    /// and Windows Server Core or Nano Server. Remote control has nothing to show there; remote background works.
+    /// </summary>
+    public const string DesktopNone = "none";
+
+    /// <summary>The value of the inventory report as stored: one of the two values, or empty when the agent reported nothing known.</summary>
+    public static string NormalizeDesktop(string? desktop) => desktop is DesktopGraphical or DesktopNone ? desktop : string.Empty;
+
+    /// <summary>
+    /// True when remote control is offered for the endpoint: the platform has it and the agent did not report that the endpoint has no
+    /// desktop (0.6.0). An agent that reports nothing (older than 0.6.0) keeps remote control, as before.
+    /// </summary>
+    public static bool SupportsRemoteControl(string? osPlatform, string? desktop) =>
+        PlatformSupportsRemoteControl(osPlatform) && desktop != DesktopNone;
+
     /// <summary>The first agent version that serves remote control on a platform.</summary>
     public static string MinimumControlAgentVersion(string? osPlatform) => osPlatform == "linux" ? MinimumLinuxAgentVersion : MinimumAgentVersion;
 

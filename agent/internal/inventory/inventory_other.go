@@ -39,3 +39,7 @@ func services() ([]*agentv1.ServiceItem, error) {
 func action1AgentID() string {
 	return ""
 }
+
+func desktop(context.Context) string {
+	return ""
+}

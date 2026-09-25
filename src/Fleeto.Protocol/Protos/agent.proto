@@ -270,6 +270,11 @@ message Inventory {
   // The id of the Action1 agent installed next to the Fleeto agent, read on the endpoint itself (0.4.0). Empty when
   // Action1 is not installed or the id cannot be read. Patch state is matched on it instead of on the host name.
   string action1_agent_id = 17;
+  // Whether the endpoint has a graphical desktop that remote control can show (0.6.0): "graphical" or "none". Linux:
+  // graphical when a display manager is installed, the active session of seat0 is graphical or an X server runs. Windows:
+  // none on Server Core and Nano Server, graphical otherwise. Empty when an older agent does not report it or it cannot
+  // be read; the server then keeps offering remote control as before.
+  string desktop = 18;
 }
 
 message ServiceItem {
