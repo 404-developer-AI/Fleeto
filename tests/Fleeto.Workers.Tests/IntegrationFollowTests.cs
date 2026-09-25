@@ -132,15 +132,15 @@ public sealed class IntegrationFollowTests
 
         await Service(action1).FollowAsync(CancellationToken.None);
 
-        var organization = Assert.Single(action1.Organizations, o => o.Value == "Northwind Traders");
+        var organization = Assert.Single(action1.Organizations, o => o.Value == $"[{client.Code}] Northwind Traders");
         await using (var db = _fixture.Db.DbFactory.CreateSystem())
         {
             var mapping = await db.IntegrationMappings.AsNoTracking().SingleAsync(m => m.ClientId == client.Id);
             Assert.Equal(organization.Key, mapping.ExternalTenantId);
-            Assert.Equal("Northwind Traders", mapping.SyncedName);
+            Assert.Equal($"[{client.Code}] Northwind Traders", mapping.SyncedName);
             Assert.False(await db.IntegrationOperations.AnyAsync(o => o.IntegrationId == integration.Id));
             Assert.True(await db.AuditEntries.AnyAsync(a => a.Action == AuditActions.IntegrationTenantCreated && a.ClientId == client.Id));
-            Assert.Contains("Northwind Traders", (await db.Integrations.AsNoTracking().SingleAsync(i => i.Id == integration.Id)).TenantsJson);
+            Assert.Contains($"[{client.Code}] Northwind Traders", (await db.Integrations.AsNoTracking().SingleAsync(i => i.Id == integration.Id)).TenantsJson);
 
             var group = await db.IntegrationSiteGroups.AsNoTracking().SingleAsync(g => g.SiteId == site.Id);
             Assert.Equal(organization.Key, group.ExternalTenantId);
@@ -157,7 +157,7 @@ public sealed class IntegrationFollowTests
     }
 
     [Fact]
-    public async Task An_unmapped_organization_with_the_client_name_is_mapped_instead_of_creating_a_second_one()
+    public async Task An_unmapped_organization_with_the_client_name_is_mapped_and_gets_the_client_code()
     {
         var integration = await SeedAsync();
         var client = await CreateClientAsync("Fabrikam");
@@ -168,8 +168,30 @@ public sealed class IntegrationFollowTests
         await Service(action1).FollowAsync(CancellationToken.None);
 
         Assert.Equal(0, action1.OrganizationsCreated);
+        Assert.Equal($"[{client.Code}] Fabrikam", action1.Organizations["org-existing"]);
         await using var db = _fixture.Db.DbFactory.CreateSystem();
         Assert.Equal("org-existing", (await db.IntegrationMappings.AsNoTracking().SingleAsync(m => m.ClientId == client.Id)).ExternalTenantId);
+    }
+
+    [Fact]
+    public async Task An_organization_that_already_carries_the_client_code_is_preferred_and_not_renamed()
+    {
+        var integration = await SeedAsync();
+        var client = await CreateClientAsync("Tailspin");
+        await AddOperationAsync(integration, IntegrationOperationKind.CreateTenant, client.Id, name: client.Name);
+        var action1 = new FakeAction1();
+        action1.Organizations["org-plain"] = "Tailspin";
+        action1.Organizations["org-coded"] = $"[{client.Code}] Tailspin";
+
+        await Service(action1).FollowAsync(CancellationToken.None);
+        var calls = action1.Calls;
+        await Service(action1).FollowAsync(CancellationToken.None);
+
+        Assert.Equal(0, action1.OrganizationsCreated);
+        Assert.Equal("Tailspin", action1.Organizations["org-plain"]);
+        await using var db = _fixture.Db.DbFactory.CreateSystem();
+        Assert.Equal("org-coded", (await db.IntegrationMappings.AsNoTracking().SingleAsync(m => m.ClientId == client.Id)).ExternalTenantId);
+        Assert.True(action1.Calls - calls <= 1, "A second pass renames nothing.");
     }
 
     [Fact]
@@ -192,11 +214,11 @@ public sealed class IntegrationFollowTests
 
         await Service(action1).FollowAsync(CancellationToken.None);
 
-        Assert.Equal("Contoso Ltd", action1.Organizations["org-contoso"]);
+        Assert.Equal($"[{client.Code}] Contoso Ltd", action1.Organizations["org-contoso"]);
         await using var read = _fixture.Db.DbFactory.CreateSystem();
         var group = await read.IntegrationSiteGroups.AsNoTracking().SingleAsync(g => g.SiteId == site.Id);
         Assert.Equal("Branch Gent", action1.Groups[group.ExternalGroupId].Name);
-        Assert.Equal("Contoso Ltd", (await read.IntegrationMappings.AsNoTracking().SingleAsync(m => m.ClientId == client.Id)).SyncedName);
+        Assert.Equal($"[{client.Code}] Contoso Ltd", (await read.IntegrationMappings.AsNoTracking().SingleAsync(m => m.ClientId == client.Id)).SyncedName);
     }
 
     [Fact]

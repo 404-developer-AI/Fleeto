@@ -17,6 +17,7 @@ namespace Fleeto.Workers.Integrations;
 /// Keeps Action1 in step with the clients and sites of Fleeto while the integration follows them (0.6.0).
 /// <list type="bullet">
 /// <item>A new client gets an organization, or the unmapped organization that already has its name, and is mapped to it.</item>
+/// <item>The organization of every mapped client is named <c>[CODE] Name</c>, see <see cref="Action1Client.OrganizationName"/>.</item>
 /// <item>Every site of a mapped client gets an endpoint group whose members are the endpoints of the site Action1 reports.</item>
 /// <item>A renamed client or site renames its organization or group; a deleted one removes it.</item>
 /// </list>
@@ -212,8 +213,12 @@ public sealed class IntegrationFollowService : WorkerLoop
             return tenants;
         }
 
+        // An unmapped organization that already carries the name, with or without the client code, is taken over; one
+        // without the code gets it from the rename below.
         var mapped = mappings.Select(m => m.ExternalTenantId).ToHashSet(StringComparer.Ordinal);
-        var existing = pass.Tenants.FirstOrDefault(t => !mapped.Contains(t.Id) && SameName(t.Name, target.Name));
+        var wanted = Action1Client.OrganizationName(target.Code, target.Name);
+        var unmapped = pass.Tenants.Where(t => !mapped.Contains(t.Id)).ToList();
+        var existing = unmapped.FirstOrDefault(t => SameName(t.Name, wanted)) ?? unmapped.FirstOrDefault(t => SameName(t.Name, target.Name));
         string tenantId;
         string tenantName;
         bool created;
@@ -223,8 +228,7 @@ public sealed class IntegrationFollowService : WorkerLoop
         }
         else
         {
-            // A name that another client's organization already carries gets the client code, so both stay recognisable.
-            tenantName = pass.Tenants.Any(t => SameName(t.Name, target.Name)) ? Cut($"{target.Name} ({target.Code})", 200) : target.Name;
+            tenantName = wanted;
             var result = await pass.Client.CreateOrganizationAsync(tenantName, $"Created by Fleeto for client {target.Code}.", cancellationToken);
             if (!result.Ok)
             {
@@ -243,7 +247,7 @@ public sealed class IntegrationFollowService : WorkerLoop
             ClientId = target.Id,
             ExternalTenantId = tenantId,
             ExternalTenantName = tenantName,
-            SyncedName = target.Name,
+            SyncedName = tenantName,
             CreatedAt = pass.Now
         });
         db.IntegrationOperations.Remove(operation);
@@ -365,16 +369,23 @@ public sealed class IntegrationFollowService : WorkerLoop
         return null;
     }
 
-    /// <summary>Renames the organization of every mapped client whose name changed since Fleeto last sent it.</summary>
+    /// <summary>
+    /// Gives the organization of every mapped client the name <see cref="Action1Client.OrganizationName"/> makes of it,
+    /// when that differs from the name Fleeto last brought it in step with. The name is made here rather than in the
+    /// query, so it is cut the same way as when it is stored; one row per mapped client.
+    /// </summary>
     private async Task RenameTenantsAsync(Pass pass, CancellationToken cancellationToken)
     {
         var db = pass.Db;
-        var renamed = await (from m in db.IntegrationMappings
-                             join c in db.Clients on m.ClientId equals c.Id
-                             where m.IntegrationId == pass.Integration.Id && m.SyncedName != c.Name
-                             select new { Mapping = m, c.Name })
-            .Take(MaxWorkPerPass)
+        var mapped = await (from m in db.IntegrationMappings
+                            join c in db.Clients on m.ClientId equals c.Id
+                            where m.IntegrationId == pass.Integration.Id
+                            select new { Mapping = m, c.Code, c.Name })
             .ToListAsync(cancellationToken);
+        var renamed = mapped.Select(item => new { item.Mapping, Name = Action1Client.OrganizationName(item.Code, item.Name) })
+            .Where(item => item.Mapping.SyncedName != item.Name)
+            .Take(MaxWorkPerPass)
+            .ToList();
 
         foreach (var item in renamed)
         {

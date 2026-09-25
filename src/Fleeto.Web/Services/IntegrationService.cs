@@ -322,8 +322,8 @@ public sealed class IntegrationService
 
         mapping.ExternalTenantId = tenantId;
         mapping.ExternalTenantName = Trim(tenantName ?? string.Empty, 200) ?? string.Empty;
-        // In step with the client as it is now: following clients renames the organization only when the client is renamed.
-        mapping.SyncedName = client.Name;
+        // The name the organization has now: while Action1 follows clients, the workers give it the client code and name.
+        mapping.SyncedName = mapping.ExternalTenantName;
         integration.UpdatedAt = _time.GetUtcNow().UtcDateTime;
 
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.IntegrationMappingChanged, "Integration", integration.Id.ToString(),

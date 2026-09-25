@@ -122,7 +122,7 @@ public sealed class IntegrationFollowServiceTests
     }
 
     [Fact]
-    public async Task A_mapping_made_by_hand_is_in_step_with_its_client_and_the_switch_is_kept()
+    public async Task A_mapping_made_by_hand_keeps_the_organization_name_for_the_workers_and_the_switch_is_kept()
     {
         await SetUpAsync(follow: true);
         var client = await _fixture.Database.CreateClientAsync(Code());
@@ -132,7 +132,8 @@ public sealed class IntegrationFollowServiceTests
         var view = await Integrations.GetAction1Async(WebFixture.Admin());
         Assert.True(view!.FollowClients);
         await using var db = _fixture.Database.DbFactory.CreateSystem();
-        Assert.Equal(client.Name, (await db.IntegrationMappings.AsNoTracking().SingleAsync(m => m.ClientId == client.Id)).SyncedName);
+        // The workers compare it with "[CODE] Name" and rename the organization.
+        Assert.Equal("Another name", (await db.IntegrationMappings.AsNoTracking().SingleAsync(m => m.ClientId == client.Id)).SyncedName);
     }
 
     [Fact]

@@ -47,7 +47,8 @@
                 <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Class="mb-1">Enabled</MudSwitch>
                 <MudSwitch T="bool" @bind-Value="_follow" Color="Color.Primary" Class="mb-1">Keep Action1 in step with clients and sites</MudSwitch>
                 <MudText Typo="Typo.caption" Class="muted d-block mb-3">
-                    A new client gets its own Action1 organization, or the unmapped one with its name. Every site of a mapped client
+                    A new client gets its own Action1 organization, or the unmapped one with its name. The organization of every
+                    mapped client is named after its client code and name, such as [ACME] Acme Corporation. Every site of a mapped client
                     becomes an endpoint group with the endpoints of that site. Renaming or deleting a client or site does the same in
                     Action1; Action1 removes an organization only once it holds no endpoints. An endpoint enrolled again under
                     another client is moved to the organization of that client. The role of the API credentials needs

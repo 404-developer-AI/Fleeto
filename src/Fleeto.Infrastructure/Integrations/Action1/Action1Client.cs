@@ -382,6 +382,17 @@ public sealed class Action1Client : IIntegration, IDisposable
     }
 
     /// <summary>
+    /// The name of the organization of a client while Action1 follows the clients of Fleeto (0.6.0): the client code in
+    /// brackets before the client name, <c>[ACME] Acme Corporation</c>. The code is unique and never changes, so two
+    /// clients with the same name still get two recognisable organizations.
+    /// </summary>
+    public static string OrganizationName(string clientCode, string clientName)
+    {
+        var name = $"[{clientCode}] {clientName.Trim()}";
+        return name.Length <= 200 ? name : name[..200];
+    }
+
+    /// <summary>
     /// Creates an organization in the enterprise (0.6.0) and returns its id. Needs the <c>manage_organizations</c>
     /// permission on the role of the API credentials; Action1 creates the default roles of the organization with it.
     /// </summary>

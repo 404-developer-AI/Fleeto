@@ -821,7 +821,9 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   only once it holds no endpoints, so that deletion waits and says why. An endpoint enrolled again under another client is
   moved to that client's organization (asked for by the developer the same day): the patch sync sees which organization
   reports its Action1 id, the Fleeto endpoint that reported that id last decides where it belongs, and the workers move it
-  with `POST /endpoints/managed/{orgId}/{endpointId}/move`. Only between organizations that are mapped.
+  with `POST /endpoints/managed/{orgId}/{endpointId}/move`. Only between organizations that are mapped. The organization
+  carries the client code before the client name, `[ACME] Acme Corporation` (asked for by the developer the same day), also
+  one that was mapped by hand, so every organization is recognisable by its code.
 
 ## 0.7.0 — Hardening
 

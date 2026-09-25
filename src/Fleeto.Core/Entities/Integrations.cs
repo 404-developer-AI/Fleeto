@@ -125,9 +125,9 @@ public class IntegrationMapping
     public DateTime? AgentInstallerReadAt { get; set; }
 
     /// <summary>
-    /// The client name the tenant was last brought in step with (0.6.0). While <see cref="Integration.FollowClients"/> is
-    /// on, a client whose name differs from it has its tenant renamed. Set to the client name when the mapping is made,
-    /// so switching on never renames a tenant that was mapped by hand.
+    /// The tenant name Fleeto last brought the tenant in step with (0.6.0). While <see cref="Integration.FollowClients"/> is
+    /// on, the tenant is renamed when the name made of the client code and name (<c>[ACME] Acme Corporation</c>) differs
+    /// from it. Set to the tenant's own name when the mapping is made, so a tenant mapped by hand gets that name too.
     /// </summary>
     public string SyncedName { get; set; } = string.Empty;
 

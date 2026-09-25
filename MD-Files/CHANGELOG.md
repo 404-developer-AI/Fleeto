@@ -13,7 +13,8 @@ When a third released version is added, the oldest entry moves to the top of
 
 - Action1 can follow your clients and sites. Switch on "Keep Action1 in step with clients and sites" in Settings,
   Integrations: a new client then gets its own Action1 organization, or the unmapped organization that already has its
-  name, and is mapped to it. Every site of a mapped client becomes an endpoint group in Action1 with the endpoints of that
+  name, and is mapped to it. The organization of every mapped client is named after its client code and name, such as
+  `[ACME] Acme Corporation`, also one that was mapped by hand. Every site of a mapped client becomes an endpoint group in Action1 with the endpoints of that
   site. Renaming a client or site renames the organization or group; deleting one deletes it. An endpoint enrolled again
   under another client is moved to the organization of that client, and shows its patch state there at once. Action1 deletes an
   organization only once it holds no endpoints, so until then the deletion waits under "Waiting for Action1" with the reason,
