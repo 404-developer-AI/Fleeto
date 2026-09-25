@@ -38,9 +38,9 @@ public sealed class EndpointHealthService : WorkerLoop
     /// <summary>Heartbeat interval bounds, identical to the clamp in AgentConfigBuilder.</summary>
     private const string EffectiveHeartbeatSeconds = """
         LEAST(300, GREATEST(10, COALESCE(
-          (SELECT p."HeartbeatIntervalSeconds" FROM "SitePolicies" sp JOIN "Policies" p ON p."Id" = sp."PolicyId" WHERE sp."SiteId" = e."SiteId"),
-          (SELECT p."HeartbeatIntervalSeconds" FROM "Policies" p WHERE p."IsDefault" LIMIT 1),
-          30)))
+          (SELECT hp."HeartbeatIntervalSeconds" FROM "Policies" hp WHERE hp."Id" =
+        """ + " " + EffectivePolicyRules.PolicyIdSql + " " + """
+          ), 30)))
         """;
 
     private const string MarkStaleOfflineSql = """
@@ -67,9 +67,8 @@ public sealed class EndpointHealthService : WorkerLoop
         CROSS JOIN LATERAL (
           SELECT p."OfflineAlertAfterMinutes", p."OfflineAlertSeverity"
           FROM "Policies" p
-          WHERE p."Id" = COALESCE(
-            (SELECT sp."PolicyId" FROM "SitePolicies" sp WHERE sp."SiteId" = e."SiteId"),
-            (SELECT d."Id" FROM "Policies" d WHERE d."IsDefault" LIMIT 1))
+          WHERE p."Id" =
+        """ + " " + EffectivePolicyRules.PolicyIdSql + " " + """
         ) pol
         """;
 

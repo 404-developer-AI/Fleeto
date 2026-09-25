@@ -1,6 +1,9 @@
 namespace Fleeto.Core.Entities;
 
-/// <summary>Agent behaviour for every endpoint of the sites it is linked to. ClientId null = global.</summary>
+/// <summary>
+/// Agent behaviour for the endpoints it applies to. Linked to a client, a site or one endpoint (0.6.0); the most specific
+/// link wins. ClientId null = global.
+/// </summary>
 public class Policy
 {
     public Guid Id { get; set; }
@@ -8,7 +11,7 @@ public class Policy
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
 
-    /// <summary>The instance default policy applies to sites without a linked policy. Exactly one, global.</summary>
+    /// <summary>The instance default policy applies to endpoints without a linked policy on any level. Exactly one, global.</summary>
     public bool IsDefault { get; set; }
 
     public int HeartbeatIntervalSeconds { get; set; } = 30;
@@ -185,7 +188,85 @@ public class EndpointCheckOverride
     public bool IsEmpty => !Disabled && IntervalSeconds is null && FailuresBeforeAlert is null && !OverrideThresholds;
 }
 
-/// <summary>The policy linked to a site. At most one per site; without one the default policy applies.</summary>
+/// <summary>
+/// The policy linked to a client (0.6.0). It applies to every endpoint of the client whose site and endpoint have none.
+/// At most one per client.
+/// </summary>
+public class ClientPolicy
+{
+    public Guid ClientId { get; set; }
+    public Guid PolicyId { get; set; }
+    public LinkSource Source { get; set; }
+    public DateTime CreatedAt { get; set; }
+
+    public Policy? Policy { get; set; }
+}
+
+/// <summary>The policy linked to one endpoint (0.6.0). It wins over the policy of its site and client.</summary>
+public class EndpointPolicy
+{
+    public Guid EndpointId { get; set; }
+    public Guid ClientId { get; set; }
+    public Guid PolicyId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public Guid? CreatedByUserId { get; set; }
+
+    public Policy? Policy { get; set; }
+}
+
+/// <summary>
+/// A monitoring template linked to a whole client (0.6.0). Its checks apply to every endpoint of the client, together with
+/// the templates of the site and the endpoint: templates add up, they never replace each other.
+/// </summary>
+public class ClientMonitoringTemplate
+{
+    public Guid ClientId { get; set; }
+    public Guid MonitoringTemplateId { get; set; }
+    public LinkSource Source { get; set; }
+    public DateTime CreatedAt { get; set; }
+
+    public MonitoringTemplate? MonitoringTemplate { get; set; }
+}
+
+/// <summary>The patch policy linked to a client (0.6.0). At most one per client.</summary>
+public class ClientPatchPolicy
+{
+    public Guid ClientId { get; set; }
+    public Guid PatchPolicyId { get; set; }
+    public LinkSource Source { get; set; }
+    public DateTime CreatedAt { get; set; }
+
+    public PatchPolicy? PatchPolicy { get; set; }
+}
+
+/// <summary>The patch policy linked to a site (0.6.0). It wins over the one of the client. At most one per site.</summary>
+public class SitePatchPolicy
+{
+    public Guid SiteId { get; set; }
+    public Guid ClientId { get; set; }
+    public Guid PatchPolicyId { get; set; }
+    public LinkSource Source { get; set; }
+    public DateTime CreatedAt { get; set; }
+
+    public PatchPolicy? PatchPolicy { get; set; }
+}
+
+/// <summary>The patch policy linked to one endpoint (0.6.0). It wins over the one of its site and client.</summary>
+public class EndpointPatchPolicy
+{
+    public Guid EndpointId { get; set; }
+    public Guid ClientId { get; set; }
+    public Guid PatchPolicyId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public Guid? CreatedByUserId { get; set; }
+
+    public PatchPolicy? PatchPolicy { get; set; }
+}
+
+/// <summary>
+/// The policy linked to a site. At most one per site; without one the policy of the client applies, and without that the
+/// default policy.
+/// </summary>
 public class SitePolicy
 {
     public Guid SiteId { get; set; }
@@ -197,17 +278,35 @@ public class SitePolicy
     public Policy? Policy { get; set; }
 }
 
-/// <summary>Blueprint of sites with their policy and monitoring templates, used when creating a client.</summary>
+/// <summary>
+/// Blueprint of a client, used when creating one: the policy, patch policy and monitoring templates of the client itself
+/// (0.6.0), and the sites with their own.
+/// </summary>
 public class ClientTemplate
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
+
+    /// <summary>The policy of the client itself (0.6.0); null leaves the client without one.</summary>
+    public Guid? PolicyId { get; set; }
+
+    /// <summary>The patch policy of the client itself (0.6.0); null leaves the client without one.</summary>
+    public Guid? PatchPolicyId { get; set; }
     public Guid? CopiedFromId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
     public ICollection<ClientTemplateSite> Sites { get; set; } = new List<ClientTemplateSite>();
+
+    /// <summary>The monitoring templates of the client itself (0.6.0).</summary>
+    public ICollection<ClientTemplateMonitoringTemplate> MonitoringTemplates { get; set; } = new List<ClientTemplateMonitoringTemplate>();
+}
+
+public class ClientTemplateMonitoringTemplate
+{
+    public Guid ClientTemplateId { get; set; }
+    public Guid MonitoringTemplateId { get; set; }
 }
 
 /// <summary>A site in a client template. Only global policies and monitoring templates can be linked.</summary>
@@ -218,6 +317,10 @@ public class ClientTemplateSite
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
     public Guid? PolicyId { get; set; }
+
+    /// <summary>The patch policy of the site (0.6.0); null follows the client.</summary>
+    public Guid? PatchPolicyId { get; set; }
+
     public int SortOrder { get; set; }
 
     public ICollection<ClientTemplateSiteMonitoringTemplate> MonitoringTemplates { get; set; } =

@@ -81,7 +81,8 @@ public sealed class PolicyMaintenanceWindowTests
 
         var policy = await Policies.CreateAsync(technician, client.Id, Input("Servers patch " + Guid.NewGuid().ToString("N")[..6], [RunningWindow(CheckAppliesTo.Server)]));
         Assert.True(policy.Success, policy.Problem);
-        var linked = await _fixture.Services.GetRequiredService<SiteService>().SetPolicyAsync(technician, site.Id, policy.Value);
+        var linked = await _fixture.Services.GetRequiredService<LinkService>().SetAsync(technician, Fleeto.Core.Domain.LinkLevel.Site, site.Id,
+            new LinksInput(policy.Value, null, []));
         Assert.True(linked.Success, linked.Problem);
 
         var endpoints = _fixture.Services.GetRequiredService<EndpointService>();

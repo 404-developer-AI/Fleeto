@@ -117,10 +117,33 @@ public sealed class ConfigChangeFanoutTests
     }
 
     [Fact]
-    public async Task Default_policy_scope_requests_configs_for_sites_without_a_linked_policy()
+    public async Task Default_policy_scope_requests_configs_for_endpoints_without_a_linked_policy()
     {
         var t = await CreateTopologyAsync();
         await AssertScopeAsync(t, ConfigChangeScope.Policy, t.DefaultPolicyId, t.E2.Id, t.E3.Id);
+    }
+
+    [Fact]
+    public async Task Policy_and_template_scopes_follow_links_on_client_and_endpoint_level()
+    {
+        var t = await CreateTopologyAsync();
+        var now = _fixture.Now;
+        var clientPolicy = new Policy { Id = Guid.NewGuid(), Name = "Client policy " + Guid.NewGuid().ToString("N")[..10], CreatedAt = now, UpdatedAt = now };
+        var endpointPolicy = new Policy { Id = Guid.NewGuid(), Name = "Endpoint policy " + Guid.NewGuid().ToString("N")[..10], CreatedAt = now, UpdatedAt = now };
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            db.Policies.AddRange(clientPolicy, endpointPolicy);
+            db.ClientPolicies.Add(new ClientPolicy { ClientId = t.ClientA.Id, PolicyId = clientPolicy.Id, CreatedAt = now });
+            db.EndpointPolicies.Add(new EndpointPolicy { EndpointId = t.E3.Id, ClientId = t.E3.ClientId, PolicyId = endpointPolicy.Id, CreatedAt = now });
+            db.ClientMonitoringTemplates.Add(new ClientMonitoringTemplate { ClientId = t.ClientA.Id, MonitoringTemplateId = t.Template.Id, CreatedAt = now });
+            await db.SaveChangesAsync();
+        }
+
+        // E1 keeps the policy of its site, which wins over the client's; E2 follows the client; E3 has its own.
+        await AssertScopeAsync(t, ConfigChangeScope.Policy, clientPolicy.Id, t.E2.Id);
+        await AssertScopeAsync(t, ConfigChangeScope.Policy, endpointPolicy.Id, t.E3.Id);
+        await AssertScopeAsync(t, ConfigChangeScope.Policy, t.DefaultPolicyId);
+        await AssertScopeAsync(t, ConfigChangeScope.MonitoringTemplate, t.Template.Id, t.E1.Id, t.E2.Id, t.E3.Id);
     }
 
     [Fact]

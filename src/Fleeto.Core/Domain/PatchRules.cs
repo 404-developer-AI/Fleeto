@@ -37,6 +37,9 @@ public static class PatchRules
     public const string RebootMessage =
         "Updates have been installed and this computer needs to restart to finish them. Save your work; it restarts automatically when the time is up.";
 
-    /// <summary>Seconds the user gets before the product restarts the endpoint by itself.</summary>
-    public const int RebootTimeoutSeconds = 30 * 60;
+    /// <summary>
+    /// Minutes the user gets before the product restarts the endpoint by itself. Action1 reads <c>timeout</c> in minutes
+    /// (its OpenAPI document, RebootOptions); 0.4.0 sent seconds, which made a restart wait 30 hours.
+    /// </summary>
+    public const int RebootTimeoutMinutes = 30;
 }

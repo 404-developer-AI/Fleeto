@@ -87,35 +87,43 @@ the API and the database follows it.
 - **Client**: a customer of the IT team using Fleeto. Fields: **client code** (short, unique,
   uppercase, e.g. `ACME`) and **client name**. The client is the tenant boundary inside an
   instance: every query is scoped by client, and deleting a client removes all of its data.
-- **Site**: a group of endpoints within a client. A site is where **policies** and
-  **monitoring templates** are linked (example names: "Monitoring", "Agent Only", "XDR Only"
+- **Site**: a group of endpoints within a client (example names: "Monitoring", "Agent Only", "XDR Only"
   for endpoints that also run an XDR agent). Enrollment tokens are issued per site. A client
   has at least one site.
+- **Links on three levels** (decided 2026-09-25, 0.6.0): a **policy**, a **patch policy** and **monitoring templates** are
+  linked to a client, a site or one endpoint. For the policy and the patch policy the most specific link wins (endpoint over
+  site, site over client); without any the default policy applies and no patch policy. Monitoring templates add up over the
+  levels. One rule decides it, in C#, SQL and EF Core kept equal by a test (`EffectivePolicyRules`). Edited in Edit client,
+  Edit site and Policies in the right-click menu of an endpoint.
 - **Endpoint**: a machine with a Fleeto agent. Each endpoint has a **class**: `workstation` or
   `server`, derived from the OS edition and overridable by hand, and a **license tier**
   (see Licensing). Hypervisor hosts and VMs discovered through Proxmox or vCenter appear as
   endpoints without an agent.
-- **Policy**: agent behaviour pushed to every endpoint of a site (a site links at most one policy;
-  without one the instance default policy applies): check intervals, patch
-  behaviour, update ring, script permissions, remote control rules, maintenance windows.
+- **Policy**: agent behaviour pushed to the endpoints it applies to (at most one per client, site and endpoint;
+  without one on any level the instance default policy applies): check intervals, update ring, script permissions,
+  remote control rules, maintenance windows.
+- **Patch policy** (0.6.0): when and how Action1 installs updates, with only the options an Action1 automation offers.
+  Fleeto keeps one Action1 automation per client and patch policy, aimed at the endpoints it applies to (see Patch
+  management).
 - **Maintenance mode** (0.2.0): a client, a site or one endpoint is put in maintenance by hand,
   with an optional end time. While it lasts, its endpoints open and escalate no alerts (open
   alerts stay open and still resolve). The clients panel shows per client and site whether all
   or some endpoints are in maintenance.
 - **Monitoring template**: a named set of checks with thresholds and alert rules. Linked to a
-  site, applied to all of its endpoints (class-specific checks apply to matching endpoints only).
+  client, site or endpoint, applied to all of their endpoints (class-specific checks apply to matching endpoints only).
 - **Tag** (0.6.0, decided 2026-09-25): a colored label on a client, in the way of Proxmox. Typed on the client (also when it is
   created) by an admin or technician and created on first use with a color from its name; one name (case-insensitive) is one tag with one color
   across the instance, at most 10 per client. Shown in the clients panel, which filters on tags; admins rename, recolor and
   delete tags in Settings from a fixed palette. A user limited to clients only sees the tags of those clients.
-- **Client template**: a blueprint used when creating a client. It lists the sites to
-  create and the policies and monitoring templates to link to each of them. Selecting a
-  template at client creation creates the sites and links in one step.
+- **Client template**: a blueprint used when creating a client. It holds the policy, patch policy and monitoring
+  templates of the client itself (0.6.0) and the sites to create, each with its own or following the client. Selecting a
+  template at client creation creates the sites and links in one step. A link it made can be replaced on the client or
+  site, not removed.
 - **Templates are linked, not copied.** A change to a monitoring template, policy or client
   template (adding or removing a check, for example) applies immediately to every client, site
   and endpoint that uses it. A technician can make a copy of a template to give one client its
   own variant; the copy is independent from then on.
-- **Checks per endpoint**: on top of the templates of its site, a managed endpoint can have extra
+- **Checks per endpoint**: on top of the templates of its client and site, a managed endpoint can have extra
   monitoring templates linked to it, checks that exist only on that endpoint, and adjustments of a
   template check (disabled, or its own interval, thresholds or failures before alert). Adjustments
   keep the template linked: every value that is not overridden follows the template.
@@ -144,7 +152,7 @@ UI structure:
   a disabled or hidden one.
 - **Settings**: opened from the settings button in the sidebar footer. One workspace like
   Clients: left, a settings panel; right, the selected page. Group **Templates** (client
-  templates, monitoring templates, policies) for every user, and the administration pages for
+  templates, monitoring templates, policies, patch policies) for every user, and the administration pages for
   admins: users and roles, tags, licensing, API keys, integrations, notification channels, retention,
   audit log.
 
@@ -319,6 +327,13 @@ Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
   Action1, and an endpoint enrolled again under another client is moved to that client's organization. Action1 removes an
   organization only once it holds no endpoints; that deletion waits with its reason until it
   succeeds or an admin dismisses it. The API credentials then need `manage_organizations` and `manage_endpoints`.
+- **Patch policies become Action1 automations** (decided 2026-09-25, 0.6.0): per mapped client and per patch policy that
+  applies to at least one of its managed endpoints, one scheduled automation (`deploy_update`) in the client's organization,
+  aimed at those endpoints by Action1 id, kept in step by the workers and removed when nobody needs it. Only options the
+  Action1 API offers exist in Fleeto (no daily schedule, no description, no "switch off Windows Update"). Fleeto only touches
+  the automations it made, known by the id it stored; the others in an organization are shown as a warning on the client,
+  because an endpoint they target can be patched twice. Without a patch policy Fleeto schedules nothing. The credentials
+  then need `view_automations` and `manage_automations`.
 - **Only the workers talk to an external product.** Web runs on a network without outbound NAT (`deploy/compose/compose.yml`),
   so it can never reach Action1: what an admin starts in Settings (a connection test, later a deployment) is a request web
   writes to the database and notifies on `fleeto_integrations`; the workers make the call and write the result back, which the
@@ -508,7 +523,7 @@ home-grown patch engine. Note them, do not build them. (File transfer inside rem
 - **Fleeto is the only name**: namespaces, images, env vars, service names, database objects and user-visible text (decided
   2026-09-15; the internal name Fleetify was renamed in 0.2.1). The old name appears only in the migration code listed in
   `deploy/ci/branding-check.sh`. Run that check (`MD-Files/branding-fleeto.md` §7) before every release.
-- UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, monitoring template, client template, integration, note, tag, remote control session, API key).
+- UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, patch policy, monitoring template, client template, integration, note, tag, remote control session, API key).
 - Follow the Migrify codebase conventions where they exist (project layout, EF Core patterns, MudBlazor usage, email templates).
 - Tests: unit tests for domain logic, integration tests against real PostgreSQL in CI, the cross-client tests from Security, license-tier enforcement tests, signer rule tests (refused roles, tiers, unapproved scripts, expired jobs), certificate revocation tests, and the load-test scenario. New features without tests are not done, and neither are new features
   that are not in `MD-Files/API.md` or on `MD-Files/API-WAITLIST.md` (see Public API).

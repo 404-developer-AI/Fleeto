@@ -154,7 +154,8 @@ public enum ApiCheckSource
 {
     [JsonStringEnumMemberName("site_template")] SiteTemplate,
     [JsonStringEnumMemberName("endpoint_template")] EndpointTemplate,
-    [JsonStringEnumMemberName("endpoint")] Endpoint
+    [JsonStringEnumMemberName("endpoint")] Endpoint,
+    [JsonStringEnumMemberName("client_template")] ClientTemplate
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<ApiJobState>))]

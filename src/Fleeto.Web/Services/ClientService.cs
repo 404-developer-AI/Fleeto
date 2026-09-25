@@ -141,7 +141,7 @@ public sealed class ClientService
         // One grouped count for the whole tree instead of a subquery per client and site.
         var inMaintenance = await db.Endpoints.AsNoTracking()
             .Where(e => clientIds.Contains(e.ClientId))
-            .Where(MaintenanceRules.EndpointInMaintenance(now, db.MaintenanceWindowOccurrences, db.SitePolicies, db.Policies))
+            .Where(MaintenanceRules.EndpointInMaintenance(now, db.MaintenanceWindowOccurrences, EffectivePolicies.Query(db)))
             .GroupBy(e => new { e.ClientId, e.SiteId })
             .Select(g => new { g.Key.ClientId, g.Key.SiteId, Count = g.Count() })
             .ToListAsync(cancellationToken);
@@ -189,7 +189,8 @@ public sealed class ClientService
             return null;
         }
 
-        var defaultPolicy = await db.Policies.AsNoTracking().Where(p => p.IsDefault).Select(p => p.Name).FirstOrDefaultAsync(cancellationToken);
+        // The policy each site passes on: its own, else the client's, else the default policy.
+        var sitePolicies = EffectivePolicies.Sites(db);
         var sites = await db.Sites.AsNoTracking()
             .Where(s => s.ClientId == clientId)
             .OrderBy(s => s.Name)
@@ -201,10 +202,9 @@ public sealed class ClientService
                 db.Endpoints.Count(e => e.SiteId == s.Id),
                 db.Endpoints.Count(e => e.SiteId == s.Id && e.IsOnline),
                 db.Alerts.Count(a => a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now) && db.Endpoints.Any(e => e.Id == a.EndpointId && e.SiteId == s.Id)),
-                db.SitePolicies.Where(l => l.SiteId == s.Id).Select(l => l.Policy!.Name).FirstOrDefault()))
+                db.Policies.IgnoreQueryFilters().Where(p => p.Id == sitePolicies.Where(r => r.SiteId == s.Id).Select(r => r.PolicyId).FirstOrDefault())
+                    .Select(p => p.Name).FirstOrDefault()))
             .ToListAsync(cancellationToken);
-
-        sites = sites.Select(s => s with { PolicyName = s.PolicyName ?? defaultPolicy }).ToList();
 
         var tags = await TagService.ForClientsAsync(db, [client.Id], cancellationToken);
         return new ClientDetail(client.Id, client.Code, client.Name, client.ClientTemplateId, client.TemplateName, client.CreatedAt, sites,

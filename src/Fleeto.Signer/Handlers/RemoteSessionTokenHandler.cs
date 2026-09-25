@@ -154,11 +154,7 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
             return SigningOutcome.Refused(NotManagedReason);
         }
 
-        var policy = await db.SitePolicies.IgnoreQueryFilters().AsNoTracking()
-                         .Where(l => l.SiteId == endpoint.SiteId)
-                         .Select(l => l.Policy)
-                         .FirstOrDefaultAsync(cancellationToken)
-                     ?? await db.Policies.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, cancellationToken);
+        var policy = await EffectivePolicies.LoadAsync(db, endpoint.Id, cancellationToken);
         var idleMinutes = RemoteSessionRules.IdleTimeoutMinutes(policy?.RemoteIdleTimeoutMinutes ?? RemoteSessionRules.DefaultIdleTimeoutMinutes);
         var maxFileBytes = RemoteSessionRules.MaxFileBytes(policy?.RemoteMaxFileBytes ?? RemoteSessionRules.DefaultMaxFileBytes);
         // Consent and banner follow the policy on workstations only; a server never asks and shows no banner (0.3.0 step 4).

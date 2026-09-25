@@ -54,6 +54,10 @@
                     another client is moved to the organization of that client. The role of the API credentials needs
                     permission to manage organizations and endpoints.
                 </MudText>
+                <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+                    Patch policies (Settings, Patch policies) become automations in the Action1 organization of each client that uses
+                    them. For that the role of the API credentials needs permission to view and manage automations.
+                </MudText>
                 @if (_integration?.FollowMessage is { Length: > 0 } followProblem)
                 {
                     <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">@followProblem</MudAlert>

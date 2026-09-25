@@ -34,7 +34,7 @@
             @if (_autoReboot)
             {
                 <text>
-                    A signed-in user sees a message and has @(PatchRules.RebootTimeoutSeconds / 60) minutes to save their work; then the endpoint
+                    A signed-in user sees a message and has @PatchRules.RebootTimeoutMinutes minutes to save their work; then the endpoint
                     restarts, whether it is a workstation or a server.
                 </text>
             }

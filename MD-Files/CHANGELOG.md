@@ -19,6 +19,21 @@ When a third released version is added, the oldest entry moves to the top of
   under another client is moved to the organization of that client, and shows its patch state there at once. Action1 deletes an
   organization only once it holds no endpoints, so until then the deletion waits under "Waiting for Action1" with the reason,
   and an admin can dismiss it there. The Action1 API credentials need permission to manage organizations and endpoints.
+- Patch policies, in Settings, Patch policies: when and how Action1 installs updates. A patch policy runs weekly on
+  chosen days or monthly on a day or a weekday such as the second Tuesday, at a time in the endpoint's own time zone or
+  UTC; installs every missing update or only those matching sources, severities and types, leaving out names or
+  vendors; installs only what is approved in Action1 or everything not declined, optionally some days after release;
+  restarts or not, with a message and a delay; and keeps trying missed endpoints for a number of hours. Only options
+  Action1 itself offers are there. Link a patch policy to a client, a site or one endpoint, and Fleeto keeps one
+  automation per client and patch policy in Action1, aimed at exactly the endpoints it applies to, within a minute of
+  every change. Endpoints without a patch policy get nothing from Fleeto. When Action1 also has automations Fleeto does not
+  manage, editing the client says so. The Action1 API credentials need permission to view and manage automations.
+- Policies, patch policies and monitoring templates can be linked to a client, a site and a single endpoint. For the
+  policy and the patch policy the most specific one wins: the endpoint's over the site's, the site's over the client's.
+  Monitoring templates add up. "Edit client" and "Edit site" hold the three choices, and so does "Policies" in the
+  right-click menu of an endpoint; each choice shows what applies without it, such as "Inherit: Servers (from site)".
+- Client templates set the policy, patch policy and monitoring templates of the client itself as well as of each site;
+  a site follows the client unless it has its own. The sites fold open one at a time.
 - The history Action1 keeps per endpoint of a deployment, its "Automation History", opens from the Patches tab of the
   endpoint: operation, time, status and details, newest first, refreshed while the deployment runs.
 - Tags on clients, in the way of Proxmox. Type a tag when you create a client, or later under Client settings, Edit
@@ -37,6 +52,8 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Changed
 
+- "Rename client" is "Edit client", and "Policy and monitoring" of a site is part of "Edit site".
+- The public API reports `client_template` as the source of a check from a monitoring template linked to the client.
 - The deployments on the Patches tab of an endpoint are listed above the deploy buttons, so a running deployment is
   seen before another one starts. More than five scroll in a box that can be dragged taller; it is back to five rows on
   the next visit.
@@ -53,6 +70,8 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- A deployment with automatic restart waited 30 hours instead of 30 minutes before Action1 restarted the endpoint: Action1
+  reads the time in minutes, and Fleeto sent seconds.
 - "Deploy all missing updates" installs the updates again. Action1 installed only updates approved in its own console
   and answered "No updates are applicable"; Fleeto now asks for every missing update, as it already did for chosen ones.
 - The check history dialog no longer keeps a handler after it closes, and the remote control and remote background

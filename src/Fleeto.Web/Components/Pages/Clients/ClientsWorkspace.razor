@@ -7,6 +7,7 @@
 @inject TagService TagSvc
 @inject ClientTemplateService ClientTemplates
 @inject SiteService SiteSvc
+@inject LinkService LinkSvc
 @inject EndpointService EndpointSvc
 @inject PatchService PatchSvc
 @inject EnrollmentService EnrollmentSvc
@@ -175,7 +176,6 @@
                         <MudMenu Label="Site settings" StartIcon="@Icons.Material.Outlined.Settings" Variant="Variant.Outlined"
                                  AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
                             <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="EditSiteAsync">Edit site</MudMenuItem>
-                            <MudMenuItem Icon="@Icons.Material.Outlined.Tune" OnClick="EditSiteLinksAsync">Policy and monitoring</MudMenuItem>
                             <MudMenuItem Icon="@Icons.Material.Outlined.Key" OnClick="ShowTokensAsync">Enrollment tokens</MudMenuItem>
                             @MaintenanceMenuItems(MaintenanceTarget.Site, site.Id, $"site {site.Name}", true, site.Maintenance)
                             <MudDivider />
@@ -186,13 +186,13 @@
                     }
                     else if (_site is not null)
                     {
-                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Tune" OnClick="EditSiteLinksAsync">Policy and monitoring</MudButton>
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Tune" OnClick="EditSiteAsync">Policies</MudButton>
                     }
                     else if (_client is { } client && CanManage)
                     {
                         <MudMenu Label="Client settings" StartIcon="@Icons.Material.Outlined.Settings" Variant="Variant.Outlined"
                                  AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
-                            <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="RenameClientAsync">Rename client</MudMenuItem>
+                            <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="EditClientAsync">Edit client</MudMenuItem>
                             <MudMenuItem Icon="@Icons.Material.Outlined.Sell" OnClick="EditClientTagsAsync">Edit tags</MudMenuItem>
                             <MudMenuItem Icon="@Icons.Material.Outlined.CreateNewFolder" OnClick="CreateSiteAsync">New site</MudMenuItem>
                             @if (client.ClientTemplateId is not null)
@@ -355,6 +355,7 @@
                                     @if (_menuRow is { } row)
                                     {
                                         <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="@(() => EditEndpointAsync(row))">Edit</MudMenuItem>
+                                        <MudMenuItem Icon="@Icons.Material.Outlined.Tune" OnClick="@(() => EditEndpointLinksAsync(row.Id, row.Hostname))">Policies</MudMenuItem>
                                         @if (row.Tier == EndpointTier.AgentOnly)
                                         {
                                             <MudMenuItem Icon="@Icons.Material.Outlined.Verified" Disabled="_busy" OnClick="@(() => SetTierAsync(row, EndpointTier.Managed))">Switch to managed</MudMenuItem>
@@ -1232,19 +1233,77 @@
         }
     }
 
-    private async Task RenameClientAsync()
+    /// <summary>The name of the client and its policy, patch policy and monitoring templates (0.6.0).</summary>
+    private async Task EditClientAsync()
     {
         var client = _client!;
-        var parameters = new DialogParameters<ClientDialog>
+        LevelLinks? links = null;
+        await LoadAsync(async caller => links = await LinkSvc.GetAsync(caller, LinkLevel.Client, client.Id));
+        if (links is null)
         {
-            { d => d.IsEdit, true },
+            return;
+        }
+
+        var parameters = new DialogParameters<LevelLinksDialog>
+        {
+            { d => d.Title, $"Edit client {client.Code}" },
+            { d => d.Links, links },
+            { d => d.CanManage, CanManage },
+            { d => d.NameLabel, "Client name" },
             { d => d.InitialName, client.Name },
-            { d => d.OnSubmit, (_, name, _, _) => RunAsync(caller => ClientSvc.RenameAsync(caller, client.Id, name), "The client was renamed.") }
+            {
+                d => d.OnSubmit, async (name, _, input, linksChanged) =>
+                {
+                    if (name != client.Name && !await RunAsync(caller => ClientSvc.RenameAsync(caller, client.Id, name), null))
+                    {
+                        return false;
+                    }
+
+                    if (linksChanged && !await RunAsync(caller => LinkSvc.SetAsync(caller, LinkLevel.Client, client.Id, input), null))
+                    {
+                        return false;
+                    }
+
+                    Snackbar.Add(linksChanged
+                        ? "The client was saved. Its endpoints receive the new configuration shortly."
+                        : "The client was saved.", Severity.Success);
+                    return true;
+                }
+            }
         };
-        var dialog = await DialogService.ShowAsync<ClientDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var dialog = await DialogService.ShowAsync<LevelLinksDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         if (!(await dialog.Result)!.Canceled)
         {
             await ReloadAllAsync();
+        }
+    }
+
+    /// <summary>The policy, patch policy and monitoring templates of one endpoint, which win over those of its site and client (0.6.0).</summary>
+    private async Task EditEndpointLinksAsync(Guid endpointId, string hostname)
+    {
+        LevelLinks? links = null;
+        await LoadAsync(async caller => links = await LinkSvc.GetAsync(caller, LinkLevel.Endpoint, endpointId));
+        if (links is null)
+        {
+            return;
+        }
+
+        var parameters = new DialogParameters<LevelLinksDialog>
+        {
+            { d => d.Title, $"Policies of {hostname}" },
+            { d => d.Links, links },
+            { d => d.CanManage, CanManage },
+            {
+                d => d.OnSubmit, (_, _, input, linksChanged) => linksChanged
+                    ? RunAsync(caller => LinkSvc.SetAsync(caller, LinkLevel.Endpoint, endpointId, input),
+                        "The policies of this endpoint were saved. It receives the new configuration shortly.")
+                    : Task.FromResult(true)
+            }
+        };
+        var dialog = await DialogService.ShowAsync<LevelLinksDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await LoadScopeAsync();
         }
     }
 
@@ -1332,17 +1391,48 @@
         }
     }
 
+    /// <summary>The name and description of the site and its policy, patch policy and monitoring templates (0.6.0).</summary>
     private async Task EditSiteAsync()
     {
         var site = _site!;
-        var parameters = new DialogParameters<SiteDialog>
+        LevelLinks? links = null;
+        await LoadAsync(async caller => links = await LinkSvc.GetAsync(caller, LinkLevel.Site, site.Id));
+        if (links is null)
         {
-            { d => d.IsEdit, true },
+            return;
+        }
+
+        var parameters = new DialogParameters<LevelLinksDialog>
+        {
+            { d => d.Title, CanManage ? $"Edit site {site.Name}" : $"Site {site.Name}" },
+            { d => d.Links, links },
+            { d => d.CanManage, CanManage },
+            { d => d.NameLabel, "Site name" },
             { d => d.InitialName, site.Name },
+            { d => d.ShowDescription, true },
             { d => d.InitialDescription, site.Description },
-            { d => d.OnSubmit, (name, description) => RunAsync(caller => SiteSvc.UpdateAsync(caller, site.Id, name, description), "The site was saved.") }
+            {
+                d => d.OnSubmit, async (name, description, input, linksChanged) =>
+                {
+                    if ((name != site.Name || description != site.Description) &&
+                        !await RunAsync(caller => SiteSvc.UpdateAsync(caller, site.Id, name, description), null))
+                    {
+                        return false;
+                    }
+
+                    if (linksChanged && !await RunAsync(caller => LinkSvc.SetAsync(caller, LinkLevel.Site, site.Id, input), null))
+                    {
+                        return false;
+                    }
+
+                    Snackbar.Add(linksChanged
+                        ? "The site was saved. Its endpoints receive the new configuration shortly."
+                        : "The site was saved.", Severity.Success);
+                    return true;
+                }
+            }
         };
-        var dialog = await DialogService.ShowAsync<SiteDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var dialog = await DialogService.ShowAsync<LevelLinksDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         if (!(await dialog.Result)!.Canceled)
         {
             await ReloadAllAsync();
@@ -1363,56 +1453,6 @@
         {
             await LoadTreeAsync();
             Navigation.NavigateTo($"/clients/{site.ClientId}");
-        }
-    }
-
-    private async Task EditSiteLinksAsync()
-    {
-        var siteId = SiteId!.Value;
-        SiteDetail? detail = null;
-        IReadOnlyList<LinkOption> policies = [];
-        IReadOnlyList<LinkOption> templates = [];
-        await LoadAsync(async caller =>
-        {
-            detail = await SiteSvc.GetAsync(caller, siteId);
-            if (detail is not null)
-            {
-                (policies, templates) = await SiteSvc.GetLinkOptionsAsync(caller, detail.ClientId);
-            }
-        });
-        if (detail is null)
-        {
-            return;
-        }
-
-        var parameters = new DialogParameters<SiteLinksDialog>
-        {
-            { d => d.Site, detail },
-            { d => d.Policies, policies },
-            { d => d.Templates, templates },
-            { d => d.CanManage, CanManage },
-            {
-                d => d.OnSubmit, async (policyId, policyChanged, templateIds, templatesChanged) =>
-                {
-                    if (policyChanged && !await RunAsync(caller => SiteSvc.SetPolicyAsync(caller, siteId, policyId), null))
-                    {
-                        return false;
-                    }
-
-                    if (templatesChanged && !await RunAsync(caller => SiteSvc.SetMonitoringTemplatesAsync(caller, siteId, templateIds), null))
-                    {
-                        return false;
-                    }
-
-                    Snackbar.Add("The policy and monitoring templates of this site were saved. Its endpoints receive the new configuration shortly.", Severity.Success);
-                    return true;
-                }
-            }
-        };
-        var dialog = await DialogService.ShowAsync<SiteLinksDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
-        if (!(await dialog.Result)!.Canceled)
-        {
-            await LoadScopeAsync();
         }
     }
 

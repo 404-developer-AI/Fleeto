@@ -147,7 +147,7 @@ public sealed record Action1MissingUpdate(string Id, string Name, string Vendor,
 /// <param name="Packages">The packages to install with their version, empty when every missing update goes.</param>
 /// <param name="AutoReboot">True lets Action1 restart the endpoint by itself to finish the updates.</param>
 public sealed record Action1Deployment(string Name, string Summary, IReadOnlyList<string> EndpointIds,
-    IReadOnlyList<Action1Package> Packages, bool AutoReboot, string RebootMessage, int RebootTimeoutSeconds, int RetryMinutes)
+    IReadOnlyList<Action1Package> Packages, bool AutoReboot, string RebootMessage, int RebootTimeoutMinutes, int RetryMinutes)
 {
     /// <summary>
     /// The body Action1 expects (its published examples "Deploy Updates (specified updates)" and "(all updates)"). Chosen
@@ -163,7 +163,7 @@ public sealed record Action1Deployment(string Name, string Summary, IReadOnlyLis
         {
             reboot["show_message"] = "yes";
             reboot["message_text"] = RebootMessage;
-            reboot["timeout"] = RebootTimeoutSeconds;
+            reboot["timeout"] = RebootTimeoutMinutes;
         }
 
         return new JsonObject

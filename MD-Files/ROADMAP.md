@@ -825,6 +825,19 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   with `POST /endpoints/managed/{orgId}/{endpointId}/move`. Only between organizations that are mapped. The organization
   carries the client code before the client name, `[ACME] Acme Corporation` (asked for by the developer the same day), also
   one that was mapped by hand, so every organization is recognisable by its code.
+- [done] **Patch policies, and policies on every level** (asked for by the developer on 2026-09-25). Manage the automations of
+  Action1 from Fleeto, with no option Action1 cannot do, and link policies, patch policies and monitoring templates to a
+  client, a site and an endpoint, endpoint over site over client, with defaults in client templates. Decided with the
+  developer the same day: monitoring templates add up over the levels; without a patch policy Fleeto schedules nothing;
+  Fleeto manages only the automations it made and shows the others as a warning; an automation aims at endpoints, not site
+  groups; "Policy and monitoring" of a site became part of Edit site. Done: `PatchPolicies` (Settings, Patch policies), the
+  links `ClientPolicies`, `EndpointPolicies`, `ClientMonitoringTemplates`, `ClientPatchPolicies`, `SitePatchPolicies`,
+  `EndpointPatchPolicies` and the links of the client itself in client templates; the rule of the effective policy in one
+  place (`EffectivePolicyRules`, C#, SQL and EF Core kept equal by a test) instead of sixteen copies of "site, else default";
+  maintenance windows per endpoint instead of per site; `PatchAutomationService` in the workers with
+  `IntegrationAutomations`, and the automations Fleeto does not manage on `IntegrationMappings.OtherAutomationsJson`; Edit
+  client (was Rename client), Edit site and Policies on an endpoint, all with one `LinkEditor`. Found while building: a
+  deployment with automatic restart sent the restart delay in seconds where Action1 reads minutes (fixed).
 
 ## 0.7.0 — Hardening
 

@@ -1,12 +1,12 @@
-@* Monitoring templates of one endpoint: those of its site (changed on the site) and extra ones linked to this endpoint only. *@
+@* Monitoring templates of one endpoint: those of its client and site (changed there) and extra ones linked to this endpoint only. *@
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">Monitoring templates · @Hostname</MudText>
     </TitleContent>
     <DialogContent>
         <MudText Typo="Typo.body2" Class="muted mb-3">
-            Checks of the templates of the site run on every managed endpoint of the site. Link extra templates here for this endpoint
-            only. Templates are linked, not copied.
+            Checks of the templates of the client and the site run on every managed endpoint there. Link extra templates here for
+            this endpoint only. Templates are linked, not copied.
         </MudText>
         @if (Links.Available.Count == 0)
         {
@@ -25,7 +25,7 @@
                 }
                 @if (viaSite)
                 {
-                    <span class="ml-2"><StatusChip Text="Linked to the site" Kind="StatusKind.Neutral" /></span>
+                    <span class="ml-2"><StatusChip Text="Linked to the client or site" Kind="StatusKind.Neutral" /></span>
                 }
             </div>
         }

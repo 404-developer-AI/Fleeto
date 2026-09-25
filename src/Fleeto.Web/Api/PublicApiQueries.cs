@@ -243,12 +243,12 @@ public sealed class PublicApiQueries
         }
 
         var license = await _licenses.GetStatusAsync(db, cancellationToken);
-        var windows = await MaintenanceWindowSchedule.RunningBySiteAsync(db, rows.Select(r => r.Endpoint.SiteId).Distinct().ToList(), now, cancellationToken);
+        var windows = await MaintenanceWindowSchedule.RunningByEndpointAsync(db, rows.Select(r => r.Endpoint.Id).ToList(), now, cancellationToken);
         return rows.Select(r =>
         {
             var e = r.Endpoint;
             var maintenance = MaintenanceRules.Effective(e.Maintenance, r.Site, r.Client, now,
-                MaintenanceWindowSchedule.PeriodFor(windows, e.SiteId, e.EffectiveClass));
+                MaintenanceWindowSchedule.PeriodFor(windows, e.Id, e.EffectiveClass));
             return new ApiEndpoint(e.Id, e.ClientId, e.SiteId, e.Hostname, Map(e.EffectiveClass), Map(e.DetectedClass), e.ClassOverride is not null,
                 Map(e.Tier), Map(TierRules.EffectiveTier(e.Tier, license)), Map(e.Source), e.IsOnline, UtcOrNull(e.LastSeenAt),
                 new ApiOperatingSystem(e.OsPlatform, e.OsName, e.OsVersion), e.Architecture, e.AgentVersion, Utc(e.EnrolledAt), e.PublicIpAddress,
@@ -665,6 +665,7 @@ public sealed class PublicApiQueries
 
     internal static ApiCheckSource Map(CheckSource value) => value switch
     {
+        CheckSource.ClientTemplate => ApiCheckSource.ClientTemplate,
         CheckSource.SiteTemplate => ApiCheckSource.SiteTemplate,
         CheckSource.EndpointTemplate => ApiCheckSource.EndpointTemplate,
         CheckSource.Endpoint => ApiCheckSource.Endpoint,

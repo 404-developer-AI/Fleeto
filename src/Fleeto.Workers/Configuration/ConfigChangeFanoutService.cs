@@ -1,3 +1,4 @@
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Data;
@@ -40,19 +41,14 @@ public sealed class ConfigChangeFanoutService : WorkerLoop
     private const string InsertSite = InsertPrefix + """ AND e."SiteId" = @scopeId""";
     private const string InsertEndpoint = InsertPrefix + """ AND e."Id" = @scopeId""";
 
-    private const string InsertPolicyLinked = InsertPrefix + """
-         AND EXISTS (SELECT 1 FROM "SitePolicies" sp WHERE sp."SiteId" = e."SiteId" AND sp."PolicyId" = @scopeId)
-        """;
-
-    // The default policy applies to sites without a linked policy. A deleted policy lost its links through the
-    // cascade, so its former sites are now exactly among the sites without a link: the same statement covers both.
-    private const string InsertPolicyDefaultOrDeleted = InsertPrefix + """
-         AND (NOT EXISTS (SELECT 1 FROM "SitePolicies" sp WHERE sp."SiteId" = e."SiteId")
-              OR EXISTS (SELECT 1 FROM "SitePolicies" sp WHERE sp."SiteId" = e."SiteId" AND sp."PolicyId" = @scopeId))
-        """;
+    // Every endpoint whose effective policy (client, site or endpoint link, else the default) is the changed one. A deleted
+    // policy lost its links through the cascade; whoever deletes it writes events for the clients, sites and endpoints
+    // that used it, so this statement only has to cover the policy that still exists.
+    private const string InsertPolicy = InsertPrefix + " AND " + EffectivePolicyRules.PolicyIdSql + " = @scopeId";
 
     private const string InsertMonitoringTemplate = InsertPrefix + """
          AND (EXISTS (SELECT 1 FROM "SiteMonitoringTemplates" l WHERE l."SiteId" = e."SiteId" AND l."MonitoringTemplateId" = @scopeId)
+              OR EXISTS (SELECT 1 FROM "ClientMonitoringTemplates" cl WHERE cl."ClientId" = e."ClientId" AND cl."MonitoringTemplateId" = @scopeId)
               OR EXISTS (SELECT 1 FROM "EndpointMonitoringTemplates" el WHERE el."EndpointId" = e."Id" AND el."MonitoringTemplateId" = @scopeId))
         """;
 
@@ -69,6 +65,7 @@ public sealed class ConfigChangeFanoutService : WorkerLoop
            WHERE d."Type" = 'Script' AND d."ParametersJson"->>'script' = @scopeId::text
              AND (d."EndpointId" = e."Id"
                   OR EXISTS (SELECT 1 FROM "SiteMonitoringTemplates" l WHERE l."SiteId" = e."SiteId" AND l."MonitoringTemplateId" = d."MonitoringTemplateId")
+                  OR EXISTS (SELECT 1 FROM "ClientMonitoringTemplates" cl WHERE cl."ClientId" = e."ClientId" AND cl."MonitoringTemplateId" = d."MonitoringTemplateId")
                   OR EXISTS (SELECT 1 FROM "EndpointMonitoringTemplates" el WHERE el."EndpointId" = e."Id" AND el."MonitoringTemplateId" = d."MonitoringTemplateId")))
         """;
 
@@ -170,11 +167,10 @@ public sealed class ConfigChangeFanoutService : WorkerLoop
                 return InsertEndpoint;
             case ConfigChangeScope.Policy:
             {
-                var policy = await db.Policies.AsNoTracking()
-                    .Where(p => p.Id == change.ScopeId)
-                    .Select(p => new { p.IsDefault })
-                    .FirstOrDefaultAsync(cancellationToken);
-                return policy is null || policy.IsDefault ? InsertPolicyDefaultOrDeleted : InsertPolicyLinked;
+                // A policy that is gone left no way to find its former endpoints here; every endpoint is the safe answer,
+                // and the signer skips the configurations that did not change.
+                var exists = await db.Policies.AsNoTracking().AnyAsync(p => p.Id == change.ScopeId, cancellationToken);
+                return exists ? InsertPolicy : InsertInstance;
             }
             case ConfigChangeScope.MonitoringTemplate:
             {

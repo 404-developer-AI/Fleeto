@@ -3,6 +3,7 @@ using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Audit;
 using Fleeto.Infrastructure.Data;
+using Fleeto.Infrastructure.Services;
 using Fleeto.Web.Security;
 using Microsoft.EntityFrameworkCore;
 
@@ -46,16 +47,15 @@ public sealed class AgentUpdateService
         var now = _time.GetUtcNow().UtcDateTime;
         var release = await db.AgentReleases.AsNoTracking().SingleOrDefaultAsync(r => r.IsCurrent, cancellationToken);
 
-        var defaultRing = await db.Policies.AsNoTracking().Where(p => p.IsDefault).Select(p => (UpdateRing?)p.UpdateRing).FirstOrDefaultAsync(cancellationToken)
-                          ?? UpdateRing.Standard;
-        var ringCounts = await db.Endpoints.AsNoTracking()
-            .Where(e => e.Source == EndpointSource.Agent)
-            .GroupBy(e => db.SitePolicies.Where(l => l.SiteId == e.SiteId).Select(l => (UpdateRing?)l.Policy!.UpdateRing).FirstOrDefault())
-            .Select(g => new { Ring = g.Key, Count = g.Count() })
+        var ringCounts = await (
+                from e in db.Endpoints.AsNoTracking().Where(e => e.Source == EndpointSource.Agent)
+                join ep in EffectivePolicies.Query(db) on e.Id equals ep.EndpointId
+                group e by db.Policies.Where(p => p.Id == ep.PolicyId).Select(p => (UpdateRing?)p.UpdateRing).FirstOrDefault() into g
+                select new { Ring = g.Key, Count = g.Count() })
             .ToListAsync(cancellationToken);
         var rings = Enum.GetValues<UpdateRing>().Select(ring =>
         {
-            var count = ringCounts.Where(c => (c.Ring ?? defaultRing) == ring).Sum(c => c.Count);
+            var count = ringCounts.Where(c => (c.Ring ?? UpdateRing.Standard) == ring).Sum(c => c.Count);
             var availableAt = release is null ? DateTime.MaxValue : UpdateRings.AvailableAt(release, ring);
             return new RingOverview(ring, availableAt, release is not null && UpdateRings.IsAllowed(release, ring, now), count);
         }).ToList();

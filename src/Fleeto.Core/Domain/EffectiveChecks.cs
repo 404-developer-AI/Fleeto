@@ -10,7 +10,9 @@ public enum CheckSource
     /// <summary>A monitoring template linked to this endpoint only.</summary>
     EndpointTemplate,
     /// <summary>A check that exists only on this endpoint.</summary>
-    Endpoint
+    Endpoint,
+    /// <summary>A monitoring template linked to the endpoint's client (0.6.0).</summary>
+    ClientTemplate
 }
 
 /// <summary>A check definition that may apply to an endpoint, with where it was found.</summary>
@@ -65,7 +67,7 @@ public sealed record EffectiveCheck(
 /// The one rule for which checks run on an endpoint. Used by the configuration builder (signer), the check evaluation
 /// (workers) and the endpoint page (web); its SQL twin is <c>EffectiveCheckResolver.AppliesSql</c>, kept equal by a test.
 /// <list type="bullet">
-/// <item>A template check applies when it is enabled, its template is linked to the endpoint's site or to the endpoint,
+/// <item>A template check applies when it is enabled, its template is linked to the endpoint's client, its site or the endpoint,
 /// it matches the endpoint class and it is not disabled on the endpoint.</item>
 /// <item>An endpoint-only check applies when it is enabled; it runs whatever the class.</item>
 /// <item>Either kind applies only when its type runs on the endpoint's platform (<see cref="CheckCatalog.IsSupported"/>), so a Windows
@@ -89,8 +91,8 @@ public static class EffectiveChecks
         IReadOnlyDictionary<Guid, EndpointCheckOverride> overrides, bool includeDisabledOnEndpoint = false, string? osPlatform = null)
     {
         var result = new Dictionary<Guid, EffectiveCheck>();
-        // Site links first, so a template linked to both the site and the endpoint reports the site as its source.
-        foreach (var candidate in candidates.OrderBy(c => c.Source))
+        // The widest link first, so a template linked to both the client and the endpoint reports the client as its source.
+        foreach (var candidate in candidates.OrderBy(c => Rank(c.Source)))
         {
             var definition = candidate.Definition;
             if (!definition.Enabled || result.ContainsKey(definition.Id) || !Enum.IsDefined(definition.Type) ||
@@ -135,4 +137,12 @@ public static class EffectiveChecks
 
         return result.Values.OrderBy(c => c.Id).ToList();
     }
+
+    private static int Rank(CheckSource source) => source switch
+    {
+        CheckSource.ClientTemplate => 0,
+        CheckSource.SiteTemplate => 1,
+        CheckSource.EndpointTemplate => 2,
+        _ => 3
+    };
 }

@@ -161,7 +161,7 @@ public sealed class EndpointService
             EndpointStatusFilter.Offline => endpoints.Where(e => !e.IsOnline),
             EndpointStatusFilter.WithOpenAlerts => endpoints.Where(e => db.Alerts.Any(a => a.EndpointId == e.Id && a.State != AlertState.Resolved &&
                                                                                       (a.HeldUntil == null || a.HeldUntil <= now))),
-            EndpointStatusFilter.InMaintenance => endpoints.Where(MaintenanceRules.EndpointInMaintenance(now, db.MaintenanceWindowOccurrences, db.SitePolicies, db.Policies)),
+            EndpointStatusFilter.InMaintenance => endpoints.Where(MaintenanceRules.EndpointInMaintenance(now, db.MaintenanceWindowOccurrences, EffectivePolicies.Query(db))),
             _ => endpoints
         };
 
@@ -215,10 +215,10 @@ public sealed class EndpointService
             .ToListAsync(cancellationToken);
 
         var truncated = rows.Count > ListLimit;
-        var windows = await MaintenanceWindowSchedule.RunningBySiteAsync(db, rows.Select(r => r.Row.SiteId).Distinct().ToList(), now, cancellationToken);
+        var windows = await MaintenanceWindowSchedule.RunningByEndpointAsync(db, rows.Take(ListLimit).Select(r => r.Row.Id).ToList(), now, cancellationToken);
         var page = rows.Take(ListLimit).Select(r => r.Row with
         {
-            Maintenance = MaintenanceRules.Effective(r.Own, r.Site, r.Client, now, MaintenanceWindowSchedule.PeriodFor(windows, r.Row.SiteId, r.Row.EffectiveClass)),
+            Maintenance = MaintenanceRules.Effective(r.Own, r.Site, r.Client, now, MaintenanceWindowSchedule.PeriodFor(windows, r.Row.Id, r.Row.EffectiveClass)),
             OwnMaintenanceActive = r.Own.IsActive(now),
             OwnMaintenance = r.Own
         }).ToList();
@@ -254,7 +254,7 @@ public sealed class EndpointService
         }
 
         var e = endpoint.Endpoint;
-        var windows = await MaintenanceWindowSchedule.RunningBySiteAsync(db, [e.SiteId], now, cancellationToken);
+        var windows = await MaintenanceWindowSchedule.RunningByEndpointAsync(db, [e.Id], now, cancellationToken);
         var sites = await db.Sites.AsNoTracking().Where(s => s.ClientId == e.ClientId).OrderBy(s => s.Name)
             .Select(s => new SiteOption(s.Id, s.Name)).ToListAsync(cancellationToken);
 
@@ -266,10 +266,8 @@ public sealed class EndpointService
         ReleaseRingTiming? releaseRing = null;
         if (release is not null)
         {
-            // The same effective ring as the gateway: the policy of the site, else the default policy.
-            var ring = await db.SitePolicies.AsNoTracking().Where(l => l.SiteId == e.SiteId).Select(l => (UpdateRing?)l.Policy!.UpdateRing).FirstOrDefaultAsync(cancellationToken)
-                       ?? await db.Policies.AsNoTracking().Where(p => p.IsDefault).Select(p => (UpdateRing?)p.UpdateRing).FirstOrDefaultAsync(cancellationToken)
-                       ?? UpdateRing.Standard;
+            // The same effective ring as the gateway: the ring of the endpoint's effective policy.
+            var ring = (await EffectivePolicies.LoadAsync(db, e.Id, cancellationToken))?.UpdateRing ?? UpdateRing.Standard;
             releaseRing = new ReleaseRingTiming(ring, UpdateRings.AvailableAt(release, ring), release.PausedAt is not null);
         }
 
@@ -277,7 +275,7 @@ public sealed class EndpointService
             endpoint.SiteName, e.IsOnline, e.Tier, e.Source, e.DetectedClass, e.ClassOverride, e.OsPlatform, e.OsName, e.OsVersion, e.Architecture,
             e.AgentVersion, e.EnrolledAt, e.LastSeenAt, e.ConfigVersion, e.AppliedConfigVersion, endpoint.ActiveCertificates,
             endpoint.CertificateExpiresAt, endpoint.OpenAlerts, endpoint.HeldAlerts, sites, e.PublicIpAddress, e.PublicIpSeenAt,
-            MaintenanceRules.Effective(e.Maintenance, endpoint.Site, endpoint.Client, now, MaintenanceWindowSchedule.PeriodFor(windows, e.SiteId, e.EffectiveClass)),
+            MaintenanceRules.Effective(e.Maintenance, endpoint.Site, endpoint.Client, now, MaintenanceWindowSchedule.PeriodFor(windows, e.Id, e.EffectiveClass)),
             e.Maintenance.IsActive(now), e.WatchdogOnline, e.WatchdogVersion, e.WatchdogLastSeenAt, components, release?.Version, releaseRing);
     }
 

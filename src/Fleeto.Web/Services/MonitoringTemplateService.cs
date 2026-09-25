@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Fleeto.Web.Services;
 
 public sealed record MonitoringTemplateListItem(Guid Id, string Name, string? Description, Guid? ClientId, string? ClientCode, int CheckCount,
-    int SiteCount, int ClientTemplateSiteCount);
+    int SiteCount, int ClientTemplateSiteCount, int ClientCount = 0);
 
 public sealed record CheckDefinitionView(Guid Id, string Name, CheckType Type, int IntervalSeconds, IReadOnlyDictionary<string, string> Parameters,
     double? WarningThreshold, double? CriticalThreshold, int FailuresBeforeAlert, CheckAppliesTo AppliesTo, bool Enabled);
@@ -45,7 +45,9 @@ public sealed class MonitoringTemplateService
                 db.Clients.Where(c => c.Id == t.ClientId).Select(c => c.Code).FirstOrDefault(),
                 t.Checks.Count,
                 db.SiteMonitoringTemplates.Count(l => l.MonitoringTemplateId == t.Id),
-                db.ClientTemplateSiteMonitoringTemplates.Count(l => l.MonitoringTemplateId == t.Id)))
+                db.ClientTemplateSiteMonitoringTemplates.Count(l => l.MonitoringTemplateId == t.Id) +
+                db.ClientTemplateMonitoringTemplates.Count(l => l.MonitoringTemplateId == t.Id),
+                db.ClientMonitoringTemplates.Count(l => l.MonitoringTemplateId == t.Id)))
             .ToListAsync(cancellationToken);
     }
 
@@ -401,11 +403,18 @@ public sealed class MonitoringTemplateService
 
         var now = _time.GetUtcNow().UtcDateTime;
         // Links cascade away with the template, so the affected sites and endpoints are recorded before the delete.
+        var clientIds = await db.ClientMonitoringTemplates.IgnoreQueryFilters().Where(l => l.MonitoringTemplateId == templateId)
+            .Select(l => l.ClientId).ToListAsync(cancellationToken);
         var siteIds = await db.SiteMonitoringTemplates.IgnoreQueryFilters().Where(l => l.MonitoringTemplateId == templateId)
             .Select(l => l.SiteId).ToListAsync(cancellationToken);
         var endpointIds = await db.EndpointMonitoringTemplates.IgnoreQueryFilters().Where(l => l.MonitoringTemplateId == templateId)
             .Select(l => l.EndpointId).ToListAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        foreach (var clientId in clientIds)
+        {
+            db.ConfigChangeEvents.Add(new ConfigChangeEvent { Scope = ConfigChangeScope.Client, ScopeId = clientId, CreatedAt = now });
+        }
+
         foreach (var siteId in siteIds)
         {
             db.ConfigChangeEvents.Add(new ConfigChangeEvent { Scope = ConfigChangeScope.Site, ScopeId = siteId, CreatedAt = now });
@@ -418,7 +427,7 @@ public sealed class MonitoringTemplateService
 
         db.MonitoringTemplates.Remove(template);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.MonitoringTemplateDeleted, "MonitoringTemplate", template.Id.ToString(),
-            template.ClientId, new { template.Name, Sites = siteIds.Count, Endpoints = endpointIds.Count }), now));
+            template.ClientId, new { template.Name, Clients = clientIds.Count, Sites = siteIds.Count, Endpoints = endpointIds.Count }), now));
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return ServiceResult.Ok();
@@ -436,6 +445,7 @@ public sealed class MonitoringTemplateService
           JOIN "Endpoints" e ON e."Id" = i."EndpointId"
           WHERE (@allClients OR i."ClientId" = ANY(@clientIds))
             AND (EXISTS (SELECT 1 FROM "SiteMonitoringTemplates" l WHERE l."SiteId" = e."SiteId" AND l."MonitoringTemplateId" = @templateId)
+                 OR EXISTS (SELECT 1 FROM "ClientMonitoringTemplates" cl WHERE cl."ClientId" = e."ClientId" AND cl."MonitoringTemplateId" = @templateId)
                  OR EXISTS (SELECT 1 FROM "EndpointMonitoringTemplates" el WHERE el."EndpointId" = e."Id" AND el."MonitoringTemplateId" = @templateId))
           ORDER BY i."ReceivedAt" DESC
           LIMIT @inventories)

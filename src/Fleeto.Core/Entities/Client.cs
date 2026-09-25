@@ -33,9 +33,12 @@ public class Client
     public DateTime UpdatedAt { get; set; }
 
     public ICollection<Site> Sites { get; set; } = new List<Site>();
+    public ClientPolicy? Policy { get; set; }
+    public ClientPatchPolicy? PatchPolicy { get; set; }
+    public ICollection<ClientMonitoringTemplate> MonitoringTemplates { get; set; } = new List<ClientMonitoringTemplate>();
 }
 
-/// <summary>A group of endpoints within a client; where a policy and monitoring templates are linked.</summary>
+/// <summary>A group of endpoints within a client; a policy, patch policy and monitoring templates can be linked to it.</summary>
 public class Site
 {
     public Guid Id { get; set; }
@@ -66,6 +69,7 @@ public class Site
     public ICollection<Endpoint> Endpoints { get; set; } = new List<Endpoint>();
     public ICollection<SiteMonitoringTemplate> MonitoringTemplates { get; set; } = new List<SiteMonitoringTemplate>();
     public SitePolicy? Policy { get; set; }
+    public SitePatchPolicy? PatchPolicy { get; set; }
 }
 
 /// <summary>A machine with a Fleeto agent (or, later, a hypervisor object from an integration).</summary>

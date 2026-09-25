@@ -1,0 +1,103 @@
+@* Edit a client or site, or the policies of one endpoint (0.6.0): its name where it has one, and its policy, patch policy
+   and monitoring templates. The most specific level wins: endpoint over site, site over client. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@Title</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (NameLabel is not null)
+        {
+            <MudTextField @bind-Value="_name" Label="@NameLabel" Variant="Variant.Outlined" MaxLength="100" AutoFocus="true" Disabled="@(!CanManage)"
+                          Class="mb-3" />
+        }
+        @if (ShowDescription)
+        {
+            <MudTextField @bind-Value="_description" Label="Description (optional)" Variant="Variant.Outlined" Lines="2" MaxLength="1000"
+                          Disabled="@(!CanManage)" Class="mb-3" />
+        }
+
+        <MudText Typo="Typo.subtitle2" Class="mt-2">Policies</MudText>
+        <MudText Typo="Typo.body2" Class="muted mb-3">@Explanation</MudText>
+        <LinkEditor Selection="_selection" Choices="Links.Choices" Disabled="@(!CanManage)"
+                    PolicyInherit="@LinkEditor.InheritText(Links.InheritedPolicy, "Inherit: default policy")"
+                    PatchInherit="@LinkEditor.InheritText(Links.InheritedPatchPolicy, "No patch policy")"
+                    PolicyLocked="Links.PolicyFromClientTemplate" PatchLocked="Links.PatchPolicyFromClientTemplate"
+                    LockedTemplates="_lockedTemplates" InheritedTemplates="Links.InheritedTemplates"
+                    TemplatesDisabledText="@(Links.TemplatesAllowed ? null : "Switch the endpoint to managed to give it monitoring templates of its own.")" />
+
+        @if (Links.OtherAutomations.Count > 0)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-4">
+                Action1 also has @Ui.Count(Links.OtherAutomations.Count, "automation") for this client that Fleeto does not manage:
+                @Ui.JoinList(Links.OtherAutomations). An endpoint they target can be patched twice. Remove them in the Action1 console
+                when the patch policy replaces them.
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">@(CanManage ? "Cancel" : "Close")</MudButton>
+        @if (CanManage)
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">Save</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public LevelLinks Links { get; set; } = default!;
+    [Parameter] public bool CanManage { get; set; }
+
+    /// <summary>The label of the name field; null shows no name (an endpoint keeps its host name).</summary>
+    [Parameter] public string? NameLabel { get; set; }
+
+    [Parameter] public string InitialName { get; set; } = string.Empty;
+    [Parameter] public bool ShowDescription { get; set; }
+    [Parameter] public string? InitialDescription { get; set; }
+
+    /// <summary>Saves the name and description (null when not shown) and the links; the flag tells whether the links changed.</summary>
+    [Parameter] public Func<string?, string?, LinksInput, bool, Task<bool>> OnSubmit { get; set; } = (_, _, _, _) => Task.FromResult(true);
+
+    private LinkSelection _selection = new();
+    private IReadOnlyCollection<Guid> _lockedTemplates = [];
+    private string _name = string.Empty;
+    private string? _description;
+    private bool _busy;
+
+    private string Explanation => Links.Level switch
+    {
+        LinkLevel.Client => "They apply to every site and endpoint of the client, unless a site or endpoint has its own.",
+        LinkLevel.Site => "They apply to every endpoint of the site, unless an endpoint has its own, and replace those of the client.",
+        _ => "They apply to this endpoint only and replace those of its site and client. Monitoring templates add up."
+    };
+
+    protected override void OnInitialized()
+    {
+        _selection = LinkSelection.From(Links);
+        _lockedTemplates = Links.MonitoringTemplates.Where(t => t.Source == LinkSource.ClientTemplate).Select(t => t.Id).ToList();
+        _name = InitialName;
+        _description = InitialDescription;
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(NameLabel is null ? null : _name, ShowDescription ? _description : null, _selection.ToInput(),
+                    _selection.DiffersFrom(Links)))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

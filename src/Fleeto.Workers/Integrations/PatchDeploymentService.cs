@@ -282,7 +282,7 @@ public sealed class PatchDeploymentService : WorkerLoop
             packages,
             deployment.AutoReboot,
             PatchRules.RebootMessage,
-            PatchRules.RebootTimeoutSeconds,
+            PatchRules.RebootTimeoutMinutes,
             PatchRules.RetryMinutes);
 
         var result = await client.StartDeploymentAsync(deployment.ExternalTenantId, request, cancellationToken);

@@ -22,6 +22,7 @@ public static class EffectiveCheckResolver
           (d."MonitoringTemplateId" IS NOT NULL
             AND (d."AppliesTo" = 'All' OR d."AppliesTo" = COALESCE(e."ClassOverride", e."DetectedClass"))
             AND (EXISTS (SELECT 1 FROM "SiteMonitoringTemplates" sl WHERE sl."SiteId" = e."SiteId" AND sl."MonitoringTemplateId" = d."MonitoringTemplateId")
+                 OR EXISTS (SELECT 1 FROM "ClientMonitoringTemplates" cl WHERE cl."ClientId" = e."ClientId" AND cl."MonitoringTemplateId" = d."MonitoringTemplateId")
                  OR EXISTS (SELECT 1 FROM "EndpointMonitoringTemplates" el WHERE el."EndpointId" = e."Id" AND el."MonitoringTemplateId" = d."MonitoringTemplateId"))
             AND NOT EXISTS (SELECT 1 FROM "EndpointCheckOverrides" o WHERE o."EndpointId" = e."Id" AND o."CheckDefinitionId" = d."Id" AND o."Disabled"))
           OR d."EndpointId" = e."Id"))
@@ -29,11 +30,17 @@ public static class EffectiveCheckResolver
 
     public static Task<IReadOnlyList<EffectiveCheck>> LoadAsync(FleetoDbContext db, Endpoint endpoint, bool includeDisabledOnEndpoint,
         CancellationToken cancellationToken) =>
-        LoadAsync(db, endpoint.Id, endpoint.SiteId, endpoint.EffectiveClass, endpoint.OsPlatform, includeDisabledOnEndpoint, cancellationToken);
+        LoadAsync(db, endpoint.Id, endpoint.ClientId, endpoint.SiteId, endpoint.EffectiveClass, endpoint.OsPlatform, includeDisabledOnEndpoint,
+            cancellationToken);
 
-    public static async Task<IReadOnlyList<EffectiveCheck>> LoadAsync(FleetoDbContext db, Guid endpointId, Guid siteId, EndpointClass endpointClass,
-        string? osPlatform, bool includeDisabledOnEndpoint, CancellationToken cancellationToken)
+    public static async Task<IReadOnlyList<EffectiveCheck>> LoadAsync(FleetoDbContext db, Guid endpointId, Guid clientId, Guid siteId,
+        EndpointClass endpointClass, string? osPlatform, bool includeDisabledOnEndpoint, CancellationToken cancellationToken)
     {
+        // Monitoring templates add up over the levels (0.6.0): the client's, the site's and the endpoint's all apply.
+        var clientTemplates = await db.ClientMonitoringTemplates.AsNoTracking()
+            .Where(l => l.ClientId == clientId)
+            .Select(l => new { l.MonitoringTemplateId, l.MonitoringTemplate!.Name })
+            .ToListAsync(cancellationToken);
         var siteTemplates = await db.SiteMonitoringTemplates.AsNoTracking()
             .Where(l => l.SiteId == siteId)
             .Select(l => new { l.MonitoringTemplateId, l.MonitoringTemplate!.Name })
@@ -43,7 +50,9 @@ public static class EffectiveCheckResolver
             .Select(l => new { l.MonitoringTemplateId, l.MonitoringTemplate!.Name })
             .ToListAsync(cancellationToken);
 
-        var templateIds = siteTemplates.Select(t => t.MonitoringTemplateId).Concat(endpointTemplates.Select(t => t.MonitoringTemplateId))
+        var templateIds = clientTemplates.Select(t => t.MonitoringTemplateId)
+            .Concat(siteTemplates.Select(t => t.MonitoringTemplateId))
+            .Concat(endpointTemplates.Select(t => t.MonitoringTemplateId))
             .Distinct().ToList();
         var definitions = await db.CheckDefinitions.AsNoTracking()
             .Where(d => (d.MonitoringTemplateId != null && templateIds.Contains(d.MonitoringTemplateId.Value)) || d.EndpointId == endpointId)
@@ -52,6 +61,7 @@ public static class EffectiveCheckResolver
             .Where(o => o.EndpointId == endpointId)
             .ToDictionaryAsync(o => o.CheckDefinitionId, cancellationToken);
 
+        var clientNames = clientTemplates.ToDictionary(t => t.MonitoringTemplateId, t => t.Name);
         var siteNames = siteTemplates.ToDictionary(t => t.MonitoringTemplateId, t => t.Name);
         var endpointNames = endpointTemplates.ToDictionary(t => t.MonitoringTemplateId, t => t.Name);
         var candidates = new List<CheckCandidate>();
@@ -66,6 +76,11 @@ public static class EffectiveCheckResolver
             if (definition.MonitoringTemplateId is not { } templateId)
             {
                 continue;
+            }
+
+            if (clientNames.TryGetValue(templateId, out var clientName))
+            {
+                candidates.Add(new CheckCandidate(definition, CheckSource.ClientTemplate, clientName));
             }
 
             if (siteNames.TryGetValue(templateId, out var siteName))

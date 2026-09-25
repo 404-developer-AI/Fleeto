@@ -4,6 +4,7 @@ using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Audit;
 using Fleeto.Infrastructure.Data;
+using Fleeto.Infrastructure.Services;
 using Fleeto.Infrastructure.Email;
 using Fleeto.Infrastructure.Licensing;
 using Fleeto.Infrastructure.Settings;
@@ -150,16 +151,16 @@ public sealed class JobService
             return ServiceResult<JobRunResult>.NotFound("script");
         }
 
-        var endpoints = await db.Endpoints.AsNoTracking().Where(e => ids.Contains(e.Id))
-            .Select(e => new
-            {
-                e.Id, e.ClientId, e.Hostname, e.Tier, e.OsPlatform, e.Source, e.AgentVersion, e.SignedInUsersJson,
-                ApprovalRequired = (db.SitePolicies.Where(l => l.SiteId == e.SiteId).Select(l => (bool?)l.Policy!.ScriptApprovalRequired).FirstOrDefault() ??
-                                    db.Policies.Where(p => p.IsDefault).Select(p => (bool?)p.ScriptApprovalRequired).FirstOrDefault()) == true,
-                // The signer reads the cap again when it signs; this is the value the job starts with.
-                MaxOutputBytes = db.SitePolicies.Where(l => l.SiteId == e.SiteId).Select(l => (long?)l.Policy!.MaxOutputBytes).FirstOrDefault() ??
-                                 db.Policies.Where(p => p.IsDefault).Select(p => (long?)p.MaxOutputBytes).FirstOrDefault()
-            })
+        var endpoints = await (
+                from e in db.Endpoints.AsNoTracking().Where(e => ids.Contains(e.Id))
+                join ep in EffectivePolicies.Query(db) on e.Id equals ep.EndpointId
+                select new
+                {
+                    e.Id, e.ClientId, e.Hostname, e.Tier, e.OsPlatform, e.Source, e.AgentVersion, e.SignedInUsersJson,
+                    ApprovalRequired = db.Policies.IgnoreQueryFilters().Where(p => p.Id == ep.PolicyId).Select(p => (bool?)p.ScriptApprovalRequired).FirstOrDefault() == true,
+                    // The signer reads the cap again when it signs; this is the value the job starts with.
+                    MaxOutputBytes = db.Policies.IgnoreQueryFilters().Where(p => p.Id == ep.PolicyId).Select(p => (long?)p.MaxOutputBytes).FirstOrDefault()
+                })
             .ToListAsync(cancellationToken);
         if (endpoints.Count == 0)
         {

@@ -41,12 +41,7 @@ public sealed class AgentConfigBuilder
         var licenseStatus = await _licenses.GetStatusAsync(db, cancellationToken);
         var effectiveTier = TierRules.EffectiveTier(endpoint.Tier, licenseStatus);
 
-        var policy = await db.SitePolicies.AsNoTracking()
-                         .Where(l => l.SiteId == endpoint.SiteId)
-                         .Select(l => l.Policy)
-                         .FirstOrDefaultAsync(cancellationToken)
-                     ?? await db.Policies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, cancellationToken)
-                     ?? new Policy();
+        var policy = await EffectivePolicies.LoadAsync(db, endpoint.Id, cancellationToken) ?? new Policy();
 
         var config = new AgentConfig
         {

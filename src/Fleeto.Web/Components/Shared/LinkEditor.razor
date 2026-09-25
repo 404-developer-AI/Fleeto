@@ -1,0 +1,126 @@
+@* The policy, patch policy and monitoring templates of a client, site, endpoint or client template (0.6.0), in one compact
+   block. Every choice names what applies without it, so the most specific level winning is visible where it is chosen. *@
+<div class="link-editor">
+    <MudSelect T="Guid?" @bind-Value="Selection.PolicyId" Label="Policy" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="Disabled"
+               AdornmentIcon="@Icons.Material.Outlined.Tune" Adornment="Adornment.Start"
+               HelperText="@(PolicyLocked ? "From the client template. Choose another policy to use one of your own here." : "Agent behaviour: intervals, offline alerts, maintenance windows, scripts and remote sessions.")">
+        @if (!PolicyLocked)
+        {
+            <MudSelectItem T="Guid?" Value="@((Guid?)null)">@PolicyInherit</MudSelectItem>
+        }
+        @foreach (var policy in Choices.Policies)
+        {
+            <MudSelectItem T="Guid?" Value="@((Guid?)policy.Id)">@Label(policy)</MudSelectItem>
+        }
+    </MudSelect>
+
+    <MudSelect T="Guid?" @bind-Value="Selection.PatchPolicyId" Label="Patch policy" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="Disabled"
+               AdornmentIcon="@Icons.Material.Outlined.SystemUpdateAlt" Adornment="Adornment.Start" Class="mt-3"
+               HelperText="@(PatchLocked ? "From the client template. Choose another patch policy to use one of your own here." : "When Action1 installs updates on the managed Windows endpoints.")">
+        @if (!PatchLocked)
+        {
+            <MudSelectItem T="Guid?" Value="@((Guid?)null)">@PatchInherit</MudSelectItem>
+        }
+        @foreach (var policy in Choices.PatchPolicies)
+        {
+            <MudSelectItem T="Guid?" Value="@((Guid?)policy.Id)">@Label(policy)</MudSelectItem>
+        }
+    </MudSelect>
+
+    @if (ShowTemplates)
+    {
+        <MudSelect T="Guid" MultiSelection="true" @bind-SelectedValues="Templates" Label="Monitoring templates" Variant="Variant.Outlined"
+                   Margin="Margin.Dense" Disabled="@(Disabled || TemplatesDisabledText is not null)" Class="mt-3"
+                   AdornmentIcon="@Icons.Material.Outlined.MonitorHeart" Adornment="Adornment.Start"
+                   ToStringFunc="@(id => Choices.MonitoringTemplates.FirstOrDefault(t => t.Id == id)?.Name ?? string.Empty)"
+                   HelperText="@(TemplatesDisabledText ?? "Checks of these templates run on top of the ones that apply already.")">
+            @foreach (var template in Choices.MonitoringTemplates.Where(t => !LockedTemplates.Contains(t.Id)))
+            {
+                <MudSelectItem T="Guid" Value="@template.Id">@Label(template)</MudSelectItem>
+            }
+        </MudSelect>
+        @if (LockedTemplates.Count > 0 || InheritedTemplates.Count > 0)
+        {
+            <div class="d-flex flex-wrap gap-1 align-center mt-2">
+                <MudText Typo="Typo.caption" Class="muted mr-1">Also running:</MudText>
+                @foreach (var id in LockedTemplates)
+                {
+                    <StatusChip Text="@($"{Choices.MonitoringTemplates.FirstOrDefault(t => t.Id == id)?.Name} · client template")" Kind="StatusKind.Neutral" />
+                }
+                @foreach (var inherited in InheritedTemplates)
+                {
+                    <StatusChip Text="@($"{inherited.Name} · {From(inherited.Level)}")" Kind="StatusKind.Neutral" />
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public LinkSelection Selection { get; set; } = default!;
+    [Parameter, EditorRequired] public LinkChoices Choices { get; set; } = default!;
+
+    /// <summary>The text of the empty choice: what applies without a policy here, such as "Inherit: Servers (from site)".</summary>
+    [Parameter] public string PolicyInherit { get; set; } = "Inherit";
+
+    [Parameter] public string PatchInherit { get; set; } = "Inherit";
+
+    /// <summary>The client template linked the policy here: it can be replaced, not removed.</summary>
+    [Parameter] public bool PolicyLocked { get; set; }
+
+    [Parameter] public bool PatchLocked { get; set; }
+
+    [Parameter] public bool ShowTemplates { get; set; } = true;
+
+    /// <summary>Why monitoring templates cannot be chosen here; null when they can.</summary>
+    [Parameter] public string? TemplatesDisabledText { get; set; }
+
+    /// <summary>Monitoring templates the client template linked here: they cannot be removed.</summary>
+    [Parameter] public IReadOnlyCollection<Guid> LockedTemplates { get; set; } = [];
+
+    /// <summary>Monitoring templates that apply from a wider level anyway.</summary>
+    [Parameter] public IReadOnlyList<InheritedLink> InheritedTemplates { get; set; } = [];
+
+    [Parameter] public bool Disabled { get; set; }
+
+    private IReadOnlyCollection<Guid> _templates = [];
+    private LinkSelection? _loadedFrom;
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(_loadedFrom, Selection))
+        {
+            _loadedFrom = Selection;
+            _templates = Selection.TemplateIds.Where(id => !LockedTemplates.Contains(id)).ToHashSet();
+        }
+    }
+
+    /// <summary>The templates chosen here; the ones the client template linked stay in the selection whatever is picked.</summary>
+    private IReadOnlyCollection<Guid> Templates
+    {
+        get => _templates;
+        set
+        {
+            _templates = value;
+            Selection.TemplateIds.Clear();
+            Selection.TemplateIds.UnionWith(value);
+            Selection.TemplateIds.UnionWith(LockedTemplates);
+        }
+    }
+
+    private static string Label(LinkOption option) =>
+        option.IsDefault ? $"{option.Name} (default)" : option.IsGlobal ? option.Name : $"{option.Name} (this client)";
+
+    /// <summary>"from client", "from site", or "default" for the default policy.</summary>
+    public static string From(LinkLevel level) => level switch
+    {
+        LinkLevel.Client => "from client",
+        LinkLevel.Site => "from site",
+        LinkLevel.Endpoint => "from endpoint",
+        _ => "default"
+    };
+
+    /// <summary>The empty choice for an inherited link: "Inherit: Servers (from site)", or <paramref name="none"/> without one.</summary>
+    public static string InheritText(InheritedLink? link, string none) =>
+        link is null ? none : $"Inherit: {link.Name} ({From(link.Level)})";
+}

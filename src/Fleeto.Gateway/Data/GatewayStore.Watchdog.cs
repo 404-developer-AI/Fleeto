@@ -1,3 +1,4 @@
+using Fleeto.Core.Domain;
 using System.Buffers;
 using System.Text.Json;
 using Fleeto.Core.Entities;
@@ -19,12 +20,11 @@ public sealed record ReleaseControl(string Version, DateTime InstalledAt, DateTi
 /// <summary>Watchdog sessions, update rings, component states and agent releases (0.2.1).</summary>
 public sealed partial class GatewayStore
 {
-    /// <summary>The ring of the endpoint's site policy, else of the default policy. Aliases: <c>e</c> = "Endpoints".</summary>
+    /// <summary>The ring of the endpoint's effective policy (EffectivePolicyRules). Aliases: <c>e</c> = "Endpoints".</summary>
     internal const string EffectiveRingSql = """
-        COALESCE(
-          (SELECT p."UpdateRing" FROM "SitePolicies" sp JOIN "Policies" p ON p."Id" = sp."PolicyId" WHERE sp."SiteId" = e."SiteId"),
-          (SELECT p."UpdateRing" FROM "Policies" p WHERE p."IsDefault" LIMIT 1),
-          'Standard')
+        COALESCE((SELECT rp."UpdateRing" FROM "Policies" rp WHERE rp."Id" =
+        """ + " " + EffectivePolicyRules.PolicyIdSql + " " + """
+        ), 'Standard')
         """;
 
     /// <summary>Marks the watchdog of an endpoint online. Returns null when the endpoint no longer exists.</summary>

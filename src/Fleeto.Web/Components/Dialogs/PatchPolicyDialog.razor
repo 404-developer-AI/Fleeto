@@ -1,0 +1,252 @@
+@* Create or edit a patch policy (0.6.0). Every option is one an Action1 automation offers (PatchPolicyRules); the scope
+   (global or one client) is chosen at creation and cannot change. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(IsEdit ? $"Edit patch policy {_m.Name}" : "New patch policy")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_m.Name" Label="Name" Variant="Variant.Outlined" MaxLength="@PatchPolicyRules.MaxNameLength" AutoFocus="true" Class="mb-3" />
+        <MudTextField @bind-Value="_m.Description" Label="Description (optional)" Variant="Variant.Outlined" Lines="2"
+                      MaxLength="@PatchPolicyRules.MaxDescriptionLength" Class="mb-3" />
+        @if (!IsEdit)
+        {
+            <MudSelect T="Guid?" @bind-Value="_clientId" Label="Available for" Variant="Variant.Outlined" Class="mb-3"
+                       HelperText="A global patch policy can be linked anywhere and used in client templates; a client patch policy only within that client.">
+                <MudSelectItem T="Guid?" Value="@((Guid?)null)">Global (all clients)</MudSelectItem>
+                @foreach (var client in Clients)
+                {
+                    <MudSelectItem T="Guid?" Value="@((Guid?)client.Id)">@client.Code - @client.Name</MudSelectItem>
+                }
+            </MudSelect>
+        }
+        <MudSwitch T="bool" @bind-Value="_m.Enabled" Color="Color.Primary" Label="Enabled" />
+        <MudText Typo="Typo.caption" Class="muted d-block mb-2">Off keeps the automations in Action1 but stops them from running.</MudText>
+
+        <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Schedule</MudText>
+        <MudSelect T="PatchScheduleKind" @bind-Value="_m.ScheduleKind" Label="Runs" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2">
+            <MudSelectItem T="PatchScheduleKind" Value="PatchScheduleKind.Weekly">Every week, on the chosen days</MudSelectItem>
+            <MudSelectItem T="PatchScheduleKind" Value="PatchScheduleKind.MonthlyDay">Every month, on a day of the month</MudSelectItem>
+            <MudSelectItem T="PatchScheduleKind" Value="PatchScheduleKind.MonthlyWeekday">Every month, on a weekday such as the second Tuesday</MudSelectItem>
+        </MudSelect>
+        @switch (_m.ScheduleKind)
+        {
+            case PatchScheduleKind.Weekly:
+                <div class="d-flex flex-wrap gap-1 mb-2">
+                    @foreach (var day in WeekOrder)
+                    {
+                        var flag = PatchPolicyRules.Flag(day);
+                        <MudCheckBox T="bool" Value="@_m.WeekDays.HasFlag(flag)" ValueChanged="@(v => _m.WeekDays = v ? _m.WeekDays | flag : _m.WeekDays & ~flag)"
+                                     Label="@day.ToString()[..3]" Size="Size.Small" Color="Color.Primary" Dense="true" />
+                    }
+                </div>
+                break;
+            case PatchScheduleKind.MonthlyDay:
+                <MudNumericField T="int" @bind-Value="_m.MonthDay" Label="Day of the month" Variant="Variant.Outlined" Margin="Margin.Dense" Min="1" Max="31"
+                                 Style="max-width:180px" Class="mb-2" HelperText="A month without this day skips it." />
+                break;
+            default:
+                <div class="d-flex gap-2 mb-2">
+                    <MudSelect T="int" @bind-Value="_m.MonthWeek" Label="Week" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:140px">
+                        @for (var week = 1; week <= 4; week++)
+                        {
+                            var value = week;
+                            <MudSelectItem T="int" Value="value">@PatchPolicyRules.Ordinal(value)</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudSelect T="DayOfWeek" @bind-Value="_m.MonthWeekday" Label="Weekday" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:170px">
+                        @foreach (var day in WeekOrder)
+                        {
+                            <MudSelectItem T="DayOfWeek" Value="day">@day</MudSelectItem>
+                        }
+                    </MudSelect>
+                </div>
+                break;
+        }
+        <div class="d-flex gap-2 align-start">
+            <MudTimePicker @bind-Time="_m.Start" Label="Starts at" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:140px" />
+            <MudSelect T="bool" @bind-Value="_m.EndpointLocalTime" Label="Time zone" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:260px">
+                <MudSelectItem T="bool" Value="true">The endpoint's own time</MudSelectItem>
+                <MudSelectItem T="bool" Value="false">UTC</MudSelectItem>
+            </MudSelect>
+        </div>
+        <MudText Typo="Typo.caption" Class="muted d-block">@PatchPolicyRules.DescribeSchedule(_m.ToPolicy()).</MudText>
+
+        <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Updates</MudText>
+        <MudRadioGroup T="PatchUpdateScope" @bind-Value="_m.Scope">
+            <MudRadio T="PatchUpdateScope" Value="PatchUpdateScope.All" Color="Color.Primary" Dense="true">All missing updates</MudRadio>
+            <MudRadio T="PatchUpdateScope" Value="PatchUpdateScope.Filtered" Color="Color.Primary" Dense="true">Only the updates that match these filters</MudRadio>
+        </MudRadioGroup>
+        @if (_m.Scope == PatchUpdateScope.Filtered)
+        {
+            <div class="fl-panel pa-3 mt-2">
+                <MudSelect T="string" MultiSelection="true" @bind-SelectedValues="_m.Sources" Label="Sources" Variant="Variant.Outlined" Margin="Margin.Dense"
+                           HelperText="Empty means every source. Applications are third-party updates.">
+                    @foreach (var value in PatchPolicyRules.UpdateSources)
+                    {
+                        <MudSelectItem T="string" Value="value">@value</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="string" MultiSelection="true" @bind-SelectedValues="_m.Severities" Label="Security severities" Variant="Variant.Outlined"
+                           Margin="Margin.Dense" Class="mt-3" HelperText="Empty means every severity.">
+                    @foreach (var value in PatchPolicyRules.Severities)
+                    {
+                        <MudSelectItem T="string" Value="value">@value</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="string" MultiSelection="true" @bind-SelectedValues="_m.Types" Label="Update types" Variant="Variant.Outlined" Margin="Margin.Dense"
+                           Class="mt-3" HelperText="Empty means every type.">
+                    @foreach (var value in PatchPolicyRules.UpdateTypes)
+                    {
+                        <MudSelectItem T="string" Value="value">@value</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudTextField @bind-Value="_m.ExcludedNames" Label="Leave out updates named (optional)" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Class="mt-3" HelperText="Separate with commas; * matches anything, as in Mozilla*." />
+                <MudTextField @bind-Value="_m.ExcludedVendors" Label="Leave out vendors (optional)" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Class="mt-3" HelperText="Separate with commas; * matches anything." />
+                <MudText Typo="Typo.caption" Class="muted d-block mt-2">An update must match every filter that is set.</MudText>
+            </div>
+        }
+
+        <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Approval</MudText>
+        <MudRadioGroup T="bool" @bind-Value="_m.RequireApproval">
+            <MudRadio T="bool" Value="false" Color="Color.Primary" Dense="true">Install every update that is not declined in Action1</MudRadio>
+            <MudRadio T="bool" Value="true" Color="Color.Primary" Dense="true">Install only updates approved in the Action1 console</MudRadio>
+        </MudRadioGroup>
+        @if (!_m.RequireApproval)
+        {
+            <MudNumericField T="int" @bind-Value="_m.InstallDelayDays" Label="Wait after release (days)" Variant="Variant.Outlined" Margin="Margin.Dense"
+                             Min="0" Max="@PatchPolicyRules.MaxInstallDelayDays" Style="max-width:220px" Class="mt-2"
+                             HelperText="0 installs an update as soon as the automation runs." />
+        }
+
+        <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Restart</MudText>
+        <MudSwitch T="bool" @bind-Value="_m.AutoReboot" Color="Color.Primary" Label="Restart the endpoint when an update needs it" />
+        @if (_m.AutoReboot)
+        {
+            <div class="fl-panel pa-3 mt-2">
+                <MudSwitch T="bool" @bind-Value="_m.RebootMessage" Color="Color.Primary" Label="Show a message to the signed-in user first" />
+                @if (_m.RebootMessage)
+                {
+                    <MudTextField @bind-Value="_m.RebootMessageText" Label="Message" Variant="Variant.Outlined" Lines="2" Margin="Margin.Dense"
+                                  MaxLength="@PatchPolicyRules.MaxRebootMessageLength" Class="mt-2" Placeholder="@PatchPolicyRules.DefaultRebootMessage"
+                                  HelperText="Empty uses the text shown here." />
+                }
+                <MudNumericField T="int" @bind-Value="_m.RebootTimeoutMinutes" Label="Restart after (minutes)" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                 Min="@PatchPolicyRules.MinRebootTimeoutMinutes" Max="@PatchPolicyRules.MaxRebootTimeoutMinutes" Style="max-width:220px" Class="mt-2" />
+            </div>
+        }
+        else
+        {
+            <MudText Typo="Typo.caption" Class="muted d-block">Updates that need a restart finish at the next restart somebody makes.</MudText>
+        }
+
+        <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Missed endpoints</MudText>
+        <MudNumericField T="int" @bind-Value="_m.RetryHours" Label="Keep trying for (hours)" Variant="Variant.Outlined" Margin="Margin.Dense"
+                         Min="@PatchPolicyRules.MinRetryHours" Max="@PatchPolicyRules.MaxRetryHours" Style="max-width:220px"
+                         HelperText="How long Action1 keeps trying endpoints that were off or offline at the start time. Keep it shorter than the time between two runs." />
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">@(IsEdit ? "Save" : "Create")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private static readonly DayOfWeek[] WeekOrder =
+        [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday];
+
+    /// <summary>The form state; lists are edited as selections and comma-separated text.</summary>
+    private sealed class Model
+    {
+        public string? Name { get; set; }
+        public string? Description { get; set; }
+        public bool Enabled { get; set; } = true;
+        public PatchScheduleKind ScheduleKind { get; set; } = PatchScheduleKind.Weekly;
+        public WeekDays WeekDays { get; set; } = WeekDays.Wednesday;
+        public int MonthDay { get; set; } = 1;
+        public int MonthWeek { get; set; } = 2;
+        public DayOfWeek MonthWeekday { get; set; } = DayOfWeek.Wednesday;
+        public TimeSpan? Start { get; set; } = TimeSpan.FromHours(20);
+        public bool EndpointLocalTime { get; set; } = true;
+        public PatchUpdateScope Scope { get; set; } = PatchUpdateScope.All;
+        public IReadOnlyCollection<string> Sources { get; set; } = [];
+        public IReadOnlyCollection<string> Types { get; set; } = [];
+        public IReadOnlyCollection<string> Severities { get; set; } = [];
+        public string? ExcludedNames { get; set; }
+        public string? ExcludedVendors { get; set; }
+        public bool RequireApproval { get; set; }
+        public int InstallDelayDays { get; set; }
+        public bool AutoReboot { get; set; }
+        public bool RebootMessage { get; set; } = true;
+        public string? RebootMessageText { get; set; }
+        public int RebootTimeoutMinutes { get; set; } = 30;
+        public int RetryHours { get; set; } = 24;
+
+        public PatchPolicyInput ToInput() => new(Name, Description, Enabled, ScheduleKind, WeekDays, MonthDay, MonthWeek, MonthWeekday,
+            (int)(Start ?? TimeSpan.Zero).TotalMinutes, EndpointLocalTime, Scope, Sources.ToList(), Types.ToList(), Severities.ToList(),
+            Split(ExcludedNames), Split(ExcludedVendors), RequireApproval, InstallDelayDays, AutoReboot, RebootMessage, RebootMessageText,
+            RebootTimeoutMinutes, RetryHours);
+
+        /// <summary>A throwaway entity, only to describe the schedule while it is edited.</summary>
+        public PatchPolicy ToPolicy() => new()
+        {
+            ScheduleKind = ScheduleKind, WeekDays = WeekDays, MonthDay = MonthDay, MonthWeek = MonthWeek, MonthWeekday = MonthWeekday,
+            StartMinute = (int)(Start ?? TimeSpan.Zero).TotalMinutes, EndpointLocalTime = EndpointLocalTime
+        };
+
+        public static Model From(PatchPolicyInput p) => new()
+        {
+            Name = p.Name, Description = p.Description, Enabled = p.Enabled, ScheduleKind = p.ScheduleKind, WeekDays = p.WeekDays,
+            MonthDay = p.MonthDay, MonthWeek = p.MonthWeek, MonthWeekday = p.MonthWeekday, Start = TimeSpan.FromMinutes(p.StartMinute),
+            EndpointLocalTime = p.EndpointLocalTime, Scope = p.Scope, Sources = p.UpdateSources.ToHashSet(), Types = p.UpdateTypes.ToHashSet(),
+            Severities = p.Severities.ToHashSet(), ExcludedNames = string.Join(", ", p.ExcludedNames),
+            ExcludedVendors = string.Join(", ", p.ExcludedVendors), RequireApproval = p.RequireApproval, InstallDelayDays = p.InstallDelayDays,
+            AutoReboot = p.AutoReboot, RebootMessage = p.RebootMessage, RebootMessageText = p.RebootMessageText,
+            RebootTimeoutMinutes = p.RebootTimeoutMinutes, RetryHours = p.RetryHours
+        };
+
+        private static List<string> Split(string? text) =>
+            (text ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+    }
+
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    /// <summary>The patch policy to edit; null creates one.</summary>
+    [Parameter] public PatchPolicyInput? Existing { get; set; }
+
+    [Parameter] public IReadOnlyList<ClientOption> Clients { get; set; } = [];
+    [Parameter] public Func<Guid?, PatchPolicyInput, Task<bool>> OnSubmit { get; set; } = (_, _) => Task.FromResult(true);
+
+    private bool IsEdit => Existing is not null;
+    private Model _m = new();
+    private Guid? _clientId;
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        if (Existing is { } existing)
+        {
+            _m = Model.From(existing);
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(_clientId, _m.ToInput()))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

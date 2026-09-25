@@ -51,6 +51,15 @@ public static class DatabaseGrants
             ["CheckDefinitions"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["SiteMonitoringTemplates"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["SitePolicies"] = Grants(web: ReadWrite, gateway: Read, signer: Read, workers: Read),
+            // Policies and monitoring templates on client and endpoint level (0.6.0) are read wherever the site links are.
+            ["ClientPolicies"] = Grants(web: ReadWrite, gateway: Read, signer: Read, workers: Read),
+            ["EndpointPolicies"] = Grants(web: ReadWrite, gateway: Read, signer: Read, workers: Read),
+            ["ClientMonitoringTemplates"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+            // Patch policies (0.6.0): web links them, the workers turn them into automations in the patch management product.
+            ["PatchPolicies"] = Grants(web: ReadWrite, workers: Read),
+            ["ClientPatchPolicies"] = Grants(web: ReadWrite, workers: Read),
+            ["SitePatchPolicies"] = Grants(web: ReadWrite, workers: Read),
+            ["EndpointPatchPolicies"] = Grants(web: ReadWrite, workers: Read),
             // Maintenance window occurrences: written by web when a policy is saved and by the workers every hour.
             ["MaintenanceWindowOccurrences"] = Grants(web: ReadWrite, workers: ReadWrite),
             ["EndpointMonitoringTemplates"] = Grants(web: ReadWrite, signer: Read, workers: Read),
@@ -58,6 +67,7 @@ public static class DatabaseGrants
             ["ClientTemplates"] = Grants(web: ReadWrite, workers: Read),
             ["ClientTemplateSites"] = Grants(web: ReadWrite, workers: Read),
             ["ClientTemplateSiteMonitoringTemplates"] = Grants(web: ReadWrite, workers: Read),
+            ["ClientTemplateMonitoringTemplates"] = Grants(web: ReadWrite, workers: Read),
 
             ["CheckResults"] = Grants(web: Read, gateway: "INSERT", workers: "SELECT, DELETE"),
             // The signer clears the batch sequences of an endpoint that enrolls again: the new agent state counts from 1 (0.2.0).
@@ -138,6 +148,8 @@ public static class DatabaseGrants
             // removed by web only through the cascade of its site.
             ["IntegrationSiteGroups"] = Grants(web: Read, workers: ReadWrite),
             ["IntegrationOperations"] = Grants(web: "SELECT, INSERT, DELETE", workers: ReadWrite),
+            // The automations of patch policies (0.6.0): only the workers write what they made in the product; web shows it.
+            ["IntegrationAutomations"] = Grants(web: Read, workers: ReadWrite),
             ["BackupRuns"] = Grants(web: Read, workers: ReadWrite),
             ["WorkerWatermarks"] = Grants(workers: ReadWrite),
 

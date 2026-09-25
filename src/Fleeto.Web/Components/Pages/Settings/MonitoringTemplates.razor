@@ -49,7 +49,7 @@
                 </MudTd>
                 <MudTd>@(context.ClientCode ?? "All clients")</MudTd>
                 <MudTd>@context.CheckCount</MudTd>
-                <MudTd>@context.SiteCount site@(context.SiteCount == 1 ? "" : "s")@(context.ClientTemplateSiteCount > 0 ? $", {context.ClientTemplateSiteCount} client template site{(context.ClientTemplateSiteCount == 1 ? "" : "s")}" : "")</MudTd>
+                <MudTd>@Usage(context)</MudTd>
                 @if (CanManage)
                 {
                     <MudTd Style="white-space:nowrap">
@@ -122,8 +122,8 @@
 
     private async Task DeleteAsync(MonitoringTemplateListItem template)
     {
-        var usage = template.SiteCount + template.ClientTemplateSiteCount > 0
-            ? $"This template is linked to {template.SiteCount} site{(template.SiteCount == 1 ? "" : "s")} and {template.ClientTemplateSiteCount} client template site{(template.ClientTemplateSiteCount == 1 ? "" : "s")}. Its checks stop running on those endpoints. "
+        var usage = template.ClientCount + template.SiteCount + template.ClientTemplateSiteCount > 0
+            ? $"This template is linked to {Usage(template)}. Its checks stop running on those endpoints. "
             : string.Empty;
         var parameters = new DialogParameters<ConfirmDialog>
         {
@@ -135,5 +135,22 @@
         {
             await ReloadAsync();
         }
+    }
+
+    private static string Usage(MonitoringTemplateListItem template)
+    {
+        var parts = new List<string>();
+        if (template.ClientCount > 0)
+        {
+            parts.Add(Ui.Count(template.ClientCount, "client"));
+        }
+
+        parts.Add(Ui.Count(template.SiteCount, "site"));
+        if (template.ClientTemplateSiteCount > 0)
+        {
+            parts.Add(Ui.Count(template.ClientTemplateSiteCount, "client template use"));
+        }
+
+        return Ui.JoinList(parts);
     }
 }

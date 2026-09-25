@@ -422,6 +422,86 @@ public sealed class Action1Client : IIntegration, IDisposable
         ChangeAsync(HttpMethod.Post, $"endpoints/managed/{Uri.EscapeDataString(organizationId)}/{Uri.EscapeDataString(endpointId)}/move",
             new JsonObject { ["target_organization_id"] = targetOrganizationId }, cancellationToken, goneIsDone: true);
 
+    /// <summary>
+    /// The scheduled automations of one organization (0.6.0), with their id, name and schedule. Fleeto reads them to find
+    /// the ones it made that were removed in the console, and to warn about the ones it does not manage.
+    /// </summary>
+    public async Task<IntegrationResult<IReadOnlyList<Action1AutomationInfo>>> ListAutomationsAsync(string organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var automations = new List<Action1AutomationInfo>();
+            for (var page = 0; page < Action1Api.MaxPages; page++)
+            {
+                using var document = await GetAsync($"automations/schedules/{Uri.EscapeDataString(organizationId)}",
+                    $"from={page * Action1Api.PageSize}&limit={Action1Api.PageSize}", cancellationToken);
+                var items = Items(document.RootElement);
+                foreach (var item in items)
+                {
+                    if (Text(item, "id") is { Length: > 0 } id)
+                    {
+                        automations.Add(new Action1AutomationInfo(id, Text(item, "name"), Text(item, "settings")));
+                    }
+                }
+
+                if (items.Count < Action1Api.PageSize)
+                {
+                    break;
+                }
+            }
+
+            return IntegrationResult<IReadOnlyList<Action1AutomationInfo>>.Success(automations);
+        }
+        catch (Action1Exception ex)
+        {
+            return IntegrationResult<IReadOnlyList<Action1AutomationInfo>>.Fail(ex.Message, ex.IsPermanent);
+        }
+    }
+
+    /// <summary>
+    /// Creates a scheduled automation (0.6.0) and returns its id. Needs <c>manage_automations</c> on the role of the API
+    /// credentials.
+    /// </summary>
+    public Task<IntegrationResult<string>> CreateAutomationAsync(string organizationId, Action1Automation automation,
+        CancellationToken cancellationToken = default) =>
+        CreateAsync($"automations/schedules/{Uri.EscapeDataString(organizationId)}", automation.ToJson(),
+            "Action1 created the automation but did not name its id. Remove it in the Action1 console; Fleeto creates it again.",
+            cancellationToken);
+
+    /// <summary>
+    /// Replaces a scheduled automation with what Fleeto wants now (0.6.0): the whole automation is sent, as the Action1
+    /// console does. Returns false when Action1 no longer has it, so the caller creates it again.
+    /// </summary>
+    public async Task<IntegrationResult<bool>> UpdateAutomationAsync(string organizationId, string automationId, Action1Automation automation,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var document = await RequestAsync(HttpMethod.Patch,
+                $"automations/schedules/{Uri.EscapeDataString(organizationId)}/{Uri.EscapeDataString(automationId)}", null, automation.ToJson(),
+                cancellationToken);
+            return IntegrationResult<bool>.Success(true);
+        }
+        catch (Action1Exception ex) when (ex.Status == HttpStatusCode.NotFound)
+        {
+            return IntegrationResult<bool>.Success(false);
+        }
+        catch (Action1Exception ex) when (ex.Status == HttpStatusCode.BadRequest)
+        {
+            return IntegrationResult<bool>.Fail(Refused(ex), permanent: true);
+        }
+        catch (Action1Exception ex)
+        {
+            return IntegrationResult<bool>.Fail(ex.Message, ex.IsPermanent);
+        }
+    }
+
+    /// <summary>Removes a scheduled automation (0.6.0); one that no longer exists counts as removed.</summary>
+    public Task<IntegrationResult> DeleteAutomationAsync(string organizationId, string automationId, CancellationToken cancellationToken = default) =>
+        ChangeAsync(HttpMethod.Delete, $"automations/schedules/{Uri.EscapeDataString(organizationId)}/{Uri.EscapeDataString(automationId)}", null,
+            cancellationToken, goneIsDone: true);
+
     /// <summary>The endpoint groups of one organization (0.6.0), with their id and name.</summary>
     public async Task<IntegrationResult<IReadOnlyList<ExternalTenant>>> ListGroupsAsync(string organizationId,
         CancellationToken cancellationToken = default)

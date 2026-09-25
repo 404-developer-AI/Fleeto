@@ -351,7 +351,7 @@ public sealed class CheckEvaluationService : WorkerLoop
                 {
                     var inMaintenance = await db.Endpoints.AsNoTracking()
                         .Where(e => e.Id == endpointId)
-                        .Where(MaintenanceRules.EndpointInMaintenance(now, db.MaintenanceWindowOccurrences, db.SitePolicies, db.Policies))
+                        .Where(MaintenanceRules.EndpointInMaintenance(now, db.MaintenanceWindowOccurrences, EffectivePolicies.Query(db)))
                         .AnyAsync(cancellationToken);
                     stateChanged = await ApplyResultsAsync(db, endpoint, results, transitions, now, inMaintenance, cancellationToken);
                 }
@@ -405,7 +405,7 @@ public sealed class CheckEvaluationService : WorkerLoop
         List<AlertTransition> transitions, DateTime now, bool inMaintenance, CancellationToken cancellationToken)
     {
         var definitionIds = results.Select(r => r.CheckDefinitionId).Distinct().ToList();
-        var checks = (await EffectiveCheckResolver.LoadAsync(db, endpoint.Id, endpoint.SiteId, endpoint.Class, endpoint.OsPlatform,
+        var checks = (await EffectiveCheckResolver.LoadAsync(db, endpoint.Id, endpoint.ClientId, endpoint.SiteId, endpoint.Class, endpoint.OsPlatform,
                 includeDisabledOnEndpoint: false, cancellationToken))
             .ToDictionary(c => c.Id);
         var states = await db.CheckStates

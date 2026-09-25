@@ -130,7 +130,7 @@ public sealed class MaintenanceRuleTests
         var ids = expected.Keys.ToList();
         await using var context = _db.DbFactory.CreateSystem();
         var byEf = await context.Endpoints.Where(e => ids.Contains(e.Id))
-            .Where(MaintenanceRules.EndpointInMaintenance(Now, context.MaintenanceWindowOccurrences, context.SitePolicies, context.Policies))
+            .Where(MaintenanceRules.EndpointInMaintenance(Now, context.MaintenanceWindowOccurrences, EffectivePolicies.Query(context)))
             .Select(e => e.Id).ToListAsync();
         var bySql = await context.Database.SqlQueryRaw<Guid>(
                 """SELECT e."Id" AS "Value" FROM "Endpoints" e WHERE e."Id" = ANY(@ids) AND """ + MaintenanceSql.EndpointInMaintenance,
@@ -197,16 +197,16 @@ public sealed class MaintenanceRuleTests
             }
 
             await using var context = _db.DbFactory.CreateSystem();
-            var running = await MaintenanceWindowSchedule.RunningBySiteAsync(context, endpoints.Select(e => e.SiteId).Distinct().ToList(), Now, CancellationToken.None);
+            var running = await MaintenanceWindowSchedule.RunningByEndpointAsync(context, endpoints.Select(e => e.Id).ToList(), Now, CancellationToken.None);
             foreach (var endpoint in endpoints)
             {
                 expected[endpoint.Id] = MaintenanceRules.Effective(MaintenancePeriod.None, MaintenancePeriod.None, MaintenancePeriod.None, Now,
-                    MaintenanceWindowSchedule.PeriodFor(running, endpoint.SiteId, endpoint.Class)) is not null;
+                    MaintenanceWindowSchedule.PeriodFor(running, endpoint.Id, endpoint.Class)) is not null;
             }
 
             var ids = expected.Keys.ToList();
             var byEf = await context.Endpoints.Where(e => ids.Contains(e.Id))
-                .Where(MaintenanceRules.EndpointInMaintenance(Now, context.MaintenanceWindowOccurrences, context.SitePolicies, context.Policies))
+                .Where(MaintenanceRules.EndpointInMaintenance(Now, context.MaintenanceWindowOccurrences, EffectivePolicies.Query(context)))
                 .Select(e => e.Id).ToListAsync();
             var bySql = await context.Database.SqlQueryRaw<Guid>(
                     """SELECT e."Id" AS "Value" FROM "Endpoints" e WHERE e."Id" = ANY(@ids) AND """ + MaintenanceSql.EndpointInMaintenance,
@@ -218,7 +218,7 @@ public sealed class MaintenanceRuleTests
             Assert.Equal(expected.Where(x => x.Value).Select(x => x.Key).Order(), byEf.Order());
             Assert.Equal(expected.Where(x => x.Value).Select(x => x.Key).Order(), bySql.Order());
             var serverWindow = MaintenanceWindowSchedule.PeriodFor(running, endpoints.Single(e => e.Class == EndpointClass.Server &&
-                running.ContainsKey(e.SiteId) && running[e.SiteId].Any(o => o.Occurrence.AppliesTo == CheckAppliesTo.Server)).SiteId, EndpointClass.Server)!;
+                running.ContainsKey(e.Id) && running[e.Id].Any(o => o.Occurrence.AppliesTo == CheckAppliesTo.Server)).Id, EndpointClass.Server)!;
             var effective = MaintenanceRules.Effective(MaintenancePeriod.None, MaintenancePeriod.None, MaintenancePeriod.None, Now, serverWindow)!;
             Assert.Equal(MaintenanceSource.PolicyWindow, effective.Source);
             Assert.StartsWith("Windows ", effective.SourceName);

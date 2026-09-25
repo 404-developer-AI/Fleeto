@@ -159,6 +159,8 @@ public static class AuditActions
     public const string ClientDeleted = "client.deleted";
     public const string ClientDetachedFromTemplate = "client.detached_from_template";
     public const string ClientTagsChanged = "client.tags_changed";
+    /// <summary>The policy, patch policy or monitoring templates of a client changed (0.6.0).</summary>
+    public const string ClientLinksChanged = "client.links_changed";
     public const string TagUpdated = "tag.updated";
     public const string TagDeleted = "tag.deleted";
     public const string SiteCreated = "site.created";
@@ -174,6 +176,8 @@ public static class AuditActions
     public const string EndpointMoved = "endpoint.moved";
     public const string EndpointDeleted = "endpoint.deleted";
     public const string EndpointChecksChanged = "endpoint.checks_changed";
+    /// <summary>The policy or patch policy of one endpoint changed (0.6.0).</summary>
+    public const string EndpointLinksChanged = "endpoint.links_changed";
     public const string CheckRunRequested = "check.run_requested";
     public const string CheckReset = "check.reset";
     public const string NoteCreated = "note.created";
@@ -207,6 +211,9 @@ public static class AuditActions
     public const string PolicyCreated = "policy.created";
     public const string PolicyUpdated = "policy.updated";
     public const string PolicyDeleted = "policy.deleted";
+    public const string PatchPolicyCreated = "patch_policy.created";
+    public const string PatchPolicyUpdated = "patch_policy.updated";
+    public const string PatchPolicyDeleted = "patch_policy.deleted";
     public const string MonitoringTemplateCreated = "monitoring_template.created";
     public const string MonitoringTemplateUpdated = "monitoring_template.updated";
     public const string MonitoringTemplateDeleted = "monitoring_template.deleted";

@@ -173,7 +173,7 @@ public sealed class PatchDeploymentTests
         Assert.False(parameters.TryGetProperty("packages", out _));
         var reboot = parameters.GetProperty("reboot_options");
         Assert.Equal("yes", reboot.GetProperty("auto_reboot").GetString());
-        Assert.Equal(PatchRules.RebootTimeoutSeconds, reboot.GetProperty("timeout").GetInt32());
+        Assert.Equal(PatchRules.RebootTimeoutMinutes, reboot.GetProperty("timeout").GetInt32());
     }
 
     [Fact]

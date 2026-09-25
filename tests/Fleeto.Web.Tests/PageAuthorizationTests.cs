@@ -37,6 +37,7 @@ public class PageAuthorizationTests
         "/settings/monitoring-templates",
         "/settings/monitoring-templates/{TemplateId:guid}",
         "/settings/policies",
+        "/settings/patch-policies",
         "/settings/scripts",
         "/settings/scripts/{ScriptId:guid}",
     ];

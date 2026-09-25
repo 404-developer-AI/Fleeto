@@ -1,3 +1,4 @@
+using Fleeto.Infrastructure.Services;
 using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
@@ -406,7 +407,7 @@ public sealed class PatchSyncService : WorkerLoop
         CancellationToken cancellationToken) =>
         [.. await db.Endpoints
             .Where(e => e.ClientId == clientId)
-            .Where(MaintenanceRules.EndpointInMaintenance(now, db.MaintenanceWindowOccurrences, db.SitePolicies, db.Policies))
+            .Where(MaintenanceRules.EndpointInMaintenance(now, db.MaintenanceWindowOccurrences, EffectivePolicies.Query(db)))
             .Select(e => e.Id)
             .ToListAsync(cancellationToken)];
 

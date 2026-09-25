@@ -175,12 +175,12 @@ public enum ComponentUpdateWait
     RolledBack
 }
 
-/// <summary>How a link between a site and a policy or monitoring template came to exist.</summary>
+/// <summary>How a link between a client or site and a policy, patch policy or monitoring template came to exist.</summary>
 public enum LinkSource
 {
-    /// <summary>Linked by a technician on the site.</summary>
+    /// <summary>Linked by a technician on the client or site.</summary>
     Manual,
-    /// <summary>Maintained by the client template the site was created from.</summary>
+    /// <summary>Maintained by the client template the client follows.</summary>
     ClientTemplate
 }
 

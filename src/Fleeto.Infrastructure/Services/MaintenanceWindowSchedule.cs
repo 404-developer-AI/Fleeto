@@ -83,14 +83,14 @@ public static class MaintenanceWindowSchedule
     }
 
     /// <summary>
-    /// The running occurrence per site for endpoints of each class, with the policy name, for display. Sites without a linked policy
-    /// use the default policy.
+    /// The running occurrences per endpoint, with the policy name, for display. Each endpoint uses its effective policy
+    /// (<see cref="EffectivePolicies"/>); the class of the occurrence is applied by <see cref="PeriodFor"/>.
     /// </summary>
-    public static async Task<IReadOnlyDictionary<Guid, IReadOnlyList<(MaintenanceWindowOccurrence Occurrence, string PolicyName)>>> RunningBySiteAsync(
-        FleetoDbContext db, IReadOnlyCollection<Guid> siteIds, DateTime now, CancellationToken cancellationToken)
+    public static async Task<IReadOnlyDictionary<Guid, IReadOnlyList<(MaintenanceWindowOccurrence Occurrence, string PolicyName)>>> RunningByEndpointAsync(
+        FleetoDbContext db, IReadOnlyCollection<Guid> endpointIds, DateTime now, CancellationToken cancellationToken)
     {
         var result = new Dictionary<Guid, IReadOnlyList<(MaintenanceWindowOccurrence, string)>>();
-        if (siteIds.Count == 0)
+        if (endpointIds.Count == 0)
         {
             return result;
         }
@@ -104,18 +104,16 @@ public static class MaintenanceWindowSchedule
             return result;
         }
 
-        var ids = siteIds.ToList();
-        var links = await db.SitePolicies.AsNoTracking().Where(l => ids.Contains(l.SiteId))
-            .ToDictionaryAsync(l => l.SiteId, l => l.PolicyId, cancellationToken);
-        var defaultPolicyId = await db.Policies.IgnoreQueryFilters().AsNoTracking().Where(p => p.IsDefault).Select(p => (Guid?)p.Id)
-            .FirstOrDefaultAsync(cancellationToken);
-        foreach (var siteId in ids)
+        var ids = endpointIds.ToList();
+        var policies = await EffectivePolicies.Query(db).IgnoreQueryFilters().Where(p => ids.Contains(p.EndpointId))
+            .Select(p => new { p.EndpointId, p.PolicyId })
+            .ToListAsync(cancellationToken);
+        foreach (var endpoint in policies)
         {
-            var policyId = links.TryGetValue(siteId, out var linked) ? linked : defaultPolicyId;
-            var forSite = running.Where(r => r.Occurrence.PolicyId == policyId).Select(r => (r.Occurrence, r.Name)).ToList();
-            if (forSite.Count > 0)
+            var forEndpoint = running.Where(r => r.Occurrence.PolicyId == endpoint.PolicyId).Select(r => (r.Occurrence, r.Name)).ToList();
+            if (forEndpoint.Count > 0)
             {
-                result[siteId] = forSite;
+                result[endpoint.EndpointId] = forEndpoint;
             }
         }
 
@@ -124,9 +122,9 @@ public static class MaintenanceWindowSchedule
 
     /// <summary>The running window that applies to an endpoint of <paramref name="endpointClass"/>, as a period for the maintenance rule.</summary>
     public static MaintenancePeriod? PeriodFor(IReadOnlyDictionary<Guid, IReadOnlyList<(MaintenanceWindowOccurrence Occurrence, string PolicyName)>> running,
-        Guid siteId, EndpointClass endpointClass)
+        Guid endpointId, EndpointClass endpointClass)
     {
-        if (!running.TryGetValue(siteId, out var occurrences))
+        if (!running.TryGetValue(endpointId, out var occurrences))
         {
             return null;
         }

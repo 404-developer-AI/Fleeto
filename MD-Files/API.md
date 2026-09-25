@@ -985,8 +985,10 @@ from its name; an admin can choose another one from this list.
 
 ### Check source
 
-`site_template` (a monitoring template linked to the site), `endpoint_template` (a monitoring template linked to this
-endpoint), `endpoint` (a check that exists only on this endpoint).
+`client_template` (a monitoring template linked to the client, from 0.6.0), `site_template` (a monitoring template linked
+to the site), `endpoint_template` (a monitoring template linked to this endpoint), `endpoint` (a check that exists only on
+this endpoint). A template linked on more than one level reports the widest one. Treat an unknown value as a template
+check.
 
 ### Check type
 

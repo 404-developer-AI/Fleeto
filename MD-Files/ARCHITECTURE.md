@@ -77,25 +77,34 @@ customer can be moved to another VPS by copying one directory and one backup.
 
 ```
 Client 1──* Site 1──* Endpoint 1──* CheckResult (hypertable)
-                │         │
-                │         ├──* Job, Alert, Note, InventorySnapshot, RemoteSession, CheckState, CheckRunRequest
-                │         ├──* AgentCertificate (role agent or watchdog), EndpointComponentState
-                │         ├──* CheckDefinition (endpoint-only checks)
-                │         ├──* EndpointCheckOverride ──> CheckDefinition (of a template)
-                │         └──* EndpointMonitoringTemplate ──> MonitoringTemplate
-                │
-                ├──* SiteMonitoringTemplate ──> MonitoringTemplate 1──* CheckDefinition
-                └──* SitePolicy ──────────────> Policy
+  │             │         │
+  │             │         ├──* Job, Alert, Note, InventorySnapshot, RemoteSession, CheckState, CheckRunRequest
+  │             │         ├──* AgentCertificate (role agent or watchdog), EndpointComponentState
+  │             │         ├──* CheckDefinition (endpoint-only checks)
+  │             │         ├──* EndpointCheckOverride ──> CheckDefinition (of a template)
+  │             │         ├──* EndpointMonitoringTemplate ──> MonitoringTemplate
+  │             │         ├──1 EndpointPolicy ──────────> Policy
+  │             │         └──1 EndpointPatchPolicy ─────> PatchPolicy
+  │             │
+  │             ├──* SiteMonitoringTemplate ──> MonitoringTemplate 1──* CheckDefinition
+  │             ├──1 SitePolicy ──────────────> Policy
+  │             └──1 SitePatchPolicy ─────────> PatchPolicy
+  │
+  ├──* ClientMonitoringTemplate ──> MonitoringTemplate
+  ├──1 ClientPolicy ──────────────> Policy
+  └──1 ClientPatchPolicy ─────────> PatchPolicy
 
 Client 1──* ClientTag ──> Tag (instance-wide name and color)
 
-ClientTemplate 1──* ClientTemplateSite ──* (MonitoringTemplate | Policy) links
+ClientTemplate ──* (MonitoringTemplate | Policy | PatchPolicy) links of the client itself
+ClientTemplate 1──* ClientTemplateSite ──* (MonitoringTemplate | Policy | PatchPolicy) links
 
 Job 1──* JobOutputChunk
 Script 1──* ScriptVersion       SigningRequest (signer work queue)
 License (one per instance)      ApiKey 1──* ApiKeyClient ──> Client
 AgentRelease (current release offered to agents)
 User *──* Role                  Integration 1──* IntegrationMapping ──> Client
+                                Integration 1──* IntegrationAutomation (per client and patch policy)
 AuditEntry (append-only)
 ```
 
@@ -103,20 +112,24 @@ AuditEntry (append-only)
 |---|---|---|
 | **Client** | `Id`, `Code` (unique, uppercase), `Name`, `CreatedAt`, `Maintenance` | Tenant boundary inside the instance. Every client-owned table carries its own `ClientId`, denormalized on purpose (see the rule below the table), and every query filters on it. |
 | **Tag**, **ClientTag** | Tag: `Id`, `Name`, `NormalizedName` (unique), `Color` (`Red`, `Orange`, `Amber`, `Lime`, `Green`, `Teal`, `Cyan`, `Blue`, `Pink`, `Brown`, `Gray`), `CreatedAt`, `UpdatedAt`. ClientTag: `ClientId`, `TagId`, `CreatedAt` | Tags on clients (0.6.0), in the way of Proxmox. A tag is created the first time an admin or technician types it on a client, with the color its name points at (a stable hash over the palette without gray); a name is unique regardless of case, at most 32 characters of letters, digits and `-` `_` `.` `+`, and a client carries at most 10. The tag itself is instance-wide, so one name has one color on every client; **ClientTag** is client-owned and deleted with either side. Renaming, recoloring and deleting a tag is for admins who see every client (Settings, Tags); a caller limited to clients only sees the tags of those clients. Web only (grants). |
-| **Site** | `Id`, `ClientId`, `Name`, `Description`, `Maintenance` | Groups endpoints. Holds the link to at most one policy (without one the instance default policy applies) and to any number of monitoring templates. Enrollment tokens belong to a site. |
+| **Site** | `Id`, `ClientId`, `Name`, `Description`, `Maintenance` | Groups endpoints. Holds the link to at most one policy and one patch policy, and to any number of monitoring templates (see *Links on three levels* below the table). Enrollment tokens belong to a site. |
 | **Endpoint** | `Id`, `ClientId`, `SiteId`, `Hostname`, `Class` (`workstation`/`server`), `ClassOverride`, `Tier` (`agent_only`/`managed`), `Os`, `AgentVersion`, `LastSeenAt`, `Source` (`agent`/`integration`), `Maintenance`, `PublicIpAddress?`, `PublicIpSeenAt?`, `WatchdogOnline`, `WatchdogVersion`, `WatchdogLastSeenAt?`, `SignedInUsersJson?`, `SignedInUsersAt?` | Endpoints without an agent exist only for hypervisor inventory (ESXi hosts and VMs from vCenter or Proxmox). `Tier` gates every feature server-side. `IsOnline` and the watchdog columns (0.2.1) are maintained separately for the agent and the watchdog session. `PublicIpAddress` is the address the gateway saw for the latest agent connection (personal data: only the latest value is kept, deleted with the endpoint). `SignedInUsersJson` (0.2.2) is the latest list of signed-in users the agent reported: per user the SID or uid, the account name and the sessions (personal data: only the latest list is kept, deleted with the endpoint). |
 | `Maintenance` (on Client, Site, Endpoint) | `MaintenanceStartedAt?`, `MaintenanceEndsAt?`, `MaintenanceStartedByUserId?`, `MaintenanceStartedByName?`, `MaintenanceReason?` | Maintenance mode (0.2.0), stored as nullable columns on each of the three tables. Active while `MaintenanceStartedAt` is set and not in the future and `MaintenanceEndsAt` is null or in the future; ending by hand clears the columns, an end time that passes is left in place and every query compares with the current time. The reason is free text and personal data may appear in it: it is never copied into the audit log. See *Maintenance mode* in §4. |
 | **AgentCertificate** | `Id`, `ClientId`, `EndpointId`, `Role` (`agent`/`watchdog`), `Fingerprint`, `IssuedAt`, `ExpiresAt`, `RevokedAt?`, `RevokedBy?`, `RevokedReason?` | One row per issued certificate, renewals included. The gateway refuses every certificate with `RevokedAt` set. `Role` (0.2.1) decides which session the certificate may open; a renewal keeps it. |
 | **EndpointComponentState** | `EndpointId`, `Component` (`agent`/`watchdog`), `ClientId`, `InstalledVersion`, `ServiceState`, `ServiceDetail`, `ServiceStateAt?`, `UpdateVersion`, `UpdateState?`, `UpdateDetail`, `UpdateAt?`, `WaitVersion?`, `WaitReason?`, `WaitUntil?`, `WaitAt?` | Per endpoint and component (0.2.1): the service state its peer reports and the latest update report (`downloading`, `installing`, `installed`, `failed`, `rolled_back`). From 0.2.2 also the offered release the installer holds back and why (`UpdateRing`, `NextAttempt`, `RandomDelay`, `InstallerUpdate`, `RolledBack`), cleared by the next update report that is not a wait. Written by the gateway, deleted with the endpoint. |
 | **Policy** | `Id`, `ClientId?`, `Name`, settings, `UpdateRing` (`preview`/`standard`/`delayed`, default `standard`), `MaxOutputBytes` (1-200 MiB, default 50 MiB, check constraint), `MaintenanceWindowsJson`, remote session settings (0.3.0): `RemoteConsentRequired` (default off), `RemoteConsentTimeoutSeconds` (10-300, default 30), `RemoteBannerVisible` (default on), `RemoteClipboardEnabled` (default on), `RemoteIdleTimeoutMinutes` (5-480, default 30), `RemoteMaxFileBytes` (1 MiB-10 GiB, default 10 GiB) | Agent behaviour: intervals, patch behaviour, update ring (0.2.1, §4 Agent update), script permissions and **script approval required**, the job output cap (0.2.1, §4 Job), remote session rules (0.3.0; consent and banner apply to remote control on workstations only, the clipboard to remote control on every endpoint; the signer puts what applies into the session token), maintenance windows. `ClientId` null = global. |
+| **ClientPolicy**, **SitePolicy**, **EndpointPolicy** | `ClientId` / `SiteId` / `EndpointId` (key), `ClientId`, `PolicyId`, `Source` (`Manual`/`ClientTemplate`, not on the endpoint), `CreatedAt` | The policy of a client, site or endpoint (client and endpoint level from 0.6.0), at most one per level; the most specific one applies, else the default policy. Global or same-client policies only (constraint triggers). |
+| **PatchPolicy** | `Id`, `ClientId?`, `Name`, `Description?`, `Enabled`, `ScheduleKind` (`Weekly`, `MonthlyDay`, `MonthlyWeekday`), `WeekDays`, `MonthDay` (1-31), `MonthWeek` (1-4), `MonthWeekday`, `StartMinute` (0-1439), `EndpointLocalTime`, `Scope` (`All`/`Filtered`), `UpdateSources[]`, `UpdateTypes[]`, `Severities[]`, `ExcludedNames[]`, `ExcludedVendors[]`, `RequireApproval`, `InstallDelayDays` (0-90), `AutoReboot`, `RebootMessage`, `RebootMessageText?`, `RebootTimeoutMinutes` (1-1440), `RetryHours` (1-168), `CopiedFromId?` | When and how the patch management product installs updates (0.6.0), handed to Action1 as a scheduled automation per client (§4, Patch policies). Every option is one the Action1 API offers; the allowed filter values are Action1's own (`PatchPolicyRules`). `ClientId` null = global, immutable (trigger). Check constraints on every range. |
+| **ClientPatchPolicy**, **SitePatchPolicy**, **EndpointPatchPolicy** | as the policy links, with `PatchPolicyId` | The patch policy of a client, site or endpoint (0.6.0); the most specific one applies, and without any link Fleeto schedules nothing for the endpoint. |
+| **ClientMonitoringTemplate** | `ClientId`, `MonitoringTemplateId`, `Source`, `CreatedAt` | A monitoring template for every endpoint of the client (0.6.0). Monitoring templates add up over the levels: those of the client, the site and the endpoint all apply. |
 | **MaintenanceWindowOccurrence** | `PolicyId`, `WindowIndex`, `StartsAt`, `EndsAt`, `AppliesTo`, `Name?` | Occurrences of the policy's maintenance windows (0.2.0), stored 8 days ahead (§4, Maintenance windows). Deleted with the policy. |
 | **MonitoringTemplate** | `Id`, `ClientId?`, `Name` | Named set of `CheckDefinition`s with thresholds and alert rules. `ClientId` null = global. |
 | **CheckDefinition** | `Id`, `ClientId?`, `MonitoringTemplateId?`, `EndpointId?`, `Type`, `Interval`, `Thresholds`, `FailuresBeforeAlert`, `AppliesToClass`, `Enabled` | Interval from seconds to monthly. Owned by exactly one of a monitoring template or one endpoint (check constraint). An endpoint-only check carries the endpoint's `ClientId` (composite foreign key) and runs whatever the endpoint class. |
-| **EndpointMonitoringTemplate** | `EndpointId`, `ClientId`, `MonitoringTemplateId`, `CreatedAt`, `CreatedBy?` | An extra monitoring template for one endpoint, on top of those of its site. Global or same-client templates only (constraint trigger). |
+| **EndpointMonitoringTemplate** | `EndpointId`, `ClientId`, `MonitoringTemplateId`, `CreatedAt`, `CreatedBy?` | An extra monitoring template for one endpoint, on top of those of its client and site. Global or same-client templates only (constraint trigger). |
 | **EndpointCheckOverride** | `EndpointId`, `CheckDefinitionId`, `ClientId`, `Disabled`, `IntervalSeconds?`, `FailuresBeforeAlert?`, `OverrideThresholds`, `WarningThreshold?`, `CriticalThreshold?` | Adjusts one template check for one endpoint. Unset values inherit the template, so the template stays linked. `OverrideThresholds` replaces both thresholds as a pair, so "no threshold" can be an override too. Template checks only (constraint trigger). |
 | **CheckState** | `EndpointId`, `CheckDefinitionId`, `Target`, `ClientId`, `Status`, `Value?`, `ConsecutiveNonOk`, `LastResultAt`, `ResetAt?` | Current evaluated state per check and target, maintained by the workers. "Re-run requested" while `ResetAt` is later than `LastResultAt`. States of checks that no longer apply are removed on the hourly sweep. |
 | **CheckRunRequest** | `Id`, `ClientId`, `EndpointId`, `CheckDefinitionId`, `Reset`, `RequestedBy`, `RequestedAt`, `ExpiresAt`, `ResetAppliedAt?`, `DeliveredAt?`, `Outcome?` (`expired`, `not_applicable`, `not_managed`) | A technician's "Run now" or "Reset and run" (§4). Kept 7 days. |
-| **ClientTemplate** | `Id`, `Name`, sites with linked policies and templates | Blueprint used at client creation. Linked, not copied: later changes apply to every client using it; a technician can make an independent copy. |
+| **ClientTemplate** | `Id`, `Name`, `PolicyId?`, `PatchPolicyId?`, monitoring templates of the client (**ClientTemplateMonitoringTemplate**), sites (**ClientTemplateSite**) each with `PolicyId?`, `PatchPolicyId?` and monitoring templates | Blueprint used at client creation. Linked, not copied: later changes apply to every client using it; a technician can make an independent copy. Global policies, patch policies and monitoring templates only (constraint triggers). Its links on the client and its sites carry `Source = ClientTemplate`: a technician can replace them (the link becomes their own), not remove them, and detaching the client makes them all manual. |
 | **Script**, **ScriptVersion** | `Id`, `ClientId?`, `Name`, `Description`, `Language` (`PowerShell`, `Batch`, `Shell`, `Bash`), `CurrentVersionId`; version: `ClientId?`, `Number`, `Body`, `Sha256`, `TimeoutSeconds`, `AuthorUserId`, `ApprovedByUserId?`, `ApprovedAt?`, `ApprovedSha256?` | `ClientId` null = global, immutable (trigger); a version carries the client of its script (constraint trigger). Saving a changed body or timeout creates a new version; the language is fixed. A version is approved only when approver and author differ and `ApprovedSha256` equals `Sha256` (check constraint). |
 | **Job** | `Id`, `ClientId`, `EndpointId`, `BatchId`, `Type` (`Script`), snapshot of the script (`ScriptId?`, `ScriptVersionId?`, name, version number, `Language`, `ScriptSha256`, `TimeoutSeconds`, `MaxOutputBytes`), `RunAs` (`service`/`logged_on_user`, 0.2.1), `RunAsAccount?` (the user the agent reported, 0.2.1), `RunAsUserId?` and `RunAsChosenAccount?` (the user the technician chose, 0.2.2), `ValidUntil`, `InitiatedByUserId`, `State` (`pending_signature`, `queued`, `running`, `succeeded`, `failed`, `expired`, `refused`, `lost`, `cancelled`), `RefusalReason?`, `Payload`, `Signature`, `SigningKeyId`, `DeliveredAt?`, `StartedAt?`, `CompletedAt?`, `Result?` (`exited`, `timed_out`, `refused`, `failed_to_start`, `interrupted`), `ExitCode?`, `OutputState` (`none`, `receiving`, `complete`, `incomplete`), `OutputTruncated`, per stream announced chunks, bytes and SHA-256 | One row per endpoint. Idempotent by `Id`. Never delivered or executed after `ValidUntil` (at most 7 days after creation, check constraint). `State` describes execution, `OutputState` describes the output; they move independently. The snapshot keeps the history readable after the script changes or is deleted. |
 | **JobOutputChunk** | `ClientId`, `JobId`, `Stream` (`stdout`/`stderr`), `Sequence`, `Data`, `ReceivedAt` | Unique on `JobId`, `Stream`, `Sequence`. Protocol in §4, Job output. |
@@ -136,6 +149,7 @@ AuditEntry (append-only)
 | **OutboxEmail**, **OutboxWebhook** | `Id`, recipient or `NotificationChannelId`, `Category`, content or `Payload`, `Attempts`, `NextAttemptAt`, `SentAt?`, `LastError?` | Written in the transaction that changes the alert; delivered by the workers (§4, Alert notifications). Sent rows kept 30 days, given up rows 90 days. |
 | **Integration** | `Id`, `Type`, `Enabled`, `Region?`, `EncryptedCredentials`, `CredentialName`, `Status`, `StatusMessage?`, `LastAttemptAt?`, `LastSuccessAt?` | One external product per instance (unique on `Type`, 0.4.0). Credentials are ciphertext bound to the row, see §5; `CredentialName` is the client id, for display. `Region` is the Action1 region, which decides the base URL. `FollowClients` and `FollowMessage?` (0.6.0): Action1 follows the clients and sites (§4, Following clients and sites) and why that last failed. |
 | **IntegrationMapping** | `Id`, `IntegrationId`, `ClientId`, `ExternalTenantId`, `ExternalTenantName`, `SyncedName` | One external tenant (Action1 organization, Sophos tenant) maps to one client, and a client to one tenant: both unique per integration. Client-owned, so deleting the client removes it. `SyncedName` (0.6.0): the tenant name Fleeto last brought the tenant in step with; set to the tenant's own name when the mapping is made, so following clients renames every mapped tenant to `[CODE] Name` once and then again only when the client is renamed. |
+| **IntegrationAutomation** | `Id`, `IntegrationId`, `ClientId`, `ExternalTenantId`, `PatchPolicyId`, `ExternalAutomationId?`, `SyncedHash`, `SyncedAt?`, `LastError?` | The Action1 automation of one patch policy for one client (0.6.0), unique per integration, client and patch policy. No foreign key to the client or the patch policy on purpose: the row is how the workers find the automation to remove after either is gone. Written by the workers only; web shows `LastError` on the patch policy. `IntegrationMapping.OtherAutomationsJson` and `OtherAutomationsReadAt` hold the automations of the organization Fleeto does not manage, for the warning on the client. |
 | **IntegrationSiteGroup** | `Id`, `IntegrationId`, `ClientId`, `SiteId`, `ExternalTenantId`, `ExternalGroupId`, `SyncedName`, `MembersHash`, `MembersSyncedAt?` | The Action1 endpoint group of one site while the integration follows clients (0.6.0), unique per site. Deleted with its site (composite foreign key on `SiteId`, `ClientId`). Web reads, the workers write. |
 | **IntegrationOperation** | `Id`, `IntegrationId`, `Kind` (`CreateTenant`, `DeleteTenant`, `DeleteGroup`, `MoveEndpoint`), `TargetClientId?`, `ExternalTenantId`, `ExternalGroupId`, `ExternalEndpointId`, `Name`, `Attempts`, `LastError?`, `NextAttemptAt` | What the product still has to do for a client or site that was created or deleted (0.6.0). Written by web in the transaction of the change, done by the workers, dismissed by an admin. Not client-owned: a deletion outlives its client; a tenant waiting to be created goes with its client (`TargetClientId`, cascade). |
 | **EndpointPatchState**, **EndpointMissingUpdate** | `EndpointId`, `ClientId`, `ExternalEndpointId`, `ExternalTenantId`, `Coverage`, `MissingCritical`, `MissingOther`, `RebootRequired`, `ProductLastSeenAt?`, `ProductAgentVersion`, `UpdatedAt`; per update `ExternalUpdateId`, `Name`, `Vendor`, `Version`, `KbNumber`, `Severity`, `RebootNeeded` | Patch state per endpoint as the product last reported it (0.4.0), replaced on every sync and never kept as history. Detail rows exist only for endpoints that miss something. |
@@ -144,6 +158,16 @@ AuditEntry (append-only)
 | **PatchDeploymentStep** | `Id`, `TargetId`, `ClientId`, `Position`, `Time?`, `Operation`, `Status`, `Details` | The history the product keeps for one endpoint of a deployment (0.6.0): Action1's "Automation History", such as "Deploy Update, Success, Installing 2026-09 .NET Framework Security Update (KB5126052)". Replaced as a whole on every read, deleted with its target (composite foreign key on `TargetId`, `ClientId`). Web reads, the workers write. |
 | **User**, **Role** | `Id`, `Email`, `PasswordHash` (Argon2id), `TotpSecret` (encrypted), roles | Roles: admin, technician, read-only. |
 | **AuditEntry** | `Time`, `ClientId?`, `ActorId` (user or API key), `Action`, `TargetType`, `TargetId`, `Details` | Append-only; no update or delete path in code or DB grants. `ClientId` null for instance-wide actions. |
+
+**Links on three levels (0.6.0).** A policy, a patch policy and monitoring templates can be linked to a client, a site and
+one endpoint. For the policy and the patch policy the most specific link wins: the endpoint's over its site's, the site's
+over its client's; without any link the default policy applies, and no patch policy at all. Monitoring templates add up:
+those of the client, the site and the endpoint all apply. The rule exists once in C# (`EffectivePolicyRules`), once as
+SQL fragments for set-based statements in the gateway and the workers (`EffectivePolicyRules.PolicyIdSql`,
+`PatchPolicyIdSql`) and once as an EF Core query (`EffectivePolicies.Query`), and a test proves the three agree; nothing
+else composes it. Maintenance windows, the update ring, script approval, the job output cap, remote session rules,
+heartbeat and offline alerts all follow the effective policy of the endpoint. Edited in one place per level: Edit client,
+Edit site and Policies in the right-click menu of an endpoint, each showing what applies without a link of its own.
 
 **Client scoping rule.** Every table that holds client-owned data carries its own
 `ClientId` column, even when the client could be derived through a parent (Endpoint through
@@ -160,11 +184,12 @@ Three kinds of tables:
 - **Client-owned** (`ClientId` required): Site, Endpoint, AgentCertificate, Job,
   JobOutputChunk, Alert, Note, InventorySnapshot, RemoteSession, CheckResult, CheckState,
   CheckRunRequest, EndpointMonitoringTemplate, EndpointCheckOverride, CheckResultHourly, CheckResultDaily,
-  EndpointComponentState, IntegrationMapping. Consistency by composite foreign key, as above. One documented
-  exception: CheckResult (the hypertable) has no foreign keys, for ingest speed and because
-  compressed chunks and cascading deletes do not mix well. The gateway takes its ClientId from
-  the endpoint row, and the workers purge results of deleted endpoints.
-- **Global or client-specific** (`ClientId` nullable, null = global): Policy,
+  EndpointComponentState, IntegrationMapping, the policy, patch policy and monitoring template links of every level.
+  Consistency by composite foreign key, as above. Two documented exceptions: CheckResult (the hypertable) has no
+  foreign keys, for ingest speed and because compressed chunks and cascading deletes do not mix well; the gateway takes
+  its ClientId from the endpoint row, and the workers purge results of deleted endpoints. IntegrationAutomation has no
+  foreign key to its client, so the workers can still remove the automation in Action1 after the client is deleted.
+- **Global or client-specific** (`ClientId` nullable, null = global): Policy, PatchPolicy,
   MonitoringTemplate, CheckDefinition, Script, ScriptVersion. A child always carries the
   same `ClientId` as its parent (a CheckDefinition that of its MonitoringTemplate, a
   ScriptVersion that of its Script), so a client-specific check or script is filtered like
@@ -403,7 +428,7 @@ directory; the gateway reads it read-only (`Gateway:ReleaseDirectory`), verifies
 was built with, checks every listed binary in its image (`Gateway:AgentBinariesDirectory`) against size and SHA-256, and
 records the release as current (`AgentRelease`, audited as `agent_release.installed`) → every agent and watchdog session
 gets an `UpdateOffer` with the manifest bytes, the signature and `update_allowed`: whether the ring of the endpoint's
-policy (site policy, else the default policy) allows the release now. Preview installs at once, Standard 7 days and
+policy (§2, the most specific of endpoint, site and client, else the default policy) allows the release now. Preview installs at once, Standard 7 days and
 Delayed 14 days after the release was installed on the instance; an admin can pause the release (nobody installs it,
 installations already running finish) or release it to all rings at once (Settings, Agent updates). Offers are
 re-evaluated when a release loads, when an admin changes a control (notification `fleeto_agent_releases`) and every
@@ -463,9 +488,9 @@ acknowledge and agents keep buffering on disk.
 in C# (`EffectiveChecks`, used by the configuration builder in the signer, the check evaluation
 in the workers and the Checks tab in web) with a SQL twin for set-based statements
 (`EffectiveCheckResolver.AppliesSql`); a test proves both agree:
-- a template check applies when it is enabled, its template is linked to the endpoint's site or
-  to the endpoint itself, it matches the endpoint class, and no override disables it on the
-  endpoint;
+- a template check applies when it is enabled, its template is linked to the endpoint's client (0.6.0), its site or
+  the endpoint itself (templates add up over the levels; a template linked twice runs once and reports the widest
+  level as its source), it matches the endpoint class, and no override disables it on the endpoint;
 - an endpoint-only check applies when it is enabled;
 - either kind applies only when its type runs on the endpoint's platform (`CheckCatalog.IsSupported`, SQL
   twin `CheckCatalog.PlatformSql`), so a Windows event log check in a template linked to a mixed site never
@@ -620,7 +645,7 @@ the job and checks again from the database: still `pending_signature` and within
 initiator exists, has 2FA, is not locked out and is admin or technician; the endpoint is managed with the
 license; the body of the stored version still has the snapshot hash and the language; the script is global
 or of the endpoint's client; the language runs on the endpoint's platform; and, when the policy of the
-endpoint's site (or the default policy) requires approval, the version is the script's current one and
+endpoint (endpoint, site or client link, else the default policy) requires approval, the version is the script's current one and
 approved by an admin who is not its author → it signs a `JobPayload` (`JobId`, `InstanceId`, `EndpointId`,
 `Type`, `ValidUntil`, `InitiatedBy`, timeout, output cap, the account it runs as, and the script: language, name,
 version, body, SHA-256) with the context `fleeto-job-v1` and sets `queued`, or sets `refused` with the reason → the
@@ -1589,6 +1614,26 @@ state changes again. The Patches tab of an endpoint opens the history of each de
 refreshes live. A deployment that is no longer
 running is part of the patch history of its endpoints and is kept as long as the job history.
 
+**Patch policies (0.6.0).** A patch policy says when and how Action1 installs updates; it is linked to a client, a site
+or an endpoint like a policy, and the most specific link applies (`EffectivePolicyRules`). `PatchAutomationService` in the
+workers, woken on `fleeto_integrations` and running every minute, keeps one scheduled automation per mapped client and per
+patch policy that applies to at least one of its managed endpoints Action1 reports in the client's own organization
+(`EndpointPatchState`): `POST /automations/schedules/{orgId}` with a single `deploy_update` action, `settings` in Action1's
+notation (`ENABLED WEEKLY:Tue,Sat AT:22-30-00`, `MONTHLY:15`, `MONTHLYWEEK:2:Tue`; Action1 has no daily schedule, so every
+day is weekly with all seven days), `settings_timezone` (`LOCALTIME` or `UTC`), `retry_minutes`, the filters
+(`update_sources`, `update_types`, `update_security_severities` included; `update_names`, `update_vendors` excluded),
+`require_update_approval` with `automatic_install_delay_days`, and `reboot_options` (timeout in minutes). The targets are the
+endpoints by Action1 id (`type: Endpoint`), never a site group, so an endpoint with a patch policy of its own is never in
+two automations. A hash of the body decides whether the automation is out of step; a change is sent whole with
+`PATCH .../{automationId}`, and one that Action1 no longer has is created again. An automation without targets, of a deleted
+patch policy or of a client that is no longer mapped is removed (`DELETE`). Once an hour the workers list the automations
+of every mapped organization: one of Fleeto's that is gone is created again, and the others are stored on the mapping and
+shown as a warning when the client is edited, because an endpoint they target can be patched twice. Fleeto knows its own
+automations by the id it stored, never by the name (which starts with `Fleeto: `). While the license lets no endpoint be
+managed, Fleeto wants no automations and removes them. A refusal is kept on the row with its reason and shown on the
+patch policy; the same body is tried again after 30 minutes. At most 10 calls a pass, with the shared request budget. The
+credentials need `view_automations` and `manage_automations`.
+
 **Following clients and sites (0.6.0).** With `Integration.FollowClients` on, Action1 is kept in step with Fleeto by
 `IntegrationFollowService` in the workers, woken on `fleeto_integrations` and running every minute. What cannot be read
 from the current state is an `IntegrationOperation` that web writes in the same transaction as the change: a new client
@@ -1618,7 +1663,7 @@ the patch state is read again under the new client at once. An endpoint in an or
 and not moved.
 
 Restarting is a choice per deployment, off by default: with it on, Action1 shows the signed-in user Fleeto's own message
-and restarts after 30 minutes. Fleeto never restarts an endpoint itself. Starting a deployment is an ordinary privileged
+and restarts after 30 minutes (`timeout` is in minutes; before 0.6.0 Fleeto sent seconds, which made Action1 wait 30 hours). Fleeto never restarts an endpoint itself. Starting a deployment is an ordinary privileged
 action (admins and technicians, managed endpoints only) and is audited like a job: one entry when the technician starts
 it, one when the product accepts it and one when it ends, with the counts per outcome.
 

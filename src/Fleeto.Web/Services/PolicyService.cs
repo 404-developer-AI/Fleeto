@@ -15,7 +15,7 @@ public sealed record PolicyListItem(Guid Id, string Name, string? Description, G
     UpdateRing UpdateRing = UpdateRing.Standard, long MaxOutputBytes = ScriptRules.DefaultMaxOutputBytes,
     int RemoteIdleTimeoutMinutes = RemoteSessionRules.DefaultIdleTimeoutMinutes, bool RemoteConsentRequired = false,
     int RemoteConsentTimeoutSeconds = RemoteSessionRules.DefaultConsentTimeoutSeconds, bool RemoteBannerVisible = true, bool RemoteClipboardEnabled = true,
-    long RemoteMaxFileBytes = RemoteSessionRules.DefaultMaxFileBytes);
+    long RemoteMaxFileBytes = RemoteSessionRules.DefaultMaxFileBytes, int ClientCount = 0, int EndpointCount = 0);
 
 /// <param name="MaintenanceWindows">Recurring maintenance windows (0.2.0). Null keeps the current windows when updating, none when creating.</param>
 /// <param name="RemoteIdleTimeoutMinutes">Minutes a remote session may go without input (0.3.0). Null keeps the current value.</param>
@@ -68,9 +68,11 @@ public sealed class PolicyService
                     db.Clients.Where(c => c.Id == p.ClientId).Select(c => c.Code).FirstOrDefault(),
                     p.IsDefault, p.HeartbeatIntervalSeconds, p.InventoryIntervalSeconds, p.OfflineAlertAfterMinutes, p.OfflineAlertSeverity,
                     db.SitePolicies.Count(l => l.PolicyId == p.Id),
-                    db.ClientTemplateSites.Count(s => s.PolicyId == p.Id), Array.Empty<MaintenanceWindow>(), p.ScriptApprovalRequired, p.UpdateRing,
+                    db.ClientTemplateSites.Count(s => s.PolicyId == p.Id) + db.ClientTemplates.Count(t => t.PolicyId == p.Id),
+                    Array.Empty<MaintenanceWindow>(), p.ScriptApprovalRequired, p.UpdateRing,
                     p.MaxOutputBytes, p.RemoteIdleTimeoutMinutes, p.RemoteConsentRequired, p.RemoteConsentTimeoutSeconds, p.RemoteBannerVisible,
-                    p.RemoteClipboardEnabled, p.RemoteMaxFileBytes),
+                    p.RemoteClipboardEnabled, p.RemoteMaxFileBytes,
+                    db.ClientPolicies.Count(l => l.PolicyId == p.Id), db.EndpointPolicies.Count(l => l.PolicyId == p.Id)),
                 p.MaintenanceWindowsJson
             })
             .ToListAsync(cancellationToken);
@@ -196,21 +198,34 @@ public sealed class PolicyService
 
         if (policy.IsDefault)
         {
-            return ServiceResult.Fail("The default policy applies to every site without a linked policy and cannot be deleted. Edit it instead.");
+            return ServiceResult.Fail("The default policy applies to every endpoint without a linked policy and cannot be deleted. Edit it instead.");
         }
 
         var now = _time.GetUtcNow().UtcDateTime;
-        var siteIds = await db.SitePolicies.Where(l => l.PolicyId == policyId).Select(l => l.SiteId).ToListAsync(cancellationToken);
+        var clientIds = await db.ClientPolicies.IgnoreQueryFilters().Where(l => l.PolicyId == policyId).Select(l => l.ClientId).ToListAsync(cancellationToken);
+        var siteIds = await db.SitePolicies.IgnoreQueryFilters().Where(l => l.PolicyId == policyId).Select(l => l.SiteId).ToListAsync(cancellationToken);
+        var endpointIds = await db.EndpointPolicies.IgnoreQueryFilters().Where(l => l.PolicyId == policyId).Select(l => l.EndpointId)
+            .ToListAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        // Sites that used the policy fall back to the default policy (links cascade); they need a new configuration.
+        // What used the policy falls back to the next wider level (links cascade); it needs a new configuration.
+        foreach (var clientId in clientIds)
+        {
+            db.ConfigChangeEvents.Add(new ConfigChangeEvent { Scope = ConfigChangeScope.Client, ScopeId = clientId, CreatedAt = now });
+        }
+
         foreach (var siteId in siteIds)
         {
             db.ConfigChangeEvents.Add(new ConfigChangeEvent { Scope = ConfigChangeScope.Site, ScopeId = siteId, CreatedAt = now });
         }
 
+        foreach (var endpointId in endpointIds)
+        {
+            db.ConfigChangeEvents.Add(new ConfigChangeEvent { Scope = ConfigChangeScope.Endpoint, ScopeId = endpointId, CreatedAt = now });
+        }
+
         db.Policies.Remove(policy);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.PolicyDeleted, "Policy", policy.Id.ToString(), policy.ClientId,
-            new { policy.Name, Sites = siteIds.Count }), now));
+            new { policy.Name, Clients = clientIds.Count, Sites = siteIds.Count, Endpoints = endpointIds.Count }), now));
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return ServiceResult.Ok();

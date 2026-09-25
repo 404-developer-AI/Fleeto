@@ -83,10 +83,11 @@ public static class MaintenanceRules
 
     /// <summary>
     /// EF Core predicate for endpoints in effective maintenance at <paramref name="now"/>. Navigations to the site and client are
-    /// translated to joins; the policy window is a subquery on the occurrence, site policy and policy sets of the same context.
+    /// translated to joins; the policy window is a subquery on the occurrences and the effective policies
+    /// (<c>EffectivePolicies.Query</c>) of the same context.
     /// </summary>
     public static Expression<Func<Endpoint, bool>> EndpointInMaintenance(DateTime now, IQueryable<MaintenanceWindowOccurrence> occurrences,
-        IQueryable<SitePolicy> sitePolicies, IQueryable<Policy> policies) => e =>
+        IQueryable<EffectivePolicyRow> effectivePolicies) => e =>
         (e.MaintenanceStartedAt != null && e.MaintenanceStartedAt <= now && (e.MaintenanceEndsAt == null || e.MaintenanceEndsAt > now)) ||
         (e.Site!.MaintenanceStartedAt != null && e.Site.MaintenanceStartedAt <= now && (e.Site.MaintenanceEndsAt == null || e.Site.MaintenanceEndsAt > now)) ||
         (e.Site.Client!.MaintenanceStartedAt != null && e.Site.Client.MaintenanceStartedAt <= now &&
@@ -95,8 +96,7 @@ public static class MaintenanceRules
                              (o.AppliesTo == CheckAppliesTo.All ||
                               (o.AppliesTo == CheckAppliesTo.Server && (e.ClassOverride ?? e.DetectedClass) == EndpointClass.Server) ||
                               (o.AppliesTo == CheckAppliesTo.Workstation && (e.ClassOverride ?? e.DetectedClass) == EndpointClass.Workstation)) &&
-                             o.PolicyId == (sitePolicies.Where(sp => sp.SiteId == e.SiteId).Select(sp => (Guid?)sp.PolicyId).FirstOrDefault() ??
-                                            policies.Where(p => p.IsDefault).Select(p => (Guid?)p.Id).FirstOrDefault()));
+                             o.PolicyId == effectivePolicies.Where(p => p.EndpointId == e.Id).Select(p => p.PolicyId).FirstOrDefault());
 
     /// <summary>True when a window occurrence applies to an endpoint of <paramref name="endpointClass"/>.</summary>
     public static bool WindowAppliesTo(CheckAppliesTo appliesTo, EndpointClass endpointClass) =>

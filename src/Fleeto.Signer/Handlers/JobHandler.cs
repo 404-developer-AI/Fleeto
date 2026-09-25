@@ -137,11 +137,7 @@ public sealed class JobHandler : ISigningRequestHandler
             return SigningOutcome.Refused(PlatformReason);
         }
 
-        var policy = await db.SitePolicies.IgnoreQueryFilters().AsNoTracking()
-                         .Where(l => l.SiteId == endpoint.SiteId)
-                         .Select(l => l.Policy)
-                         .FirstOrDefaultAsync(cancellationToken)
-                     ?? await db.Policies.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, cancellationToken);
+        var policy = await EffectivePolicies.LoadAsync(db, endpoint.Id, cancellationToken);
         if (policy?.ScriptApprovalRequired == true &&
             (script.CurrentVersionId != version.Id || !version.IsApproved ||
              !await HasRoleAsync(db, version.ApprovedByUserId!.Value, null, cancellationToken, FleetoRoleNames.Admin)))

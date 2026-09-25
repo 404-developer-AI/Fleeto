@@ -2,8 +2,7 @@
 @attribute [Authorize(Policy = FleetoPolicies.Viewer)]
 @inherits FleetoPageBase
 @inject ClientTemplateService TemplateSvc
-@inject PolicyService PolicySvc
-@inject MonitoringTemplateService MonitoringSvc
+@inject LinkService LinkSvc
 @inject IDialogService DialogService
 
 <PageTitle>Client templates - Fleeto</PageTitle>
@@ -12,7 +11,7 @@
     <div>
         <MudText Typo="Typo.h4" Class="page-title">Client templates</MudText>
         <MudText Typo="Typo.body2" Class="muted">
-            Blueprints of sites with their policy and monitoring templates, used when creating a client. Clients keep following their template until they are detached.
+            Blueprints of a client and its sites, with their policy, patch policy and monitoring templates, used when creating a client. Clients keep following their template until they are detached.
         </MudText>
     </div>
     @if (CanManage)
@@ -78,8 +77,7 @@
     private async Task EditAsync(ClientTemplateListItem? item)
     {
         ClientTemplateDetail? existing = null;
-        IReadOnlyList<PolicyListItem> policies = [];
-        IReadOnlyList<MonitoringTemplateListItem> monitoring = [];
+        LinkChoices? choices = null;
         await LoadAsync(async caller =>
         {
             if (item is not null)
@@ -87,9 +85,14 @@
                 existing = await TemplateSvc.GetAsync(caller, item.Id);
             }
 
-            policies = (await PolicySvc.ListAsync(caller)).Where(p => p.ClientId is null).ToList();
-            monitoring = (await MonitoringSvc.ListAsync(caller)).Where(t => t.ClientId is null).ToList();
+            // A client template applies to any client, so it only offers the global ones.
+            choices = await LinkSvc.GetChoicesAsync(caller, null);
         });
+
+        if (choices is null)
+        {
+            return;
+        }
 
         if (item is not null && existing is null)
         {
@@ -100,8 +103,7 @@
         var parameters = new DialogParameters<ClientTemplateDialog>
         {
             { d => d.Existing, existing },
-            { d => d.Policies, policies },
-            { d => d.MonitoringTemplates, monitoring },
+            { d => d.Choices, choices },
             {
                 d => d.OnSubmit, input => RunAsync(caller => TemplateSvc.SaveAsync(caller, item?.Id, input),
                     item is null ? "The client template was created." : "The client template was saved and applied to the clients that follow it.")

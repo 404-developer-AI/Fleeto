@@ -1,0 +1,178 @@
+@page "/settings/patch-policies"
+@attribute [Authorize(Policy = FleetoPolicies.Viewer)]
+@inherits FleetoPageBase
+@inject PatchPolicyService PatchPolicySvc
+@inject ClientService ClientSvc
+@inject IDialogService DialogService
+
+<PageTitle>Patch policies - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Patch policies</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            When and how Action1 installs updates on the managed Windows endpoints of a client, site or single endpoint. Fleeto keeps one automation
+            per patch policy in the Action1 organization of each client that uses it, so a change here reaches Action1 within a minute.
+        </MudText>
+    </div>
+    @if (CanManage)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="CreateAsync">New patch policy</MudButton>
+    }
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_policies.Count == 0)
+    {
+        <div class="fl-panel pa-4">
+            <MudText Typo="Typo.body1">No patch policies yet.</MudText>
+            <MudText Typo="Typo.body2" Class="muted">
+                Create one, then choose it on a client, a site or an endpoint. Endpoints without a patch policy get no automation from Fleeto.
+            </MudText>
+        </div>
+    }
+    else
+    {
+        <MudTable Items="_policies" Hover="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>Name</MudTh>
+                <MudTh>Available for</MudTh>
+                <MudTh>Schedule</MudTh>
+                <MudTh>Updates</MudTh>
+                <MudTh>Restart</MudTh>
+                <MudTh>Used by</MudTh>
+                <MudTh>Action1</MudTh>
+                @if (CanManage)
+                {
+                    <MudTh Style="width:140px"></MudTh>
+                }
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>
+                    <strong>@context.Name</strong>
+                    @if (!context.Enabled)
+                    {
+                        <span class="ml-1"><StatusChip Text="Off" Kind="StatusKind.Neutral" /></span>
+                    }
+                    @if (!string.IsNullOrEmpty(context.Description))
+                    {
+                        <div class="muted" style="font-size:0.8125rem">@context.Description</div>
+                    }
+                </MudTd>
+                <MudTd>@(context.ClientCode is null ? "All clients" : context.ClientCode)</MudTd>
+                <MudTd>@context.Schedule</MudTd>
+                <MudTd>@(context.Scope == PatchUpdateScope.All ? "All missing updates" : "Matching the filters")</MudTd>
+                <MudTd>@(context.AutoReboot ? "Automatic" : "No")</MudTd>
+                <MudTd>
+                    @(context.Links == 0 ? "Nothing" : Ui.Count(context.Links, "link"))@(context.ClientTemplateUses > 0 ? $", {Ui.Count(context.ClientTemplateUses, "client template use")}" : "")
+                </MudTd>
+                <MudTd>
+                    @if (context.AutomationProblem is { } problem)
+                    {
+                        <MudTooltip Text="@problem"><StatusChip Text="Not in step" Kind="StatusKind.Error" /></MudTooltip>
+                    }
+                    else
+                    {
+                        <span class="muted">@(context.Automations == 0 ? "No automations" : Ui.Count(context.Automations, "automation"))</span>
+                    }
+                </MudTd>
+                @if (CanManage)
+                {
+                    <MudTd Style="white-space:nowrap">
+                        <MudTooltip Text="Edit"><MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="@(() => EditAsync(context))" /></MudTooltip>
+                        <MudTooltip Text="Make a copy"><MudIconButton Icon="@Icons.Material.Outlined.ContentCopy" Size="Size.Small" OnClick="@(() => CopyAsync(context))" /></MudTooltip>
+                        <MudTooltip Text="Delete"><MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context))" /></MudTooltip>
+                    </MudTd>
+                }
+            </RowTemplate>
+        </MudTable>
+    }
+</LoadState>
+
+@code {
+    private IReadOnlyList<PatchPolicyListItem> _policies = [];
+    private IReadOnlyList<ClientOption> _clients = [];
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        _policies = await PatchPolicySvc.ListAsync(caller);
+        _clients = await ClientSvc.ListOptionsAsync(caller);
+    });
+
+    private async Task CreateAsync()
+    {
+        var parameters = new DialogParameters<PatchPolicyDialog>
+        {
+            { d => d.Clients, _clients },
+            { d => d.OnSubmit, (clientId, input) => RunAsync(caller => PatchPolicySvc.CreateAsync(caller, clientId, input), "The patch policy was created.") }
+        };
+        await ShowAsync(parameters);
+    }
+
+    private async Task EditAsync(PatchPolicyListItem policy)
+    {
+        PatchPolicyInput? existing = null;
+        await LoadAsync(async caller => existing = await PatchPolicySvc.GetAsync(caller, policy.Id));
+        if (existing is null)
+        {
+            Snackbar.Add("The patch policy no longer exists. Refresh the page.", Severity.Warning);
+            return;
+        }
+
+        var parameters = new DialogParameters<PatchPolicyDialog>
+        {
+            { d => d.Existing, existing },
+            {
+                d => d.OnSubmit, (_, input) => RunAsync(caller => PatchPolicySvc.UpdateAsync(caller, policy.Id, input),
+                    "The patch policy was saved. Action1 gets the change within a minute.")
+            }
+        };
+        await ShowAsync(parameters);
+    }
+
+    private async Task ShowAsync(DialogParameters<PatchPolicyDialog> parameters)
+    {
+        var dialog = await DialogService.ShowAsync<PatchPolicyDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task CopyAsync(PatchPolicyListItem policy)
+    {
+        var parameters = new DialogParameters<CopyDialog>
+        {
+            { d => d.Title, $"Copy patch policy {policy.Name}" },
+            { d => d.InitialName, policy.Name + " (copy)" },
+            { d => d.AllowClientTarget, true },
+            { d => d.Clients, _clients },
+            { d => d.OnSubmit, (name, clientId) => RunAsync(caller => PatchPolicySvc.CopyAsync(caller, policy.Id, name, clientId), "The copy was created.") }
+        };
+        var dialog = await DialogService.ShowAsync<CopyDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(PatchPolicyListItem policy)
+    {
+        var usage = policy.Links > 0
+            ? $"It is linked {Ui.Count(policy.Links, "time")}; those clients, sites and endpoints follow the next wider level once it is gone. "
+            : string.Empty;
+        var automations = policy.Automations > 0 ? $"Fleeto removes its {Ui.Count(policy.Automations, "automation")} from Action1. " : string.Empty;
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Delete patch policy {policy.Name}" },
+            { d => d.Message, usage + automations + "This cannot be undone." }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => PatchPolicySvc.DeleteAsync(caller, policy.Id), "The patch policy was deleted."))
+        {
+            await ReloadAsync();
+        }
+    }
+}

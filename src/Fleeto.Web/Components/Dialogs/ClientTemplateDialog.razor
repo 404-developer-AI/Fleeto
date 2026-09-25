@@ -1,4 +1,5 @@
-@* Create or edit a client template: its sites, each with a global policy and global monitoring templates. *@
+@* Create or edit a client template: the policy, patch policy and monitoring templates of the client itself (0.6.0), and its
+   sites, each following the client unless it has its own. Only global ones can be used. *@
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">@(IsEdit ? "Edit client template" : "New client template")</MudText>
@@ -10,50 +11,58 @@
                 @ClientCount client@(ClientCount == 1 ? " follows" : "s follow") this template. Saving applies the changes to @(ClientCount == 1 ? "it" : "all of them").
             </MudAlert>
         }
-        <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" MaxLength="100" AutoFocus="true" Class="mb-3" />
-        <MudTextField @bind-Value="_description" Label="Description (optional)" Variant="Variant.Outlined" Lines="2" MaxLength="1000" Class="mb-4" />
+        <div class="d-flex gap-3 flex-wrap mb-4">
+            <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" MaxLength="100" AutoFocus="true" Style="min-width:220px" Class="flex-1" />
+            <MudTextField @bind-Value="_description" Label="Description (optional)" Variant="Variant.Outlined" MaxLength="1000" Style="min-width:220px" Class="flex-1" />
+        </div>
+
+        <div class="fl-panel pa-3 mb-4">
+            <MudText Typo="Typo.subtitle1">The client</MudText>
+            <MudText Typo="Typo.body2" Class="muted mb-3">Applies to every site and endpoint of the client, unless a site below has its own.</MudText>
+            <LinkEditor Selection="_client" Choices="Choices" PolicyInherit="Default policy" PatchInherit="No patch policy" />
+        </div>
 
         <div class="d-flex align-center justify-space-between mb-2">
             <MudText Typo="Typo.subtitle1">Sites</MudText>
             <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Add" OnClick="AddSite">Add site</MudButton>
         </div>
-
-        @foreach (var site in _sites)
-        {
-            <div class="fl-panel pa-3 mb-3">
-                <div class="d-flex gap-2 align-start">
-                    <MudTextField @bind-Value="site.Name" Label="Site name" Variant="Variant.Outlined" MaxLength="100" Margin="Margin.Dense" />
-                    <MudTooltip Text="Remove site">
-                        <MudIconButton Icon="@Icons.Material.Outlined.Delete" Color="Color.Error" OnClick="@(() => _sites.Remove(site))" Class="mt-2" />
-                    </MudTooltip>
-                </div>
-                <MudTextField @bind-Value="site.Description" Label="Description (optional)" Variant="Variant.Outlined" MaxLength="1000" Margin="Margin.Dense" Class="mt-2" />
-                <MudSelect T="Guid?" @bind-Value="site.PolicyId" Label="Policy" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2">
-                    <MudSelectItem T="Guid?" Value="@((Guid?)null)">No policy (the default policy applies)</MudSelectItem>
-                    @foreach (var policy in Policies.Where(p => !p.IsDefault))
-                    {
-                        <MudSelectItem T="Guid?" Value="@((Guid?)policy.Id)">@policy.Name</MudSelectItem>
-                    }
-                </MudSelect>
-                <MudText Typo="Typo.caption" Class="muted d-block mt-2">Monitoring templates</MudText>
-                @if (MonitoringTemplates.Count == 0)
-                {
-                    <MudText Typo="Typo.body2" Class="muted">No global monitoring templates exist yet.</MudText>
-                }
-                <div class="d-flex flex-wrap">
-                    @foreach (var template in MonitoringTemplates)
-                    {
-                        <MudCheckBox T="bool" Value="@site.MonitoringTemplateIds.Contains(template.Id)" Size="Size.Small" Color="Color.Primary"
-                                     ValueChanged="@(v => Toggle(site, template.Id, v))" Label="@template.Name" />
-                    }
-                </div>
-            </div>
-        }
+        <MudExpansionPanels MultiExpansion="true" Elevation="0" Class="mb-2">
+            @foreach (var site in _sites)
+            {
+                <MudExpansionPanel @bind-Expanded="site.Expanded" Class="fl-panel mb-2">
+                    <TitleContent>
+                        <div class="d-flex align-center gap-2">
+                            <MudIcon Icon="@Icons.Material.Outlined.Folder" Size="Size.Small" />
+                            <MudText Typo="Typo.body1">@(string.IsNullOrWhiteSpace(site.Name) ? "New site" : site.Name)</MudText>
+                            <MudText Typo="Typo.body2" Class="muted">@Summary(site)</MudText>
+                        </div>
+                    </TitleContent>
+                    <ChildContent>
+                        <div class="d-flex gap-2 align-start flex-wrap">
+                            <MudTextField @bind-Value="site.Name" Label="Site name" Variant="Variant.Outlined" MaxLength="100" Margin="Margin.Dense"
+                                          Style="min-width:200px" Class="flex-1" />
+                            <MudTextField @bind-Value="site.Description" Label="Description (optional)" Variant="Variant.Outlined" MaxLength="1000"
+                                          Margin="Margin.Dense" Style="min-width:200px" Class="flex-1" />
+                            <MudTooltip Text="Remove site">
+                                <MudIconButton Icon="@Icons.Material.Outlined.Delete" Color="Color.Error" OnClick="@(() => _sites.Remove(site))" Class="mt-1" />
+                            </MudTooltip>
+                        </div>
+                        <div class="mt-3">
+                            <LinkEditor Selection="site.Links" Choices="Choices" PolicyInherit="@SameAsClient(_client.PolicyId, Choices.Policies, "default policy")"
+                                        PatchInherit="@SameAsClient(_client.PatchPolicyId, Choices.PatchPolicies, "no patch policy")"
+                                        InheritedTemplates="ClientTemplates" />
+                        </div>
+                    </ChildContent>
+                </MudExpansionPanel>
+            }
+        </MudExpansionPanels>
         @if (_sites.Count == 0)
         {
             <MudText Typo="Typo.body2" Class="muted">Add at least one site: a client needs at least one site.</MudText>
         }
-        <MudText Typo="Typo.caption" Class="muted d-block">Only global policies and monitoring templates can be used, because a client template applies to any client.</MudText>
+        <MudText Typo="Typo.caption" Class="muted d-block">
+            Only global policies, patch policies and monitoring templates can be used, because a client template applies to any client.
+        </MudText>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
@@ -67,16 +76,18 @@
         public Guid? Id { get; init; }
         public string? Name { get; set; }
         public string? Description { get; set; }
-        public Guid? PolicyId { get; set; }
-        public HashSet<Guid> MonitoringTemplateIds { get; init; } = [];
+        public LinkSelection Links { get; init; } = new();
+        public bool Expanded { get; set; }
     }
 
     [CascadingParameter]
     private IMudDialogInstance MudDialog { get; set; } = default!;
 
     [Parameter] public ClientTemplateDetail? Existing { get; set; }
-    [Parameter] public IReadOnlyList<PolicyListItem> Policies { get; set; } = [];
-    [Parameter] public IReadOnlyList<MonitoringTemplateListItem> MonitoringTemplates { get; set; } = [];
+
+    /// <summary>The global policies, patch policies and monitoring templates.</summary>
+    [Parameter, EditorRequired] public LinkChoices Choices { get; set; } = default!;
+
     [Parameter] public Func<ClientTemplateInput, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
 
     private bool IsEdit => Existing is not null;
@@ -84,8 +95,16 @@
 
     private string _name = string.Empty;
     private string? _description;
+    private LinkSelection _client = new();
     private List<SiteModel> _sites = [];
     private bool _busy;
+
+    /// <summary>The monitoring templates of the client, which every site runs as well.</summary>
+    private IReadOnlyList<InheritedLink> ClientTemplates => _client.TemplateIds
+        .Select(id => Choices.MonitoringTemplates.FirstOrDefault(t => t.Id == id))
+        .OfType<LinkOption>()
+        .Select(t => new InheritedLink(t.Id, t.Name, LinkLevel.Client))
+        .ToList();
 
     protected override void OnInitialized()
     {
@@ -93,33 +112,47 @@
         {
             _name = template.Name;
             _description = template.Description;
+            _client = LinkSelection.From(template.Client.PolicyId, template.Client.PatchPolicyId, template.Client.MonitoringTemplateIds);
             _sites = template.Sites.Select(s => new SiteModel
             {
                 Id = s.Id,
                 Name = s.Name,
                 Description = s.Description,
-                PolicyId = s.PolicyId,
-                MonitoringTemplateIds = s.MonitoringTemplateIds.ToHashSet()
+                Links = LinkSelection.From(s.PolicyId, s.PatchPolicyId, s.MonitoringTemplateIds)
             }).ToList();
         }
         else
         {
-            _sites = [new SiteModel { Name = "Monitoring" }];
+            _sites = [new SiteModel { Name = "Monitoring", Expanded = true }];
         }
     }
 
-    private void AddSite() => _sites.Add(new SiteModel());
+    private void AddSite() => _sites.Add(new SiteModel { Expanded = true });
 
-    private static void Toggle(SiteModel site, Guid id, bool selected)
+    /// <summary>The empty choice of a site: "Same as client (Servers)".</summary>
+    private static string SameAsClient(Guid? clientChoice, IReadOnlyList<LinkOption> options, string none) =>
+        $"Same as client ({options.FirstOrDefault(o => o.Id == clientChoice)?.Name ?? none})";
+
+    /// <summary>One line under a collapsed site: what it has of its own.</summary>
+    private string Summary(SiteModel site)
     {
-        if (selected)
+        var own = new List<string>();
+        if (Choices.Policies.FirstOrDefault(p => p.Id == site.Links.PolicyId) is { } policy)
         {
-            site.MonitoringTemplateIds.Add(id);
+            own.Add(policy.Name);
         }
-        else
+
+        if (Choices.PatchPolicies.FirstOrDefault(p => p.Id == site.Links.PatchPolicyId) is { } patch)
         {
-            site.MonitoringTemplateIds.Remove(id);
+            own.Add(patch.Name);
         }
+
+        if (site.Links.TemplateIds.Count > 0)
+        {
+            own.Add(Ui.Count(site.Links.TemplateIds.Count, "monitoring template"));
+        }
+
+        return own.Count == 0 ? "Same as the client" : string.Join(" · ", own);
     }
 
     private void Cancel() => MudDialog.Cancel();
@@ -130,7 +163,9 @@
         try
         {
             var input = new ClientTemplateInput(_name, _description,
-                _sites.Select(s => new ClientTemplateSiteInput(s.Id, s.Name, s.Description, s.PolicyId, s.MonitoringTemplateIds.ToList())).ToList());
+                _sites.Select(s => new ClientTemplateSiteInput(s.Id, s.Name, s.Description, s.Links.PolicyId, s.Links.TemplateIds.ToList(),
+                    s.Links.PatchPolicyId)).ToList(),
+                new ClientTemplateClientLinks(_client.PolicyId, _client.PatchPolicyId, _client.TemplateIds.ToList()));
             if (await OnSubmit(input))
             {
                 MudDialog.Close(DialogResult.Ok(true));

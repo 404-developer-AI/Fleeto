@@ -462,7 +462,7 @@
                 }
                 else
                 {
-                    <span>Checks from the monitoring templates of the site and of this endpoint, and checks of this endpoint only.</span>
+                    <span>Checks from the monitoring templates of the client, the site and this endpoint, and checks of this endpoint only.</span>
                 }
             </MudText>
             @if (CanManage)
@@ -1201,6 +1201,7 @@
     {
         CheckSource.Endpoint => "This endpoint only",
         CheckSource.EndpointTemplate => $"{row.TemplateName} (linked to this endpoint)",
+        CheckSource.ClientTemplate => $"{row.TemplateName} (linked to the client)",
         _ => row.TemplateName ?? string.Empty
     };
 

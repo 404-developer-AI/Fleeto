@@ -422,10 +422,12 @@ public sealed class EndpointCheckService
             return null;
         }
 
-        var site = await db.SiteMonitoringTemplates.AsNoTracking()
-            .Where(l => l.SiteId == endpoint.SiteId)
-            .OrderBy(l => l.MonitoringTemplate!.Name)
-            .Select(l => new LinkOption(l.MonitoringTemplateId, l.MonitoringTemplate!.Name, l.MonitoringTemplate.ClientId == null))
+        // The templates of the client (0.6.0) and of the site apply anyway; they are changed there.
+        var site = await db.MonitoringTemplates.AsNoTracking()
+            .Where(t => db.SiteMonitoringTemplates.Any(l => l.SiteId == endpoint.SiteId && l.MonitoringTemplateId == t.Id) ||
+                        db.ClientMonitoringTemplates.Any(l => l.ClientId == endpoint.ClientId && l.MonitoringTemplateId == t.Id))
+            .OrderBy(t => t.Name)
+            .Select(t => new LinkOption(t.Id, t.Name, t.ClientId == null, false))
             .ToListAsync(cancellationToken);
         var linked = await db.EndpointMonitoringTemplates.AsNoTracking()
             .Where(l => l.EndpointId == endpointId)

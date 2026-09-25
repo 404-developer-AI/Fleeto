@@ -8,8 +8,8 @@ public static class MaintenanceSql
 {
     /// <summary>
     /// SQL condition that is true when endpoint <c>e</c> (alias of "Endpoints") is in effective maintenance at the timestamp parameter
-    /// <c>@now</c>: its own, its site's or its client's maintenance is active, or a window occurrence of its policy (the site's linked
-    /// policy, else the default policy) runs and applies to its class.
+    /// <c>@now</c>: its own, its site's or its client's maintenance is active, or a window occurrence of its policy
+    /// (<see cref="Core.Domain.EffectivePolicyRules"/>) runs and applies to its class.
     /// </summary>
     public const string EndpointInMaintenance = """
         ((e."MaintenanceStartedAt" IS NOT NULL AND e."MaintenanceStartedAt" <= @now AND (e."MaintenanceEndsAt" IS NULL OR e."MaintenanceEndsAt" > @now))
@@ -19,7 +19,8 @@ public static class MaintenanceSql
                     AND (mc."MaintenanceEndsAt" IS NULL OR mc."MaintenanceEndsAt" > @now))
          OR EXISTS (SELECT 1 FROM "MaintenanceWindowOccurrences" mo WHERE mo."StartsAt" <= @now AND mo."EndsAt" > @now
                     AND (mo."AppliesTo" = 'All' OR mo."AppliesTo" = COALESCE(e."ClassOverride", e."DetectedClass"))
-                    AND mo."PolicyId" = COALESCE((SELECT sp."PolicyId" FROM "SitePolicies" sp WHERE sp."SiteId" = e."SiteId" LIMIT 1),
-                                                 (SELECT mp."Id" FROM "Policies" mp WHERE mp."IsDefault" LIMIT 1))))
+                    AND mo."PolicyId" =
+        """ + " " + Core.Domain.EffectivePolicyRules.PolicyIdSql + " " + """
+        ))
         """;
 }

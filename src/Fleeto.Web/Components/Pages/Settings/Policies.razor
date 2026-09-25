@@ -11,7 +11,7 @@
     <div>
         <MudText Typo="Typo.h4" Class="page-title">Policies</MudText>
         <MudText Typo="Typo.body2" Class="muted">
-            Agent behaviour for the endpoints of a site. Policies are linked, not copied: a change applies at once to every site that uses the policy.
+            Agent behaviour for the endpoints of a client, site or single endpoint; the most specific link wins. Policies are linked, not copied: a change applies at once to every endpoint that uses the policy.
         </MudText>
     </div>
     @if (CanManage)
@@ -71,7 +71,7 @@
                     <div style="font-size:0.8125rem">@(string.IsNullOrEmpty(window.Name) ? "" : window.Name + ": ")@Fleeto.Core.Domain.MaintenanceWindows.Describe(window)</div>
                 }
             </MudTd>
-            <MudTd>@(context.IsDefault ? "Sites without a policy" : $"{context.SiteCount} site{(context.SiteCount == 1 ? "" : "s")}")@(context.ClientTemplateSiteCount > 0 ? $", {context.ClientTemplateSiteCount} client template site{(context.ClientTemplateSiteCount == 1 ? "" : "s")}" : "")</MudTd>
+            <MudTd>@Usage(context)</MudTd>
             @if (CanManage)
             {
                 <MudTd Style="white-space:nowrap">
@@ -153,8 +153,8 @@
 
     private async Task DeleteAsync(PolicyListItem policy)
     {
-        var usage = policy.SiteCount > 0
-            ? $"{policy.SiteCount} site{(policy.SiteCount == 1 ? " uses" : "s use")} this policy and will fall back to the default policy. "
+        var usage = policy.ClientCount + policy.SiteCount + policy.EndpointCount > 0
+            ? $"This policy is linked to {Links(policy)}. They follow the next wider level, or the default policy, once it is gone. "
             : string.Empty;
         var parameters = new DialogParameters<ConfirmDialog>
         {
@@ -166,5 +166,34 @@
         {
             await ReloadAsync();
         }
+    }
+
+    private static string Links(PolicyListItem policy)
+    {
+        var parts = new List<string>();
+        if (policy.ClientCount > 0)
+        {
+            parts.Add(Ui.Count(policy.ClientCount, "client"));
+        }
+
+        if (policy.SiteCount > 0 || (policy.ClientCount == 0 && policy.EndpointCount == 0))
+        {
+            parts.Add(Ui.Count(policy.SiteCount, "site"));
+        }
+
+        if (policy.EndpointCount > 0)
+        {
+            parts.Add(Ui.Count(policy.EndpointCount, "endpoint"));
+        }
+
+        return Ui.JoinList(parts);
+    }
+
+    private static string Usage(PolicyListItem policy)
+    {
+        var usage = policy.IsDefault && policy.ClientCount + policy.SiteCount + policy.EndpointCount == 0
+            ? "Everything without a policy"
+            : policy.IsDefault ? $"Everything without a policy, and {Links(policy)}" : Links(policy);
+        return policy.ClientTemplateSiteCount > 0 ? $"{usage}, {Ui.Count(policy.ClientTemplateSiteCount, "client template use")}" : usage;
     }
 }

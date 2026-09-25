@@ -24,7 +24,7 @@ public sealed record SiteDetail(Guid Id, string Name, string? Description, Guid 
 public sealed record SiteSummary(Guid Id, string Name, string? Description, Guid ClientId, string ClientCode, string ClientName, bool FromTemplate,
     string PolicyName, int MonitoringTemplateCount, MaintenancePeriod Maintenance, MaintenancePeriod ClientMaintenance);
 
-/// <summary>Sites of a client: detail with endpoints, create, edit, delete, and the policy and monitoring template links.</summary>
+/// <summary>Sites of a client: detail with endpoints, create, edit and delete. Their links are saved by <see cref="LinkService"/>.</summary>
 public sealed class SiteService
 {
     private readonly IFleetoDbContextFactory _dbFactory;
@@ -57,7 +57,7 @@ public sealed class SiteService
             .Select(l => new { l.PolicyId, l.Policy!.Name, l.Source })
             .FirstOrDefaultAsync(cancellationToken);
         var defaultPolicyName = policy is null
-            ? await db.Policies.AsNoTracking().Where(p => p.IsDefault).Select(p => p.Name).FirstOrDefaultAsync(cancellationToken) ?? "Default policy"
+            ? await InheritedPolicyNameAsync(db, site.ClientId, cancellationToken)
             : null;
 
         var templates = await db.SiteMonitoringTemplates.AsNoTracking().Where(l => l.SiteId == siteId)
@@ -86,7 +86,8 @@ public sealed class SiteService
                 s.Client!.Code,
                 ClientName = s.Client.Name,
                 FromTemplate = s.ClientTemplateSiteId != null,
-                PolicyName = db.SitePolicies.Where(l => l.SiteId == s.Id).Select(l => l.Policy!.Name).FirstOrDefault(),
+                PolicyName = db.SitePolicies.Where(l => l.SiteId == s.Id).Select(l => l.Policy!.Name).FirstOrDefault()
+                             ?? db.ClientPolicies.Where(l => l.ClientId == s.ClientId).Select(l => l.Policy!.Name).FirstOrDefault(),
                 Templates = db.SiteMonitoringTemplates.Count(l => l.SiteId == s.Id),
                 Maintenance = new MaintenancePeriod(s.MaintenanceStartedAt, s.MaintenanceEndsAt, s.MaintenanceStartedByName, s.MaintenanceReason),
                 ClientMaintenance = new MaintenancePeriod(s.Client.MaintenanceStartedAt, s.Client.MaintenanceEndsAt, s.Client.MaintenanceStartedByName,
@@ -105,6 +106,12 @@ public sealed class SiteService
             site.Templates, site.Maintenance, site.ClientMaintenance);
     }
 
+    /// <summary>The policy a site without its own gets: the client's, else the default policy.</summary>
+    private static async Task<string> InheritedPolicyNameAsync(FleetoDbContext db, Guid clientId, CancellationToken cancellationToken) =>
+        await db.ClientPolicies.AsNoTracking().Where(l => l.ClientId == clientId).Select(l => l.Policy!.Name).FirstOrDefaultAsync(cancellationToken)
+        ?? await db.Policies.IgnoreQueryFilters().AsNoTracking().Where(p => p.IsDefault).Select(p => p.Name).FirstOrDefaultAsync(cancellationToken)
+        ?? "Default policy";
+
     public async Task<IReadOnlyList<EndpointListItem>> ListEndpointsAsync(Caller caller, Guid siteId, CancellationToken cancellationToken = default)
     {
         caller.EnsureView();
@@ -118,25 +125,6 @@ public sealed class SiteService
             .OrderBy(e => e.Hostname)
             .Select(e => new EndpointListItem(e.Id, e.Hostname, e.IsOnline, e.Tier, e.ClassOverride ?? e.DetectedClass, e.OsName, e.OsVersion,
                 e.AgentVersion, e.LastSeenAt, db.Alerts.Count(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now))));
-
-    /// <summary>Policies and monitoring templates this site can link: global ones and those of its own client.</summary>
-    public async Task<(IReadOnlyList<LinkOption> Policies, IReadOnlyList<LinkOption> MonitoringTemplates)> GetLinkOptionsAsync(Caller caller,
-        Guid clientId, CancellationToken cancellationToken = default)
-    {
-        caller.EnsureView();
-        await using var db = _dbFactory.Create(caller.Scope);
-        var policies = await db.Policies.AsNoTracking()
-            .Where(p => p.ClientId == null || p.ClientId == clientId)
-            .OrderByDescending(p => p.IsDefault).ThenBy(p => p.ClientId != null).ThenBy(p => p.Name)
-            .Select(p => new LinkOption(p.Id, p.Name, p.ClientId == null, p.IsDefault))
-            .ToListAsync(cancellationToken);
-        var templates = await db.MonitoringTemplates.AsNoTracking()
-            .Where(t => t.ClientId == null || t.ClientId == clientId)
-            .OrderBy(t => t.ClientId != null).ThenBy(t => t.Name)
-            .Select(t => new LinkOption(t.Id, t.Name, t.ClientId == null))
-            .ToListAsync(cancellationToken);
-        return (policies, templates);
-    }
 
     public async Task<ServiceResult<Guid>> CreateAsync(Caller caller, Guid clientId, string? name, string? description,
         CancellationToken cancellationToken = default)
@@ -291,140 +279,6 @@ public sealed class SiteService
         {
             await IntegrationFollow.NotifyAsync(_bus, _logger, cancellationToken);
         }
-    }
-
-    /// <summary>Links a policy to the site, or removes the link (null) so the default policy applies.</summary>
-    public async Task<ServiceResult> SetPolicyAsync(Caller caller, Guid siteId, Guid? policyId, CancellationToken cancellationToken = default)
-    {
-        if (!caller.CanManage)
-        {
-            return ServiceResult.Forbidden();
-        }
-
-        await using var db = _dbFactory.Create(caller.Scope);
-        var site = await db.Sites.Include(s => s.Policy).SingleOrDefaultAsync(s => s.Id == siteId, cancellationToken);
-        if (site is null)
-        {
-            return ServiceResult.NotFound("site");
-        }
-
-        Policy? policy = null;
-        if (policyId is { } id)
-        {
-            policy = await db.Policies.AsNoTracking().SingleOrDefaultAsync(p => p.Id == id && (p.ClientId == null || p.ClientId == site.ClientId), cancellationToken);
-            if (policy is null)
-            {
-                return ServiceResult.NotFound("policy");
-            }
-
-            if (policy.IsDefault)
-            {
-                // Linking the default policy explicitly means the same as no link.
-                policyId = null;
-            }
-        }
-
-        if (site.Policy?.PolicyId == policyId)
-        {
-            return ServiceResult.Ok();
-        }
-
-        if (site.Policy is null && policyId is null)
-        {
-            return ServiceResult.Ok();
-        }
-
-        if (site.Policy is { Source: LinkSource.ClientTemplate } && policyId is null)
-        {
-            return ServiceResult.Fail("The client template links this policy and would link it again. Change the client template, or pick another policy for this site.");
-        }
-
-        var now = _time.GetUtcNow().UtcDateTime;
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        if (site.Policy is not null)
-        {
-            db.SitePolicies.Remove(site.Policy);
-            await db.SaveChangesAsync(cancellationToken);
-        }
-
-        if (policyId is not null)
-        {
-            db.SitePolicies.Add(new SitePolicy { SiteId = site.Id, ClientId = site.ClientId, PolicyId = policyId.Value, Source = LinkSource.Manual, CreatedAt = now });
-        }
-
-        db.ConfigChangeEvents.Add(new ConfigChangeEvent { Scope = ConfigChangeScope.Site, ScopeId = site.Id, CreatedAt = now });
-        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.SiteLinksChanged, "Site", site.Id.ToString(), site.ClientId,
-            new { Policy = policy is null || policy.IsDefault ? "Default policy" : policy.Name }), now));
-        await db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-        return ServiceResult.Ok();
-    }
-
-    /// <summary>
-    /// Sets the manually linked monitoring templates of the site. Links maintained by the client template cannot be removed
-    /// here; they are kept whatever the selection says.
-    /// </summary>
-    public async Task<ServiceResult> SetMonitoringTemplatesAsync(Caller caller, Guid siteId, IReadOnlyCollection<Guid> monitoringTemplateIds,
-        CancellationToken cancellationToken = default)
-    {
-        if (!caller.CanManage)
-        {
-            return ServiceResult.Forbidden();
-        }
-
-        await using var db = _dbFactory.Create(caller.Scope);
-        var site = await db.Sites.Include(s => s.MonitoringTemplates).SingleOrDefaultAsync(s => s.Id == siteId, cancellationToken);
-        if (site is null)
-        {
-            return ServiceResult.NotFound("site");
-        }
-
-        var wanted = monitoringTemplateIds.ToHashSet();
-        var allowed = await db.MonitoringTemplates.AsNoTracking()
-            .Where(t => wanted.Contains(t.Id) && (t.ClientId == null || t.ClientId == site.ClientId))
-            .Select(t => new { t.Id, t.Name })
-            .ToListAsync(cancellationToken);
-        if (allowed.Count != wanted.Count)
-        {
-            return ServiceResult.NotFound("monitoring template");
-        }
-
-        var templateSourced = site.MonitoringTemplates.Where(l => l.Source == LinkSource.ClientTemplate).Select(l => l.MonitoringTemplateId).ToHashSet();
-        if (templateSourced.Any(id => !wanted.Contains(id)))
-        {
-            return ServiceResult.Fail("A monitoring template from the client template cannot be removed here. Change the client template, or detach the client first.");
-        }
-
-        var now = _time.GetUtcNow().UtcDateTime;
-        var removed = site.MonitoringTemplates.Where(l => l.Source == LinkSource.Manual && !wanted.Contains(l.MonitoringTemplateId)).ToList();
-        var added = wanted.Where(id => site.MonitoringTemplates.All(l => l.MonitoringTemplateId != id)).ToList();
-        if (removed.Count == 0 && added.Count == 0)
-        {
-            return ServiceResult.Ok();
-        }
-
-        db.SiteMonitoringTemplates.RemoveRange(removed);
-        foreach (var id in added)
-        {
-            db.SiteMonitoringTemplates.Add(new SiteMonitoringTemplate
-            {
-                SiteId = site.Id,
-                ClientId = site.ClientId,
-                MonitoringTemplateId = id,
-                Source = LinkSource.Manual,
-                CreatedAt = now
-            });
-        }
-
-        db.ConfigChangeEvents.Add(new ConfigChangeEvent { Scope = ConfigChangeScope.Site, ScopeId = site.Id, CreatedAt = now });
-        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.SiteLinksChanged, "Site", site.Id.ToString(), site.ClientId,
-            new
-            {
-                Added = allowed.Where(t => added.Contains(t.Id)).Select(t => t.Name).ToList(),
-                Removed = removed.Select(l => l.MonitoringTemplateId).ToList()
-            }), now));
-        await db.SaveChangesAsync(cancellationToken);
-        return ServiceResult.Ok();
     }
 
     private static string? Validate(string? name, string? description)

@@ -131,7 +131,52 @@ public class IntegrationMapping
     /// </summary>
     public string SyncedName { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The scheduled automations in the tenant that Fleeto does not manage (0.6.0), as a JSON array of
+    /// <c>{"name": ..., "schedule": ...}</c> the workers read with the patch policies. Shown as a warning: an endpoint can be
+    /// patched twice when such an automation also targets it.
+    /// </summary>
+    public string OtherAutomationsJson { get; set; } = "[]";
+
+    /// <summary>When the workers last read <see cref="OtherAutomationsJson"/>; null while never read.</summary>
+    public DateTime? OtherAutomationsReadAt { get; set; }
+
     public DateTime CreatedAt { get; set; }
+}
+
+/// <summary>
+/// A scheduled automation Fleeto keeps in the product for one patch policy in one tenant (0.6.0). Its targets are the
+/// endpoints of the client whose effective patch policy is that policy. Kept by the workers only, and outliving its
+/// client and patch policy on purpose: the row is how the workers find the automation to remove once either is gone, so it
+/// has no foreign key to them.
+/// </summary>
+public class IntegrationAutomation
+{
+    public Guid Id { get; set; }
+    public Guid IntegrationId { get; set; }
+
+    /// <summary>The client the automation serves. Not a foreign key: the automation is removed after the client is gone.</summary>
+    public Guid ClientId { get; set; }
+
+    /// <summary>The tenant the automation lives in (Action1: the organization id).</summary>
+    public string ExternalTenantId { get; set; } = string.Empty;
+
+    /// <summary>The patch policy it is made from. Not a foreign key: the automation is removed after the policy is gone.</summary>
+    public Guid PatchPolicyId { get; set; }
+
+    /// <summary>The id of the automation in the product; null until it was created.</summary>
+    public string? ExternalAutomationId { get; set; }
+
+    /// <summary>A hash of what Fleeto last sent (settings and targets); a different one is written again.</summary>
+    public string SyncedHash { get; set; } = string.Empty;
+
+    public DateTime? SyncedAt { get; set; }
+
+    /// <summary>Why the last attempt failed, in the product's words where it gave them; null after a success.</summary>
+    public string? LastError { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
 }
 
 /// <summary>
