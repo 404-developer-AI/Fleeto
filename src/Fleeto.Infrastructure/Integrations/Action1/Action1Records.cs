@@ -150,24 +150,14 @@ public sealed record Action1Deployment(string Name, string Summary, IReadOnlyLis
     IReadOnlyList<Action1Package> Packages, bool AutoReboot, string RebootMessage, int RebootTimeoutSeconds, int RetryMinutes)
 {
     /// <summary>
-    /// The body Action1 expects. The packages are an object per package, keyed by its id with the version as value, which
-    /// is the shape Action1's own tooling builds; <c>default</c> means every update the endpoint misses.
+    /// The body Action1 expects (its published examples "Deploy Updates (specified updates)" and "(all updates)"). Chosen
+    /// updates are an object per package, keyed by its id with the version as value. Every missing update is scope
+    /// <c>All</c> with <c>require_update_approval</c> "no": Action1 defaults that to "yes", which installs only updates an
+    /// admin approved in the Action1 console and answered "No updates are applicable" on an endpoint missing seven (found
+    /// testing 0.6.0). Chosen updates never pass Action1's approval either, so both scopes install what the technician saw.
     /// </summary>
     public JsonObject ToJson()
     {
-        var packages = new JsonArray();
-        if (Packages.Count == 0)
-        {
-            packages.Add(new JsonObject { ["default"] = "default" });
-        }
-        else
-        {
-            foreach (var package in Packages)
-            {
-                packages.Add(new JsonObject { [package.Id] = package.Version });
-            }
-        }
-
         var reboot = new JsonObject { ["auto_reboot"] = AutoReboot ? "yes" : "no" };
         if (AutoReboot)
         {
@@ -185,13 +175,21 @@ public sealed record Action1Deployment(string Name, string Summary, IReadOnlyLis
             {
                 ["name"] = "Deploy Update",
                 ["template_id"] = "deploy_update",
-                ["params"] = new JsonObject
-                {
-                    ["display_summary"] = Summary,
-                    ["scope"] = Packages.Count == 0 ? "All" : "Specified",
-                    ["packages"] = packages,
-                    ["reboot_options"] = reboot
-                }
+                ["params"] = Packages.Count == 0
+                    ? new JsonObject
+                    {
+                        ["display_summary"] = Summary,
+                        ["scope"] = "All",
+                        ["require_update_approval"] = "no",
+                        ["reboot_options"] = reboot
+                    }
+                    : new JsonObject
+                    {
+                        ["display_summary"] = Summary,
+                        ["scope"] = "Specified",
+                        ["packages"] = new JsonArray([.. Packages.Select(p => (JsonNode)new JsonObject { [p.Id] = p.Version })]),
+                        ["reboot_options"] = reboot
+                    }
             })
         };
     }
@@ -227,4 +225,24 @@ public sealed record Action1EndpointResult(string EndpointId, PatchDeploymentTar
         "pending" or "scheduled" or "queued" or "waiting" or "not started" or "new" => PatchDeploymentTargetState.Pending,
         _ => PatchDeploymentTargetState.Unknown
     };
+}
+
+/// <summary>
+/// One line of Action1's history for one endpoint of a deployment (0.6.0), from
+/// <c>GET /automations/instances/{org}/{instance}/endpoint-results/{endpoint}/details</c>: what the console shows as its
+/// "Automation History". Texts are kept as Action1 wrote them, cut to what Fleeto stores.
+/// </summary>
+public sealed record Action1DeploymentStep(DateTime? Time, string Operation, string Status, string Details)
+{
+    public static Action1DeploymentStep From(JsonElement item) => new(
+        Action1Api.ParseTime(Action1Client.Text(item, "time")),
+        Cut(Action1Client.Text(item, "action_name"), 200),
+        Cut(Action1Client.Text(item, "status"), 20),
+        Cut(Action1Client.Text(item, "description"), 2000));
+
+    private static string Cut(string value, int max)
+    {
+        var clean = value.Trim();
+        return clean.Length <= max ? clean : clean[..max];
+    }
 }

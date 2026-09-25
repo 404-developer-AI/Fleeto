@@ -938,6 +938,7 @@
                         <MudTh>This endpoint</MudTh>
                         <MudTh>Deployment</MudTh>
                         <MudTh>By</MudTh>
+                        <MudTh Style="width:48px"></MudTh>
                     </HeaderContent>
                     <RowTemplate>
                         <MudTd><TimeText Value="context.RequestedAt" /></MudTd>
@@ -958,6 +959,12 @@
                         </MudTd>
                         <MudTd><StatusChip Text="@Ui.DeploymentStateLabel(context.State)" Kind="@Ui.DeploymentStateKind(context.State)" /></MudTd>
                         <MudTd class="muted">@context.RequestedByName</MudTd>
+                        <MudTd>
+                            <MudTooltip Text="History from Action1">
+                                <MudIconButton Icon="@Icons.Material.Outlined.History" Size="Size.Small" aria-label="Deployment history from Action1"
+                                               OnClick="@(() => ShowHistoryAsync(context.Id))" />
+                            </MudTooltip>
+                        </MudTd>
                     </RowTemplate>
                 </MudTable>
             }
@@ -1038,6 +1045,17 @@
         {
             _installingAgent = false;
         }
+    }
+
+    /// <summary>What Action1 logged for this endpoint in one deployment (0.6.0).</summary>
+    private async Task ShowHistoryAsync(Guid deploymentId)
+    {
+        var parameters = new DialogParameters<DeploymentHistoryDialog>
+        {
+            { d => d.DeploymentId, deploymentId },
+            { d => d.EndpointId, EndpointId }
+        };
+        await DialogService.ShowAsync<DeploymentHistoryDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
     }
 
     private async Task ShowDeploymentAsync(DeploymentStartResult run)

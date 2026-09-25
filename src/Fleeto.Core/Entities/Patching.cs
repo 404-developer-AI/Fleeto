@@ -237,4 +237,33 @@ public class PatchDeploymentTarget
     public string? Message { get; set; }
 
     public DateTime UpdatedAt { get; set; }
+
+    /// <summary>When the workers last read the history of this endpoint from the product (0.6.0); null while never read.</summary>
+    public DateTime? StepsReadAt { get; set; }
+}
+
+/// <summary>
+/// One line of the history the product keeps for one endpoint of a deployment (0.6.0): Action1's "Automation History",
+/// such as "Deploy Update, Success, Installing 2026-09 .NET Framework Security Update (KB5126052)". Replaced as a whole
+/// every time the workers read it, and deleted with its endpoint of the deployment.
+/// </summary>
+public class PatchDeploymentStep
+{
+    public Guid Id { get; set; }
+    public Guid TargetId { get; set; }
+    public Guid ClientId { get; set; }
+
+    /// <summary>The order the product listed the lines in, from 0.</summary>
+    public int Position { get; set; }
+
+    /// <summary>When it happened, in UTC; null when the product gave no time Fleeto could read.</summary>
+    public DateTime? Time { get; set; }
+
+    /// <summary>What the product calls the operation, such as "Deploy Update"; empty for lines the product adds itself.</summary>
+    public string Operation { get; set; } = string.Empty;
+
+    /// <summary>The status word of the product: Pending, Stopped, Running, Success, Warning or Error.</summary>
+    public string Status { get; set; } = string.Empty;
+
+    public string Details { get; set; } = string.Empty;
 }

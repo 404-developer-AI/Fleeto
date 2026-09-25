@@ -11,6 +11,8 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
+- The history Action1 keeps per endpoint of a deployment, its "Automation History", opens from the Patches tab of the
+  endpoint: operation, time, status and details, newest first, refreshed while the deployment runs.
 - Tags on clients, in the way of Proxmox. Type a tag on a client under Client settings, Edit tags, or pick one that
   exists; a new tag gets a color from its name. Tags show next to the client name in the clients panel (two, and the
   number of the others) and in the client header; the tag button next to the search filters on one or more tags, and
@@ -40,6 +42,8 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- "Deploy all missing updates" installs the updates again. Action1 installed only updates approved in its own console
+  and answered "No updates are applicable"; Fleeto now asks for every missing update, as it already did for chosen ones.
 - The check history dialog no longer keeps a handler after it closes, and the remote control and remote background
   windows always clean up after themselves.
 - The gateway refuses a certificate from an unknown authority also when it runs on Windows, instead of failing on it.

@@ -28,6 +28,14 @@ public sealed class PatchDeploymentService : WorkerLoop
     /// </summary>
     public const int MaxCallsPerPass = 10;
 
+    /// <summary>
+    /// Endpoint histories read in one pass (0.6.0). A history is read when the state of its endpoint changed and, while it
+    /// runs, every <see cref="StepsRefresh"/>; the rest waits for the next pass rather than spending the budget of the sync.
+    /// </summary>
+    public const int MaxStepReadsPerPass = 10;
+
+    public static readonly TimeSpan StepsRefresh = TimeSpan.FromMinutes(5);
+
     private readonly IFleetoDbContextFactory _dbFactory;
     private readonly INotificationBus _bus;
     private readonly Action1ClientFactory _clients;
@@ -69,7 +77,7 @@ public sealed class PatchDeploymentService : WorkerLoop
             .Where(d => d.State == PatchDeploymentState.Requested || d.State == PatchDeploymentState.Running)
             .OrderBy(d => d.RequestedAt)
             .ToListAsync(cancellationToken);
-        if (open.Count == 0)
+        if (open.Count == 0 && !await StepsDue(db, Time.GetUtcNow().UtcDateTime).AnyAsync(cancellationToken))
         {
             return false;
         }
@@ -156,7 +164,97 @@ public sealed class PatchDeploymentService : WorkerLoop
         }
 
         await SaveAsync(db, open, cancellationToken);
+        more |= await ReadStepsAsync(db, client, now, cancellationToken);
         return more;
+    }
+
+    /// <summary>
+    /// The endpoints of deployments of the last two days whose history is worth reading: never read since the state last
+    /// changed (a change clears <see cref="PatchDeploymentTarget.StepsReadAt"/>), or running and read longer than
+    /// <see cref="StepsRefresh"/> ago. An endpoint that is still pending has nothing to tell yet.
+    /// </summary>
+    private static IQueryable<PatchDeploymentTarget> StepsDue(FleetoDbContext db, DateTime now)
+    {
+        var since = now - 2 * PatchRules.FollowFor;
+        var stale = now - StepsRefresh;
+        return db.PatchDeploymentTargets
+            .Where(t => t.State != PatchDeploymentTargetState.Pending && t.ExternalEndpointId != string.Empty)
+            .Where(t => db.PatchDeployments.Any(d => d.Id == t.DeploymentId && d.ExternalDeploymentId != string.Empty && d.RequestedAt > since))
+            .Where(t => t.StepsReadAt == null || (t.State == PatchDeploymentTargetState.Running && t.StepsReadAt < stale));
+    }
+
+    /// <summary>
+    /// Reads what Action1 logged per endpoint (0.6.0), the lines of its "Automation History", and replaces what Fleeto kept.
+    /// Runs after the states of this pass are saved, so it sees them. Returns true when more histories wait.
+    /// </summary>
+    private async Task<bool> ReadStepsAsync(FleetoDbContext db, Action1Client client, DateTime now, CancellationToken cancellationToken)
+    {
+        var due = await StepsDue(db, now)
+            .OrderByDescending(t => t.UpdatedAt)
+            .Take(MaxStepReadsPerPass + 1)
+            .Select(t => new
+            {
+                Target = t,
+                Deployment = db.PatchDeployments.Where(d => d.Id == t.DeploymentId)
+                    .Select(d => new { d.ExternalTenantId, d.ExternalDeploymentId }).First()
+            })
+            .ToListAsync(cancellationToken);
+        if (due.Count == 0)
+        {
+            return false;
+        }
+
+        var touched = new HashSet<Guid>();
+        foreach (var item in due.Take(MaxStepReadsPerPass))
+        {
+            var target = item.Target;
+            var result = await client.ListDeploymentStepsAsync(item.Deployment.ExternalTenantId, item.Deployment.ExternalDeploymentId,
+                target.ExternalEndpointId, cancellationToken);
+            if (!result.Ok)
+            {
+                Logger.LogInformation("The Action1 history of endpoint {EndpointId} in deployment {DeploymentId} could not be read: {Message}",
+                    target.EndpointId, target.DeploymentId, result.Message);
+                if (result.Permanent)
+                {
+                    // Asking again changes nothing; the next change of state tries once more.
+                    target.StepsReadAt = now;
+                }
+
+                continue;
+            }
+
+            // Old lines and new lines swap in one transaction, so a reader never sees half a history.
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            await db.PatchDeploymentSteps.Where(s => s.TargetId == target.Id).ExecuteDeleteAsync(cancellationToken);
+            var position = 0;
+            foreach (var step in (result.Value ?? []).Take(500))
+            {
+                db.PatchDeploymentSteps.Add(new PatchDeploymentStep
+                {
+                    Id = Guid.NewGuid(),
+                    TargetId = target.Id,
+                    ClientId = target.ClientId,
+                    Position = position++,
+                    Time = step.Time,
+                    Operation = step.Operation,
+                    Status = step.Status,
+                    Details = step.Details
+                });
+            }
+
+            target.StepsReadAt = now;
+            touched.Add(target.DeploymentId);
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        foreach (var deploymentId in touched)
+        {
+            await _bus.PublishAsync(NotificationChannels.PatchDeployments, deploymentId.ToString(), cancellationToken);
+        }
+
+        return due.Count > MaxStepReadsPerPass;
     }
 
     /// <summary>Hands one deployment to the product. Returns true when it ended here, because the product refused it.</summary>
@@ -258,6 +356,7 @@ public sealed class PatchDeploymentService : WorkerLoop
                 ? Cut(reported.Status, 1000)
                 : null;
             target.UpdatedAt = now;
+            target.StepsReadAt = null;
         }
 
         if (deployment.Targets.All(t => t.State is PatchDeploymentTargetState.Succeeded or PatchDeploymentTargetState.Failed))
@@ -290,6 +389,7 @@ public sealed class PatchDeploymentService : WorkerLoop
             target.State = state == PatchDeploymentState.Failed ? PatchDeploymentTargetState.Failed : PatchDeploymentTargetState.Unknown;
             target.Message = message is null ? null : Cut(message, 1000);
             target.UpdatedAt = now;
+            target.StepsReadAt = null;
         }
     }
 

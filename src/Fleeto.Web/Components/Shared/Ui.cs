@@ -308,6 +308,16 @@ public static class Ui
         _ => StatusKind.Neutral
     };
 
+    /// <summary>The chip of a status word in the product's own history of a deployment (0.6.0); a word it adds later stays neutral.</summary>
+    public static StatusKind DeploymentStepKind(string status) => status.Trim().ToLowerInvariant() switch
+    {
+        "success" => StatusKind.Ok,
+        "running" => StatusKind.Active,
+        "warning" => StatusKind.Warning,
+        "error" => StatusKind.Error,
+        _ => StatusKind.Neutral
+    };
+
     /// <summary>
     /// True when the agent connected from a private or special-use address (same LAN with local DNS, VPN): its public IP is then not
     /// known, so the Summary does not call the address public. Uses the same ranges as the webhook address policy.

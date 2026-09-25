@@ -307,6 +307,12 @@ Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
   agent is the same value as the endpoint id in the Action1 console and API, so the match is that id and nothing else.
 - **Starting a deployment is an ordinary privileged action**: admins and technicians, on managed endpoints, recorded in the
   audit log like a job. No second-admin approval, because Action1 installs only what is in its own catalog.
+- **A deployment installs what Fleeto showed, whatever its approval in Action1** (found testing 0.6.0 on 2026-09-25):
+  "every missing update" is sent with `require_update_approval: "no"`, because Action1 defaults it to "yes" and then
+  installs only updates approved in its own console ("No updates are applicable"). Chosen updates never passed Action1's
+  approval either. Update approval in Action1 is therefore not a gate for deployments started from Fleeto.
+- **The history Action1 keeps per endpoint of a deployment** (its "Automation History") is shown in Fleeto (0.6.0): the
+  workers read it when the state of the endpoint changes and every 5 minutes while it runs, at most 10 reads a pass.
 - **Only the workers talk to an external product.** Web runs on a network without outbound NAT (`deploy/compose/compose.yml`),
   so it can never reach Action1: what an admin starts in Settings (a connection test, later a deployment) is a request web
   writes to the database and notifies on `fleeto_integrations`; the workers make the call and write the result back, which the

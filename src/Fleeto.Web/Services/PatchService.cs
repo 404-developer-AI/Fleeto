@@ -55,6 +55,14 @@ public sealed record DeploymentView(Guid Id, Guid BatchId, Guid ClientId, PatchD
     public bool IsOpen => State is PatchDeploymentState.Requested or PatchDeploymentState.Running;
 }
 
+/// <summary>One line of the history the product keeps for one endpoint of a deployment (0.6.0), in its own words.</summary>
+public sealed record DeploymentStepView(DateTime? Time, string Operation, string Status, string Details);
+
+/// <summary>The history of one endpoint of a deployment, and when Fleeto last read it from the product.</summary>
+/// <param name="ReadAt">Null while the history was not read since the state of the endpoint last changed.</param>
+public sealed record DeploymentHistoryView(Guid DeploymentId, Guid EndpointId, string Hostname, PatchDeploymentTargetState State,
+    DateTime RequestedAt, DateTime? ReadAt, IReadOnlyList<DeploymentStepView> Steps);
+
 /// <param name="Deployments">One per client of the run, in the order the clients were named.</param>
 /// <param name="Skipped">Endpoints nothing was started for, with the reason.</param>
 public sealed record DeploymentStartResult(Guid BatchId, IReadOnlyList<DeploymentView> Deployments, IReadOnlyList<JobRunTarget> Skipped)
@@ -458,6 +466,36 @@ public sealed class PatchService
             .Take(Math.Clamp(limit, 1, 50))
             .ToListAsync(cancellationToken);
         return [.. deployments.Select(ToView)];
+    }
+
+    /// <summary>
+    /// What the product logged for one endpoint of a deployment (0.6.0), newest first as Action1 shows its "Automation
+    /// History". Read by the workers; null when the deployment or its endpoint is not in the caller's scope.
+    /// </summary>
+    public async Task<DeploymentHistoryView?> GetHistoryAsync(Caller caller, Guid deploymentId, Guid endpointId,
+        CancellationToken cancellationToken = default)
+    {
+        caller.EnsureView();
+        await using var db = _dbFactory.Create(caller.Scope);
+        var target = await db.PatchDeploymentTargets.AsNoTracking()
+            .Where(t => t.DeploymentId == deploymentId && t.EndpointId == endpointId)
+            .Select(t => new
+            {
+                t.Id, t.Hostname, t.State, t.StepsReadAt,
+                RequestedAt = db.PatchDeployments.Where(d => d.Id == t.DeploymentId).Select(d => d.RequestedAt).First()
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (target is null)
+        {
+            return null;
+        }
+
+        var steps = await db.PatchDeploymentSteps.AsNoTracking()
+            .Where(s => s.TargetId == target.Id)
+            .OrderByDescending(s => s.Time).ThenByDescending(s => s.Position)
+            .Select(s => new DeploymentStepView(s.Time, s.Operation, s.Status, s.Details))
+            .ToListAsync(cancellationToken);
+        return new DeploymentHistoryView(deploymentId, endpointId, target.Hostname, target.State, target.RequestedAt, target.StepsReadAt, steps);
     }
 
     /// <summary>The deployments of one run, for the window that shows how it went.</summary>

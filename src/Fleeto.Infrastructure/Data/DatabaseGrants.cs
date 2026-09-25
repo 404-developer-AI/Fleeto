@@ -119,6 +119,8 @@ public static class DatabaseGrants
             ["PatchDeployments"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
             ["PatchDeploymentUpdates"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
             ["PatchDeploymentTargets"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
+            // The product's history per endpoint (0.6.0): only the workers write what the product said.
+            ["PatchDeploymentSteps"] = Grants(web: Read, workers: ReadWrite),
             // Sign-in with Entra ID (0.5.0): web writes the authorization code and reads the outcome, the workers exchange it
             // and write the claims back. Web may delete its own row as soon as the sign-in is done.
             ["SignInExchanges"] = Grants(web: "SELECT, INSERT, DELETE", workers: ReadWrite),

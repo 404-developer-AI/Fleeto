@@ -43,13 +43,15 @@ public class Action1DeploymentTests
     }
 
     [Fact]
-    public void A_deployment_of_everything_missing_leaves_the_choice_to_the_product()
+    public void A_deployment_of_everything_missing_installs_every_missing_update_whatever_its_approval_in_Action1()
     {
         var body = Deployment([], autoReboot: true).ToJson();
 
         var parameters = JsonDocument.Parse(body.ToJsonString()).RootElement.GetProperty("actions")[0].GetProperty("params");
         Assert.Equal("All", parameters.GetProperty("scope").GetString());
-        Assert.Equal("default", parameters.GetProperty("packages")[0].GetProperty("default").GetString());
+        // Action1 defaults this to "yes" and then installs only updates approved in its console: "No updates are applicable".
+        Assert.Equal("no", parameters.GetProperty("require_update_approval").GetString());
+        Assert.False(parameters.TryGetProperty("packages", out _));
         var reboot = parameters.GetProperty("reboot_options");
         Assert.Equal("yes", reboot.GetProperty("auto_reboot").GetString());
         Assert.Equal("yes", reboot.GetProperty("show_message").GetString());

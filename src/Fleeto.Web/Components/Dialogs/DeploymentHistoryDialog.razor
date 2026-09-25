@@ -1,0 +1,102 @@
+@implements IDisposable
+@inject PatchService PatchSvc
+@inject CurrentUser CurrentUser
+@inject LiveUpdates Live
+@inject TimeDisplay Time
+
+@* What Action1 logged for one endpoint of a deployment (0.6.0), its "Automation History", refreshed while the workers read it. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Deployment history on @(_view?.Hostname ?? "endpoint")</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_missing)
+        {
+            <MudText Typo="Typo.body2" Class="muted">This deployment no longer exists.</MudText>
+        }
+        else if (_view is { } view)
+        {
+            <div class="d-flex flex-wrap align-center gap-2 mb-3">
+                <StatusChip Text="@Ui.DeploymentTargetLabel(view.State)" Kind="@Ui.DeploymentTargetKind(view.State)" />
+                <span class="muted">Started <TimeText Value="view.RequestedAt" /></span>
+                <span class="muted">
+                    · @(view.ReadAt is { } readAt ? $"Read from Action1 {Time.Absolute(readAt)}" : "Fleeto reads the history from Action1 when the state changes")
+                </span>
+            </div>
+            @if (view.Steps.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted">
+                    @(view.ReadAt is null
+                        ? "Action1 has not reported on this endpoint yet. The history appears once the endpoint starts the automation."
+                        : "Action1 logged nothing for this endpoint.")
+                </MudText>
+            }
+            else
+            {
+                <MudTable Items="view.Steps" Dense="true" Elevation="0">
+                    <HeaderContent>
+                        <MudTh>Operation</MudTh>
+                        <MudTh>Date/time</MudTh>
+                        <MudTh>Status</MudTh>
+                        <MudTh>Details</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd Style="white-space:nowrap">@(string.IsNullOrEmpty(context.Operation) ? "-" : context.Operation)</MudTd>
+                        <MudTd Style="white-space:nowrap">@(context.Time is { } time ? Time.Absolute(time) : "-")</MudTd>
+                        <MudTd><StatusChip Text="@(string.IsNullOrEmpty(context.Status) ? "-" : context.Status)" Kind="@Ui.DeploymentStepKind(context.Status)" /></MudTd>
+                        <MudTd Style="white-space:pre-line">@context.Details</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        }
+        else
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public Guid DeploymentId { get; set; }
+    [Parameter, EditorRequired] public Guid EndpointId { get; set; }
+
+    private DeploymentHistoryView? _view;
+    private bool _missing;
+    private DebouncedRefresh? _refresh;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _refresh = new DebouncedRefresh(() => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));
+        Live.PatchDeploymentsChanged += OnDeploymentChanged;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var caller = await CurrentUser.GetAsync();
+        _view = await PatchSvc.GetHistoryAsync(caller, DeploymentId, EndpointId);
+        _missing = _view is null;
+    }
+
+    private void OnDeploymentChanged(Guid deploymentId)
+    {
+        if (deploymentId == DeploymentId || deploymentId == Guid.Empty)
+        {
+            _refresh?.Trigger();
+        }
+    }
+
+    private void Close() => MudDialog.Close(DialogResult.Ok(true));
+
+    public void Dispose()
+    {
+        Live.PatchDeploymentsChanged -= OnDeploymentChanged;
+        _refresh?.Dispose();
+    }
+}

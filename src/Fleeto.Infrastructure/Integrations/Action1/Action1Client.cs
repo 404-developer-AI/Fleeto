@@ -341,6 +341,38 @@ public sealed class Action1Client : IIntegration, IDisposable
     }
 
     /// <summary>
+    /// The history Action1 keeps for one endpoint of a deployment (0.6.0), in the order Action1 lists it. Read only when
+    /// something changed for that endpoint, because every page counts against the budget of the whole instance.
+    /// </summary>
+    public async Task<IntegrationResult<IReadOnlyList<Action1DeploymentStep>>> ListDeploymentStepsAsync(string organizationId,
+        string deploymentId, string endpointId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var steps = new List<Action1DeploymentStep>();
+            for (var page = 0; page < Action1Api.MaxPages; page++)
+            {
+                using var document = await GetAsync(
+                    $"automations/instances/{Uri.EscapeDataString(organizationId)}/{Uri.EscapeDataString(deploymentId)}/endpoint-results/" +
+                    $"{Uri.EscapeDataString(endpointId)}/details",
+                    $"from={page * Action1Api.PageSize}&limit={Action1Api.PageSize}", cancellationToken);
+                var items = Items(document.RootElement);
+                steps.AddRange(items.Select(Action1DeploymentStep.From));
+                if (items.Count < Action1Api.PageSize)
+                {
+                    break;
+                }
+            }
+
+            return IntegrationResult<IReadOnlyList<Action1DeploymentStep>>.Success(steps);
+        }
+        catch (Action1Exception ex)
+        {
+            return IntegrationResult<IReadOnlyList<Action1DeploymentStep>>.Fail(ex.Message, ex.IsPermanent);
+        }
+    }
+
+    /// <summary>
     /// One GET against the API, with the budget, the bearer token and the error mapping. The caller owns the returned
     /// document. Throws <see cref="Action1Exception"/>; the patch steps of 0.4.0 build on this.
     /// </summary>

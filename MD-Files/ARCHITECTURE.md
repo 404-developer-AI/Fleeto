@@ -138,7 +138,8 @@ AuditEntry (append-only)
 | **IntegrationMapping** | `Id`, `IntegrationId`, `ClientId`, `ExternalTenantId`, `ExternalTenantName` | One external tenant (Action1 organization, Sophos tenant) maps to one client, and a client to one tenant: both unique per integration. Client-owned, so deleting the client removes it. |
 | **EndpointPatchState**, **EndpointMissingUpdate** | `EndpointId`, `ClientId`, `ExternalEndpointId`, `ExternalTenantId`, `Coverage`, `MissingCritical`, `MissingOther`, `RebootRequired`, `ProductLastSeenAt?`, `ProductAgentVersion`, `UpdatedAt`; per update `ExternalUpdateId`, `Name`, `Vendor`, `Version`, `KbNumber`, `Severity`, `RebootNeeded` | Patch state per endpoint as the product last reported it (0.4.0), replaced on every sync and never kept as history. Detail rows exist only for endpoints that miss something. |
 | **PatchDeployment** | `Id`, `ClientId`, `BatchId`, `ExternalTenantId`, `ExternalDeploymentId`, `Scope` (`AllMissing`, `Specified`), `AutoReboot`, `State` (`Requested`, `Running`, `Completed`, `Failed`, `Abandoned`), `StatusMessage?`, `RequestedByUserId`, `RequestedByName`, `RequestedAt`, `StartedAt?`, `CompletedAt?`, `PolledAt?` | One deployment of updates (0.4.0 step 3), always within one client, because the product runs it per tenant. Web may only insert; the workers own every later change, so no state can be claimed that the product did not report. |
-| **PatchDeploymentTarget**, **PatchDeploymentUpdate** | Target: `Id`, `DeploymentId`, `ClientId`, `EndpointId`, `ExternalEndpointId`, `Hostname`, `State` (`Pending`, `Running`, `Succeeded`, `Failed`, `Unknown`), `Message?`, `UpdatedAt`. Update: `Id`, `DeploymentId`, `ClientId`, `ExternalUpdateId`, `Name`, `Version` | One row per endpoint of a deployment (unique per deployment and endpoint, so a re-read updates it), and one per chosen package. The host name is a copy from the moment it started, so the history reads the same after a rename. |
+| **PatchDeploymentTarget**, **PatchDeploymentUpdate** | Target: `Id`, `DeploymentId`, `ClientId`, `EndpointId`, `ExternalEndpointId`, `Hostname`, `State` (`Pending`, `Running`, `Succeeded`, `Failed`, `Unknown`), `Message?`, `UpdatedAt`. Update: `Id`, `DeploymentId`, `ClientId`, `ExternalUpdateId`, `Name`, `Version` | One row per endpoint of a deployment (unique per deployment and endpoint, so a re-read updates it), and one per chosen package. The host name is a copy from the moment it started, so the history reads the same after a rename. `StepsReadAt?` (0.6.0): when the workers last read the endpoint's history from the product, cleared by every change of state. |
+| **PatchDeploymentStep** | `Id`, `TargetId`, `ClientId`, `Position`, `Time?`, `Operation`, `Status`, `Details` | The history the product keeps for one endpoint of a deployment (0.6.0): Action1's "Automation History", such as "Deploy Update, Success, Installing 2026-09 .NET Framework Security Update (KB5126052)". Replaced as a whole on every read, deleted with its target (composite foreign key on `TargetId`, `ClientId`). Web reads, the workers write. |
 | **User**, **Role** | `Id`, `Email`, `PasswordHash` (Argon2id), `TotpSecret` (encrypted), roles | Roles: admin, technician, read-only. |
 | **AuditEntry** | `Time`, `ClientId?`, `ActorId` (user or API key), `Action`, `TargetType`, `TargetId`, `Details` | Append-only; no update or delete path in code or DB grants. `ClientId` null for instance-wide actions. |
 
@@ -1567,11 +1568,23 @@ the updates they tick in the list) or from the endpoint list on a selection (eve
 rows, so every later state comes from the product. `PatchDeploymentService` in the workers hands the deployment to
 Action1 as a policy instance that runs once (`POST /policies/instances/{orgId}`, action `deploy_update`), stores the id it
 gets back and reads `endpoint_results` once a minute until every endpoint has an end state, at most ten deployments per
-pass so one busy moment cannot spend the request budget. A status Action1 words differently than Fleeto knows becomes
+pass so one busy moment cannot spend the request budget. "Every missing update" is `scope: "All"` with
+`require_update_approval: "no"`: Action1 defaults that to "yes", which installs only updates approved in its console and
+answered "No updates are applicable" on an endpoint missing seven (found testing 0.6.0). Chosen updates are
+`scope: "Specified"` with the packages and their versions, which never passed Action1's approval either. A status Action1 words differently than Fleeto knows becomes
 `Unknown` with Action1's own word as the message, never a guess at success. A deployment the product refuses fails with
 its message and nothing is installed; one that is not finished after a day is abandoned, with its open endpoints on
 `Unknown`, because an endpoint that was offline all day never reports. When a deployment ends, the patch state of the
-instance is read again instead of showing for up to four hours what was just installed. A deployment that is no longer
+instance is read again instead of showing for up to four hours what was just installed.
+
+**Deployment history (0.6.0).** Per endpoint of a deployment the workers read what Action1 logged
+(`GET /automations/instances/{orgId}/{instanceId}/endpoint-results/{endpointId}/details`: time, action name, status and
+description, the lines of its "Automation History") and replace the `PatchDeploymentStep` rows of that endpoint in one
+transaction. A read is due when the state of the endpoint changed since the last one (a change clears `StepsReadAt`) and,
+while it runs, every 5 minutes; a pending endpoint has nothing to say. At most 10 reads a pass, newest change first, for
+deployments of the last two days, so the budget stays with the sync. A read that fails for good is not repeated until the
+state changes again. The Patches tab of an endpoint opens the history of each deployment, newest line first, and it
+refreshes live. A deployment that is no longer
 running is part of the patch history of its endpoints and is kept as long as the job history.
 
 Restarting is a choice per deployment, off by default: with it on, Action1 shows the signed-in user Fleeto's own message

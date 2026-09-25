@@ -804,6 +804,13 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   the right-click menu of the endpoint list only. Done: `Inventory.desktop` from the agent, `InventorySnapshots.Desktop`,
   the rule in `RemoteSessionRules.SupportsRemoteControl`, `desktop` on Inventory in the public API. An agent older than 0.6.0
   reports nothing and keeps remote control until it updates.
+- [done] **"Deploy all missing updates" installed nothing** (found testing 0.6.0 on 2026-09-25): Action1 answered "No
+  updates are applicable" for an endpoint missing seven, while choosing the same seven worked. Cause: Action1 defaults
+  `require_update_approval` to "yes" for `scope: "All"` and then installs only updates approved in its console. Fixed by
+  sending "no", so both kinds of deployment install what Fleeto showed.
+- [done] **Deployment history from Action1** (asked for by the developer on 2026-09-25): the "Automation History" Action1
+  keeps per endpoint of a deployment, shown in Fleeto. Done: the workers read it into `PatchDeploymentSteps` when the
+  state of an endpoint changes and every 5 minutes while it runs; the Patches tab opens it per deployment.
 
 ## 0.7.0 — Hardening
 

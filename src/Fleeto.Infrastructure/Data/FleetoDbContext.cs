@@ -97,6 +97,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<PatchDeployment> PatchDeployments => Set<PatchDeployment>();
     public DbSet<PatchDeploymentUpdate> PatchDeploymentUpdates => Set<PatchDeploymentUpdate>();
     public DbSet<PatchDeploymentTarget> PatchDeploymentTargets => Set<PatchDeploymentTarget>();
+    public DbSet<PatchDeploymentStep> PatchDeploymentSteps => Set<PatchDeploymentStep>();
     public DbSet<IntegrationMapping> IntegrationMappings => Set<IntegrationMapping>();
 
     // Evaluated per query by EF Core (context members become query parameters).
@@ -861,7 +862,22 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             // One row per endpoint in a deployment: a re-delivered result updates it instead of adding another.
             entity.HasIndex(t => new { t.DeploymentId, t.EndpointId }).IsUnique();
             entity.HasIndex(t => new { t.EndpointId, t.UpdatedAt }).IsDescending(false, true);
+            entity.HasAlternateKey(t => new { t.Id, t.ClientId });
             EndpointChild(entity, t => new { t.EndpointId, t.ClientId });
+            ClientOwned(entity);
+        });
+
+        // The product's history per endpoint of a deployment (0.6.0): same client as its endpoint, gone with it.
+        builder.Entity<PatchDeploymentStep>(entity =>
+        {
+            entity.Property(s => s.Operation).HasMaxLength(200);
+            entity.Property(s => s.Status).HasMaxLength(20);
+            entity.Property(s => s.Details).HasMaxLength(2000);
+            entity.HasIndex(s => new { s.TargetId, s.Position }).IsUnique();
+            entity.HasOne<PatchDeploymentTarget>().WithMany()
+                .HasForeignKey(s => new { s.TargetId, s.ClientId })
+                .HasPrincipalKey(t => new { t.Id, t.ClientId })
+                .OnDelete(DeleteBehavior.Cascade);
             ClientOwned(entity);
         });
 

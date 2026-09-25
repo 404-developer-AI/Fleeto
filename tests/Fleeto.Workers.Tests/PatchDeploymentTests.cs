@@ -168,7 +168,9 @@ public sealed class PatchDeploymentTests
         var parameters = JsonDocument.Parse(Assert.Single(handler.Started).Body).RootElement
             .GetProperty("actions")[0].GetProperty("params");
         Assert.Equal("All", parameters.GetProperty("scope").GetString());
-        Assert.Equal("default", parameters.GetProperty("packages")[0].GetProperty("default").GetString());
+        // Every missing update, approved in Action1 or not: otherwise Action1 answers "No updates are applicable" (0.6.0).
+        Assert.Equal("no", parameters.GetProperty("require_update_approval").GetString());
+        Assert.False(parameters.TryGetProperty("packages", out _));
         var reboot = parameters.GetProperty("reboot_options");
         Assert.Equal("yes", reboot.GetProperty("auto_reboot").GetString());
         Assert.Equal(PatchRules.RebootTimeoutSeconds, reboot.GetProperty("timeout").GetInt32());
@@ -271,6 +273,64 @@ public sealed class PatchDeploymentTests
     }
 
     [Fact]
+    public async Task The_history_Action1_keeps_per_endpoint_is_read_when_the_state_changes_and_replaced_as_a_whole()
+    {
+        var (client, _) = await SeedAsync("PD8" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        var action1Id = Guid.NewGuid().ToString();
+        var endpoint = await CreateEndpointAsync(client, "DEPLOY-08");
+        var deployment = await RequestAsync(client, endpoint, action1Id, state: PatchDeploymentState.Running,
+            externalId: StubHandler.DeploymentId);
+        var targetId = deployment.Targets.Single().Id;
+        var handler = new StubHandler
+        {
+            Results = [(action1Id, "Running")],
+            Steps =
+            [
+                ("2026-09-24_13-27-00", "", "Pending", "Waiting for the endpoint to run the automation."),
+                ("2026-09-24_13-29-10", "Deploy Update", "Success", "Starting the action.")
+            ]
+        };
+
+        await Service(handler).RunAsync(CancellationToken.None);
+
+        var read = Assert.Single(handler.StepReads);
+        Assert.Contains($"/automations/instances/{Tenant}/{StubHandler.DeploymentId}/endpoint-results/{action1Id}/details", read);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var steps = await db.PatchDeploymentSteps.AsNoTracking().Where(s => s.TargetId == targetId).OrderBy(s => s.Position).ToListAsync();
+            Assert.Equal(2, steps.Count);
+            Assert.Equal(new DateTime(2026, 9, 24, 13, 29, 10, DateTimeKind.Utc), steps[1].Time);
+            Assert.Equal(("Deploy Update", "Success", "Starting the action."), (steps[1].Operation, steps[1].Status, steps[1].Details));
+            Assert.Equal(client.Id, steps[1].ClientId);
+        }
+
+        // Nothing changed and the refresh time has not passed: no second read.
+        await MakePollDueAsync(deployment.Id);
+        await Service(handler).RunAsync(CancellationToken.None);
+        Assert.Single(handler.StepReads);
+
+        // It finished: the history is read again and replaces the old lines.
+        handler.Results = [(action1Id, "Success")];
+        handler.Steps = [("2026-09-24_13-35-40", "Completed", "Success", "Automatic reboot was skipped due to configuration.")];
+        await MakePollDueAsync(deployment.Id);
+        await Service(handler).RunAsync(CancellationToken.None);
+
+        Assert.Equal(2, handler.StepReads.Count);
+        await using var check = _fixture.Db.DbFactory.CreateSystem();
+        var final = await check.PatchDeploymentSteps.AsNoTracking().Where(s => s.TargetId == targetId).ToListAsync();
+        Assert.Equal("Completed", Assert.Single(final).Operation);
+        Assert.Equal(PatchDeploymentState.Completed, (await ReadAsync(deployment.Id)).State);
+    }
+
+    private async Task MakePollDueAsync(Guid deploymentId)
+    {
+        await using var db = _fixture.Db.DbFactory.CreateSystem();
+        var row = await db.PatchDeployments.SingleAsync(d => d.Id == deploymentId);
+        row.PolledAt = _fixture.Now - PatchRules.PollInterval - TimeSpan.FromSeconds(1);
+        await db.SaveChangesAsync();
+    }
+
+    [Fact]
     public async Task A_deployment_is_not_left_running_when_the_integration_is_switched_off()
     {
         var (client, _) = await SeedAsync("PD7" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), enabled: false);
@@ -299,6 +359,8 @@ public sealed class PatchDeploymentTests
 
         public List<(string Path, string Body)> Started { get; } = [];
         public IReadOnlyList<(string EndpointId, string Status)> Results { get; set; } = [];
+        public IReadOnlyList<(string Time, string Action, string Status, string Description)> Steps { get; set; } = [];
+        public List<string> StepReads { get; } = [];
         public HttpStatusCode StartStatus { get; set; } = HttpStatusCode.OK;
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -318,6 +380,14 @@ public sealed class PatchDeploymentTests
                     {
                         Content = new StringContent("""{"user_message":"No access to this organization."}""", Encoding.UTF8, "application/json")
                     };
+            }
+
+            if (path.EndsWith("/details", StringComparison.Ordinal))
+            {
+                StepReads.Add(path);
+                var steps = Steps.Select(s =>
+                    $$"""{"time":"{{s.Time}}","action_name":"{{s.Action}}","status":"{{s.Status}}","description":"{{s.Description}}"}""");
+                return Json($$"""{"items":[{{string.Join(",", steps)}}],"total_items":{{Steps.Count}}}""");
             }
 
             var items = Results.Select(r => $$"""{"endpoint_id":"{{r.EndpointId}}","status":"{{r.Status}}"}""");

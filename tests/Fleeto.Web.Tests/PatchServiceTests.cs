@@ -252,6 +252,34 @@ public sealed class PatchServiceTests
     }
 
     [Fact]
+    public async Task The_history_Action1_logged_for_an_endpoint_comes_newest_first_and_never_to_another_client()
+    {
+        var (client, endpoint) = await SeedAsync("PH" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        await StoreStateAsync(endpoint, critical: 1, other: 0);
+        var run = (await Patches.StartDeploymentAsync(WebFixture.Technician(), [endpoint.Id], autoReboot: false)).Value!;
+        var deploymentId = Assert.Single(run.Deployments).Id;
+
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            var target = await db.PatchDeploymentTargets.SingleAsync(t => t.DeploymentId == deploymentId);
+            var at = new DateTime(2026, 9, 24, 13, 27, 0, DateTimeKind.Utc);
+            db.PatchDeploymentSteps.AddRange(
+                new PatchDeploymentStep { Id = Guid.NewGuid(), TargetId = target.Id, ClientId = client.Id, Position = 0, Time = at, Status = "Pending", Details = "Waiting for the endpoint to run the automation." },
+                new PatchDeploymentStep { Id = Guid.NewGuid(), TargetId = target.Id, ClientId = client.Id, Position = 1, Time = at.AddMinutes(8), Operation = "Completed", Status = "Success", Details = "Automatic reboot was skipped due to configuration." });
+            target.StepsReadAt = at.AddMinutes(9);
+            await db.SaveChangesAsync();
+        }
+
+        var history = await Patches.GetHistoryAsync(WebFixture.Technician(), deploymentId, endpoint.Id);
+        Assert.NotNull(history);
+        Assert.Equal(["Completed", ""], history.Steps.Select(s => s.Operation));
+        Assert.NotNull(history.ReadAt);
+
+        var other = WebFixture.CallerWith(new RestrictedClientScope([Guid.NewGuid()]), FleetoRoles.Technician);
+        Assert.Null(await Patches.GetHistoryAsync(other, deploymentId, endpoint.Id));
+    }
+
+    [Fact]
     public async Task Chosen_updates_are_stored_with_their_version_and_only_for_one_endpoint()
     {
         var code = "PD5" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant();
