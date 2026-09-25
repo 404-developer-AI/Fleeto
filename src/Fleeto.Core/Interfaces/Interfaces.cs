@@ -248,6 +248,18 @@ public static class AuditActions
     public const string IntegrationRemoved = "integration.removed";
     public const string IntegrationMappingChanged = "integration.mapping_changed";
 
+    /// <summary>The workers created a tenant in the product for a new client and mapped it (0.6.0).</summary>
+    public const string IntegrationTenantCreated = "integration.tenant_created";
+
+    /// <summary>The workers removed the tenant of a deleted client from the product (0.6.0).</summary>
+    public const string IntegrationTenantDeleted = "integration.tenant_deleted";
+
+    /// <summary>The workers moved an endpoint to the tenant of the client it belongs to in Fleeto (0.6.0).</summary>
+    public const string IntegrationEndpointMoved = "integration.endpoint_moved";
+
+    /// <summary>An admin dismissed a change the product still had to make (0.6.0).</summary>
+    public const string IntegrationOperationDismissed = "integration.operation_dismissed";
+
     /// <summary>The Entra ID sign-in of the instance was configured, changed or turned off (0.5.0).</summary>
     public const string SignInConfigured = "sign_in.configured";
 

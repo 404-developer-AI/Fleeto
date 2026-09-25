@@ -1,6 +1,7 @@
 using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Infrastructure.Audit;
+using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Data;
 using Fleeto.Web.Security;
 using Microsoft.EntityFrameworkCore;
@@ -27,12 +28,16 @@ public sealed record SiteSummary(Guid Id, string Name, string? Description, Guid
 public sealed class SiteService
 {
     private readonly IFleetoDbContextFactory _dbFactory;
+    private readonly INotificationBus _bus;
     private readonly TimeProvider _time;
+    private readonly ILogger<SiteService> _logger;
 
-    public SiteService(IFleetoDbContextFactory dbFactory, TimeProvider time)
+    public SiteService(IFleetoDbContextFactory dbFactory, INotificationBus bus, TimeProvider time, ILogger<SiteService> logger)
     {
         _dbFactory = dbFactory;
+        _bus = bus;
         _time = time;
+        _logger = logger;
     }
 
     public async Task<SiteDetail?> GetAsync(Caller caller, Guid siteId, CancellationToken cancellationToken = default)
@@ -179,6 +184,8 @@ public sealed class SiteService
             return ServiceResult<Guid>.Fail($"This client already has a site named {cleanName}. Choose another name.");
         }
 
+        // Action1 follows the sites (0.6.0): the workers give the site its endpoint group.
+        await NotifyIfFollowingAsync(db, cancellationToken);
         return ServiceResult<Guid>.Ok(site.Id);
     }
 
@@ -217,6 +224,11 @@ public sealed class SiteService
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.SiteUpdated, "Site", site.Id.ToString(), site.ClientId,
             new { From = previous, To = cleanName }), now));
         await db.SaveChangesAsync(cancellationToken);
+        if (previous != cleanName)
+        {
+            await NotifyIfFollowingAsync(db, cancellationToken);
+        }
+
         return ServiceResult.Ok();
     }
 
@@ -251,10 +263,34 @@ public sealed class SiteService
         }
 
         var now = _time.GetUtcNow().UtcDateTime;
+        // Action1 follows the sites (0.6.0): the endpoint group of the site goes too.
+        var follow = await IntegrationFollow.ActiveAsync(db, cancellationToken);
+        var group = follow is { } integrationId
+            ? await db.IntegrationSiteGroups.AsNoTracking().FirstOrDefaultAsync(g => g.IntegrationId == integrationId && g.SiteId == siteId, cancellationToken)
+            : null;
+        if (group is not null)
+        {
+            db.IntegrationOperations.Add(IntegrationFollow.Operation(group.IntegrationId, IntegrationOperationKind.DeleteGroup, null,
+                group.ExternalTenantId, group.ExternalGroupId, site.Name, now));
+        }
+
         db.Sites.Remove(site);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.SiteDeleted, "Site", site.Id.ToString(), site.ClientId, new { site.Name }), now));
         await db.SaveChangesAsync(cancellationToken);
+        if (group is not null)
+        {
+            await IntegrationFollow.NotifyAsync(_bus, _logger, cancellationToken);
+        }
+
         return ServiceResult.Ok();
+    }
+
+    private async Task NotifyIfFollowingAsync(FleetoDbContext db, CancellationToken cancellationToken)
+    {
+        if (await IntegrationFollow.ActiveAsync(db, cancellationToken) is not null)
+        {
+            await IntegrationFollow.NotifyAsync(_bus, _logger, cancellationToken);
+        }
     }
 
     /// <summary>Links a policy to the site, or removes the link (null) so the default policy applies.</summary>

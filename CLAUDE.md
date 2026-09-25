@@ -313,6 +313,12 @@ Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
   approval either. Update approval in Action1 is therefore not a gate for deployments started from Fleeto.
 - **The history Action1 keeps per endpoint of a deployment** (its "Automation History") is shown in Fleeto (0.6.0): the
   workers read it when the state of the endpoint changes and every 5 minutes while it runs, at most 10 reads a pass.
+- **Action1 can follow the clients and sites of Fleeto** (decided 2026-09-25, 0.6.0), switched on in Settings,
+  Integrations: a new client gets an Action1 organization (or the unmapped one with its name), every site of a mapped client
+  an endpoint group whose members are the endpoints of that site, and renaming or deleting a client or site does the same in
+  Action1, and an endpoint enrolled again under another client is moved to that client's organization. Action1 removes an
+  organization only once it holds no endpoints; that deletion waits with its reason until it
+  succeeds or an admin dismisses it. The API credentials then need `manage_organizations` and `manage_endpoints`.
 - **Only the workers talk to an external product.** Web runs on a network without outbound NAT (`deploy/compose/compose.yml`),
   so it can never reach Action1: what an admin starts in Settings (a connection test, later a deployment) is a request web
   writes to the database and notifies on `fleeto_integrations`; the workers make the call and write the result back, which the

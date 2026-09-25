@@ -78,6 +78,7 @@ public static class WorkersServiceCollectionExtensions
         services.AddHostedService<BackupService>();
         services.AddHostedService<RetentionService>();
         services.AddHostedService<IntegrationSyncService>();
+        services.AddHostedService<IntegrationFollowService>();
         services.AddHostedService<PatchSyncService>();
         services.AddHostedService<PatchDeploymentService>();
         services.AddHostedService<SignInExchangeService>();

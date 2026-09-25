@@ -99,6 +99,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<PatchDeploymentTarget> PatchDeploymentTargets => Set<PatchDeploymentTarget>();
     public DbSet<PatchDeploymentStep> PatchDeploymentSteps => Set<PatchDeploymentStep>();
     public DbSet<IntegrationMapping> IntegrationMappings => Set<IntegrationMapping>();
+    public DbSet<IntegrationSiteGroup> IntegrationSiteGroups => Set<IntegrationSiteGroup>();
+    public DbSet<IntegrationOperation> IntegrationOperations => Set<IntegrationOperation>();
 
     // Evaluated per query by EF Core (context members become query parameters).
     private bool ScopeAllClients => _scope.AllClients;
@@ -911,6 +913,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(i => i.EncryptedCredentials).HasMaxLength(8000);
             entity.Property(i => i.CredentialName).HasMaxLength(200);
             entity.Property(i => i.StatusMessage).HasMaxLength(1000);
+            entity.Property(i => i.FollowMessage).HasMaxLength(1000);
             entity.Property(i => i.TenantsJson).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
             // One enterprise per product per instance (0.4.0): its organizations map to clients.
             entity.HasIndex(i => i.Type).IsUnique();
@@ -928,8 +931,42 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             // under another client, and a client's compliance is never composed from two organizations.
             entity.HasIndex(m => new { m.IntegrationId, m.ExternalTenantId }).IsUnique();
             entity.HasIndex(m => new { m.IntegrationId, m.ClientId }).IsUnique();
+            entity.Property(m => m.SyncedName).HasMaxLength(200);
             entity.HasOne<Client>().WithMany().HasForeignKey(m => m.ClientId).OnDelete(DeleteBehavior.Cascade);
             ClientOwned(entity);
+        });
+
+        // The endpoint group of a site (0.6.0): same client as its site, gone with it or with the integration.
+        builder.Entity<IntegrationSiteGroup>(entity =>
+        {
+            entity.Property(g => g.ExternalTenantId).HasMaxLength(200);
+            entity.Property(g => g.ExternalGroupId).HasMaxLength(200);
+            entity.Property(g => g.SyncedName).HasMaxLength(200);
+            entity.Property(g => g.MembersHash).HasMaxLength(64);
+            entity.HasIndex(g => new { g.IntegrationId, g.SiteId }).IsUnique();
+            entity.HasIndex(g => g.ClientId);
+            entity.HasOne<Integration>().WithMany().HasForeignKey(g => g.IntegrationId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Site>().WithMany()
+                .HasForeignKey(g => new { g.SiteId, g.ClientId })
+                .HasPrincipalKey(s => new { s.Id, s.ClientId })
+                .OnDelete(DeleteBehavior.Cascade);
+            ClientOwned(entity);
+        });
+
+        // Changes the product still has to make (0.6.0). A tenant waiting to be created goes with its client; a deletion
+        // has no client left and stays until it is done or dismissed.
+        builder.Entity<IntegrationOperation>(entity =>
+        {
+            entity.Property(o => o.Kind).HasConversion<string>().HasMaxLength(20);
+            entity.Property(o => o.ExternalTenantId).HasMaxLength(200);
+            entity.Property(o => o.ExternalGroupId).HasMaxLength(200);
+            entity.Property(o => o.ExternalEndpointId).HasMaxLength(200);
+            entity.Property(o => o.Name).HasMaxLength(200);
+            entity.Property(o => o.LastError).HasMaxLength(1000);
+            entity.HasIndex(o => new { o.IntegrationId, o.NextAttemptAt });
+            entity.HasIndex(o => o.TargetClientId);
+            entity.HasOne<Integration>().WithMany().HasForeignKey(o => o.IntegrationId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Client>().WithMany().HasForeignKey(o => o.TargetClientId).OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<NotificationChannelClient>(entity =>

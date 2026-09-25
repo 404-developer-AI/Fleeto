@@ -271,6 +271,14 @@ button.tag-chip:focus-visible { outline: 2px solid var(--fl-primary); outline-of
 @container (min-width: 640px) { .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .detail-table td:first-child { width: 38%; }
 
+/* Deployments on the Patches tab: five rows, then a scrolling box the user can drag taller (reset on the next visit) */
+.deployment-list { --deployment-row: 44px; --deployment-head: 40px; border: 1px solid var(--fl-border); border-radius: 8px; }
+.deployment-list .mud-table-head th { height: var(--deployment-head); }
+.deployment-list .mud-table-body td { height: var(--deployment-row); }
+.deployment-list-scroll { height: calc(var(--deployment-head) + 5 * var(--deployment-row) + 2px); min-height: calc(var(--deployment-head) + 2 * var(--deployment-row)); overflow: auto; resize: vertical; }
+.deployment-list-scroll .mud-table-container { overflow: visible; }
+.deployment-list-scroll .mud-table-head th { position: sticky; top: 0; z-index: 1; background: var(--fl-surface); }
+
 /* Sign-in and setup pages (static HTML forms) */
 .login-background { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box; background: var(--fl-bg); }
 .login-card { background: var(--fl-surface); border: 1px solid var(--fl-border); border-radius: 16px; padding: 36px 40px; width: 100%; max-width: 420px; box-shadow: var(--fl-shadow-lg); box-sizing: border-box; }

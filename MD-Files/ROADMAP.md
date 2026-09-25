@@ -810,7 +810,18 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   sending "no", so both kinds of deployment install what Fleeto showed.
 - [done] **Deployment history from Action1** (asked for by the developer on 2026-09-25): the "Automation History" Action1
   keeps per endpoint of a deployment, shown in Fleeto. Done: the workers read it into `PatchDeploymentSteps` when the
-  state of an endpoint changes and every 5 minutes while it runs; the Patches tab opens it per deployment.
+  state of an endpoint changes and every 5 minutes while it runs; the Patches tab opens it per deployment. The deployments
+  are listed above the deploy buttons, five rows and then a scrolling box, so a running one is seen before another starts.
+- [done] **Action1 follows the clients and sites of Fleeto** (asked for by the developer on 2026-09-25). Decided with the
+  developer on 2026-09-25: a switch in Settings, Integrations; a new client gets an Action1 organization (or the unmapped one
+  with its name), every site of a mapped client an endpoint group with the endpoints of that site, and renaming or deleting a
+  client or site does the same in Action1. Done: `Integrations.FollowClients`, `IntegrationMappings.SyncedName`,
+  `IntegrationSiteGroups` and the queue `IntegrationOperations` (web writes it in the same transaction as the change, the
+  workers call Action1 and retry; Settings shows what waits and lets an admin dismiss it). Action1 removes an organization
+  only once it holds no endpoints, so that deletion waits and says why. An endpoint enrolled again under another client is
+  moved to that client's organization (asked for by the developer the same day): the patch sync sees which organization
+  reports its Action1 id, the Fleeto endpoint that reported that id last decides where it belongs, and the workers move it
+  with `POST /endpoints/managed/{orgId}/{endpointId}/move`. Only between organizations that are mapped.
 
 ## 0.7.0 — Hardening
 

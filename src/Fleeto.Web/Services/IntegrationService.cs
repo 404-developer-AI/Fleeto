@@ -19,6 +19,13 @@ namespace Fleeto.Web.Services;
 public sealed record IntegrationMappingView(Guid Id, Guid ClientId, string ClientCode, string ClientName, string TenantId, string TenantName,
     string AgentInstallerUrl);
 
+/// <summary>
+/// A change Action1 still has to make because the integration follows clients and sites (0.6.0), for Settings.
+/// </summary>
+/// <param name="LastError">Why the last attempt failed; null while it has not been tried.</param>
+public sealed record IntegrationOperationView(Guid Id, IntegrationOperationKind Kind, string Name, int Attempts, string? LastError,
+    DateTime NextAttemptAt, DateTime CreatedAt);
+
 /// <summary>A client of this instance, for the mapping choice.</summary>
 public sealed record IntegrationClient(Guid Id, string Code, string Name);
 
@@ -28,13 +35,18 @@ public sealed record IntegrationClient(Guid Id, string Code, string Name);
 /// </summary>
 /// <param name="TestPending">True while the workers still have to run the connection test an admin asked for.</param>
 /// <param name="Tenants">The organizations as the workers last read them, for the mapping choice.</param>
+/// <param name="FollowClients">Action1 follows the clients and sites of Fleeto (0.6.0).</param>
+/// <param name="FollowMessage">Why following them last failed, with the next step; null when it works.</param>
+/// <param name="Operations">What Action1 still has to do for clients and sites that were created or deleted.</param>
 public sealed record IntegrationView(Guid Id, IntegrationType Type, bool Enabled, Action1Region Region, string CredentialName,
     IntegrationStatus Status, string? StatusMessage, DateTime? LastAttemptAt, DateTime? LastSuccessAt,
     IReadOnlyList<IntegrationMappingView> Mappings, DateTime UpdatedAt, bool TestPending,
-    IReadOnlyList<ExternalTenant> Tenants, DateTime? TenantsUpdatedAt);
+    IReadOnlyList<ExternalTenant> Tenants, DateTime? TenantsUpdatedAt, bool FollowClients = false, string? FollowMessage = null,
+    IReadOnlyList<IntegrationOperationView>? Operations = null);
 
 /// <param name="ClientSecret">Blank when editing keeps the stored secret.</param>
-public sealed record Action1Input(string? ClientId, string? ClientSecret, Action1Region Region, bool Enabled);
+/// <param name="FollowClients">Action1 follows the clients and sites of Fleeto (0.6.0).</param>
+public sealed record Action1Input(string? ClientId, string? ClientSecret, Action1Region Region, bool Enabled, bool FollowClients = false);
 
 /// <summary>
 /// The Action1 integration for admins (0.4.0): one enterprise per instance, its credentials write-only (stored encrypted
@@ -74,8 +86,12 @@ public sealed class IntegrationService
         var clientIds = integration.Mappings.Select(m => m.ClientId).ToList();
         var clients = await db.Clients.AsNoTracking().Where(c => clientIds.Contains(c.Id))
             .Select(c => new IntegrationClient(c.Id, c.Code, c.Name)).ToDictionaryAsync(c => c.Id, cancellationToken);
+        var operations = await db.IntegrationOperations.AsNoTracking().Where(o => o.IntegrationId == integration.Id)
+            .OrderBy(o => o.CreatedAt).Take(200)
+            .Select(o => new IntegrationOperationView(o.Id, o.Kind, o.Name, o.Attempts, o.LastError, o.NextAttemptAt, o.CreatedAt))
+            .ToListAsync(cancellationToken);
 
-        return ToView(integration, clients);
+        return ToView(integration, clients) with { Operations = operations };
     }
 
     /// <summary>Every client of the instance, for the mapping choice.</summary>
@@ -130,6 +146,13 @@ public sealed class IntegrationService
         }
 
         var regionChanged = integration.Region != input.Region;
+        var followChanged = integration.FollowClients != input.FollowClients;
+        integration.FollowClients = input.FollowClients;
+        if (!input.FollowClients)
+        {
+            integration.FollowMessage = null;
+        }
+
         integration.Region = input.Region;
         integration.CredentialName = clientId;
         integration.EncryptedCredentials = IntegrationCredentials.Protect(_protector, integration.Id, new Action1Credentials(clientId, secret));
@@ -156,14 +179,47 @@ public sealed class IntegrationService
                 Region = input.Region.ToString(),
                 CredentialName = clientId,
                 SecretChanged = secretChanged,
-                integration.Enabled
+                integration.Enabled,
+                integration.FollowClients
             }), now));
         await db.SaveChangesAsync(cancellationToken);
-        if (integration.SyncRequestedAt is not null)
+        if (integration.SyncRequestedAt is not null || followChanged)
         {
             await _bus.PublishAsync(NotificationChannels.Integrations, IntegrationType.Action1.ToString(), cancellationToken);
         }
 
+        return ServiceResult.Ok();
+    }
+
+    /// <summary>
+    /// Drops a change Action1 still had to make (0.6.0), such as removing an organization that keeps its endpoints. What
+    /// is already in Action1 stays as it is.
+    /// </summary>
+    public async Task<ServiceResult> DismissOperationAsync(Caller caller, Guid operationId, CancellationToken cancellationToken = default)
+    {
+        if (!caller.IsAdmin)
+        {
+            return ServiceResult.Forbidden();
+        }
+
+        await using var db = _dbFactory.CreateSystem();
+        var operation = await db.IntegrationOperations.SingleOrDefaultAsync(o => o.Id == operationId, cancellationToken);
+        if (operation is null)
+        {
+            return ServiceResult.NotFound("change");
+        }
+
+        db.IntegrationOperations.Remove(operation);
+        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.IntegrationOperationDismissed, "Integration",
+            operation.IntegrationId.ToString(), null, new
+            {
+                Kind = operation.Kind.ToString(),
+                operation.Name,
+                TenantId = operation.ExternalTenantId,
+                GroupId = operation.ExternalGroupId,
+                operation.LastError
+            }), _time.GetUtcNow().UtcDateTime));
+        await db.SaveChangesAsync(cancellationToken);
         return ServiceResult.Ok();
     }
 
@@ -266,6 +322,8 @@ public sealed class IntegrationService
 
         mapping.ExternalTenantId = tenantId;
         mapping.ExternalTenantName = Trim(tenantName ?? string.Empty, 200) ?? string.Empty;
+        // In step with the client as it is now: following clients renames the organization only when the client is renamed.
+        mapping.SyncedName = client.Name;
         integration.UpdatedAt = _time.GetUtcNow().UtcDateTime;
 
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.IntegrationMappingChanged, "Integration", integration.Id.ToString(),
@@ -344,7 +402,8 @@ public sealed class IntegrationService
                     clients.TryGetValue(m.ClientId, out var name) ? name.Name : string.Empty,
                     m.ExternalTenantId, m.ExternalTenantName, m.AgentInstallerUrl))
                 .OrderBy(m => m.ClientCode).ToList(),
-            integration.UpdatedAt, integration.SyncRequestedAt is not null, ReadTenants(integration), integration.TenantsUpdatedAt);
+            integration.UpdatedAt, integration.SyncRequestedAt is not null, ReadTenants(integration), integration.TenantsUpdatedAt,
+            integration.FollowClients, integration.FollowMessage);
 
     /// <summary>The tenants the workers stored. Unreadable JSON gives an empty list rather than an error page.</summary>
     private static IReadOnlyList<ExternalTenant> ReadTenants(Integration integration)

@@ -131,7 +131,13 @@ public static class DatabaseGrants
             ["Integrations"] = Grants(web: ReadWrite, workers: "SELECT, UPDATE"),
             // The workers keep the tenant name and the agent installer link of a mapping current (0.4.0); the signer reads
             // the link, because it composes the job that installs the product's agent and trusts no URL from web.
-            ["IntegrationMappings"] = Grants(web: ReadWrite, signer: Read, workers: "SELECT, UPDATE"),
+            // From 0.6.0 the workers also map the organization they created for a new client.
+            ["IntegrationMappings"] = Grants(web: ReadWrite, signer: Read, workers: "SELECT, INSERT, UPDATE"),
+            // Following clients and sites in the product (0.6.0): web records what has to happen in the same transaction as
+            // the change in Fleeto, the workers make the calls. Web deletes an operation an admin dismisses; a site group is
+            // removed by web only through the cascade of its site.
+            ["IntegrationSiteGroups"] = Grants(web: Read, workers: ReadWrite),
+            ["IntegrationOperations"] = Grants(web: "SELECT, INSERT, DELETE", workers: ReadWrite),
             ["BackupRuns"] = Grants(web: Read, workers: ReadWrite),
             ["WorkerWatermarks"] = Grants(workers: ReadWrite),
 

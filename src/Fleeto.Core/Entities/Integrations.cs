@@ -79,6 +79,19 @@ public class Integration
     /// <summary>When the workers last read the patch state of every mapped tenant (0.4.0 step 2).</summary>
     public DateTime? PatchSyncedAt { get; set; }
 
+    /// <summary>
+    /// The product follows the clients and sites of Fleeto (0.6.0): a new client gets its own tenant (an Action1
+    /// organization), every site of a mapped client an endpoint group with its endpoints, and renames and deletions go
+    /// along. Off keeps every tenant as the admin maps it by hand.
+    /// </summary>
+    public bool FollowClients { get; set; }
+
+    /// <summary>
+    /// Cause and next step when following clients and sites last failed (0.6.0), such as credentials whose role may not
+    /// manage organizations. Cleared by a pass without problems.
+    /// </summary>
+    public string? FollowMessage { get; set; }
+
     public List<IntegrationMapping> Mappings { get; set; } = [];
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
@@ -111,5 +124,98 @@ public class IntegrationMapping
     /// <summary>When the workers last tried to read <see cref="AgentInstallerUrl"/> from the product.</summary>
     public DateTime? AgentInstallerReadAt { get; set; }
 
+    /// <summary>
+    /// The client name the tenant was last brought in step with (0.6.0). While <see cref="Integration.FollowClients"/> is
+    /// on, a client whose name differs from it has its tenant renamed. Set to the client name when the mapping is made,
+    /// so switching on never renames a tenant that was mapped by hand.
+    /// </summary>
+    public string SyncedName { get; set; } = string.Empty;
+
+    public DateTime CreatedAt { get; set; }
+}
+
+/// <summary>
+/// The endpoint group in the product that belongs to one site (0.6.0), while the integration follows clients and sites.
+/// Fleeto keeps its members equal to the endpoints of the site the product reports. Client-owned: gone with the site.
+/// </summary>
+public class IntegrationSiteGroup
+{
+    public Guid Id { get; set; }
+    public Guid IntegrationId { get; set; }
+    public Guid ClientId { get; set; }
+    public Guid SiteId { get; set; }
+
+    /// <summary>The tenant the group lives in (Action1: the organization id), so it can be removed after the mapping is gone.</summary>
+    public string ExternalTenantId { get; set; } = string.Empty;
+
+    /// <summary>The id of the group in the product.</summary>
+    public string ExternalGroupId { get; set; } = string.Empty;
+
+    /// <summary>The site name the group last got from Fleeto; a different site name renames the group.</summary>
+    public string SyncedName { get; set; } = string.Empty;
+
+    /// <summary>A hash of the members Fleeto last put in the group; a different set is written again.</summary>
+    public string MembersHash { get; set; } = string.Empty;
+
+    /// <summary>When the members were last compared with the product, which happens at least once a day.</summary>
+    public DateTime? MembersSyncedAt { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+}
+
+/// <summary>What the product has to do for Fleeto that cannot be read from the current state (0.6.0).</summary>
+public enum IntegrationOperationKind
+{
+    /// <summary>Create a tenant for a new client and map it, or map the unmapped tenant that has its name.</summary>
+    CreateTenant,
+
+    /// <summary>Remove the tenant of a deleted client. Action1 refuses while the organization still holds endpoints.</summary>
+    DeleteTenant,
+
+    /// <summary>Remove the endpoint group of a deleted site.</summary>
+    DeleteGroup,
+
+    /// <summary>
+    /// Move an endpoint to the tenant of the client it belongs to in Fleeto: it was enrolled again under another client,
+    /// while the product still has it in the tenant of the old one.
+    /// </summary>
+    MoveEndpoint
+}
+
+/// <summary>
+/// One change the workers still have to make in the product (0.6.0), written by web in the same transaction as the change
+/// in Fleeto and retried until it is done or an admin dismisses it. Not client-owned: a deletion outlives its client.
+/// </summary>
+public class IntegrationOperation
+{
+    public Guid Id { get; set; }
+    public Guid IntegrationId { get; set; }
+    public IntegrationOperationKind Kind { get; set; }
+
+    /// <summary>
+    /// The client a tenant is created for, or whose tenant an endpoint moves to; null for a deletion. Deleting the client drops the operation. Not called
+    /// ClientId on purpose: the row is not client-owned, and the removal of a site's group must be recordable by a technician
+    /// limited to clients, without a client on the row.
+    /// </summary>
+    public Guid? TargetClientId { get; set; }
+
+    /// <summary>The tenant to delete, or that holds the group to delete.</summary>
+    public string ExternalTenantId { get; set; } = string.Empty;
+
+    /// <summary>The group to delete.</summary>
+    public string ExternalGroupId { get; set; } = string.Empty;
+
+    /// <summary>The endpoint to move, by its id in the product; it is moved out of <see cref="ExternalTenantId"/>.</summary>
+    public string ExternalEndpointId { get; set; } = string.Empty;
+
+    /// <summary>The name of the client or site, or the host name of the endpoint, for the admin and the audit log.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    public int Attempts { get; set; }
+
+    /// <summary>Cause and next step of the last failure, shown in Settings, Integrations.</summary>
+    public string? LastError { get; set; }
+
+    public DateTime NextAttemptAt { get; set; }
     public DateTime CreatedAt { get; set; }
 }

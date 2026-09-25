@@ -246,3 +246,9 @@ public sealed record Action1DeploymentStep(DateTime? Time, string Operation, str
         return clean.Length <= max ? clean : clean[..max];
     }
 }
+
+/// <summary>
+/// One member of an Action1 endpoint group (0.6.0). <paramref name="Manual"/> is false for an endpoint the filters of
+/// the group brought in; Fleeto only removes members that were added by hand, which is how it adds them.
+/// </summary>
+public sealed record Action1GroupMember(string EndpointId, bool Manual);

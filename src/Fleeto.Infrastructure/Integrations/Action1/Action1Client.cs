@@ -13,12 +13,21 @@ namespace Fleeto.Infrastructure.Integrations.Action1;
 /// <summary>A call to Action1 that did not succeed. Permanent failures are not worth retrying without a change by an admin.</summary>
 public sealed class Action1Exception : Exception
 {
-    public Action1Exception(string message, bool permanent, Exception? inner = null) : base(message, inner)
+    public Action1Exception(string message, bool permanent, Exception? inner = null, HttpStatusCode? status = null, string? detail = null)
+        : base(message, inner)
     {
         IsPermanent = permanent;
+        Status = status;
+        Detail = detail;
     }
 
     public bool IsPermanent { get; }
+
+    /// <summary>The HTTP status Action1 answered, when it answered at all.</summary>
+    public HttpStatusCode? Status { get; }
+
+    /// <summary>What Action1 said about the refusal (its <c>user_message</c>), shortened; null when it said nothing.</summary>
+    public string? Detail { get; }
 }
 
 /// <summary>
@@ -373,6 +382,212 @@ public sealed class Action1Client : IIntegration, IDisposable
     }
 
     /// <summary>
+    /// Creates an organization in the enterprise (0.6.0) and returns its id. Needs the <c>manage_organizations</c>
+    /// permission on the role of the API credentials; Action1 creates the default roles of the organization with it.
+    /// </summary>
+    public Task<IntegrationResult<string>> CreateOrganizationAsync(string name, string description,
+        CancellationToken cancellationToken = default) =>
+        CreateAsync("organizations", new JsonObject { ["name"] = name, ["description"] = description },
+            "Action1 created the organization but did not name its id. Map it by hand in Settings, Integrations.", cancellationToken);
+
+    /// <summary>Renames an organization (0.6.0).</summary>
+    public Task<IntegrationResult> RenameOrganizationAsync(string organizationId, string name, CancellationToken cancellationToken = default) =>
+        ChangeAsync(HttpMethod.Patch, $"organizations/{Uri.EscapeDataString(organizationId)}", new JsonObject { ["name"] = name },
+            cancellationToken);
+
+    /// <summary>
+    /// Removes an organization (0.6.0). Action1 refuses while the organization still holds endpoints, and for the last
+    /// organization of the enterprise; one that no longer exists counts as removed.
+    /// </summary>
+    public Task<IntegrationResult> DeleteOrganizationAsync(string organizationId, CancellationToken cancellationToken = default) =>
+        ChangeAsync(HttpMethod.Delete, $"organizations/{Uri.EscapeDataString(organizationId)}", null, cancellationToken, goneIsDone: true);
+
+    /// <summary>
+    /// Moves an endpoint to another organization of the enterprise (0.6.0). Needs <c>manage_endpoints</c>. An endpoint the
+    /// organization no longer holds counts as moved: it went elsewhere already.
+    /// </summary>
+    public Task<IntegrationResult> MoveEndpointAsync(string organizationId, string endpointId, string targetOrganizationId,
+        CancellationToken cancellationToken = default) =>
+        ChangeAsync(HttpMethod.Post, $"endpoints/managed/{Uri.EscapeDataString(organizationId)}/{Uri.EscapeDataString(endpointId)}/move",
+            new JsonObject { ["target_organization_id"] = targetOrganizationId }, cancellationToken, goneIsDone: true);
+
+    /// <summary>The endpoint groups of one organization (0.6.0), with their id and name.</summary>
+    public async Task<IntegrationResult<IReadOnlyList<ExternalTenant>>> ListGroupsAsync(string organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var groups = new List<ExternalTenant>();
+            for (var page = 0; page < Action1Api.MaxPages; page++)
+            {
+                using var document = await GetAsync($"endpoints/groups/{Uri.EscapeDataString(organizationId)}",
+                    $"from={page * Action1Api.PageSize}&limit={Action1Api.PageSize}", cancellationToken);
+                var items = Items(document.RootElement);
+                foreach (var item in items)
+                {
+                    if (Text(item, "id") is { Length: > 0 } id)
+                    {
+                        groups.Add(new ExternalTenant(id, Text(item, "name")));
+                    }
+                }
+
+                if (items.Count < Action1Api.PageSize)
+                {
+                    break;
+                }
+            }
+
+            return IntegrationResult<IReadOnlyList<ExternalTenant>>.Success(groups);
+        }
+        catch (Action1Exception ex)
+        {
+            return IntegrationResult<IReadOnlyList<ExternalTenant>>.Fail(ex.Message, ex.IsPermanent);
+        }
+    }
+
+    /// <summary>
+    /// Creates an endpoint group without filters (0.6.0) and returns its id: Fleeto adds and removes its members by hand.
+    /// </summary>
+    public Task<IntegrationResult<string>> CreateGroupAsync(string organizationId, string name, string description,
+        CancellationToken cancellationToken = default) =>
+        CreateAsync($"endpoints/groups/{Uri.EscapeDataString(organizationId)}", new JsonObject { ["name"] = name, ["description"] = description },
+            "Action1 created the endpoint group but did not name its id. Remove it in the Action1 console; Fleeto creates it again.",
+            cancellationToken);
+
+    /// <summary>Renames an endpoint group (0.6.0); its filters and members stay.</summary>
+    public Task<IntegrationResult> RenameGroupAsync(string organizationId, string groupId, string name,
+        CancellationToken cancellationToken = default) =>
+        ChangeAsync(HttpMethod.Patch, $"endpoints/groups/{Uri.EscapeDataString(organizationId)}/{Uri.EscapeDataString(groupId)}",
+            new JsonObject { ["name"] = name }, cancellationToken);
+
+    /// <summary>Removes an endpoint group (0.6.0); one that no longer exists counts as removed.</summary>
+    public Task<IntegrationResult> DeleteGroupAsync(string organizationId, string groupId, CancellationToken cancellationToken = default) =>
+        ChangeAsync(HttpMethod.Delete, $"endpoints/groups/{Uri.EscapeDataString(organizationId)}/{Uri.EscapeDataString(groupId)}", null,
+            cancellationToken, goneIsDone: true);
+
+    /// <summary>
+    /// The members of an endpoint group (0.6.0): the endpoint id and whether it was added by hand, which is how Fleeto
+    /// adds them, or by the filters of the group. A group that no longer exists gives a null value, so the caller can
+    /// create it again.
+    /// </summary>
+    public async Task<IntegrationResult<IReadOnlyList<Action1GroupMember>?>> ListGroupMembersAsync(string organizationId, string groupId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var members = new List<Action1GroupMember>();
+            for (var page = 0; page < Action1Api.MaxPages; page++)
+            {
+                using var document = await GetAsync(
+                    $"endpoints/groups/{Uri.EscapeDataString(organizationId)}/{Uri.EscapeDataString(groupId)}/contents",
+                    $"from={page * Action1Api.PageSize}&limit={Action1Api.PageSize}", cancellationToken);
+                var items = Items(document.RootElement);
+                foreach (var item in items)
+                {
+                    if (Text(item, "id") is { Length: > 0 } id)
+                    {
+                        members.Add(new Action1GroupMember(id,
+                            !string.Equals(Text(item, "added_via"), "criteria", StringComparison.OrdinalIgnoreCase)));
+                    }
+                }
+
+                if (items.Count < Action1Api.PageSize)
+                {
+                    break;
+                }
+            }
+
+            return IntegrationResult<IReadOnlyList<Action1GroupMember>?>.Success(members);
+        }
+        catch (Action1Exception ex) when (ex.Status == HttpStatusCode.NotFound)
+        {
+            return IntegrationResult<IReadOnlyList<Action1GroupMember>?>.Success(null);
+        }
+        catch (Action1Exception ex)
+        {
+            return IntegrationResult<IReadOnlyList<Action1GroupMember>?>.Fail(ex.Message, ex.IsPermanent);
+        }
+    }
+
+    /// <summary>
+    /// Adds endpoints to an endpoint group and removes others by hand (0.6.0), in one request per
+    /// <see cref="Action1Api.PageSize"/> changes.
+    /// </summary>
+    public async Task<IntegrationResult> ChangeGroupMembersAsync(string organizationId, string groupId, IReadOnlyCollection<string> add,
+        IReadOnlyCollection<string> remove, CancellationToken cancellationToken = default)
+    {
+        var changes = add.Select(id => (JsonNode)new JsonObject
+            {
+                ["method"] = "POST",
+                ["data"] = new JsonObject { ["endpoint_id"] = id, ["type"] = "Endpoint" }
+            })
+            .Concat(remove.Select(id => (JsonNode)new JsonObject { ["method"] = "DELETE", ["endpoint_id"] = id }))
+            .ToList();
+
+        foreach (var chunk in changes.Chunk(Action1Api.PageSize))
+        {
+            var result = await ChangeAsync(HttpMethod.Post,
+                $"endpoints/groups/{Uri.EscapeDataString(organizationId)}/{Uri.EscapeDataString(groupId)}/contents",
+                new JsonArray(chunk), cancellationToken);
+            if (!result.Ok)
+            {
+                return result;
+            }
+        }
+
+        return IntegrationResult.Success();
+    }
+
+    /// <summary>Creates something and returns the id Action1 gave it. A 400 is permanent: Action1 refuses the request itself.</summary>
+    private async Task<IntegrationResult<string>> CreateAsync(string path, JsonNode body, string withoutId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var document = await RequestAsync(HttpMethod.Post, path, null, body, cancellationToken);
+            var id = Text(document.RootElement, "id");
+            return string.IsNullOrEmpty(id) ? IntegrationResult<string>.Fail(withoutId, permanent: true) : IntegrationResult<string>.Success(id);
+        }
+        catch (Action1Exception ex) when (ex.Status == HttpStatusCode.BadRequest)
+        {
+            return IntegrationResult<string>.Fail(Refused(ex), permanent: true);
+        }
+        catch (Action1Exception ex)
+        {
+            return IntegrationResult<string>.Fail(ex.Message, ex.IsPermanent);
+        }
+    }
+
+    private static string Refused(Action1Exception ex) =>
+        ex.Detail is null ? "Action1 refused the change." : $"Action1 refused the change: {ex.Detail}";
+
+    /// <summary>
+    /// One change without an answer Fleeto needs. <paramref name="goneIsDone"/> makes a 404 a success, as for a deletion.
+    /// A 400 is permanent here: Action1 refuses the change itself, and asking again changes nothing.
+    /// </summary>
+    private async Task<IntegrationResult> ChangeAsync(HttpMethod method, string path, JsonNode? body, CancellationToken cancellationToken,
+        bool goneIsDone = false)
+    {
+        try
+        {
+            using var document = await RequestAsync(method, path, null, body, cancellationToken);
+            return IntegrationResult.Success();
+        }
+        catch (Action1Exception ex) when (goneIsDone && ex.Status == HttpStatusCode.NotFound)
+        {
+            return IntegrationResult.Success();
+        }
+        catch (Action1Exception ex) when (ex.Status == HttpStatusCode.BadRequest)
+        {
+            return IntegrationResult.Fail(Refused(ex), permanent: true);
+        }
+        catch (Action1Exception ex)
+        {
+            return IntegrationResult.Fail(ex.Message, ex.IsPermanent);
+        }
+    }
+
+    /// <summary>
     /// One GET against the API, with the budget, the bearer token and the error mapping. The caller owns the returned
     /// document. Throws <see cref="Action1Exception"/>; the patch steps of 0.4.0 build on this.
     /// </summary>
@@ -400,10 +615,16 @@ public sealed class Action1Client : IIntegration, IDisposable
             using var response = await SendAsync(request, cancellationToken);
             if (response.IsSuccessStatusCode)
             {
-                await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                var text = await response.Content.ReadAsStringAsync(cancellationToken);
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    // A change such as a deletion may answer without a body.
+                    return JsonDocument.Parse("{}");
+                }
+
                 try
                 {
-                    return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+                    return JsonDocument.Parse(text);
                 }
                 catch (JsonException ex)
                 {
@@ -534,22 +755,25 @@ public sealed class Action1Client : IIntegration, IDisposable
         var body = await response.Content.ReadFromJsonSafeAsync(cancellationToken);
         var detail = body is { } root ? Text(root, "user_message") : null;
 
-        return response.StatusCode switch
+        var status = response.StatusCode;
+        return status switch
         {
             HttpStatusCode.Unauthorized => new Action1Exception(
-                "Action1 refused the API credentials. Check them in Settings, Integrations.", permanent: true),
+                "Action1 refused the API credentials. Check them in Settings, Integrations.", permanent: true, status: status),
             HttpStatusCode.Forbidden => new Action1Exception(
                 "The Action1 API credentials may not read this. Give their role access to the organizations Fleeto manages, in the Action1 console.",
-                permanent: true),
+                permanent: true, status: status),
             HttpStatusCode.NotFound => new Action1Exception(
-                "Action1 does not know this organization. Check the mapping in Settings, Integrations.", permanent: true),
+                "Action1 does not know this organization. Check the mapping in Settings, Integrations.", permanent: true, status: status),
             HttpStatusCode.TooManyRequests => new Action1Exception(
-                "Action1 is limiting the number of requests. Fleeto slows down and tries again.", permanent: false),
+                "Action1 is limiting the number of requests. Fleeto slows down and tries again.", permanent: false, status: status),
             _ => new Action1Exception(
-                $"Action1 answered {(int)response.StatusCode}{(string.IsNullOrEmpty(detail) ? "" : $" ({detail})")}. Fleeto tries again.",
-                permanent: false)
+                $"Action1 answered {(int)status}{(string.IsNullOrEmpty(detail) ? "" : $" ({Cut(detail, 300)})")}. Fleeto tries again.",
+                permanent: false, status: status, detail: string.IsNullOrEmpty(detail) ? null : Cut(detail, 300))
         };
     }
+
+    private static string Cut(string value, int max) => value.Length <= max ? value : value[..max];
 
     internal static IReadOnlyList<JsonElement> Items(JsonElement root)
     {

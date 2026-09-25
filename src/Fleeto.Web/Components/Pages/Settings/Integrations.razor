@@ -44,7 +44,19 @@
                     The region where the Action1 account is registered. Europe keeps the patch data in the EU.
                 </MudText>
 
-                <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Class="mb-3">Enabled</MudSwitch>
+                <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Class="mb-1">Enabled</MudSwitch>
+                <MudSwitch T="bool" @bind-Value="_follow" Color="Color.Primary" Class="mb-1">Keep Action1 in step with clients and sites</MudSwitch>
+                <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+                    A new client gets its own Action1 organization, or the unmapped one with its name. Every site of a mapped client
+                    becomes an endpoint group with the endpoints of that site. Renaming or deleting a client or site does the same in
+                    Action1; Action1 removes an organization only once it holds no endpoints. An endpoint enrolled again under
+                    another client is moved to the organization of that client. The role of the API credentials needs
+                    permission to manage organizations and endpoints.
+                </MudText>
+                @if (_integration?.FollowMessage is { Length: > 0 } followProblem)
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">@followProblem</MudAlert>
+                }
 
                 @if (_integration?.StatusMessage is { Length: > 0 } problem)
                 {
@@ -150,6 +162,39 @@
                         Endpoints, Add endpoints.
                     </MudText>
                 }
+
+                @if (_integration.Operations is { Count: > 0 } operations)
+                {
+                    <MudText Typo="Typo.h6" Class="section-title mt-4 mb-2">Waiting for Action1</MudText>
+                    <MudTable Items="operations" Dense="true" Elevation="0">
+                        <HeaderContent>
+                            <MudTh>Change</MudTh>
+                            <MudTh>State</MudTh>
+                            <MudTh>Next attempt</MudTh>
+                            <MudTh />
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd>@OperationText(context)</MudTd>
+                            <MudTd>
+                                @if (context.LastError is { Length: > 0 } error)
+                                {
+                                    <span>@error</span>
+                                }
+                                else
+                                {
+                                    <span class="muted">Waiting</span>
+                                }
+                            </MudTd>
+                            <MudTd Style="white-space:nowrap"><TimeText Value="context.NextAttemptAt" /></MudTd>
+                            <MudTd Style="text-align:right">
+                                <MudTooltip Text="Dismiss: Fleeto stops trying and leaves Action1 as it is">
+                                    <MudIconButton Icon="@Icons.Material.Outlined.Close" Size="Size.Small" Disabled="_busy"
+                                                   OnClick="@(() => DismissAsync(context.Id))" aria-label="Dismiss this change" />
+                                </MudTooltip>
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
             }
         </MudItem>
     </MudGrid>
@@ -166,6 +211,7 @@
     private string? _clientSecret;
     private Action1Region _region = Action1Region.Europe;
     private bool _enabled = true;
+    private bool _follow;
     private Guid _mapClientId;
     private string? _mapTenantId;
     private bool _busy;
@@ -181,6 +227,7 @@
             _clientId = _integration.CredentialName;
             _region = _integration.Region;
             _enabled = _integration.Enabled;
+            _follow = _integration.FollowClients;
         }
 
         if (_mapClientId == Guid.Empty && _clients.Count > 0)
@@ -206,7 +253,7 @@
         _busy = true;
         try
         {
-            var input = new Action1Input(_clientId, _clientSecret, _region, _enabled);
+            var input = new Action1Input(_clientId, _clientSecret, _region, _enabled, _follow);
             if (await RunAsync(caller => IntegrationSvc.SaveAction1Async(caller, input), "The Action1 credentials were saved."))
             {
                 _clientSecret = null;
@@ -333,6 +380,30 @@
             _busy = false;
         }
     }
+
+    private async Task DismissAsync(Guid operationId)
+    {
+        _busy = true;
+        try
+        {
+            if (await RunAsync(caller => IntegrationSvc.DismissOperationAsync(caller, operationId), "The change was dismissed."))
+            {
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string OperationText(IntegrationOperationView operation) => operation.Kind switch
+    {
+        IntegrationOperationKind.CreateTenant => $"Create the organization of client {operation.Name}",
+        IntegrationOperationKind.DeleteTenant => $"Remove organization {operation.Name}",
+        IntegrationOperationKind.MoveEndpoint => $"Move endpoint {operation.Name} to the organization of its client",
+        _ => $"Remove the endpoint group of site {operation.Name}"
+    };
 
     private static string StatusText(IntegrationStatus status) => status switch
     {

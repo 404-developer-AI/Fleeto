@@ -860,6 +860,8 @@
                 </tbody>
             </MudSimpleTable>
 
+            @Deployments()
+
             @if (CanManage && state.Coverage == PatchCoverage.Active && !state.IsCompliant)
             {
                 <div class="d-flex gap-2 flex-wrap mb-3">
@@ -927,10 +929,19 @@
                     </PagerContent>
                 </MudTable>
             }
+        }
+    };
 
-            @if (_deployments.Count > 0)
-            {
-                <MudText Typo="Typo.h6" Class="section-title mt-4 mb-2">Deployments</MudText>
+    /// <summary>
+    /// The recent deployments of this endpoint, above the deploy buttons so a running one is seen before another starts.
+    /// More than five scroll in a box the user can drag taller; it is back to five rows on the next visit.
+    /// </summary>
+    private RenderFragment Deployments() => __builder =>
+    {
+        @if (_deployments.Count > 0)
+        {
+            <MudText Typo="Typo.h6" Class="section-title mb-2">Deployments</MudText>
+            <div class="@(_deployments.Count > 5 ? "deployment-list deployment-list-scroll mb-4" : "deployment-list mb-4")">
                 <MudTable T="DeploymentView" Items="_deployments" Dense="true" Elevation="0">
                     <HeaderContent>
                         <MudTh>Started</MudTh>
@@ -967,7 +978,7 @@
                         </MudTd>
                     </RowTemplate>
                 </MudTable>
-            }
+            </div>
         }
     };
 

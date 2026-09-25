@@ -11,6 +11,13 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
+- Action1 can follow your clients and sites. Switch on "Keep Action1 in step with clients and sites" in Settings,
+  Integrations: a new client then gets its own Action1 organization, or the unmapped organization that already has its
+  name, and is mapped to it. Every site of a mapped client becomes an endpoint group in Action1 with the endpoints of that
+  site. Renaming a client or site renames the organization or group; deleting one deletes it. An endpoint enrolled again
+  under another client is moved to the organization of that client, and shows its patch state there at once. Action1 deletes an
+  organization only once it holds no endpoints, so until then the deletion waits under "Waiting for Action1" with the reason,
+  and an admin can dismiss it there. The Action1 API credentials need permission to manage organizations and endpoints.
 - The history Action1 keeps per endpoint of a deployment, its "Automation History", opens from the Patches tab of the
   endpoint: operation, time, status and details, newest first, refreshed while the deployment runs.
 - Tags on clients, in the way of Proxmox. Type a tag on a client under Client settings, Edit tags, or pick one that
@@ -29,6 +36,9 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Changed
 
+- The deployments on the Patches tab of an endpoint are listed above the deploy buttons, so a running deployment is
+  seen before another one starts. More than five scroll in a box that can be dragged taller; it is back to five rows on
+  the next visit.
 - Remote control is offered only on endpoints with a desktop. The agent reports whether an endpoint has one; a Linux
   server without a display manager, graphical session or X server, and Windows Server Core and Nano Server, offer only
   remote background. Agents older than this version keep remote control until they update. The public API shows it as

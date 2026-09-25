@@ -134,8 +134,10 @@ AuditEntry (append-only)
 | **Note** | `Id`, `ClientId`, `EndpointId`, `AuthorId`, `AuthorName`, `Body` (markdown, at most 20,000 characters), `CreatedAt`, `UpdatedAt`, `EditedAt?` | Endpoints only (site notes were dropped). Managed endpoints only. The author edits, an admin deletes. Searchable once logs and search are built (ROADMAP, Not yet scheduled). A Servicedesk ticket reference is not yet scheduled (ROADMAP, Not yet scheduled). |
 | **NotificationChannel** | `Id`, `Name`, `Type` (`Email`, `Webhook`), `Recipients`, `WebhookFormat?` (`Generic`, `Slack`, `Teams`), `WebhookHost?`, `EncryptedWebhook?`, `MinimumSeverity`, `NotifyOnResolve`, `Enabled`, `AllClients` | Instance-wide, admins only. Routing (0.2.0): all clients or the clients in **NotificationChannelClient** (`NotificationChannelId`, `ClientId`, deleted with either side), plus minimum severity and resolves. `EncryptedWebhook` holds URL and signing secret, bound to the channel id (§5). The type cannot change. |
 | **OutboxEmail**, **OutboxWebhook** | `Id`, recipient or `NotificationChannelId`, `Category`, content or `Payload`, `Attempts`, `NextAttemptAt`, `SentAt?`, `LastError?` | Written in the transaction that changes the alert; delivered by the workers (§4, Alert notifications). Sent rows kept 30 days, given up rows 90 days. |
-| **Integration** | `Id`, `Type`, `Enabled`, `Region?`, `EncryptedCredentials`, `CredentialName`, `Status`, `StatusMessage?`, `LastAttemptAt?`, `LastSuccessAt?` | One external product per instance (unique on `Type`, 0.4.0). Credentials are ciphertext bound to the row, see §5; `CredentialName` is the client id, for display. `Region` is the Action1 region, which decides the base URL. |
-| **IntegrationMapping** | `Id`, `IntegrationId`, `ClientId`, `ExternalTenantId`, `ExternalTenantName` | One external tenant (Action1 organization, Sophos tenant) maps to one client, and a client to one tenant: both unique per integration. Client-owned, so deleting the client removes it. |
+| **Integration** | `Id`, `Type`, `Enabled`, `Region?`, `EncryptedCredentials`, `CredentialName`, `Status`, `StatusMessage?`, `LastAttemptAt?`, `LastSuccessAt?` | One external product per instance (unique on `Type`, 0.4.0). Credentials are ciphertext bound to the row, see §5; `CredentialName` is the client id, for display. `Region` is the Action1 region, which decides the base URL. `FollowClients` and `FollowMessage?` (0.6.0): Action1 follows the clients and sites (§4, Following clients and sites) and why that last failed. |
+| **IntegrationMapping** | `Id`, `IntegrationId`, `ClientId`, `ExternalTenantId`, `ExternalTenantName`, `SyncedName` | One external tenant (Action1 organization, Sophos tenant) maps to one client, and a client to one tenant: both unique per integration. Client-owned, so deleting the client removes it. `SyncedName` (0.6.0): the client name the tenant was last brought in step with; set when the mapping is made, so following clients renames a tenant only when the client is renamed. |
+| **IntegrationSiteGroup** | `Id`, `IntegrationId`, `ClientId`, `SiteId`, `ExternalTenantId`, `ExternalGroupId`, `SyncedName`, `MembersHash`, `MembersSyncedAt?` | The Action1 endpoint group of one site while the integration follows clients (0.6.0), unique per site. Deleted with its site (composite foreign key on `SiteId`, `ClientId`). Web reads, the workers write. |
+| **IntegrationOperation** | `Id`, `IntegrationId`, `Kind` (`CreateTenant`, `DeleteTenant`, `DeleteGroup`, `MoveEndpoint`), `TargetClientId?`, `ExternalTenantId`, `ExternalGroupId`, `ExternalEndpointId`, `Name`, `Attempts`, `LastError?`, `NextAttemptAt` | What the product still has to do for a client or site that was created or deleted (0.6.0). Written by web in the transaction of the change, done by the workers, dismissed by an admin. Not client-owned: a deletion outlives its client; a tenant waiting to be created goes with its client (`TargetClientId`, cascade). |
 | **EndpointPatchState**, **EndpointMissingUpdate** | `EndpointId`, `ClientId`, `ExternalEndpointId`, `ExternalTenantId`, `Coverage`, `MissingCritical`, `MissingOther`, `RebootRequired`, `ProductLastSeenAt?`, `ProductAgentVersion`, `UpdatedAt`; per update `ExternalUpdateId`, `Name`, `Vendor`, `Version`, `KbNumber`, `Severity`, `RebootNeeded` | Patch state per endpoint as the product last reported it (0.4.0), replaced on every sync and never kept as history. Detail rows exist only for endpoints that miss something. |
 | **PatchDeployment** | `Id`, `ClientId`, `BatchId`, `ExternalTenantId`, `ExternalDeploymentId`, `Scope` (`AllMissing`, `Specified`), `AutoReboot`, `State` (`Requested`, `Running`, `Completed`, `Failed`, `Abandoned`), `StatusMessage?`, `RequestedByUserId`, `RequestedByName`, `RequestedAt`, `StartedAt?`, `CompletedAt?`, `PolledAt?` | One deployment of updates (0.4.0 step 3), always within one client, because the product runs it per tenant. Web may only insert; the workers own every later change, so no state can be claimed that the product did not report. |
 | **PatchDeploymentTarget**, **PatchDeploymentUpdate** | Target: `Id`, `DeploymentId`, `ClientId`, `EndpointId`, `ExternalEndpointId`, `Hostname`, `State` (`Pending`, `Running`, `Succeeded`, `Failed`, `Unknown`), `Message?`, `UpdatedAt`. Update: `Id`, `DeploymentId`, `ClientId`, `ExternalUpdateId`, `Name`, `Version` | One row per endpoint of a deployment (unique per deployment and endpoint, so a re-read updates it), and one per chosen package. The host name is a copy from the moment it started, so the history reads the same after a rename. `StepsReadAt?` (0.6.0): when the workers last read the endpoint's history from the product, cleared by every change of state. |
@@ -1586,6 +1588,32 @@ deployments of the last two days, so the budget stays with the sync. A read that
 state changes again. The Patches tab of an endpoint opens the history of each deployment, newest line first, and it
 refreshes live. A deployment that is no longer
 running is part of the patch history of its endpoints and is kept as long as the job history.
+
+**Following clients and sites (0.6.0).** With `Integration.FollowClients` on, Action1 is kept in step with Fleeto by
+`IntegrationFollowService` in the workers, woken on `fleeto_integrations` and running every minute. What cannot be read
+from the current state is an `IntegrationOperation` that web writes in the same transaction as the change: a new client
+(`CreateTenant`: map the unmapped organization with the client's name, or `POST /organizations`, and write the mapping),
+a deleted mapped client (`DeleteTenant`: `DELETE /organizations/{orgId}`, which Action1 refuses while the organization
+holds endpoints, and never done when the organization is mapped to another client since) and a deleted site with a group
+(`DeleteGroup`). A refusal is kept with its reason and tried again every 6 hours; a passing failure backs off from
+2 minutes to an hour. Everything else is compared with what the workers last sent: a client name that differs from
+`SyncedName` renames the organization; a site of a mapped client without an `IntegrationSiteGroup` gets an endpoint group
+(`POST /endpoints/groups/{orgId}`, or the unfollowed group with its name), a renamed site renames it; and the members of a
+group are the Action1 ids of the site's endpoints in `EndpointPatchState` for that organization, compared by hash when
+something changed and at least once a day, changed with `POST .../contents` (only members added by hand are removed, never
+ones the group's own filters bring in). A group of a client that is no longer mapped, or mapped to another organization, is
+let go and left in Action1. At most 10 pieces of work a pass, with the shared request budget. A refusal while comparing is
+shown in Settings (`FollowMessage`) and pauses that part for 30 minutes. The credentials need the permissions
+`manage_organizations` and `manage_endpoints`.
+
+An endpoint never moves between clients in Fleeto; it is enrolled again under the other client, while its Action1 agent
+stays in the old organization. The patch sync therefore notes, for every endpoint a mapped organization reports, which
+Fleeto endpoint reported that Action1 id most recently (inventory `ReceivedAt`, so a record left behind under the old client
+never pulls it back). When that endpoint is managed and its client is mapped to another organization, it queues a
+`MoveEndpoint` operation (once per Action1 id); the workers check the mapping again and call
+`POST /endpoints/managed/{orgId}/{endpointId}/move` with `target_organization_id`, audit it and clear `PatchSyncedAt`, so
+the patch state is read again under the new client at once. An endpoint in an organization that is not mapped is not seen
+and not moved.
 
 Restarting is a choice per deployment, off by default: with it on, Action1 shows the signed-in user Fleeto's own message
 and restarts after 30 minutes. Fleeto never restarts an endpoint itself. Starting a deployment is an ordinary privileged

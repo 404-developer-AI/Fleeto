@@ -125,6 +125,7 @@ public sealed class PatchSyncService : WorkerLoop
         var transitions = new List<AlertTransition>();
         var detailBudget = MaxDetailPerPass;
         var failed = false;
+        var reportedByTenant = new Dictionary<string, IReadOnlyList<Action1Endpoint>>(StringComparer.Ordinal);
 
         foreach (var mapping in integration.Mappings.ToList())
         {
@@ -138,7 +139,13 @@ public sealed class PatchSyncService : WorkerLoop
                 continue;
             }
 
+            reportedByTenant[mapping.ExternalTenantId] = result.Value ?? [];
             detailBudget = await SyncClientAsync(db, client, mapping, result.Value ?? [], detailBudget, transitions, now, cancellationToken);
+        }
+
+        if (integration.FollowClients)
+        {
+            await QueueMovesAsync(db, integration, reportedByTenant, now, cancellationToken);
         }
 
         integration.PatchSyncedAt = now;
@@ -159,6 +166,62 @@ public sealed class PatchSyncService : WorkerLoop
         await db.SaveChangesAsync(cancellationToken);
         await AlertCleanup.PublishAsync(_bus, transitions.Select(t => t.AlertId), cancellationToken);
         await _bus.PublishAsync(NotificationChannels.Integrations, IntegrationType.Action1.ToString(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Finds endpoints Action1 keeps in the organization of another client than the one they belong to in Fleeto (0.6.0),
+    /// while Action1 follows the clients: an endpoint enrolled again under another client keeps its Action1 agent, and so
+    /// its old organization. The Fleeto endpoint that reported the Action1 id most recently decides where it belongs, so an
+    /// old record left behind under the previous client never pulls it back. Managed endpoints only, and only into an
+    /// organization that is mapped; the move itself is an <see cref="IntegrationOperation"/> for the workers that follow
+    /// the clients.
+    /// </summary>
+    private static async Task QueueMovesAsync(FleetoDbContext db, Integration integration,
+        IReadOnlyDictionary<string, IReadOnlyList<Action1Endpoint>> reportedByTenant, DateTime now, CancellationToken cancellationToken)
+    {
+        var reported = reportedByTenant
+            .SelectMany(t => t.Value.Select(e => (Tenant: t.Key, Id: e.Id, Key: e.Id.ToLowerInvariant())))
+            .ToList();
+        if (reported.Count == 0)
+        {
+            return;
+        }
+
+        var keys = reported.Select(r => r.Key).Distinct().ToList();
+        var reporters = await (from i in db.InventorySnapshots
+                               join e in db.Endpoints on i.EndpointId equals e.Id
+                               where keys.Contains(i.Action1AgentId.ToLower())
+                               select new { Key = i.Action1AgentId.ToLower(), e.ClientId, e.Hostname, e.Tier, i.ReceivedAt })
+            .ToListAsync(cancellationToken);
+        var latest = reporters.GroupBy(r => r.Key).ToDictionary(g => g.Key, g => g.OrderByDescending(r => r.ReceivedAt).First());
+        var tenantOfClient = integration.Mappings.ToDictionary(m => m.ClientId, m => m.ExternalTenantId);
+        var waiting = (await db.IntegrationOperations.AsNoTracking()
+                .Where(o => o.IntegrationId == integration.Id && o.Kind == IntegrationOperationKind.MoveEndpoint)
+                .Select(o => o.ExternalEndpointId)
+                .ToListAsync(cancellationToken))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in reported)
+        {
+            if (!latest.TryGetValue(item.Key, out var owner) || owner.Tier != EndpointTier.Managed ||
+                !tenantOfClient.TryGetValue(owner.ClientId, out var target) || target == item.Tenant || !waiting.Add(item.Id))
+            {
+                continue;
+            }
+
+            db.IntegrationOperations.Add(new IntegrationOperation
+            {
+                Id = Guid.NewGuid(),
+                IntegrationId = integration.Id,
+                Kind = IntegrationOperationKind.MoveEndpoint,
+                TargetClientId = owner.ClientId,
+                ExternalTenantId = item.Tenant,
+                ExternalEndpointId = item.Id,
+                Name = Cut(owner.Hostname, 200),
+                NextAttemptAt = now,
+                CreatedAt = now
+            });
+        }
     }
 
     /// <summary>One organization: match, store, alert. Returns what is left of the detail budget.</summary>

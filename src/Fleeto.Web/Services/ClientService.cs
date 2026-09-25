@@ -276,10 +276,23 @@ public sealed class ClientService
                 db.Sites.Add(new Site { Id = Guid.NewGuid(), ClientId = client.Id, Name = DefaultSiteName, CreatedAt = now, UpdatedAt = now });
             }
 
+            // Action1 follows the clients (0.6.0): the workers create the organization and map it.
+            var follow = await IntegrationFollow.ActiveAsync(db, cancellationToken);
+            if (follow is { } integrationId)
+            {
+                db.IntegrationOperations.Add(IntegrationFollow.Operation(integrationId, IntegrationOperationKind.CreateTenant, client.Id,
+                    string.Empty, string.Empty, client.Name, now));
+            }
+
             db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.ClientCreated, "Client", client.Id.ToString(), client.Id,
                 new { client.Code, client.Name, ClientTemplate = templateName }), now));
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+            if (follow is not null)
+            {
+                await IntegrationFollow.NotifyAsync(_bus, _logger, cancellationToken);
+            }
+
             return ServiceResult<Guid>.Ok(client.Id);
         }
         catch (DbUpdateException ex) when (ex.IsUniqueViolation())
@@ -315,6 +328,12 @@ public sealed class ClientService
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.ClientUpdated, "Client", client.Id.ToString(), client.Id,
             new { client.Code, From = previous, To = cleanName }), now));
         await db.SaveChangesAsync(cancellationToken);
+        if (previous != cleanName && await IntegrationFollow.ActiveAsync(db, cancellationToken) is not null)
+        {
+            // The workers compare the name with what Action1 last got and rename the organization.
+            await IntegrationFollow.NotifyAsync(_bus, _logger, cancellationToken);
+        }
+
         return ServiceResult.Ok();
     }
 
@@ -381,11 +400,29 @@ public sealed class ClientService
         var siteCount = await db.Sites.CountAsync(s => s.ClientId == clientId, cancellationToken);
         var now = _time.GetUtcNow().UtcDateTime;
 
+        // Action1 follows the clients (0.6.0): the organization goes too. Action1 itself refuses while it holds endpoints.
+        var follow = await IntegrationFollow.ActiveAsync(db, cancellationToken);
+        if (follow is { } integrationId &&
+            await db.IntegrationMappings.AsNoTracking().FirstOrDefaultAsync(m => m.IntegrationId == integrationId && m.ClientId == clientId,
+                cancellationToken) is { } mapping)
+        {
+            db.IntegrationOperations.Add(IntegrationFollow.Operation(integrationId, IntegrationOperationKind.DeleteTenant, null,
+                mapping.ExternalTenantId, string.Empty, string.IsNullOrEmpty(mapping.ExternalTenantName) ? client.Name : mapping.ExternalTenantName, now));
+        }
+        else
+        {
+            follow = null;
+        }
+
         db.Clients.Remove(client);
         // ClientId stays null on purpose: the client no longer exists, the entry belongs to the instance.
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.ClientDeleted, "Client", client.Id.ToString(), null,
             new { client.Code, client.Name, Sites = siteCount, Endpoints = endpointIds.Count }), now));
         await db.SaveChangesAsync(cancellationToken);
+        if (follow is not null)
+        {
+            await IntegrationFollow.NotifyAsync(_bus, _logger, cancellationToken);
+        }
 
         foreach (var endpointId in endpointIds)
         {

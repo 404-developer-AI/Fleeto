@@ -279,10 +279,57 @@ public sealed class PatchSyncTests
     private sealed record ReportedEndpoint(string Id, int Critical, int Other, bool Active, DateTime LastSeen);
 
     /// <summary>Answers like Action1 does for the endpoint listing and the missing updates of one endpoint.</summary>
+    [Fact]
+    public async Task An_endpoint_enrolled_again_under_another_client_is_queued_to_move_to_that_organization_while_Action1_follows_clients()
+    {
+        var (oldClient, integration) = await SeedAsync("PSM" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        var newClient = await _fixture.Db.CreateClientAsync();
+        var action1Id = Guid.NewGuid().ToString();
+        var stale = await CreateEndpointAsync(oldClient, action1Id, hostname: "MOVED-OLD");
+        await CreateEndpointAsync(newClient, action1Id.ToUpperInvariant(), hostname: "MOVED-NEW");
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            // The record left under the old client reported last a day ago; the new one reports now.
+            (await db.InventorySnapshots.SingleAsync(i => i.EndpointId == stale.Id)).ReceivedAt = _fixture.Now.AddDays(-1);
+            db.IntegrationMappings.Add(new IntegrationMapping
+            {
+                Id = Guid.NewGuid(), IntegrationId = integration.Id, ClientId = newClient.Id, ExternalTenantId = "org-new",
+                ExternalTenantName = "New org", CreatedAt = _fixture.Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var handler = new StubHandler { Endpoints = [Reported(action1Id, critical: 0, other: 0)], ListedIn = Tenant };
+
+        // Not while Action1 does not follow the clients.
+        await Service(handler).SyncAsync(force: true, CancellationToken.None);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            Assert.False(await db.IntegrationOperations.AnyAsync(o => o.IntegrationId == integration.Id));
+            (await db.Integrations.SingleAsync(i => i.Id == integration.Id)).FollowClients = true;
+            await db.SaveChangesAsync();
+        }
+
+        // Twice: a move that already waits is not queued again.
+        await Service(handler).SyncAsync(force: true, CancellationToken.None);
+        await Service(handler).SyncAsync(force: true, CancellationToken.None);
+
+        await using var read = _fixture.Db.DbFactory.CreateSystem();
+        var move = await read.IntegrationOperations.AsNoTracking().SingleAsync(o => o.IntegrationId == integration.Id);
+        Assert.Equal(IntegrationOperationKind.MoveEndpoint, move.Kind);
+        Assert.Equal(newClient.Id, move.TargetClientId);
+        Assert.Equal(Tenant, move.ExternalTenantId);
+        Assert.Equal(action1Id, move.ExternalEndpointId);
+        Assert.Equal("MOVED-NEW", move.Name);
+    }
+
     private sealed class StubHandler : HttpMessageHandler
     {
         public IReadOnlyList<ReportedEndpoint> Endpoints { get; set; } = [];
         public int DetailCalls { get; private set; }
+
+        /// <summary>The one organization that reports <see cref="Endpoints"/>; null has every organization report them.</summary>
+        public string? ListedIn { get; init; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -305,13 +352,14 @@ public sealed class PatchSyncTests
                     """));
             }
 
-            var items = Endpoints.Select(e => $$$"""
+            var listed = ListedIn is null || path.Contains($"/{ListedIn}", StringComparison.Ordinal) ? Endpoints : [];
+            var items = listed.Select(e => $$$"""
                 {"id":"{{{e.Id}}}","organization_id":"{{{Tenant}}}","name":"reported","device_name":"reported",
                  "platform":"Windows","agent_version":"2.0.33","last_seen":"{{{e.LastSeen:yyyy-MM-dd_HH-mm-ss}}}",
                  "subscription_status":"{{{(e.Active ? "Active" : "Inactive")}}}","reboot_required":false,
                  "missing_updates":{"critical":{{{e.Critical}}},"other":{{{e.Other}}}}}
                 """);
-            return Task.FromResult(Json($$"""{"items":[{{string.Join(",", items)}}],"total_items":{{Endpoints.Count}}}"""));
+            return Task.FromResult(Json($$"""{"items":[{{string.Join(",", items)}}],"total_items":{{listed.Count}}}"""));
         }
 
         private static HttpResponseMessage Json(string body) =>
