@@ -101,7 +101,7 @@ public static class EntraSignInEndpoints
         {
             // Microsoft refused or the person cancelled; its own words go to the log, never to the page.
             loggerFactory.CreateLogger("Fleeto.Web.Account.EntraSignIn")
-                .LogInformation("Microsoft ended a sign-in with {Error}", Trim(context.Request.Query["error"].ToString(), 100));
+                .LogInformation("Microsoft ended a sign-in with {Error}", LogText.Clean(context.Request.Query["error"].ToString(), 100));
             await FailAsync(audit, context, "Microsoft ended the sign-in", null);
             return Results.Redirect("/account/login?error=entra");
         }

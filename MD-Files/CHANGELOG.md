@@ -37,6 +37,9 @@ When a third released version is added, the oldest entry moves to the top of
 
 - The keys that protect sign-in cookies are stored encrypted with the root key of the instance. Keys stored before this
   version are withdrawn when Fleeto starts, so everybody signs in once more after the update.
+- Request paths and the error Microsoft returns at sign-in are written to the log with line breaks and control characters
+  made visible, so a crafted request cannot forge a log entry. The gateway logs agent downloads with the file name and
+  version of the release it serves instead of the requested values (CodeQL code scanning).
 
 ## [0.5.0] — 2026-09-24
 

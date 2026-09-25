@@ -25,7 +25,7 @@ public static class EndpointExtensions
             {
                 httpContext.RequestServices.GetRequiredService<ILoggerFactory>()
                     .CreateLogger("Fleeto.Web.Security.Antiforgery")
-                    .LogWarning("Refused a form post without a valid antiforgery token to {Path}", httpContext.Request.Path);
+                    .LogWarning("Refused a form post without a valid antiforgery token to {Path}", LogText.Clean(httpContext.Request.Path.Value));
                 return Results.Redirect(failureRedirect);
             }
 

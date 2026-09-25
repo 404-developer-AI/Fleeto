@@ -69,7 +69,8 @@ public sealed class ReleaseDownloadHandler
 
         try
         {
-            _logger.LogInformation("Endpoint {EndpointId} ({Role}) downloads {File} of release {Version}", identity.EndpointId, identity.Role, file, version);
+            _logger.LogInformation("Endpoint {EndpointId} ({Role}) downloads {File} of release {Version}", identity.EndpointId, identity.Role,
+                binary.Binary.File, release.Version);
             context.Response.ContentType = "application/octet-stream";
             context.Response.ContentLength = binary.Binary.Size;
             context.Response.Headers.CacheControl = "no-store";
@@ -77,7 +78,7 @@ public sealed class ReleaseDownloadHandler
         }
         catch (Exception ex) when (ex is OperationCanceledException or IOException)
         {
-            _logger.LogInformation("Endpoint {EndpointId}: download of {File} ended early", identity.EndpointId, file);
+            _logger.LogInformation("Endpoint {EndpointId}: download of {File} ended early", identity.EndpointId, binary.Binary.File);
         }
         finally
         {

@@ -248,7 +248,8 @@ public static class PublicApi
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
-            logger.LogError(ex, "Public API call {Method} {Path} by API key {ApiKeyId} failed", http.Request.Method, http.Request.Path, caller.UserId);
+            logger.LogError(ex, "Public API call {Method} {Path} by API key {ApiKeyId} failed", LogText.Clean(http.Request.Method, 16),
+                LogText.Clean(http.Request.Path.Value), caller.UserId);
             result = InternalError();
         }
 
