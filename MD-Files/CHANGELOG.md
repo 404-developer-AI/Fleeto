@@ -21,8 +21,8 @@ When a third released version is added, the oldest entry moves to the top of
   and an admin can dismiss it there. The Action1 API credentials need permission to manage organizations and endpoints.
 - The history Action1 keeps per endpoint of a deployment, its "Automation History", opens from the Patches tab of the
   endpoint: operation, time, status and details, newest first, refreshed while the deployment runs.
-- Tags on clients, in the way of Proxmox. Type a tag on a client under Client settings, Edit tags, or pick one that
-  exists; a new tag gets a color from its name. Tags show next to the client name in the clients panel (two, and the
+- Tags on clients, in the way of Proxmox. Type a tag when you create a client, or later under Client settings, Edit
+  tags, or pick one that exists; a new tag gets a color from its name. Tags show next to the client name in the clients panel (two, and the
   number of the others) and in the client header; the tag button next to the search filters on one or more tags, and
   the search finds tag names. Admins rename,
   recolor and delete tags in Settings, Tags, from a fixed palette of eleven colors. The public API returns the tags of a

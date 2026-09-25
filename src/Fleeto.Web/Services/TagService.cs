@@ -71,24 +71,10 @@ public sealed class TagService
             return ServiceResult.Forbidden();
         }
 
-        var wanted = new List<string>();
-        foreach (var raw in names)
+        var (wanted, problem) = CleanNames(names);
+        if (problem is not null)
         {
-            var name = TagRules.Clean(raw);
-            if (TagRules.Validate(name) is { } problem)
-            {
-                return ServiceResult.Fail(problem);
-            }
-
-            if (!wanted.Any(w => TagRules.Normalize(w) == TagRules.Normalize(name)))
-            {
-                wanted.Add(name);
-            }
-        }
-
-        if (wanted.Count > TagRules.MaxPerClient)
-        {
-            return ServiceResult.Fail($"A client can have at most {TagRules.MaxPerClient} tags. Remove one first.");
+            return ServiceResult.Fail(problem);
         }
 
         // Two technicians can create the same new tag at the same moment: the second one finds it on the next attempt.
@@ -113,11 +99,58 @@ public sealed class TagService
             return ServiceResult.NotFound("client");
         }
 
+        var now = _time.GetUtcNow().UtcDateTime;
+        var (before, after) = await ApplyAsync(db, clientId, wanted, now, cancellationToken);
+        if (before.SequenceEqual(after, StringComparer.Ordinal))
+        {
+            return ServiceResult.Ok();
+        }
+
+        client.UpdatedAt = now;
+        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.ClientTagsChanged, "Client", client.Id.ToString(), client.Id,
+            new { client.Code, From = before, To = after }), now));
+        await db.SaveChangesAsync(cancellationToken);
+        return ServiceResult.Ok();
+    }
+
+    /// <summary>
+    /// Cleans and validates the tag names typed for a client: one per name regardless of case, at most
+    /// <see cref="TagRules.MaxPerClient"/>. Returns the names, or the problem to show.
+    /// </summary>
+    internal static (List<string> Names, string? Problem) CleanNames(IEnumerable<string?> names)
+    {
+        var wanted = new List<string>();
+        foreach (var raw in names)
+        {
+            var name = TagRules.Clean(raw);
+            if (TagRules.Validate(name) is { } problem)
+            {
+                return ([], problem);
+            }
+
+            if (!wanted.Any(w => TagRules.Normalize(w) == TagRules.Normalize(name)))
+            {
+                wanted.Add(name);
+            }
+        }
+
+        return wanted.Count > TagRules.MaxPerClient
+            ? ([], $"A client can have at most {TagRules.MaxPerClient} tags. Remove one first.")
+            : (wanted, null);
+    }
+
+    /// <summary>
+    /// Gives a client exactly the tags <paramref name="wanted"/> names (cleaned by <see cref="CleanNames"/>), creating
+    /// the ones that do not exist yet, without saving. Also used when a client is created, in the same transaction.
+    /// Returns the tag names before and after, ordered, for the audit log.
+    /// </summary>
+    internal static async Task<(List<string> Before, List<string> After)> ApplyAsync(FleetoDbContext db, Guid clientId, List<string> wanted,
+        DateTime now, CancellationToken cancellationToken)
+    {
         var current = await db.ClientTags.Include(l => l.Tag).Where(l => l.ClientId == clientId).ToListAsync(cancellationToken);
         var normalized = wanted.Select(TagRules.Normalize).ToList();
         var existing = await db.Tags.Where(t => normalized.Contains(t.NormalizedName)).ToListAsync(cancellationToken);
 
-        var now = _time.GetUtcNow().UtcDateTime;
         var tags = new List<Tag>();
         foreach (var name in wanted)
         {
@@ -143,7 +176,7 @@ public sealed class TagService
         var after = tags.Select(t => t.Name).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
         if (before.SequenceEqual(after, StringComparer.Ordinal))
         {
-            return ServiceResult.Ok();
+            return (before, after);
         }
 
         db.ClientTags.RemoveRange(current.Where(l => tags.All(t => t.Id != l.TagId)));
@@ -152,11 +185,7 @@ public sealed class TagService
             db.ClientTags.Add(new ClientTag { ClientId = clientId, TagId = tag.Id, CreatedAt = now });
         }
 
-        client.UpdatedAt = now;
-        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.ClientTagsChanged, "Client", client.Id.ToString(), client.Id,
-            new { client.Code, From = before, To = after }), now));
-        await db.SaveChangesAsync(cancellationToken);
-        return ServiceResult.Ok();
+        return (before, after);
     }
 
     /// <summary>Renames or recolors a tag everywhere it is used.</summary>

@@ -104,8 +104,8 @@ the API and the database follows it.
   or some endpoints are in maintenance.
 - **Monitoring template**: a named set of checks with thresholds and alert rules. Linked to a
   site, applied to all of its endpoints (class-specific checks apply to matching endpoints only).
-- **Tag** (0.6.0, decided 2026-09-25): a colored label on a client, in the way of Proxmox. Typed on the client by an admin
-  or technician and created on first use with a color from its name; one name (case-insensitive) is one tag with one color
+- **Tag** (0.6.0, decided 2026-09-25): a colored label on a client, in the way of Proxmox. Typed on the client (also when it is
+  created) by an admin or technician and created on first use with a color from its name; one name (case-insensitive) is one tag with one color
   across the instance, at most 10 per client. Shown in the clients panel, which filters on tags; admins rename, recolor and
   delete tags in Settings from a fixed palette. A user limited to clients only sees the tags of those clients.
 - **Client template**: a blueprint used when creating a client. It lists the sites to

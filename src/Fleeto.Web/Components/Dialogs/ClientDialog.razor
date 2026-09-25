@@ -1,4 +1,4 @@
-@* Create a client (code, name, optional client template) or rename one. *@
+@* Create a client (code, name, optional client template, tags) or rename one. *@
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">@(IsEdit ? "Rename client" : "New client")</MudText>
@@ -20,6 +20,8 @@
                     <MudSelectItem T="Guid?" Value="@((Guid?)template.Id)">@template.Name (@template.SiteCount site@(template.SiteCount == 1 ? "" : "s"))</MudSelectItem>
                 }
             </MudSelect>
+            <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Tags</MudText>
+            <TagEditor @ref="_tagEditor" Tags="_tags" Available="AvailableTags" EmptyText="No tags yet." />
         }
     </DialogContent>
     <DialogActions>
@@ -35,11 +37,17 @@
     [Parameter] public bool IsEdit { get; set; }
     [Parameter] public string InitialName { get; set; } = string.Empty;
     [Parameter] public IReadOnlyList<ClientTemplateListItem> Templates { get; set; } = [];
-    [Parameter] public Func<string, string, Guid?, Task<bool>> OnSubmit { get; set; } = (_, _, _) => Task.FromResult(true);
+    /// <summary>The tags the user may see, to pick from when creating a client.</summary>
+    [Parameter] public IReadOnlyList<TagView> AvailableTags { get; set; } = [];
+
+    /// <summary>Code, name, client template and tag names; renaming uses only the name.</summary>
+    [Parameter] public Func<string, string, Guid?, IReadOnlyList<string>, Task<bool>> OnSubmit { get; set; } = (_, _, _, _) => Task.FromResult(true);
 
     private string _code = string.Empty;
     private string _name = string.Empty;
     private Guid? _templateId;
+    private readonly List<TagView> _tags = [];
+    private TagEditor? _tagEditor;
     private bool _busy;
 
     protected override void OnInitialized() => _name = InitialName;
@@ -48,10 +56,15 @@
 
     private async Task SubmitAsync()
     {
+        if (_tagEditor is not null && !_tagEditor.CommitTyped())
+        {
+            return;
+        }
+
         _busy = true;
         try
         {
-            if (await OnSubmit(_code, _name, _templateId))
+            if (await OnSubmit(_code, _name, _templateId, _tags.Select(t => t.Name).ToList()))
             {
                 MudDialog.Close(DialogResult.Ok(true));
             }

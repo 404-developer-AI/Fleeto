@@ -1213,10 +1213,11 @@
         var parameters = new DialogParameters<ClientDialog>
         {
             { d => d.Templates, templates },
+            { d => d.AvailableTags, _tagOptions },
             {
-                d => d.OnSubmit, async (code, name, templateId) =>
+                d => d.OnSubmit, async (code, name, templateId, tags) =>
                 {
-                    var result = await RunForValueAsync(caller => ClientSvc.CreateAsync(caller, code, name, templateId), "The client was created.");
+                    var result = await RunForValueAsync(caller => ClientSvc.CreateAsync(caller, code, name, templateId, tags), "The client was created.");
                     createdId = result?.Value;
                     return result is not null;
                 }
@@ -1238,7 +1239,7 @@
         {
             { d => d.IsEdit, true },
             { d => d.InitialName, client.Name },
-            { d => d.OnSubmit, (_, name, _) => RunAsync(caller => ClientSvc.RenameAsync(caller, client.Id, name), "The client was renamed.") }
+            { d => d.OnSubmit, (_, name, _, _) => RunAsync(caller => ClientSvc.RenameAsync(caller, client.Id, name), "The client was renamed.") }
         };
         var dialog = await DialogService.ShowAsync<ClientDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         if (!(await dialog.Result)!.Canceled)

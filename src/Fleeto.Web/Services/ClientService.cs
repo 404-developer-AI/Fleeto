@@ -205,6 +205,7 @@ public sealed class ClientService
             .ToListAsync(cancellationToken);
 
         sites = sites.Select(s => s with { PolicyName = s.PolicyName ?? defaultPolicy }).ToList();
+
         var tags = await TagService.ForClientsAsync(db, [client.Id], cancellationToken);
         return new ClientDetail(client.Id, client.Code, client.Name, client.ClientTemplateId, client.TemplateName, client.CreatedAt, sites,
             client.Maintenance, tags.GetValueOrDefault(client.Id, []));
@@ -213,9 +214,11 @@ public sealed class ClientService
     /// <summary>
     /// Creates a client. With a client template, the template's sites and their links are created in the same unit of
     /// work (<see cref="ClientTemplateSync"/>); without one, a single site named <see cref="DefaultSiteName"/> is created.
+    /// The <paramref name="tags"/> are given to the client in the same transaction, a new one created with the color of
+    /// its name as in <see cref="TagService.SetClientTagsAsync"/>.
     /// </summary>
     public async Task<ServiceResult<Guid>> CreateAsync(Caller caller, string? code, string? name, Guid? clientTemplateId,
-        CancellationToken cancellationToken = default)
+        IEnumerable<string?>? tags = null, CancellationToken cancellationToken = default)
     {
         if (!caller.CanManage)
         {
@@ -234,71 +237,93 @@ public sealed class ClientService
             return ServiceResult<Guid>.Fail("Enter a client name of at most 200 characters.");
         }
 
-        try
+        var (tagNames, tagProblem) = TagService.CleanNames(tags ?? []);
+        if (tagProblem is not null)
         {
-            await using var db = _dbFactory.Create(caller.Scope);
-            if (await db.Clients.IgnoreQueryFilters().AnyAsync(c => c.Code == normalizedCode, cancellationToken))
-            {
-                return ServiceResult<Guid>.Fail($"A client with code {normalizedCode} already exists. Choose another code.");
-            }
+            return ServiceResult<Guid>.Fail(tagProblem);
+        }
 
-            string? templateName = null;
-            if (clientTemplateId is { } templateId)
+        // Two technicians can create the same new tag at the same moment: the second one finds it on the next attempt.
+        // A code taken meanwhile is found by the check at the start of that attempt.
+        for (var attempt = 1; ; attempt++)
+        {
+            try
             {
-                templateName = await db.ClientTemplates.Where(t => t.Id == templateId).Select(t => t.Name).FirstOrDefaultAsync(cancellationToken);
-                if (templateName is null)
+                return await CreateOnceAsync(caller, normalizedCode, cleanName, clientTemplateId, tagNames, cancellationToken);
+            }
+            catch (DbUpdateException ex) when (ex.IsUniqueViolation())
+            {
+                if (attempt >= 3)
                 {
-                    return ServiceResult<Guid>.NotFound("client template");
+                    return ServiceResult<Guid>.Fail($"A client with code {normalizedCode} already exists. Choose another code.");
                 }
             }
-
-            var now = _time.GetUtcNow().UtcDateTime;
-            var client = new Client
-            {
-                Id = Guid.NewGuid(),
-                Code = normalizedCode,
-                Name = cleanName,
-                ClientTemplateId = clientTemplateId,
-                CreatedAt = now,
-                UpdatedAt = now
-            };
-
-            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-            db.Clients.Add(client);
-            await db.SaveChangesAsync(cancellationToken);
-
-            if (clientTemplateId is not null)
-            {
-                await ClientTemplateSync.ApplyAsync(db, client, now, cancellationToken);
-            }
-            else
-            {
-                db.Sites.Add(new Site { Id = Guid.NewGuid(), ClientId = client.Id, Name = DefaultSiteName, CreatedAt = now, UpdatedAt = now });
-            }
-
-            // Action1 follows the clients (0.6.0): the workers create the organization and map it.
-            var follow = await IntegrationFollow.ActiveAsync(db, cancellationToken);
-            if (follow is { } integrationId)
-            {
-                db.IntegrationOperations.Add(IntegrationFollow.Operation(integrationId, IntegrationOperationKind.CreateTenant, client.Id,
-                    string.Empty, string.Empty, client.Name, now));
-            }
-
-            db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.ClientCreated, "Client", client.Id.ToString(), client.Id,
-                new { client.Code, client.Name, ClientTemplate = templateName }), now));
-            await db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-            if (follow is not null)
-            {
-                await IntegrationFollow.NotifyAsync(_bus, _logger, cancellationToken);
-            }
-
-            return ServiceResult<Guid>.Ok(client.Id);
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
+    }
+
+    private async Task<ServiceResult<Guid>> CreateOnceAsync(Caller caller, string normalizedCode, string cleanName, Guid? clientTemplateId,
+        List<string> tagNames, CancellationToken cancellationToken)
+    {
+        await using var db = _dbFactory.Create(caller.Scope);
+        if (await db.Clients.IgnoreQueryFilters().AnyAsync(c => c.Code == normalizedCode, cancellationToken))
         {
             return ServiceResult<Guid>.Fail($"A client with code {normalizedCode} already exists. Choose another code.");
         }
+
+        string? templateName = null;
+        if (clientTemplateId is { } templateId)
+        {
+            templateName = await db.ClientTemplates.Where(t => t.Id == templateId).Select(t => t.Name).FirstOrDefaultAsync(cancellationToken);
+            if (templateName is null)
+            {
+                return ServiceResult<Guid>.NotFound("client template");
+            }
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        var client = new Client
+        {
+            Id = Guid.NewGuid(),
+            Code = normalizedCode,
+            Name = cleanName,
+            ClientTemplateId = clientTemplateId,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        db.Clients.Add(client);
+        await db.SaveChangesAsync(cancellationToken);
+
+        if (clientTemplateId is not null)
+        {
+            await ClientTemplateSync.ApplyAsync(db, client, now, cancellationToken);
+        }
+        else
+        {
+            db.Sites.Add(new Site { Id = Guid.NewGuid(), ClientId = client.Id, Name = DefaultSiteName, CreatedAt = now, UpdatedAt = now });
+        }
+
+        var (_, tagsAfter) = await TagService.ApplyAsync(db, client.Id, tagNames, now, cancellationToken);
+
+        // Action1 follows the clients (0.6.0): the workers create the organization and map it.
+        var follow = await IntegrationFollow.ActiveAsync(db, cancellationToken);
+        if (follow is { } integrationId)
+        {
+            db.IntegrationOperations.Add(IntegrationFollow.Operation(integrationId, IntegrationOperationKind.CreateTenant, client.Id,
+                string.Empty, string.Empty, client.Name, now));
+        }
+
+        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.ClientCreated, "Client", client.Id.ToString(), client.Id,
+            new { client.Code, client.Name, ClientTemplate = templateName, Tags = tagsAfter }), now));
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        if (follow is not null)
+        {
+            await IntegrationFollow.NotifyAsync(_bus, _logger, cancellationToken);
+        }
+
+        return ServiceResult<Guid>.Ok(client.Id);
     }
 
     public async Task<ServiceResult> RenameAsync(Caller caller, Guid clientId, string? name, CancellationToken cancellationToken = default)

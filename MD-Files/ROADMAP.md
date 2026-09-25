@@ -797,6 +797,7 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   Done: tables `Tags` (instance-wide name and color) and `ClientTags` (client-owned), at most 10 tags per client, the
   filter keeps clients that carry every chosen tag, and a user limited to clients only sees the tags of those clients.
   Renaming, recoloring and deleting are for admins who see every client. Tags on sites and endpoints are not planned.
+  Tags can also be given when a client is created (asked for by the developer the same day), in the same transaction.
 - [done] **Remote control only where there is a desktop** (asked for by the developer on 2026-09-25). A Linux server without
   a desktop offered remote control, which could only fail. Decided with the developer on 2026-09-25: the agent reports
   whether the endpoint has a graphical desktop; without one only remote background is offered, on Linux and also on

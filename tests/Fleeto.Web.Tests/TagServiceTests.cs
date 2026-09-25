@@ -51,6 +51,29 @@ public class TagServiceTests
     }
 
     [Fact]
+    public async Task A_new_client_gets_its_tags_in_the_same_step_and_an_invalid_tag_creates_no_client()
+    {
+        var existing = NewTag("Gold");
+        var client = await _fixture.Database.CreateClientAsync();
+        Assert.True((await Tags.SetClientTagsAsync(WebFixtureBase.Technician(), client.Id, [existing])).Success);
+        var fresh = NewTag("New");
+        var code = "T" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+
+        var created = await Clients.CreateAsync(WebFixtureBase.Technician(), code, "Tagged at creation", null, [existing.ToUpperInvariant(), fresh, fresh]);
+
+        Assert.True(created.Success, created.Problem);
+        var detail = await Clients.GetAsync(WebFixtureBase.Technician(), created.Value);
+        Assert.Equal([existing, fresh], detail!.Tags.Select(t => t.Name).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList());
+
+        var refusedCode = "T" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var refused = await Clients.CreateAsync(WebFixtureBase.Technician(), refusedCode, "Refused", null, ["two words"]);
+        Assert.False(refused.Success);
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        Assert.False(await db.Clients.AnyAsync(c => c.Code == refusedCode));
+        Assert.Equal(1, await db.Tags.CountAsync(t => t.NormalizedName == existing.ToUpperInvariant()));
+    }
+
+    [Fact]
     public async Task Invalid_names_too_many_tags_and_read_only_callers_are_refused()
     {
         var client = await _fixture.Database.CreateClientAsync();
