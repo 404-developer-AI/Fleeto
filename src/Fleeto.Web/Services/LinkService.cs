@@ -18,33 +18,43 @@ public sealed record LinkChoices(IReadOnlyList<LinkOption> Policies, IReadOnlyLi
 public sealed record InheritedLink(Guid Id, string Name, LinkLevel Level);
 
 /// <summary>
-/// The links of one client, site or endpoint (0.6.0) and what applies without them. The policy and patch policy of the
-/// most specific level win; monitoring templates add up, so the inherited ones always apply as well.
+/// The policy or patch policy of one level (0.6.0): what is chosen per class slot, which slots the client template set, and
+/// what servers and workstations get without a choice here.
 /// </summary>
+public sealed record SlotLinks(ClassChoice Own, IReadOnlyCollection<CheckAppliesTo> FromClientTemplate, InheritedLink? InheritedServer,
+    InheritedLink? InheritedWorkstation);
+
+/// <summary>
+/// The links of one client, site or endpoint (0.6.0) and what applies without them. The policy and patch policy of the
+/// most specific level win, per class; monitoring templates add up, so the inherited ones always apply as well.
+/// </summary>
+/// <param name="EndpointClass">The class of the endpoint on endpoint level: it has one choice, for its own class.</param>
 /// <param name="TemplatesAllowed">False for an endpoint that is not managed: it runs no checks, so it links no monitoring templates.</param>
 /// <param name="OtherAutomations">Automations in the patch management product of this client that Fleeto does not manage.</param>
 public sealed record LevelLinks(
     LinkLevel Level,
     Guid ClientId,
-    Guid? PolicyId,
-    bool PolicyFromClientTemplate,
-    InheritedLink? InheritedPolicy,
-    Guid? PatchPolicyId,
-    bool PatchPolicyFromClientTemplate,
-    InheritedLink? InheritedPatchPolicy,
+    EndpointClass? EndpointClass,
+    SlotLinks Policy,
+    SlotLinks PatchPolicy,
     IReadOnlyList<LinkedTemplate> MonitoringTemplates,
     IReadOnlyList<InheritedLink> InheritedTemplates,
     bool TemplatesAllowed,
     LinkChoices Choices,
     IReadOnlyList<string> OtherAutomations);
 
-/// <summary>The links to save on one level. Null means no link: the wider level applies.</summary>
-public sealed record LinksInput(Guid? PolicyId, Guid? PatchPolicyId, IReadOnlyCollection<Guid> MonitoringTemplateIds);
+/// <summary>
+/// The links to save on one level. A <see cref="ClassChoice"/> holds one choice for every endpoint or one per class; null
+/// means no link, so the wider level applies. An endpoint uses <see cref="ClassChoice.All"/> only.
+/// </summary>
+public sealed record LinksInput(ClassChoice Policy, ClassChoice PatchPolicy, IReadOnlyCollection<Guid> MonitoringTemplateIds);
 
 /// <summary>
 /// Policies, patch policies and monitoring templates on client, site and endpoint level (0.6.0), read and saved together so
 /// the dialogs show one coherent picture. The rule that decides what applies lives in <see cref="EffectivePolicyRules"/>.
 /// <list type="bullet">
+/// <item>A client or site has one policy for every endpoint, or one for servers and one for workstations; a slot takes only
+/// a policy that is for that class (or for every endpoint). An endpoint has one, for its own class.</item>
 /// <item>A link the client template made can be replaced by another one, which makes it a link of the technician's own;
 /// it cannot be removed, because the client template would link it again.</item>
 /// <item>A monitoring template the client template linked cannot be removed here.</item>
@@ -81,25 +91,22 @@ public sealed class LinkService
 
         var chain = await ChainAsync(db, target, cancellationToken);
         var own = chain.Of(level);
-        var wider = chain.Wider(level);
+        var wider = chain.Wider(level).ToList();
 
         var templates = own.Templates.OrderBy(t => t.Name).Select(t => new LinkedTemplate(t.Id, t.Name, t.IsGlobal, t.Source)).ToList();
-        var inheritedTemplates = wider.SelectMany(l => l.Templates.Select(t => new InheritedLink(t.Id, t.Name, l.Level)))
+        var inheritedTemplates = wider.SelectMany(l => l.Templates
+                .Where(t => target.Class is not { } cls || EffectivePolicyRules.IsFor(t.AppliesTo, cls))
+                .Select(t => new InheritedLink(t.Id, t.Name, l.Level)))
             .Where(t => templates.All(o => o.Id != t.Id))
             .DistinctBy(t => t.Id)
             .OrderBy(t => t.Name)
             .ToList();
 
-        var inheritedPolicy = wider.Select(l => l.Policy is { } p ? new InheritedLink(p.Id, p.Name, l.Level) : null).FirstOrDefault(p => p is not null)
-                              ?? (chain.DefaultPolicy is { } d ? new InheritedLink(d.Id, d.Name, LinkLevel.None) : null);
-        var inheritedPatch = wider.Select(l => l.PatchPolicy is { } p ? new InheritedLink(p.Id, p.Name, l.Level) : null)
-            .FirstOrDefault(p => p is not null);
-
         var managed = level != LinkLevel.Endpoint ||
                       TierRules.EffectiveTier(target.Tier, await _licenses.GetStatusAsync(db, cancellationToken)) == EndpointTier.Managed;
-        return new LevelLinks(level, target.ClientId,
-            own.Policy?.Id, own.Policy?.Source == LinkSource.ClientTemplate, inheritedPolicy,
-            own.PatchPolicy?.Id, own.PatchPolicy?.Source == LinkSource.ClientTemplate, inheritedPatch,
+        return new LevelLinks(level, target.ClientId, target.Class,
+            Slots(own.Policies, wider.Select(l => (l.Level, l.Policies)), chain.DefaultPolicy),
+            Slots(own.PatchPolicies, wider.Select(l => (l.Level, l.PatchPolicies)), null),
             templates, inheritedTemplates, managed || templates.Count > 0,
             await ChoicesAsync(db, target.ClientId, cancellationToken),
             await OtherAutomationsAsync(db, target.ClientId, cancellationToken));
@@ -131,26 +138,33 @@ public sealed class LinkService
         var own = chain.Of(level);
         var clientId = target.ClientId;
 
-        Policy? policy = null;
-        if (input.PolicyId is { } policyId)
+        if ((Shape(level, input.Policy, "policy") ?? Shape(level, input.PatchPolicy, "patch policy")) is { } shapeProblem)
         {
-            policy = await db.Policies.AsNoTracking().SingleOrDefaultAsync(p => p.Id == policyId && (p.ClientId == null || p.ClientId == clientId),
-                cancellationToken);
-            if (policy is null)
-            {
-                return ServiceResult.NotFound("policy");
-            }
+            return ServiceResult.Fail(shapeProblem);
         }
 
-        PatchPolicy? patchPolicy = null;
-        if (input.PatchPolicyId is { } patchPolicyId)
+        var policyIds = input.Policy.Ids.Distinct().ToList();
+        var policies = await db.Policies.AsNoTracking()
+            .Where(p => policyIds.Contains(p.Id) && (p.ClientId == null || p.ClientId == clientId))
+            .ToDictionaryAsync(p => p.Id, p => (p.Name, p.AppliesTo), cancellationToken);
+        if (policies.Count != policyIds.Count)
         {
-            patchPolicy = await db.PatchPolicies.AsNoTracking()
-                .SingleOrDefaultAsync(p => p.Id == patchPolicyId && (p.ClientId == null || p.ClientId == clientId), cancellationToken);
-            if (patchPolicy is null)
-            {
-                return ServiceResult.NotFound("patch policy");
-            }
+            return ServiceResult.NotFound("policy");
+        }
+
+        var patchIds = input.PatchPolicy.Ids.Distinct().ToList();
+        var patchPolicies = await db.PatchPolicies.AsNoTracking()
+            .Where(p => patchIds.Contains(p.Id) && (p.ClientId == null || p.ClientId == clientId))
+            .ToDictionaryAsync(p => p.Id, p => (p.Name, p.AppliesTo), cancellationToken);
+        if (patchPolicies.Count != patchIds.Count)
+        {
+            return ServiceResult.NotFound("patch policy");
+        }
+
+        if ((Fits(level, target.Class, input.Policy, policies, "policy") ??
+             Fits(level, target.Class, input.PatchPolicy, patchPolicies, "patch policy")) is { } fitProblem)
+        {
+            return ServiceResult.Fail(fitProblem);
         }
 
         var wanted = input.MonitoringTemplateIds.ToHashSet();
@@ -163,12 +177,12 @@ public sealed class LinkService
             return ServiceResult.NotFound("monitoring template");
         }
 
-        if (own.Policy is { Source: LinkSource.ClientTemplate } && policy is null)
+        if (own.Policies.Any(l => l.Source == LinkSource.ClientTemplate && input.Policy[l.Slot] is null))
         {
             return ServiceResult.Fail("The client template links this policy and would link it again. Change the client template, or choose another policy here.");
         }
 
-        if (own.PatchPolicy is { Source: LinkSource.ClientTemplate } && patchPolicy is null)
+        if (own.PatchPolicies.Any(l => l.Source == LinkSource.ClientTemplate && input.PatchPolicy[l.Slot] is null))
         {
             return ServiceResult.Fail("The client template links this patch policy and would link it again. Change the client template, or choose another patch policy here.");
         }
@@ -187,23 +201,23 @@ public sealed class LinkService
             return ServiceResult.Fail(new TierRequiredException(id, ManagedFeature.Checks).Message);
         }
 
-        var policyChanged = own.Policy?.Id != policy?.Id;
-        var patchChanged = own.PatchPolicy?.Id != patchPolicy?.Id;
-        if (!policyChanged && !patchChanged && !templatesChanged)
+        var changedPolicySlots = ClassChoice.Slots.Where(s => Current(own.Policies, s) != input.Policy[s]).ToList();
+        var changedPatchSlots = ClassChoice.Slots.Where(s => Current(own.PatchPolicies, s) != input.PatchPolicy[s]).ToList();
+        if (changedPolicySlots.Count == 0 && changedPatchSlots.Count == 0 && !templatesChanged)
         {
             return ServiceResult.Ok();
         }
 
         var now = _time.GetUtcNow().UtcDateTime;
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        if (policyChanged)
+        foreach (var slot in changedPolicySlots)
         {
-            await SetPolicyAsync(db, level, target, policy?.Id, caller.UserId, now, cancellationToken);
+            await SetPolicyAsync(db, level, target, slot, input.Policy[slot], caller.UserId, now, cancellationToken);
         }
 
-        if (patchChanged)
+        foreach (var slot in changedPatchSlots)
         {
-            await SetPatchPolicyAsync(db, level, target, patchPolicy?.Id, caller.UserId, now, cancellationToken);
+            await SetPatchPolicyAsync(db, level, target, slot, input.PatchPolicy[slot], caller.UserId, now, cancellationToken);
         }
 
         if (templatesChanged)
@@ -212,7 +226,7 @@ public sealed class LinkService
                 cancellationToken);
         }
 
-        if (policyChanged || templatesChanged)
+        if (changedPolicySlots.Count > 0 || templatesChanged)
         {
             // The agents of the level get a new configuration; the signer skips the ones that did not change.
             var scope = level switch
@@ -233,15 +247,15 @@ public sealed class LinkService
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(action, level.ToString(), id.ToString(), clientId, new
         {
             target.Name,
-            Policy = policyChanged ? policy?.Name ?? "Inherited" : null,
-            PatchPolicy = patchChanged ? patchPolicy?.Name ?? "Inherited" : null,
+            Policy = changedPolicySlots.Count > 0 ? Describe(input.Policy, policies) : null,
+            PatchPolicy = changedPatchSlots.Count > 0 ? Describe(input.PatchPolicy, patchPolicies) : null,
             AddedMonitoringTemplates = allowed.Where(t => addedTemplates.Contains(t.Id)).Select(t => t.Name).ToList(),
             RemovedMonitoringTemplates = removedTemplates.Select(t => t.Name).ToList()
         }), now));
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        if (patchChanged)
+        if (changedPatchSlots.Count > 0)
         {
             // The workers change the automations in the patch management product.
             await IntegrationFollow.NotifyAsync(_bus, _logger, cancellationToken);
@@ -255,26 +269,136 @@ public sealed class LinkService
         return ServiceResult.Ok();
     }
 
-    private static async Task SetPolicyAsync(FleetoDbContext db, LinkLevel level, Target target, Guid? policyId, Guid userId, DateTime now,
-        CancellationToken cancellationToken)
+    /// <summary>
+    /// The policy each site of a client passes on, in words: "Servers weekly", or "Servers monthly (servers), Office
+    /// (workstations)" when servers and workstations get a different one.
+    /// </summary>
+    internal static async Task<Dictionary<Guid, string>> SitePolicyNamesAsync(FleetoDbContext db, Guid clientId, CancellationToken cancellationToken)
+    {
+        var siteLinks = await db.SitePolicies.AsNoTracking().Where(l => l.ClientId == clientId)
+            .Select(l => new { l.SiteId, l.AppliesTo, l.PolicyId, l.Policy!.Name, PolicyAppliesTo = l.Policy.AppliesTo })
+            .ToListAsync(cancellationToken);
+        var clientLinks = await db.ClientPolicies.AsNoTracking().Where(l => l.ClientId == clientId)
+            .Select(l => new { l.AppliesTo, l.PolicyId, l.Policy!.Name, PolicyAppliesTo = l.Policy.AppliesTo })
+            .ToListAsync(cancellationToken);
+        var fallback = await db.Policies.IgnoreQueryFilters().AsNoTracking().Where(p => p.IsDefault).Select(p => p.Name)
+            .FirstOrDefaultAsync(cancellationToken) ?? "Default policy";
+        var names = siteLinks.Select(l => (l.PolicyId, l.Name)).Concat(clientLinks.Select(l => (l.PolicyId, l.Name)))
+            .DistinctBy(l => l.PolicyId).ToDictionary(l => l.PolicyId, l => l.Name);
+        var siteIds = await db.Sites.AsNoTracking().Where(s => s.ClientId == clientId).Select(s => s.Id).ToListAsync(cancellationToken);
+
+        return siteIds.ToDictionary(siteId => siteId, siteId =>
+        {
+            var links = clientLinks.Select(l => new LevelLink(LinkLevel.Client, l.AppliesTo, l.PolicyId, l.PolicyAppliesTo))
+                .Concat(siteLinks.Where(l => l.SiteId == siteId).Select(l => new LevelLink(LinkLevel.Site, l.AppliesTo, l.PolicyId, l.PolicyAppliesTo)))
+                .ToList();
+            var server = EffectivePolicyRules.Resolve(EndpointClass.Server, links) is { } s ? names[s.PolicyId] : fallback;
+            var workstation = EffectivePolicyRules.Resolve(EndpointClass.Workstation, links) is { } w ? names[w.PolicyId] : fallback;
+            return server == workstation ? server : $"{server} (servers), {workstation} (workstations)";
+        });
+    }
+
+    /// <summary>A client or site holds one choice for every endpoint or one per class, never both; an endpoint one only.</summary>
+    private static string? Shape(LinkLevel level, ClassChoice choice, string what)
+    {
+        if (level == LinkLevel.Endpoint && (choice.Server is not null || choice.Workstation is not null))
+        {
+            return $"An endpoint has one {what}, for its own class.";
+        }
+
+        return choice.All is not null && (choice.Server is not null || choice.Workstation is not null)
+            ? $"Choose one {what} for every endpoint, or one for servers and one for workstations, not both."
+            : null;
+    }
+
+    /// <summary>A slot takes only what is for its class: a server slot a policy for servers or every endpoint, and so on.</summary>
+    private static string? Fits(LinkLevel level, EndpointClass? endpointClass, ClassChoice choice,
+        IReadOnlyDictionary<Guid, (string Name, CheckAppliesTo AppliesTo)> chosen, string what)
+    {
+        foreach (var slot in ClassChoice.Slots)
+        {
+            if (choice[slot] is not { } id)
+            {
+                continue;
+            }
+
+            var (name, appliesTo) = chosen[id];
+            var fits = level == LinkLevel.Endpoint
+                ? endpointClass is { } cls && EffectivePolicyRules.IsFor(appliesTo, cls)
+                : appliesTo == CheckAppliesTo.All || appliesTo == slot;
+            if (!fits)
+            {
+                return level == LinkLevel.Endpoint
+                    ? $"The {what} {name} is for {Plural(appliesTo)}, and this endpoint is not one."
+                    : slot == CheckAppliesTo.All
+                        ? $"The {what} {name} is for {Plural(appliesTo)} only. Choose it under \"Different for servers and workstations\"."
+                        : $"The {what} {name} is for {Plural(appliesTo)}, not for {Plural(slot)}.";
+            }
+        }
+
+        return null;
+    }
+
+    private static string Plural(CheckAppliesTo appliesTo) => appliesTo switch
+    {
+        CheckAppliesTo.Server => "servers",
+        CheckAppliesTo.Workstation => "workstations",
+        _ => "every endpoint"
+    };
+
+    private static object Describe(ClassChoice choice, IReadOnlyDictionary<Guid, (string Name, CheckAppliesTo AppliesTo)> names) =>
+        choice.Split
+            ? new { Servers = choice.Server is { } s ? names[s].Name : "Inherited", Workstations = choice.Workstation is { } w ? names[w].Name : "Inherited" }
+            : choice.All is { } a ? names[a].Name : "Inherited";
+
+    private static Guid? Current(IEnumerable<Linked> links, CheckAppliesTo slot) => links.FirstOrDefault(l => l.Slot == slot)?.Id;
+
+    /// <summary>The choice of one level, and what servers and workstations get from the wider levels.</summary>
+    private static SlotLinks Slots(IReadOnlyList<Linked> own, IEnumerable<(LinkLevel Level, IReadOnlyList<Linked> Links)> wider, Linked? fallback)
+    {
+        var widerLinks = wider.SelectMany(w => w.Links.Select(l => (w.Level, Link: l))).ToList();
+        var candidates = widerLinks.Select(w => new LevelLink(w.Level, w.Link.Slot, w.Link.Id, w.Link.AppliesTo)).ToList();
+
+        InheritedLink? For(EndpointClass endpointClass)
+        {
+            if (EffectivePolicyRules.Resolve(endpointClass, candidates) is { } link)
+            {
+                var found = widerLinks.First(w => w.Level == link.Level && w.Link.Slot == link.Slot);
+                return new InheritedLink(found.Link.Id, found.Link.Name, found.Level);
+            }
+
+            return fallback is null ? null : new InheritedLink(fallback.Id, fallback.Name, LinkLevel.None);
+        }
+
+        var choice = new ClassChoice(Current(own, CheckAppliesTo.All), Current(own, CheckAppliesTo.Server), Current(own, CheckAppliesTo.Workstation));
+        return new SlotLinks(choice, own.Where(l => l.Source == LinkSource.ClientTemplate).Select(l => l.Slot).ToList(),
+            For(EndpointClass.Server), For(EndpointClass.Workstation));
+    }
+
+    private static async Task SetPolicyAsync(FleetoDbContext db, LinkLevel level, Target target, CheckAppliesTo slot, Guid? policyId, Guid userId,
+        DateTime now, CancellationToken cancellationToken)
     {
         switch (level)
         {
             case LinkLevel.Client:
-                await db.ClientPolicies.Where(l => l.ClientId == target.ClientId).ExecuteDeleteAsync(cancellationToken);
+                await db.ClientPolicies.Where(l => l.ClientId == target.ClientId && l.AppliesTo == slot).ExecuteDeleteAsync(cancellationToken);
                 if (policyId is { } clientPolicy)
                 {
-                    db.ClientPolicies.Add(new ClientPolicy { ClientId = target.ClientId, PolicyId = clientPolicy, Source = LinkSource.Manual, CreatedAt = now });
+                    db.ClientPolicies.Add(new ClientPolicy
+                    {
+                        ClientId = target.ClientId, AppliesTo = slot, PolicyId = clientPolicy, Source = LinkSource.Manual, CreatedAt = now
+                    });
                 }
 
                 break;
             case LinkLevel.Site:
-                await db.SitePolicies.Where(l => l.SiteId == target.SiteId).ExecuteDeleteAsync(cancellationToken);
+                await db.SitePolicies.Where(l => l.SiteId == target.SiteId && l.AppliesTo == slot).ExecuteDeleteAsync(cancellationToken);
                 if (policyId is { } sitePolicy)
                 {
                     db.SitePolicies.Add(new SitePolicy
                     {
-                        SiteId = target.SiteId!.Value, ClientId = target.ClientId, PolicyId = sitePolicy, Source = LinkSource.Manual, CreatedAt = now
+                        SiteId = target.SiteId!.Value, ClientId = target.ClientId, AppliesTo = slot, PolicyId = sitePolicy, Source = LinkSource.Manual,
+                        CreatedAt = now
                     });
                 }
 
@@ -293,29 +417,30 @@ public sealed class LinkService
         }
     }
 
-    private static async Task SetPatchPolicyAsync(FleetoDbContext db, LinkLevel level, Target target, Guid? patchPolicyId, Guid userId, DateTime now,
-        CancellationToken cancellationToken)
+    private static async Task SetPatchPolicyAsync(FleetoDbContext db, LinkLevel level, Target target, CheckAppliesTo slot, Guid? patchPolicyId,
+        Guid userId, DateTime now, CancellationToken cancellationToken)
     {
         switch (level)
         {
             case LinkLevel.Client:
-                await db.ClientPatchPolicies.Where(l => l.ClientId == target.ClientId).ExecuteDeleteAsync(cancellationToken);
+                await db.ClientPatchPolicies.Where(l => l.ClientId == target.ClientId && l.AppliesTo == slot).ExecuteDeleteAsync(cancellationToken);
                 if (patchPolicyId is { } clientPatch)
                 {
                     db.ClientPatchPolicies.Add(new ClientPatchPolicy
                     {
-                        ClientId = target.ClientId, PatchPolicyId = clientPatch, Source = LinkSource.Manual, CreatedAt = now
+                        ClientId = target.ClientId, AppliesTo = slot, PatchPolicyId = clientPatch, Source = LinkSource.Manual, CreatedAt = now
                     });
                 }
 
                 break;
             case LinkLevel.Site:
-                await db.SitePatchPolicies.Where(l => l.SiteId == target.SiteId).ExecuteDeleteAsync(cancellationToken);
+                await db.SitePatchPolicies.Where(l => l.SiteId == target.SiteId && l.AppliesTo == slot).ExecuteDeleteAsync(cancellationToken);
                 if (patchPolicyId is { } sitePatch)
                 {
                     db.SitePatchPolicies.Add(new SitePatchPolicy
                     {
-                        SiteId = target.SiteId!.Value, ClientId = target.ClientId, PatchPolicyId = sitePatch, Source = LinkSource.Manual, CreatedAt = now
+                        SiteId = target.SiteId!.Value, ClientId = target.ClientId, AppliesTo = slot, PatchPolicyId = sitePatch, Source = LinkSource.Manual,
+                        CreatedAt = now
                     });
                 }
 
@@ -372,17 +497,17 @@ public sealed class LinkService
         var policies = await db.Policies.AsNoTracking()
             .Where(p => p.ClientId == null || p.ClientId == clientId)
             .OrderByDescending(p => p.IsDefault).ThenBy(p => p.ClientId != null).ThenBy(p => p.Name)
-            .Select(p => new LinkOption(p.Id, p.Name, p.ClientId == null, p.IsDefault))
+            .Select(p => new LinkOption(p.Id, p.Name, p.ClientId == null, p.IsDefault, p.AppliesTo))
             .ToListAsync(cancellationToken);
         var patchPolicies = await db.PatchPolicies.AsNoTracking()
             .Where(p => p.ClientId == null || p.ClientId == clientId)
             .OrderBy(p => p.ClientId != null).ThenBy(p => p.Name)
-            .Select(p => new LinkOption(p.Id, p.Name, p.ClientId == null, false))
+            .Select(p => new LinkOption(p.Id, p.Name, p.ClientId == null, false, p.AppliesTo))
             .ToListAsync(cancellationToken);
         var templates = await db.MonitoringTemplates.AsNoTracking()
             .Where(t => t.ClientId == null || t.ClientId == clientId)
             .OrderBy(t => t.ClientId != null).ThenBy(t => t.Name)
-            .Select(t => new LinkOption(t.Id, t.Name, t.ClientId == null, false))
+            .Select(t => new LinkOption(t.Id, t.Name, t.ClientId == null, false, t.AppliesTo))
             .ToListAsync(cancellationToken);
         return new LinkChoices(policies, patchPolicies, templates);
     }
@@ -399,11 +524,12 @@ public sealed class LinkService
         level switch
         {
             LinkLevel.Client => await db.Clients.AsNoTracking().Where(c => c.Id == id)
-                .Select(c => new Target(c.Id, null, null, c.Name, EndpointTier.AgentOnly)).SingleOrDefaultAsync(cancellationToken),
+                .Select(c => new Target(c.Id, null, null, c.Name, EndpointTier.AgentOnly, null)).SingleOrDefaultAsync(cancellationToken),
             LinkLevel.Site => await db.Sites.AsNoTracking().Where(s => s.Id == id)
-                .Select(s => new Target(s.ClientId, s.Id, null, s.Name, EndpointTier.AgentOnly)).SingleOrDefaultAsync(cancellationToken),
+                .Select(s => new Target(s.ClientId, s.Id, null, s.Name, EndpointTier.AgentOnly, null)).SingleOrDefaultAsync(cancellationToken),
             LinkLevel.Endpoint => await db.Endpoints.AsNoTracking().Where(e => e.Id == id)
-                .Select(e => new Target(e.ClientId, e.SiteId, e.Id, e.Hostname, e.Tier)).SingleOrDefaultAsync(cancellationToken),
+                .Select(e => new Target(e.ClientId, e.SiteId, e.Id, e.Hostname, e.Tier, e.ClassOverride ?? e.DetectedClass))
+                .SingleOrDefaultAsync(cancellationToken),
             _ => null
         };
 
@@ -414,11 +540,14 @@ public sealed class LinkService
         {
             new(LinkLevel.Client,
                 await db.ClientPolicies.AsNoTracking().Where(l => l.ClientId == target.ClientId)
-                    .Select(l => new Linked(l.PolicyId, l.Policy!.Name, l.Policy.ClientId == null, l.Source)).FirstOrDefaultAsync(cancellationToken),
+                    .Select(l => new Linked(l.PolicyId, l.Policy!.Name, l.Policy.ClientId == null, l.Source, l.AppliesTo, l.Policy.AppliesTo))
+                    .ToListAsync(cancellationToken),
                 await db.ClientPatchPolicies.AsNoTracking().Where(l => l.ClientId == target.ClientId)
-                    .Select(l => new Linked(l.PatchPolicyId, l.PatchPolicy!.Name, l.PatchPolicy.ClientId == null, l.Source)).FirstOrDefaultAsync(cancellationToken),
+                    .Select(l => new Linked(l.PatchPolicyId, l.PatchPolicy!.Name, l.PatchPolicy.ClientId == null, l.Source, l.AppliesTo, l.PatchPolicy.AppliesTo))
+                    .ToListAsync(cancellationToken),
                 await db.ClientMonitoringTemplates.AsNoTracking().Where(l => l.ClientId == target.ClientId)
-                    .Select(l => new Linked(l.MonitoringTemplateId, l.MonitoringTemplate!.Name, l.MonitoringTemplate.ClientId == null, l.Source))
+                    .Select(l => new Linked(l.MonitoringTemplateId, l.MonitoringTemplate!.Name, l.MonitoringTemplate.ClientId == null, l.Source,
+                        CheckAppliesTo.All, l.MonitoringTemplate.AppliesTo))
                     .ToListAsync(cancellationToken))
         };
 
@@ -426,11 +555,14 @@ public sealed class LinkService
         {
             levels.Add(new LevelState(LinkLevel.Site,
                 await db.SitePolicies.AsNoTracking().Where(l => l.SiteId == siteId)
-                    .Select(l => new Linked(l.PolicyId, l.Policy!.Name, l.Policy.ClientId == null, l.Source)).FirstOrDefaultAsync(cancellationToken),
+                    .Select(l => new Linked(l.PolicyId, l.Policy!.Name, l.Policy.ClientId == null, l.Source, l.AppliesTo, l.Policy.AppliesTo))
+                    .ToListAsync(cancellationToken),
                 await db.SitePatchPolicies.AsNoTracking().Where(l => l.SiteId == siteId)
-                    .Select(l => new Linked(l.PatchPolicyId, l.PatchPolicy!.Name, l.PatchPolicy.ClientId == null, l.Source)).FirstOrDefaultAsync(cancellationToken),
+                    .Select(l => new Linked(l.PatchPolicyId, l.PatchPolicy!.Name, l.PatchPolicy.ClientId == null, l.Source, l.AppliesTo, l.PatchPolicy.AppliesTo))
+                    .ToListAsync(cancellationToken),
                 await db.SiteMonitoringTemplates.AsNoTracking().Where(l => l.SiteId == siteId)
-                    .Select(l => new Linked(l.MonitoringTemplateId, l.MonitoringTemplate!.Name, l.MonitoringTemplate.ClientId == null, l.Source))
+                    .Select(l => new Linked(l.MonitoringTemplateId, l.MonitoringTemplate!.Name, l.MonitoringTemplate.ClientId == null, l.Source,
+                        CheckAppliesTo.All, l.MonitoringTemplate.AppliesTo))
                     .ToListAsync(cancellationToken)));
         }
 
@@ -438,17 +570,20 @@ public sealed class LinkService
         {
             levels.Add(new LevelState(LinkLevel.Endpoint,
                 await db.EndpointPolicies.AsNoTracking().Where(l => l.EndpointId == endpointId)
-                    .Select(l => new Linked(l.PolicyId, l.Policy!.Name, l.Policy.ClientId == null, LinkSource.Manual)).FirstOrDefaultAsync(cancellationToken),
+                    .Select(l => new Linked(l.PolicyId, l.Policy!.Name, l.Policy.ClientId == null, LinkSource.Manual, CheckAppliesTo.All, l.Policy.AppliesTo))
+                    .ToListAsync(cancellationToken),
                 await db.EndpointPatchPolicies.AsNoTracking().Where(l => l.EndpointId == endpointId)
-                    .Select(l => new Linked(l.PatchPolicyId, l.PatchPolicy!.Name, l.PatchPolicy.ClientId == null, LinkSource.Manual))
-                    .FirstOrDefaultAsync(cancellationToken),
+                    .Select(l => new Linked(l.PatchPolicyId, l.PatchPolicy!.Name, l.PatchPolicy.ClientId == null, LinkSource.Manual, CheckAppliesTo.All,
+                        l.PatchPolicy.AppliesTo))
+                    .ToListAsync(cancellationToken),
                 await db.EndpointMonitoringTemplates.AsNoTracking().Where(l => l.EndpointId == endpointId)
-                    .Select(l => new Linked(l.MonitoringTemplateId, l.MonitoringTemplate!.Name, l.MonitoringTemplate.ClientId == null, LinkSource.Manual))
+                    .Select(l => new Linked(l.MonitoringTemplateId, l.MonitoringTemplate!.Name, l.MonitoringTemplate.ClientId == null, LinkSource.Manual,
+                        CheckAppliesTo.All, l.MonitoringTemplate.AppliesTo))
                     .ToListAsync(cancellationToken)));
         }
 
         var defaultPolicy = await db.Policies.IgnoreQueryFilters().AsNoTracking().Where(p => p.IsDefault)
-            .Select(p => new Linked(p.Id, p.Name, true, LinkSource.Manual)).FirstOrDefaultAsync(cancellationToken);
+            .Select(p => new Linked(p.Id, p.Name, true, LinkSource.Manual, CheckAppliesTo.All, CheckAppliesTo.All)).FirstOrDefaultAsync(cancellationToken);
         return new Chain(levels, defaultPolicy);
     }
 
@@ -464,11 +599,13 @@ public sealed class LinkService
         }
     }
 
-    private sealed record Target(Guid ClientId, Guid? SiteId, Guid? EndpointId, string Name, EndpointTier Tier);
+    private sealed record Target(Guid ClientId, Guid? SiteId, Guid? EndpointId, string Name, EndpointTier Tier, EndpointClass? Class);
 
-    private sealed record Linked(Guid Id, string Name, bool IsGlobal, LinkSource Source);
+    /// <param name="Slot">The class slot of the link (always All for monitoring templates and endpoint links).</param>
+    /// <param name="AppliesTo">The endpoints the linked policy or template itself is for.</param>
+    private sealed record Linked(Guid Id, string Name, bool IsGlobal, LinkSource Source, CheckAppliesTo Slot, CheckAppliesTo AppliesTo);
 
-    private sealed record LevelState(LinkLevel Level, Linked? Policy, Linked? PatchPolicy, List<Linked> Templates);
+    private sealed record LevelState(LinkLevel Level, IReadOnlyList<Linked> Policies, IReadOnlyList<Linked> PatchPolicies, List<Linked> Templates);
 
     private sealed record Chain(List<LevelState> Levels, Linked? DefaultPolicy)
     {

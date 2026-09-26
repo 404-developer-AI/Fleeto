@@ -12,7 +12,8 @@ namespace Fleeto.Web.Services;
 /// <param name="Automations">Automations the workers keep for it in the patch management product.</param>
 /// <param name="AutomationProblem">Why the last change to one of those automations failed; null when all are in step.</param>
 public sealed record PatchPolicyListItem(Guid Id, string Name, string? Description, Guid? ClientId, string? ClientCode, bool Enabled,
-    string Schedule, PatchUpdateScope Scope, bool AutoReboot, int Links, int ClientTemplateUses, int Automations, string? AutomationProblem);
+    string Schedule, PatchUpdateScope Scope, bool AutoReboot, int Links, int ClientTemplateUses, int Automations, string? AutomationProblem,
+    CheckAppliesTo AppliesTo = CheckAppliesTo.All);
 
 /// <summary>Everything a patch policy holds (0.6.0); see <see cref="PatchPolicy"/> for what each option means in the product.</summary>
 public sealed record PatchPolicyInput(
@@ -38,12 +39,13 @@ public sealed record PatchPolicyInput(
     bool RebootMessage,
     string? RebootMessageText,
     int RebootTimeoutMinutes,
-    int RetryHours)
+    int RetryHours,
+    CheckAppliesTo AppliesTo = CheckAppliesTo.All)
 {
     public static PatchPolicyInput From(PatchPolicy p) => new(p.Name, p.Description, p.Enabled, p.ScheduleKind, p.WeekDays, p.MonthDay, p.MonthWeek,
         p.MonthWeekday, p.StartMinute, p.EndpointLocalTime, p.Scope, p.UpdateSources, p.UpdateTypes, p.Severities, p.ExcludedNames,
         p.ExcludedVendors, p.RequireApproval, p.InstallDelayDays, p.AutoReboot, p.RebootMessage, p.RebootMessageText, p.RebootTimeoutMinutes,
-        p.RetryHours);
+        p.RetryHours, p.AppliesTo);
 }
 
 /// <summary>
@@ -85,7 +87,7 @@ public sealed class PatchPolicyService
             .ToListAsync(cancellationToken);
         return policies.Select(r => new PatchPolicyListItem(r.Policy.Id, r.Policy.Name, r.Policy.Description, r.Policy.ClientId, r.ClientCode,
                 r.Policy.Enabled, PatchPolicyRules.DescribeSchedule(r.Policy), r.Policy.Scope, r.Policy.AutoReboot, r.Links, r.ClientTemplateUses,
-                r.Automations, r.Problem))
+                r.Automations, r.Problem, r.Policy.AppliesTo))
             .ToList();
     }
 
@@ -234,6 +236,7 @@ public sealed class PatchPolicyService
         policy.Name = input.Name?.Trim() ?? string.Empty;
         policy.Description = ServiceSupport.Clean(input.Description);
         policy.Enabled = input.Enabled;
+        policy.AppliesTo = input.AppliesTo;
         policy.ScheduleKind = input.ScheduleKind;
         policy.WeekDays = input.WeekDays & WeekDays.All;
         policy.MonthDay = input.MonthDay;
@@ -267,6 +270,7 @@ public sealed class PatchPolicyService
     {
         policy.Name,
         policy.Enabled,
+        AppliesTo = policy.AppliesTo.ToString(),
         Schedule = PatchPolicyRules.DescribeSchedule(policy),
         Scope = policy.Scope.ToString(),
         policy.UpdateSources,

@@ -19,6 +19,8 @@
                 }
             </MudSelect>
         }
+        <AppliesToSelect @bind-Value="_m.AppliesTo" Class="mb-3"
+                         HelperText="A patch policy for servers or workstations never applies to the other class, wherever it is linked." />
         <MudSwitch T="bool" @bind-Value="_m.Enabled" Color="Color.Primary" Label="Enabled" />
         <MudText Typo="Typo.caption" Class="muted d-block mb-2">Off keeps the automations in Action1 but stops them from running.</MudText>
 
@@ -162,6 +164,7 @@
         public string? Name { get; set; }
         public string? Description { get; set; }
         public bool Enabled { get; set; } = true;
+        public CheckAppliesTo AppliesTo { get; set; }
         public PatchScheduleKind ScheduleKind { get; set; } = PatchScheduleKind.Weekly;
         public WeekDays WeekDays { get; set; } = WeekDays.Wednesday;
         public int MonthDay { get; set; } = 1;
@@ -186,7 +189,7 @@
         public PatchPolicyInput ToInput() => new(Name, Description, Enabled, ScheduleKind, WeekDays, MonthDay, MonthWeek, MonthWeekday,
             (int)(Start ?? TimeSpan.Zero).TotalMinutes, EndpointLocalTime, Scope, Sources.ToList(), Types.ToList(), Severities.ToList(),
             Split(ExcludedNames), Split(ExcludedVendors), RequireApproval, InstallDelayDays, AutoReboot, RebootMessage, RebootMessageText,
-            RebootTimeoutMinutes, RetryHours);
+            RebootTimeoutMinutes, RetryHours, AppliesTo);
 
         /// <summary>A throwaway entity, only to describe the schedule while it is edited.</summary>
         public PatchPolicy ToPolicy() => new()
@@ -203,7 +206,7 @@
             Severities = p.Severities.ToHashSet(), ExcludedNames = string.Join(", ", p.ExcludedNames),
             ExcludedVendors = string.Join(", ", p.ExcludedVendors), RequireApproval = p.RequireApproval, InstallDelayDays = p.InstallDelayDays,
             AutoReboot = p.AutoReboot, RebootMessage = p.RebootMessage, RebootMessageText = p.RebootMessageText,
-            RebootTimeoutMinutes = p.RebootTimeoutMinutes, RetryHours = p.RetryHours
+            RebootTimeoutMinutes = p.RebootTimeoutMinutes, RetryHours = p.RetryHours, AppliesTo = p.AppliesTo
         };
 
         private static List<string> Split(string? text) =>

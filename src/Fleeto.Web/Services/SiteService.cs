@@ -14,10 +14,11 @@ public sealed record EndpointListItem(Guid Id, string Hostname, bool IsOnline, E
 
 public sealed record LinkedTemplate(Guid Id, string Name, bool IsGlobal, LinkSource Source);
 
-public sealed record LinkOption(Guid Id, string Name, bool IsGlobal, bool IsDefault = false);
+/// <param name="AppliesTo">The endpoints the policy, patch policy or monitoring template is for (0.6.0).</param>
+public sealed record LinkOption(Guid Id, string Name, bool IsGlobal, bool IsDefault = false, CheckAppliesTo AppliesTo = CheckAppliesTo.All);
 
 public sealed record SiteDetail(Guid Id, string Name, string? Description, Guid ClientId, string ClientCode, string ClientName,
-    bool FromTemplate, Guid? PolicyId, string PolicyName, LinkSource? PolicySource, IReadOnlyList<LinkedTemplate> MonitoringTemplates,
+    bool FromTemplate, string PolicyName, IReadOnlyList<LinkedTemplate> MonitoringTemplates,
     IReadOnlyList<EndpointListItem> Endpoints);
 
 /// <summary>Site header data without its endpoints: cheap enough for every page load.</summary>
@@ -53,12 +54,7 @@ public sealed class SiteService
             return null;
         }
 
-        var policy = await db.SitePolicies.AsNoTracking().Where(l => l.SiteId == siteId)
-            .Select(l => new { l.PolicyId, l.Policy!.Name, l.Source })
-            .FirstOrDefaultAsync(cancellationToken);
-        var defaultPolicyName = policy is null
-            ? await InheritedPolicyNameAsync(db, site.ClientId, cancellationToken)
-            : null;
+        var policyNames = await LinkService.SitePolicyNamesAsync(db, site.ClientId, cancellationToken);
 
         var templates = await db.SiteMonitoringTemplates.AsNoTracking().Where(l => l.SiteId == siteId)
             .OrderBy(l => l.MonitoringTemplate!.Name)
@@ -68,7 +64,7 @@ public sealed class SiteService
         var endpoints = await ListEndpointsQuery(db, siteId, _time.GetUtcNow().UtcDateTime).ToListAsync(cancellationToken);
 
         return new SiteDetail(site.Id, site.Name, site.Description, site.ClientId, site.Code, site.ClientName, site.ClientTemplateSiteId is not null,
-            policy?.PolicyId, policy?.Name ?? defaultPolicyName!, policy?.Source, templates, endpoints);
+            policyNames.GetValueOrDefault(site.Id, "Default policy"), templates, endpoints);
     }
 
     public async Task<SiteSummary?> GetSummaryAsync(Caller caller, Guid siteId, CancellationToken cancellationToken = default)
@@ -86,8 +82,6 @@ public sealed class SiteService
                 s.Client!.Code,
                 ClientName = s.Client.Name,
                 FromTemplate = s.ClientTemplateSiteId != null,
-                PolicyName = db.SitePolicies.Where(l => l.SiteId == s.Id).Select(l => l.Policy!.Name).FirstOrDefault()
-                             ?? db.ClientPolicies.Where(l => l.ClientId == s.ClientId).Select(l => l.Policy!.Name).FirstOrDefault(),
                 Templates = db.SiteMonitoringTemplates.Count(l => l.SiteId == s.Id),
                 Maintenance = new MaintenancePeriod(s.MaintenanceStartedAt, s.MaintenanceEndsAt, s.MaintenanceStartedByName, s.MaintenanceReason),
                 ClientMaintenance = new MaintenancePeriod(s.Client.MaintenanceStartedAt, s.Client.MaintenanceEndsAt, s.Client.MaintenanceStartedByName,
@@ -99,18 +93,10 @@ public sealed class SiteService
             return null;
         }
 
-        var policyName = site.PolicyName
-                         ?? await db.Policies.AsNoTracking().Where(p => p.IsDefault).Select(p => p.Name).FirstOrDefaultAsync(cancellationToken)
-                         ?? "Default policy";
+        var policyName = (await LinkService.SitePolicyNamesAsync(db, site.ClientId, cancellationToken)).GetValueOrDefault(site.Id, "Default policy");
         return new SiteSummary(site.Id, site.Name, site.Description, site.ClientId, site.Code, site.ClientName, site.FromTemplate, policyName,
             site.Templates, site.Maintenance, site.ClientMaintenance);
     }
-
-    /// <summary>The policy a site without its own gets: the client's, else the default policy.</summary>
-    private static async Task<string> InheritedPolicyNameAsync(FleetoDbContext db, Guid clientId, CancellationToken cancellationToken) =>
-        await db.ClientPolicies.AsNoTracking().Where(l => l.ClientId == clientId).Select(l => l.Policy!.Name).FirstOrDefaultAsync(cancellationToken)
-        ?? await db.Policies.IgnoreQueryFilters().AsNoTracking().Where(p => p.IsDefault).Select(p => p.Name).FirstOrDefaultAsync(cancellationToken)
-        ?? "Default policy";
 
     public async Task<IReadOnlyList<EndpointListItem>> ListEndpointsAsync(Caller caller, Guid siteId, CancellationToken cancellationToken = default)
     {

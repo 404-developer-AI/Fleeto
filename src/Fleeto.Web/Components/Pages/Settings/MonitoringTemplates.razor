@@ -32,6 +32,7 @@
             <HeaderContent>
                 <MudTh>Name</MudTh>
                 <MudTh>Available for</MudTh>
+                <MudTh>For</MudTh>
                 <MudTh>Checks</MudTh>
                 <MudTh>Used by</MudTh>
                 @if (CanManage)
@@ -48,6 +49,7 @@
                     }
                 </MudTd>
                 <MudTd>@(context.ClientCode ?? "All clients")</MudTd>
+                <MudTd>@Ui.AppliesToLabel(context.AppliesTo)</MudTd>
                 <MudTd>@context.CheckCount</MudTd>
                 <MudTd>@Usage(context)</MudTd>
                 @if (CanManage)
@@ -87,9 +89,9 @@
         {
             { d => d.Clients, _clients },
             {
-                d => d.OnSubmit, async (name, description, clientId) =>
+                d => d.OnSubmit, async (name, description, clientId, appliesTo) =>
                 {
-                    var result = await RunForValueAsync(caller => TemplateSvc.CreateAsync(caller, name, description, clientId), "The monitoring template was created. Add checks to it.");
+                    var result = await RunForValueAsync(caller => TemplateSvc.CreateAsync(caller, name, description, clientId, appliesTo), "The monitoring template was created. Add checks to it.");
                     createdId = result?.Value;
                     return result is not null;
                 }

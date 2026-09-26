@@ -37,6 +37,7 @@
             <HeaderContent>
                 <MudTh>Name</MudTh>
                 <MudTh>Available for</MudTh>
+                <MudTh>For</MudTh>
                 <MudTh>Schedule</MudTh>
                 <MudTh>Updates</MudTh>
                 <MudTh>Restart</MudTh>
@@ -60,6 +61,7 @@
                     }
                 </MudTd>
                 <MudTd>@(context.ClientCode is null ? "All clients" : context.ClientCode)</MudTd>
+                <MudTd>@Ui.AppliesToLabel(context.AppliesTo)</MudTd>
                 <MudTd>@context.Schedule</MudTd>
                 <MudTd>@(context.Scope == PatchUpdateScope.All ? "All missing updates" : "Matching the filters")</MudTd>
                 <MudTd>@(context.AutoReboot ? "Automatic" : "No")</MudTd>

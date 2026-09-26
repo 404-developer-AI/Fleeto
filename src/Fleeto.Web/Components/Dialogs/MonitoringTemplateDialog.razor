@@ -1,4 +1,4 @@
-@* Create a monitoring template (name, description, global or one client) or edit its name and description. *@
+@* Create a monitoring template (name, description, global or one client, the endpoints it is for) or edit it. *@
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">@(IsEdit ? "Edit monitoring template" : "New monitoring template")</MudText>
@@ -6,6 +6,8 @@
     <DialogContent>
         <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" MaxLength="100" AutoFocus="true" Class="mb-3" />
         <MudTextField @bind-Value="_description" Label="Description (optional)" Variant="Variant.Outlined" Lines="2" MaxLength="1000" Class="mb-3" />
+        <AppliesToSelect @bind-Value="_appliesTo" Class="mb-3"
+                         HelperText="A template for servers or workstations runs none of its checks on the other class, on top of what each check is for." />
         @if (!IsEdit)
         {
             <MudSelect T="Guid?" @bind-Value="_clientId" Label="Available for" Variant="Variant.Outlined"
@@ -32,17 +34,20 @@
     [Parameter] public string InitialName { get; set; } = string.Empty;
     [Parameter] public string? InitialDescription { get; set; }
     [Parameter] public IReadOnlyList<ClientOption> Clients { get; set; } = [];
-    [Parameter] public Func<string, string?, Guid?, Task<bool>> OnSubmit { get; set; } = (_, _, _) => Task.FromResult(true);
+    [Parameter] public CheckAppliesTo InitialAppliesTo { get; set; }
+    [Parameter] public Func<string, string?, Guid?, CheckAppliesTo, Task<bool>> OnSubmit { get; set; } = (_, _, _, _) => Task.FromResult(true);
 
     private string _name = string.Empty;
     private string? _description;
     private Guid? _clientId;
+    private CheckAppliesTo _appliesTo;
     private bool _busy;
 
     protected override void OnInitialized()
     {
         _name = InitialName;
         _description = InitialDescription;
+        _appliesTo = InitialAppliesTo;
     }
 
     private void Cancel() => MudDialog.Cancel();
@@ -52,7 +57,7 @@
         _busy = true;
         try
         {
-            if (await OnSubmit(_name, _description, _clientId))
+            if (await OnSubmit(_name, _description, _clientId, _appliesTo))
             {
                 MudDialog.Close(DialogResult.Ok(true));
             }

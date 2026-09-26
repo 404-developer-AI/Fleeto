@@ -25,6 +25,7 @@
         <HeaderContent>
             <MudTh>Name</MudTh>
             <MudTh>Available for</MudTh>
+            <MudTh>For</MudTh>
             <MudTh>Heartbeat</MudTh>
             <MudTh>Inventory</MudTh>
             <MudTh>Offline alert</MudTh>
@@ -57,6 +58,7 @@
                 }
             </MudTd>
             <MudTd>@(context.ClientCode ?? "All clients")</MudTd>
+            <MudTd>@Ui.AppliesToLabel(context.AppliesTo)</MudTd>
             <MudTd>@Intervals.Describe(context.HeartbeatIntervalSeconds)</MudTd>
             <MudTd>@Intervals.Describe(context.InventoryIntervalSeconds)</MudTd>
             <MudTd>@(context.OfflineAlertAfterMinutes == 0 ? "Off" : $"{context.OfflineAlertSeverity} after {context.OfflineAlertAfterMinutes} min")</MudTd>

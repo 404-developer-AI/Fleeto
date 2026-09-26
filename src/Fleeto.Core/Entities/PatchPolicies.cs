@@ -36,6 +36,12 @@ public class PatchPolicy
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
 
+    /// <summary>
+    /// The endpoints the patch policy is for: a patch policy for servers never applies to a workstation, and the other way
+    /// round, wherever it is linked.
+    /// </summary>
+    public CheckAppliesTo AppliesTo { get; set; } = CheckAppliesTo.All;
+
     /// <summary>Off keeps the automations in the product but stops them from running (<c>DISABLED</c>).</summary>
     public bool Enabled { get; set; } = true;
 

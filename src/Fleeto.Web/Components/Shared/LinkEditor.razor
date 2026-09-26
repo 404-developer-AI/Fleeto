@@ -1,42 +1,28 @@
 @* The policy, patch policy and monitoring templates of a client, site, endpoint or client template (0.6.0), in one compact
-   block. Every choice names what applies without it, so the most specific level winning is visible where it is chosen. *@
+   block. Every choice names what applies without it, so the most specific level winning is visible where it is chosen; a
+   client or site can choose differently for servers and workstations. *@
 <div class="link-editor">
-    <MudSelect T="Guid?" @bind-Value="Selection.PolicyId" Label="Policy" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="Disabled"
-               AdornmentIcon="@Icons.Material.Outlined.Tune" Adornment="Adornment.Start"
-               HelperText="@(PolicyLocked ? "From the client template. Choose another policy to use one of your own here." : "Agent behaviour: intervals, offline alerts, maintenance windows, scripts and remote sessions.")">
-        @if (!PolicyLocked)
-        {
-            <MudSelectItem T="Guid?" Value="@((Guid?)null)">@PolicyInherit</MudSelectItem>
-        }
-        @foreach (var policy in Choices.Policies)
-        {
-            <MudSelectItem T="Guid?" Value="@((Guid?)policy.Id)">@Label(policy)</MudSelectItem>
-        }
-    </MudSelect>
+    <ClassChoiceEditor Selection="Selection.Policy" Options="Choices.Policies" Label="Policy" Icon="@Icons.Material.Outlined.Tune"
+                       Inherit="PolicyInherit" Locked="PolicyLocked" EndpointClass="EndpointClass" Disabled="Disabled" Changed="Changed"
+                       HelperText="Agent behaviour: intervals, offline alerts, maintenance windows, scripts and remote sessions." />
 
-    <MudSelect T="Guid?" @bind-Value="Selection.PatchPolicyId" Label="Patch policy" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="Disabled"
-               AdornmentIcon="@Icons.Material.Outlined.SystemUpdateAlt" Adornment="Adornment.Start" Class="mt-3"
-               HelperText="@(PatchLocked ? "From the client template. Choose another patch policy to use one of your own here." : "When Action1 installs updates on the managed Windows endpoints.")">
-        @if (!PatchLocked)
-        {
-            <MudSelectItem T="Guid?" Value="@((Guid?)null)">@PatchInherit</MudSelectItem>
-        }
-        @foreach (var policy in Choices.PatchPolicies)
-        {
-            <MudSelectItem T="Guid?" Value="@((Guid?)policy.Id)">@Label(policy)</MudSelectItem>
-        }
-    </MudSelect>
+    <div class="mt-3">
+        <ClassChoiceEditor Selection="Selection.PatchPolicy" Options="Choices.PatchPolicies" Label="Patch policy"
+                           Icon="@Icons.Material.Outlined.SystemUpdateAlt" Inherit="PatchInherit" Locked="PatchLocked" EndpointClass="EndpointClass"
+                           Disabled="Disabled" Changed="Changed" HelperText="When Action1 installs updates on the managed Windows endpoints." />
+    </div>
 
     @if (ShowTemplates)
     {
-        <MudSelect T="Guid" MultiSelection="true" @bind-SelectedValues="Templates" Label="Monitoring templates" Variant="Variant.Outlined"
-                   Margin="Margin.Dense" Disabled="@(Disabled || TemplatesDisabledText is not null)" Class="mt-3"
+        <MudSelect T="Guid" MultiSelection="true" SelectedValues="Templates" SelectedValuesChanged="SetTemplatesAsync" Label="Monitoring templates"
+                   Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(Disabled || TemplatesDisabledText is not null)" Class="mt-3"
                    AdornmentIcon="@Icons.Material.Outlined.MonitorHeart" Adornment="Adornment.Start"
                    ToStringFunc="@(id => Choices.MonitoringTemplates.FirstOrDefault(t => t.Id == id)?.Name ?? string.Empty)"
-                   HelperText="@(TemplatesDisabledText ?? "Checks of these templates run on top of the ones that apply already.")">
-            @foreach (var template in Choices.MonitoringTemplates.Where(t => !LockedTemplates.Contains(t.Id)))
+                   HelperText="@(TemplatesDisabledText ?? "Checks of these templates run on top of the ones that apply already. A template for servers or workstations only runs on those.")">
+            @foreach (var template in Choices.MonitoringTemplates.Where(t => !LockedTemplates.Contains(t.Id) &&
+                                                                          (EndpointClass is not { } cls || EffectivePolicyRules.IsFor(t.AppliesTo, cls))))
             {
-                <MudSelectItem T="Guid" Value="@template.Id">@Label(template)</MudSelectItem>
+                <MudSelectItem T="Guid" Value="@template.Id">@ClassChoiceEditor.Name(template)</MudSelectItem>
             }
         </MudSelect>
         @if (LockedTemplates.Count > 0 || InheritedTemplates.Count > 0)
@@ -60,15 +46,18 @@
     [Parameter, EditorRequired] public LinkSelection Selection { get; set; } = default!;
     [Parameter, EditorRequired] public LinkChoices Choices { get; set; } = default!;
 
-    /// <summary>The text of the empty choice: what applies without a policy here, such as "Inherit: Servers (from site)".</summary>
-    [Parameter] public string PolicyInherit { get; set; } = "Inherit";
+    /// <summary>The empty choices of the policy: what applies without one here, such as "Inherit: Servers (from site)".</summary>
+    [Parameter] public InheritTexts PolicyInherit { get; set; } = InheritTexts.Same("Inherit");
 
-    [Parameter] public string PatchInherit { get; set; } = "Inherit";
+    [Parameter] public InheritTexts PatchInherit { get; set; } = InheritTexts.Same("Inherit");
 
-    /// <summary>The client template linked the policy here: it can be replaced, not removed.</summary>
-    [Parameter] public bool PolicyLocked { get; set; }
+    /// <summary>The class slots of the policy the client template set: they can be replaced, not emptied.</summary>
+    [Parameter] public IReadOnlyCollection<CheckAppliesTo> PolicyLocked { get; set; } = [];
 
-    [Parameter] public bool PatchLocked { get; set; }
+    [Parameter] public IReadOnlyCollection<CheckAppliesTo> PatchLocked { get; set; } = [];
+
+    /// <summary>The class of the endpoint on endpoint level: one choice each, for that class only.</summary>
+    [Parameter] public EndpointClass? EndpointClass { get; set; }
 
     [Parameter] public bool ShowTemplates { get; set; } = true;
 
@@ -83,6 +72,9 @@
 
     [Parameter] public bool Disabled { get; set; }
 
+    /// <summary>Called after any choice changed.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
     private IReadOnlyCollection<Guid> _templates = [];
     private LinkSelection? _loadedFrom;
 
@@ -96,20 +88,16 @@
     }
 
     /// <summary>The templates chosen here; the ones the client template linked stay in the selection whatever is picked.</summary>
-    private IReadOnlyCollection<Guid> Templates
-    {
-        get => _templates;
-        set
-        {
-            _templates = value;
-            Selection.TemplateIds.Clear();
-            Selection.TemplateIds.UnionWith(value);
-            Selection.TemplateIds.UnionWith(LockedTemplates);
-        }
-    }
+    private IReadOnlyCollection<Guid> Templates => _templates;
 
-    private static string Label(LinkOption option) =>
-        option.IsDefault ? $"{option.Name} (default)" : option.IsGlobal ? option.Name : $"{option.Name} (this client)";
+    private Task SetTemplatesAsync(IEnumerable<Guid> value)
+    {
+        _templates = value.ToHashSet();
+        Selection.TemplateIds.Clear();
+        Selection.TemplateIds.UnionWith(_templates);
+        Selection.TemplateIds.UnionWith(LockedTemplates);
+        return Changed.InvokeAsync();
+    }
 
     /// <summary>"from client", "from site", or "default" for the default policy.</summary>
     public static string From(LinkLevel level) => level switch
@@ -119,8 +107,4 @@
         LinkLevel.Endpoint => "from endpoint",
         _ => "default"
     };
-
-    /// <summary>The empty choice for an inherited link: "Inherit: Servers (from site)", or <paramref name="none"/> without one.</summary>
-    public static string InheritText(InheritedLink? link, string none) =>
-        link is null ? none : $"Inherit: {link.Name} ({From(link.Level)})";
 }

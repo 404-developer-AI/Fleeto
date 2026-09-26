@@ -5,12 +5,38 @@ using Microsoft.EntityFrameworkCore;
 namespace Fleeto.Infrastructure.Services;
 
 /// <summary>
+/// A choice per class slot (0.6.0): one for every endpoint, or one for servers and one for workstations. Used for the
+/// policy and patch policy of a client template, its sites, and the links of a client or site.
+/// </summary>
+public readonly record struct ClassChoice(Guid? All, Guid? Server, Guid? Workstation)
+{
+    public static readonly ClassChoice None = default;
+
+    /// <summary>One choice for every endpoint.</summary>
+    public static implicit operator ClassChoice(Guid? all) => new(all, null, null);
+
+    public static readonly CheckAppliesTo[] Slots = [CheckAppliesTo.All, CheckAppliesTo.Server, CheckAppliesTo.Workstation];
+
+    public Guid? this[CheckAppliesTo slot] => slot switch
+    {
+        CheckAppliesTo.Server => Server,
+        CheckAppliesTo.Workstation => Workstation,
+        _ => All
+    };
+
+    /// <summary>True when servers and workstations have a choice of their own instead of one for every endpoint.</summary>
+    public bool Split => All is null && (Server is not null || Workstation is not null);
+
+    public IEnumerable<Guid> Ids => new[] { All, Server, Workstation }.OfType<Guid>();
+}
+
+/// <summary>
 /// Applies client templates to the clients that follow them. Templates are linked, not copied: a change to a
 /// client template changes every client using it.
 /// <list type="bullet">
 /// <item>Every template site exists as a site of the client (an existing site with the same name is adopted).</item>
 /// <item>Template-sourced links (policy, patch policy, monitoring templates) mirror the template, on the client itself (0.6.0)
-/// and on its sites; manual links are untouched.</item>
+/// and on its sites, per class slot; manual links are untouched.</item>
 /// <item>A site whose template site was removed is detached: it keeps its endpoints and its links become manual.</item>
 /// </list>
 /// Callers run this inside their own unit of work and save; the client and every affected site get a configuration change event.
@@ -21,30 +47,22 @@ public static class ClientTemplateSync
     {
         var sites = await db.Sites
             .Include(s => s.MonitoringTemplates)
-            .Include(s => s.Policy)
-            .Include(s => s.PatchPolicy)
+            .Include(s => s.Policies)
+            .Include(s => s.PatchPolicies)
             .Where(s => s.ClientId == client.Id)
             .ToListAsync(cancellationToken);
-        var clientPolicy = await db.ClientPolicies.SingleOrDefaultAsync(l => l.ClientId == client.Id, cancellationToken);
-        var clientPatchPolicy = await db.ClientPatchPolicies.SingleOrDefaultAsync(l => l.ClientId == client.Id, cancellationToken);
+        var clientPolicies = await db.ClientPolicies.Where(l => l.ClientId == client.Id).ToListAsync(cancellationToken);
+        var clientPatchPolicies = await db.ClientPatchPolicies.Where(l => l.ClientId == client.Id).ToListAsync(cancellationToken);
         var clientTemplates = await db.ClientMonitoringTemplates.Where(l => l.ClientId == client.Id).ToListAsync(cancellationToken);
 
         if (client.ClientTemplateId is null)
         {
             // Detached: the client keeps what the template linked, as links of its own.
-            if (clientPolicy is { Source: LinkSource.ClientTemplate } || clientPatchPolicy is { Source: LinkSource.ClientTemplate } ||
+            if (clientPolicies.Any(l => l.Source == LinkSource.ClientTemplate) || clientPatchPolicies.Any(l => l.Source == LinkSource.ClientTemplate) ||
                 clientTemplates.Any(l => l.Source == LinkSource.ClientTemplate))
             {
-                if (clientPolicy is not null)
-                {
-                    clientPolicy.Source = LinkSource.Manual;
-                }
-
-                if (clientPatchPolicy is not null)
-                {
-                    clientPatchPolicy.Source = LinkSource.Manual;
-                }
-
+                clientPolicies.ForEach(l => l.Source = LinkSource.Manual);
+                clientPatchPolicies.ForEach(l => l.Source = LinkSource.Manual);
                 clientTemplates.ForEach(l => l.Source = LinkSource.Manual);
                 AddClientChange(db, client.Id, now);
             }
@@ -64,45 +82,15 @@ public static class ClientTemplateSync
             .SingleAsync(t => t.Id == client.ClientTemplateId, cancellationToken);
 
         // The client itself (0.6.0): the same rules as for a site below.
-        if (template.PolicyId is { } templatePolicyId)
-        {
-            if (clientPolicy is null)
+        SyncSlots(db.ClientPolicies, clientPolicies, l => l.AppliesTo, l => l.PolicyId, l => l.Source,
+            new ClassChoice(template.PolicyId, template.ServerPolicyId, template.WorkstationPolicyId),
+            (slot, id) => new ClientPolicy { ClientId = client.Id, AppliesTo = slot, PolicyId = id, Source = LinkSource.ClientTemplate, CreatedAt = now });
+        SyncSlots(db.ClientPatchPolicies, clientPatchPolicies, l => l.AppliesTo, l => l.PatchPolicyId, l => l.Source,
+            new ClassChoice(template.PatchPolicyId, template.ServerPatchPolicyId, template.WorkstationPatchPolicyId),
+            (slot, id) => new ClientPatchPolicy
             {
-                db.ClientPolicies.Add(new ClientPolicy { ClientId = client.Id, PolicyId = templatePolicyId, Source = LinkSource.ClientTemplate, CreatedAt = now });
-            }
-            else if (clientPolicy.Source == LinkSource.ClientTemplate && clientPolicy.PolicyId != templatePolicyId)
-            {
-                db.ClientPolicies.Remove(clientPolicy);
-                db.ClientPolicies.Add(new ClientPolicy { ClientId = client.Id, PolicyId = templatePolicyId, Source = LinkSource.ClientTemplate, CreatedAt = now });
-            }
-        }
-        else if (clientPolicy is { Source: LinkSource.ClientTemplate })
-        {
-            db.ClientPolicies.Remove(clientPolicy);
-        }
-
-        if (template.PatchPolicyId is { } templatePatchPolicyId)
-        {
-            if (clientPatchPolicy is null)
-            {
-                db.ClientPatchPolicies.Add(new ClientPatchPolicy
-                {
-                    ClientId = client.Id, PatchPolicyId = templatePatchPolicyId, Source = LinkSource.ClientTemplate, CreatedAt = now
-                });
-            }
-            else if (clientPatchPolicy.Source == LinkSource.ClientTemplate && clientPatchPolicy.PatchPolicyId != templatePatchPolicyId)
-            {
-                db.ClientPatchPolicies.Remove(clientPatchPolicy);
-                db.ClientPatchPolicies.Add(new ClientPatchPolicy
-                {
-                    ClientId = client.Id, PatchPolicyId = templatePatchPolicyId, Source = LinkSource.ClientTemplate, CreatedAt = now
-                });
-            }
-        }
-        else if (clientPatchPolicy is { Source: LinkSource.ClientTemplate })
-        {
-            db.ClientPatchPolicies.Remove(clientPatchPolicy);
-        }
+                ClientId = client.Id, AppliesTo = slot, PatchPolicyId = id, Source = LinkSource.ClientTemplate, CreatedAt = now
+            });
 
         var wantedForClient = template.MonitoringTemplates.Select(m => m.MonitoringTemplateId).ToHashSet();
         db.ClientMonitoringTemplates.RemoveRange(clientTemplates.Where(l => l.Source == LinkSource.ClientTemplate && !wantedForClient.Contains(l.MonitoringTemplateId)));
@@ -146,46 +134,20 @@ public static class ClientTemplateSync
             site.ClientTemplateSiteId = templateSite.Id;
             site.UpdatedAt = now;
 
-            // Policy: the template decides when it sets one; a manual policy on the site is never overwritten.
-            if (templateSite.PolicyId is { } policyId)
-            {
-                if (site.Policy is null)
+            // The template decides per slot when it sets one; a manual link on the site is never overwritten.
+            var siteId = site.Id;
+            SyncSlots(db.SitePolicies, site.Policies.ToList(), l => l.AppliesTo, l => l.PolicyId, l => l.Source,
+                new ClassChoice(templateSite.PolicyId, templateSite.ServerPolicyId, templateSite.WorkstationPolicyId),
+                (slot, id) => new SitePolicy
                 {
-                    db.SitePolicies.Add(new SitePolicy { SiteId = site.Id, ClientId = client.Id, PolicyId = policyId, Source = LinkSource.ClientTemplate, CreatedAt = now });
-                }
-                else if (site.Policy.Source == LinkSource.ClientTemplate && site.Policy.PolicyId != policyId)
+                    SiteId = siteId, ClientId = client.Id, AppliesTo = slot, PolicyId = id, Source = LinkSource.ClientTemplate, CreatedAt = now
+                });
+            SyncSlots(db.SitePatchPolicies, site.PatchPolicies.ToList(), l => l.AppliesTo, l => l.PatchPolicyId, l => l.Source,
+                new ClassChoice(templateSite.PatchPolicyId, templateSite.ServerPatchPolicyId, templateSite.WorkstationPatchPolicyId),
+                (slot, id) => new SitePatchPolicy
                 {
-                    db.SitePolicies.Remove(site.Policy);
-                    db.SitePolicies.Add(new SitePolicy { SiteId = site.Id, ClientId = client.Id, PolicyId = policyId, Source = LinkSource.ClientTemplate, CreatedAt = now });
-                }
-            }
-            else if (site.Policy is { Source: LinkSource.ClientTemplate })
-            {
-                db.SitePolicies.Remove(site.Policy);
-            }
-
-            if (templateSite.PatchPolicyId is { } patchPolicyId)
-            {
-                if (site.PatchPolicy is null)
-                {
-                    db.SitePatchPolicies.Add(new SitePatchPolicy
-                    {
-                        SiteId = site.Id, ClientId = client.Id, PatchPolicyId = patchPolicyId, Source = LinkSource.ClientTemplate, CreatedAt = now
-                    });
-                }
-                else if (site.PatchPolicy.Source == LinkSource.ClientTemplate && site.PatchPolicy.PatchPolicyId != patchPolicyId)
-                {
-                    db.SitePatchPolicies.Remove(site.PatchPolicy);
-                    db.SitePatchPolicies.Add(new SitePatchPolicy
-                    {
-                        SiteId = site.Id, ClientId = client.Id, PatchPolicyId = patchPolicyId, Source = LinkSource.ClientTemplate, CreatedAt = now
-                    });
-                }
-            }
-            else if (site.PatchPolicy is { Source: LinkSource.ClientTemplate })
-            {
-                db.SitePatchPolicies.Remove(site.PatchPolicy);
-            }
+                    SiteId = siteId, ClientId = client.Id, AppliesTo = slot, PatchPolicyId = id, Source = LinkSource.ClientTemplate, CreatedAt = now
+                });
 
             var wanted = templateSite.MonitoringTemplates.Select(m => m.MonitoringTemplateId).ToHashSet();
             foreach (var link in site.MonitoringTemplates.Where(l => l.Source == LinkSource.ClientTemplate && !wanted.Contains(l.MonitoringTemplateId)).ToList())
@@ -209,18 +171,47 @@ public static class ClientTemplateSync
         }
     }
 
+    /// <summary>
+    /// Mirrors the template's choice per class slot in the links of one client or site: a missing link is added, a link of
+    /// the template that points elsewhere is replaced, one the template no longer sets is removed. Manual links stay.
+    /// </summary>
+    private static void SyncSlots<T>(DbSet<T> set, List<T> existing, Func<T, CheckAppliesTo> slotOf, Func<T, Guid> idOf, Func<T, LinkSource> sourceOf,
+        ClassChoice wanted, Func<CheckAppliesTo, Guid, T> create) where T : class
+    {
+        foreach (var slot in ClassChoice.Slots)
+        {
+            var link = existing.FirstOrDefault(l => slotOf(l) == slot);
+            if (wanted[slot] is { } id)
+            {
+                if (link is null)
+                {
+                    set.Add(create(slot, id));
+                }
+                else if (sourceOf(link) == LinkSource.ClientTemplate && idOf(link) != id)
+                {
+                    set.Remove(link);
+                    set.Add(create(slot, id));
+                }
+            }
+            else if (link is not null && sourceOf(link) == LinkSource.ClientTemplate)
+            {
+                set.Remove(link);
+            }
+        }
+    }
+
     private static void Detach(Site site, DateTime now)
     {
         site.ClientTemplateSiteId = null;
         site.UpdatedAt = now;
-        if (site.Policy is { Source: LinkSource.ClientTemplate })
+        foreach (var link in site.Policies)
         {
-            site.Policy.Source = LinkSource.Manual;
+            link.Source = LinkSource.Manual;
         }
 
-        if (site.PatchPolicy is { Source: LinkSource.ClientTemplate })
+        foreach (var link in site.PatchPolicies)
         {
-            site.PatchPolicy.Source = LinkSource.Manual;
+            link.Source = LinkSource.Manual;
         }
 
         foreach (var link in site.MonitoringTemplates.Where(l => l.Source == LinkSource.ClientTemplate))

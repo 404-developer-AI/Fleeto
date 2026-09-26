@@ -189,8 +189,6 @@ public sealed class ClientService
             return null;
         }
 
-        // The policy each site passes on: its own, else the client's, else the default policy.
-        var sitePolicies = EffectivePolicies.Sites(db);
         var sites = await db.Sites.AsNoTracking()
             .Where(s => s.ClientId == clientId)
             .OrderBy(s => s.Name)
@@ -202,9 +200,12 @@ public sealed class ClientService
                 db.Endpoints.Count(e => e.SiteId == s.Id),
                 db.Endpoints.Count(e => e.SiteId == s.Id && e.IsOnline),
                 db.Alerts.Count(a => a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now) && db.Endpoints.Any(e => e.Id == a.EndpointId && e.SiteId == s.Id)),
-                db.Policies.IgnoreQueryFilters().Where(p => p.Id == sitePolicies.Where(r => r.SiteId == s.Id).Select(r => r.PolicyId).FirstOrDefault())
-                    .Select(p => p.Name).FirstOrDefault()))
+                null))
             .ToListAsync(cancellationToken);
+
+        // The policy each site passes on: its own, else the client's, else the default policy; per class when they differ.
+        var policyNames = await LinkService.SitePolicyNamesAsync(db, clientId, cancellationToken);
+        sites = sites.Select(s => s with { PolicyName = policyNames.GetValueOrDefault(s.Id) }).ToList();
 
         var tags = await TagService.ForClientsAsync(db, [client.Id], cancellationToken);
         return new ClientDetail(client.Id, client.Code, client.Name, client.ClientTemplateId, client.TemplateName, client.CreatedAt, sites,

@@ -15,7 +15,8 @@ public sealed record PolicyListItem(Guid Id, string Name, string? Description, G
     UpdateRing UpdateRing = UpdateRing.Standard, long MaxOutputBytes = ScriptRules.DefaultMaxOutputBytes,
     int RemoteIdleTimeoutMinutes = RemoteSessionRules.DefaultIdleTimeoutMinutes, bool RemoteConsentRequired = false,
     int RemoteConsentTimeoutSeconds = RemoteSessionRules.DefaultConsentTimeoutSeconds, bool RemoteBannerVisible = true, bool RemoteClipboardEnabled = true,
-    long RemoteMaxFileBytes = RemoteSessionRules.DefaultMaxFileBytes, int ClientCount = 0, int EndpointCount = 0);
+    long RemoteMaxFileBytes = RemoteSessionRules.DefaultMaxFileBytes, int ClientCount = 0, int EndpointCount = 0,
+    CheckAppliesTo AppliesTo = CheckAppliesTo.All);
 
 /// <param name="MaintenanceWindows">Recurring maintenance windows (0.2.0). Null keeps the current windows when updating, none when creating.</param>
 /// <param name="RemoteIdleTimeoutMinutes">Minutes a remote session may go without input (0.3.0). Null keeps the current value.</param>
@@ -24,11 +25,12 @@ public sealed record PolicyListItem(Guid Id, string Name, string? Description, G
 /// <param name="RemoteBannerVisible">Remote control on workstations shows a banner naming the technicians. Null keeps the current value.</param>
 /// <param name="RemoteClipboardEnabled">Remote control synchronises the clipboard. Null keeps the current value.</param>
 /// <param name="RemoteMaxFileBytes">The largest file one remote session transfer may carry. Null keeps the current value.</param>
+/// <param name="AppliesTo">The endpoints the policy is for (0.6.0). Null keeps the current value; the default policy is for every endpoint.</param>
 public sealed record PolicyInput(string? Name, string? Description, int HeartbeatIntervalSeconds, int InventoryIntervalSeconds,
     int OfflineAlertAfterMinutes, AlertSeverity OfflineAlertSeverity, IReadOnlyList<MaintenanceWindow>? MaintenanceWindows = null,
     bool? ScriptApprovalRequired = null, UpdateRing? UpdateRing = null, long? MaxOutputBytes = null, int? RemoteIdleTimeoutMinutes = null,
     bool? RemoteConsentRequired = null, int? RemoteConsentTimeoutSeconds = null, bool? RemoteBannerVisible = null, bool? RemoteClipboardEnabled = null,
-    long? RemoteMaxFileBytes = null);
+    long? RemoteMaxFileBytes = null, CheckAppliesTo? AppliesTo = null);
 
 /// <summary>Policies (global or per client). Linked, not copied: a change applies at once to every site that uses the policy.</summary>
 public sealed class PolicyService
@@ -72,7 +74,7 @@ public sealed class PolicyService
                     Array.Empty<MaintenanceWindow>(), p.ScriptApprovalRequired, p.UpdateRing,
                     p.MaxOutputBytes, p.RemoteIdleTimeoutMinutes, p.RemoteConsentRequired, p.RemoteConsentTimeoutSeconds, p.RemoteBannerVisible,
                     p.RemoteClipboardEnabled, p.RemoteMaxFileBytes,
-                    db.ClientPolicies.Count(l => l.PolicyId == p.Id), db.EndpointPolicies.Count(l => l.PolicyId == p.Id)),
+                    db.ClientPolicies.Count(l => l.PolicyId == p.Id), db.EndpointPolicies.Count(l => l.PolicyId == p.Id), p.AppliesTo),
                 p.MaintenanceWindowsJson
             })
             .ToListAsync(cancellationToken);
@@ -141,11 +143,20 @@ public sealed class PolicyService
             return ServiceResult.Fail($"A policy named {name} already exists here. Choose another name.");
         }
 
+        if (policy.IsDefault && input.AppliesTo is { } classes && classes != CheckAppliesTo.All)
+        {
+            return ServiceResult.Fail("The default policy applies to every endpoint without a policy, servers and workstations alike.");
+        }
+
         var now = _time.GetUtcNow().UtcDateTime;
+        var classesChanged = input.AppliesTo is { } appliesTo && appliesTo != policy.AppliesTo;
         Apply(policy, input, now);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        // Every site using the policy (and, for the default policy, every site without one) gets a new configuration.
-        db.ConfigChangeEvents.Add(new ConfigChangeEvent { Scope = ConfigChangeScope.Policy, ScopeId = policy.Id, CreatedAt = now });
+        // Every endpoint using the policy gets a new configuration. When the endpoints it is for change, some stop using it
+        // and cannot be found through it any more: then every endpoint is asked, and the signer skips what did not change.
+        db.ConfigChangeEvents.Add(classesChanged
+            ? new ConfigChangeEvent { Scope = ConfigChangeScope.Instance, CreatedAt = now }
+            : new ConfigChangeEvent { Scope = ConfigChangeScope.Policy, ScopeId = policy.Id, CreatedAt = now });
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.PolicyUpdated, "Policy", policy.Id.ToString(), policy.ClientId, Describe(policy)), now));
         await db.SaveChangesAsync(cancellationToken);
         await MaintenanceWindowSchedule.ReplaceAsync(db, policy.Id, MaintenanceWindowSchedule.Parse(policy.MaintenanceWindowsJson), now, cancellationToken);
@@ -172,7 +183,8 @@ public sealed class PolicyService
         var input = new PolicyInput(name, source.Description, source.HeartbeatIntervalSeconds, source.InventoryIntervalSeconds,
             source.OfflineAlertAfterMinutes, source.OfflineAlertSeverity, MaintenanceWindowSchedule.Parse(source.MaintenanceWindowsJson),
             source.ScriptApprovalRequired, source.UpdateRing, source.MaxOutputBytes, source.RemoteIdleTimeoutMinutes, source.RemoteConsentRequired,
-            source.RemoteConsentTimeoutSeconds, source.RemoteBannerVisible, source.RemoteClipboardEnabled, source.RemoteMaxFileBytes);
+            source.RemoteConsentTimeoutSeconds, source.RemoteBannerVisible, source.RemoteClipboardEnabled, source.RemoteMaxFileBytes,
+            source.IsDefault ? CheckAppliesTo.All : source.AppliesTo);
         var created = await CreateAsync(caller, targetClientId, input, cancellationToken);
         if (created.Success)
         {
@@ -294,6 +306,11 @@ public sealed class PolicyService
             policy.RemoteMaxFileBytes = RemoteSessionRules.MaxFileBytes(fileBytes);
         }
 
+        if (input.AppliesTo is { } appliesTo)
+        {
+            policy.AppliesTo = appliesTo;
+        }
+
         policy.UpdatedAt = now;
     }
 
@@ -306,6 +323,7 @@ public sealed class PolicyService
         OfflineAlertSeverity = policy.OfflineAlertSeverity.ToString(),
         policy.ScriptApprovalRequired,
         UpdateRing = policy.UpdateRing.ToString(),
+        AppliesTo = policy.AppliesTo.ToString(),
         policy.MaxOutputBytes,
         policy.RemoteIdleTimeoutMinutes,
         policy.RemoteConsentRequired,
@@ -321,6 +339,11 @@ public sealed class PolicyService
         if (input.UpdateRing is { } ring && !Enum.IsDefined(ring))
         {
             return "Choose the Preview, Standard or Delayed update ring.";
+        }
+
+        if (input.AppliesTo is { } appliesTo && !Enum.IsDefined(appliesTo))
+        {
+            return "Choose all endpoints, servers or workstations.";
         }
 
         var name = ServiceSupport.Clean(input.Name);

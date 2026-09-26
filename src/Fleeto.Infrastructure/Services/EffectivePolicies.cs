@@ -12,19 +12,57 @@ namespace Fleeto.Infrastructure.Services;
 /// </summary>
 public static class EffectivePolicies
 {
+    // A link or policy counts for an endpoint when it is for every endpoint, or for the endpoint's class:
+    // x == All || ((x == Server) == (class == Server)).
     public static IQueryable<EffectivePolicyRow> Query(FleetoDbContext db) =>
         db.Endpoints.Select(e => new EffectivePolicyRow
         {
             EndpointId = e.Id,
             ClientId = e.ClientId,
             SiteId = e.SiteId,
-            PolicyId = db.EndpointPolicies.Where(l => l.EndpointId == e.Id).Select(l => (Guid?)l.PolicyId).FirstOrDefault()
-                       ?? db.SitePolicies.Where(l => l.SiteId == e.SiteId).Select(l => (Guid?)l.PolicyId).FirstOrDefault()
-                       ?? db.ClientPolicies.Where(l => l.ClientId == e.ClientId).Select(l => (Guid?)l.PolicyId).FirstOrDefault()
+            PolicyId = db.EndpointPolicies
+                           .Where(l => l.EndpointId == e.Id &&
+                                       (l.Policy!.AppliesTo == CheckAppliesTo.All ||
+                                        (l.Policy.AppliesTo == CheckAppliesTo.Server) == ((e.ClassOverride ?? e.DetectedClass) == EndpointClass.Server)))
+                           .Select(l => (Guid?)l.PolicyId).FirstOrDefault()
+                       ?? db.SitePolicies
+                           .Where(l => l.SiteId == e.SiteId &&
+                                       (l.AppliesTo == CheckAppliesTo.All ||
+                                        (l.AppliesTo == CheckAppliesTo.Server) == ((e.ClassOverride ?? e.DetectedClass) == EndpointClass.Server)) &&
+                                       (l.Policy!.AppliesTo == CheckAppliesTo.All ||
+                                        (l.Policy.AppliesTo == CheckAppliesTo.Server) == ((e.ClassOverride ?? e.DetectedClass) == EndpointClass.Server)))
+                           .OrderBy(l => l.AppliesTo == CheckAppliesTo.All)
+                           .Select(l => (Guid?)l.PolicyId).FirstOrDefault()
+                       ?? db.ClientPolicies
+                           .Where(l => l.ClientId == e.ClientId &&
+                                       (l.AppliesTo == CheckAppliesTo.All ||
+                                        (l.AppliesTo == CheckAppliesTo.Server) == ((e.ClassOverride ?? e.DetectedClass) == EndpointClass.Server)) &&
+                                       (l.Policy!.AppliesTo == CheckAppliesTo.All ||
+                                        (l.Policy.AppliesTo == CheckAppliesTo.Server) == ((e.ClassOverride ?? e.DetectedClass) == EndpointClass.Server)))
+                           .OrderBy(l => l.AppliesTo == CheckAppliesTo.All)
+                           .Select(l => (Guid?)l.PolicyId).FirstOrDefault()
                        ?? db.Policies.Where(p => p.IsDefault).Select(p => (Guid?)p.Id).FirstOrDefault(),
-            PatchPolicyId = db.EndpointPatchPolicies.Where(l => l.EndpointId == e.Id).Select(l => (Guid?)l.PatchPolicyId).FirstOrDefault()
-                            ?? db.SitePatchPolicies.Where(l => l.SiteId == e.SiteId).Select(l => (Guid?)l.PatchPolicyId).FirstOrDefault()
-                            ?? db.ClientPatchPolicies.Where(l => l.ClientId == e.ClientId).Select(l => (Guid?)l.PatchPolicyId).FirstOrDefault()
+            PatchPolicyId = db.EndpointPatchPolicies
+                                .Where(l => l.EndpointId == e.Id &&
+                                            (l.PatchPolicy!.AppliesTo == CheckAppliesTo.All ||
+                                             (l.PatchPolicy.AppliesTo == CheckAppliesTo.Server) == ((e.ClassOverride ?? e.DetectedClass) == EndpointClass.Server)))
+                                .Select(l => (Guid?)l.PatchPolicyId).FirstOrDefault()
+                            ?? db.SitePatchPolicies
+                                .Where(l => l.SiteId == e.SiteId &&
+                                            (l.AppliesTo == CheckAppliesTo.All ||
+                                             (l.AppliesTo == CheckAppliesTo.Server) == ((e.ClassOverride ?? e.DetectedClass) == EndpointClass.Server)) &&
+                                            (l.PatchPolicy!.AppliesTo == CheckAppliesTo.All ||
+                                             (l.PatchPolicy.AppliesTo == CheckAppliesTo.Server) == ((e.ClassOverride ?? e.DetectedClass) == EndpointClass.Server)))
+                                .OrderBy(l => l.AppliesTo == CheckAppliesTo.All)
+                                .Select(l => (Guid?)l.PatchPolicyId).FirstOrDefault()
+                            ?? db.ClientPatchPolicies
+                                .Where(l => l.ClientId == e.ClientId &&
+                                            (l.AppliesTo == CheckAppliesTo.All ||
+                                             (l.AppliesTo == CheckAppliesTo.Server) == ((e.ClassOverride ?? e.DetectedClass) == EndpointClass.Server)) &&
+                                            (l.PatchPolicy!.AppliesTo == CheckAppliesTo.All ||
+                                             (l.PatchPolicy.AppliesTo == CheckAppliesTo.Server) == ((e.ClassOverride ?? e.DetectedClass) == EndpointClass.Server)))
+                                .OrderBy(l => l.AppliesTo == CheckAppliesTo.All)
+                                .Select(l => (Guid?)l.PatchPolicyId).FirstOrDefault()
         });
 
     /// <summary>
@@ -39,26 +77,4 @@ public static class EffectivePolicies
             ? null
             : await db.Policies.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(p => p.Id == policyId, cancellationToken);
     }
-
-    /// <summary>The policy of a site's endpoints that have no link of their own: the site's, else the client's, else the default.</summary>
-    public static IQueryable<SitePolicyRow> Sites(FleetoDbContext db) =>
-        db.Sites.Select(s => new SitePolicyRow
-        {
-            SiteId = s.Id,
-            ClientId = s.ClientId,
-            PolicyId = db.SitePolicies.Where(l => l.SiteId == s.Id).Select(l => (Guid?)l.PolicyId).FirstOrDefault()
-                       ?? db.ClientPolicies.Where(l => l.ClientId == s.ClientId).Select(l => (Guid?)l.PolicyId).FirstOrDefault()
-                       ?? db.Policies.Where(p => p.IsDefault).Select(p => (Guid?)p.Id).FirstOrDefault(),
-            PatchPolicyId = db.SitePatchPolicies.Where(l => l.SiteId == s.Id).Select(l => (Guid?)l.PatchPolicyId).FirstOrDefault()
-                            ?? db.ClientPatchPolicies.Where(l => l.ClientId == s.ClientId).Select(l => (Guid?)l.PatchPolicyId).FirstOrDefault()
-        });
-}
-
-/// <summary>The policy and patch policy a site passes on to its endpoints.</summary>
-public sealed class SitePolicyRow
-{
-    public Guid SiteId { get; init; }
-    public Guid ClientId { get; init; }
-    public Guid? PolicyId { get; init; }
-    public Guid? PatchPolicyId { get; init; }
 }

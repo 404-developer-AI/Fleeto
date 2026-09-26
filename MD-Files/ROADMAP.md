@@ -838,6 +838,12 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   `IntegrationAutomations`, and the automations Fleeto does not manage on `IntegrationMappings.OtherAutomationsJson`; Edit
   client (was Rename client), Edit site and Policies on an endpoint, all with one `LinkEditor`. Found while building: a
   deployment with automatic restart sent the restart delay in seconds where Action1 reads minutes (fixed).
+- [done] **Servers and workstations** (asked for by the developer on 2026-09-26). Mark a policy, patch policy and monitoring
+  template as for all endpoints, servers or workstations. Decided with the developer the same day: the mark is on the policy
+  itself and holds wherever it is linked, and a client or site can hold one per class. Done: `AppliesTo` on `Policies`,
+  `PatchPolicies` and `MonitoringTemplates`, the class slot in the keys of the client and site links, the per-class columns
+  of client templates, the rule per class in `EffectivePolicyRules` (C#, SQL and EF Core, kept equal by a test), and
+  "Different for servers and workstations" in the `LinkEditor`.
 
 ## 0.7.0 — Hardening
 

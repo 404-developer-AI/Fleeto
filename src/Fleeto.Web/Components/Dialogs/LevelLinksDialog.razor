@@ -18,10 +18,10 @@
 
         <MudText Typo="Typo.subtitle2" Class="mt-2">Policies</MudText>
         <MudText Typo="Typo.body2" Class="muted mb-3">@Explanation</MudText>
-        <LinkEditor Selection="_selection" Choices="Links.Choices" Disabled="@(!CanManage)"
-                    PolicyInherit="@LinkEditor.InheritText(Links.InheritedPolicy, "Inherit: default policy")"
-                    PatchInherit="@LinkEditor.InheritText(Links.InheritedPatchPolicy, "No patch policy")"
-                    PolicyLocked="Links.PolicyFromClientTemplate" PatchLocked="Links.PatchPolicyFromClientTemplate"
+        <LinkEditor Selection="_selection" Choices="Links.Choices" Disabled="@(!CanManage)" EndpointClass="Links.EndpointClass"
+                    PolicyInherit="@EndpointAware(InheritTexts.From(Links.Policy, "Inherit: default policy"))"
+                    PatchInherit="@EndpointAware(InheritTexts.From(Links.PatchPolicy, "No patch policy"))"
+                    PolicyLocked="Links.Policy.FromClientTemplate" PatchLocked="Links.PatchPolicy.FromClientTemplate"
                     LockedTemplates="_lockedTemplates" InheritedTemplates="Links.InheritedTemplates"
                     TemplatesDisabledText="@(Links.TemplatesAllowed ? null : "Switch the endpoint to managed to give it monitoring templates of its own.")" />
 
@@ -66,6 +66,14 @@
     private string _name = string.Empty;
     private string? _description;
     private bool _busy;
+
+    /// <summary>An endpoint has one class: its empty choice names what that class inherits.</summary>
+    private InheritTexts EndpointAware(InheritTexts texts) => Links.EndpointClass switch
+    {
+        EndpointClass.Server => texts with { All = texts.Server },
+        EndpointClass.Workstation => texts with { All = texts.Workstation },
+        _ => texts
+    };
 
     private string Explanation => Links.Level switch
     {

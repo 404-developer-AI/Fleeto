@@ -95,6 +95,11 @@ the API and the database follows it.
   site, site over client); without any the default policy applies and no patch policy. Monitoring templates add up over the
   levels. One rule decides it, in C#, SQL and EF Core kept equal by a test (`EffectivePolicyRules`). Edited in Edit client,
   Edit site and Policies in the right-click menu of an endpoint.
+- **Servers and workstations** (decided 2026-09-26, 0.6.0): a policy, patch policy and monitoring template says which
+  endpoints it is for: all, servers or workstations (the class override counts). One for servers never applies to a
+  workstation, wherever it is linked, and the other way round; the default policy is for every endpoint. A client or site
+  holds one policy and one patch policy for every endpoint, or, with "Different for servers and workstations", one for
+  servers and one for workstations; within a level the one for the class wins. An endpoint has one, for its own class.
 - **Endpoint**: a machine with a Fleeto agent. Each endpoint has a **class**: `workstation` or
   `server`, derived from the OS edition and overridable by hand, and a **license tier**
   (see Licensing). Hypervisor hosts and VMs discovered through Proxmox or vCenter appear as

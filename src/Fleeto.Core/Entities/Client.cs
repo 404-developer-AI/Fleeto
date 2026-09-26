@@ -33,8 +33,8 @@ public class Client
     public DateTime UpdatedAt { get; set; }
 
     public ICollection<Site> Sites { get; set; } = new List<Site>();
-    public ClientPolicy? Policy { get; set; }
-    public ClientPatchPolicy? PatchPolicy { get; set; }
+    public ICollection<ClientPolicy> Policies { get; set; } = new List<ClientPolicy>();
+    public ICollection<ClientPatchPolicy> PatchPolicies { get; set; } = new List<ClientPatchPolicy>();
     public ICollection<ClientMonitoringTemplate> MonitoringTemplates { get; set; } = new List<ClientMonitoringTemplate>();
 }
 
@@ -68,8 +68,8 @@ public class Site
     public Client? Client { get; set; }
     public ICollection<Endpoint> Endpoints { get; set; } = new List<Endpoint>();
     public ICollection<SiteMonitoringTemplate> MonitoringTemplates { get; set; } = new List<SiteMonitoringTemplate>();
-    public SitePolicy? Policy { get; set; }
-    public SitePatchPolicy? PatchPolicy { get; set; }
+    public ICollection<SitePolicy> Policies { get; set; } = new List<SitePolicy>();
+    public ICollection<SitePatchPolicy> PatchPolicies { get; set; } = new List<SitePatchPolicy>();
 }
 
 /// <summary>A machine with a Fleeto agent (or, later, a hypervisor object from an integration).</summary>

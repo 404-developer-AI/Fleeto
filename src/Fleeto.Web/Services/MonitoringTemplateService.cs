@@ -9,13 +9,13 @@ using Microsoft.EntityFrameworkCore;
 namespace Fleeto.Web.Services;
 
 public sealed record MonitoringTemplateListItem(Guid Id, string Name, string? Description, Guid? ClientId, string? ClientCode, int CheckCount,
-    int SiteCount, int ClientTemplateSiteCount, int ClientCount = 0);
+    int SiteCount, int ClientTemplateSiteCount, int ClientCount = 0, CheckAppliesTo AppliesTo = CheckAppliesTo.All);
 
 public sealed record CheckDefinitionView(Guid Id, string Name, CheckType Type, int IntervalSeconds, IReadOnlyDictionary<string, string> Parameters,
     double? WarningThreshold, double? CriticalThreshold, int FailuresBeforeAlert, CheckAppliesTo AppliesTo, bool Enabled);
 
 public sealed record MonitoringTemplateDetail(Guid Id, string Name, string? Description, Guid? ClientId, string? ClientCode, int SiteCount,
-    IReadOnlyList<CheckDefinitionView> Checks);
+    IReadOnlyList<CheckDefinitionView> Checks, CheckAppliesTo AppliesTo = CheckAppliesTo.All);
 
 public sealed record CheckDefinitionInput(string? Name, CheckType Type, int IntervalSeconds, IReadOnlyDictionary<string, string> Parameters,
     double? WarningThreshold, double? CriticalThreshold, int FailuresBeforeAlert, CheckAppliesTo AppliesTo, bool Enabled);
@@ -47,7 +47,7 @@ public sealed class MonitoringTemplateService
                 db.SiteMonitoringTemplates.Count(l => l.MonitoringTemplateId == t.Id),
                 db.ClientTemplateSiteMonitoringTemplates.Count(l => l.MonitoringTemplateId == t.Id) +
                 db.ClientTemplateMonitoringTemplates.Count(l => l.MonitoringTemplateId == t.Id),
-                db.ClientMonitoringTemplates.Count(l => l.MonitoringTemplateId == t.Id)))
+                db.ClientMonitoringTemplates.Count(l => l.MonitoringTemplateId == t.Id), t.AppliesTo))
             .ToListAsync(cancellationToken);
     }
 
@@ -68,11 +68,12 @@ public sealed class MonitoringTemplateService
         var siteCount = await db.SiteMonitoringTemplates.CountAsync(l => l.MonitoringTemplateId == templateId, cancellationToken);
         return new MonitoringTemplateDetail(template.Id, template.Name, template.Description, template.ClientId, clientCode, siteCount,
             template.Checks.OrderBy(c => c.Name).Select(c => new CheckDefinitionView(c.Id, c.Name, c.Type, c.IntervalSeconds,
-                CheckParameters.Parse(c.ParametersJson), c.WarningThreshold, c.CriticalThreshold, c.FailuresBeforeAlert, c.AppliesTo, c.Enabled)).ToList());
+                CheckParameters.Parse(c.ParametersJson), c.WarningThreshold, c.CriticalThreshold, c.FailuresBeforeAlert, c.AppliesTo, c.Enabled)).ToList(),
+            template.AppliesTo);
     }
 
     public async Task<ServiceResult<Guid>> CreateAsync(Caller caller, string? name, string? description, Guid? clientId,
-        CancellationToken cancellationToken = default)
+        CheckAppliesTo appliesTo = CheckAppliesTo.All, CancellationToken cancellationToken = default)
     {
         if (!caller.CanManage)
         {
@@ -103,6 +104,7 @@ public sealed class MonitoringTemplateService
             ClientId = clientId,
             Name = cleanName,
             Description = ServiceSupport.Clean(description),
+            AppliesTo = Enum.IsDefined(appliesTo) ? appliesTo : CheckAppliesTo.All,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -113,8 +115,9 @@ public sealed class MonitoringTemplateService
         return ServiceResult<Guid>.Ok(template.Id);
     }
 
+    /// <param name="appliesTo">The endpoints the template is for (0.6.0); null keeps it.</param>
     public async Task<ServiceResult> UpdateAsync(Caller caller, Guid templateId, string? name, string? description,
-        CancellationToken cancellationToken = default)
+        CheckAppliesTo? appliesTo = null, CancellationToken cancellationToken = default)
     {
         if (!caller.CanManage)
         {
@@ -143,8 +146,15 @@ public sealed class MonitoringTemplateService
         template.Name = cleanName;
         template.Description = ServiceSupport.Clean(description);
         template.UpdatedAt = now;
+        if (appliesTo is { } classes && Enum.IsDefined(classes) && classes != template.AppliesTo)
+        {
+            // Its checks start or stop running on a class of endpoints: every endpoint that links it gets a new configuration.
+            template.AppliesTo = classes;
+            db.ConfigChangeEvents.Add(new ConfigChangeEvent { Scope = ConfigChangeScope.MonitoringTemplate, ScopeId = template.Id, CreatedAt = now });
+        }
+
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.MonitoringTemplateUpdated, "MonitoringTemplate", template.Id.ToString(),
-            template.ClientId, new { template.Name }), now));
+            template.ClientId, new { template.Name, AppliesTo = template.AppliesTo.ToString() }), now));
         await db.SaveChangesAsync(cancellationToken);
         return ServiceResult.Ok();
     }
@@ -355,6 +365,7 @@ public sealed class MonitoringTemplateService
             ClientId = targetClientId,
             Name = cleanName,
             Description = source.Description,
+            AppliesTo = source.AppliesTo,
             CopiedFromId = source.Id,
             CreatedAt = now,
             UpdatedAt = now

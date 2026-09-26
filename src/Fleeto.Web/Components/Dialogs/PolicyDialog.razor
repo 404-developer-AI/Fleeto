@@ -18,6 +18,8 @@
                 }
             </MudSelect>
         }
+        <AppliesToSelect @bind-Value="_appliesTo" Class="mb-3" Disabled="@(Existing?.IsDefault == true)"
+                         HelperText="@(Existing?.IsDefault == true ? "The default policy is for every endpoint without a policy." : "A policy for servers or workstations never applies to the other class, wherever it is linked.")" />
         <MudNumericField T="int" @bind-Value="_heartbeat" Label="Heartbeat interval (seconds)" Variant="Variant.Outlined" Class="mb-1"
                          Min="@PolicyService.MinHeartbeatSeconds" Max="@PolicyService.MaxHeartbeatSeconds" />
         <MudText Typo="Typo.caption" Class="muted d-block mb-3">The agent reports it is alive @Intervals.Describe(Math.Max(1, _heartbeat)).</MudText>
@@ -106,6 +108,7 @@
     private List<MaintenanceWindowEditor.WindowModel> _windows = [];
     private bool _scriptApproval;
     private UpdateRing _updateRing = UpdateRing.Standard;
+    private CheckAppliesTo _appliesTo;
     private int _outputMegabytes = (int)(ScriptRules.DefaultMaxOutputBytes / ScriptRules.Mebibyte);
     private int _remoteIdleMinutes = RemoteSessionRules.DefaultIdleTimeoutMinutes;
     private int _remoteFileMegabytes = PolicyService.MaxRemoteFileMegabytes;
@@ -128,6 +131,7 @@
             _windows = p.MaintenanceWindows.Select(MaintenanceWindowEditor.WindowModel.From).ToList();
             _scriptApproval = p.ScriptApprovalRequired;
             _updateRing = p.UpdateRing;
+            _appliesTo = p.AppliesTo;
             _outputMegabytes = (int)(p.MaxOutputBytes / ScriptRules.Mebibyte);
             _remoteIdleMinutes = p.RemoteIdleTimeoutMinutes;
             _remoteFileMegabytes = (int)(p.RemoteMaxFileBytes / ScriptRules.Mebibyte);
@@ -147,7 +151,7 @@
         {
             var input = new PolicyInput(_name, _description, _heartbeat, _inventoryMinutes * 60, _offlineMinutes, _offlineSeverity,
                 _windows.Select(w => w.ToWindow()).ToList(), _scriptApproval, _updateRing, _outputMegabytes * ScriptRules.Mebibyte, _remoteIdleMinutes,
-                _remoteConsent, _remoteConsentSeconds, _remoteBanner, _remoteClipboard, _remoteFileMegabytes * ScriptRules.Mebibyte);
+                _remoteConsent, _remoteConsentSeconds, _remoteBanner, _remoteClipboard, _remoteFileMegabytes * ScriptRules.Mebibyte, _appliesTo);
             if (await OnSubmit(_clientId, input))
             {
                 MudDialog.Close(DialogResult.Ok(true));

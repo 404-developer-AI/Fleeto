@@ -19,7 +19,8 @@
         <div class="fl-panel pa-3 mb-4">
             <MudText Typo="Typo.subtitle1">The client</MudText>
             <MudText Typo="Typo.body2" Class="muted mb-3">Applies to every site and endpoint of the client, unless a site below has its own.</MudText>
-            <LinkEditor Selection="_client" Choices="Choices" PolicyInherit="Default policy" PatchInherit="No patch policy" />
+            <LinkEditor Selection="_client" Choices="Choices" PolicyInherit="@InheritTexts.Same("Default policy")"
+                        PatchInherit="@InheritTexts.Same("No patch policy")" Changed="StateHasChanged" />
         </div>
 
         <div class="d-flex align-center justify-space-between mb-2">
@@ -48,8 +49,9 @@
                             </MudTooltip>
                         </div>
                         <div class="mt-3">
-                            <LinkEditor Selection="site.Links" Choices="Choices" PolicyInherit="@SameAsClient(_client.PolicyId, Choices.Policies, "default policy")"
-                                        PatchInherit="@SameAsClient(_client.PatchPolicyId, Choices.PatchPolicies, "no patch policy")"
+                            <LinkEditor Selection="site.Links" Choices="Choices" Changed="StateHasChanged"
+                                        PolicyInherit="@SameAsClient(_client.Policy, Choices.Policies, "default policy")"
+                                        PatchInherit="@SameAsClient(_client.PatchPolicy, Choices.PatchPolicies, "no patch policy")"
                                         InheritedTemplates="ClientTemplates" />
                         </div>
                     </ChildContent>
@@ -112,13 +114,13 @@
         {
             _name = template.Name;
             _description = template.Description;
-            _client = LinkSelection.From(template.Client.PolicyId, template.Client.PatchPolicyId, template.Client.MonitoringTemplateIds);
+            _client = LinkSelection.From(template.Client.Policy, template.Client.PatchPolicy, template.Client.MonitoringTemplateIds);
             _sites = template.Sites.Select(s => new SiteModel
             {
                 Id = s.Id,
                 Name = s.Name,
                 Description = s.Description,
-                Links = LinkSelection.From(s.PolicyId, s.PatchPolicyId, s.MonitoringTemplateIds)
+                Links = LinkSelection.From(s.Policy, s.PatchPolicy, s.MonitoringTemplateIds)
             }).ToList();
         }
         else
@@ -129,23 +131,24 @@
 
     private void AddSite() => _sites.Add(new SiteModel { Expanded = true });
 
-    /// <summary>The empty choice of a site: "Same as client (Servers)".</summary>
-    private static string SameAsClient(Guid? clientChoice, IReadOnlyList<LinkOption> options, string none) =>
-        $"Same as client ({options.FirstOrDefault(o => o.Id == clientChoice)?.Name ?? none})";
+    /// <summary>The empty choices of a site: "Same as client (Servers weekly)", per class when the client chose per class.</summary>
+    private static InheritTexts SameAsClient(ClassSelection client, IReadOnlyList<LinkOption> options, string none)
+    {
+        string Name(Guid? id) => options.FirstOrDefault(o => o.Id == id)?.Name ?? none;
+        var server = $"Same as client ({Name(client.For(EndpointClass.Server))})";
+        var workstation = $"Same as client ({Name(client.For(EndpointClass.Workstation))})";
+        var all = client.For(EndpointClass.Server) == client.For(EndpointClass.Workstation)
+            ? server
+            : $"Same as client ({Name(client.For(EndpointClass.Server))} for servers, {Name(client.For(EndpointClass.Workstation))} for workstations)";
+        return new InheritTexts(all, server, workstation);
+    }
 
     /// <summary>One line under a collapsed site: what it has of its own.</summary>
     private string Summary(SiteModel site)
     {
         var own = new List<string>();
-        if (Choices.Policies.FirstOrDefault(p => p.Id == site.Links.PolicyId) is { } policy)
-        {
-            own.Add(policy.Name);
-        }
-
-        if (Choices.PatchPolicies.FirstOrDefault(p => p.Id == site.Links.PatchPolicyId) is { } patch)
-        {
-            own.Add(patch.Name);
-        }
+        own.AddRange(site.Links.Policy.ToChoice().Ids.Select(id => Choices.Policies.FirstOrDefault(p => p.Id == id)?.Name).OfType<string>());
+        own.AddRange(site.Links.PatchPolicy.ToChoice().Ids.Select(id => Choices.PatchPolicies.FirstOrDefault(p => p.Id == id)?.Name).OfType<string>());
 
         if (site.Links.TemplateIds.Count > 0)
         {
@@ -163,9 +166,9 @@
         try
         {
             var input = new ClientTemplateInput(_name, _description,
-                _sites.Select(s => new ClientTemplateSiteInput(s.Id, s.Name, s.Description, s.Links.PolicyId, s.Links.TemplateIds.ToList(),
-                    s.Links.PatchPolicyId)).ToList(),
-                new ClientTemplateClientLinks(_client.PolicyId, _client.PatchPolicyId, _client.TemplateIds.ToList()));
+                _sites.Select(s => new ClientTemplateSiteInput(s.Id, s.Name, s.Description, s.Links.Policy.ToChoice(), s.Links.TemplateIds.ToList(),
+                    s.Links.PatchPolicy.ToChoice())).ToList(),
+                new ClientTemplateClientLinks(_client.Policy.ToChoice(), _client.PatchPolicy.ToChoice(), _client.TemplateIds.ToList()));
             if (await OnSubmit(input))
             {
                 MudDialog.Close(DialogResult.Ok(true));

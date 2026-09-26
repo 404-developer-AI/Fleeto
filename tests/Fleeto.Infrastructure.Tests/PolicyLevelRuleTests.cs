@@ -16,25 +16,39 @@ namespace Fleeto.Infrastructure.Tests;
 [Collection(DatabaseCollection.Name)]
 public class PolicyLevelRuleTests
 {
+    // The SQL twin of the check rule, asked per check (does @checkId apply to @endpointId) and per endpoint (which checks apply).
+    private static readonly string AppliesQuerySql =
+        """SELECT EXISTS (SELECT 1 FROM "CheckDefinitions" d JOIN "Endpoints" e ON e."Id" = @endpointId WHERE d."Id" = @checkId AND """ +
+        EffectiveCheckResolver.AppliesSql + """) AS "Value" """;
+
+    private static readonly string ApplyingChecksSql =
+        """SELECT d."Id" AS "Value" FROM "CheckDefinitions" d JOIN "Endpoints" e ON e."Id" = @endpointId WHERE """ + EffectiveCheckResolver.AppliesSql;
+
     private readonly TestDatabase _db;
 
     public PolicyLevelRuleTests(DatabaseFixture fixture) => _db = fixture.Database;
 
     private static DateTime Now => DateTime.UtcNow;
 
-    private async Task<Policy> PolicyAsync(Guid? clientId = null)
+    private async Task<Policy> PolicyAsync(Guid? clientId = null, CheckAppliesTo appliesTo = CheckAppliesTo.All)
     {
         await using var db = _db.DbFactory.CreateSystem();
-        var policy = new Policy { Id = Guid.NewGuid(), ClientId = clientId, Name = "Level " + Guid.NewGuid(), CreatedAt = Now, UpdatedAt = Now };
+        var policy = new Policy
+        {
+            Id = Guid.NewGuid(), ClientId = clientId, Name = "Level " + Guid.NewGuid(), AppliesTo = appliesTo, CreatedAt = Now, UpdatedAt = Now
+        };
         db.Policies.Add(policy);
         await db.SaveChangesAsync();
         return policy;
     }
 
-    private async Task<PatchPolicy> PatchPolicyAsync(Guid? clientId = null)
+    private async Task<PatchPolicy> PatchPolicyAsync(Guid? clientId = null, CheckAppliesTo appliesTo = CheckAppliesTo.All)
     {
         await using var db = _db.DbFactory.CreateSystem();
-        var policy = new PatchPolicy { Id = Guid.NewGuid(), ClientId = clientId, Name = "Patch " + Guid.NewGuid(), CreatedAt = Now, UpdatedAt = Now };
+        var policy = new PatchPolicy
+        {
+            Id = Guid.NewGuid(), ClientId = clientId, Name = "Patch " + Guid.NewGuid(), AppliesTo = appliesTo, CreatedAt = Now, UpdatedAt = Now
+        };
         db.PatchPolicies.Add(policy);
         await db.SaveChangesAsync();
         return policy;
@@ -114,18 +128,109 @@ public class PolicyLevelRuleTests
             Assert.Equal(patch, resolved.PatchSql);
         }
 
-        Assert.Equal(endpointPolicy.Id, EffectivePolicyRules.Resolve(endpointPolicy.Id, sitePolicy.Id, clientPolicy.Id, defaultPolicy));
-        Assert.Equal(clientPolicy.Id, EffectivePolicyRules.Resolve(null, null, clientPolicy.Id, defaultPolicy));
-        Assert.Equal(LinkLevel.Site, EffectivePolicyRules.Level(null, sitePolicy.Id, clientPolicy.Id));
-        Assert.Equal(LinkLevel.None, EffectivePolicyRules.Level(null, null, null));
+        LevelLink[] links =
+        [
+            new(LinkLevel.Client, CheckAppliesTo.All, clientPolicy.Id, CheckAppliesTo.All),
+            new(LinkLevel.Site, CheckAppliesTo.All, sitePolicy.Id, CheckAppliesTo.All),
+            new(LinkLevel.Endpoint, CheckAppliesTo.All, endpointPolicy.Id, CheckAppliesTo.All)
+        ];
+        Assert.Equal(endpointPolicy.Id, EffectivePolicyRules.Resolve(EndpointClass.Workstation, links)!.PolicyId);
+        Assert.Equal(clientPolicy.Id, EffectivePolicyRules.Resolve(EndpointClass.Server, links.Take(1))!.PolicyId);
+        Assert.Null(EffectivePolicyRules.Resolve(EndpointClass.Server, []));
 
         await using (var db = _db.DbFactory.CreateSystem())
         {
             Assert.Equal(endpointPolicy.Id, (await EffectivePolicies.LoadAsync(db, onEndpoint.Id))!.Id);
-            var sites = await EffectivePolicies.Sites(db).Where(s => s.ClientId == client.Id).ToDictionaryAsync(s => s.SiteId);
-            Assert.Equal(sitePolicy.Id, sites[siteA.Id].PolicyId);
-            Assert.Equal(clientPolicy.Id, sites[siteB.Id].PolicyId);
-            Assert.Equal(clientPatch.Id, sites[siteB.Id].PatchPolicyId);
+        }
+    }
+
+    [Fact]
+    public async Task A_client_or_site_chooses_per_class_and_a_policy_for_servers_never_reaches_a_workstation()
+    {
+        var client = await _db.CreateClientAsync();
+        var site = await _db.CreateSiteAsync(client.Id);
+        var server = await _db.CreateEndpointAsync(site, EndpointTier.Managed, "SRV-CLASS", EndpointClass.Server);
+        var workstation = await _db.CreateEndpointAsync(site, EndpointTier.Managed, "WS-CLASS", EndpointClass.Workstation);
+        var overridden = await _db.CreateEndpointAsync(site, EndpointTier.Managed, "WS-OVERRIDE", EndpointClass.Workstation);
+        await using (var db = _db.DbFactory.CreateSystem())
+        {
+            await db.Endpoints.Where(e => e.Id == overridden.Id).ExecuteUpdateAsync(s => s.SetProperty(e => e.ClassOverride, EndpointClass.Server));
+        }
+
+        var clientForAll = await PolicyAsync();
+        var siteServers = await PolicyAsync(appliesTo: CheckAppliesTo.Server);
+        var forServersOnly = await PolicyAsync(appliesTo: CheckAppliesTo.Server);
+        var patchServers = await PatchPolicyAsync(appliesTo: CheckAppliesTo.Server);
+        var patchWorkstations = await PatchPolicyAsync(appliesTo: CheckAppliesTo.Workstation);
+        await AddAsync(
+            new ClientPolicy { ClientId = client.Id, AppliesTo = CheckAppliesTo.All, PolicyId = clientForAll.Id, CreatedAt = Now },
+            // The site chooses for servers only: its workstations keep the client's policy.
+            new SitePolicy { SiteId = site.Id, ClientId = client.Id, AppliesTo = CheckAppliesTo.Server, PolicyId = siteServers.Id, CreatedAt = Now },
+            // A policy for servers linked straight to a workstation never applies to it.
+            new EndpointPolicy { EndpointId = workstation.Id, ClientId = client.Id, PolicyId = forServersOnly.Id, CreatedAt = Now },
+            new ClientPatchPolicy { ClientId = client.Id, AppliesTo = CheckAppliesTo.Server, PatchPolicyId = patchServers.Id, CreatedAt = Now },
+            new ClientPatchPolicy { ClientId = client.Id, AppliesTo = CheckAppliesTo.Workstation, PatchPolicyId = patchWorkstations.Id, CreatedAt = Now });
+
+        var cases = new (Endpoint Endpoint, EndpointClass Class, Guid Policy, Guid Patch)[]
+        {
+            (server, EndpointClass.Server, siteServers.Id, patchServers.Id),
+            (workstation, EndpointClass.Workstation, clientForAll.Id, patchWorkstations.Id),
+            // The class override decides, not the detected class.
+            (overridden, EndpointClass.Server, siteServers.Id, patchServers.Id)
+        };
+        foreach (var (endpoint, endpointClass, policy, patch) in cases)
+        {
+            var resolved = await ResolveAsync(endpoint.Id);
+            Assert.Equal(policy, resolved.Ef);
+            Assert.Equal(policy, resolved.Sql);
+            Assert.Equal(patch, resolved.PatchEf);
+            Assert.Equal(patch, resolved.PatchSql);
+
+            LevelLink[] links =
+            [
+                new(LinkLevel.Client, CheckAppliesTo.All, clientForAll.Id, CheckAppliesTo.All),
+                new(LinkLevel.Site, CheckAppliesTo.Server, siteServers.Id, CheckAppliesTo.Server),
+                .. endpoint.Id == workstation.Id
+                    ? new[] { new LevelLink(LinkLevel.Endpoint, CheckAppliesTo.All, forServersOnly.Id, CheckAppliesTo.Server) }
+                    : []
+            ];
+            Assert.Equal(policy, EffectivePolicyRules.Resolve(endpointClass, links)!.PolicyId);
+        }
+
+        // Within a level the slot for the class wins over the one for every endpoint.
+        var serverSlot = new LevelLink(LinkLevel.Site, CheckAppliesTo.Server, Guid.NewGuid(), CheckAppliesTo.All);
+        var allSlot = new LevelLink(LinkLevel.Site, CheckAppliesTo.All, Guid.NewGuid(), CheckAppliesTo.All);
+        Assert.Equal(serverSlot, EffectivePolicyRules.Resolve(EndpointClass.Server, [allSlot, serverSlot]));
+        Assert.Equal(allSlot, EffectivePolicyRules.Resolve(EndpointClass.Workstation, [allSlot, serverSlot]));
+    }
+
+    [Fact]
+    public async Task A_monitoring_template_for_servers_runs_none_of_its_checks_on_a_workstation()
+    {
+        var client = await _db.CreateClientAsync();
+        var site = await _db.CreateSiteAsync(client.Id);
+        var server = await _db.CreateEndpointAsync(site, EndpointTier.Managed, "SRV-TPL", EndpointClass.Server);
+        var workstation = await _db.CreateEndpointAsync(site, EndpointTier.Managed, "WS-TPL", EndpointClass.Workstation);
+        var check = new CheckDefinition
+        {
+            Id = Guid.NewGuid(), Name = "Server CPU", Type = CheckType.CpuUsage, WarningThreshold = 80, CreatedAt = Now, UpdatedAt = Now
+        };
+        var template = new MonitoringTemplate
+        {
+            Id = Guid.NewGuid(), Name = "Servers " + Guid.NewGuid(), AppliesTo = CheckAppliesTo.Server, CreatedAt = Now, UpdatedAt = Now, Checks = { check }
+        };
+        await AddAsync(template);
+        await AddAsync(new ClientMonitoringTemplate { ClientId = client.Id, MonitoringTemplateId = template.Id, CreatedAt = Now });
+
+        await using var db = _db.DbFactory.CreateSystem();
+        Assert.Contains(await EffectiveCheckResolver.LoadAsync(db, server, false, CancellationToken.None), c => c.Id == check.Id);
+        Assert.DoesNotContain(await EffectiveCheckResolver.LoadAsync(db, workstation, false, CancellationToken.None), c => c.Id == check.Id);
+        foreach (var (endpoint, expected) in new[] { (server, true), (workstation, false) })
+        {
+            var applies = await db.Database.SqlQueryRaw<bool>(AppliesQuerySql,
+                    new NpgsqlParameter("endpointId", endpoint.Id), new NpgsqlParameter("checkId", check.Id))
+                .SingleAsync();
+            Assert.Equal(expected, applies);
         }
     }
 
@@ -221,10 +326,7 @@ public class PolicyLevelRuleTests
         Assert.Equal(CheckSource.ClientTemplate, resolved.Single(c => c.Id == clientCheck.Id).Source);
         Assert.Equal(CheckSource.SiteTemplate, resolved.Single(c => c.Id == siteCheck.Id).Source);
 
-        var applies = await db.Database.SqlQueryRaw<Guid>(
-                """SELECT d."Id" AS "Value" FROM "CheckDefinitions" d JOIN "Endpoints" e ON e."Id" = @endpointId WHERE """ +
-                EffectiveCheckResolver.AppliesSql,
-                new NpgsqlParameter("endpointId", endpoint.Id))
+        var applies = await db.Database.SqlQueryRaw<Guid>(ApplyingChecksSql, new NpgsqlParameter("endpointId", endpoint.Id))
             .ToListAsync();
         Assert.Contains(clientCheck.Id, applies);
         Assert.Contains(siteCheck.Id, applies);

@@ -1,0 +1,130 @@
+@* One policy or patch policy on a level (0.6.0): one for every endpoint, or with the switch one for servers and one for
+   workstations. Each list offers only what is for that class; on an endpoint there is one list, for its own class. *@
+@if (EndpointClass is { } endpointClass)
+{
+    <MudSelect T="Guid?" Value="Selection.All" ValueChanged="SetAll" Label="@Label" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="Disabled"
+               AdornmentIcon="@Icon" Adornment="Adornment.Start" HelperText="@HelperText">
+        <MudSelectItem T="Guid?" Value="@((Guid?)null)">@Inherit.All</MudSelectItem>
+        @foreach (var option in Options.Where(o => EffectivePolicyRules.IsFor(o.AppliesTo, endpointClass)))
+        {
+            <MudSelectItem T="Guid?" Value="@((Guid?)option.Id)">@Name(option)</MudSelectItem>
+        }
+    </MudSelect>
+}
+else
+{
+    @if (!Selection.Split)
+    {
+        <MudSelect T="Guid?" Value="Selection.All" ValueChanged="SetAll" Label="@Label" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="Disabled"
+                   AdornmentIcon="@Icon" Adornment="Adornment.Start"
+                   HelperText="@(Locked.Contains(CheckAppliesTo.All) ? "From the client template. Choose another one to use one of your own here." : HelperText)">
+            @if (!Locked.Contains(CheckAppliesTo.All))
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)null)">@Inherit.All</MudSelectItem>
+            }
+            @foreach (var option in Options.Where(o => o.AppliesTo == CheckAppliesTo.All))
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)option.Id)">@Name(option)</MudSelectItem>
+            }
+        </MudSelect>
+    }
+    else
+    {
+        @Slot(CheckAppliesTo.Server, "servers", Icons.Material.Outlined.Dns)
+        @Slot(CheckAppliesTo.Workstation, "workstations", Icons.Material.Outlined.Computer)
+    }
+    <MudSwitch T="bool" Value="Selection.Split" ValueChanged="SetSplit" Color="Color.Primary" Size="Size.Small" Class="mt-1"
+               Disabled="@(Disabled || (Selection.Split ? Locked.Any(s => s != CheckAppliesTo.All) : Locked.Contains(CheckAppliesTo.All)))">
+        <MudText Typo="Typo.caption">Different for servers and workstations</MudText>
+    </MudSwitch>
+}
+
+@code {
+    [Parameter, EditorRequired] public ClassSelection Selection { get; set; } = default!;
+    [Parameter, EditorRequired] public IReadOnlyList<LinkOption> Options { get; set; } = [];
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter] public string Icon { get; set; } = Icons.Material.Outlined.Tune;
+    [Parameter] public string? HelperText { get; set; }
+    [Parameter] public InheritTexts Inherit { get; set; } = InheritTexts.Same("Inherit");
+
+    /// <summary>The class of the endpoint on endpoint level: one list, for that class only.</summary>
+    [Parameter] public EndpointClass? EndpointClass { get; set; }
+
+    /// <summary>The slots the client template set: they can be replaced, not emptied.</summary>
+    [Parameter] public IReadOnlyCollection<CheckAppliesTo> Locked { get; set; } = [];
+
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Called after a choice changed, so a parent that shows a summary can refresh it.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private RenderFragment Slot(CheckAppliesTo slot, string plural, string icon) => __builder =>
+    {
+        var locked = Locked.Contains(slot);
+        <MudSelect T="Guid?" Value="@(slot == CheckAppliesTo.Server ? Selection.Server : Selection.Workstation)"
+                   ValueChanged="@(v => SetSlot(slot, v))" Label="@($"{Label} for {plural}")" Variant="Variant.Outlined"
+                   Margin="Margin.Dense" Disabled="Disabled" AdornmentIcon="@icon" Adornment="Adornment.Start" Class="mb-2"
+                   HelperText="@(locked ? "From the client template. Choose another one to use one of your own here." : null)">
+            @if (!locked)
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)null)">@(slot == CheckAppliesTo.Server ? Inherit.Server : Inherit.Workstation)</MudSelectItem>
+            }
+            @foreach (var option in Options.Where(o => o.AppliesTo == CheckAppliesTo.All || o.AppliesTo == slot))
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)option.Id)">@Name(option)</MudSelectItem>
+            }
+        </MudSelect>
+    };
+
+    private Task SetAll(Guid? value)
+    {
+        Selection.All = value;
+        return Changed.InvokeAsync();
+    }
+
+    private Task SetSlot(CheckAppliesTo slot, Guid? value)
+    {
+        if (slot == CheckAppliesTo.Server)
+        {
+            Selection.Server = value;
+        }
+        else
+        {
+            Selection.Workstation = value;
+        }
+
+        return Changed.InvokeAsync();
+    }
+
+    /// <summary>Splitting starts both classes from the choice for every endpoint; joining keeps it only when both were the same.</summary>
+    private Task SetSplit(bool split)
+    {
+        if (split)
+        {
+            Selection.Server = Selection.All;
+            Selection.Workstation = Selection.All;
+            Selection.All = null;
+        }
+        else
+        {
+            var same = Selection.Server == Selection.Workstation ? Selection.Server : null;
+            Selection.All = same is { } id && Options.Any(o => o.Id == id && o.AppliesTo == CheckAppliesTo.All) ? same : null;
+            Selection.Server = null;
+            Selection.Workstation = null;
+        }
+
+        Selection.Split = split;
+        return Changed.InvokeAsync();
+    }
+
+    public static string Name(LinkOption option)
+    {
+        var name = option.IsDefault ? $"{option.Name} (default)" : option.IsGlobal ? option.Name : $"{option.Name} (this client)";
+        return option.AppliesTo switch
+        {
+            CheckAppliesTo.Server => $"{name} · servers",
+            CheckAppliesTo.Workstation => $"{name} · workstations",
+            _ => name
+        };
+    }
+}

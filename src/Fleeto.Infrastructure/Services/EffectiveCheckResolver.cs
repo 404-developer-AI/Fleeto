@@ -21,6 +21,8 @@ public static class EffectiveCheckResolver
          AND (
           (d."MonitoringTemplateId" IS NOT NULL
             AND (d."AppliesTo" = 'All' OR d."AppliesTo" = COALESCE(e."ClassOverride", e."DetectedClass"))
+            AND EXISTS (SELECT 1 FROM "MonitoringTemplates" mt WHERE mt."Id" = d."MonitoringTemplateId"
+                        AND (mt."AppliesTo" = 'All' OR mt."AppliesTo" = COALESCE(e."ClassOverride", e."DetectedClass")))
             AND (EXISTS (SELECT 1 FROM "SiteMonitoringTemplates" sl WHERE sl."SiteId" = e."SiteId" AND sl."MonitoringTemplateId" = d."MonitoringTemplateId")
                  OR EXISTS (SELECT 1 FROM "ClientMonitoringTemplates" cl WHERE cl."ClientId" = e."ClientId" AND cl."MonitoringTemplateId" = d."MonitoringTemplateId")
                  OR EXISTS (SELECT 1 FROM "EndpointMonitoringTemplates" el WHERE el."EndpointId" = e."Id" AND el."MonitoringTemplateId" = d."MonitoringTemplateId"))
@@ -39,15 +41,15 @@ public static class EffectiveCheckResolver
         // Monitoring templates add up over the levels (0.6.0): the client's, the site's and the endpoint's all apply.
         var clientTemplates = await db.ClientMonitoringTemplates.AsNoTracking()
             .Where(l => l.ClientId == clientId)
-            .Select(l => new { l.MonitoringTemplateId, l.MonitoringTemplate!.Name })
+            .Select(l => new { l.MonitoringTemplateId, l.MonitoringTemplate!.Name, l.MonitoringTemplate.AppliesTo })
             .ToListAsync(cancellationToken);
         var siteTemplates = await db.SiteMonitoringTemplates.AsNoTracking()
             .Where(l => l.SiteId == siteId)
-            .Select(l => new { l.MonitoringTemplateId, l.MonitoringTemplate!.Name })
+            .Select(l => new { l.MonitoringTemplateId, l.MonitoringTemplate!.Name, l.MonitoringTemplate.AppliesTo })
             .ToListAsync(cancellationToken);
         var endpointTemplates = await db.EndpointMonitoringTemplates.AsNoTracking()
             .Where(l => l.EndpointId == endpointId)
-            .Select(l => new { l.MonitoringTemplateId, l.MonitoringTemplate!.Name })
+            .Select(l => new { l.MonitoringTemplateId, l.MonitoringTemplate!.Name, l.MonitoringTemplate.AppliesTo })
             .ToListAsync(cancellationToken);
 
         var templateIds = clientTemplates.Select(t => t.MonitoringTemplateId)
@@ -64,6 +66,8 @@ public static class EffectiveCheckResolver
         var clientNames = clientTemplates.ToDictionary(t => t.MonitoringTemplateId, t => t.Name);
         var siteNames = siteTemplates.ToDictionary(t => t.MonitoringTemplateId, t => t.Name);
         var endpointNames = endpointTemplates.ToDictionary(t => t.MonitoringTemplateId, t => t.Name);
+        var classes = clientTemplates.Concat(siteTemplates).Concat(endpointTemplates)
+            .DistinctBy(t => t.MonitoringTemplateId).ToDictionary(t => t.MonitoringTemplateId, t => t.AppliesTo);
         var candidates = new List<CheckCandidate>();
         foreach (var definition in definitions)
         {
@@ -80,17 +84,17 @@ public static class EffectiveCheckResolver
 
             if (clientNames.TryGetValue(templateId, out var clientName))
             {
-                candidates.Add(new CheckCandidate(definition, CheckSource.ClientTemplate, clientName));
+                candidates.Add(new CheckCandidate(definition, CheckSource.ClientTemplate, clientName, classes[templateId]));
             }
 
             if (siteNames.TryGetValue(templateId, out var siteName))
             {
-                candidates.Add(new CheckCandidate(definition, CheckSource.SiteTemplate, siteName));
+                candidates.Add(new CheckCandidate(definition, CheckSource.SiteTemplate, siteName, classes[templateId]));
             }
 
             if (endpointNames.TryGetValue(templateId, out var endpointName))
             {
-                candidates.Add(new CheckCandidate(definition, CheckSource.EndpointTemplate, endpointName));
+                candidates.Add(new CheckCandidate(definition, CheckSource.EndpointTemplate, endpointName, classes[templateId]));
             }
         }
 

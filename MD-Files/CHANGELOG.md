@@ -32,6 +32,10 @@ When a third released version is added, the oldest entry moves to the top of
   policy and the patch policy the most specific one wins: the endpoint's over the site's, the site's over the client's.
   Monitoring templates add up. "Edit client" and "Edit site" hold the three choices, and so does "Policies" in the
   right-click menu of an endpoint; each choice shows what applies without it, such as "Inherit: Servers (from site)".
+- Policies, patch policies and monitoring templates say whether they are for all endpoints, servers or workstations. One
+  for servers never applies to a workstation, wherever it is linked, and the other way round. A client or site can hold a
+  different policy and patch policy for servers and for workstations with "Different for servers and workstations", in
+  its edit dialog and in client templates.
 - Client templates set the policy, patch policy and monitoring templates of the client itself as well as of each site;
   a site follows the client unless it has its own. The sites fold open one at a time.
 - The history Action1 keeps per endpoint of a deployment, its "Automation History", opens from the Patches tab of the

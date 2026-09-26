@@ -52,6 +52,11 @@ public static class PatchPolicyRules
             return $"The description can be at most {MaxDescriptionLength} characters.";
         }
 
+        if (!Enum.IsDefined(policy.AppliesTo))
+        {
+            return "Choose all endpoints, servers or workstations.";
+        }
+
         if (!Enum.IsDefined(policy.ScheduleKind))
         {
             return "Choose a weekly or a monthly schedule.";

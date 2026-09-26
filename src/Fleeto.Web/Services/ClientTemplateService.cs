@@ -10,14 +10,15 @@ namespace Fleeto.Web.Services;
 
 public sealed record ClientTemplateListItem(Guid Id, string Name, string? Description, int SiteCount, int ClientCount);
 
-/// <param name="PatchPolicyId">The patch policy of the site (0.6.0); null follows the client.</param>
-public sealed record ClientTemplateSiteInput(Guid? Id, string? Name, string? Description, Guid? PolicyId, IReadOnlyList<Guid> MonitoringTemplateIds,
-    Guid? PatchPolicyId = null);
+/// <param name="Policy">The policy of the site, for every endpoint or per class (0.6.0); none follows the client.</param>
+/// <param name="PatchPolicy">The patch policy of the site, for every endpoint or per class (0.6.0); none follows the client.</param>
+public sealed record ClientTemplateSiteInput(Guid? Id, string? Name, string? Description, ClassChoice Policy, IReadOnlyList<Guid> MonitoringTemplateIds,
+    ClassChoice PatchPolicy = default);
 
 /// <summary>The links of the client itself (0.6.0), which its sites and endpoints follow unless they have their own.</summary>
-public sealed record ClientTemplateClientLinks(Guid? PolicyId, Guid? PatchPolicyId, IReadOnlyList<Guid> MonitoringTemplateIds)
+public sealed record ClientTemplateClientLinks(ClassChoice Policy, ClassChoice PatchPolicy, IReadOnlyList<Guid> MonitoringTemplateIds)
 {
-    public static readonly ClientTemplateClientLinks None = new(null, null, []);
+    public static readonly ClientTemplateClientLinks None = new(ClassChoice.None, ClassChoice.None, []);
 }
 
 public sealed record ClientTemplateInput(string? Name, string? Description, IReadOnlyList<ClientTemplateSiteInput> Sites,
@@ -73,10 +74,13 @@ public sealed class ClientTemplateService
         var clientCount = await db.Clients.CountAsync(c => c.ClientTemplateId == templateId, cancellationToken);
         return new ClientTemplateDetail(template.Id, template.Name, template.Description, clientCount,
             template.Sites.OrderBy(s => s.SortOrder).ThenBy(s => s.Name)
-                .Select(s => new ClientTemplateSiteInput(s.Id, s.Name, s.Description, s.PolicyId, s.MonitoringTemplates.Select(m => m.MonitoringTemplateId).ToList(),
-                    s.PatchPolicyId))
+                .Select(s => new ClientTemplateSiteInput(s.Id, s.Name, s.Description, new ClassChoice(s.PolicyId, s.ServerPolicyId, s.WorkstationPolicyId),
+                    s.MonitoringTemplates.Select(m => m.MonitoringTemplateId).ToList(),
+                    new ClassChoice(s.PatchPolicyId, s.ServerPatchPolicyId, s.WorkstationPatchPolicyId)))
                 .ToList(),
-            new ClientTemplateClientLinks(template.PolicyId, template.PatchPolicyId, template.MonitoringTemplates.Select(m => m.MonitoringTemplateId).ToList()));
+            new ClientTemplateClientLinks(new ClassChoice(template.PolicyId, template.ServerPolicyId, template.WorkstationPolicyId),
+                new ClassChoice(template.PatchPolicyId, template.ServerPatchPolicyId, template.WorkstationPatchPolicyId),
+                template.MonitoringTemplates.Select(m => m.MonitoringTemplateId).ToList()));
     }
 
     public async Task<ServiceResult<Guid>> SaveAsync(Caller caller, Guid? templateId, ClientTemplateInput input, CancellationToken cancellationToken = default)
@@ -119,8 +123,10 @@ public sealed class ClientTemplateService
             template.UpdatedAt = now;
 
             var clientLinks = input.Client ?? ClientTemplateClientLinks.None;
-            template.PolicyId = clientLinks.PolicyId;
-            template.PatchPolicyId = clientLinks.PatchPolicyId;
+            (template.PolicyId, template.ServerPolicyId, template.WorkstationPolicyId) =
+                (clientLinks.Policy.All, clientLinks.Policy.Server, clientLinks.Policy.Workstation);
+            (template.PatchPolicyId, template.ServerPatchPolicyId, template.WorkstationPatchPolicyId) =
+                (clientLinks.PatchPolicy.All, clientLinks.PatchPolicy.Server, clientLinks.PatchPolicy.Workstation);
             var wantedForClient = clientLinks.MonitoringTemplateIds.ToHashSet();
             foreach (var link in template.MonitoringTemplates.Where(l => !wantedForClient.Contains(l.MonitoringTemplateId)).ToList())
             {
@@ -177,8 +183,10 @@ public sealed class ClientTemplateService
 
                 site.Name = siteInput.Name!.Trim();
                 site.Description = ServiceSupport.Clean(siteInput.Description);
-                site.PolicyId = siteInput.PolicyId;
-                site.PatchPolicyId = siteInput.PatchPolicyId;
+                (site.PolicyId, site.ServerPolicyId, site.WorkstationPolicyId) =
+                    (siteInput.Policy.All, siteInput.Policy.Server, siteInput.Policy.Workstation);
+                (site.PatchPolicyId, site.ServerPatchPolicyId, site.WorkstationPatchPolicyId) =
+                    (siteInput.PatchPolicy.All, siteInput.PatchPolicy.Server, siteInput.PatchPolicy.Workstation);
                 site.SortOrder = order++;
 
                 var wanted = siteInput.MonitoringTemplateIds.ToHashSet();
@@ -346,6 +354,9 @@ public sealed class ClientTemplateService
         return ServiceResult.Ok();
     }
 
+    private static bool Fits(ClassChoice choice, IReadOnlyDictionary<Guid, CheckAppliesTo> appliesTo) =>
+        ClassChoice.Slots.All(slot => choice[slot] is not { } id || appliesTo[id] == CheckAppliesTo.All || appliesTo[id] == slot);
+
     private static async Task<string?> ValidateAsync(FleetoDbContext db, Guid? templateId, ClientTemplateInput input, CancellationToken cancellationToken)
     {
         var name = ServiceSupport.Clean(input.Name);
@@ -395,16 +406,33 @@ public sealed class ClientTemplateService
         }
 
         var clientLinks = input.Client ?? ClientTemplateClientLinks.None;
-        var policyIds = input.Sites.Select(s => s.PolicyId).Append(clientLinks.PolicyId).OfType<Guid>().Distinct().ToList();
-        if (await db.Policies.CountAsync(p => policyIds.Contains(p.Id) && p.ClientId == null, cancellationToken) != policyIds.Count)
+        var policyChoices = input.Sites.Select(s => s.Policy).Append(clientLinks.Policy).ToList();
+        var patchChoices = input.Sites.Select(s => s.PatchPolicy).Append(clientLinks.PatchPolicy).ToList();
+        if (policyChoices.Concat(patchChoices).Any(c => c.All is not null && (c.Server is not null || c.Workstation is not null)))
+        {
+            return "Choose one policy for every endpoint, or one for servers and one for workstations, not both.";
+        }
+
+        var policyIds = policyChoices.SelectMany(c => c.Ids).Distinct().ToList();
+        var policies = await db.Policies.Where(p => policyIds.Contains(p.Id) && p.ClientId == null)
+            .ToDictionaryAsync(p => p.Id, p => p.AppliesTo, cancellationToken);
+        if (policies.Count != policyIds.Count)
         {
             return "A client template can only use global policies. Pick a global policy for the client and every site.";
         }
 
-        var patchPolicyIds = input.Sites.Select(s => s.PatchPolicyId).Append(clientLinks.PatchPolicyId).OfType<Guid>().Distinct().ToList();
-        if (await db.PatchPolicies.CountAsync(p => patchPolicyIds.Contains(p.Id) && p.ClientId == null, cancellationToken) != patchPolicyIds.Count)
+        var patchPolicyIds = patchChoices.SelectMany(c => c.Ids).Distinct().ToList();
+        var patchPolicies = await db.PatchPolicies.Where(p => patchPolicyIds.Contains(p.Id) && p.ClientId == null)
+            .ToDictionaryAsync(p => p.Id, p => p.AppliesTo, cancellationToken);
+        if (patchPolicies.Count != patchPolicyIds.Count)
         {
             return "A client template can only use global patch policies. Pick a global patch policy for the client and every site.";
+        }
+
+        // A slot takes only what is for its class: a policy for servers never in the slot for every endpoint or workstations.
+        if (policyChoices.Any(c => !Fits(c, policies)) || patchChoices.Any(c => !Fits(c, patchPolicies)))
+        {
+            return "A policy for servers or workstations only can only be chosen for that class. Use \"Different for servers and workstations\".";
         }
 
         var templateIds = input.Sites.SelectMany(s => s.MonitoringTemplateIds).Concat(clientLinks.MonitoringTemplateIds).Distinct().ToList();

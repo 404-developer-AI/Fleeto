@@ -57,18 +57,20 @@ public class ClientServiceTests
         Assert.Equal(code.ToUpperInvariant(), client.Code);
         Assert.Equal(template.Value, client.ClientTemplateId);
 
-        var sites = await check.Sites.Include(s => s.Policy).Include(s => s.MonitoringTemplates)
+        var sites = await check.Sites.Include(s => s.Policies).Include(s => s.MonitoringTemplates)
             .Where(s => s.ClientId == client.Id).OrderBy(s => s.Name).ToListAsync();
         Assert.Equal(["Agent Only", "Monitoring"], sites.Select(s => s.Name).ToList());
         Assert.All(sites, s => Assert.NotNull(s.ClientTemplateSiteId));
 
         var monitoring = sites.Single(s => s.Name == "Monitoring");
-        Assert.Equal(policy.Value, monitoring.Policy!.PolicyId);
-        Assert.Equal(LinkSource.ClientTemplate, monitoring.Policy.Source);
+        var policyLink = Assert.Single(monitoring.Policies);
+        Assert.Equal(policy.Value, policyLink.PolicyId);
+        Assert.Equal(CheckAppliesTo.All, policyLink.AppliesTo);
+        Assert.Equal(LinkSource.ClientTemplate, policyLink.Source);
         var link = Assert.Single(monitoring.MonitoringTemplates);
         Assert.Equal(monitoringTemplateId, link.MonitoringTemplateId);
         Assert.Equal(LinkSource.ClientTemplate, link.Source);
-        Assert.Null(sites.Single(s => s.Name == "Agent Only").Policy);
+        Assert.Empty(sites.Single(s => s.Name == "Agent Only").Policies);
 
         Assert.True(await check.AuditEntries.AnyAsync(a => a.Action == AuditActions.ClientCreated && a.TargetId == client.Id.ToString()));
         Assert.True(await check.ConfigChangeEvents.AnyAsync(e => e.Scope == ConfigChangeScope.Site && e.ScopeId == monitoring.Id));

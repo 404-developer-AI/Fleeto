@@ -290,6 +290,9 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             });
             entity.HasIndex(p => new { p.ClientId, p.Name }).IsUnique().AreNullsDistinct(false);
             entity.HasIndex(p => p.IsDefault).IsUnique().HasFilter("\"IsDefault\"");
+            entity.Property(p => p.AppliesTo).HasConversion<string>().HasMaxLength(20).HasDefaultValue(CheckAppliesTo.All).HasSentinel(CheckAppliesTo.All);
+            // The default policy is for every endpoint: an endpoint must always have a policy.
+            entity.ToTable(t => t.HasCheckConstraint("CK_Policies_DefaultForAll", "NOT \"IsDefault\" OR \"AppliesTo\" = 'All'"));
             // A client-specific policy is deleted with its client.
             entity.HasOne<Client>().WithMany().HasForeignKey(p => p.ClientId).OnDelete(DeleteBehavior.Cascade);
             GlobalOrClientOwned(entity);
@@ -299,6 +302,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
         {
             entity.Property(t => t.Name).HasMaxLength(100);
             entity.Property(t => t.Description).HasMaxLength(1000);
+            entity.Property(t => t.AppliesTo).HasConversion<string>().HasMaxLength(20).HasDefaultValue(CheckAppliesTo.All).HasSentinel(CheckAppliesTo.All);
             entity.HasIndex(t => new { t.ClientId, t.Name }).IsUnique().AreNullsDistinct(false);
             entity.HasMany(t => t.Checks).WithOne(c => c.MonitoringTemplate).HasForeignKey(c => c.MonitoringTemplateId).OnDelete(DeleteBehavior.Cascade);
             // A client-specific monitoring template is deleted with its client.
@@ -367,11 +371,12 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
 
         builder.Entity<SitePolicy>(entity =>
         {
-            entity.HasKey(l => l.SiteId);
+            entity.HasKey(l => new { l.SiteId, l.AppliesTo });
             entity.Property(l => l.Source).HasConversion<string>().HasMaxLength(20);
-            entity.HasOne<Site>().WithOne(s => s.Policy)
-                .HasForeignKey<SitePolicy>(l => new { l.SiteId, l.ClientId })
-                .HasPrincipalKey<Site>(s => new { s.Id, s.ClientId })
+            ClassSlot(entity);
+            entity.HasOne<Site>().WithMany(s => s.Policies)
+                .HasForeignKey(l => new { l.SiteId, l.ClientId })
+                .HasPrincipalKey(s => new { s.Id, s.ClientId })
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(l => l.Policy).WithMany().HasForeignKey(l => l.PolicyId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(l => l.PolicyId);
@@ -382,9 +387,10 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
         // policy of another client is refused by trigger (migration LinksOnEveryLevel).
         builder.Entity<ClientPolicy>(entity =>
         {
-            entity.HasKey(l => l.ClientId);
+            entity.HasKey(l => new { l.ClientId, l.AppliesTo });
             entity.Property(l => l.Source).HasConversion<string>().HasMaxLength(20);
-            entity.HasOne<Client>().WithOne(c => c.Policy).HasForeignKey<ClientPolicy>(l => l.ClientId).OnDelete(DeleteBehavior.Cascade);
+            ClassSlot(entity);
+            entity.HasOne<Client>().WithMany(c => c.Policies).HasForeignKey(l => l.ClientId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(l => l.Policy).WithMany().HasForeignKey(l => l.PolicyId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(l => l.PolicyId);
             ClientOwned(entity);
@@ -416,6 +422,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(p => p.ScheduleKind).HasConversion<string>().HasMaxLength(20);
             entity.Property(p => p.MonthWeekday).HasConversion<string>().HasMaxLength(10);
             entity.Property(p => p.Scope).HasConversion<string>().HasMaxLength(20);
+            entity.Property(p => p.AppliesTo).HasConversion<string>().HasMaxLength(20).HasDefaultValue(CheckAppliesTo.All).HasSentinel(CheckAppliesTo.All);
             entity.Property(p => p.RebootMessageText).HasMaxLength(PatchPolicyRules.MaxRebootMessageLength);
             entity.ToTable(table =>
             {
@@ -438,9 +445,10 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
 
         builder.Entity<ClientPatchPolicy>(entity =>
         {
-            entity.HasKey(l => l.ClientId);
+            entity.HasKey(l => new { l.ClientId, l.AppliesTo });
             entity.Property(l => l.Source).HasConversion<string>().HasMaxLength(20);
-            entity.HasOne<Client>().WithOne(c => c.PatchPolicy).HasForeignKey<ClientPatchPolicy>(l => l.ClientId).OnDelete(DeleteBehavior.Cascade);
+            ClassSlot(entity);
+            entity.HasOne<Client>().WithMany(c => c.PatchPolicies).HasForeignKey(l => l.ClientId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(l => l.PatchPolicy).WithMany().HasForeignKey(l => l.PatchPolicyId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(l => l.PatchPolicyId);
             ClientOwned(entity);
@@ -448,11 +456,12 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
 
         builder.Entity<SitePatchPolicy>(entity =>
         {
-            entity.HasKey(l => l.SiteId);
+            entity.HasKey(l => new { l.SiteId, l.AppliesTo });
             entity.Property(l => l.Source).HasConversion<string>().HasMaxLength(20);
-            entity.HasOne<Site>().WithOne(s => s.PatchPolicy)
-                .HasForeignKey<SitePatchPolicy>(l => new { l.SiteId, l.ClientId })
-                .HasPrincipalKey<Site>(s => new { s.Id, s.ClientId })
+            ClassSlot(entity);
+            entity.HasOne<Site>().WithMany(s => s.PatchPolicies)
+                .HasForeignKey(l => new { l.SiteId, l.ClientId })
+                .HasPrincipalKey(s => new { s.Id, s.ClientId })
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(l => l.PatchPolicy).WithMany().HasForeignKey(l => l.PatchPolicyId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(l => l.PatchPolicyId);
@@ -475,7 +484,11 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(t => t.Name).IsUnique();
             entity.HasMany(t => t.Sites).WithOne().HasForeignKey(s => s.ClientTemplateId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<Policy>().WithMany().HasForeignKey(t => t.PolicyId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<Policy>().WithMany().HasForeignKey(t => t.ServerPolicyId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<Policy>().WithMany().HasForeignKey(t => t.WorkstationPolicyId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne<PatchPolicy>().WithMany().HasForeignKey(t => t.PatchPolicyId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<PatchPolicy>().WithMany().HasForeignKey(t => t.ServerPatchPolicyId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<PatchPolicy>().WithMany().HasForeignKey(t => t.WorkstationPatchPolicyId).OnDelete(DeleteBehavior.SetNull);
             entity.HasMany(t => t.MonitoringTemplates).WithOne().HasForeignKey(l => l.ClientTemplateId).OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -491,7 +504,11 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(s => s.Description).HasMaxLength(1000);
             entity.HasIndex(s => new { s.ClientTemplateId, s.Name }).IsUnique();
             entity.HasOne<Policy>().WithMany().HasForeignKey(s => s.PolicyId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<Policy>().WithMany().HasForeignKey(s => s.ServerPolicyId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<Policy>().WithMany().HasForeignKey(s => s.WorkstationPolicyId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne<PatchPolicy>().WithMany().HasForeignKey(s => s.PatchPolicyId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<PatchPolicy>().WithMany().HasForeignKey(s => s.ServerPatchPolicyId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<PatchPolicy>().WithMany().HasForeignKey(s => s.WorkstationPatchPolicyId).OnDelete(DeleteBehavior.SetNull);
             entity.HasMany(s => s.MonitoringTemplates).WithOne().HasForeignKey(l => l.ClientTemplateSiteId).OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -1212,6 +1229,11 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
         entity.ToTable(t => t.HasCheckConstraint($"CK_{typeof(T).Name}s_Maintenance",
             "\"MaintenanceEndsAt\" IS NULL OR \"MaintenanceStartedAt\" IS NOT NULL"));
     }
+
+    /// <summary>The class slot of a link on client or site level (0.6.0): every endpoint, servers or workstations.</summary>
+    private static void ClassSlot<T>(EntityTypeBuilder<T> entity) where T : class =>
+        entity.Property<CheckAppliesTo>("AppliesTo").HasConversion<string>().HasMaxLength(20).HasDefaultValue(CheckAppliesTo.All)
+            .HasSentinel(CheckAppliesTo.All);
 
     private void ClientOwned<T>(EntityTypeBuilder<T> entity) where T : class
     {

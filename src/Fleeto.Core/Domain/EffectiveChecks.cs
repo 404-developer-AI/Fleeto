@@ -16,7 +16,9 @@ public enum CheckSource
 }
 
 /// <summary>A check definition that may apply to an endpoint, with where it was found.</summary>
-public sealed record CheckCandidate(CheckDefinition Definition, CheckSource Source, string? TemplateName);
+/// <param name="TemplateAppliesTo">The endpoints the monitoring template of a template check is for (0.6.0).</param>
+public sealed record CheckCandidate(CheckDefinition Definition, CheckSource Source, string? TemplateName,
+    CheckAppliesTo TemplateAppliesTo = CheckAppliesTo.All);
 
 /// <summary>
 /// A check as it runs on one endpoint: the definition with the endpoint's overrides applied. Thresholds and failures are
@@ -68,7 +70,7 @@ public sealed record EffectiveCheck(
 /// (workers) and the endpoint page (web); its SQL twin is <c>EffectiveCheckResolver.AppliesSql</c>, kept equal by a test.
 /// <list type="bullet">
 /// <item>A template check applies when it is enabled, its template is linked to the endpoint's client, its site or the endpoint,
-/// it matches the endpoint class and it is not disabled on the endpoint.</item>
+/// both the check and its template (0.6.0) match the endpoint class and it is not disabled on the endpoint.</item>
 /// <item>An endpoint-only check applies when it is enabled; it runs whatever the class.</item>
 /// <item>Either kind applies only when its type runs on the endpoint's platform (<see cref="CheckCatalog.IsSupported"/>), so a Windows
 /// event log check in a template linked to a mixed site never reaches a Linux endpoint.</item>
@@ -113,7 +115,8 @@ public static class EffectiveChecks
                 continue;
             }
 
-            if (definition.MonitoringTemplateId is null || !MatchesClass(definition.AppliesTo, endpointClass))
+            if (definition.MonitoringTemplateId is null || !MatchesClass(definition.AppliesTo, endpointClass) ||
+                !MatchesClass(candidate.TemplateAppliesTo, endpointClass))
             {
                 continue;
             }

@@ -1,0 +1,19 @@
+@* Which endpoints a policy, patch policy or monitoring template is for (0.6.0): all, servers or workstations. *@
+<MudSelect T="CheckAppliesTo" Value="Value" ValueChanged="ValueChanged" Label="For" Variant="Variant.Outlined" Disabled="Disabled"
+           AdornmentIcon="@Icons.Material.Outlined.Devices" Adornment="Adornment.Start" Class="@Class" HelperText="@HelperText">
+    @foreach (var appliesTo in new[] { CheckAppliesTo.All, CheckAppliesTo.Server, CheckAppliesTo.Workstation })
+    {
+        <MudSelectItem T="CheckAppliesTo" Value="appliesTo">@Ui.AppliesToLabel(appliesTo)</MudSelectItem>
+    }
+</MudSelect>
+
+@code {
+    [Parameter] public CheckAppliesTo Value { get; set; }
+    [Parameter] public EventCallback<CheckAppliesTo> ValueChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>What the choice means for this kind of thing; a sensible default when not given.</summary>
+    [Parameter] public string HelperText { get; set; } =
+        "For servers or workstations only, it never applies to the other class, wherever it is linked.";
+}

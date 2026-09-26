@@ -14,6 +14,12 @@ public class Policy
     /// <summary>The instance default policy applies to endpoints without a linked policy on any level. Exactly one, global.</summary>
     public bool IsDefault { get; set; }
 
+    /// <summary>
+    /// The endpoints the policy is for (0.6.0): a policy for servers never applies to a workstation, and the other way round,
+    /// wherever it is linked. The default policy is for every endpoint.
+    /// </summary>
+    public CheckAppliesTo AppliesTo { get; set; } = CheckAppliesTo.All;
+
     public int HeartbeatIntervalSeconds { get; set; } = 30;
     public int InventoryIntervalSeconds { get; set; } = 6 * 60 * 60;
 
@@ -84,13 +90,19 @@ public class MaintenanceWindowOccurrence
     public string? Name { get; set; }
 }
 
-/// <summary>A named set of checks linked to sites. ClientId null = global.</summary>
+/// <summary>A named set of checks linked to clients, sites and endpoints. ClientId null = global.</summary>
 public class MonitoringTemplate
 {
     public Guid Id { get; set; }
     public Guid? ClientId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
+
+    /// <summary>
+    /// The endpoints the template is for (0.6.0), on top of the class of each check: a template for servers runs none of its
+    /// checks on a workstation.
+    /// </summary>
+    public CheckAppliesTo AppliesTo { get; set; } = CheckAppliesTo.All;
     public Guid? CopiedFromId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
@@ -190,12 +202,18 @@ public class EndpointCheckOverride
 
 /// <summary>
 /// The policy linked to a client (0.6.0). It applies to every endpoint of the client whose site and endpoint have none.
-/// At most one per client.
+/// One for every endpoint, or one for servers and one for workstations.
 /// </summary>
 public class ClientPolicy
 {
     public Guid ClientId { get; set; }
     public Guid PolicyId { get; set; }
+
+    /// <summary>
+    /// The endpoints of the level this link is for (0.6.0): <see cref="CheckAppliesTo.All"/>, or one link for servers and one
+    /// for workstations, so a client or site can hold a different one per class.
+    /// </summary>
+    public CheckAppliesTo AppliesTo { get; set; } = CheckAppliesTo.All;
     public LinkSource Source { get; set; }
     public DateTime CreatedAt { get; set; }
 
@@ -228,23 +246,35 @@ public class ClientMonitoringTemplate
     public MonitoringTemplate? MonitoringTemplate { get; set; }
 }
 
-/// <summary>The patch policy linked to a client (0.6.0). At most one per client.</summary>
+/// <summary>The patch policy linked to a client (0.6.0): one for every endpoint, or one per class.</summary>
 public class ClientPatchPolicy
 {
     public Guid ClientId { get; set; }
     public Guid PatchPolicyId { get; set; }
+
+    /// <summary>
+    /// The endpoints of the level this link is for (0.6.0): <see cref="CheckAppliesTo.All"/>, or one link for servers and one
+    /// for workstations, so a client or site can hold a different one per class.
+    /// </summary>
+    public CheckAppliesTo AppliesTo { get; set; } = CheckAppliesTo.All;
     public LinkSource Source { get; set; }
     public DateTime CreatedAt { get; set; }
 
     public PatchPolicy? PatchPolicy { get; set; }
 }
 
-/// <summary>The patch policy linked to a site (0.6.0). It wins over the one of the client. At most one per site.</summary>
+/// <summary>The patch policy linked to a site (0.6.0). It wins over the one of the client; one for every endpoint, or one per class.</summary>
 public class SitePatchPolicy
 {
     public Guid SiteId { get; set; }
     public Guid ClientId { get; set; }
     public Guid PatchPolicyId { get; set; }
+
+    /// <summary>
+    /// The endpoints of the level this link is for (0.6.0): <see cref="CheckAppliesTo.All"/>, or one link for servers and one
+    /// for workstations, so a client or site can hold a different one per class.
+    /// </summary>
+    public CheckAppliesTo AppliesTo { get; set; } = CheckAppliesTo.All;
     public LinkSource Source { get; set; }
     public DateTime CreatedAt { get; set; }
 
@@ -264,14 +294,20 @@ public class EndpointPatchPolicy
 }
 
 /// <summary>
-/// The policy linked to a site. At most one per site; without one the policy of the client applies, and without that the
-/// default policy.
+/// The policy linked to a site: one for every endpoint, or one per class (0.6.0). Without one the policy of the client
+/// applies, and without that the default policy.
 /// </summary>
 public class SitePolicy
 {
     public Guid SiteId { get; set; }
     public Guid ClientId { get; set; }
     public Guid PolicyId { get; set; }
+
+    /// <summary>
+    /// The endpoints of the level this link is for (0.6.0): <see cref="CheckAppliesTo.All"/>, or one link for servers and one
+    /// for workstations, so a client or site can hold a different one per class.
+    /// </summary>
+    public CheckAppliesTo AppliesTo { get; set; } = CheckAppliesTo.All;
     public LinkSource Source { get; set; }
     public DateTime CreatedAt { get; set; }
 
@@ -288,11 +324,21 @@ public class ClientTemplate
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
 
-    /// <summary>The policy of the client itself (0.6.0); null leaves the client without one.</summary>
+    /// <summary>The policy of the client itself for every endpoint (0.6.0); null leaves the client without one.</summary>
     public Guid? PolicyId { get; set; }
 
-    /// <summary>The patch policy of the client itself (0.6.0); null leaves the client without one.</summary>
+    /// <summary>The policies of the client itself per class, instead of <see cref="PolicyId"/> (0.6.0).</summary>
+    public Guid? ServerPolicyId { get; set; }
+
+    public Guid? WorkstationPolicyId { get; set; }
+
+    /// <summary>The patch policy of the client itself for every endpoint (0.6.0); null leaves the client without one.</summary>
     public Guid? PatchPolicyId { get; set; }
+
+    /// <summary>The patch policies of the client itself per class, instead of <see cref="PatchPolicyId"/> (0.6.0).</summary>
+    public Guid? ServerPatchPolicyId { get; set; }
+
+    public Guid? WorkstationPatchPolicyId { get; set; }
     public Guid? CopiedFromId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
@@ -318,8 +364,18 @@ public class ClientTemplateSite
     public string? Description { get; set; }
     public Guid? PolicyId { get; set; }
 
+    /// <summary>The policies of the site per class, instead of <see cref="PolicyId"/> (0.6.0).</summary>
+    public Guid? ServerPolicyId { get; set; }
+
+    public Guid? WorkstationPolicyId { get; set; }
+
     /// <summary>The patch policy of the site (0.6.0); null follows the client.</summary>
     public Guid? PatchPolicyId { get; set; }
+
+    /// <summary>The patch policies of the site per class, instead of <see cref="PatchPolicyId"/> (0.6.0).</summary>
+    public Guid? ServerPatchPolicyId { get; set; }
+
+    public Guid? WorkstationPatchPolicyId { get; set; }
 
     public int SortOrder { get; set; }
 
