@@ -107,8 +107,13 @@ public sealed class PatchSyncTests
 
         var updates = await db.EndpointMissingUpdates.AsNoTracking().Where(u => u.EndpointId == endpoint.Id).ToListAsync();
         Assert.Equal(2, updates.Count);
-        Assert.Contains(updates, u => u.Severity == PatchSeverity.Critical && u.KbNumber == "KB5034123");
-        Assert.Contains(updates, u => u.Name == "Google Chrome" && u.Severity == PatchSeverity.Important);
+        var windows = Assert.Single(updates, u => u.KbNumber == "KB5034123");
+        Assert.Equal((PatchSeverity.Critical, "10.0.20348.2700", "Security Updates", "New", new DateOnly(2026, 9, 9)),
+            (windows.Severity, windows.Version, windows.UpdateType, windows.ApprovalStatus, windows.ReleaseDate));
+        Assert.Equal(["CVE-2026-1001", "CVE-2026-1002"], windows.Cves);
+        var chrome = Assert.Single(updates, u => u.Name == "Google Chrome");
+        Assert.Equal((PatchSeverity.Important, "125.0.1", "Approved"), (chrome.Severity, chrome.InstalledVersion, chrome.ApprovalStatus));
+        Assert.Empty(chrome.Cves);
     }
 
     [Fact]
@@ -344,10 +349,13 @@ public sealed class PatchSyncTests
                 DetailCalls++;
                 return Task.FromResult(Json("""
                     {"items":[
-                      {"id":"upd-1","name":"2026-09 Cumulative Update","vendor":"Microsoft","version":"10.0.20348.2700",
-                       "kb_number":"KB5034123","security_severity":"Critical","reboot_needed":"Possibly"},
-                      {"id":"upd-2","name":"Google Chrome","vendor":"Google","version":"126.0.6478.115",
-                       "security_severity":"Important","reboot_needed":"No"}
+                      {"id":"upd-1","name":"2026-09 Cumulative Update","vendor":"Microsoft","kb_number":"KB5034123",
+                       "reboot_needed":"Possibly","update_type":"Windows",
+                       "versions":[{"version":"10.0.20348.2700","security_severity":"Critical","update_type":"Security Updates",
+                         "release_date":"2026-09-09","approval_status":"New","security_CVE":"CVE-2026-1001, CVE-2026-1002"}]},
+                      {"id":"upd-2","name":"Google Chrome","vendor":"Google","reboot_needed":"Unknown","update_type":"App",
+                       "versions":[{"version":"126.0.6478.115","security_severity":"Important","version_outdated":"125.0.1",
+                         "approval_status":"Approved"}]}
                     ],"total_items":2}
                     """));
             }

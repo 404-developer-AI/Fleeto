@@ -263,9 +263,10 @@ public sealed record ApiSoftware(string Name, string Version, string Publisher, 
 
 public sealed record ApiService(string Name, string DisplayName, string StartType, string State);
 
-/// <summary>One update an endpoint is missing, as patch management reports it (0.4.0).</summary>
-public sealed record ApiMissingUpdate(string Id, string Name, string Vendor, string Version, string KbNumber, ApiPatchSeverity Severity,
-    bool RebootNeeded);
+/// <summary>One update an endpoint is missing, as patch management reports it (0.4.0; installed version, release date, type,
+/// approval and CVEs 0.6.0).</summary>
+public sealed record ApiMissingUpdate(string Id, string Name, string Vendor, string Version, string InstalledVersion, DateOnly? ReleaseDate,
+    string KbNumber, string UpdateType, string ApprovalStatus, ApiPatchSeverity Severity, IReadOnlyList<string> Cves);
 
 /// <summary>The patch state of one endpoint (0.4.0), as patch management last reported it.</summary>
 public sealed record ApiPatchState(Guid EndpointId, ApiPatchCoverage Coverage, bool Compliant, int MissingCritical, int MissingOther,

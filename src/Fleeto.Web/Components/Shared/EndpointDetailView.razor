@@ -901,11 +901,14 @@
                 <MudTable T="MissingUpdateView" Items="patches.Missing" Dense="true" Elevation="0"
                           MultiSelection="@(CanManage && state.Coverage == PatchCoverage.Active)" @bind-SelectedItems="_chosenUpdates">
                     <HeaderContent>
-                        <MudTh>Update</MudTh>
-                        <MudTh>Vendor</MudTh>
-                        <MudTh>Version</MudTh>
-                        <MudTh>Severity</MudTh>
-                        <MudTh>Restart</MudTh>
+                        <MudTh>Name</MudTh>
+                        <MudTh>Installed version</MudTh>
+                        <MudTh>Latest version</MudTh>
+                        <MudTh>Release date</MudTh>
+                        <MudTh>Status</MudTh>
+                        <MudTh>Update type</MudTh>
+                        <MudTh>Vulnerabilities</MudTh>
+                        <MudTh>Security severity</MudTh>
                     </HeaderContent>
                     <RowTemplate>
                         <MudTd>
@@ -915,14 +918,35 @@
                                 <span class="muted"> (@context.KbNumber)</span>
                             }
                         </MudTd>
-                        <MudTd>@context.Vendor</MudTd>
+                        <MudTd>@(context.InstalledVersion.Length > 0 ? context.InstalledVersion : "Not installed")</MudTd>
                         <MudTd>@context.Version</MudTd>
+                        <MudTd>@(context.ReleaseDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture))</MudTd>
+                        <MudTd>
+                            @if (context.ApprovalStatus.Length > 0)
+                            {
+                                <StatusChip Text="@context.ApprovalStatus"
+                                            Kind="@(context.ApprovalStatus == "Approved" ? StatusKind.Ok
+                                                    : context.ApprovalStatus == "Declined" ? StatusKind.Warning : StatusKind.Neutral)" />
+                            }
+                        </MudTd>
+                        <MudTd>@context.UpdateType</MudTd>
+                        <MudTd>
+                            @if (context.CveList.Count > 0)
+                            {
+                                <MudTooltip Text="@context.Cves">
+                                    <span>@Ui.Count(context.CveList.Count, "CVE")</span>
+                                </MudTooltip>
+                            }
+                            else
+                            {
+                                <span class="muted">None</span>
+                            }
+                        </MudTd>
                         <MudTd>
                             <StatusChip Text="@context.Severity.ToString()"
                                         Kind="@(context.Severity == PatchSeverity.Critical ? StatusKind.Error
                                                 : context.Severity == PatchSeverity.Important ? StatusKind.Warning : StatusKind.Neutral)" />
                         </MudTd>
-                        <MudTd>@(context.RebootNeeded ? "Possibly" : "No")</MudTd>
                     </RowTemplate>
                     <PagerContent>
                         <MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" />

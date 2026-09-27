@@ -98,6 +98,11 @@ public sealed class PatchServiceTests
                 Name = name,
                 Vendor = "Vendor",
                 Version = "1.0",
+                InstalledVersion = "0.9",
+                ReleaseDate = new DateOnly(2026, 9, 9),
+                UpdateType = "Security Updates",
+                ApprovalStatus = "New",
+                Cves = ["CVE-2026-1001", "CVE-2026-1002"],
                 Severity = severity,
                 UpdatedAt = now
             });
@@ -143,6 +148,10 @@ public sealed class PatchServiceTests
         Assert.False(view.State!.IsCompliant);
         Assert.Equal(["Windows", "Chrome", "Reader"], view.Missing.Select(m => m.Name));
         Assert.NotNull(view.DetailUpdatedAt);
+        var first = view.Missing[0];
+        Assert.Equal(("0.9", new DateOnly(2026, 9, 9), "Security Updates", "New"),
+            (first.InstalledVersion, first.ReleaseDate, first.UpdateType, first.ApprovalStatus));
+        Assert.Equal(["CVE-2026-1001", "CVE-2026-1002"], first.CveList);
     }
 
     [Fact]

@@ -946,6 +946,9 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(u => u.Vendor).HasMaxLength(200);
             entity.Property(u => u.Version).HasMaxLength(100);
             entity.Property(u => u.KbNumber).HasMaxLength(20);
+            entity.Property(u => u.InstalledVersion).HasMaxLength(100);
+            entity.Property(u => u.UpdateType).HasMaxLength(50);
+            entity.Property(u => u.ApprovalStatus).HasMaxLength(20);
             entity.Property(u => u.Severity).HasConversion<string>().HasMaxLength(20);
             entity.HasIndex(u => new { u.EndpointId, u.Severity });
             EndpointChild(entity, u => new { u.EndpointId, u.ClientId });

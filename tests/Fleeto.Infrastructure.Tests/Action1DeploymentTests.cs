@@ -104,6 +104,45 @@ public class Action1DeploymentTests
     }
 
     [Fact]
+    public void A_missing_update_reads_its_severity_and_details_from_the_version_Action1_would_install()
+    {
+        // The shape of Action1's MissingUpdateWindows: the severity sits in versions[0], not at the top. Reading it at the
+        // top made every update unspecified (found testing 0.6.0).
+        var item = JsonDocument.Parse("""
+            {"id":"win-1","name":"2026-09 Cumulative Update for Windows 11","vendor":"Microsoft","kb_number":"KB5065426",
+             "reboot_needed":"Possibly","update_type":"Windows",
+             "versions":[{"version":"26100.6584","security_severity":"Critical","update_type":"Security Updates",
+               "release_date":"2026-09-09","approval_status":"Declined","version_outdated":"26100.4946",
+               "security_CVE":"CVE-2026-0001, CVE-2026-0002,cve-2026-0002, not-a-cve"}]}
+            """).RootElement;
+
+        var update = Action1MissingUpdate.From(item)!;
+
+        Assert.Equal(PatchSeverity.Critical, update.Severity);
+        Assert.Equal("Security Updates", update.UpdateType);
+        Assert.Equal("Declined", update.ApprovalStatus);
+        Assert.Equal("26100.4946", update.InstalledVersion);
+        Assert.Equal("26100.6584", update.Version);
+        Assert.Equal(new DateOnly(2026, 9, 9), update.ReleaseDate);
+        Assert.Equal(["CVE-2026-0001", "CVE-2026-0002"], update.Cves);
+    }
+
+    [Fact]
+    public void A_missing_update_with_odd_details_still_reads_with_safe_values()
+    {
+        var item = JsonDocument.Parse("""
+            {"id":"odd","name":"Odd","security_severity":"Important","versions":[{"version":"1","release_date":"14-05-2024","security_severity":"Other"}]}
+            """).RootElement;
+
+        var update = Action1MissingUpdate.From(item)!;
+
+        Assert.Equal(PatchSeverity.Unspecified, update.Severity);
+        Assert.Null(update.ReleaseDate);
+        Assert.Equal(string.Empty, update.InstalledVersion);
+        Assert.Empty(update.Cves);
+    }
+
+    [Fact]
     public async Task A_deployment_Action1_does_not_name_is_not_reported_as_started()
     {
         var time = new FakeTimeProvider(new DateTimeOffset(2026, 9, 21, 10, 0, 0, TimeSpan.Zero));

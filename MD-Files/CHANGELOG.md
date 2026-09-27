@@ -57,6 +57,11 @@ When a third released version is added, the oldest entry moves to the top of
 ### Changed
 
 - "Rename client" is "Edit client", and "Policy and monitoring" of a site is part of "Edit site".
+- The missing updates of an endpoint show the columns of Action1: name, installed version, latest version, release date,
+  status (the approval in Action1: New, Approved or Declined), update type, vulnerabilities (the CVEs, listed on hover)
+  and security severity. The Restart column is gone: Action1 says "possibly" for every update. The public API reports
+  `installedVersion`, `releaseDate`, `updateType`, `approvalStatus` and `cves` per missing update, and no longer
+  `rebootNeeded`.
 - The public API reports `client_template` as the source of a check from a monitoring template linked to the client.
 - The deployments on the Patches tab of an endpoint are listed above the deploy buttons, so a running deployment is
   seen before another one starts. More than five scroll in a box that can be dragged taller; it is back to five rows on
@@ -74,6 +79,8 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- The security severity of a missing update is read again: Action1 reports it with the version it would install, and
+  Fleeto looked for it on the update, so every update showed as unspecified.
 - A deployment with automatic restart waited 30 hours instead of 30 minutes before Action1 restarted the endpoint: Action1
   reads the time in minutes, and Fleeto sent seconds.
 - "Deploy all missing updates" installs the updates again. Action1 installed only updates approved in its own console

@@ -844,6 +844,10 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   `PatchPolicies` and `MonitoringTemplates`, the class slot in the keys of the client and site links, the per-class columns
   of client templates, the rule per class in `EffectivePolicyRules` (C#, SQL and EF Core, kept equal by a test), and
   "Different for servers and workstations" in the `LinkEditor`.
+- [done] **Missing updates as in Action1** (asked for by the developer on 2026-09-27). The list shows name, installed and
+  latest version, release date, status (approval in Action1, chosen by the developer), update type, vulnerabilities and
+  security severity; the Restart column went, because Action1 answers "possibly" for every update. Found on the way: the
+  severity sits in `versions[0]` of Action1's answer, so Fleeto read every update as unspecified (fixed).
 
 ## 0.7.0 — Hardening
 

@@ -410,9 +410,13 @@ something, which can be one pass behind the counts. `detailUpdatedAt` says when 
       "name": "2026-09 Cumulative Update for Windows Server 2022",
       "vendor": "Microsoft",
       "version": "10.0.20348.2700",
+      "installedVersion": "10.0.20348.2582",
+      "releaseDate": "2026-09-09",
       "kbNumber": "KB5034123",
+      "updateType": "Security Updates",
+      "approvalStatus": "New",
       "severity": "critical",
-      "rebootNeeded": true
+      "cves": ["CVE-2026-1001", "CVE-2026-1002"]
     }
   ]
 }
@@ -807,7 +811,7 @@ of its own; Action1 has it.
 | `productAgentVersion` | string | The version of the Action1 agent on the endpoint. Action1 updates its own agent; Fleeto only reports what is there. |
 | `updatedAt` | timestamp | When Fleeto last read the counts. |
 | `detailUpdatedAt` | timestamp, nullable | When Fleeto last read `missing`. Null while no detail has been read. |
-| `missing` | array | The missing updates, most severe first: `id` (the id in Action1, which a deployment names), `name`, `vendor`, `version`, `kbNumber` (Windows only, else empty), `severity` ([Patch severity](#patch-severity)), `rebootNeeded`. Empty for a compliant endpoint, and empty when the detail has not been read yet while the counts say something is missing. |
+| `missing` | array | The missing updates, most severe first: `id` (the id in Action1, which a deployment names), `name`, `vendor`, `version` (the version Action1 would install), `installedVersion` (the version on the endpoint now, empty when Action1 does not report one), `releaseDate` (`YYYY-MM-DD`, the release of `version`, null when unknown), `kbNumber` (Windows only, else empty), `updateType` (Action1's word, such as `Security Updates`, `Feature Updates`, `Drivers`, `Update Rollups`, `Unknown`; empty when not reported), `approvalStatus` (the approval in Action1: `New`, `Approved` or `Declined`, empty when not reported; a deployment installs what it names regardless), `severity` ([Patch severity](#patch-severity)), `cves` (array of CVE ids the update remediates, may be empty). `rebootNeeded` was removed in 0.6.0: Action1 reports "possibly" for every update. Empty for a compliant endpoint, and empty when the detail has not been read yet while the counts say something is missing. |
 
 ### Deployment
 

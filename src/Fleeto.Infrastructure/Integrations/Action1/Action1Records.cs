@@ -72,9 +72,18 @@ public sealed record Action1Endpoint(string Id, string OrganizationId, string Na
     }
 }
 
-/// <summary>One update Action1 reports as missing on an endpoint (0.4.0 step 2).</summary>
+/// <summary>
+/// One update Action1 reports as missing on an endpoint (0.4.0 step 2). Action1 describes the update at the top and the
+/// version it would install in <c>versions[0]</c>, which carries the severity, type, release date, approval and CVEs
+/// (its schema <c>MissingUpdateSoftwareRepositoryPackage</c>; found in 0.6.0, when every severity read as unspecified
+/// because Fleeto looked for it at the top). Each of those is read from the version first and from the top second.
+/// </summary>
+/// <param name="InstalledVersion">The version on the endpoint now (Action1: <c>version_outdated</c>), empty when not installed.</param>
+/// <param name="UpdateType">Action1's word for the kind of update: Security Updates, Feature Updates, Drivers and so on.</param>
+/// <param name="ApprovalStatus">New, Approved or Declined in Action1. Only shown: a deployment from Fleeto installs regardless.</param>
+/// <param name="Cves">The CVEs this version remediates.</param>
 public sealed record Action1MissingUpdate(string Id, string Name, string Vendor, string Version, string KbNumber, PatchSeverity Severity,
-    bool RebootNeeded)
+    string InstalledVersion, DateOnly? ReleaseDate, string UpdateType, string ApprovalStatus, IReadOnlyList<string> Cves)
 {
     public static Action1MissingUpdate? From(JsonElement item)
     {
@@ -85,42 +94,52 @@ public sealed record Action1MissingUpdate(string Id, string Name, string Vendor,
             return null;
         }
 
+        var version = FirstVersion(item);
+        string Field(string field) => Action1Client.Text(version, field) is { Length: > 0 } nested ? nested : Action1Client.Text(item, field);
+
         return new Action1MissingUpdate(
             id,
             name,
             Action1Client.Text(item, "vendor"),
-            VersionOf(item),
+            Action1Client.Text(item, "version") is { Length: > 0 } flat ? flat : Action1Client.Text(version, "version"),
             Action1Client.Text(item, "kb_number"),
-            ParseSeverity(Action1Client.Text(item, "security_severity")),
-            Action1Client.Text(item, "reboot_needed") is { Length: > 0 } reboot &&
-            !reboot.Equals("No", StringComparison.OrdinalIgnoreCase) && !reboot.Equals("Unknown", StringComparison.OrdinalIgnoreCase));
+            ParseSeverity(Field("security_severity")),
+            Field("version_outdated"),
+            DateOnly.TryParseExact(Field("release_date"), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var released)
+                ? released
+                : null,
+            Field("update_type"),
+            Field("approval_status"),
+            ParseCves(Field("security_CVE")));
     }
 
     /// <summary>
-    /// The version Action1 would install. It reports the update itself with a list of versions, newest first, and some
-    /// answers carry the version flat; both are read, because a deployment has to name the version of every package
-    /// (0.4.0 step 3). An update without a version can still be shown, but it cannot be deployed by name.
+    /// The version Action1 would install: it reports the update with a list of versions, newest first. A deployment has to
+    /// name the version of every package (0.4.0 step 3), so an update without one can be shown but not deployed by name.
     /// </summary>
-    private static string VersionOf(JsonElement item)
+    private static JsonElement FirstVersion(JsonElement item)
     {
-        if (Action1Client.Text(item, "version") is { Length: > 0 } flat)
-        {
-            return flat;
-        }
-
         if (item.TryGetProperty("versions", out var versions) && versions.ValueKind == JsonValueKind.Array)
         {
             foreach (var version in versions.EnumerateArray())
             {
-                if (Action1Client.Text(version, "version") is { Length: > 0 } nested)
+                if (version.ValueKind == JsonValueKind.Object)
                 {
-                    return nested;
+                    return version;
                 }
             }
         }
 
-        return string.Empty;
+        return default;
     }
+
+    /// <summary>Action1 lists the CVEs as one string, "CVE-2024-0222, CVE-2024-0223"; anything that is not a CVE id is dropped.</summary>
+    public static IReadOnlyList<string> ParseCves(string? value) =>
+        [.. (value ?? string.Empty)
+            .Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(c => c.StartsWith("CVE-", StringComparison.OrdinalIgnoreCase) && c.Length <= 30)
+            .Select(c => c.ToUpperInvariant())
+            .Distinct()];
 
     /// <summary>
     /// Action1 uses the words of the vendor: Critical, Important, Moderate, Low, Unspecified, and "Other" for what it

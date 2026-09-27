@@ -91,8 +91,29 @@ public class EndpointMissingUpdate
 
     public PatchSeverity Severity { get; set; } = PatchSeverity.Unspecified;
 
-    /// <summary>True when the product says installing this update may ask for a restart.</summary>
+    /// <summary>
+    /// Kept only so the release before 0.6.0 still runs on this schema (expand/contract); nothing reads it. Action1 answers
+    /// "Possibly" or "Unknown" for every update, which tells a technician nothing.
+    /// </summary>
     public bool RebootNeeded { get; set; }
+
+    /// <summary>The version on the endpoint now (0.6.0), empty when the product does not know it or it is not installed.</summary>
+    public string InstalledVersion { get; set; } = string.Empty;
+
+    /// <summary>When the vendor released the version the product would install (0.6.0).</summary>
+    public DateOnly? ReleaseDate { get; set; }
+
+    /// <summary>The product's word for the kind of update (0.6.0), such as Security Updates, Feature Updates or Drivers.</summary>
+    public string UpdateType { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The approval of the update in the product (0.6.0): New, Approved or Declined. Only shown: a deployment started from
+    /// Fleeto installs what it names regardless of it.
+    /// </summary>
+    public string ApprovalStatus { get; set; } = string.Empty;
+
+    /// <summary>The CVEs the update remediates (0.6.0).</summary>
+    public List<string> Cves { get; set; } = [];
 
     /// <summary>When Fleeto last saw this update as missing.</summary>
     public DateTime UpdatedAt { get; set; }

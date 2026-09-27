@@ -10,8 +10,14 @@ using Microsoft.EntityFrameworkCore;
 namespace Fleeto.Web.Services;
 
 /// <summary>One update an endpoint is missing, as the patch management product reports it.</summary>
+/// <param name="Version">The version the product would install.</param>
+/// <param name="Cves">The CVEs it remediates, as one comma-separated text so the view keeps value equality (a chosen update
+/// stays chosen after a refresh).</param>
 public sealed record MissingUpdateView(string Id, string Name, string Vendor, string Version, string KbNumber, PatchSeverity Severity,
-    bool RebootNeeded);
+    string InstalledVersion, DateOnly? ReleaseDate, string UpdateType, string ApprovalStatus, string Cves)
+{
+    public IReadOnlyList<string> CveList => Cves.Length == 0 ? [] : Cves.Split(", ");
+}
 
 /// <summary>
 /// The patch state of one endpoint (0.4.0).
@@ -123,16 +129,16 @@ public sealed class PatchService
                 ScriptLanguages.RunsOn(ScriptLanguage.PowerShell, endpoint.OsPlatform) && Action1AgentInstall.IsValidInstallerUrl(installerUrl));
         }
 
-        var missing = await db.EndpointMissingUpdates.AsNoTracking()
+        var rows = await db.EndpointMissingUpdates.AsNoTracking()
             .Where(u => u.EndpointId == endpointId)
-            .Select(u => new MissingUpdateView(u.ExternalUpdateId, u.Name, u.Vendor, u.Version, u.KbNumber, u.Severity, u.RebootNeeded))
             .ToListAsync(cancellationToken);
         // Sorted here, not in the database: the severity is stored by name, so the database would sort it alphabetically
         // and put "Low" above "Critical". One endpoint has tens of missing updates, not thousands.
-        missing = [.. missing.OrderByDescending(u => u.Severity).ThenBy(u => u.Name, StringComparer.OrdinalIgnoreCase)];
-        var detailAt = await db.EndpointMissingUpdates.AsNoTracking()
-            .Where(u => u.EndpointId == endpointId)
-            .MaxAsync(u => (DateTime?)u.UpdatedAt, cancellationToken);
+        List<MissingUpdateView> missing = [.. rows
+            .Select(u => new MissingUpdateView(u.ExternalUpdateId, u.Name, u.Vendor, u.Version, u.KbNumber, u.Severity,
+                u.InstalledVersion, u.ReleaseDate, u.UpdateType, u.ApprovalStatus, string.Join(", ", u.Cves)))
+            .OrderByDescending(u => u.Severity).ThenBy(u => u.Name, StringComparer.OrdinalIgnoreCase)];
+        var detailAt = rows.Count == 0 ? (DateTime?)null : rows.Max(u => u.UpdatedAt);
 
         return new EndpointPatchView(true, true, state, missing, detailAt);
     }

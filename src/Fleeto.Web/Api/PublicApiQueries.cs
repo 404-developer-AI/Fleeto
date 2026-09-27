@@ -308,7 +308,8 @@ public sealed class PublicApiQueries
         return new ManagedRead<ApiPatchState?>(true, new ApiPatchState(endpointId, Map(state.Coverage), state.IsCompliant,
             state.MissingCritical, state.MissingOther, state.RebootRequired, UtcOrNull(state.ProductLastSeenAt), state.ProductAgentVersion,
             Utc(state.UpdatedAt), UtcOrNull(view.DetailUpdatedAt),
-            view.Missing.Select(u => new ApiMissingUpdate(u.Id, u.Name, u.Vendor, u.Version, u.KbNumber, Map(u.Severity), u.RebootNeeded)).ToList()));
+            view.Missing.Select(u => new ApiMissingUpdate(u.Id, u.Name, u.Vendor, u.Version, u.InstalledVersion, u.ReleaseDate, u.KbNumber,
+                u.UpdateType, u.ApprovalStatus, Map(u.Severity), u.CveList)).ToList()));
     }
 
     /// <summary>

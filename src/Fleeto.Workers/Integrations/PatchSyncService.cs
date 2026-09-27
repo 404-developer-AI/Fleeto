@@ -325,7 +325,11 @@ public sealed class PatchSyncService : WorkerLoop
                 Version = Cut(update.Version, 100),
                 KbNumber = Cut(update.KbNumber, 20),
                 Severity = update.Severity,
-                RebootNeeded = update.RebootNeeded,
+                InstalledVersion = Cut(update.InstalledVersion, 100),
+                ReleaseDate = update.ReleaseDate,
+                UpdateType = Cut(update.UpdateType, 50),
+                ApprovalStatus = Cut(update.ApprovalStatus, 20),
+                Cves = [.. update.Cves.Take(200)],
                 UpdatedAt = now
             });
         }
