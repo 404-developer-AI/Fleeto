@@ -9,6 +9,12 @@
             every value you do not override keeps following the template.
         </MudText>
 
+        @if (!Info.RunsOnAgent)
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">Fleeto evaluates this check after every patch sync, every 4 hours.</MudText>
+        }
+        else
+        {
         <div class="d-flex align-center justify-space-between">
             <MudText Typo="Typo.subtitle2">Interval</MudText>
             <MudSwitch T="bool" @bind-Value="_overrideInterval" Color="Color.Primary" Label="Override" />
@@ -29,6 +35,7 @@
         else
         {
             <MudText Typo="Typo.body2" Class="mb-3">Template: runs @Intervals.Describe(Check.TemplateIntervalSeconds).</MudText>
+        }
         }
 
         @if (HasThresholds)

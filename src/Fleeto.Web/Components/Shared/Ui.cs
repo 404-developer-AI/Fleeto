@@ -179,6 +179,13 @@ public static class Ui
         return parts.Count == 0 ? "-" : string.Join(", ", parts);
     }
 
+    /// <summary>
+    /// How often a check runs, for lists: "every 5 minutes", or "after every patch sync" for a check Fleeto evaluates itself
+    /// (0.6.0), whose stored interval means nothing to the user.
+    /// </summary>
+    public static string CheckInterval(CheckType type, int seconds) =>
+        Enum.IsDefined(type) && !CheckCatalog.Get(type).RunsOnAgent ? "after every patch sync" : Intervals.Describe(seconds);
+
     /// <summary>A check result for the Checks tab: "85.2%", "Running", "No response", "12 ms", "34 days".</summary>
     public static string CheckValue(CheckType type, double? value, string target = "", IReadOnlyDictionary<string, string>? parameters = null)
     {

@@ -53,6 +53,10 @@ When a third released version is added, the oldest entry moves to the top of
 - Backups larger than 128 MB go to S3 as a multipart upload, so a backup is no longer limited to 5 GB. The write-only
   credentials stay enough. Add a lifecycle rule that removes incomplete multipart uploads to the bucket: Settings, Backups
   now asks for it.
+- A "Missing updates" check for monitoring templates: it alerts when an update Action1 reports as missing was released
+  more than a number of days ago, with a warning and a critical threshold in days and optionally only updates of a minimum
+  security severity. Updates declined in Action1 do not count. Fleeto evaluates it after every patch sync, so it has no
+  interval and cannot be run now; its alerts are acknowledged and held like those of every other check.
 
 ### Changed
 

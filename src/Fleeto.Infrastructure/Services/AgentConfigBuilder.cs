@@ -56,7 +56,8 @@ public sealed class AgentConfigBuilder
         {
             var checks = await EffectiveCheckResolver.LoadAsync(db, endpoint, includeDisabledOnEndpoint: false, cancellationToken);
             var scriptBytes = 0L;
-            foreach (var check in checks)
+            // A check Fleeto evaluates itself (the missing updates of Action1) never reaches the agent.
+            foreach (var check in checks.Where(c => CheckCatalog.Get(c.Type).RunsOnAgent))
             {
                 var spec = new CheckSpec
                 {

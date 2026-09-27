@@ -488,6 +488,17 @@ agent sends one batch at a time, but not globally in commit order) and sweep for
 newer results, so a lost notification makes alerts late and loses nothing. When Postgres is down, the gateway does not
 acknowledge and agents keep buffering on disk.
 
+**Checks Fleeto evaluates itself (0.6.0).** A check type marked `EvaluatedByFleeto` in the catalog is left out of the
+agent's configuration. Its results come from the workers, which insert them into `CheckResults` (the one table the
+workers write results to, with `INSERT` granted for that) and notify `fleeto_check_results`; from there the path above is
+the same, so thresholds, failures before alert, maintenance, acknowledge and hold behave as for any check. The first is
+**Missing updates**: after every patch sync the workers write, per endpoint with patch state and per applying check, the
+number of days since the release of the oldest missing update that counts (minimum severity from the check, never a
+declined update or one without a release date; `MissingUpdateAge`), or 0 when the endpoint is compliant. An endpoint whose
+missing updates were not read in detail gets no result, because the counts alone say nothing about age. When Action1 stops
+reporting an endpoint, the states of its missing updates checks are removed and their open alerts resolve. Such a check
+stores a fixed interval (4 hours, the patch sync), and "run now" and "reset" are refused.
+
 **Checks of an endpoint.** One rule decides which checks run on an endpoint, implemented once
 in C# (`EffectiveChecks`, used by the configuration builder in the signer, the check evaluation
 in the workers and the Checks tab in web) with a SQL twin for set-based statements

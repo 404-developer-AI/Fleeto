@@ -1013,6 +1013,7 @@ check.
 | `event_log` | Matching events within the window | `log`, `source`, `event_ids`, `level`, `window_minutes` | Windows |
 | `security_center` | 1 protection on, 0 off | `component` (`antivirus` or `firewall`) | Windows |
 | `script` | Exit code of a library script: 0 ok, 1 warning, other critical | `script` (script id), `language` | per script language |
+| `missing_updates` | Days since the release of the oldest update Action1 reports as missing, 0 when none counts; evaluated by Fleeto after every patch sync, not by the agent (from Fleeto 0.6.0) | `severity` (`any`, `moderate`, `important` or `critical`: the lowest security severity that counts) | Windows |
 
 Parameters that were never set are left out of `parameters`, and the check uses its default.
 

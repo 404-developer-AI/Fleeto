@@ -47,7 +47,15 @@ public static class CheckParameters
             problems.Add("Enter a name for the check.");
         }
 
-        if (definition.IntervalSeconds < MinimumIntervalSeconds || definition.IntervalSeconds > MaximumIntervalSeconds)
+        if (Enum.IsDefined(definition.Type) && CheckCatalog.Get(definition.Type).EvaluatedByFleeto)
+        {
+            // Fleeto evaluates it when the data arrives; an interval of its own would promise something it does not do.
+            if (definition.IntervalSeconds != CheckCatalog.FleetoEvaluatedIntervalSeconds)
+            {
+                problems.Add("This check is evaluated after every patch sync and has no interval of its own.");
+            }
+        }
+        else if (definition.IntervalSeconds < MinimumIntervalSeconds || definition.IntervalSeconds > MaximumIntervalSeconds)
         {
             problems.Add($"The interval must be between {MinimumIntervalSeconds} seconds and once a month.");
         }

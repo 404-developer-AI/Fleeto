@@ -848,6 +848,12 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   latest version, release date, status (approval in Action1, chosen by the developer), update type, vulnerabilities and
   security severity; the Restart column went, because Action1 answers "possibly" for every update. Found on the way: the
   severity sits in `versions[0]` of Action1's answer, so Fleeto read every update as unspecified (fixed).
+- [done] **Alert on old missing updates** (asked for by the developer on 2026-09-27). Decided with the developer the same day:
+  a check in the monitoring template rather than an option of the patch policy; "released" is the vendor's release date
+  (Action1 has no approval date); a warning and a critical threshold in days; optionally a minimum severity, declined
+  updates never count; one alert per endpoint and check; an endpoint without patch state gets no result. Done: check type
+  `MissingUpdates` evaluated by the workers after every patch sync (`MissingUpdateChecks`, rule `MissingUpdateAge`), left
+  out of the agent configuration, no interval and no run now, and INSERT on `CheckResults` for the workers.
 
 ## 0.7.0 — Hardening
 

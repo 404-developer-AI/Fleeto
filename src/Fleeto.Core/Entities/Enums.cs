@@ -56,7 +56,12 @@ public enum CheckType
     /// <summary>Windows: 1 when antivirus or firewall protection is on, 0 otherwise (0.2.0).</summary>
     SecurityCenter,
     /// <summary>The exit code of a library script: 0 OK, 1 warning, any other code critical (0.2.0).</summary>
-    Script
+    Script,
+    /// <summary>
+    /// Days since the release of the oldest update the endpoint misses, as Action1 reports it; 0 when none counts (0.6.0).
+    /// Evaluated by the workers from the patch state, never sent to the agent.
+    /// </summary>
+    MissingUpdates
 }
 
 /// <summary>Which endpoint class a check definition applies to.</summary>

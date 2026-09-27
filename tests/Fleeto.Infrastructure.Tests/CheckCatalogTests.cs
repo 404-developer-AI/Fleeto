@@ -45,11 +45,12 @@ public sealed class CheckCatalogTests
         {
             var info = CheckCatalog.Get(type);
             Assert.False(string.IsNullOrWhiteSpace(info.Label));
-            Assert.NotEqual(ProtoCheckType.Unspecified, AgentConfigBuilder.ToProto(type));
+            // A check Fleeto evaluates itself never reaches the agent, so the protocol does not know it.
+            Assert.Equal(info.RunsOnAgent, AgentConfigBuilder.ToProto(type) != ProtoCheckType.Unspecified);
             Assert.All(info.Parameters.Where(p => p.Kind == ParameterKind.Choice), p => Assert.NotEmpty(p.Choices!));
         }
 
-        Assert.Equal(Enum.GetValues<CheckType>().Length, Enum.GetValues<ProtoCheckType>().Length - 1);
+        Assert.Equal(CheckCatalog.All.Count(t => t.RunsOnAgent), Enum.GetValues<ProtoCheckType>().Length - 1);
     }
 
     [Fact]
@@ -70,6 +71,7 @@ public sealed class CheckCatalogTests
             }
 
             var definition = Definition(info.Type, parameters, info.DefaultWarning, info.DefaultCritical);
+            definition.IntervalSeconds = info.DefaultIntervalSeconds;
             if (info.ThresholdKindFor(parameters) is ThresholdKind.HigherIsWorse or ThresholdKind.LowerIsWorse && info.DefaultWarning is null && info.DefaultCritical is null)
             {
                 definition.WarningThreshold = 1;

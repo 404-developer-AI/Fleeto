@@ -278,6 +278,80 @@ public sealed class PatchSyncTests
         Assert.Empty(await db.EndpointMissingUpdates.AsNoTracking().Where(u => u.EndpointId == endpoint.Id).ToListAsync());
     }
 
+    [Fact]
+    public async Task A_missing_updates_check_gets_its_result_from_the_sync_opens_an_alert_and_resolves_when_Action1_forgets_the_endpoint()
+    {
+        var (client, _) = await SeedAsync("PMU" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        var action1Id = Guid.NewGuid().ToString();
+        var endpoint = await CreateEndpointAsync(client, action1Id);
+        var check = await _fixture.CreateCheckAsync(new Site { Id = endpoint.SiteId, ClientId = client.Id }, CheckType.MissingUpdates,
+            warning: 1, critical: 10_000, name: "Old updates", parameters: """{"severity":"critical"}""");
+        var handler = new StubHandler { Endpoints = [Reported(action1Id, critical: 1, other: 1)] };
+
+        await Service(handler).SyncAsync(force: true, CancellationToken.None);
+
+        // Only the critical update counts; it was released on 2026-09-09 in the stub.
+        var days = DateOnly.FromDateTime(_fixture.Now).DayNumber - new DateOnly(2026, 9, 9).DayNumber;
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var result = await db.CheckResults.AsNoTracking().SingleAsync(r => r.EndpointId == endpoint.Id && r.CheckDefinitionId == check.Id);
+            Assert.Equal(days, result.Value);
+            Assert.Contains("KB5034123", result.Detail);
+            Assert.DoesNotContain("Google Chrome", result.Detail);
+        }
+
+        await _fixture.CheckEvaluation().EvaluateEndpointAsync(endpoint.Id, CancellationToken.None);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var alert = await db.Alerts.AsNoTracking().SingleAsync(a => a.EndpointId == endpoint.Id && a.CheckDefinitionId == check.Id);
+            Assert.Equal((AlertKind.Check, AlertState.Open, AlertSeverity.Warning), (alert.Kind, alert.State, alert.Severity));
+        }
+
+        handler.Endpoints = [];
+        await Service(handler).SyncAsync(force: true, CancellationToken.None);
+
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var alert = await db.Alerts.AsNoTracking().SingleAsync(a => a.EndpointId == endpoint.Id && a.CheckDefinitionId == check.Id);
+            Assert.Equal((AlertState.Resolved, MissingUpdateChecks.ResolvedReasonGone), (alert.State, alert.ResolvedReason));
+            Assert.False(await db.CheckStates.AnyAsync(s => s.EndpointId == endpoint.Id && s.CheckDefinitionId == check.Id));
+        }
+    }
+
+    [Fact]
+    public async Task An_endpoint_that_misses_something_not_yet_read_in_detail_gets_no_missing_updates_result()
+    {
+        var (client, _) = await SeedAsync("PMV" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        var action1Id = Guid.NewGuid().ToString();
+        var endpoint = await CreateEndpointAsync(client, action1Id);
+        var check = await _fixture.CreateCheckAsync(new Site { Id = endpoint.SiteId, ClientId = client.Id }, CheckType.MissingUpdates,
+            warning: 14, critical: 30);
+        var handler = new StubHandler { Endpoints = [Reported(action1Id, critical: 1, other: 0)], FailDetail = true };
+
+        await Service(handler).SyncAsync(force: true, CancellationToken.None);
+
+        // Fleeto knows only that something is missing, not how old it is: no result, never a made-up 0.
+        await using var db = _fixture.Db.DbFactory.CreateSystem();
+        Assert.False(await db.CheckResults.AnyAsync(r => r.EndpointId == endpoint.Id && r.CheckDefinitionId == check.Id));
+    }
+
+    [Fact]
+    public async Task A_compliant_endpoint_gets_a_missing_updates_result_of_zero()
+    {
+        var (client, _) = await SeedAsync("PMW" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        var action1Id = Guid.NewGuid().ToString();
+        var endpoint = await CreateEndpointAsync(client, action1Id);
+        var check = await _fixture.CreateCheckAsync(new Site { Id = endpoint.SiteId, ClientId = client.Id }, CheckType.MissingUpdates,
+            warning: 14, critical: 30);
+        var handler = new StubHandler { Endpoints = [Reported(action1Id, critical: 0, other: 0)] };
+
+        await Service(handler).SyncAsync(force: true, CancellationToken.None);
+
+        await using var db = _fixture.Db.DbFactory.CreateSystem();
+        var result = await db.CheckResults.AsNoTracking().SingleAsync(r => r.EndpointId == endpoint.Id && r.CheckDefinitionId == check.Id);
+        Assert.Equal(0, result.Value);
+    }
+
     private ReportedEndpoint Reported(string id, int critical, int other, bool active = true, DateTime? lastSeen = null) =>
         new(id, critical, other, active, lastSeen ?? _fixture.Now - TimeSpan.FromMinutes(5));
 
@@ -333,6 +407,9 @@ public sealed class PatchSyncTests
         public IReadOnlyList<ReportedEndpoint> Endpoints { get; set; } = [];
         public int DetailCalls { get; private set; }
 
+        /// <summary>True answers the missing updates of an endpoint with an error, as a failing Action1 would.</summary>
+        public bool FailDetail { get; init; }
+
         /// <summary>The one organization that reports <see cref="Endpoints"/>; null has every organization report them.</summary>
         public string? ListedIn { get; init; }
 
@@ -347,6 +424,14 @@ public sealed class PatchSyncTests
             if (path.EndsWith("/missing-updates", StringComparison.Ordinal))
             {
                 DetailCalls++;
+                if (FailDetail)
+                {
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
+                    {
+                        Content = new StringContent("""{"user_message":"Bad request"}""", Encoding.UTF8, "application/json")
+                    });
+                }
+
                 return Task.FromResult(Json("""
                     {"items":[
                       {"id":"upd-1","name":"2026-09 Cumulative Update","vendor":"Microsoft","kb_number":"KB5034123",

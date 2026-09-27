@@ -127,6 +127,8 @@ public sealed class PatchSyncService : WorkerLoop
         var detailBudget = MaxDetailPerPass;
         var failed = false;
         var reportedByTenant = new Dictionary<string, IReadOnlyList<Action1Endpoint>>(StringComparer.Ordinal);
+        var synced = new HashSet<Guid>();
+        var gone = new HashSet<Guid>();
 
         foreach (var mapping in integration.Mappings.ToList())
         {
@@ -141,7 +143,8 @@ public sealed class PatchSyncService : WorkerLoop
             }
 
             reportedByTenant[mapping.ExternalTenantId] = result.Value ?? [];
-            detailBudget = await SyncClientAsync(db, client, mapping, result.Value ?? [], detailBudget, transitions, now, cancellationToken);
+            detailBudget = await SyncClientAsync(db, client, mapping, result.Value ?? [], detailBudget, transitions, synced, gone, now,
+                cancellationToken);
         }
 
         if (integration.FollowClients)
@@ -163,10 +166,33 @@ public sealed class PatchSyncService : WorkerLoop
         }
 
         integration.LastAttemptAt = now;
+        transitions.AddRange(await MissingUpdateChecks.ForgetAsync(db, gone, now, cancellationToken));
         await _notifier.AddNotificationsAsync(db, transitions, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await AlertCleanup.PublishAsync(_bus, transitions.Select(t => t.AlertId), cancellationToken);
         await _bus.PublishAsync(NotificationChannels.Integrations, IntegrationType.Action1.ToString(), cancellationToken);
+        await WriteCheckResultsAsync(db, synced, now, cancellationToken);
+    }
+
+    /// <summary>
+    /// Gives the missing updates checks their results from the patch state just stored (0.6.0), then wakes check
+    /// evaluation for those endpoints. After the patch state is saved, so a failure here never loses the sync; the next
+    /// pass writes the results again.
+    /// </summary>
+    private async Task WriteCheckResultsAsync(FleetoDbContext db, IReadOnlyCollection<Guid> endpointIds, DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var written = await MissingUpdateChecks.WriteResultsAsync(db, endpointIds, now, cancellationToken);
+        if (written.Count == 0)
+        {
+            return;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        foreach (var endpointId in written)
+        {
+            await _bus.PublishAsync(NotificationChannels.CheckResults, endpointId.ToString(), cancellationToken);
+        }
     }
 
     /// <summary>
@@ -227,8 +253,8 @@ public sealed class PatchSyncService : WorkerLoop
 
     /// <summary>One organization: match, store, alert. Returns what is left of the detail budget.</summary>
     private async Task<int> SyncClientAsync(FleetoDbContext db, Action1Client client, IntegrationMapping mapping,
-        IReadOnlyList<Action1Endpoint> reported, int detailBudget, List<AlertTransition> transitions, DateTime now,
-        CancellationToken cancellationToken)
+        IReadOnlyList<Action1Endpoint> reported, int detailBudget, List<AlertTransition> transitions, HashSet<Guid> synced,
+        HashSet<Guid> goneEndpoints, DateTime now, CancellationToken cancellationToken)
     {
         // Only managed endpoints of this client, and only those whose agent reported an Action1 agent: an agent-only
         // endpoint gets nothing from patch management (CLAUDE.md, Licensing).
@@ -284,6 +310,7 @@ public sealed class PatchSyncService : WorkerLoop
             }
 
             await AlertAsync(db, endpoint, state, inMaintenance.Contains(endpoint.Id), transitions, now, cancellationToken);
+            synced.Add(endpoint.Id);
         }
 
         // Endpoints the product no longer reports lose their state: saying nothing is better than showing a state that
@@ -291,6 +318,7 @@ public sealed class PatchSyncService : WorkerLoop
         foreach (var gone in states.Where(s => !seen.Contains(s.EndpointId) && s.ExternalTenantId == mapping.ExternalTenantId))
         {
             db.EndpointPatchStates.Remove(gone);
+            goneEndpoints.Add(gone.EndpointId);
             db.EndpointMissingUpdates.RemoveRange(
                 await db.EndpointMissingUpdates.Where(u => u.EndpointId == gone.EndpointId).ToListAsync(cancellationToken));
             await ResolveAsync(db, gone.EndpointId, transitions, now, "The endpoint is no longer in patch management.", cancellationToken);

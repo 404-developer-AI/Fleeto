@@ -105,6 +105,8 @@ public static class CheckEvaluator
             CheckType.Script => value == 1
                 ? $"Script check \"{definition.Name}\" reports a warning on {hostname} (exit code 1). Review the detail on the endpoint page."
                 : $"Script check \"{definition.Name}\" reports a problem on {hostname} (exit code {value.ToString("0", CultureInfo.InvariantCulture)}). Review the detail on the endpoint page.",
+            CheckType.MissingUpdates =>
+                $"{hostname} misses an update released {v} days ago, above the {t}-day threshold. Deploy the missing updates.",
             CheckType.SecurityCenter => P("component") == "firewall"
                 ? $"The firewall is off on {hostname}{(string.IsNullOrEmpty(target) ? string.Empty : $" ({target})")}. Turn it on."
                 : $"Antivirus protection is off or out of date on {hostname}. Check the antivirus software.",

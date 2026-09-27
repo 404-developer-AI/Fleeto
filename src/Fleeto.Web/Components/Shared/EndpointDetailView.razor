@@ -510,7 +510,7 @@
                         <div style="color:var(--fl-error)">@context.Error</div>
                     }
                 </MudTd>
-                <MudTd>@Intervals.Describe(context.IntervalSeconds)</MudTd>
+                <MudTd>@Ui.CheckInterval(context.Type, context.IntervalSeconds)</MudTd>
                 <MudTd>
                     @if (context.Status is not null)
                     {
@@ -539,7 +539,7 @@
                             {
                                 <MudMenuItem Icon="@Icons.Material.Outlined.ShowChart" OnClick="@(() => ShowHistoryAsync(context))">History</MudMenuItem>
                             }
-                            @if (!context.DisabledOnEndpoint)
+                            @if (!context.DisabledOnEndpoint && CheckCatalog.Get(context.Type).RunsOnAgent)
                             {
                                 <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="@(() => RunCheckAsync(context, false))">Run now</MudMenuItem>
                                 <MudMenuItem Icon="@Icons.Material.Outlined.RestartAlt" OnClick="@(() => RunCheckAsync(context, true))">Reset and run</MudMenuItem>

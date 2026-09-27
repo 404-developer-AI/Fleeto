@@ -80,8 +80,15 @@ public sealed record CheckTypeInfo(
     Func<IReadOnlyDictionary<string, string>, string> UnitFor,
     string ThresholdHelp,
     string? FlagWarningLabel = null,
-    Func<IReadOnlyDictionary<string, string>, CheckPlatforms>? PlatformsFor = null)
+    Func<IReadOnlyDictionary<string, string>, CheckPlatforms>? PlatformsFor = null,
+    bool EvaluatedByFleeto = false)
 {
+    /// <summary>
+    /// True for a check the workers evaluate from what Fleeto already knows (0.6.0: the patch state from Action1) instead of
+    /// the agent: it is left out of the agent's configuration, has no interval of its own and cannot be run now or reset.
+    /// </summary>
+    public bool RunsOnAgent => !EvaluatedByFleeto;
+
     public bool SupportsWindowsOnly => Platforms == CheckPlatforms.Windows;
 
     /// <summary>The platforms a check of this type with these parameters runs on (a script check follows its script's language).</summary>
@@ -122,6 +129,24 @@ public static partial class CheckCatalog
         new("antivirus", "Antivirus"),
         new("firewall", "Firewall")
     ];
+
+    /// <summary>
+    /// Which missing updates a missing updates check counts, by the severity Action1 gives them. "any" also counts updates
+    /// without a severity.
+    /// </summary>
+    public static readonly IReadOnlyList<ParameterChoice> MissingUpdateSeverities =
+    [
+        new("any", "Every missing update"),
+        new("moderate", "Moderate, important or critical"),
+        new("important", "Important or critical"),
+        new("critical", "Critical only")
+    ];
+
+    /// <summary>
+    /// The interval stored for a check Fleeto evaluates itself: it gets a result after every patch sync, which runs every
+    /// 4 hours (<c>PatchSyncService.SyncInterval</c>).
+    /// </summary>
+    public const int FleetoEvaluatedIntervalSeconds = 4 * 60 * 60;
 
     private static readonly Dictionary<CheckType, CheckTypeInfo> Types = new[]
     {
@@ -240,7 +265,16 @@ public static partial class CheckCatalog
                 Help: "Exit code 0 is OK, 1 a warning and any other code critical. The first line of output is shown as the detail.", Validate: ScriptId)],
             900, null, null, _ => ThresholdKind.ExitCode, _ => string.Empty,
             "Exit code 0 is OK, 1 is a warning and any other exit code is critical. A script that times out could not run.",
-            PlatformsFor: ScriptPlatforms)
+            PlatformsFor: ScriptPlatforms),
+        new CheckTypeInfo(CheckType.MissingUpdates, "Missing updates",
+            "Days since the release of the oldest update Action1 reports as missing. Fleeto evaluates it after every patch sync, " +
+            "every 4 hours; updates declined in Action1 do not count.",
+            CheckPlatforms.Windows,
+            [new("severity", "Count", ParameterKind.Choice, Required: true, Default: "any", Choices: MissingUpdateSeverities,
+                Help: "Only updates of this security severity count. Every missing update also counts updates without a severity.")],
+            FleetoEvaluatedIntervalSeconds, 14, 30, _ => ThresholdKind.HigherIsWorse, _ => "days",
+            "Alert when a missing update was released this many days ago or longer.",
+            EvaluatedByFleeto: true)
     }.ToDictionary(t => t.Type);
 
     /// <summary>Parameter of a script check holding the script id.</summary>

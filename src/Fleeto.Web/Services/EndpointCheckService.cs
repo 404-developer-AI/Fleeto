@@ -214,6 +214,11 @@ public sealed class EndpointCheckService
             return ServiceResult.NotFound("check");
         }
 
+        if (input.IntervalSeconds is not null && !CheckCatalog.Get(check.Type).RunsOnAgent)
+        {
+            return ServiceResult.Fail("This check is evaluated after every patch sync and has no interval of its own.");
+        }
+
         // Validate the check as it would run on this endpoint.
         var effective = check.Definition;
         var candidate = new EffectiveCheck(effective, check.Source, check.TemplateName, null,
@@ -528,6 +533,12 @@ public sealed class EndpointCheckService
         if (checks.FirstOrDefault(c => c.Id == checkId) is not { } check)
         {
             return ServiceResult<bool>.Fail("This check does not run on this endpoint. Enable it for the endpoint first.");
+        }
+
+        if (!CheckCatalog.Get(check.Type).RunsOnAgent)
+        {
+            return ServiceResult<bool>.Fail(
+                "Fleeto evaluates this check after every patch sync, not the agent. Refresh the patch state on the Patches tab instead.");
         }
 
         var now = _time.GetUtcNow().UtcDateTime;

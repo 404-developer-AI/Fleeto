@@ -62,7 +62,7 @@
                         }
                     </MudTd>
                     <MudTd>@Ui.CheckTypeLabel(context.Type)</MudTd>
-                    <MudTd>@Intervals.Describe(context.IntervalSeconds)</MudTd>
+                    <MudTd>@Ui.CheckInterval(context.Type, context.IntervalSeconds)</MudTd>
                     <MudTd>@Thresholds(context)</MudTd>
                     <MudTd>@Ui.AppliesToLabel(context.AppliesTo)</MudTd>
                     <MudTd>

@@ -22,6 +22,12 @@
             @ParameterField(spec)
         }
 
+        @if (!Info.RunsOnAgent)
+        {
+            <MudText Typo="Typo.caption" Class="muted d-block mb-3">Fleeto evaluates this check after every patch sync, every 4 hours.</MudText>
+        }
+        else
+        {
         <MudText Typo="Typo.subtitle2" Class="mb-1">Interval</MudText>
         <div class="d-flex gap-2 mb-1">
             <MudNumericField T="int" @bind-Value="_intervalAmount" Variant="Variant.Outlined" Min="1" Max="100000" Style="max-width:140px" />
@@ -33,6 +39,7 @@
             </MudSelect>
         </div>
         <MudText Typo="Typo.caption" Class="muted d-block mb-3">Runs @Intervals.Describe(Math.Max(1, IntervalSeconds)).</MudText>
+        }
 
         @if (ThresholdKind == ThresholdKind.ExitCode)
         {
@@ -280,7 +287,7 @@
             var kind = ThresholdKind;
             var warning = kind == ThresholdKind.Flag ? (_flagWarningOnly ? 1d : null) : kind == ThresholdKind.ExitCode ? null : _warning;
             var critical = kind is ThresholdKind.Flag or ThresholdKind.ExitCode ? null : _critical;
-            var input = new CheckDefinitionInput(_name, _type, IntervalSeconds, new Dictionary<string, string>(_values), warning, critical, _failures,
+            var input = new CheckDefinitionInput(_name, _type, Info.RunsOnAgent ? IntervalSeconds : CheckCatalog.FleetoEvaluatedIntervalSeconds, new Dictionary<string, string>(_values), warning, critical, _failures,
                 _appliesTo, _enabled);
             if (await OnSubmit(input))
             {

@@ -69,7 +69,8 @@ public static class DatabaseGrants
             ["ClientTemplateSiteMonitoringTemplates"] = Grants(web: ReadWrite, workers: Read),
             ["ClientTemplateMonitoringTemplates"] = Grants(web: ReadWrite, workers: Read),
 
-            ["CheckResults"] = Grants(web: Read, gateway: "INSERT", workers: "SELECT, DELETE"),
+            // The workers write the results of the checks Fleeto evaluates itself (0.6.0: missing updates from Action1).
+            ["CheckResults"] = Grants(web: Read, gateway: "INSERT", workers: "SELECT, INSERT, DELETE"),
             // The signer clears the batch sequences of an endpoint that enrolls again: the new agent state counts from 1 (0.2.0).
             ["IngestBatches"] = Grants(gateway: "SELECT, INSERT", signer: "SELECT, DELETE", workers: "SELECT, DELETE"),
             ["CheckStates"] = Grants(web: Read, workers: ReadWrite),

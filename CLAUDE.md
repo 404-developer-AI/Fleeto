@@ -324,6 +324,13 @@ Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
   "every missing update" is sent with `require_update_approval: "no"`, because Action1 defaults it to "yes" and then
   installs only updates approved in its own console ("No updates are applicable"). Chosen updates never passed Action1's
   approval either. Update approval in Action1 is therefore not a gate for deployments started from Fleeto.
+- **Missing updates as a check** (decided 2026-09-27, 0.6.0): a monitoring template can hold a "Missing updates" check whose
+  value is the number of days since the release of the oldest update Action1 reports as missing, with a warning and a
+  critical threshold in days and optionally only updates of a minimum security severity. Updates declined in Action1 and
+  updates without a release date do not count. The workers evaluate it after every patch sync from the stored patch state
+  and write its result like an agent would, so it has the thresholds, alerts, acknowledge and hold of every check; it never
+  reaches the agent, has no interval of its own and cannot be run now. An endpoint whose missing updates were not read in
+  detail yet gets no result, one Action1 no longer reports loses its state and its alert resolves.
 - **The history Action1 keeps per endpoint of a deployment** (its "Automation History") is shown in Fleeto (0.6.0): the
   workers read it when the state of the endpoint changes and every 5 minutes while it runs, at most 10 reads a pass.
 - **Action1 can follow the clients and sites of Fleeto** (decided 2026-09-25, 0.6.0), switched on in Settings,

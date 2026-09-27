@@ -203,6 +203,32 @@ public sealed class EndpointCheckServiceTests
     }
 
     [Fact]
+    public async Task A_missing_updates_check_cannot_run_now_or_get_an_interval_but_its_thresholds_can_be_adjusted()
+    {
+        var (client, _, endpoint, _) = await ManagedWithTemplateAsync();
+        var caller = WebFixture.Technician();
+        var check = new CheckDefinition
+        {
+            Id = Guid.NewGuid(), Name = "Old updates", Type = CheckType.MissingUpdates,
+            IntervalSeconds = CheckCatalog.FleetoEvaluatedIntervalSeconds, WarningThreshold = 14, CriticalThreshold = 30,
+            ParametersJson = """{"severity":"any"}""", CreatedAt = Now, UpdatedAt = Now
+        };
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            // In the template of the site, so the endpoint can adjust it.
+            check.MonitoringTemplateId = (await db.SiteMonitoringTemplates.FirstAsync(l => l.ClientId == client.Id)).MonitoringTemplateId;
+            db.CheckDefinitions.Add(check);
+            await db.SaveChangesAsync();
+        }
+
+        var run = await Service.RequestRunAsync(caller, endpoint.Id, check.Id, reset: false);
+        Assert.False(run.Success);
+        Assert.Contains("patch sync", run.Problem);
+        Assert.False((await Service.SaveOverrideAsync(caller, endpoint.Id, check.Id, new CheckOverrideInput(3600, false, null, null, null))).Success);
+        Assert.True((await Service.SaveOverrideAsync(caller, endpoint.Id, check.Id, new CheckOverrideInput(null, true, 7, 21, null))).Success);
+    }
+
+    [Fact]
     public async Task Run_requests_are_audited_rate_limited_and_only_for_running_checks()
     {
         var (_, _, endpoint, check) = await ManagedWithTemplateAsync();
