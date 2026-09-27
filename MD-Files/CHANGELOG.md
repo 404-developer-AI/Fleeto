@@ -41,8 +41,8 @@ When a third released version is added, the oldest entry moves to the top of
 - The history Action1 keeps per endpoint of a deployment, its "Automation History", opens from the Patches tab of the
   endpoint: operation, time, status and details, newest first, refreshed while the deployment runs.
 - Tags on clients, in the way of Proxmox. Type a tag when you create a client, or later under Client settings, Edit
-  tags, or pick one that exists; a new tag gets a color from its name. Tags show next to the client name in the clients panel (two, and the
-  number of the others) and in the client header; the tag button next to the search filters on one or more tags, and
+  tags, or pick one that exists; a new tag gets a color from its name. Tags show below the client name in the clients panel (three, and
+  the number of the others) and in the client header; the tag button next to the search filters on one or more tags, and
   the search finds tag names. Admins rename,
   recolor and delete tags in Settings, Tags, from a fixed palette of eleven colors. The public API returns the tags of a
   client and filters clients on a tag with `tag`.
@@ -61,6 +61,11 @@ When a third released version is added, the oldest entry moves to the top of
 ### Changed
 
 - "Rename client" is "Edit client", and "Policy and monitoring" of a site is part of "Edit site".
+- The clients panel shows the full name of a client and site, with its tags and maintenance on a line below it. The icon of
+  a client and site turns amber when one of its endpoints has an open warning and red when one has a critical alert;
+  endpoints in maintenance do not count. In the endpoint list the icon of an endpoint shows the same: green in maintenance
+  (whatever its alerts), red with a critical alert, amber with a warning, gray otherwise, with the details on hover; the
+  Status column shows only online or offline.
 - The missing updates of an endpoint show the columns of Action1: name, installed version, latest version, release date,
   status (the approval in Action1: New, Approved or Declined), update type, vulnerabilities (the CVEs, listed on hover)
   and security severity. The Restart column is gone: Action1 says "possibly" for every update. The public API reports

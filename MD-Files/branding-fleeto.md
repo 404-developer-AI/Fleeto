@@ -58,6 +58,11 @@ Fleeto-specific status colors (endpoint and check states):
 | Offline / Error | `#DC2626` | Failed checks, unreachable endpoints |
 | Unknown / Paused | Neutral gray chip | Maintenance mode, never seen |
 
+Icons of endpoints, sites and clients in the clients workspace carry their state in their color (0.6.0): gray
+(`--fl-text-muted`) when nothing is open, amber `#D97706` for a warning, `#DC2626` for a critical alert, and for an
+endpoint green `#16A34A` while it is in maintenance, which wins over its alerts. A site or client takes the worst
+alert of its endpoints outside maintenance and is never green.
+
 Token prefix in the Fleeto codebase is `--fl-`, values identical to the `--mg-` tokens.
 When Steaan tokens change, both codebases change in the same commit.
 
@@ -86,7 +91,7 @@ Use these terms consistently in UI, docs and email; do not introduce synonyms.
 | **API key** | A credential for the public API, created in Settings |
 | **check** | A single monitoring rule with an interval (e.g. disk space, every 5 minutes) |
 | **alert** | A check that crossed its threshold and needs attention |
-| **maintenance mode** | A client, site or endpoint temporarily raising no alerts. "In maintenance until 16:00." Never "snooze", "mute" or "silenced" in UI text. Shown with the neutral gray chip and the outlined Construction icon. |
+| **maintenance mode** | A client, site or endpoint temporarily raising no alerts. "In maintenance until 16:00." Never "snooze", "mute" or "silenced" in UI text. Shown with the neutral gray chip and the outlined Construction icon; an endpoint icon turns green while it lasts. |
 | **hold** | One alert set aside until a time: "Put on hold", "On hold until 16:00", "End hold". No emails while it lasts; the alert returns when the hold ends. Never "snooze", "mute" or "silenced". Shown with the neutral gray chip. |
 | **reset** | A check's state set aside and the check run again: "Reset and run", state "Re-run requested" until the new result arrives. Never shown as OK before it is. |
 | **not run yet** | A check that applies to an endpoint but has no result yet |

@@ -152,4 +152,47 @@ public sealed class MaintenanceServiceTests
         Assert.DoesNotContain(page.Rows, r => r.Id == branchEndpoint.Id);
         Assert.Equal(2, Assert.Single(await clients.ListTreeAsync(caller)).InMaintenanceCount);
     }
+
+    [Fact]
+    public async Task The_clients_panel_colors_a_client_and_site_by_the_worst_alert_outside_maintenance()
+    {
+        var (client, site, _, agentOnly) = await ScopeAsync();
+        var otherSite = await _fixture.Database.CreateSiteAsync(client.Id, "Branch");
+        var branchEndpoint = await _fixture.Database.CreateEndpointAsync(otherSite, EndpointTier.Managed, "SRV-MNT-04", EndpointClass.Server);
+        var technician = WebFixture.Technician();
+        var caller = WebFixture.CallerWith(new RestrictedClientScope([client.Id]), FleetoRoles.ReadOnly);
+        var clients = _fixture.Services.GetRequiredService<ClientService>();
+
+        var tree = Assert.Single(await clients.ListTreeAsync(caller));
+        Assert.Null(tree.WorstAlert);
+
+        await AddAlertAsync(client.Id, agentOnly.Id, AlertSeverity.Warning);
+        await AddAlertAsync(client.Id, branchEndpoint.Id, AlertSeverity.Critical);
+        tree = Assert.Single(await clients.ListTreeAsync(caller));
+        Assert.Equal(AlertSeverity.Critical, tree.WorstAlert);
+        Assert.Equal(AlertSeverity.Warning, tree.Sites.Single(s => s.Id == site.Id).WorstAlert);
+        Assert.Equal(AlertSeverity.Critical, tree.Sites.Single(s => s.Id == otherSite.Id).WorstAlert);
+
+        // An endpoint in maintenance never colors its site or client, whatever its alerts.
+        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Endpoint, branchEndpoint.Id, null, null)).Success);
+        tree = Assert.Single(await clients.ListTreeAsync(caller));
+        Assert.Equal(AlertSeverity.Warning, tree.WorstAlert);
+        Assert.Null(tree.Sites.Single(s => s.Id == otherSite.Id).WorstAlert);
+
+        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Site, site.Id, null, null)).Success);
+        tree = Assert.Single(await clients.ListTreeAsync(caller));
+        Assert.Null(tree.WorstAlert);
+        Assert.Null(tree.Sites.Single(s => s.Id == site.Id).WorstAlert);
+    }
+
+    private async Task AddAlertAsync(Guid clientId, Guid endpointId, AlertSeverity severity)
+    {
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        db.Alerts.Add(new Alert
+        {
+            Id = Guid.NewGuid(), ClientId = clientId, EndpointId = endpointId, Kind = AlertKind.Offline, Target = severity.ToString(),
+            Severity = severity, Title = "Offline", OpenedAt = Now, UpdatedAt = Now
+        });
+        await db.SaveChangesAsync();
+    }
 }

@@ -95,23 +95,32 @@
                         <MudIcon Icon="@(expanded ? Icons.Material.Outlined.ExpandMore : Icons.Material.Outlined.ChevronRight)" Size="Size.Small" />
                     </button>
                     <a href="@($"/clients/{client.Id}")" class="client-link" title="@($"[{client.Code}] {client.Name}")">
-                        <MudIcon Icon="@Icons.Material.Outlined.Business" Size="Size.Small" Class="client-icon" />
-                        <span class="client-name @(client.Tags.Count > 0 ? "client-name-fit" : "")">[@client.Code] @client.Name</span>
-                        @if (client.Tags.Count > 0)
-                        {
-                            @* At most two tags fit next to the name; the rest is counted, and the tooltip names them all. *@
-                            <span class="tree-tags" title="@($"Tags: {string.Join(", ", client.Tags.Select(t => t.Name))}")">
-                                @foreach (var tag in client.Tags.Take(2))
-                                {
-                                    <TagChip Name="@tag.Name" Color="tag.Color" />
-                                }
-                                @if (client.Tags.Count > 2)
-                                {
-                                    <span class="tag-chip tag-gray">+@(client.Tags.Count - 2)</span>
-                                }
-                            </span>
-                        }
-                        @MaintenanceBadge(client.MaintenanceActive, client.InMaintenanceCount, client.EndpointCount)
+                        <MudIcon Icon="@Icons.Material.Outlined.Business" Size="Size.Small" Class="@($"client-icon {HealthClass(client.WorstAlert)}")"
+                                 title="@HealthTitle(client.WorstAlert)" />
+                        @* The name gets the whole width; tags and maintenance go on a line below it. *@
+                        <span class="tree-text">
+                            <span class="client-name">[@client.Code] @client.Name</span>
+                            @if (client.Tags.Count > 0 || client.MaintenanceActive || client.InMaintenanceCount > 0)
+                            {
+                                <span class="tree-meta">
+                                    @if (client.Tags.Count > 0)
+                                    {
+                                        @* At most three tags fit below the name; the rest is counted, and the tooltip names them all. *@
+                                        <span class="tree-tags" title="@($"Tags: {string.Join(", ", client.Tags.Select(t => t.Name))}")">
+                                            @foreach (var tag in client.Tags.Take(3))
+                                            {
+                                                <TagChip Name="@tag.Name" Color="tag.Color" />
+                                            }
+                                            @if (client.Tags.Count > 3)
+                                            {
+                                                <span class="tag-chip tag-gray">+@(client.Tags.Count - 3)</span>
+                                            }
+                                        </span>
+                                    }
+                                    @MaintenanceBadge(client.MaintenanceActive, client.InMaintenanceCount, client.EndpointCount)
+                                </span>
+                            }
+                        </span>
                         @if (client.OpenAlertCount > 0)
                         {
                             <span class="tree-badge tree-badge-alert" title="@($"{client.OpenAlertCount} open alerts")">@client.OpenAlertCount</span>
@@ -123,9 +132,15 @@
                     @foreach (var site in client.Sites)
                     {
                         <a href="@($"/sites/{site.Id}")" class="site-row @(SiteId == site.Id ? "selected" : "")" title="@site.Name">
-                            <MudIcon Icon="@Icons.Material.Outlined.Folder" Size="Size.Small" Class="client-icon" />
-                            <span class="client-name">@site.Name</span>
-                            @MaintenanceBadge(site.MaintenanceActive || client.MaintenanceActive, site.InMaintenanceCount, site.EndpointCount)
+                            <MudIcon Icon="@Icons.Material.Outlined.Folder" Size="Size.Small" Class="@($"client-icon {HealthClass(site.WorstAlert)}")"
+                                     title="@HealthTitle(site.WorstAlert)" />
+                            <span class="tree-text">
+                                <span class="client-name">@site.Name</span>
+                                @if (site.MaintenanceActive || client.MaintenanceActive || site.InMaintenanceCount > 0)
+                                {
+                                    <span class="tree-meta">@MaintenanceBadge(site.MaintenanceActive || client.MaintenanceActive, site.InMaintenanceCount, site.EndpointCount)</span>
+                                }
+                            </span>
                             @if (site.OpenAlertCount > 0)
                             {
                                 <span class="tree-badge tree-badge-alert">@site.OpenAlertCount</span>
@@ -308,7 +323,7 @@
                                 }
                                 <MudTd @attributes="RowMenu(context)">
                                     <MudIcon Icon="@(context.EffectiveClass == EndpointClass.Server ? Icons.Material.Outlined.Dns : Icons.Material.Outlined.Computer)"
-                                             Size="Size.Small" Class="muted" />
+                                             Size="Size.Small" Class="@EndpointHealthClass(context)" title="@EndpointHealthTitle(context)" />
                                 </MudTd>
                                 <MudTd @attributes="RowMenu(context)"><strong>@context.Hostname</strong></MudTd>
                                 @if (IsAllScope)
@@ -323,15 +338,8 @@
                                 <MudTd @attributes="RowMenu(context)">@(string.IsNullOrEmpty(context.LoggedOnUser) ? "-" : context.LoggedOnUser)</MudTd>
                                 <MudTd @attributes="RowMenu(context)"><StatusChip Text="@Ui.TierLabel(context.Tier)" Kind="@Ui.TierKind(context.Tier)" /></MudTd>
                                 <MudTd @attributes="RowMenu(context)">
-                                    <div class="d-flex align-center gap-1 flex-wrap">
-                                        <StatusChip Text="@(context.IsOnline ? "Online" : "Offline")" Kind="@(context.IsOnline ? StatusKind.Ok : StatusKind.Error)" Dot="true" />
-                                        @if (context.OpenAlertCount > 0)
-                                        {
-                                            <StatusChip Text="@(context.OpenAlertCount == 1 ? "1 alert" : $"{context.OpenAlertCount} alerts")"
-                                                        Kind="@(context.HasCriticalAlert ? StatusKind.Error : StatusKind.Warning)" />
-                                        }
-                                        <MaintenanceChip Maintenance="context.Maintenance" SourceName="@(context.Maintenance?.Source == MaintenanceSource.Client ? context.ClientCode : context.SiteName)" />
-                                    </div>
+                                    @* Alerts and maintenance show in the color of the endpoint icon, see EndpointHealthClass. *@
+                                    <StatusChip Text="@(context.IsOnline ? "Online" : "Offline")" Kind="@(context.IsOnline ? StatusKind.Ok : StatusKind.Error)" Dot="true" />
                                 </MudTd>
                                 <MudTd @attributes="RowMenu(context)"><TimeText Value="context.LastSeenAt" /></MudTd>
                             </RowTemplate>
@@ -1128,6 +1136,51 @@
     // ---------------------------------------------------------------------------------------------------------------
     // Maintenance mode
     // ---------------------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Color of an endpoint icon: green in maintenance whatever its alerts, red with a critical alert, amber with a warning, gray
+    /// otherwise. Alerts on hold do not count, as everywhere.
+    /// </summary>
+    private static string EndpointHealthClass(EndpointRow row) =>
+        row.Maintenance is not null ? "health-maintenance" : HealthClass(row.OpenAlertCount == 0 ? null : row.HasCriticalAlert ? AlertSeverity.Critical : AlertSeverity.Warning);
+
+    private string EndpointHealthTitle(EndpointRow row)
+    {
+        var alerts = row.OpenAlertCount switch
+        {
+            0 => "No open alerts",
+            1 => row.HasCriticalAlert ? "1 open critical alert" : "1 open alert",
+            _ => row.HasCriticalAlert ? $"{row.OpenAlertCount} open alerts, at least one critical" : $"{row.OpenAlertCount} open alerts"
+        };
+        if (row.Maintenance is not { } m)
+        {
+            return alerts;
+        }
+
+        var source = m.Source switch
+        {
+            MaintenanceSource.Endpoint => string.Empty,
+            MaintenanceSource.PolicyWindow => $" (maintenance window of policy {m.SourceName})",
+            MaintenanceSource.Client => $" (through client {row.ClientCode})",
+            _ => $" (through site {row.SiteName})"
+        };
+        return (m.EndsAt is null ? "In maintenance" : $"In maintenance until {Time.Short(m.EndsAt)}") + source + " · " + alerts;
+    }
+
+    /// <summary>Color of a client or site icon from the worst open alert of its endpoints outside maintenance.</summary>
+    private static string HealthClass(AlertSeverity? worst) => worst switch
+    {
+        AlertSeverity.Critical => "health-critical",
+        AlertSeverity.Warning => "health-warning",
+        _ => "health-ok"
+    };
+
+    private static string HealthTitle(AlertSeverity? worst) => worst switch
+    {
+        AlertSeverity.Critical => "An endpoint has a critical alert",
+        AlertSeverity.Warning => "An endpoint has a warning",
+        _ => "No open alerts on endpoints outside maintenance"
+    };
 
     /// <summary>"all" when the whole client or site is in maintenance, "2/14" when some endpoints are.</summary>
     private RenderFragment MaintenanceBadge(bool wholeScope, int count, int endpoints) => __builder =>

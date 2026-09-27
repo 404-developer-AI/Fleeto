@@ -98,6 +98,14 @@ public static class MaintenanceRules
                               (o.AppliesTo == CheckAppliesTo.Workstation && (e.ClassOverride ?? e.DetectedClass) == EndpointClass.Workstation)) &&
                              o.PolicyId == effectivePolicies.Where(p => p.EndpointId == e.Id).Select(p => p.PolicyId).FirstOrDefault());
 
+    /// <summary>The negation of <see cref="EndpointInMaintenance"/>, for queries that leave endpoints in maintenance out.</summary>
+    public static Expression<Func<Endpoint, bool>> EndpointNotInMaintenance(DateTime now, IQueryable<MaintenanceWindowOccurrence> occurrences,
+        IQueryable<EffectivePolicyRow> effectivePolicies)
+    {
+        var inMaintenance = EndpointInMaintenance(now, occurrences, effectivePolicies);
+        return Expression.Lambda<Func<Endpoint, bool>>(Expression.Not(inMaintenance.Body), inMaintenance.Parameters);
+    }
+
     /// <summary>True when a window occurrence applies to an endpoint of <paramref name="endpointClass"/>.</summary>
     public static bool WindowAppliesTo(CheckAppliesTo appliesTo, EndpointClass endpointClass) =>
         appliesTo == CheckAppliesTo.All ||

@@ -191,9 +191,16 @@ html, body {
 .client-expand:hover { color: var(--fl-text); }
 .client-link, .site-row { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; padding: 7px 8px 7px 2px; color: var(--fl-text); text-decoration: none; font-size: 0.8125rem; }
 .site-row { padding-left: 38px; border-radius: var(--fl-radius); }
-.client-icon { color: #B45309; flex-shrink: 0; }
-.site-row .client-icon { color: var(--fl-text-muted); }
-.client-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.client-icon { flex-shrink: 0; }
+/* Health colors of endpoint, site and client icons (0.6.0): maintenance wins over alerts, critical over warning. */
+.health-ok { color: var(--fl-text-muted); }
+.health-warning { color: #D97706; }
+.health-critical { color: var(--fl-error); }
+.health-maintenance { color: #16A34A; }
+/* The name takes the whole width of the row and wraps rather than being cut; tags and maintenance sit on a line below it. */
+.tree-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.client-name { overflow-wrap: anywhere; }
+.tree-meta { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; min-width: 0; }
 .tree-badge { font-size: 0.6875rem; color: var(--fl-text-secondary); background: #F5F5F4; border-radius: 10px; padding: 0 7px; line-height: 18px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .tree-badge-alert { background: #FEF3C7; color: #92400E; font-weight: 600; }
 
@@ -215,9 +222,8 @@ button.tag-chip:focus-visible { outline: 2px solid var(--fl-primary); outline-of
 .tag-brown { background: #EFE3D6; color: #6B4423; }
 .tag-gray { background: #F5F5F4; color: #44403C; }
 .tag-list { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
-/* In the clients panel the tags sit on the row of the client, between the name and the badges, and never push the badges out. */
-.client-name-fit { flex: 0 1 auto; }
-.tree-tags { display: inline-flex; gap: 3px; align-items: center; margin-right: auto; min-width: 0; flex: 0 1 auto; overflow: hidden; }
+/* In the clients panel the tags sit below the name of the client, next to the maintenance badge. */
+.tree-tags { display: inline-flex; gap: 3px; align-items: center; min-width: 0; flex: 0 1 auto; overflow: hidden; }
 .tree-tags .tag-chip { display: inline-block; overflow: hidden; text-overflow: ellipsis; font-size: 0.625rem; line-height: 16px; padding: 0 6px; max-width: 72px; flex-shrink: 1; min-width: 0; }
 .tag-remove { background: none; border: none; padding: 0; margin-left: 2px; color: inherit; cursor: pointer; display: inline-flex; border-radius: 50%; }
 .tag-remove:focus-visible { outline: 2px solid var(--fl-primary); }
