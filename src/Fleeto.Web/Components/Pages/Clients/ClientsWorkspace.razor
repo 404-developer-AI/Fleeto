@@ -121,10 +121,7 @@
                                 </span>
                             }
                         </span>
-                        @if (client.OpenAlertCount > 0)
-                        {
-                            <span class="tree-badge tree-badge-alert" title="@($"{client.OpenAlertCount} open alerts")">@client.OpenAlertCount</span>
-                        }
+                        @AlertBadge(client.OpenAlertCount, client.WorstAlert)
                     </a>
                 </div>
                 @if (expanded)
@@ -141,14 +138,7 @@
                                     <span class="tree-meta">@MaintenanceBadge(site.MaintenanceActive || client.MaintenanceActive, site.InMaintenanceCount, site.EndpointCount)</span>
                                 }
                             </span>
-                            @if (site.OpenAlertCount > 0)
-                            {
-                                <span class="tree-badge tree-badge-alert">@site.OpenAlertCount</span>
-                            }
-                            else
-                            {
-                                <span class="tree-badge">@site.EndpointCount</span>
-                            }
+                            @AlertBadge(site.OpenAlertCount, site.WorstAlert)
                         </a>
                     }
                 }
@@ -1180,6 +1170,26 @@
         AlertSeverity.Critical => "An endpoint has a critical alert",
         AlertSeverity.Warning => "An endpoint has a warning",
         _ => "No open alerts on endpoints outside maintenance"
+    };
+
+    /// <summary>
+    /// The open alerts of a client or site outside maintenance, with an icon and the color of the worst one, so it never reads as an
+    /// endpoint count. Nothing when there is none: a badge in the panel always means something needs attention.
+    /// </summary>
+    private static RenderFragment AlertBadge(int count, AlertSeverity? worst) => __builder =>
+    {
+        if (count == 0)
+        {
+            return;
+        }
+
+        var critical = worst == AlertSeverity.Critical;
+        var title = (count == 1 ? "1 open alert" : $"{count} open alerts") + (critical ? ", at least one critical" : string.Empty) +
+                    " on endpoints outside maintenance";
+        <span class="@(critical ? "tree-badge tree-badge-critical" : "tree-badge tree-badge-alert")" title="@title">
+            <MudIcon Icon="@Icons.Material.Outlined.NotificationsActive" Style="font-size:11px;vertical-align:-1px" />
+            @count
+        </span>
     };
 
     /// <summary>"all" when the whole client or site is in maintenance, "2/14" when some endpoints are.</summary>

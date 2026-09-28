@@ -854,6 +854,9 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   updates never count; one alert per endpoint and check; an endpoint without patch state gets no result. Done: check type
   `MissingUpdates` evaluated by the workers after every patch sync (`MissingUpdateChecks`, rule `MissingUpdateAge`), left
   out of the agent configuration, no interval and no run now, and INSERT on `CheckResults` for the workers.
+- [done] **Alert badge in the clients panel** (asked for by the developer on 2026-09-28): the badge next to a client or site
+  only counts open alerts outside maintenance, with a bell and the color of the worst, and a site no longer shows its
+  number of endpoints in the same place, which read as a number of alerts.
 
 ## 0.7.0 — Hardening
 

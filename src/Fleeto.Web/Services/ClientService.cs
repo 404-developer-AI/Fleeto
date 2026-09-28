@@ -22,8 +22,9 @@ public sealed record ClientOption(Guid Id, string Code, string Name);
 
 /// <summary>
 /// A client in the clients panel, with its sites and live counts. <see cref="InMaintenanceCount"/> counts endpoints in effective
-/// maintenance; <see cref="MaintenanceActive"/> is the client's own maintenance. <see cref="WorstAlert"/> is the highest severity of the
-/// open alerts of its endpoints that are not in maintenance, null when there is none: it colors the icon in the panel.
+/// maintenance; <see cref="MaintenanceActive"/> is the client's own maintenance. <see cref="OpenAlertCount"/> and <see cref="WorstAlert"/>
+/// count only the open alerts of its endpoints that are not in maintenance: the panel shows what needs attention, and maintenance has its
+/// own badge. <see cref="WorstAlert"/> is null when there is no such alert; it colors the icon and the alert badge in the panel.
 /// </summary>
 public sealed record ClientTreeItem(Guid Id, string Code, string Name, int EndpointCount, int OnlineCount, int OpenAlertCount,
     IReadOnlyList<SiteTreeItem> Sites, bool MaintenanceActive = false, int InMaintenanceCount = 0)
@@ -122,7 +123,6 @@ public sealed class ClientService
                 c.Name,
                 Endpoints = db.Endpoints.Count(e => e.ClientId == c.Id),
                 Online = db.Endpoints.Count(e => e.ClientId == c.Id && e.IsOnline),
-                Alerts = db.Alerts.Count(a => a.ClientId == c.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now)),
                 Maintenance = c.MaintenanceStartedAt != null && c.MaintenanceStartedAt <= now && (c.MaintenanceEndsAt == null || c.MaintenanceEndsAt > now)
             })
             .ToListAsync(cancellationToken);
@@ -139,8 +139,7 @@ public sealed class ClientService
                     s.Name,
                     db.Endpoints.Count(e => e.SiteId == s.Id),
                     db.Endpoints.Count(e => e.SiteId == s.Id && e.IsOnline),
-                    db.Alerts.Count(a => a.ClientId == s.ClientId && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now) &&
-                                         db.Endpoints.Any(e => e.Id == a.EndpointId && e.SiteId == s.Id)),
+                    0,
                     s.MaintenanceStartedAt != null && s.MaintenanceStartedAt <= now && (s.MaintenanceEndsAt == null || s.MaintenanceEndsAt > now))
             })
             .ToListAsync(cancellationToken);
@@ -155,30 +154,35 @@ public sealed class ClientService
         var siteMaintenance = inMaintenance.ToDictionary(m => m.SiteId, m => m.Count);
         var clientMaintenance = inMaintenance.GroupBy(m => m.ClientId).ToDictionary(g => g.Key, g => g.Sum(m => m.Count));
 
-        // The severities of the open alerts per site, of endpoints that are not in maintenance: an endpoint in maintenance never
-        // colors its site or client, whatever its alerts.
-        var alertSeverities = await db.Alerts.AsNoTracking()
+        // The open alerts per site and severity, of endpoints that are not in maintenance: an endpoint in maintenance never counts
+        // for or colors its site or client, whatever its alerts.
+        var openAlerts = await db.Alerts.AsNoTracking()
             .Where(a => clientIds.Contains(a.ClientId) && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now))
             .Join(db.Endpoints.Where(MaintenanceRules.EndpointNotInMaintenance(now, db.MaintenanceWindowOccurrences, EffectivePolicies.Query(db))),
                 a => a.EndpointId, e => e.Id, (a, e) => new { e.ClientId, e.SiteId, a.Severity })
-            .Distinct()
+            .GroupBy(a => new { a.ClientId, a.SiteId, a.Severity })
+            .Select(g => new { g.Key.ClientId, g.Key.SiteId, g.Key.Severity, Count = g.Count() })
             .ToListAsync(cancellationToken);
-        var siteWorst = alertSeverities.GroupBy(a => a.SiteId).ToDictionary(g => g.Key, g => g.Max(a => a.Severity));
-        var clientWorst = alertSeverities.GroupBy(a => a.ClientId).ToDictionary(g => g.Key, g => g.Max(a => a.Severity));
+        var siteAlerts = openAlerts.GroupBy(a => a.SiteId)
+            .ToDictionary(g => g.Key, g => (Count: g.Sum(a => a.Count), Worst: g.Max(a => a.Severity)));
+        var clientAlerts = openAlerts.GroupBy(a => a.ClientId)
+            .ToDictionary(g => g.Key, g => (Count: g.Sum(a => a.Count), Worst: g.Max(a => a.Severity)));
 
         var sitesByClient = siteRows.GroupBy(s => s.ClientId).ToDictionary(g => g.Key,
             g => (IReadOnlyList<SiteTreeItem>)g.Select(s => s.Item with
             {
+                OpenAlertCount = siteAlerts.TryGetValue(s.Item.Id, out var alerts) ? alerts.Count : 0,
                 InMaintenanceCount = siteMaintenance.GetValueOrDefault(s.Item.Id),
-                WorstAlert = siteWorst.TryGetValue(s.Item.Id, out var worst) ? worst : null
+                WorstAlert = siteAlerts.TryGetValue(s.Item.Id, out var worst) ? worst.Worst : null
             }).ToList());
         var tags = await TagService.ForClientsAsync(db, clientIds, cancellationToken);
         return clientRows
-            .Select(c => new ClientTreeItem(c.Id, c.Code, c.Name, c.Endpoints, c.Online, c.Alerts, sitesByClient.GetValueOrDefault(c.Id, []),
+            .Select(c => new ClientTreeItem(c.Id, c.Code, c.Name, c.Endpoints, c.Online,
+                clientAlerts.TryGetValue(c.Id, out var alerts) ? alerts.Count : 0, sitesByClient.GetValueOrDefault(c.Id, []),
                 c.Maintenance, clientMaintenance.GetValueOrDefault(c.Id))
             {
                 Tags = tags.GetValueOrDefault(c.Id, []),
-                WorstAlert = clientWorst.TryGetValue(c.Id, out var worst) ? worst : null
+                WorstAlert = clientAlerts.TryGetValue(c.Id, out var worst) ? worst.Worst : null
             })
             .ToList();
     }

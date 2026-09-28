@@ -154,7 +154,7 @@ public sealed class MaintenanceServiceTests
     }
 
     [Fact]
-    public async Task The_clients_panel_colors_a_client_and_site_by_the_worst_alert_outside_maintenance()
+    public async Task The_clients_panel_colors_and_counts_a_client_and_site_by_the_alerts_outside_maintenance()
     {
         var (client, site, _, agentOnly) = await ScopeAsync();
         var otherSite = await _fixture.Database.CreateSiteAsync(client.Id, "Branch");
@@ -172,17 +172,22 @@ public sealed class MaintenanceServiceTests
         Assert.Equal(AlertSeverity.Critical, tree.WorstAlert);
         Assert.Equal(AlertSeverity.Warning, tree.Sites.Single(s => s.Id == site.Id).WorstAlert);
         Assert.Equal(AlertSeverity.Critical, tree.Sites.Single(s => s.Id == otherSite.Id).WorstAlert);
+        Assert.Equal(2, tree.OpenAlertCount);
+        Assert.Equal(1, tree.Sites.Single(s => s.Id == otherSite.Id).OpenAlertCount);
 
-        // An endpoint in maintenance never colors its site or client, whatever its alerts.
+        // An endpoint in maintenance never colors or counts for its site or client, whatever its alerts.
         Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Endpoint, branchEndpoint.Id, null, null)).Success);
         tree = Assert.Single(await clients.ListTreeAsync(caller));
         Assert.Equal(AlertSeverity.Warning, tree.WorstAlert);
         Assert.Null(tree.Sites.Single(s => s.Id == otherSite.Id).WorstAlert);
+        Assert.Equal(1, tree.OpenAlertCount);
+        Assert.Equal(0, tree.Sites.Single(s => s.Id == otherSite.Id).OpenAlertCount);
 
         Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Site, site.Id, null, null)).Success);
         tree = Assert.Single(await clients.ListTreeAsync(caller));
         Assert.Null(tree.WorstAlert);
         Assert.Null(tree.Sites.Single(s => s.Id == site.Id).WorstAlert);
+        Assert.Equal(0, tree.OpenAlertCount);
     }
 
     private async Task AddAlertAsync(Guid clientId, Guid endpointId, AlertSeverity severity)

@@ -66,6 +66,9 @@ When a third released version is added, the oldest entry moves to the top of
   endpoints in maintenance do not count. In the endpoint list the icon of an endpoint shows the same: green in maintenance
   (whatever its alerts), red with a critical alert, amber with a warning, gray otherwise, with the details on hover; the
   Status column shows only online or offline.
+- The badge next to a client or site in the clients panel only counts open alerts, with a bell icon, amber or red for the
+  worst of them, and leaves out alerts of endpoints in maintenance. A site without alerts no longer shows its number of
+  endpoints in the same place, which read as a number of alerts; the tabs of the selection show that number.
 - The missing updates of an endpoint show the columns of Action1: name, installed version, latest version, release date,
   status (the approval in Action1: New, Approved or Declined), update type, vulnerabilities (the CVEs, listed on hover)
   and security severity. The Restart column is gone: Action1 says "possibly" for every update. The public API reports
