@@ -11,6 +11,12 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
+- A monitoring template says where it can be linked: to clients, sites, endpoints or more of them (all three for existing
+  templates). Edit client, Edit site, the policies of an endpoint and client templates only offer it there, and a level it
+  is still linked on cannot be switched off.
+- Every check on the Checks tab of an endpoint shows where it comes from with an icon: a monitoring template of the client,
+  of the site or of the endpoint, or a manual check. Hover over the icon for the explanation.
+
 - A CPU or memory usage result at or above the lowest threshold of its check, and every Run now, lists the 10 processes using
   the most CPU or memory, with PID, user and memory. The check history marks those results with a dot; hovering over one
   shows the list below the chart. An alert names the top three processes (without users) in its detail and email.

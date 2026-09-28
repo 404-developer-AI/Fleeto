@@ -15,7 +15,7 @@
             <div>
                 <MudText Typo="Typo.h4" Class="page-title">@template.Name</MudText>
                 <MudText Typo="Typo.body2" Class="muted">
-                    @(template.ClientCode is null ? "Global" : $"For client {template.ClientCode}") · @Ui.AppliesToLabel(template.AppliesTo) · linked to @template.SiteCount site@(template.SiteCount == 1 ? "" : "s")
+                    @(template.ClientCode is null ? "Global" : $"For client {template.ClientCode}") · @Ui.AppliesToLabel(template.AppliesTo) · can be linked to @((template.Levels ?? TemplateLevels.All).ToString()) · linked to @template.SiteCount site@(template.SiteCount == 1 ? "" : "s")
                     @if (!string.IsNullOrEmpty(template.Description))
                     {
                         <span> · @template.Description</span>
@@ -113,9 +113,10 @@
             { d => d.InitialName, template.Name },
             { d => d.InitialDescription, template.Description },
             { d => d.InitialAppliesTo, template.AppliesTo },
+            { d => d.InitialLevels, template.Levels ?? TemplateLevels.All },
             {
-                d => d.OnSubmit, (name, description, _, appliesTo) =>
-                    RunAsync(caller => TemplateSvc.UpdateAsync(caller, TemplateId, name, description, appliesTo), "The monitoring template was saved.")
+                d => d.OnSubmit, (name, description, _, appliesTo, levels) =>
+                    RunAsync(caller => TemplateSvc.UpdateAsync(caller, TemplateId, name, description, appliesTo, levels), "The monitoring template was saved.")
             }
         };
         var dialog = await DialogService.ShowAsync<MonitoringTemplateDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });

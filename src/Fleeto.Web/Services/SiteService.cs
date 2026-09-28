@@ -15,7 +15,12 @@ public sealed record EndpointListItem(Guid Id, string Hostname, bool IsOnline, E
 public sealed record LinkedTemplate(Guid Id, string Name, bool IsGlobal, LinkSource Source);
 
 /// <param name="AppliesTo">The endpoints the policy, patch policy or monitoring template is for (0.6.0).</param>
-public sealed record LinkOption(Guid Id, string Name, bool IsGlobal, bool IsDefault = false, CheckAppliesTo AppliesTo = CheckAppliesTo.All);
+/// <param name="ForClients">Monitoring templates (0.6.0): whether it can be linked to a client; likewise for sites and endpoints.</param>
+public sealed record LinkOption(Guid Id, string Name, bool IsGlobal, bool IsDefault = false, CheckAppliesTo AppliesTo = CheckAppliesTo.All,
+    bool ForClients = true, bool ForSites = true, bool ForEndpoints = true)
+{
+    public bool Allows(LinkLevel level) => TemplateLinkRules.Allows(ForClients, ForSites, ForEndpoints, level);
+}
 
 public sealed record SiteDetail(Guid Id, string Name, string? Description, Guid ClientId, string ClientCode, string ClientName,
     bool FromTemplate, string PolicyName, IReadOnlyList<LinkedTemplate> MonitoringTemplates,

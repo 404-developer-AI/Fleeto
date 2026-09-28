@@ -109,6 +109,15 @@ public class MonitoringTemplate
     /// checks on a workstation.
     /// </summary>
     public CheckAppliesTo AppliesTo { get; set; } = CheckAppliesTo.All;
+
+    /// <summary>
+    /// Where the template can be linked (0.6.0): to clients, sites and endpoints, at least one of them. A client template holds
+    /// it for its client or sites only where these allow it.
+    /// </summary>
+    public bool ForClients { get; set; } = true;
+
+    public bool ForSites { get; set; } = true;
+    public bool ForEndpoints { get; set; } = true;
     public Guid? CopiedFromId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

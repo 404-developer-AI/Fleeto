@@ -18,7 +18,7 @@
 
         <MudText Typo="Typo.subtitle2" Class="mt-2">Policies</MudText>
         <MudText Typo="Typo.body2" Class="muted mb-3">@Explanation</MudText>
-        <LinkEditor Selection="_selection" Choices="Links.Choices" Disabled="@(!CanManage)" EndpointClass="Links.EndpointClass"
+        <LinkEditor Selection="_selection" Choices="Links.Choices" Level="Links.Level" Disabled="@(!CanManage)" EndpointClass="Links.EndpointClass"
                     PolicyInherit="@EndpointAware(InheritTexts.From(Links.Policy, "Inherit: default policy"))"
                     PatchInherit="@EndpointAware(InheritTexts.From(Links.PatchPolicy, "No patch policy"))"
                     PolicyLocked="Links.Policy.FromClientTemplate" PatchLocked="Links.PatchPolicy.FromClientTemplate"

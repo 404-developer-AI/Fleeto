@@ -170,7 +170,7 @@ public sealed class LinkService
         var wanted = input.MonitoringTemplateIds.ToHashSet();
         var allowed = await db.MonitoringTemplates.AsNoTracking()
             .Where(t => wanted.Contains(t.Id) && (t.ClientId == null || t.ClientId == clientId))
-            .Select(t => new { t.Id, t.Name })
+            .Select(t => new { t.Id, t.Name, t.ForClients, t.ForSites, t.ForEndpoints })
             .ToListAsync(cancellationToken);
         if (allowed.Count != wanted.Count)
         {
@@ -194,6 +194,13 @@ public sealed class LinkService
 
         var removedTemplates = own.Templates.Where(t => !wanted.Contains(t.Id)).ToList();
         var addedTemplates = wanted.Where(t => own.Templates.All(o => o.Id != t)).ToList();
+        // Only a new link is judged: one that exists already stays, and a template cannot be narrowed while it is linked.
+        if (allowed.FirstOrDefault(t => addedTemplates.Contains(t.Id) && !TemplateLinkRules.Allows(t.ForClients, t.ForSites, t.ForEndpoints, level))
+            is { } refused)
+        {
+            return ServiceResult.Fail(LevelRefused(refused.Name, level));
+        }
+
         var templatesChanged = removedTemplates.Count > 0 || addedTemplates.Count > 0;
         if (level == LinkLevel.Endpoint && addedTemplates.Count > 0 &&
             TierRules.EffectiveTier(target.Tier, await _licenses.GetStatusAsync(db, cancellationToken)) != EndpointTier.Managed)
@@ -297,6 +304,10 @@ public sealed class LinkService
             return server == workstation ? server : $"{server} (servers), {workstation} (workstations)";
         });
     }
+
+    /// <summary>The refusal of a monitoring template that cannot be linked on a level (0.6.0).</summary>
+    internal static string LevelRefused(string name, LinkLevel level) =>
+        $"The monitoring template {name} cannot be linked to {TemplateLinkRules.WithArticle(level)}. Change where it can be linked in Settings, Monitoring templates, or choose another template.";
 
     /// <summary>A client or site holds one choice for every endpoint or one per class, never both; an endpoint one only.</summary>
     private static string? Shape(LinkLevel level, ClassChoice choice, string what)
@@ -507,7 +518,7 @@ public sealed class LinkService
         var templates = await db.MonitoringTemplates.AsNoTracking()
             .Where(t => t.ClientId == null || t.ClientId == clientId)
             .OrderBy(t => t.ClientId != null).ThenBy(t => t.Name)
-            .Select(t => new LinkOption(t.Id, t.Name, t.ClientId == null, false, t.AppliesTo))
+            .Select(t => new LinkOption(t.Id, t.Name, t.ClientId == null, false, t.AppliesTo, t.ForClients, t.ForSites, t.ForEndpoints))
             .ToListAsync(cancellationToken);
         return new LinkChoices(policies, patchPolicies, templates);
     }

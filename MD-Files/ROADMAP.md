@@ -869,6 +869,9 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   without users, in the alert. Done: `CheckResult.processes` and the server-set parameter `process_list_at` in the
   protocol, the agent measures the processes over the sample window, `CheckResults.ProcessesJson` with a partial index, the
   dots and the list under the chart of the check history.
+- [done] **Where a monitoring template can be linked** (asked for by the developer on 2026-09-28): clients, sites, endpoints
+  or more of them, refused elsewhere, also in a client template, and a level still in use cannot be switched off. The
+  Checks tab shows where each check comes from with an icon and a tooltip.
 
 ## 0.7.0 — Hardening
 

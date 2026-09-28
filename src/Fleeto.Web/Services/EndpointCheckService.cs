@@ -440,7 +440,7 @@ public sealed class EndpointCheckService
             .Select(l => new LinkOption(l.MonitoringTemplateId, l.MonitoringTemplate!.Name, l.MonitoringTemplate.ClientId == null))
             .ToListAsync(cancellationToken);
         var available = await db.MonitoringTemplates.AsNoTracking()
-            .Where(t => t.ClientId == null || t.ClientId == endpoint.ClientId)
+            .Where(t => (t.ClientId == null || t.ClientId == endpoint.ClientId) && t.ForEndpoints)
             .OrderBy(t => t.ClientId != null).ThenBy(t => t.Name)
             .Select(t => new LinkOption(t.Id, t.Name, t.ClientId == null))
             .ToListAsync(cancellationToken);
@@ -466,7 +466,7 @@ public sealed class EndpointCheckService
         var wanted = monitoringTemplateIds.ToHashSet();
         var allowed = await db.MonitoringTemplates.AsNoTracking()
             .Where(t => wanted.Contains(t.Id) && (t.ClientId == null || t.ClientId == endpoint.ClientId))
-            .Select(t => new { t.Id, t.Name })
+            .Select(t => new { t.Id, t.Name, t.ForEndpoints })
             .ToListAsync(cancellationToken);
         if (allowed.Count != wanted.Count)
         {
@@ -476,6 +476,10 @@ public sealed class EndpointCheckService
         var current = await db.EndpointMonitoringTemplates.Where(l => l.EndpointId == endpointId).ToListAsync(cancellationToken);
         var removed = current.Where(l => !wanted.Contains(l.MonitoringTemplateId)).ToList();
         var added = wanted.Where(id => current.All(l => l.MonitoringTemplateId != id)).ToList();
+        if (allowed.FirstOrDefault(t => added.Contains(t.Id) && !t.ForEndpoints) is { } refused)
+        {
+            return ServiceResult.Fail(LinkService.LevelRefused(refused.Name, LinkLevel.Endpoint));
+        }
         if (removed.Count == 0 && added.Count == 0)
         {
             return ServiceResult.Ok();

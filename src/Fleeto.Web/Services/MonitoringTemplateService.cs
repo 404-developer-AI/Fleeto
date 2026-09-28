@@ -9,13 +9,29 @@ using Microsoft.EntityFrameworkCore;
 namespace Fleeto.Web.Services;
 
 public sealed record MonitoringTemplateListItem(Guid Id, string Name, string? Description, Guid? ClientId, string? ClientCode, int CheckCount,
-    int SiteCount, int ClientTemplateSiteCount, int ClientCount = 0, CheckAppliesTo AppliesTo = CheckAppliesTo.All);
+    int SiteCount, int ClientTemplateSiteCount, int ClientCount = 0, CheckAppliesTo AppliesTo = CheckAppliesTo.All,
+    TemplateLevels? Levels = null);
+
+/// <summary>Where a monitoring template can be linked (0.6.0); at least one of the three.</summary>
+public sealed record TemplateLevels(bool ForClients, bool ForSites, bool ForEndpoints)
+{
+    public static readonly TemplateLevels All = new(true, true, true);
+
+    public bool Any => ForClients || ForSites || ForEndpoints;
+
+    public bool Allows(LinkLevel level) => TemplateLinkRules.Allows(ForClients, ForSites, ForEndpoints, level);
+
+    public override string ToString() => TemplateLinkRules.Describe(ForClients, ForSites, ForEndpoints);
+
+    /// <summary>"Clients and sites".</summary>
+    public string Label => ToString() is { Length: > 0 } text ? char.ToUpperInvariant(text[0]) + text[1..] : string.Empty;
+}
 
 public sealed record CheckDefinitionView(Guid Id, string Name, CheckType Type, int IntervalSeconds, IReadOnlyDictionary<string, string> Parameters,
     double? WarningThreshold, double? CriticalThreshold, int FailuresBeforeAlert, CheckAppliesTo AppliesTo, bool Enabled);
 
 public sealed record MonitoringTemplateDetail(Guid Id, string Name, string? Description, Guid? ClientId, string? ClientCode, int SiteCount,
-    IReadOnlyList<CheckDefinitionView> Checks, CheckAppliesTo AppliesTo = CheckAppliesTo.All);
+    IReadOnlyList<CheckDefinitionView> Checks, CheckAppliesTo AppliesTo = CheckAppliesTo.All, TemplateLevels? Levels = null);
 
 public sealed record CheckDefinitionInput(string? Name, CheckType Type, int IntervalSeconds, IReadOnlyDictionary<string, string> Parameters,
     double? WarningThreshold, double? CriticalThreshold, int FailuresBeforeAlert, CheckAppliesTo AppliesTo, bool Enabled);
@@ -47,7 +63,8 @@ public sealed class MonitoringTemplateService
                 db.SiteMonitoringTemplates.Count(l => l.MonitoringTemplateId == t.Id),
                 db.ClientTemplateSiteMonitoringTemplates.Count(l => l.MonitoringTemplateId == t.Id) +
                 db.ClientTemplateMonitoringTemplates.Count(l => l.MonitoringTemplateId == t.Id),
-                db.ClientMonitoringTemplates.Count(l => l.MonitoringTemplateId == t.Id), t.AppliesTo))
+                db.ClientMonitoringTemplates.Count(l => l.MonitoringTemplateId == t.Id), t.AppliesTo,
+                new TemplateLevels(t.ForClients, t.ForSites, t.ForEndpoints)))
             .ToListAsync(cancellationToken);
     }
 
@@ -69,18 +86,20 @@ public sealed class MonitoringTemplateService
         return new MonitoringTemplateDetail(template.Id, template.Name, template.Description, template.ClientId, clientCode, siteCount,
             template.Checks.OrderBy(c => c.Name).Select(c => new CheckDefinitionView(c.Id, c.Name, c.Type, c.IntervalSeconds,
                 CheckParameters.Parse(c.ParametersJson), c.WarningThreshold, c.CriticalThreshold, c.FailuresBeforeAlert, c.AppliesTo, c.Enabled)).ToList(),
-            template.AppliesTo);
+            template.AppliesTo, new TemplateLevels(template.ForClients, template.ForSites, template.ForEndpoints));
     }
 
+    /// <param name="levels">Where it can be linked (0.6.0); null: clients, sites and endpoints.</param>
     public async Task<ServiceResult<Guid>> CreateAsync(Caller caller, string? name, string? description, Guid? clientId,
-        CheckAppliesTo appliesTo = CheckAppliesTo.All, CancellationToken cancellationToken = default)
+        CheckAppliesTo appliesTo = CheckAppliesTo.All, TemplateLevels? levels = null, CancellationToken cancellationToken = default)
     {
         if (!caller.CanManage)
         {
             return ServiceResult<Guid>.Forbidden();
         }
 
-        if (ValidateTemplate(name, description) is { } problem)
+        levels ??= TemplateLevels.All;
+        if ((ValidateTemplate(name, description) ?? ValidateLevels(levels)) is { } problem)
         {
             return ServiceResult<Guid>.Fail(problem);
         }
@@ -105,26 +124,30 @@ public sealed class MonitoringTemplateService
             Name = cleanName,
             Description = ServiceSupport.Clean(description),
             AppliesTo = Enum.IsDefined(appliesTo) ? appliesTo : CheckAppliesTo.All,
+            ForClients = levels.ForClients,
+            ForSites = levels.ForSites,
+            ForEndpoints = levels.ForEndpoints,
             CreatedAt = now,
             UpdatedAt = now
         };
         db.MonitoringTemplates.Add(template);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.MonitoringTemplateCreated, "MonitoringTemplate", template.Id.ToString(), clientId,
-            new { template.Name }), now));
+            new { template.Name, LinkedTo = levels.ToString() }), now));
         await db.SaveChangesAsync(cancellationToken);
         return ServiceResult<Guid>.Ok(template.Id);
     }
 
     /// <param name="appliesTo">The endpoints the template is for (0.6.0); null keeps it.</param>
+    /// <param name="levels">Where it can be linked (0.6.0); null keeps it. A level it is linked on cannot be switched off.</param>
     public async Task<ServiceResult> UpdateAsync(Caller caller, Guid templateId, string? name, string? description,
-        CheckAppliesTo? appliesTo = null, CancellationToken cancellationToken = default)
+        CheckAppliesTo? appliesTo = null, TemplateLevels? levels = null, CancellationToken cancellationToken = default)
     {
         if (!caller.CanManage)
         {
             return ServiceResult.Forbidden();
         }
 
-        if (ValidateTemplate(name, description) is { } problem)
+        if ((ValidateTemplate(name, description) ?? (levels is null ? null : ValidateLevels(levels))) is { } problem)
         {
             return ServiceResult.Fail(problem);
         }
@@ -142,10 +165,23 @@ public sealed class MonitoringTemplateService
             return ServiceResult.Fail($"A monitoring template named {cleanName} already exists here. Choose another name.");
         }
 
+        if (levels is not null && await LinkedWhereNotAllowedAsync(db, template.Id, levels, cancellationToken) is { } linked)
+        {
+            return ServiceResult.Fail(linked);
+        }
+
         var now = _time.GetUtcNow().UtcDateTime;
         template.Name = cleanName;
         template.Description = ServiceSupport.Clean(description);
         template.UpdatedAt = now;
+        if (levels is not null)
+        {
+            // Only narrowing is refused while linked, so no link changes and no agent needs a new configuration.
+            template.ForClients = levels.ForClients;
+            template.ForSites = levels.ForSites;
+            template.ForEndpoints = levels.ForEndpoints;
+        }
+
         if (appliesTo is { } classes && Enum.IsDefined(classes) && classes != template.AppliesTo)
         {
             // Its checks start or stop running on a class of endpoints: every endpoint that links it gets a new configuration.
@@ -154,9 +190,77 @@ public sealed class MonitoringTemplateService
         }
 
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.MonitoringTemplateUpdated, "MonitoringTemplate", template.Id.ToString(),
-            template.ClientId, new { template.Name, AppliesTo = template.AppliesTo.ToString() }), now));
+            template.ClientId, new
+            {
+                template.Name, AppliesTo = template.AppliesTo.ToString(),
+                LinkedTo = TemplateLinkRules.Describe(template.ForClients, template.ForSites, template.ForEndpoints)
+            }), now));
         await db.SaveChangesAsync(cancellationToken);
         return ServiceResult.Ok();
+    }
+
+    private static string? ValidateLevels(TemplateLevels levels) =>
+        levels.Any ? null : "Choose where the monitoring template can be linked: clients, sites, endpoints or more of them.";
+
+    /// <summary>
+    /// Why a level cannot be switched off: the template is linked there, directly or through a client template. Names the first
+    /// place, so the technician knows where to look; the scope of the caller does not hide a link of another client.
+    /// </summary>
+    private static async Task<string?> LinkedWhereNotAllowedAsync(FleetoDbContext db, Guid templateId, TemplateLevels levels,
+        CancellationToken cancellationToken)
+    {
+        if (!levels.ForClients)
+        {
+            var client = await db.ClientMonitoringTemplates.IgnoreQueryFilters().Where(l => l.MonitoringTemplateId == templateId)
+                .Join(db.Clients.IgnoreQueryFilters(), l => l.ClientId, c => c.Id, (_, c) => c.Code)
+                .OrderBy(c => c).FirstOrDefaultAsync(cancellationToken);
+            if (client is not null)
+            {
+                return $"The template is linked to client {client}. Remove it there first, then switch off linking to clients.";
+            }
+
+            var clientTemplate = await db.ClientTemplateMonitoringTemplates.Where(l => l.MonitoringTemplateId == templateId)
+                .Join(db.ClientTemplates, l => l.ClientTemplateId, t => t.Id, (_, t) => t.Name)
+                .OrderBy(n => n).FirstOrDefaultAsync(cancellationToken);
+            if (clientTemplate is not null)
+            {
+                return $"Client template {clientTemplate} links the template to its clients. Remove it there first, then switch off linking to clients.";
+            }
+        }
+
+        if (!levels.ForSites)
+        {
+            var site = await db.SiteMonitoringTemplates.IgnoreQueryFilters().Where(l => l.MonitoringTemplateId == templateId)
+                .Join(db.Sites.IgnoreQueryFilters(), l => l.SiteId, s => s.Id, (_, s) => new { s.Name, s.ClientId })
+                .Join(db.Clients.IgnoreQueryFilters(), s => s.ClientId, c => c.Id, (s, c) => c.Code + " / " + s.Name)
+                .OrderBy(n => n).FirstOrDefaultAsync(cancellationToken);
+            if (site is not null)
+            {
+                return $"The template is linked to site {site}. Remove it there first, then switch off linking to sites.";
+            }
+
+            var clientTemplate = await db.ClientTemplateSiteMonitoringTemplates.Where(l => l.MonitoringTemplateId == templateId)
+                .Join(db.ClientTemplateSites, l => l.ClientTemplateSiteId, s => s.Id, (_, s) => s.ClientTemplateId)
+                .Join(db.ClientTemplates, id => id, t => t.Id, (_, t) => t.Name)
+                .OrderBy(n => n).FirstOrDefaultAsync(cancellationToken);
+            if (clientTemplate is not null)
+            {
+                return $"Client template {clientTemplate} links the template to its sites. Remove it there first, then switch off linking to sites.";
+            }
+        }
+
+        if (!levels.ForEndpoints)
+        {
+            var endpoint = await db.EndpointMonitoringTemplates.IgnoreQueryFilters().Where(l => l.MonitoringTemplateId == templateId)
+                .Join(db.Endpoints.IgnoreQueryFilters(), l => l.EndpointId, e => e.Id, (_, e) => e.Hostname)
+                .OrderBy(h => h).FirstOrDefaultAsync(cancellationToken);
+            if (endpoint is not null)
+            {
+                return $"The template is linked to endpoint {endpoint}. Remove it there first, then switch off linking to endpoints.";
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Adds a check (checkId null) or changes one. Problems from <see cref="CheckParameters.Validate"/> are returned together.</summary>
@@ -366,6 +470,9 @@ public sealed class MonitoringTemplateService
             Name = cleanName,
             Description = source.Description,
             AppliesTo = source.AppliesTo,
+            ForClients = source.ForClients,
+            ForSites = source.ForSites,
+            ForEndpoints = source.ForEndpoints,
             CopiedFromId = source.Id,
             CreatedAt = now,
             UpdatedAt = now

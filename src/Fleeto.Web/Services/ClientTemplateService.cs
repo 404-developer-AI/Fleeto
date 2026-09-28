@@ -1,3 +1,4 @@
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Audit;
@@ -436,9 +437,22 @@ public sealed class ClientTemplateService
         }
 
         var templateIds = input.Sites.SelectMany(s => s.MonitoringTemplateIds).Concat(clientLinks.MonitoringTemplateIds).Distinct().ToList();
-        if (await db.MonitoringTemplates.CountAsync(t => templateIds.Contains(t.Id) && t.ClientId == null, cancellationToken) != templateIds.Count)
+        var templates = await db.MonitoringTemplates.Where(t => templateIds.Contains(t.Id) && t.ClientId == null)
+            .ToDictionaryAsync(t => t.Id, cancellationToken);
+        if (templates.Count != templateIds.Count)
         {
             return "A client template can only use global monitoring templates.";
+        }
+
+        // Where a monitoring template can be linked (0.6.0): the client template links it there when a client is created.
+        if (clientLinks.MonitoringTemplateIds.Select(id => templates[id]).FirstOrDefault(t => !t.ForClients) is { } notForClients)
+        {
+            return LinkService.LevelRefused(notForClients.Name, LinkLevel.Client);
+        }
+
+        if (input.Sites.SelectMany(s => s.MonitoringTemplateIds).Select(id => templates[id]).FirstOrDefault(t => !t.ForSites) is { } notForSites)
+        {
+            return LinkService.LevelRefused(notForSites.Name, LinkLevel.Site);
         }
 
         return null;

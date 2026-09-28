@@ -531,7 +531,12 @@
                 <MudTd><MudIcon Icon="@RowIcon(context)" Color="@RowColor(context)" Size="Size.Small" /></MudTd>
                 <MudTd>
                     <strong>@context.Name</strong>@(string.IsNullOrEmpty(context.Target) ? "" : $" ({context.Target})")
-                    <div class="muted" style="font-size:0.75rem">@SourceText(context)@(context.HasOverrides ? " · adjusted for this endpoint" : "")</div>
+                    <div class="muted check-source">
+                        <MudTooltip Text="@SourceTooltip(context.Source)" Placement="Placement.Top">
+                            <MudIcon Icon="@SourceIcon(context.Source)" Class="check-source-icon" aria-label="@SourceTooltip(context.Source)" />
+                        </MudTooltip>
+                        <span>@SourceText(context)@(context.HasOverrides ? " · adjusted for this endpoint" : "")</span>
+                    </div>
                 </MudTd>
                 <MudTd>@(context.Status is null ? "-" : Ui.CheckValue(context.Type, context.Value, context.Target, context.Parameters))</MudTd>
                 <MudTd>
@@ -1521,12 +1526,24 @@
     private static Color RowColor(EndpointCheckRow row) =>
         row.DisabledOnEndpoint || row.RerunRequested || row.Status is null ? Color.Default : CheckColor(row.Status.Value);
 
-    private static string SourceText(EndpointCheckRow row) => row.Source switch
+    // Where a check comes from (0.6.0): an icon with a tooltip, then the monitoring template or "Manual check".
+    private static string SourceText(EndpointCheckRow row) =>
+        row.Source == CheckSource.Endpoint ? "Manual check" : row.TemplateName ?? string.Empty;
+
+    private static string SourceIcon(CheckSource source) => source switch
     {
-        CheckSource.Endpoint => "This endpoint only",
-        CheckSource.EndpointTemplate => $"{row.TemplateName} (linked to this endpoint)",
-        CheckSource.ClientTemplate => $"{row.TemplateName} (linked to the client)",
-        _ => row.TemplateName ?? string.Empty
+        CheckSource.ClientTemplate => Icons.Material.Outlined.Business,
+        CheckSource.SiteTemplate => Icons.Material.Outlined.Folder,
+        CheckSource.EndpointTemplate => Icons.Material.Outlined.Computer,
+        _ => Icons.Material.Outlined.EditNote
+    };
+
+    private static string SourceTooltip(CheckSource source) => source switch
+    {
+        CheckSource.ClientTemplate => "Monitoring template linked to the client",
+        CheckSource.SiteTemplate => "Monitoring template linked to the site",
+        CheckSource.EndpointTemplate => "Monitoring template linked to this endpoint",
+        _ => "Manual check of this endpoint only"
     };
 
     private enum AlertAction

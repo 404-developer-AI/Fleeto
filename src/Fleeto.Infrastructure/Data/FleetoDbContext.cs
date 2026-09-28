@@ -309,6 +309,11 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(t => t.Name).HasMaxLength(100);
             entity.Property(t => t.Description).HasMaxLength(1000);
             entity.Property(t => t.AppliesTo).HasConversion<string>().HasMaxLength(20).HasDefaultValue(CheckAppliesTo.All).HasSentinel(CheckAppliesTo.All);
+            // Templates saved before 0.6.0 can be linked everywhere, as they could then.
+            entity.Property(t => t.ForClients).HasDefaultValue(true).HasSentinel(true);
+            entity.Property(t => t.ForSites).HasDefaultValue(true).HasSentinel(true);
+            entity.Property(t => t.ForEndpoints).HasDefaultValue(true).HasSentinel(true);
+            entity.ToTable(t => t.HasCheckConstraint("CK_MonitoringTemplates_Levels", "\"ForClients\" OR \"ForSites\" OR \"ForEndpoints\""));
             entity.HasIndex(t => new { t.ClientId, t.Name }).IsUnique().AreNullsDistinct(false);
             entity.HasMany(t => t.Checks).WithOne(c => c.MonitoringTemplate).HasForeignKey(c => c.MonitoringTemplateId).OnDelete(DeleteBehavior.Cascade);
             // A client-specific monitoring template is deleted with its client.

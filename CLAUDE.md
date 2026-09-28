@@ -115,7 +115,8 @@ the API and the database follows it.
   alerts stay open and still resolve). The clients panel shows per client and site whether all
   or some endpoints are in maintenance.
 - **Monitoring template**: a named set of checks with thresholds and alert rules. Linked to a
-  client, site or endpoint, applied to all of their endpoints (class-specific checks apply to matching endpoints only).
+  client, site or endpoint, applied to all of their endpoints (class-specific checks apply to matching endpoints only). It
+  says where it can be linked: clients, sites, endpoints or more of them (decided 2026-09-28, 0.6.0).
 - **Storage analysis** (0.6.0, decided 2026-09-28): a managed endpoint, server or workstation, scans its drives at the lowest
   CPU and I/O priority, daily by default (set per policy, or only on request), on "Scan now" and when a Disk free check turns
   warning; on NTFS by reading the master file table, elsewhere by walking the folders. Only the 300 largest folders and 50

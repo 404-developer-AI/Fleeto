@@ -345,6 +345,9 @@ button.tag-chip:focus-visible { outline: 2px solid var(--fl-primary); outline-of
 .history-hit { fill: transparent; }
 .history-hit:hover { fill: rgba(28, 25, 23, 0.04); }
 .history-hit-processes { cursor: pointer; }
+.check-source { display: flex; align-items: center; gap: 4px; font-size: 0.75rem; }
+.check-source .mud-tooltip-root { display: inline-flex; }
+.check-source-icon { font-size: 0.95rem !important; width: 0.95rem; height: 0.95rem; }
 .history-process-marker { fill: var(--fl-surface); stroke: var(--fl-primary); stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
 .history-process-marker.selected { fill: var(--fl-primary); }
 .history-legend-processes { width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--fl-primary); box-sizing: border-box; }

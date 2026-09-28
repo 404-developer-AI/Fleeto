@@ -20,7 +20,8 @@
                    ToStringFunc="@(id => Choices.MonitoringTemplates.FirstOrDefault(t => t.Id == id)?.Name ?? string.Empty)"
                    HelperText="@(TemplatesDisabledText ?? "Checks of these templates run on top of the ones that apply already. A template for servers or workstations only runs on those.")">
             @foreach (var template in Choices.MonitoringTemplates.Where(t => !LockedTemplates.Contains(t.Id) &&
-                                                                          (EndpointClass is not { } cls || EffectivePolicyRules.IsFor(t.AppliesTo, cls))))
+                                                                          (EndpointClass is not { } cls || EffectivePolicyRules.IsFor(t.AppliesTo, cls)) &&
+                                                                          (Level == LinkLevel.None || t.Allows(Level) || _templates.Contains(t.Id))))
             {
                 <MudSelectItem T="Guid" Value="@template.Id">@ClassChoiceEditor.Name(template)</MudSelectItem>
             }
@@ -60,6 +61,9 @@
     [Parameter] public EndpointClass? EndpointClass { get; set; }
 
     [Parameter] public bool ShowTemplates { get; set; } = true;
+
+    /// <summary>The level linked here (0.6.0): only monitoring templates that can be linked on it are offered. None offers all.</summary>
+    [Parameter] public LinkLevel Level { get; set; }
 
     /// <summary>Why monitoring templates cannot be chosen here; null when they can.</summary>
     [Parameter] public string? TemplatesDisabledText { get; set; }

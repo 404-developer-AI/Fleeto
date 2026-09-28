@@ -1,4 +1,4 @@
-@* Create a monitoring template (name, description, global or one client, the endpoints it is for) or edit it. *@
+@* Create a monitoring template (name, description, global or one client, the endpoints it is for, where it can be linked) or edit it. *@
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">@(IsEdit ? "Edit monitoring template" : "New monitoring template")</MudText>
@@ -8,6 +8,17 @@
         <MudTextField @bind-Value="_description" Label="Description (optional)" Variant="Variant.Outlined" Lines="2" MaxLength="1000" Class="mb-3" />
         <AppliesToSelect @bind-Value="_appliesTo" Class="mb-3"
                          HelperText="A template for servers or workstations runs none of its checks on the other class, on top of what each check is for." />
+        <MudText Typo="Typo.body2" Class="mb-1">Can be linked to</MudText>
+        <div class="d-flex flex-wrap gap-4">
+            <MudCheckBox T="bool" @bind-Value="_forClients" Label="Clients" Dense="true" />
+            <MudCheckBox T="bool" @bind-Value="_forSites" Label="Sites" Dense="true" />
+            <MudCheckBox T="bool" @bind-Value="_forEndpoints" Label="Endpoints" Dense="true" />
+        </div>
+        <MudText Typo="Typo.caption" Class="@($"d-block mb-3 {(_forClients || _forSites || _forEndpoints ? "muted" : "mud-error-text")}")">
+            @(_forClients || _forSites || _forEndpoints
+                ? "Edit client, Edit site and the policies of an endpoint only offer the template where it can be linked."
+                : "Choose at least one.")
+        </MudText>
         @if (!IsEdit)
         {
             <MudSelect T="Guid?" @bind-Value="_clientId" Label="Available for" Variant="Variant.Outlined"
@@ -35,12 +46,16 @@
     [Parameter] public string? InitialDescription { get; set; }
     [Parameter] public IReadOnlyList<ClientOption> Clients { get; set; } = [];
     [Parameter] public CheckAppliesTo InitialAppliesTo { get; set; }
-    [Parameter] public Func<string, string?, Guid?, CheckAppliesTo, Task<bool>> OnSubmit { get; set; } = (_, _, _, _) => Task.FromResult(true);
+    [Parameter] public TemplateLevels InitialLevels { get; set; } = TemplateLevels.All;
+    [Parameter] public Func<string, string?, Guid?, CheckAppliesTo, TemplateLevels, Task<bool>> OnSubmit { get; set; } = (_, _, _, _, _) => Task.FromResult(true);
 
     private string _name = string.Empty;
     private string? _description;
     private Guid? _clientId;
     private CheckAppliesTo _appliesTo;
+    private bool _forClients;
+    private bool _forSites;
+    private bool _forEndpoints;
     private bool _busy;
 
     protected override void OnInitialized()
@@ -48,6 +63,7 @@
         _name = InitialName;
         _description = InitialDescription;
         _appliesTo = InitialAppliesTo;
+        (_forClients, _forSites, _forEndpoints) = (InitialLevels.ForClients, InitialLevels.ForSites, InitialLevels.ForEndpoints);
     }
 
     private void Cancel() => MudDialog.Cancel();
@@ -57,7 +73,7 @@
         _busy = true;
         try
         {
-            if (await OnSubmit(_name, _description, _clientId, _appliesTo))
+            if (await OnSubmit(_name, _description, _clientId, _appliesTo, new TemplateLevels(_forClients, _forSites, _forEndpoints)))
             {
                 MudDialog.Close(DialogResult.Ok(true));
             }
