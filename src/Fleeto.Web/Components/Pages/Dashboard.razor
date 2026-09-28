@@ -87,6 +87,25 @@
                     <div class="stat-detail">@LicenseDetail(data.License)</div>
                 </div>
             </MudItem>
+            @if (data.Health is { } health)
+            {
+                <MudItem xs="12" sm="6" md="4" lg="2">
+                    <a href="/settings/instance-health" class="stat-card-link">
+                        <div class="stat-card fl-panel @(health.Status switch { HealthStatus.Critical => "stat-error", HealthStatus.Warning or HealthStatus.Unknown => "stat-warning", _ => "" })">
+                            <div class="stat-label">Instance health</div>
+                            <div class="stat-number" style="font-size:1.125rem;margin-top:10px;">
+                                @(health.Status switch
+                                {
+                                    HealthStatus.Ok => "Healthy",
+                                    HealthStatus.Unknown => "Unknown",
+                                    _ => health.OpenIssues == 1 ? "1 problem" : $"{health.OpenIssues} problems"
+                                })
+                            </div>
+                            <div class="stat-detail">@health.Text</div>
+                        </div>
+                    </a>
+                </MudItem>
+            }
             <MudItem xs="12" sm="6" md="4" lg="2">
                 <div class="stat-card fl-panel @(!data.Backups.DestinationConfigured || data.Backups.LastRunFailed ? "stat-warning" : "")">
                     <div class="stat-label">Backups</div>

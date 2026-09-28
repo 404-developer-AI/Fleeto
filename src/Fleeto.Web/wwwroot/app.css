@@ -117,6 +117,16 @@ html, body {
 /* Cards and tiles */
 .mud-card, .fl-panel { border-radius: var(--fl-radius-lg) !important; background: var(--fl-surface) !important; border: 1px solid var(--fl-border); box-shadow: var(--fl-shadow-sm) !important; }
 .stat-card { border-radius: var(--fl-radius-lg); padding: 20px; height: 100%; box-sizing: border-box; }
+.stat-card-link { display: block; height: 100%; color: inherit; text-decoration: none; }
+.stat-card-link:hover .stat-card { border-color: var(--fl-primary); }
+.health-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.health-card { padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+.health-card-head { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.health-issue { border-left: 3px solid var(--fl-border); padding: 8px 12px; margin-bottom: 8px; }
+.health-issue.critical { border-left-color: var(--fl-error); }
+.health-issue.warning { border-left-color: #D97706; }
+.health-trends { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; }
+@media (max-width: 600px) { .health-trends { grid-template-columns: 1fr; } }
 .stat-card .stat-label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fl-text-secondary); margin-bottom: 8px; }
 .stat-card .stat-number { font-size: 2rem; font-weight: 600; line-height: 1.2; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .stat-card .stat-detail { font-size: 0.8125rem; color: var(--fl-text-secondary); margin-top: 6px; }

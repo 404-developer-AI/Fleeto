@@ -97,13 +97,13 @@
         _ => "Generic"
     };
 
-    private static string ClientsText(NotificationChannelView channel) => channel switch
+    private static string ClientsText(NotificationChannelView channel) => (channel switch
     {
         { AllClients: true } => "All clients",
         { Clients.Count: 0 } => "No clients left",
         { Clients.Count: <= 3 } => string.Join(", ", channel.Clients.Select(c => c.Code)),
         _ => $"{channel.Clients.Count} clients"
-    };
+    }) + (channel.InstanceHealth ? " · instance health" : "");
 
     private async Task EditAsync(NotificationChannelView? channel)
     {

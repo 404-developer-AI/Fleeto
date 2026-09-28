@@ -1,0 +1,202 @@
+@page "/settings/instance-health"
+@attribute [Authorize(Policy = FleetoPolicies.Admin)]
+@inherits FleetoPageBase
+@inject InstanceHealthService HealthSvc
+@inject IJSRuntime JS
+
+<PageTitle>Instance health - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Instance health</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            The VPS and this instance as the workers measure them every 5 minutes. Disk, memory and CPU are of the whole VPS, which other
+            instances may share. Choose who is told about problems in Settings, Notification channels.
+        </MudText>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.ContentCopy" OnClick="CopyAsync" Disabled="_busy">Copy diagnostics</MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Download" OnClick="DownloadAsync" Disabled="_busy">Download diagnostics</MudButton>
+        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Refresh" OnClick="ReloadAsync">Refresh</MudButton>
+    </div>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_view is { } view)
+    {
+        @if (view.Stale)
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-3">
+                @(view.MeasuredAt is { } at
+                    ? $"The workers have not measured since {Time.Absolute(at)}. Check that the workers container runs; the values below are from then."
+                    : "The workers have not measured yet. The first measurement follows within 5 minutes of their start.")
+            </MudAlert>
+        }
+        else
+        {
+            <MudText Typo="Typo.caption" Class="muted d-block mb-2">Measured <TimeText Value="view.MeasuredAt" />.</MudText>
+        }
+
+        <div class="health-grid mb-4">
+            @foreach (var component in view.Components)
+            {
+                <div class="health-card fl-panel">
+                    <div class="health-card-head">
+                        <MudIcon Icon="@StatusIcon(component.Status)" Color="@StatusColor(component.Status)" Size="Size.Small" />
+                        <span>@component.Name</span>
+                    </div>
+                    <div class="muted" style="font-size:0.8125rem">@component.Value</div>
+                </div>
+            }
+        </div>
+
+        <MudText Typo="Typo.h6" Class="section-title mb-2">Problems</MudText>
+        var open = view.Components.Where(c => c.Issue is not null).Select(c => c.Issue!).OrderByDescending(i => i.Severity).ToList();
+        @if (open.Count == 0)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.CheckCircle" Title="No problems"
+                        Text="A problem appears here when disk, memory, CPU, the database, the workers, backups or notifications need attention." />
+        }
+        else
+        {
+            @foreach (var issue in open)
+            {
+                <div class="health-issue fl-panel @(issue.Severity == AlertSeverity.Critical ? "critical" : "warning")">
+                    <div class="d-flex align-center gap-2 flex-wrap">
+                        <StatusChip Text="@issue.Severity.ToString()" Kind="@(issue.Severity == AlertSeverity.Critical ? StatusKind.Error : StatusKind.Warning)" />
+                        <strong>@issue.Title</strong>
+                    </div>
+                    <div class="mt-1" style="font-size:0.875rem">@issue.Detail</div>
+                    <div class="muted mt-1" style="font-size:0.75rem">Since <TimeText Value="issue.OpenedAt" /></div>
+                </div>
+            }
+        }
+
+        <MudText Typo="Typo.h6" Class="section-title mt-4 mb-2">Last 7 days</MudText>
+        <div class="health-trends mb-4">
+            @foreach (var trend in view.Trends)
+            {
+                <div class="fl-panel pa-3">
+                    <MudText Typo="Typo.subtitle2" Class="mb-1">@trend.Name</MudText>
+                    @if (trend.Points.Any(p => p.HasData))
+                    {
+                        <HistoryChart View="trend" />
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2" Class="muted">Not measured on this platform yet.</MudText>
+                    }
+                </div>
+            }
+        </div>
+
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="6">
+                <MudText Typo="Typo.h6" Class="section-title mb-2">Largest database tables</MudText>
+                <div class="fl-panel pa-2">
+                    <MudSimpleTable Dense="true" Elevation="0">
+                        <thead><tr><th>Table</th><th style="text-align:right">Size</th><th style="text-align:right">Rows (estimate)</th></tr></thead>
+                        <tbody>
+                            @foreach (var table in view.Tables.Take(10))
+                            {
+                                <tr>
+                                    <td class="mono">@table.Name</td>
+                                    <td style="text-align:right">@Ui.Bytes(table.Bytes)</td>
+                                    <td style="text-align:right">@table.Rows.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudText Typo="Typo.h6" Class="section-title mb-2">Resolved in the last 7 days</MudText>
+                @if (view.RecentlyResolved.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Class="muted">Nothing was resolved in the last 7 days.</MudText>
+                }
+                else
+                {
+                    <div class="fl-panel pa-2">
+                        <MudSimpleTable Dense="true" Elevation="0">
+                            <tbody>
+                                @foreach (var issue in view.RecentlyResolved)
+                                {
+                                    <tr>
+                                        <td>@issue.Title</td>
+                                        <td class="muted" style="white-space:nowrap">@Time.Absolute(issue.ResolvedAt)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                }
+                @if (view.Queries?.Problem is { } problem)
+                {
+                    <MudText Typo="Typo.caption" Class="muted d-block mt-3">Database statements in the diagnostics: @problem</MudText>
+                }
+            </MudItem>
+        </MudGrid>
+    }
+    else
+    {
+        <EmptyState Icon="@Icons.Material.Outlined.MonitorHeart" Title="Instance health is for admins" Text="Ask an admin to look at it." />
+    }
+</LoadState>
+
+@code {
+    private InstanceHealthView? _view;
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private Task ReloadAsync() => LoadAsync(async caller => _view = await HealthSvc.GetAsync(caller));
+
+    private async Task CopyAsync()
+    {
+        if (await ExportAsync("copied") is { } report)
+        {
+            await JS.InvokeVoidAsync("fleeto.copyText", report);
+            Snackbar.Add("The diagnostics were copied. They hold sizes and counts only, no secrets or personal data.", Severity.Success);
+        }
+    }
+
+    private async Task DownloadAsync()
+    {
+        if (await ExportAsync("downloaded") is { } report)
+        {
+            var name = $"fleeto-diagnostics-{DateTime.UtcNow:yyyyMMdd-HHmm}.md";
+            await JS.InvokeVoidAsync("fleeto.saveFile", name, "text/markdown", Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(report)));
+        }
+    }
+
+    private async Task<string?> ExportAsync(string how)
+    {
+        _busy = true;
+        try
+        {
+            var result = await RunForValueAsync(caller => HealthSvc.ExportDiagnosticsAsync(caller, how), null);
+            return result?.Value;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string StatusIcon(HealthStatus status) => status switch
+    {
+        HealthStatus.Ok => Icons.Material.Outlined.CheckCircle,
+        HealthStatus.Warning => Icons.Material.Outlined.Warning,
+        HealthStatus.Critical => Icons.Material.Outlined.Error,
+        _ => Icons.Material.Outlined.HelpOutline
+    };
+
+    private static Color StatusColor(HealthStatus status) => status switch
+    {
+        HealthStatus.Ok => Color.Success,
+        HealthStatus.Warning => Color.Warning,
+        HealthStatus.Critical => Color.Error,
+        _ => Color.Default
+    };
+}

@@ -156,6 +156,8 @@ public static class DatabaseGrants
             // The automations of patch policies (0.6.0): only the workers write what they made in the product; web shows it.
             ["IntegrationAutomations"] = Grants(web: Read, workers: ReadWrite),
             ["BackupRuns"] = Grants(web: Read, workers: ReadWrite),
+            ["InstanceHealthSamples"] = Grants(web: Read, workers: ReadWrite),
+            ["InstanceHealthIssues"] = Grants(web: Read, workers: ReadWrite),
             ["WorkerWatermarks"] = Grants(workers: ReadWrite),
 
             // Key material: full access for the signer only; everyone else reads the public columns.

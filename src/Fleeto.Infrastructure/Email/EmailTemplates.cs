@@ -123,6 +123,43 @@ public static class EmailTemplates
         return new EmailContent(Subject($"Still open after hold: {alert.Title}"), html, Footer(text));
     }
 
+    /// <summary>
+    /// A problem of the VPS or the instance opened, got worse or was resolved (instance health, 0.6.0). Title and detail are
+    /// written by Fleeto from sizes and counts, never from agent or user data, and are encoded all the same.
+    /// </summary>
+    public static EmailContent InstanceHealth(string instanceFqdn, NotificationEvent notificationEvent, string severity, string title, string detail,
+        string healthUrl)
+    {
+        var (lead, subject) = notificationEvent switch
+        {
+            NotificationEvent.Resolved => ($"This problem of {instanceFqdn} is resolved.", $"Resolved: {title}"),
+            NotificationEvent.Escalated => ($"This problem of {instanceFqdn} is now {severity.ToLowerInvariant()}.", $"Now {severity.ToLowerInvariant()}: {title}"),
+            _ => ($"Instance health of {instanceFqdn} needs attention.", title)
+        };
+        var chip = notificationEvent == NotificationEvent.Resolved
+            ? $"""<span style="display:inline-block;padding:2px 10px;border-radius:12px;background:#F0FDFA;color:{BrandColor};font-size:13px;font-weight:600">Resolved</span>"""
+            : SeverityChip(severity);
+        var shownDetail = notificationEvent == NotificationEvent.Resolved ? string.Empty : detail;
+        var html = Layout($"""
+            <p style="margin:0 0 8px">{chip}</p>
+            <p style="margin:0 0 16px">{Enc(lead)}</p>
+            <p style="margin:0 0 16px;font-size:17px;font-weight:600">{Enc(title)}</p>
+            {DetailBlock(shownDetail)}
+            {Button(healthUrl, "Open instance health")}
+            """);
+
+        var text = $"""
+            {lead}
+
+            {title}
+
+            {DetailText(shownDetail)}
+            Open instance health: {healthUrl}
+            """;
+
+        return new EmailContent(Subject(subject), html, Footer(text));
+    }
+
     public static EmailContent AlertResolved(AlertEmailModel alert)
     {
         var reason = string.IsNullOrWhiteSpace(alert.ResolvedReason) ? "The alert was resolved." : alert.ResolvedReason;

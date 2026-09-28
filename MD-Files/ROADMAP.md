@@ -872,6 +872,12 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
 - [done] **Where a monitoring template can be linked** (asked for by the developer on 2026-09-28): clients, sites, endpoints
   or more of them, refused elsewhere, also in a client template, and a level still in use cannot be switched off. The
   Checks tab shows where each check comes from with an icon and a tooltip.
+- [done] **Instance health** (asked for by the developer on 2026-09-28: "a health tile for the VPS, with why and what to do,
+  and a log to give to an AI"). Decided the same day: admins only; problems go to the notification channels an admin
+  chooses; the diagnostics can be copied and downloaded; pg_stat_statements switched on. Done: `InstanceHealthService` in
+  the workers (samples every 5 minutes from /proc and the database, rules in `InstanceHealthRules`, issues that open,
+  escalate and resolve), `InstanceHealthSamples` and `InstanceHealthIssues`, the channel option, the dashboard tile, the
+  page in Settings and the diagnostics report, and install.sh creating the extension.
 
 ## 0.7.0 — Hardening
 

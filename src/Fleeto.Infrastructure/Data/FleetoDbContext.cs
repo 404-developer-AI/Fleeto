@@ -96,6 +96,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<OutboxEmail> OutboxEmails => Set<OutboxEmail>();
     public DbSet<OutboxWebhook> OutboxWebhooks => Set<OutboxWebhook>();
     public DbSet<BackupRun> BackupRuns => Set<BackupRun>();
+    public DbSet<InstanceHealthSample> InstanceHealthSamples => Set<InstanceHealthSample>();
+    public DbSet<InstanceHealthIssue> InstanceHealthIssues => Set<InstanceHealthIssue>();
     public DbSet<WorkerWatermark> WorkerWatermarks => Set<WorkerWatermark>();
     public DbSet<Integration> Integrations => Set<Integration>();
 
@@ -961,6 +963,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(c => c.WebhookHost).HasMaxLength(255);
             entity.Property(c => c.EncryptedWebhook).HasMaxLength(8000);
             entity.Property(c => c.AllClients).HasDefaultValue(true).ValueGeneratedNever();
+            entity.Property(c => c.InstanceHealth).HasDefaultValue(false);
             entity.ToTable(t => t.HasCheckConstraint("CK_NotificationChannels_Type",
                 "(\"Type\" = 'Email' AND \"Recipients\" <> '' AND \"EncryptedWebhook\" IS NULL) OR " +
                 "(\"Type\" = 'Webhook' AND \"EncryptedWebhook\" IS NOT NULL AND \"WebhookFormat\" IS NOT NULL)"));
@@ -1181,6 +1184,25 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(e => e.NextAttemptAt).HasFilter("\"SentAt\" IS NULL").HasDatabaseName("IX_OutboxEmails_Pending");
             // What was sent to one address lately, for the flood limit (0.6.0).
             entity.HasIndex(e => new { e.ToAddress, e.CreatedAt });
+        });
+
+        // Instance health (0.6.0): instance-wide, no client, no personal data.
+        builder.Entity<InstanceHealthSample>(entity =>
+        {
+            entity.Property(s => s.DetailJson).HasColumnType("jsonb");
+            entity.HasIndex(s => s.Time);
+        });
+
+        builder.Entity<InstanceHealthIssue>(entity =>
+        {
+            entity.Property(i => i.Key).HasMaxLength(100);
+            entity.Property(i => i.Component).HasConversion<string>().HasMaxLength(20);
+            entity.Property(i => i.Severity).HasConversion<string>().HasMaxLength(20);
+            entity.Property(i => i.Title).HasMaxLength(500);
+            entity.Property(i => i.Detail).HasMaxLength(2000);
+            // At most one open issue per key, so a concurrent pass cannot open it twice.
+            entity.HasIndex(i => i.Key).IsUnique().HasFilter("\"ResolvedAt\" IS NULL").HasDatabaseName("IX_InstanceHealthIssues_OpenKey");
+            entity.HasIndex(i => i.ResolvedAt);
         });
 
         builder.Entity<BackupRun>(entity =>

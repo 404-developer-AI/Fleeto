@@ -148,8 +148,14 @@ the API and the database follows it.
 UI structure:
 
 - **Dashboard**: summary tiles (endpoints online/offline, open alerts by severity, patch
-  compliance, integration health, agents out of date, license usage), the open alert list,
+  compliance, integration health, agents out of date, license usage, and for admins instance health), the open alert list,
   recent jobs.
+- **Instance health** (0.6.0, decided 2026-09-28): the workers measure the VPS (disk, memory, CPU from /proc, shared by every
+  instance on it), the database and the instance itself (stuck worker tasks, backups, notifications that do not go out)
+  every 5 minutes. A problem states its cause and next step, shows on an admin-only dashboard tile and page in Settings,
+  and goes to the notification channels an admin chose for instance health. Such a problem is not an alert: it belongs to
+  no client or endpoint. The page copies or downloads a diagnostics report (sizes, counts and normalized statements from
+  pg_stat_statements, never secrets or personal data) to give to a person or an AI; every export is audited.
 - **Clients**: one workspace. Left, a clients panel with search: All clients, and every client
   expandable to its sites. Right, the endpoints of the selection (all clients, a client or a
   site) with tabs **Servers**, **Workstations** and **Mixed** (all endpoints together), search
@@ -166,7 +172,7 @@ UI structure:
   Clients: left, a settings panel; right, the selected page. Group **Templates** (client
   templates, monitoring templates, policies, patch policies) for every user, and the administration pages for
   admins: users and roles, tags, licensing, API keys, integrations, notification channels, retention,
-  audit log.
+  audit log, instance health.
 
 ## Licensing: per endpoint, two tiers
 

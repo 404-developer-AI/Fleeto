@@ -1,3 +1,4 @@
+using Fleeto.Workers.Health;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Identity;
 using Fleeto.Infrastructure.Integrations;
@@ -78,6 +79,8 @@ public static class WorkersServiceCollectionExtensions
         services.AddHostedService<CredentialExpiryService>();
         services.AddHostedService<BackupService>();
         services.AddHostedService<RetentionService>();
+        services.AddSingleton<HostMetricsReader>();
+        services.AddHostedService<InstanceHealthService>();
         services.AddHostedService<IntegrationSyncService>();
         services.AddHostedService<IntegrationFollowService>();
         services.AddHostedService<PatchAutomationService>();

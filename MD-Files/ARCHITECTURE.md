@@ -147,7 +147,9 @@ AuditEntry (append-only)
 | **Note** | `Id`, `ClientId`, `EndpointId`, `AuthorId`, `AuthorName`, `Body` (markdown, at most 20,000 characters), `CreatedAt`, `UpdatedAt`, `EditedAt?` | Endpoints only (site notes were dropped). Managed endpoints only. The author edits, an admin deletes. Searchable once logs and search are built (ROADMAP, Not yet scheduled). A Servicedesk ticket reference is not yet scheduled (ROADMAP, Not yet scheduled). |
 | **StorageScan** | `Id`, `ClientId`, `EndpointId`, `AgentScanId` (unique per endpoint), `Volume`, `Filesystem`, `TotalBytes`, `FreeBytes`, `ReceivedAt` (stamped by the gateway), `AgentStartedAt?`, `DurationMs`, `Method` (`Mft`, `Walk`), `Complete`, `Error?`, `FileCount`, `FolderCount`, `RequestId?`, `FoldersJson`, `FilesJson` | One storage scan of one drive (0.6.0, §4 *Storage analysis*): the 300 largest folders (path, size on disk, files and folders below it; root first) and the 50 largest files (path, size on disk, modified), never the whole tree. Paths are personal data. Kept daily for 30 days, then the first scan of each week per drive for 13 months. Managed endpoints only. |
 | **StorageScanRequest** | `Id`, `ClientId`, `EndpointId`, `Reason` (`Technician`, `DiskFree`), `RequestedByUserId?`, `RequestedByName`, `RequestedAt`, `ExpiresAt`, `DeliveredAt?` | "Scan now" (1 hour to reach the agent) or a Disk free check in warning (12 hours). Kept 7 days. |
-| **NotificationChannel** | `Id`, `Name`, `Type` (`Email`, `Webhook`), `Recipients`, `WebhookFormat?` (`Generic`, `Slack`, `Teams`), `WebhookHost?`, `EncryptedWebhook?`, `MinimumSeverity`, `NotifyOnResolve`, `Enabled`, `AllClients` | Instance-wide, admins only. Routing (0.2.0): all clients or the clients in **NotificationChannelClient** (`NotificationChannelId`, `ClientId`, deleted with either side), plus minimum severity and resolves. `EncryptedWebhook` holds URL and signing secret, bound to the channel id (§5). The type cannot change. |
+| **InstanceHealthSample** | `Id`, `Time`, `CpuPercent?`, `Load1?`, `Cores?`, `MemoryTotalBytes?`, `MemoryAvailableBytes?`, `SwapTotalBytes?`, `SwapFreeBytes?`, `DiskTotalBytes?`, `DiskFreeBytes?`, `DatabaseBytes`, `DatabaseConnections`, `DatabaseMaxConnections`, `DetailJson` | Instance health (0.6.0, §4): one measurement every 5 minutes, kept 30 days. Host values are of the whole VPS and null where the platform has no /proc. `DetailJson`: the 15 largest tables and the instance facts. No personal data. Workers write, web reads. |
+| **InstanceHealthIssue** | `Id`, `Key`, `Component`, `Severity`, `Title`, `Detail`, `OpenedAt`, `UpdatedAt`, `ResolvedAt?` | A problem of the VPS or the instance (0.6.0, §4). At most one open per `Key` (unique partial index). Not an `Alert`: it has no client or endpoint. Resolved issues are kept 90 days. |
+| **NotificationChannel** | `Id`, `Name`, `Type` (`Email`, `Webhook`), `Recipients`, `WebhookFormat?` (`Generic`, `Slack`, `Teams`), `WebhookHost?`, `EncryptedWebhook?`, `MinimumSeverity`, `NotifyOnResolve`, `Enabled`, `AllClients`, `InstanceHealth` (0.6.0) | Instance-wide, admins only. Routing (0.2.0): all clients or the clients in **NotificationChannelClient** (`NotificationChannelId`, `ClientId`, deleted with either side), plus minimum severity and resolves. `InstanceHealth`: the channel also receives instance health problems (§4). `EncryptedWebhook` holds URL and signing secret, bound to the channel id (§5). The type cannot change. |
 | **OutboxEmail**, **OutboxWebhook** | `Id`, recipient or `NotificationChannelId`, `Category`, content or `Payload`, `Attempts`, `NextAttemptAt`, `SentAt?`, `LastError?` | Written in the transaction that changes the alert; delivered by the workers (§4, Alert notifications). Sent rows kept 30 days, given up rows 90 days. |
 | **Integration** | `Id`, `Type`, `Enabled`, `Region?`, `EncryptedCredentials`, `CredentialName`, `Status`, `StatusMessage?`, `LastAttemptAt?`, `LastSuccessAt?` | One external product per instance (unique on `Type`, 0.4.0). Credentials are ciphertext bound to the row, see §5; `CredentialName` is the client id, for display. `Region` is the Action1 region, which decides the base URL. `FollowClients` and `FollowMessage?` (0.6.0): Action1 follows the clients and sites (§4, Following clients and sites) and why that last failed. |
 | **IntegrationMapping** | `Id`, `IntegrationId`, `ClientId`, `ExternalTenantId`, `ExternalTenantName`, `SyncedName` | One external tenant (Action1 organization, Sophos tenant) maps to one client, and a client to one tenant: both unique per integration. Client-owned, so deleting the client removes it. `SyncedName` (0.6.0): the tenant name Fleeto last brought the tenant in step with; set to the tenant's own name when the mapping is made, so following clients renames every mapped tenant to `[CODE] Name` once and then again only when the client is renamed. |
@@ -514,6 +516,29 @@ missing updates were not read in detail gets no result, because the counts alone
 reporting an endpoint, the states of its missing updates checks are removed and their open alerts resolve. Such a check
 stores a fixed interval (4 hours, the patch sync), and "run now" and "reset" are refused. The second is **Folder growth**
 (below, *Storage analysis*), written after every storage scan.
+
+**Instance health (0.6.0).** Every 5 minutes `InstanceHealthService` in the workers takes a sample: disk, memory, swap,
+CPU and load of the VPS from /proc (a container shares it with the host, so no Docker socket is needed; the disk is the file
+system of the container root, which holds the Docker data directory; CPU is the average since the previous sample), the
+database (`pg_database_size`, client connections against `max_connections`, the 15 largest tables with
+`pg_total_relation_size`), and the instance (worker tasks that stopped reporting to `WorkerHeartbeat`, the last successful
+backup, emails and webhooks that wait, unprocessed endpoint events, endpoints online). `InstanceHealthRules` judges it with
+fixed thresholds: disk 80 and 90% used or full within 14 and 3 days at the growth of the last week (a least-squares line),
+memory under 10 and 5% available or swap half in use, CPU 85 and 95% on average over 15 minutes, connections 80 and 95%, a
+stuck worker task, no backup destination or no successful backup for 36 hours, and notifications or events that wait
+longer than 30 or 10 minutes. A finding opens an `InstanceHealthIssue` whose title and detail state cause and next step; a
+worse one escalates it; it resolves once the finding has been away for 15 minutes, so a value around a threshold does not
+flap. Every transition is queued in the same transaction for the notification channels with `InstanceHealth` switched on
+(minimum severity and resolves as for alerts, never in a digest), by email and webhook (`instance_health.opened`,
+`.escalated`, `.resolved`). It is deliberately not an `Alert`: alerts belong to a client and an endpoint, with client scope,
+maintenance and hold. Once an hour the workers read the ten costliest statements from pg_stat_statements (literals
+replaced) into the setting `instance-health.queries`; the compose command preloads the library and install.sh creates the
+extension and grants `pg_read_all_stats` to `fleeto_workers` as the superuser over the local socket, a failure being a
+warning only. Web measures nothing: the admin-only dashboard tile and the page Settings, Instance health read the samples
+and issues, show 7-day hourly trends with the check history chart, and say so when no sample is younger than 15 minutes
+(the workers are not measuring). The diagnostics are a Markdown report built from the same data (components, issues, days,
+tables, statements, instance counts), copied or downloaded by an admin and audited as `instance.diagnostics_exported`;
+they carry sizes, counts and normalized statements, never host names, users, secrets or other personal data.
 
 **Storage analysis (0.6.0).** Which folders fill a drive, and which grow, without a TreeSize on every server:
 - *On the endpoint.* The agent scans every fixed drive (those of the Disk free check) on the interval of its policy

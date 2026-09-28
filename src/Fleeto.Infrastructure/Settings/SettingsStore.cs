@@ -38,6 +38,9 @@ public static class SettingKeys
     /// <summary>Last evaluated <see cref="Core.Domain.LicenseState"/>, to detect transitions.</summary>
     public const string LicenseLastState = "license.last-state";
 
+    /// <summary><see cref="Core.Domain.QueryStatistics"/>, plain: the costliest statements for instance health (0.6.0).</summary>
+    public const string InstanceHealthQueries = "instance-health.queries";
+
     /// <summary>Days of raw check results to keep when TimescaleDB is not installed. Default 30.</summary>
     public const string RetentionCheckResultsDays = "retention.check-results-days";
 

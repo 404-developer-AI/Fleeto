@@ -188,6 +188,8 @@ public static class AuditActions
     public const string CheckReset = "check.reset";
     /// <summary>A technician asked an endpoint to scan its storage now (0.6.0).</summary>
     public const string StorageScanRequested = "storage.scan_requested";
+    /// <summary>An admin copied or downloaded the instance health diagnostics (0.6.0).</summary>
+    public const string InstanceDiagnosticsExported = "instance.diagnostics_exported";
     public const string NoteCreated = "note.created";
     public const string NoteUpdated = "note.updated";
     public const string NoteDeleted = "note.deleted";

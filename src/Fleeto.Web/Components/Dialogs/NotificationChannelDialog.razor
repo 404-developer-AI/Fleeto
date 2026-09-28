@@ -47,6 +47,10 @@
             </MudSelect>
         }
 
+        <MudSwitch T="bool" @bind-Value="_instanceHealth" Color="Color.Primary" Label="Also send instance health problems" />
+        <MudText Typo="Typo.caption" Class="muted d-block mb-2" Style="margin-top:-6px">
+            Disk, memory or CPU of the VPS, the database, stuck worker tasks, backups and notifications that do not go out. They belong to no client.
+        </MudText>
         <MudSwitch T="bool" @bind-Value="_notifyOnResolve" Color="Color.Primary" Label="Also send a message when an alert is resolved" />
         <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Label="Enabled" />
     </DialogContent>
@@ -73,6 +77,7 @@
     private bool _allClients = true;
     private IReadOnlyCollection<Guid> _clientIds = new HashSet<Guid>();
     private bool _notifyOnResolve = true;
+    private bool _instanceHealth;
     private bool _enabled = true;
     private bool _busy;
 
@@ -88,6 +93,7 @@
             _allClients = c.AllClients;
             _clientIds = c.Clients.Select(x => x.Id).ToHashSet();
             _notifyOnResolve = c.NotifyOnResolve;
+            _instanceHealth = c.InstanceHealth;
             _enabled = c.Enabled;
         }
     }
@@ -117,7 +123,7 @@
         try
         {
             var input = new NotificationChannelInput(_name, _type, _recipients, _format, _url, _minimumSeverity, _notifyOnResolve, _enabled,
-                _allClients, _clientIds.ToList());
+                _allClients, _clientIds.ToList(), _instanceHealth);
             if (await OnSubmit(input))
             {
                 MudDialog.Close(DialogResult.Ok(true));

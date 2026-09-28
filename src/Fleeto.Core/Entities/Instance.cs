@@ -229,6 +229,12 @@ public class NotificationChannel
     /// </summary>
     public bool AllClients { get; set; } = true;
 
+    /// <summary>
+    /// Instance health (0.6.0): the channel also receives the problems of the VPS and the instance itself (disk, memory, CPU,
+    /// database, workers, backups, outgoing notifications), whatever its clients. Chosen by an admin; off by default.
+    /// </summary>
+    public bool InstanceHealth { get; set; }
+
     public List<NotificationChannelClient> Clients { get; set; } = [];
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
@@ -330,4 +336,47 @@ public static class FleetoRoles
     public const string ReadOnly = "read-only";
 
     public static readonly IReadOnlyList<string> All = [Admin, Technician, ReadOnly];
+}
+
+/// <summary>
+/// One measurement of the health of the VPS and the instance (0.6.0), taken by the workers every 5 minutes and kept 30 days.
+/// Host values are of the whole VPS (several instances may share it) and null where the platform does not offer them. The
+/// columns hold what the trends need; <see cref="DetailJson"/> the rest (<see cref="Domain.InstanceHealthDetail"/>). No
+/// personal data: sizes and counts only.
+/// </summary>
+public class InstanceHealthSample
+{
+    public long Id { get; set; }
+    public DateTime Time { get; set; }
+    public double? CpuPercent { get; set; }
+    public double? Load1 { get; set; }
+    public int? Cores { get; set; }
+    public long? MemoryTotalBytes { get; set; }
+    public long? MemoryAvailableBytes { get; set; }
+    public long? SwapTotalBytes { get; set; }
+    public long? SwapFreeBytes { get; set; }
+    public long? DiskTotalBytes { get; set; }
+    public long? DiskFreeBytes { get; set; }
+    public long DatabaseBytes { get; set; }
+    public int DatabaseConnections { get; set; }
+    public int DatabaseMaxConnections { get; set; }
+    public string DetailJson { get; set; } = "{}";
+}
+
+/// <summary>
+/// A problem of the VPS or the instance (0.6.0), opened and resolved by the workers from the health rules
+/// (<see cref="Domain.InstanceHealthRules"/>). At most one open issue per <see cref="Key"/>. Its title and detail state the
+/// cause and the next step. Resolved issues are kept 90 days.
+/// </summary>
+public class InstanceHealthIssue
+{
+    public Guid Id { get; set; }
+    public string Key { get; set; } = string.Empty;
+    public HealthComponent Component { get; set; }
+    public AlertSeverity Severity { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string Detail { get; set; } = string.Empty;
+    public DateTime OpenedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public DateTime? ResolvedAt { get; set; }
 }

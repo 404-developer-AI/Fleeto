@@ -15,12 +15,14 @@ public sealed record ChannelDelivery(DateTime At, bool Delivered, string? Error,
 
 public sealed record NotificationChannelView(Guid Id, string Name, NotificationChannelType Type, string Recipients, WebhookFormat? WebhookFormat,
     string? WebhookHost, AlertSeverity MinimumSeverity, bool NotifyOnResolve, bool Enabled, bool AllClients, IReadOnlyList<ChannelClient> Clients,
-    DateTime UpdatedAt, ChannelDelivery? LastDelivery);
+    DateTime UpdatedAt, ChannelDelivery? LastDelivery, bool InstanceHealth = false);
 
 /// <param name="WebhookUrl">Webhook channels: the URL; blank when editing keeps the current URL.</param>
 /// <param name="ClientIds">The clients whose alerts the channel receives when <paramref name="AllClients"/> is false.</param>
+/// <param name="InstanceHealth">The channel also receives the problems of the VPS and the instance (0.6.0).</param>
 public sealed record NotificationChannelInput(string? Name, NotificationChannelType Type, string? Recipients, WebhookFormat WebhookFormat,
-    string? WebhookUrl, AlertSeverity MinimumSeverity, bool NotifyOnResolve, bool Enabled, bool AllClients, IReadOnlyCollection<Guid> ClientIds);
+    string? WebhookUrl, AlertSeverity MinimumSeverity, bool NotifyOnResolve, bool Enabled, bool AllClients, IReadOnlyCollection<Guid> ClientIds,
+    bool InstanceHealth = false);
 
 /// <param name="SigningSecret">Set only when a new signing secret was created; shown once and never again.</param>
 public sealed record NotificationChannelSaved(Guid Id, string? SigningSecret);
@@ -71,7 +73,7 @@ public sealed class NotificationChannelService
             views.Add(new NotificationChannelView(channel.Id, channel.Name, channel.Type, channel.Recipients, channel.WebhookFormat, channel.WebhookHost,
                 channel.MinimumSeverity, channel.NotifyOnResolve, channel.Enabled, channel.AllClients,
                 channel.Clients.Select(c => clients.GetValueOrDefault(c.ClientId)).OfType<ChannelClient>().OrderBy(c => c.Code).ToList(),
-                channel.UpdatedAt, last));
+                channel.UpdatedAt, last, channel.InstanceHealth));
         }
 
         return views;
@@ -198,6 +200,7 @@ public sealed class NotificationChannelService
         channel.NotifyOnResolve = input.NotifyOnResolve;
         channel.Enabled = input.Enabled;
         channel.AllClients = input.AllClients;
+        channel.InstanceHealth = input.InstanceHealth;
         channel.Clients.RemoveAll(c => !clientIds.Contains(c.ClientId));
         foreach (var clientId in clientIds.Where(c => channel.Clients.All(x => x.ClientId != c)))
         {
@@ -220,7 +223,8 @@ public sealed class NotificationChannelService
             channel.NotifyOnResolve,
             channel.Enabled,
             channel.AllClients,
-            Clients = clientIds.Count
+            Clients = clientIds.Count,
+            channel.InstanceHealth
         }), now));
         await db.SaveChangesAsync(cancellationToken);
         return ServiceResult<NotificationChannelSaved>.Ok(new NotificationChannelSaved(channel.Id, newSecret));

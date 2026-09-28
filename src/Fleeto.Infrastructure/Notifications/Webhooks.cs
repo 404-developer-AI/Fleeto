@@ -170,6 +170,54 @@ public static class WebhookPayloads
         })
     };
 
+    /// <summary>Event name of an instance health notification (0.6.0) in webhook payloads and outbox categories.</summary>
+    public static string InstanceHealthEventName(NotificationEvent notificationEvent) => notificationEvent switch
+    {
+        NotificationEvent.Escalated => "instance_health.escalated",
+        NotificationEvent.Resolved => "instance_health.resolved",
+        _ => "instance_health.opened"
+    };
+
+    /// <summary>A problem of the VPS or the instance (0.6.0). No client, site or endpoint: it concerns the instance itself.</summary>
+    public static string InstanceHealth(WebhookFormat format, Guid deliveryId, string instanceFqdn, NotificationEvent notificationEvent, Guid issueId,
+        string component, AlertSeverity severity, string title, string detail, DateTime openedAt, DateTime? resolvedAt, string healthUrl, DateTime now)
+    {
+        var headline = notificationEvent switch
+        {
+            NotificationEvent.Escalated => $"Now {severity.ToString().ToLowerInvariant()}: {title}",
+            NotificationEvent.Resolved => $"Resolved: {title}",
+            _ => title
+        };
+        var facts = new List<(string Name, string Value)> { ("Instance", instanceFqdn), ("Component", component) };
+        var text = notificationEvent == NotificationEvent.Resolved ? string.Empty : Trim(detail);
+        return format switch
+        {
+            WebhookFormat.Slack => Slack(headline, facts, text, healthUrl, "Open instance health"),
+            WebhookFormat.Teams => Teams(headline, facts, text, healthUrl, "Open instance health",
+                notificationEvent == NotificationEvent.Resolved ? "Good" : severity == AlertSeverity.Critical ? "Attention" : "Warning"),
+            _ => Serialize(new JsonObject
+            {
+                ["id"] = deliveryId,
+                ["type"] = InstanceHealthEventName(notificationEvent),
+                ["version"] = 1,
+                ["createdAt"] = Utc(now),
+                ["instance"] = instanceFqdn,
+                ["issue"] = new JsonObject
+                {
+                    ["id"] = issueId,
+                    ["component"] = component,
+                    ["title"] = title,
+                    ["detail"] = detail,
+                    ["severity"] = severity.ToString().ToLowerInvariant(),
+                    ["state"] = resolvedAt is null ? "open" : "resolved",
+                    ["openedAt"] = Utc(openedAt),
+                    ["resolvedAt"] = resolvedAt is { } at ? Utc(at) : null,
+                    ["url"] = healthUrl
+                }
+            })
+        };
+    }
+
     public static string Test(WebhookFormat format, Guid deliveryId, string instanceFqdn, string channelsUrl, DateTime now)
     {
         const string headline = "Test message from Fleeto";

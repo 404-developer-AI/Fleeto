@@ -11,6 +11,12 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
+- Instance health, for admins: a tile on the dashboard and a page in Settings show disk, memory and CPU of the VPS, the
+  database, the workers, backups and notifications, with 7-day trends. A problem says why and what to do, and goes to the
+  notification channels where "Also send instance health problems" is switched on. The page copies or downloads a
+  diagnostics report to give to a person or an AI: sizes, counts and the costliest database statements, without secrets or
+  personal data. install.sh switches on pg_stat_statements for it.
+
 - A monitoring template says where it can be linked: to clients, sites, endpoints or more of them (all three for existing
   templates). Edit client, Edit site, the policies of an endpoint and client templates only offer it there, and a level it
   is still linked on cannot be switched off.

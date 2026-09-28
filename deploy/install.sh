@@ -1355,6 +1355,22 @@ run_migrator() {
     return 0
 }
 
+# ensure_query_statistics <instance>: creates pg_stat_statements for the diagnostics of instance health (0.6.0) and lets the
+# workers read the statements of every role. The compose command loads the library; both statements need the superuser, which
+# only exists over the local socket. Idempotent. A failure is a warning: instance health then says the statistics are missing.
+ensure_query_statistics() {
+    local instance="$1"
+    if dc_instance "$instance" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username=postgres --dbname="$DB_NAME" >/dev/null 2>&1 <<'SQL'
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+GRANT pg_read_all_stats TO fleeto_workers;
+SQL
+    then
+        ok "query statistics enabled"
+    else
+        warn "pg_stat_statements could not be enabled for $instance; instance health reports the statement statistics as unavailable."
+    fi
+}
+
 dc_hint() { printf 'docker compose -p %s-%s --env-file %s/instance.conf -f %s/compose.yml' "$PROJECT_PREFIX" "$1" "$(instance_dir "$1")" "$(instance_dir "$1")"; }
 
 setup_link_of() {
@@ -1583,6 +1599,7 @@ install_instance() {
         show_unhealthy_logs "$instance"
         die "$instance did not become healthy." "Read the log lines above, fix the cause and run install.sh again."
     fi
+    ensure_query_statistics "$instance"
 
     set_instance_state "$instance" ok
     update_caddy_routes
@@ -2026,6 +2043,7 @@ update_instance() {
         show_unhealthy_logs "$instance"
         rollback_instance "$instance" "$installed_version" "$version" "$rollback_mode" "$backup_file" "the health check failed"
     fi
+    ensure_query_statistics "$instance"
 
     set_instance_version "$instance" "$version"
     set_instance_state "$instance" ok

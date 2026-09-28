@@ -304,3 +304,15 @@ public enum AuditActorType
     System,
     Agent
 }
+
+/// <summary>The parts of the VPS and the instance that instance health watches (0.6.0). Stored by name.</summary>
+public enum HealthComponent
+{
+    Disk,
+    Memory,
+    Cpu,
+    Database,
+    Workers,
+    Backups,
+    Notifications
+}
