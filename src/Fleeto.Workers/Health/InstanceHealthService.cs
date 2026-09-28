@@ -38,13 +38,25 @@ public sealed class InstanceHealthService : WorkerLoop
                current_setting('max_connections')::int AS "MaxConnections"
         """;
 
+    private const int ListedTables = 15;
+
     private const string TablesSql = """
         SELECT c.relname AS "Name", pg_total_relation_size(c.oid) AS "Bytes", GREATEST(c.reltuples, 0)::bigint AS "Rows"
         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
-        ORDER BY 2 DESC
-        LIMIT 15
         """;
+
+    // A hypertable keeps its rows in chunks outside the public schema (compressed ones in yet another table), so its own
+    // relation is nearly empty: TimescaleDB's functions measure it as a whole. Only asked when the extension exists.
+    private const string HypertablesSql = """
+        SELECT h.hypertable_name AS "Name",
+               COALESCE(hypertable_size(format('%I.%I', h.hypertable_schema, h.hypertable_name)::regclass), 0) AS "Bytes",
+               GREATEST(approximate_row_count(format('%I.%I', h.hypertable_schema, h.hypertable_name)::regclass), 0) AS "Rows"
+        FROM timescaledb_information.hypertables h
+        WHERE h.hypertable_schema = 'public'
+        """;
+
+    private const string TimescaleInstalledSql = """SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') AS "Value" """;
 
     // String literals are replaced as well, although Fleeto's statements are parameterized: the diagnostics never carry data.
     private const string QueriesSql = """
@@ -93,8 +105,7 @@ public sealed class InstanceHealthService : WorkerLoop
         await using var db = _dbFactory.CreateSystem();
 
         var database = await db.Database.SqlQueryRaw<DatabaseRow>(DatabaseSql).SingleAsync(cancellationToken);
-        var tables = (await db.Database.SqlQueryRaw<TableRow>(TablesSql).ToListAsync(cancellationToken))
-            .Select(t => new TableSize(t.Name, t.Bytes, t.Rows)).ToList();
+        var tables = await ReadTablesAsync(db, cancellationToken);
         var detail = new InstanceHealthDetail(tables, await ReadFleetoAsync(db, cancellationToken));
 
         var sample = new InstanceHealthSample
@@ -132,6 +143,22 @@ public sealed class InstanceHealthService : WorkerLoop
         var findings = InstanceHealthRules.Evaluate(InstanceHealthRules.ToSnapshot(sample), disk, cpu);
         await ApplyAsync(db, findings, now, cancellationToken);
         return findings;
+    }
+
+    /// <summary>The largest tables of the instance, hypertables measured with their chunks.</summary>
+    private static async Task<IReadOnlyList<TableSize>> ReadTablesAsync(FleetoDbContext db, CancellationToken cancellationToken)
+    {
+        var sizes = (await db.Database.SqlQueryRaw<TableRow>(TablesSql).ToListAsync(cancellationToken))
+            .ToDictionary(t => t.Name, t => new TableSize(t.Name, t.Bytes, t.Rows), StringComparer.Ordinal);
+        if (await db.Database.SqlQueryRaw<bool>(TimescaleInstalledSql).SingleAsync(cancellationToken))
+        {
+            foreach (var hypertable in await db.Database.SqlQueryRaw<TableRow>(HypertablesSql).ToListAsync(cancellationToken))
+            {
+                sizes[hypertable.Name] = new TableSize(hypertable.Name, hypertable.Bytes, hypertable.Rows);
+            }
+        }
+
+        return sizes.Values.OrderByDescending(t => t.Bytes).ThenBy(t => t.Name, StringComparer.Ordinal).Take(ListedTables).ToList();
     }
 
     private async Task<FleetoHealth> ReadFleetoAsync(FleetoDbContext db, CancellationToken cancellationToken)
