@@ -83,6 +83,10 @@ public static class DatabaseGrants
             ["CheckRunRequests"] = Grants(web: "SELECT, INSERT", gateway: "SELECT, UPDATE", workers: "SELECT, UPDATE, DELETE"),
             // Deleted with their endpoint through the foreign key cascade.
             ["Notes"] = Grants(web: ReadWrite),
+            // Storage analysis (0.6.0): the gateway stores what the agent reports, web reads it, the workers evaluate folder growth
+            // and apply retention. Web and the workers (for a Disk free check) ask for scans, the gateway delivers them.
+            ["StorageScans"] = Grants(web: Read, gateway: "SELECT, INSERT", workers: "SELECT, DELETE"),
+            ["StorageScanRequests"] = Grants(web: "SELECT, INSERT", gateway: "SELECT, UPDATE", workers: "SELECT, INSERT, DELETE"),
 
             // Scripts and jobs (0.2.0): web writes, the signer decides and signs, the gateway delivers and stores output, the
             // workers expire and clean up. Who may request a job signature is also enforced by TR_SigningRequests_Origin.

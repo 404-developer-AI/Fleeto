@@ -1,0 +1,67 @@
+@* The size of one folder in every stored storage scan of its drive (0.6.0): daily for 30 days, weekly for 13 months. *@
+@inherits FleetoPageBase
+@inject StorageService StorageSvc
+@inject TimeProvider Clock
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6" Style="word-break:break-all">History of @Path</MudText>
+    </TitleContent>
+    <DialogContent>
+        <LoadState Loading="Loading" Failed="LoadFailed" What="folder">
+            @if (_points.Count == 0)
+            {
+                <EmptyState Icon="@Icons.Material.Outlined.ShowChart" Title="No history for this folder"
+                            Text="A folder appears in a scan only while it is among the largest of its drive." />
+            }
+            else
+            {
+                <HistoryChart View="_view!" />
+                <MudText Typo="Typo.caption" Class="muted d-block mt-2">
+                    Size on disk in every scan that listed the folder. Every scan is kept for 30 days, one a week for 13 months after that.
+                    @if (_points.Any(p => !p.Complete))
+                    {
+                        <span>Incomplete scans are included; their sizes are lower bounds.</span>
+                    }
+                </MudText>
+            }
+        </LoadState>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="@(() => MudDialog.Close())">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public Guid EndpointId { get; set; }
+    [Parameter, EditorRequired] public string Volume { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Path { get; set; } = string.Empty;
+
+    private IReadOnlyList<StorageHistoryPoint> _points = [];
+    private CheckHistoryView? _view;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync(async caller =>
+        {
+            _points = await StorageSvc.FolderHistoryAsync(caller, EndpointId, Volume, Path);
+            if (_points.Count == 0)
+            {
+                return;
+            }
+
+            var to = Clock.GetUtcNow().UtcDateTime;
+            var from = _points[0].At < to.AddDays(-31) ? to.AddDays(-400) : to.AddDays(-31);
+            var points = _points
+                .Select(p => StorageRules.ToGigabytes(p.SizeBytes) is var gb ? new HistoryPoint(p.At, gb, gb, gb, 1, 0, 0) : null)
+                .OfType<HistoryPoint>()
+                .ToList();
+            _view = new CheckHistoryView(Guid.Empty, Path, CheckType.FolderGrowth, Volume, [Volume], new Dictionary<string, string>(),
+                ThresholdKind.HigherIsWorse, "GB", null, null, from < to.AddDays(-32) ? HistoryRange.Year : HistoryRange.Month, from, to,
+                TimeSpan.FromDays(1), points);
+        });
+    }
+}

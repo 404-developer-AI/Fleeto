@@ -278,6 +278,16 @@ button.tag-chip:focus-visible { outline: 2px solid var(--fl-primary); outline-of
 @container (min-width: 640px) { .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .detail-table td:first-child { width: 38%; }
 
+/* Storage tab (0.6.0): folder tree with a share bar, and growth in amber, shrinkage in the primary color. */
+.storage-table td { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.storage-table td.storage-path { white-space: normal; word-break: break-all; }
+.storage-name { overflow: hidden; text-overflow: ellipsis; }
+.storage-indent { display: inline-block; width: 30px; flex-shrink: 0; }
+.storage-bar { height: 8px; border-radius: 4px; background: var(--fl-border); overflow: hidden; min-width: 80px; }
+.storage-bar-fill { height: 100%; background: var(--fl-primary); border-radius: 4px; }
+.storage-grew { color: #B45309; font-weight: 600; }
+.storage-shrank { color: var(--fl-primary); }
+
 /* Deployments on the Patches tab: five rows, then a scrolling box the user can drag taller (reset on the next visit) */
 .deployment-list { --deployment-row: 44px; --deployment-head: 40px; border: 1px solid var(--fl-border); border-radius: 8px; }
 .deployment-list .mud-table-head th { height: var(--deployment-head); }

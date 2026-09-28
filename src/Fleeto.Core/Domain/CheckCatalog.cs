@@ -81,12 +81,15 @@ public sealed record CheckTypeInfo(
     string ThresholdHelp,
     string? FlagWarningLabel = null,
     Func<IReadOnlyDictionary<string, string>, CheckPlatforms>? PlatformsFor = null,
-    bool EvaluatedByFleeto = false)
+    string? EvaluatedWhen = null)
 {
     /// <summary>
-    /// True for a check the workers evaluate from what Fleeto already knows (0.6.0: the patch state from Action1) instead of
-    /// the agent: it is left out of the agent's configuration, has no interval of its own and cannot be run now or reset.
+    /// True for a check the workers evaluate from what Fleeto already knows (0.6.0: the patch state from Action1, the storage
+    /// scans of the agent) instead of the agent: it is left out of the agent's configuration, has no interval of its own and
+    /// cannot be run now or reset. <see cref="EvaluatedWhen"/> says when it gets a result: "after every patch sync".
     /// </summary>
+    public bool EvaluatedByFleeto => EvaluatedWhen is not null;
+
     public bool RunsOnAgent => !EvaluatedByFleeto;
 
     public bool SupportsWindowsOnly => Platforms == CheckPlatforms.Windows;
@@ -143,8 +146,8 @@ public static partial class CheckCatalog
     ];
 
     /// <summary>
-    /// The interval stored for a check Fleeto evaluates itself: it gets a result after every patch sync, which runs every
-    /// 4 hours (<c>PatchSyncService.SyncInterval</c>).
+    /// The interval stored for a check Fleeto evaluates itself, which means nothing: it gets a result when its data arrives
+    /// (<see cref="CheckTypeInfo.EvaluatedWhen"/>). 4 hours, the patch sync interval, for the checks saved before 0.6.0 changed that.
     /// </summary>
     public const int FleetoEvaluatedIntervalSeconds = 4 * 60 * 60;
 
@@ -274,7 +277,20 @@ public static partial class CheckCatalog
                 Help: "Only updates of this security severity count. Every missing update also counts updates without a severity.")],
             FleetoEvaluatedIntervalSeconds, 14, 30, _ => ThresholdKind.HigherIsWorse, _ => "days",
             "Alert when a missing update was released this many days ago or longer.",
-            EvaluatedByFleeto: true)
+            EvaluatedWhen: "after every patch sync"),
+        new CheckTypeInfo(CheckType.FolderGrowth, "Folder growth",
+            "How much the used space of a drive grew over a period, from the storage scans of the endpoint, with the folder " +
+            "that grew most. Fleeto evaluates it after every storage scan, once a day by default.",
+            CheckPlatforms.Windows | CheckPlatforms.Linux,
+            [
+                new("drive", "Drive", ParameterKind.Text, Required: true, Default: "*", MaxLength: 256,
+                    Help: "For example C: or /var, or * for every drive the storage scan reads.", Validate: Printable),
+                new("period_days", "Over the last (days)", ParameterKind.Integer, Default: "7", Min: 1, Max: 90,
+                    Help: "Compared with the newest complete scan at least this old. Until one exists, with the oldest scan of a day or older.")
+            ],
+            FleetoEvaluatedIntervalSeconds, 10, 50, _ => ThresholdKind.HigherIsWorse, _ => "GB",
+            "Alert when the drive grew this many GB or more within the period.",
+            EvaluatedWhen: "after every storage scan")
     }.ToDictionary(t => t.Type);
 
     /// <summary>Parameter of a script check holding the script id.</summary>

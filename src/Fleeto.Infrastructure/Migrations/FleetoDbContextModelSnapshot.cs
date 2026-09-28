@@ -3311,6 +3311,11 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<bool>("ScriptApprovalRequired")
                         .HasColumnType("boolean");
 
+                    b.Property<int>("StorageScanIntervalHours")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(24);
+
                     b.Property<string>("UpdateRing")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -3343,6 +3348,8 @@ namespace Fleeto.Infrastructure.Migrations
                             t.HasCheckConstraint("CK_Policies_RemoteIdleTimeoutMinutes", "\"RemoteIdleTimeoutMinutes\" BETWEEN 5 AND 480");
 
                             t.HasCheckConstraint("CK_Policies_RemoteMaxFileBytes", "\"RemoteMaxFileBytes\" BETWEEN 1048576 AND 10737418240");
+
+                            t.HasCheckConstraint("CK_Policies_StorageScanIntervalHours", "\"StorageScanIntervalHours\" IN (0, 6, 12, 24, 72, 168)");
                         });
                 });
 
@@ -3962,6 +3969,138 @@ namespace Fleeto.Infrastructure.Migrations
                     b.HasIndex("SiteId", "ClientId");
 
                     b.ToTable("SitePolicies");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.StorageScan", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AgentScanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("AgentStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Complete")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("DurationMs")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<long>("FileCount")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("FilesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Filesystem")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<long>("FolderCount")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("FoldersJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<long>("FreeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("RequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("TotalBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Volume")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReceivedAt");
+
+                    b.HasIndex("EndpointId", "AgentScanId")
+                        .IsUnique();
+
+                    b.HasIndex("EndpointId", "ClientId");
+
+                    b.HasIndex("EndpointId", "Volume", "ReceivedAt");
+
+                    b.ToTable("StorageScans");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.StorageScanRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("DeliveredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("RequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RequestedByName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("RequestedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("IX_StorageScanRequests_Pending")
+                        .HasFilter("\"DeliveredAt\" IS NULL");
+
+                    b.HasIndex("RequestedAt");
+
+                    b.HasIndex("EndpointId", "ClientId");
+
+                    b.HasIndex("EndpointId", "RequestedAt");
+
+                    b.ToTable("StorageScanRequests");
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.Tag", b =>
@@ -5029,6 +5168,26 @@ namespace Fleeto.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Policy");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.StorageScan", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.StorageScanRequest", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>

@@ -116,6 +116,12 @@ the API and the database follows it.
   or some endpoints are in maintenance.
 - **Monitoring template**: a named set of checks with thresholds and alert rules. Linked to a
   client, site or endpoint, applied to all of their endpoints (class-specific checks apply to matching endpoints only).
+- **Storage analysis** (0.6.0, decided 2026-09-28): a managed endpoint, server or workstation, scans its drives at the lowest
+  CPU and I/O priority, daily by default (set per policy, or only on request), on "Scan now" and when a Disk free check turns
+  warning; on NTFS by reading the master file table, elsewhere by walking the folders. Only the 300 largest folders and 50
+  largest files of a drive reach the server, kept daily for 30 days and weekly for 13 months; paths are personal data and
+  never appear in logs or alert titles. The Storage tab shows them with their growth, and a "Folder growth" check, evaluated
+  by the workers after every scan like "Missing updates", alerts on a drive that grows too fast and names the folder.
 - **Tag** (0.6.0, decided 2026-09-25): a colored label on a client, in the way of Proxmox. Typed on the client (also when it is
   created) by an admin or technician and created on first use with a color from its name; one name (case-insensitive) is one tag with one color
   across the instance, at most 10 per client. Shown in the clients panel, which filters on tags; admins rename, recolor and
@@ -148,8 +154,8 @@ UI structure:
   site) with tabs **Servers**, **Workstations** and **Mixed** (all endpoints together), search
   and filters. Selecting an endpoint shows its detail below the list (resizable split); the
   same detail opens as a full page with its own URL. Detail tabs grow with the features that
-  exist: Summary, Checks, Software, Notes, History today; jobs, patches and remote control
-  arrive with their versions. The tier switch lives in the right-click menu of the endpoint list.
+  exist: Summary, Checks, Software, Notes, Jobs, Patches, Storage (0.6.0) and History. The tier
+  switch lives in the right-click menu of the endpoint list.
 - **Navigation**: a persistent sidebar that collapses to icons; the choice is remembered per
   browser. It lists Dashboard, Clients and Alerts; its footer holds the settings, profile and
   create buttons.

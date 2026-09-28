@@ -54,6 +54,11 @@ public sealed class AgentConfigBuilder
 
         if (effectiveTier == EndpointTier.Managed)
         {
+            // Storage analysis (0.6.0) is for managed endpoints only; an agent-only configuration never asks for scans.
+            config.StorageScanIntervalHours = StorageRules.IsValidScanInterval(policy.StorageScanIntervalHours)
+                ? (uint)policy.StorageScanIntervalHours
+                : StorageRules.DefaultScanIntervalHours;
+
             var checks = await EffectiveCheckResolver.LoadAsync(db, endpoint, includeDisabledOnEndpoint: false, cancellationToken);
             var scriptBytes = 0L;
             // A check Fleeto evaluates itself (the missing updates of Action1) never reaches the agent.

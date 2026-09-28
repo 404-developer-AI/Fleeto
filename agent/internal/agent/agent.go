@@ -26,11 +26,15 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/screen"
 	"github.com/404-developer-AI/Fleeto/agent/internal/signedconfig"
 	"github.com/404-developer-AI/Fleeto/agent/internal/state"
+	"github.com/404-developer-AI/Fleeto/agent/internal/storage"
 	"github.com/404-developer-AI/Fleeto/agent/internal/update"
 )
 
 // JobsDirName is the job spool inside the state directory.
 const JobsDirName = "jobs"
+
+// StorageScansDirName is the spool of storage scan reports inside the state directory (0.6.0).
+const StorageScansDirName = "storage-scans"
 
 // CheckScriptsDirName holds the scripts of script checks while they run.
 const CheckScriptsDirName = "check-scripts"
@@ -51,6 +55,8 @@ type Options struct {
 	SignedInUsers func() ([]*agentv1.SignedInUser, error)
 	// SignedInUsersInterval is how often that list is read; default 30 seconds.
 	SignedInUsersInterval time.Duration
+	// StorageScan scans the volumes (0.6.0); default storage.ScanAll. Tests replace it.
+	StorageScan func(ctx context.Context, requestID string) []*agentv1.StorageScanReport
 
 	MaxBufferedResults       int
 	BatchMinResults          int
@@ -130,6 +136,7 @@ type Agent struct {
 	buffer    *buffer.Buffer
 	scheduler *checks.Scheduler
 	jobs      *jobs.Manager
+	storage   *storage.Manager
 
 	resultsAdded chan struct{}
 
@@ -224,10 +231,41 @@ func New(opts Options) (*Agent, error) {
 		return nil, fmt.Errorf("open the job spool: %w", err)
 	}
 	a.jobs = manager
+	scans, err := storage.NewManager(storage.Options{
+		Dir:    filepath.Join(opts.Store.Dir(), StorageScansDirName),
+		Access: opts.Store.Access(),
+		Logger: opts.Logger,
+		Now:    opts.Now,
+		Managed: func() bool {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			return a.config.GetTier() == agentv1.Tier_TIER_MANAGED
+		},
+		IntervalHours: func() uint32 {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			return a.config.GetStorageScanIntervalHours()
+		},
+		LastStarted: func() time.Time {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			return a.st.StorageScanStartedAt
+		},
+		SaveStarted: a.saveStorageScanStarted,
+		Scan:        opts.StorageScan,
+	})
+	if err != nil {
+		manager.Close()
+		_ = buf.Close()
+		_ = key.Close()
+		return nil, fmt.Errorf("open the storage scan spool: %w", err)
+	}
+	a.storage = scans
 	a.remote = a.newRemoteServer()
 	if opts.Watchdog != nil {
 		watchdog, err := newWatchdogManager(a, *opts.Watchdog)
 		if err != nil {
+			scans.Close()
 			manager.Close()
 			_ = buf.Close()
 			_ = key.Close()
@@ -262,6 +300,7 @@ func (a *Agent) loadAppliedConfig() {
 func (a *Agent) Close() error {
 	a.scheduler.Stop()
 	a.jobs.Close()
+	a.storage.Close()
 	return errors.Join(a.buffer.Close(), a.key.Close())
 }
 
@@ -301,6 +340,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	usersCtx, stopUsers := context.WithCancel(ctx)
 	defer stopUsers()
 	safego.Go(a.logger, "signed-in users", func() { a.watchSignedInUsers(usersCtx) })
+	safego.Go(a.logger, "storage scan schedule", func() { a.storage.Run(usersCtx) })
 
 	bo := backoff.New(a.opts.BackoffBase, a.opts.BackoffMax)
 	for {
@@ -381,4 +421,19 @@ func (a *Agent) watchSignedInUsers(ctx context.Context) {
 		case <-ticker.C:
 		}
 	}
+}
+
+// saveStorageScanStarted keeps the start of the last storage scan in the state file.
+func (a *Agent) saveStorageScanStarted(started time.Time) error {
+	st, err := a.store.Update(func(st *state.State) error {
+		st.StorageScanStartedAt = started.UTC()
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.st = st
+	a.mu.Unlock()
+	return nil
 }

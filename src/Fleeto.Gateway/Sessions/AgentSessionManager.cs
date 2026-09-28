@@ -77,6 +77,7 @@ public sealed partial class AgentSessionManager : BackgroundService
         _subscriptions.Add(_bus.Subscribe(NotificationChannels.EndpointConfig, OnEndpointConfigAsync));
         _subscriptions.Add(_bus.Subscribe(NotificationChannels.EndpointStatus, OnEndpointStatusAsync));
         _subscriptions.Add(_bus.Subscribe(NotificationChannels.CheckRunRequests, OnCheckRunRequestAsync));
+        _subscriptions.Add(_bus.Subscribe(NotificationChannels.StorageScanRequests, OnStorageScanRequestAsync));
         _subscriptions.Add(_bus.Subscribe(NotificationChannels.Jobs, OnJobsAsync));
     }
 
@@ -219,6 +220,7 @@ public sealed partial class AgentSessionManager : BackgroundService
         try
         {
             await DeliverRunRequestsAsync([endpointId], cancellationToken);
+            await DeliverStorageScanRequestsAsync([endpointId], cancellationToken);
             await DeliverJobsAsync([endpointId], cancellationToken);
         }
         catch (Exception ex) when (ex is NpgsqlException or TimeoutException)
@@ -361,6 +363,9 @@ public sealed partial class AgentSessionManager : BackgroundService
             case AgentMessage.BodyOneofCase.RemoteSessionAction:
                 // Remote control (0.3.0 step 4) reports clipboard file transfers and the consent answer over the agent session.
                 await RecordRemoteActionAsync(session, message.RemoteSessionAction, cancellationToken);
+                break;
+            case AgentMessage.BodyOneofCase.StorageScan:
+                await SaveStorageScanAsync(session, message.StorageScan, cancellationToken);
                 break;
             case AgentMessage.BodyOneofCase.Hello:
                 session.Close(DisconnectCode.ProtocolError, "Hello may only be sent once per connection.");
@@ -972,6 +977,7 @@ public sealed partial class AgentSessionManager : BackgroundService
                     EvaluateOffers();
                     await CatchUpConfigsAsync(stoppingToken);
                     await DeliverRunRequestsAsync(_sessions.Keys.ToArray(), stoppingToken);
+                    await DeliverStorageScanRequestsAsync(_sessions.Keys.ToArray(), stoppingToken);
                     await DeliverJobsAsync(_sessions.Keys.ToArray(), stoppingToken);
                 }
                 catch (Exception ex) when (ex is NpgsqlException or TimeoutException)

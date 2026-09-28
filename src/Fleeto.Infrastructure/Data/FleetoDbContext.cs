@@ -56,6 +56,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<EndpointCheckOverride> EndpointCheckOverrides => Set<EndpointCheckOverride>();
     public DbSet<CheckRunRequest> CheckRunRequests => Set<CheckRunRequest>();
     public DbSet<Note> Notes => Set<Note>();
+    public DbSet<StorageScan> StorageScans => Set<StorageScan>();
+    public DbSet<StorageScanRequest> StorageScanRequests => Set<StorageScanRequest>();
     public DbSet<Script> Scripts => Set<Script>();
     public DbSet<ScriptVersion> ScriptVersions => Set<ScriptVersion>();
     public DbSet<Job> Jobs => Set<Job>();
@@ -276,8 +278,12 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(p => p.RemoteConsentTimeoutSeconds).HasDefaultValue(RemoteSessionRules.DefaultConsentTimeoutSeconds).HasSentinel(0);
             entity.Property(p => p.RemoteIdleTimeoutMinutes).HasDefaultValue(RemoteSessionRules.DefaultIdleTimeoutMinutes).HasSentinel(0);
             entity.Property(p => p.RemoteMaxFileBytes).HasDefaultValue(RemoteSessionRules.DefaultMaxFileBytes).HasSentinel(0L);
+            // Storage scans (0.6.0): 0 is a valid value (no scheduled scans), so the sentinel is -1.
+            entity.Property(p => p.StorageScanIntervalHours).HasDefaultValue(StorageRules.DefaultScanIntervalHours).HasSentinel(-1);
             entity.ToTable(table =>
             {
+                table.HasCheckConstraint("CK_Policies_StorageScanIntervalHours",
+                    $"\"StorageScanIntervalHours\" IN ({string.Join(", ", StorageRules.ScanIntervalChoices)})");
                 table.HasCheckConstraint(
                     "CK_Policies_MaxOutputBytes",
                     $"\"MaxOutputBytes\" BETWEEN {ScriptRules.MinOutputBytes} AND {ScriptRules.MaxOutputBytes}");
@@ -582,6 +588,34 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(r => new { r.RequestedByUserId, r.RequestedAt });
             entity.HasIndex(r => r.RequestedAt);
             entity.HasIndex(r => r.ExpiresAt).HasFilter("\"DeliveredAt\" IS NULL AND \"Outcome\" IS NULL").HasDatabaseName("IX_CheckRunRequests_Pending");
+            ClientOwned(entity);
+        });
+
+        builder.Entity<StorageScan>(entity =>
+        {
+            entity.Property(s => s.Volume).HasMaxLength(StorageRules.MaxVolumeLength);
+            entity.Property(s => s.Filesystem).HasMaxLength(50);
+            entity.Property(s => s.Method).HasConversion<string>().HasMaxLength(20);
+            entity.Property(s => s.Error).HasMaxLength(1000);
+            entity.Property(s => s.FoldersJson).HasColumnType("jsonb");
+            entity.Property(s => s.FilesJson).HasColumnType("jsonb");
+            EndpointChild(entity, s => new { s.EndpointId, s.ClientId });
+            // A report sent twice is stored once.
+            entity.HasIndex(s => new { s.EndpointId, s.AgentScanId }).IsUnique();
+            // The latest scans of a volume, and the history of a folder.
+            entity.HasIndex(s => new { s.EndpointId, s.Volume, s.ReceivedAt });
+            entity.HasIndex(s => s.ReceivedAt);
+            ClientOwned(entity);
+        });
+
+        builder.Entity<StorageScanRequest>(entity =>
+        {
+            entity.Property(r => r.Reason).HasConversion<string>().HasMaxLength(20);
+            entity.Property(r => r.RequestedByName).HasMaxLength(200);
+            EndpointChild(entity, r => new { r.EndpointId, r.ClientId });
+            entity.HasIndex(r => new { r.EndpointId, r.RequestedAt });
+            entity.HasIndex(r => r.RequestedAt);
+            entity.HasIndex(r => r.ExpiresAt).HasFilter("\"DeliveredAt\" IS NULL").HasDatabaseName("IX_StorageScanRequests_Pending");
             ClientOwned(entity);
         });
 

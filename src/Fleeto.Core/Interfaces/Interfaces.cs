@@ -92,6 +92,12 @@ public static class NotificationChannels
     /// </summary>
     public const string CheckRunRequests = "fleeto_check_run_requests";
 
+    /// <summary>Payload: StorageScanRequest id. Raised by a database trigger on insert; the gateway delivers the request (0.6.0).</summary>
+    public const string StorageScanRequests = "fleeto_storage_scan_requests";
+
+    /// <summary>Payload: endpoint id. The gateway stored a storage scan of the endpoint; the workers evaluate folder growth (0.6.0).</summary>
+    public const string StorageScans = "fleeto_storage_scans";
+
     /// <summary>Payload: agent release version. A release was paused, resumed or released to all rings (0.2.1).</summary>
     public const string AgentReleases = "fleeto_agent_releases";
 
@@ -180,6 +186,8 @@ public static class AuditActions
     public const string EndpointLinksChanged = "endpoint.links_changed";
     public const string CheckRunRequested = "check.run_requested";
     public const string CheckReset = "check.reset";
+    /// <summary>A technician asked an endpoint to scan its storage now (0.6.0).</summary>
+    public const string StorageScanRequested = "storage.scan_requested";
     public const string NoteCreated = "note.created";
     public const string NoteUpdated = "note.updated";
     public const string NoteDeleted = "note.deleted";

@@ -107,6 +107,9 @@ public static class CheckEvaluator
                 : $"Script check \"{definition.Name}\" reports a problem on {hostname} (exit code {value.ToString("0", CultureInfo.InvariantCulture)}). Review the detail on the endpoint page.",
             CheckType.MissingUpdates =>
                 $"{hostname} misses an update released {v} days ago, above the {t}-day threshold. Deploy the missing updates.",
+            // Never the folder: alert titles go out by email and webhook, and a path can hold a person's name.
+            CheckType.FolderGrowth =>
+                $"Drive {target} on {hostname} grew {v} GB in {P("period_days")} days, above the {t} GB threshold. See the Storage tab for the folder that grows.",
             CheckType.SecurityCenter => P("component") == "firewall"
                 ? $"The firewall is off on {hostname}{(string.IsNullOrEmpty(target) ? string.Empty : $" ({target})")}. Turn it on."
                 : $"Antivirus protection is off or out of date on {hostname}. Check the antivirus software.",

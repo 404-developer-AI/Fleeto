@@ -69,6 +69,12 @@ public class Policy
     /// <summary>The largest file one transfer in a remote session may carry (0.3.0).</summary>
     public long RemoteMaxFileBytes { get; set; } = Domain.RemoteSessionRules.DefaultMaxFileBytes;
 
+    /// <summary>
+    /// Hours between two scheduled storage scans of the managed endpoints (0.6.0), one of <see cref="Domain.StorageRules.ScanIntervalChoices"/>;
+    /// 0 for none. "Scan now" and a Disk free check that turns warning still start a scan.
+    /// </summary>
+    public int StorageScanIntervalHours { get; set; } = Domain.StorageRules.DefaultScanIntervalHours;
+
     /// <summary>Policy this one was copied from; the copy is independent.</summary>
     public Guid? CopiedFromId { get; set; }
 

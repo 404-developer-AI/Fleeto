@@ -53,6 +53,13 @@ When a third released version is added, the oldest entry moves to the top of
 - Backups larger than 128 MB go to S3 as a multipart upload, so a backup is no longer limited to 5 GB. The write-only
   credentials stay enough. Add a lifecycle rule that removes incomplete multipart uploads to the bucket: Settings, Backups
   now asks for it.
+- Storage analysis: a managed endpoint scans its drives at the lowest priority (daily by default, set per policy) and on "Scan
+  now", reading the NTFS master file table where it can and walking the folders elsewhere. The new Storage tab shows each
+  drive with its largest folders as a tree (size on disk, share of the drive, change since the previous scan, 7 and 30
+  days), its largest files, and the history of a folder. A Disk free check that turns warning asks for a scan, so the
+  folder that fills the disk is known when somebody looks. Scans are kept daily for 30 days, then weekly for 13 months.
+- A "Folder growth" check for monitoring templates: it alerts when a drive grew more than a number of GB within a period
+  (7 days by default), and its detail names the folder that grew most. Fleeto evaluates it after every storage scan.
 - A "Missing updates" check for monitoring templates: it alerts when an update Action1 reports as missing was released
   more than a number of days ago, with a warning and a critical threshold in days and optionally only updates of a minimum
   security severity. Updates declined in Action1 do not count. Fleeto evaluates it after every patch sync, so it has no

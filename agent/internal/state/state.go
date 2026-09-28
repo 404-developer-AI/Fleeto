@@ -58,6 +58,8 @@ type State struct {
 	RevokedReason        string    `json:"revokedReason,omitempty"`
 	RevokedAt            time.Time `json:"revokedAt,omitzero"`
 	CertificateRenewedAt time.Time `json:"certificateRenewedAt,omitzero"`
+	// StorageScanStartedAt is the start of the last storage scan (0.6.0), so a restart does not scan again.
+	StorageScanStartedAt time.Time `json:"storageScanStartedAt,omitzero"`
 }
 
 // Certificate parses the agent certificate.

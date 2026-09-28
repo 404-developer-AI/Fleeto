@@ -64,6 +64,7 @@ public static class WorkersServiceCollectionExtensions
         services.AddHostedService<ConfigChangeFanoutService>();
         services.AddHostedService<CheckEvaluationService>();
         services.AddHostedService<CheckRunRequestService>();
+        services.AddHostedService<StorageScanService>();
         services.AddHostedService<JobMaintenanceService>();
         services.AddHostedService<RemoteSessionMaintenanceService>();
         services.AddHostedService<AlertHoldService>();

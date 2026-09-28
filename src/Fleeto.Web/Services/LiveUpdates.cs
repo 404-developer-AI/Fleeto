@@ -21,6 +21,7 @@ public sealed class LiveUpdates : IDisposable
         _subscriptions.Add(bus.Subscribe(NotificationChannels.CheckResults, (payload, _) => Raise(CheckResultsChanged, payload)));
         _subscriptions.Add(bus.Subscribe(NotificationChannels.Jobs, (payload, _) => Raise(JobsChanged, payload)));
         _subscriptions.Add(bus.Subscribe(NotificationChannels.PatchDeployments, (payload, _) => Raise(PatchDeploymentsChanged, payload)));
+        _subscriptions.Add(bus.Subscribe(NotificationChannels.StorageScans, (payload, _) => Raise(StorageScansChanged, payload)));
     }
 
     /// <summary>Payload: endpoint id, or <see cref="Guid.Empty"/> after a resync.</summary>
@@ -40,6 +41,9 @@ public sealed class LiveUpdates : IDisposable
     /// step 3). It is not an endpoint id, so a page reloads its own deployments rather than matching on it.
     /// </summary>
     public event Action<Guid>? PatchDeploymentsChanged;
+
+    /// <summary>Payload: endpoint id that got a new storage scan, or <see cref="Guid.Empty"/> after a resync (0.6.0).</summary>
+    public event Action<Guid>? StorageScansChanged;
 
     private Task Raise(Action<Guid>? handlers, string payload)
     {

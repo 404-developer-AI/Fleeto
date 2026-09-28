@@ -98,6 +98,22 @@ public sealed class RetentionService : WorkerLoop
           SELECT "Id" FROM "CheckRunRequests" WHERE "RequestedAt" < @cutoff LIMIT 5000)
         """;
 
+    // Storage scans (0.6.0): every scan for 30 days, then the first scan of each week per endpoint and volume for 13 months.
+    private const string DeleteStorageScansSql = """
+        DELETE FROM "StorageScans" WHERE "Id" IN (
+          SELECT "Id" FROM (
+            SELECT "Id", "ReceivedAt",
+                   row_number() OVER (PARTITION BY "EndpointId", "Volume", date_trunc('week', "ReceivedAt") ORDER BY "ReceivedAt") AS "Rank"
+            FROM "StorageScans" WHERE "ReceivedAt" < @daily) AS old
+          WHERE old."ReceivedAt" < @weekly OR old."Rank" > 1
+          LIMIT 5000)
+        """;
+
+    private const string DeleteStorageScanRequestsSql = """
+        DELETE FROM "StorageScanRequests" WHERE "Id" IN (
+          SELECT "Id" FROM "StorageScanRequests" WHERE "RequestedAt" < @cutoff LIMIT 5000)
+        """;
+
     private const string DeleteEndpointEventsSql = """
         DELETE FROM "EndpointEvents" WHERE "Id" IN (
           SELECT "Id" FROM "EndpointEvents" WHERE "ProcessedAt" IS NOT NULL AND "Time" < @cutoff LIMIT 5000)
@@ -205,6 +221,10 @@ public sealed class RetentionService : WorkerLoop
         deleted["IngestBatches"] = await DeleteInBatchesAsync(DeleteIngestBatchesSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-7))], cancellationToken);
         deleted["SigningRequests"] = await DeleteInBatchesAsync(DeleteSigningRequestsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-7))], cancellationToken);
         deleted["CheckRunRequests"] = await DeleteInBatchesAsync(DeleteCheckRunRequestsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-7))], cancellationToken);
+        deleted["StorageScans"] = await DeleteInBatchesAsync(DeleteStorageScansSql,
+            () => [new NpgsqlParameter("daily", now - StorageRules.DailyRetention), new NpgsqlParameter("weekly", now - StorageRules.WeeklyRetention)],
+            cancellationToken);
+        deleted["StorageScanRequests"] = await DeleteInBatchesAsync(DeleteStorageScanRequestsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-7))], cancellationToken);
         deleted["EndpointEvents"] = await DeleteInBatchesAsync(DeleteEndpointEventsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))], cancellationToken);
         deleted["OutboxEmails (sent)"] = await DeleteInBatchesAsync(DeleteSentEmailsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))], cancellationToken);
         deleted["OutboxEmails (failed)"] = await DeleteInBatchesAsync(DeleteFailedEmailsSql,

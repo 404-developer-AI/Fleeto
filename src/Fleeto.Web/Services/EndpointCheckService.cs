@@ -214,9 +214,9 @@ public sealed class EndpointCheckService
             return ServiceResult.NotFound("check");
         }
 
-        if (input.IntervalSeconds is not null && !CheckCatalog.Get(check.Type).RunsOnAgent)
+        if (input.IntervalSeconds is not null && CheckCatalog.Get(check.Type) is { EvaluatedByFleeto: true } evaluated)
         {
-            return ServiceResult.Fail("This check is evaluated after every patch sync and has no interval of its own.");
+            return ServiceResult.Fail($"This check is evaluated {evaluated.EvaluatedWhen} and has no interval of its own.");
         }
 
         // Validate the check as it would run on this endpoint.
@@ -535,10 +535,12 @@ public sealed class EndpointCheckService
             return ServiceResult<bool>.Fail("This check does not run on this endpoint. Enable it for the endpoint first.");
         }
 
-        if (!CheckCatalog.Get(check.Type).RunsOnAgent)
+        if (CheckCatalog.Get(check.Type) is { EvaluatedByFleeto: true } evaluated)
         {
-            return ServiceResult<bool>.Fail(
-                "Fleeto evaluates this check after every patch sync, not the agent. Refresh the patch state on the Patches tab instead.");
+            var instead = check.Type == CheckType.FolderGrowth
+                ? "Start a scan on the Storage tab instead."
+                : "Refresh the patch state on the Patches tab instead.";
+            return ServiceResult<bool>.Fail($"Fleeto evaluates this check {evaluated.EvaluatedWhen}, not the agent. {instead}");
         }
 
         var now = _time.GetUtcNow().UtcDateTime;

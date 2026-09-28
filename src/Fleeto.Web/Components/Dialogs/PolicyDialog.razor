@@ -53,6 +53,16 @@
         <MudText Typo="Typo.caption" Class="muted d-block mb-3">
             Output one job may send back. The endpoint drops whatever a script writes beyond it and the job is marked truncated.
         </MudText>
+        <MudSelect T="int" @bind-Value="_storageScanHours" Label="Storage scan" Variant="Variant.Outlined" Class="mt-3 mb-1">
+            @foreach (var hours in StorageRules.ScanIntervalChoices)
+            {
+                <MudSelectItem T="int" Value="hours">@Ui.StorageScanInterval(hours)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+            How often managed endpoints measure the largest folders and files of their drives, at low priority, for the Storage tab and
+            the Folder growth check. A Disk free check that turns warning and "Scan now" also start a scan.
+        </MudText>
         <MudText Typo="Typo.subtitle2" Class="mt-4">Remote sessions</MudText>
         <MudNumericField T="int" @bind-Value="_remoteIdleMinutes" Label="Idle timeout (minutes)" Variant="Variant.Outlined" Class="mt-2 mb-1"
                          Min="@RemoteSessionRules.MinIdleTimeoutMinutes" Max="@RemoteSessionRules.MaxIdleTimeoutMinutes" />
@@ -116,6 +126,7 @@
     private bool _remoteBanner = true;
     private bool _remoteConsent;
     private int _remoteConsentSeconds = RemoteSessionRules.DefaultConsentTimeoutSeconds;
+    private int _storageScanHours = StorageRules.DefaultScanIntervalHours;
     private bool _busy;
 
     protected override void OnInitialized()
@@ -139,6 +150,7 @@
             _remoteBanner = p.RemoteBannerVisible;
             _remoteConsent = p.RemoteConsentRequired;
             _remoteConsentSeconds = p.RemoteConsentTimeoutSeconds;
+            _storageScanHours = p.StorageScanIntervalHours;
         }
     }
 
@@ -151,7 +163,8 @@
         {
             var input = new PolicyInput(_name, _description, _heartbeat, _inventoryMinutes * 60, _offlineMinutes, _offlineSeverity,
                 _windows.Select(w => w.ToWindow()).ToList(), _scriptApproval, _updateRing, _outputMegabytes * ScriptRules.Mebibyte, _remoteIdleMinutes,
-                _remoteConsent, _remoteConsentSeconds, _remoteBanner, _remoteClipboard, _remoteFileMegabytes * ScriptRules.Mebibyte, _appliesTo);
+                _remoteConsent, _remoteConsentSeconds, _remoteBanner, _remoteClipboard, _remoteFileMegabytes * ScriptRules.Mebibyte, _appliesTo,
+                _storageScanHours);
             if (await OnSubmit(_clientId, input))
             {
                 MudDialog.Close(DialogResult.Ok(true));

@@ -121,6 +121,8 @@ message AgentMessage {
     // 0.3.0
     RemoteSessionRefused remote_session_refused = 13;
     RemoteSessionActionReport remote_session_action = 14;
+    // 0.6.0
+    StorageScanReport storage_scan = 15;
   }
 }
 
@@ -141,6 +143,9 @@ message ServerMessage {
     WatchdogCertificateResponse watchdog_certificate = 12;
     // 0.3.0
     RemoteSessionOffer remote_session_offer = 13;
+    // 0.6.0
+    StorageScanRequest storage_scan_request = 14;
+    StorageScanAck storage_scan_ack = 15;
   }
 }
 
@@ -357,6 +362,82 @@ message RenewCertificateResponse {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// Storage analysis (0.6.0)
+// ---------------------------------------------------------------------------------------------------------------
+//
+// The agent scans every fixed volume (the drives of the Disk free check) on the schedule of its signed configuration and on
+// a StorageScanRequest, at the lowest CPU and I/O priority, and sends one StorageScanReport per volume. On NTFS it reads the
+// master file table directly; elsewhere it walks the tree without following links or leaving the volume. A report holds the
+// largest folders and files, not the whole tree, and is kept on the agent's disk until StorageScanAck arrives, which the
+// gateway sends only after the report is committed to PostgreSQL. A report with a scan_id the server already has is acked
+// again and not stored twice.
+
+// Asks the agent to scan its volumes now (a technician clicked "Scan now", or a Disk free check turned warning). Not signed:
+// it can only start the scan the agent already does, never change what is sent. The agent honours it only on a managed
+// configuration, runs at most one scan at a time and ignores a request within 15 minutes of the start of the previous scan.
+// Older agents ignore the whole message.
+message StorageScanRequest {
+  // Id of the request in the server database, echoed in the reports of the scan it started.
+  string request_id = 1;
+}
+
+message StorageScanReport {
+  // Random id of this volume scan (UUID), the idempotency key on the server.
+  string scan_id = 1;
+  // "C:" on Windows, the mount point on Linux, as Disk.mount.
+  string volume = 2;
+  string filesystem = 3;
+  uint64 total_bytes = 4;
+  uint64 free_bytes = 5;
+  google.protobuf.Timestamp started_at = 6;
+  uint32 duration_ms = 7;
+  StorageScanMethod method = 8;
+  // False when the scan stopped early (time limit, error) or skipped parts it could not read; sizes are then at least the
+  // values given. error says why.
+  bool complete = 9;
+  string error = 10;
+  // The largest folders of the volume, at most 300, largest first, the volume root first of all. A folder's size counts
+  // everything below it. Because a folder is never smaller than a folder in it, the parent of every folder listed is listed.
+  repeated StorageFolder folders = 11;
+  // The largest files of the volume, at most 50, largest first.
+  repeated StorageFile files = 12;
+  uint64 file_count = 13;
+  uint64 folder_count = 14;
+  // StorageScanRequest.request_id of the request that started the scan; empty for a scheduled scan.
+  string request_id = 15;
+}
+
+enum StorageScanMethod {
+  STORAGE_SCAN_METHOD_UNSPECIFIED = 0;
+  // NTFS master file table read from the raw volume.
+  STORAGE_SCAN_METHOD_MFT = 1;
+  // Directory walk.
+  STORAGE_SCAN_METHOD_WALK = 2;
+}
+
+message StorageFolder {
+  // Full path with the platform separator (C:\Users\Public, /var/log); the volume root is C:\ or the mount point.
+  string path = 1;
+  // Size on disk in bytes of everything below the folder.
+  uint64 size_bytes = 2;
+  // Files and folders below the folder, at every depth.
+  uint64 file_count = 3;
+  uint64 folder_count = 4;
+}
+
+message StorageFile {
+  string path = 1;
+  // Size on disk in bytes.
+  uint64 size_bytes = 2;
+  google.protobuf.Timestamp modified_at = 3;
+}
+
+// Sent after the StorageScanReport with this scan_id is committed to PostgreSQL (or was already); the agent then deletes it.
+message StorageScanAck {
+  string scan_id = 1;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // Signed configuration
 // ---------------------------------------------------------------------------------------------------------------
 
@@ -380,6 +461,9 @@ message AgentConfig {
   uint32 inventory_interval_seconds = 7;
   // Always empty for TIER_AGENT_ONLY; the agent ignores checks on an agent-only configuration anyway.
   repeated CheckSpec checks = 8;
+  // Hours between two scheduled storage scans (0.6.0); 0 for none. Only on TIER_MANAGED; the agent never scans an agent-only
+  // endpoint, also not on a StorageScanRequest.
+  uint32 storage_scan_interval_hours = 9;
 }
 
 enum Tier {

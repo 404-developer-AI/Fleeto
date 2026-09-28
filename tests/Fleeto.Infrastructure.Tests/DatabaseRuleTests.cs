@@ -128,6 +128,46 @@ public class DatabaseRuleTests
         });
     }
 
+    [Fact]
+    public async Task Storage_analysis_works_with_the_production_grants_of_each_container()
+    {
+        // 0.6.0: the gateway stores scans and delivers requests, web and the workers ask for scans, the workers apply retention.
+        var client = await _db.CreateClientAsync();
+        var site = await _db.CreateSiteAsync(client.Id);
+        var endpoint = await _db.CreateEndpointAsync(site, EndpointTier.Managed, "SRV-GRANTS");
+        await EnsureRolesAsync();
+        await using var connection = await _db.DataSource.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        await Execute(connection, DatabaseGrants.BuildSql());
+        var ids = $"'{Guid.NewGuid()}', '{client.Id}', '{endpoint.Id}'";
+#pragma warning disable CA2100 // test-only statements built from constants and generated ids
+        await Execute(connection, "SET LOCAL ROLE fleeto_web");
+        await Execute(connection, $"""
+            INSERT INTO "StorageScanRequests" ("Id", "ClientId", "EndpointId", "Reason", "RequestedByName", "RequestedAt", "ExpiresAt")
+            VALUES ({ids}, 'Technician', 'Tech', now(), now() + interval '1 hour')
+            """);
+        await Execute(connection, """SELECT count(*) FROM "StorageScans" """);
+        await Execute(connection, "RESET ROLE; SET LOCAL ROLE fleeto_gateway");
+        await Execute(connection, $"""
+            SELECT count(*) FROM "StorageScans" WHERE "EndpointId" = '{endpoint.Id}';
+            INSERT INTO "StorageScans" ("Id", "ClientId", "EndpointId", "AgentScanId", "Volume", "Filesystem", "TotalBytes", "FreeBytes",
+              "ReceivedAt", "DurationMs", "Method", "Complete", "FileCount", "FolderCount", "FoldersJson", "FilesJson")
+            VALUES ('{Guid.NewGuid()}', '{client.Id}', '{endpoint.Id}', '{Guid.NewGuid()}', 'C:', 'NTFS', 1, 1, now(), 1, 'Mft', true, 1, 1, '[]', '[]')
+            ON CONFLICT ("EndpointId", "AgentScanId") DO NOTHING;
+            UPDATE "StorageScanRequests" SET "DeliveredAt" = now() WHERE "EndpointId" = '{endpoint.Id}' AND "DeliveredAt" IS NULL;
+            """);
+        await Execute(connection, "RESET ROLE; SET LOCAL ROLE fleeto_workers");
+        await Execute(connection, $"""
+            INSERT INTO "StorageScanRequests" ("Id", "ClientId", "EndpointId", "Reason", "RequestedByName", "RequestedAt", "ExpiresAt")
+            VALUES ('{Guid.NewGuid()}', '{client.Id}', '{endpoint.Id}', 'DiskFree', 'Fleeto', now(), now() + interval '12 hours');
+            DELETE FROM "StorageScans" WHERE "EndpointId" = '{endpoint.Id}';
+            DELETE FROM "StorageScanRequests" WHERE "EndpointId" = '{endpoint.Id}';
+            """);
+#pragma warning restore CA2100
+
+        await transaction.RollbackAsync();
+    }
+
     private async Task EnsureRolesAsync()
     {
         await using var command = _db.DataSource.CreateCommand(string.Join('\n', Hosting.DatabaseRoles.Application.Select(r =>

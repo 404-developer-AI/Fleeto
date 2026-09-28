@@ -47,12 +47,12 @@ public static class CheckParameters
             problems.Add("Enter a name for the check.");
         }
 
-        if (Enum.IsDefined(definition.Type) && CheckCatalog.Get(definition.Type).EvaluatedByFleeto)
+        if (Enum.IsDefined(definition.Type) && CheckCatalog.Get(definition.Type) is { EvaluatedByFleeto: true } evaluated)
         {
             // Fleeto evaluates it when the data arrives; an interval of its own would promise something it does not do.
             if (definition.IntervalSeconds != CheckCatalog.FleetoEvaluatedIntervalSeconds)
             {
-                problems.Add("This check is evaluated after every patch sync and has no interval of its own.");
+                problems.Add($"This check is evaluated {evaluated.EvaluatedWhen} and has no interval of its own.");
             }
         }
         else if (definition.IntervalSeconds < MinimumIntervalSeconds || definition.IntervalSeconds > MaximumIntervalSeconds)

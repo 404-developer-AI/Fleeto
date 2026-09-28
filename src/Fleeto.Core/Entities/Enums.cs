@@ -61,7 +61,12 @@ public enum CheckType
     /// Days since the release of the oldest update the endpoint misses, as Action1 reports it; 0 when none counts (0.6.0).
     /// Evaluated by the workers from the patch state, never sent to the agent.
     /// </summary>
-    MissingUpdates
+    MissingUpdates,
+    /// <summary>
+    /// GB the used space of a drive grew over a period, from the storage scans of the agent (0.6.0). Evaluated by the workers
+    /// after every storage scan, never sent to the agent.
+    /// </summary>
+    FolderGrowth
 }
 
 /// <summary>Which endpoint class a check definition applies to.</summary>
@@ -93,6 +98,24 @@ public enum AlertState
     Open,
     Acknowledged,
     Resolved
+}
+
+/// <summary>How the agent read a volume for a storage scan (0.6.0). Stored by name.</summary>
+public enum StorageScanMethod
+{
+    /// <summary>The NTFS master file table, read from the raw volume.</summary>
+    Mft,
+    /// <summary>A walk through the folders.</summary>
+    Walk
+}
+
+/// <summary>Why a storage scan was requested (0.6.0). Stored by name.</summary>
+public enum StorageScanReason
+{
+    /// <summary>A technician clicked "Scan now".</summary>
+    Technician,
+    /// <summary>A Disk free check of the endpoint turned warning or critical.</summary>
+    DiskFree
 }
 
 /// <summary>How a check run request ended without being delivered to the agent.</summary>

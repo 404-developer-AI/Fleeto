@@ -857,6 +857,13 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
 - [done] **Alert badge in the clients panel** (asked for by the developer on 2026-09-28): the badge next to a client or site
   only counts open alerts outside maintenance, with a bell and the color of the worst, and a site no longer shows its
   number of endpoints in the same place, which read as a number of alerts.
+- [done] **Storage analysis** (asked for by the developer on 2026-09-28: "like TreeSize, to follow which folder grows").
+  Decided with the developer the same day: servers and workstations, folders and files, a Storage tab and a check, and
+  the master file table on NTFS from the start. Done: `StorageScanReport`, `StorageScanRequest` and `StorageScanAck` in the
+  protocol and the interval in the signed configuration; `agent/internal/storage` (MFT reader, walk, background priority,
+  spool); `StorageScans` and `StorageScanRequests` with their grants and retention; the gateway stores and acknowledges
+  after the commit and delivers requests; `StorageScanService` in the workers (folder growth, scans on low disk space);
+  the Storage tab, the folder history, the interval on the policy; check type `FolderGrowth` evaluated by the workers.
 
 ## 0.7.0 — Hardening
 

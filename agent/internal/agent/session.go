@@ -75,7 +75,13 @@ type session struct {
 	jobsSent map[string]bool
 	// usersSent is the signed-in users list last sent on this connection, serialized; nil until the first.
 	usersSent []byte
+	// storageSent holds the storage scan reports sent on this connection and when; one without an acknowledgement is sent
+	// again after BatchAckTimeout.
+	storageSent map[string]time.Time
 }
+
+// maxStorageInFlight is how many storage scan reports wait for their acknowledgement at once.
+const maxStorageInFlight = 4
 
 // tlsConfig builds the mTLS configuration: the pinned instance CA is the only root, the client certificate is the
 // agent certificate with the key from the key store.
@@ -163,6 +169,7 @@ func (a *Agent) runSession(ctx context.Context) (sessionOutcome, error) {
 		readErr:        make(chan error, 1),
 		inventoryReady: make(chan *agentv1.Inventory, 1),
 		jobsSent:       map[string]bool{},
+		storageSent:    map[string]time.Time{},
 		startedAt:      now,
 		lastFlush:      now,
 	}
@@ -258,7 +265,7 @@ func (s *session) loop() (sessionOutcome, error) {
 		case <-a.resultsAdded:
 			err = s.maybeSendBatch()
 		case <-flush.C:
-			err = s.maybeSendBatch()
+			err = errors.Join(s.maybeSendBatch(), s.sendStorageReports())
 		case <-s.heartbeat.C:
 			err = s.sendHeartbeat()
 		case <-s.inventoryTimer.C:
@@ -270,6 +277,8 @@ func (s *session) loop() (sessionOutcome, error) {
 			err = s.maybeRenew()
 		case <-a.jobs.Notify():
 			err = s.sendJobMessages()
+		case <-a.storage.Notify():
+			err = s.sendStorageReports()
 		}
 		if err != nil {
 			if errors.Is(err, errWrite) {
@@ -308,6 +317,41 @@ func (s *session) sendJobMessages() error {
 			return err
 		}
 		s.jobsSent[message.Key] = true
+	}
+	return nil
+}
+
+// sendStorageReports sends the spooled storage scan reports, a few at a time, oldest first. A report sent on this connection
+// is sent again when its acknowledgement did not come within BatchAckTimeout.
+func (s *session) sendStorageReports() error {
+	if !s.acked {
+		return nil
+	}
+	a := s.a
+	now := a.opts.Now()
+	waiting := 0
+	for _, sentAt := range s.storageSent {
+		if now.Sub(sentAt) < a.opts.BatchAckTimeout {
+			waiting++
+		}
+	}
+	for _, id := range a.storage.Pending() {
+		if waiting >= maxStorageInFlight {
+			return nil
+		}
+		if sentAt, sent := s.storageSent[id]; sent && now.Sub(sentAt) < a.opts.BatchAckTimeout {
+			continue
+		}
+		report, err := a.storage.Load(id)
+		if err != nil {
+			a.logger.Warn("dropped a storage scan report that could not be read", "error", err)
+			continue
+		}
+		if err := s.send(&agentv1.AgentMessage{Body: &agentv1.AgentMessage_StorageScan{StorageScan: report}}); err != nil {
+			return err
+		}
+		s.storageSent[id] = now
+		waiting++
 	}
 	return nil
 }
@@ -359,7 +403,10 @@ func (s *session) handle(msg *agentv1.ServerMessage) (sessionOutcome, bool, erro
 		if err := s.handleHelloAck(body.HelloAck); err != nil {
 			return outcomeHealthy, false, err
 		}
-		return outcomeHealthy, false, s.sendJobMessages()
+		if err := s.sendJobMessages(); err != nil {
+			return outcomeHealthy, false, err
+		}
+		return outcomeHealthy, false, s.sendStorageReports()
 	case *agentv1.ServerMessage_Job:
 		a.jobs.Accept(body.Job)
 		return 0, false, nil
@@ -386,6 +433,19 @@ func (s *session) handle(msg *agentv1.ServerMessage) (sessionOutcome, bool, erro
 		a.logger.Info("the server asked to run checks now", "requestId", body.RunChecksNow.GetRequestId(),
 			"requested", len(body.RunChecksNow.GetCheckIds()), "started", started, "droppedByLimit", dropped)
 		return 0, false, nil
+	case *agentv1.ServerMessage_StorageScanRequest:
+		started, reason := a.storage.Request(body.StorageScanRequest.GetRequestId())
+		if started {
+			a.logger.Info("the server asked for a storage scan; scanning", "requestId", body.StorageScanRequest.GetRequestId())
+		} else {
+			a.logger.Info("the server asked for a storage scan; ignored", "requestId", body.StorageScanRequest.GetRequestId(), "reason", reason)
+		}
+		return 0, false, nil
+	case *agentv1.ServerMessage_StorageScanAck:
+		id := body.StorageScanAck.GetScanId()
+		a.storage.Ack(id)
+		delete(s.storageSent, id)
+		return 0, false, s.sendStorageReports()
 	case *agentv1.ServerMessage_Disconnect:
 		return s.handleDisconnect(body.Disconnect)
 	case *agentv1.ServerMessage_UpdateOffer:

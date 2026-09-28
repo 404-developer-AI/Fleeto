@@ -184,7 +184,25 @@ public static class Ui
     /// (0.6.0), whose stored interval means nothing to the user.
     /// </summary>
     public static string CheckInterval(CheckType type, int seconds) =>
-        Enum.IsDefined(type) && !CheckCatalog.Get(type).RunsOnAgent ? "after every patch sync" : Intervals.Describe(seconds);
+        Enum.IsDefined(type) && CheckCatalog.Get(type).EvaluatedWhen is { } when ? when : Intervals.Describe(seconds);
+
+    /// <summary>A storage scan interval of a policy: "Every day", "Every 6 hours", "Only on request".</summary>
+    public static string StorageScanInterval(int hours) => hours switch
+    {
+        0 => "Only on request",
+        24 => "Every day",
+        168 => "Every week",
+        _ when hours % 24 == 0 => $"Every {hours / 24} days",
+        _ => $"Every {hours} hours"
+    };
+
+    /// <summary>A change in size: "+3.4 GB", "-120 MB", "no change".</summary>
+    public static string BytesChange(long bytes) => bytes switch
+    {
+        0 => "no change",
+        > 0 => "+" + Bytes(bytes),
+        _ => "-" + Bytes(bytes == long.MinValue ? long.MaxValue : -bytes)
+    };
 
     /// <summary>A check result for the Checks tab: "85.2%", "Running", "No response", "12 ms", "34 days".</summary>
     public static string CheckValue(CheckType type, double? value, string target = "", IReadOnlyDictionary<string, string>? parameters = null)

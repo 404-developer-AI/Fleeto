@@ -1,4 +1,4 @@
-@* Endpoint detail: header and the tabs Summary, Checks, Software, Notes and History. Used below the endpoint list in the
+@* Endpoint detail: header and the tabs Summary, Checks, Software, Notes, Jobs, Patches, Storage and History. Used below the endpoint list in the
    clients workspace (Embedded) and on the full endpoint page. Only data of the visible tab is loaded. *@
 @inherits FleetoPageBase
 @inject EndpointService EndpointSvc
@@ -7,6 +7,8 @@
 @inject JobService JobSvc
 @inject PatchService PatchSvc
 @inject ScriptService ScriptSvc
+@inject StorageService StorageSvc
+@using System.Globalization
 @inject IDialogService DialogService
 @inject TimeProvider Clock
 @inject LiveUpdates Live
@@ -66,6 +68,9 @@
                 <MudTabPanel Text="Patches" Icon="@Icons.Material.Outlined.Security">
                     @Patches()
                 </MudTabPanel>
+                <MudTabPanel Text="Storage" Icon="@Icons.Material.Outlined.Storage">
+                    @Storage()
+                </MudTabPanel>
                 <MudTabPanel Text="History" Icon="@Icons.Material.Outlined.History">
                     @History()
                 </MudTabPanel>
@@ -84,7 +89,8 @@
     private const int NotesTab = 3;
     private const int JobsTab = 4;
     private const int PatchesTab = 5;
-    private const int HistoryTab = 6;
+    private const int StorageTab = 6;
+    private const int HistoryTab = 7;
 
     [Parameter, EditorRequired]
     public Guid EndpointId { get; set; }
@@ -114,6 +120,10 @@
     private IReadOnlyList<EndpointEventView> _events = [];
     private IReadOnlyList<AuditEntryView> _audit = [];
     private string? _softwareSearch;
+    private EndpointStorageView? _storage;
+    private string? _storageVolume;
+    private readonly HashSet<string> _storageExpanded = new(StringComparer.OrdinalIgnoreCase);
+    private bool _storageScanning;
     private DebouncedRefresh? _refresh;
 
     protected override void OnInitialized()
@@ -125,6 +135,7 @@
         Live.AlertChanged += OnAlertChange;
         Live.JobsChanged += OnJobsChange;
         Live.PatchDeploymentsChanged += OnDeploymentChange;
+        Live.StorageScansChanged += OnStorageChange;
     }
 
     protected override async Task OnParametersSetAsync()
@@ -137,6 +148,9 @@
         _loadedId = EndpointId;
         _softwareSearch = null;
         _inventory = null;
+        _storage = null;
+        _storageVolume = null;
+        _storageExpanded.Clear();
         Loading = _endpoint is null;
         await ReloadAsync();
     }
@@ -186,6 +200,15 @@
                 // An update that is no longer missing cannot stay chosen, or a deployment would name something that is gone.
                 _chosenUpdates = [.. _chosenUpdates.Where(u => _patches?.Missing.Any(m => m.Id == u.Id) == true)];
                 break;
+            case StorageTab:
+                _storage = await StorageSvc.GetAsync(caller, EndpointId, _storageVolume);
+                if (_storage?.Selected is { } selected && _storageExpanded.Count == 0 && selected.Folders.Count > 0)
+                {
+                    // A drive opens with its first level of folders visible.
+                    _storageExpanded.Add(selected.Folders[0].Path);
+                }
+
+                break;
             case HistoryTab:
                 _alerts = await EndpointSvc.GetAlertsAsync(caller, EndpointId, 50);
                 _events = await EndpointSvc.GetEventsAsync(caller, EndpointId, 50);
@@ -203,6 +226,14 @@
     private void OnEndpointChange(Guid id)
     {
         if (id == EndpointId || id == Guid.Empty)
+        {
+            _refresh?.Trigger();
+        }
+    }
+
+    private void OnStorageChange(Guid id)
+    {
+        if (_tab == StorageTab && (id == EndpointId || id == Guid.Empty))
         {
             _refresh?.Trigger();
         }
@@ -1111,6 +1142,275 @@
                     Text="The agent reports inventory shortly after it connects, and again on the interval of the policy." />
     };
 
+    // ---------------------------------------------------------------------------------------------------------------
+    // Storage (0.6.0)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    private RenderFragment Storage() => __builder =>
+    {
+        var storage = _storage;
+        if (storage is null)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.Storage" Title="Loading" Text="Reading the storage scans of this endpoint." />
+        }
+        else if (!storage.Managed)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.Storage" Title="Storage analysis needs a managed endpoint"
+                        Text="Switch this endpoint to managed to see which folders and files use its drives." />
+        }
+        else if (storage.Volumes.Count == 0)
+        {
+            @if (!storage.AgentSupports)
+            {
+                <EmptyState Icon="@Icons.Material.Outlined.Storage" Title="The agent cannot scan storage yet"
+                            Text="@($"Storage analysis needs agent {StorageRules.MinimumAgentVersion} or newer. The agent updates on its own, following the update ring of its policy.")" />
+            }
+            else
+            {
+                <EmptyState Icon="@Icons.Material.Outlined.Storage" Title="No storage scan yet" Text="@NoScanText(storage)" />
+                @if (storage.CanScan && storage.RequestedAt is null)
+                {
+                    <div class="d-flex justify-center">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Refresh" Disabled="_storageScanning"
+                                   OnClick="RequestStorageScanAsync">Scan now</MudButton>
+                    </div>
+                }
+            }
+        }
+        else
+        {
+            <div class="d-flex gap-2 flex-wrap align-center mb-3">
+                @foreach (var volume in storage.Volumes)
+                {
+                    var selected = storage.Selected?.Summary.Volume == volume.Volume;
+                    var used = volume.TotalBytes - volume.FreeBytes;
+                    <MudButton Variant="@(selected ? Variant.Filled : Variant.Outlined)" Color="@(selected ? Color.Primary : Color.Default)" Size="Size.Small"
+                               StartIcon="@Icons.Material.Outlined.Storage" OnClick="@(() => SelectStorageVolumeAsync(volume.Volume))">
+                        @volume.Volume · @Ui.Bytes(used) of @Ui.Bytes(volume.TotalBytes) used
+                    </MudButton>
+                }
+                <MudSpacer />
+                @if (storage.CanScan)
+                {
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Refresh" Size="Size.Small"
+                               Disabled="@(_storageScanning || storage.RequestedAt is not null)" OnClick="RequestStorageScanAsync">Scan now</MudButton>
+                }
+            </div>
+
+            @if (storage.RequestedAt is { } requestedAt)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                    A scan was asked for <TimeText Value="requestedAt" />. The result appears here when the agent finishes.
+                </MudAlert>
+            }
+
+            @if (storage.Selected is { } detail)
+            {
+                var summary = detail.Summary;
+                <MudText Typo="Typo.body2" Class="muted mb-2">
+                    Scanned <TimeText Value="summary.ScannedAt" /> in @StorageDuration(summary.DurationMs)
+                    · @(summary.Method == StorageScanMethod.Mft ? "master file table" : "folder walk")
+                    · @summary.FileCount.ToString("N0", CultureInfo.InvariantCulture) files
+                    · @summary.FolderCount.ToString("N0", CultureInfo.InvariantCulture) folders
+                    @if (!string.IsNullOrEmpty(summary.Filesystem))
+                    {
+                        <span> · @summary.Filesystem</span>
+                    }
+                </MudText>
+                @if (!summary.Complete)
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                        This scan is incomplete@(string.IsNullOrEmpty(summary.Error) ? "" : $": {summary.Error}"). Sizes are at least the values shown.
+                    </MudAlert>
+                }
+                else if (!string.IsNullOrEmpty(summary.Error))
+                {
+                    <MudText Typo="Typo.caption" Class="muted d-block mb-2">@summary.Error</MudText>
+                }
+
+                @StorageFolders(detail)
+                @StorageFiles(detail)
+            }
+        }
+    };
+
+    private static string NoScanText(EndpointStorageView storage) =>
+        storage.RequestedAt is not null
+            ? "A scan was asked for. The result appears here when the agent finishes."
+            : storage.ScanIntervalHours == 0
+                ? "The policy of this endpoint schedules no scans. Start one with Scan now."
+                : $"The agent scans its drives at low priority, {Ui.StorageScanInterval(storage.ScanIntervalHours).ToLowerInvariant()}. The first scan starts within an hour of the agent getting this setting.";
+
+    private static string StorageDuration(int milliseconds) => milliseconds switch
+    {
+        < 1000 => $"{milliseconds} ms",
+        < 60_000 => $"{(milliseconds / 1000d).ToString("0.#", CultureInfo.InvariantCulture)} seconds",
+        _ => $"{(milliseconds / 60_000d).ToString("0.#", CultureInfo.InvariantCulture)} minutes"
+    };
+
+    private RenderFragment StorageFolders(StorageVolumeDetail detail) => __builder =>
+    {
+        var total = Math.Max(1, detail.Summary.TotalBytes);
+        var visible = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        <MudText Typo="Typo.h6" Class="section-title mb-2">Largest folders</MudText>
+        <MudSimpleTable Dense="true" Elevation="0" Hover="true" Class="detail-table storage-table mb-5">
+            <thead>
+                <tr>
+                    <th>Folder</th>
+                    <th class="text-right">Size on disk</th>
+                    <th style="width:140px">Of the drive</th>
+                    <th class="text-right">Files</th>
+                    <th class="text-right" title="@CompareTitle(detail.PreviousAt, "No earlier scan")">Since previous</th>
+                    <th class="text-right" title="@CompareTitle(detail.WeekAt, "No scan a week old yet")">7 days</th>
+                    <th class="text-right" title="@CompareTitle(detail.MonthAt, "No scan a month old yet")">30 days</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in detail.Folders)
+                {
+                    if (row.ParentPath is not null && !(visible.Contains(row.ParentPath) && _storageExpanded.Contains(row.ParentPath)))
+                    {
+                        continue;
+                    }
+
+                    visible.Add(row.Path);
+                    var share = row.SizeBytes * 100d / total;
+                    var expanded = _storageExpanded.Contains(row.Path);
+                    <tr>
+                        <td title="@row.Path">
+                            <div class="d-flex align-center" style="@($"padding-left:{row.Depth * 18}px")">
+                                @if (row.HasChildren)
+                                {
+                                    <MudIconButton Icon="@(expanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                                                   Size="Size.Small" OnClick="@(() => ToggleStorageFolder(row.Path))"
+                                                   aria-label="@(expanded ? "Collapse" : "Expand")" />
+                                }
+                                else
+                                {
+                                    <span class="storage-indent"></span>
+                                }
+                                <MudIcon Icon="@Icons.Material.Outlined.Folder" Size="Size.Small" Class="mr-1 muted" />
+                                <span class="storage-name">@row.Name</span>
+                            </div>
+                        </td>
+                        <td class="text-right">@Ui.Bytes(row.SizeBytes)</td>
+                        <td>
+                            <div class="storage-bar" title="@($"{share.ToString("0.#", CultureInfo.InvariantCulture)}% of {Ui.Bytes(detail.Summary.TotalBytes)}")">
+                                <div class="storage-bar-fill" style="@($"width:{Math.Clamp(share, 0, 100).ToString("0.##", CultureInfo.InvariantCulture)}%")"></div>
+                            </div>
+                        </td>
+                        <td class="text-right">@row.FileCount.ToString("N0", CultureInfo.InvariantCulture)</td>
+                        <td class="text-right">@StorageChange(row.ChangeSincePrevious)</td>
+                        <td class="text-right">@StorageChange(row.ChangeWeek)</td>
+                        <td class="text-right">@StorageChange(row.ChangeMonth)</td>
+                        <td class="text-right">
+                            <MudIconButton Icon="@Icons.Material.Outlined.ShowChart" Size="Size.Small" title="History of this folder"
+                                           aria-label="History of this folder" OnClick="@(() => ShowStorageHistoryAsync(detail.Summary.Volume, row.Path))" />
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    };
+
+    private string CompareTitle(DateTime? at, string none) => at is { } time ? $"Compared with the scan of {Time.Short(time)}" : none;
+
+    private RenderFragment StorageFiles(StorageVolumeDetail detail) => __builder =>
+    {
+        <MudText Typo="Typo.h6" Class="section-title mb-2">Largest files</MudText>
+        @if (detail.Files.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted">The scan listed no files.</MudText>
+        }
+        else
+        {
+            <MudSimpleTable Dense="true" Elevation="0" Hover="true" Class="detail-table storage-table">
+                <thead>
+                    <tr>
+                        <th>File</th>
+                        <th class="text-right">Size on disk</th>
+                        <th>Changed</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var file in detail.Files)
+                    {
+                        <tr>
+                            <td class="storage-path">@file.Path</td>
+                            <td class="text-right">@Ui.Bytes(file.SizeBytes)</td>
+                            <td>@(file.ModifiedAt is { } modified ? Time.Short(modified) : "-")</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        }
+    };
+
+    private static RenderFragment StorageChange(long? change) => __builder =>
+    {
+        if (change is not { } bytes)
+        {
+            <span class="muted">-</span>
+        }
+        else if (bytes == 0)
+        {
+            <span class="muted">0</span>
+        }
+        else
+        {
+            <span class="@(bytes > 0 ? "storage-grew" : "storage-shrank")">@Ui.BytesChange(bytes)</span>
+        }
+    };
+
+    private void ToggleStorageFolder(string path)
+    {
+        if (!_storageExpanded.Remove(path))
+        {
+            _storageExpanded.Add(path);
+        }
+    }
+
+    private async Task SelectStorageVolumeAsync(string volume)
+    {
+        _storageVolume = volume;
+        _storageExpanded.Clear();
+        await LoadAsync(LoadTabAsync);
+    }
+
+    private async Task RequestStorageScanAsync()
+    {
+        _storageScanning = true;
+        try
+        {
+            var online = await RunForValueAsync(caller => StorageSvc.RequestScanAsync(caller, EndpointId), null);
+            if (online is null)
+            {
+                return;
+            }
+
+            Snackbar.Add(online.Value
+                ? "The agent is asked to scan its drives. The result appears here when it finishes."
+                : "The endpoint is offline. The agent scans its drives if it connects within the next hour.", Severity.Info);
+            await LoadAsync(LoadTabAsync);
+        }
+        finally
+        {
+            _storageScanning = false;
+        }
+    }
+
+    private async Task ShowStorageHistoryAsync(string volume, string path)
+    {
+        var parameters = new DialogParameters<StorageFolderHistoryDialog>
+        {
+            { d => d.EndpointId, EndpointId },
+            { d => d.Volume, volume },
+            { d => d.Path, path }
+        };
+        await DialogService.ShowAsync<StorageFolderHistoryDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
+    }
+
     private RenderFragment History() => __builder =>
     {
         <MudText Typo="Typo.h6" Class="section-title mb-2">Alerts</MudText>
@@ -1495,6 +1795,7 @@
         Live.AlertChanged -= OnAlertChange;
         Live.JobsChanged -= OnJobsChange;
         Live.PatchDeploymentsChanged -= OnDeploymentChange;
+        Live.StorageScansChanged -= OnStorageChange;
         _refresh?.Dispose();
         base.Dispose();
     }

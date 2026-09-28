@@ -27,7 +27,8 @@ public enum IngestOutcome
 /// <summary>
 /// Hot-path SQL of the gateway, written directly against Npgsql. Touches only what the <c>fleeto_gateway</c> role is
 /// granted (DatabaseGrants): Endpoints (select, update), InventorySnapshots, CheckResults (insert), IngestBatches,
-/// EndpointEvents (insert), EndpointConfigs and AgentCertificates (select), CheckRunRequests (select, update). Every
+/// EndpointEvents (insert), EndpointConfigs and AgentCertificates (select), CheckRunRequests (select, update), StorageScans
+/// (select, insert) and StorageScanRequests (select, update). Every
 /// statement is a constant.
 /// </summary>
 public sealed partial class GatewayStore

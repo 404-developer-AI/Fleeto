@@ -24,7 +24,7 @@
 
         @if (!Info.RunsOnAgent)
         {
-            <MudText Typo="Typo.caption" Class="muted d-block mb-3">Fleeto evaluates this check after every patch sync, every 4 hours.</MudText>
+            <MudText Typo="Typo.caption" Class="muted d-block mb-3">Fleeto evaluates this check @Info.EvaluatedWhen; it has no interval of its own.</MudText>
         }
         else
         {
