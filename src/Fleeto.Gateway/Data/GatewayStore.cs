@@ -265,7 +265,8 @@ public sealed partial class GatewayStore
         if (batch.Results.Count > 0)
         {
             await using var importer = await connection.BeginBinaryImportAsync("""
-                COPY "CheckResults" ("Time", "ClientId", "EndpointId", "CheckDefinitionId", "Target", "AgentTime", "Value", "Detail", "Error", "ConfigVersion")
+                COPY "CheckResults" ("Time", "ClientId", "EndpointId", "CheckDefinitionId", "Target", "AgentTime", "Value", "Detail", "Error", "ConfigVersion",
+                  "ProcessesJson")
                 FROM STDIN (FORMAT BINARY)
                 """, cancellationToken);
             foreach (var result in batch.Results)
@@ -287,6 +288,15 @@ public sealed partial class GatewayStore
                 await importer.WriteAsync(DbText.Clean(result.Detail, 1000), NpgsqlDbType.Varchar, cancellationToken);
                 await importer.WriteAsync(DbText.Clean(result.Error, 1000), NpgsqlDbType.Varchar, cancellationToken);
                 await importer.WriteAsync(DbText.ClampToLong(result.ConfigVersion), NpgsqlDbType.Bigint, cancellationToken);
+                if (ProcessesJson(result) is { } processes)
+                {
+                    await importer.WriteAsync(processes, NpgsqlDbType.Jsonb, cancellationToken);
+                }
+                else
+                {
+                    await importer.WriteNullAsync(cancellationToken);
+                }
+
                 stored++;
             }
 
@@ -296,6 +306,22 @@ public sealed partial class GatewayStore
         await transaction.CommitAsync(cancellationToken);
         return (IngestOutcome.Stored, stored);
     }
+
+    /// <summary>
+    /// The process list of a result, bounded and cleaned (0.6.0): at most <see cref="ProcessListRules.MaxProcesses"/> processes, CPU
+    /// within 0 to 100 percent. The check type is not known here; the workers use a list only for CPU and memory usage checks.
+    /// </summary>
+    internal static string? ProcessesJson(Protocol.Agent.V1.CheckResult result) =>
+        ProcessListRules.Serialize(result.Processes
+            .Where(p => !string.IsNullOrWhiteSpace(p.Name))
+            .Take(ProcessListRules.MaxProcesses)
+            .Select(p => new ProcessEntry(
+                p.Pid > int.MaxValue ? int.MaxValue : (int)p.Pid,
+                DbText.Clean(p.Name, ProcessListRules.MaxNameLength),
+                DbText.Clean(p.User, ProcessListRules.MaxUserLength),
+                double.IsFinite(p.CpuPercent) && p.CpuPercent > 0 ? Math.Min(Math.Round(p.CpuPercent, 1), 100) : null,
+                DbText.ClampToLong(p.MemoryBytes)))
+            .ToList());
 
     /// <summary>Stores the latest inventory (one row per endpoint) and copies the OS facts to the endpoint.</summary>
     public async Task SaveInventoryAsync(Guid endpointId, Guid clientId, InventoryReport report, DateTime now, CancellationToken cancellationToken)

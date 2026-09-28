@@ -131,7 +131,7 @@ public sealed class WorkersFixture : IAsyncLifetime
     }
 
     public async Task<CheckResult> InsertResultAsync(Endpoint endpoint, CheckDefinition definition, double value, string error = "",
-        string target = "")
+        string target = "", string detail = "", string? processesJson = null)
     {
         await using var db = Db.DbFactory.CreateSystem();
         var result = new CheckResult
@@ -144,6 +144,8 @@ public sealed class WorkersFixture : IAsyncLifetime
             AgentTime = Now,
             Value = value,
             Error = error,
+            Detail = detail,
+            ProcessesJson = processesJson,
             ConfigVersion = 1
         };
         db.CheckResults.Add(result);

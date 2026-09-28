@@ -138,6 +138,28 @@ public sealed class CheckEvaluationTests
     }
 
     [Fact]
+    public async Task A_CPU_alert_names_the_processes_using_the_most_without_their_users()
+    {
+        var (site, endpoint) = await ManagedEndpointAsync();
+        var cpu = await _fixture.CreateCheckAsync(site, CheckType.CpuUsage, 80, 90);
+        var processes = Core.Domain.ProcessListRules.Serialize(
+        [
+            new(1, "sqlservr.exe", @"NT SERVICE\MSSQLSERVER", 71.2, 2_147_483_648),
+            new(2, "MsMpEng.exe", @"NT AUTHORITY\SYSTEM", 12, 300 * 1024 * 1024),
+            new(3, "svchost.exe", @"NT AUTHORITY\SYSTEM", 3.1, 50 * 1024 * 1024),
+            new(4, "explorer.exe", @"CONTOSO\jan", 1, 80 * 1024 * 1024)
+        ]);
+
+        await _fixture.InsertResultAsync(endpoint, cpu, 92.3, detail: "92.3 % average over 60 s", processesJson: processes);
+        await _fixture.CheckEvaluation().EvaluateEndpointAsync(endpoint.Id, CancellationToken.None);
+
+        var alert = Assert.Single(await AlertsAsync(endpoint.Id));
+        Assert.Equal("92.3 % average over 60 s. Top processes: sqlservr.exe 71.2%, MsMpEng.exe 12%, svchost.exe 3.1%.", alert.Detail);
+        // The check state keeps the agent's own detail; the list stays with the result.
+        Assert.Equal("92.3 % average over 60 s", (await StatesAsync(endpoint.Id)).Single().Detail);
+    }
+
+    [Fact]
     public async Task Repeated_and_concurrent_evaluations_keep_a_single_open_alert()
     {
         var (site, endpoint) = await ManagedEndpointAsync();

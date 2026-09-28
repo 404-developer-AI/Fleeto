@@ -41,7 +41,7 @@ func (c SystemCollector) Collect(ctx context.Context, spec *agentv1.CheckSpec) [
 	case agentv1.CheckType_CHECK_TYPE_CPU_USAGE:
 		return []Measurement{cpuUsage(ctx, spec)}
 	case agentv1.CheckType_CHECK_TYPE_MEMORY_USAGE:
-		return []Measurement{memoryUsage(ctx)}
+		return []Measurement{memoryUsage(ctx, spec)}
 	case agentv1.CheckType_CHECK_TYPE_DISK_FREE:
 		return diskFree(spec.GetParameters()["drive"])
 	case agentv1.CheckType_CHECK_TYPE_SERVICE_RUNNING:
@@ -114,14 +114,24 @@ func CPUSampleWindow(spec *agentv1.CheckSpec) time.Duration {
 
 func cpuUsage(ctx context.Context, spec *agentv1.CheckSpec) Measurement {
 	window := CPUSampleWindow(spec)
+	// The process list covers the same window as the value, so the CPU time per process is read before it starts.
+	var start cpuSnapshot
+	wanted := processListWanted(ctx, spec)
+	if wanted {
+		start, _ = takeCPUSnapshot(ctx)
+	}
 	values, err := cpu.PercentWithContext(ctx, window, false)
 	if err != nil || len(values) == 0 {
 		return Measurement{Error: fmt.Sprintf("CPU usage could not be read: %v", errOrEmpty(err))}
 	}
-	return Measurement{Value: round(values[0], 1), Detail: fmt.Sprintf("%.1f %% average over %d s", values[0], int(window/time.Second))}
+	m := Measurement{Value: round(values[0], 1), Detail: fmt.Sprintf("%.1f %% average over %d s", values[0], int(window/time.Second))}
+	if wanted && processListDue(ctx, spec, m.Value) {
+		m.Processes = topByCPU(ctx, start)
+	}
+	return m
 }
 
-func memoryUsage(ctx context.Context) Measurement {
+func memoryUsage(ctx context.Context, spec *agentv1.CheckSpec) Measurement {
 	vm, err := mem.VirtualMemoryWithContext(ctx)
 	if err != nil {
 		return Measurement{Error: fmt.Sprintf("memory usage could not be read: %v", err)}
@@ -131,7 +141,11 @@ func memoryUsage(ctx context.Context) Measurement {
 	if vm.Total > 0 {
 		percent = float64(used) / float64(vm.Total) * 100
 	}
-	return Measurement{Value: round(percent, 1), Detail: fmt.Sprintf("%s in use of %s", FormatBytes(used), FormatBytes(vm.Total))}
+	m := Measurement{Value: round(percent, 1), Detail: fmt.Sprintf("%s in use of %s", FormatBytes(used), FormatBytes(vm.Total))}
+	if processListDue(ctx, spec, m.Value) {
+		m.Processes = topByMemory(ctx)
+	}
+	return m
 }
 
 func uptime(ctx context.Context) Measurement {

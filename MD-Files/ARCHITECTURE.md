@@ -140,7 +140,7 @@ AuditEntry (append-only)
 | **RemoteSession** | `Id`, `ClientId`, `EndpointId`, `Kind` (`RemoteControl`/`RemoteBackground`), `Component` (`agent`/`watchdog`, the serving service), `StartedByUserId`, `StartedByName`, `Reason?`, `CreatedAt`, `StartedAt?`, `EndedAt?`, `EndReason?` | Every session (0.3.0), whether it connected or not. Kept 13 months, then removed with its participants and actions; the audit log keeps its own entries. |
 | **RemoteSessionParticipant** | `Id`, `SessionId`, `ClientId`, `EndpointId`, `UserId`, `UserName`, `Reason?`, `State` (`Requested`, `Signed`, `Connecting`, `Connected`, `Ended`, `Refused`, `Failed`), `BrowserPublicKey` (32 bytes, check constraint), `TokenPayload?`, `TokenSignature?`, `SigningKeyId?`, `SignedAt?`, `ValidUntil?`, `IpAddress?`, `CreatedAt`, `ConnectingAt?`, `ConnectedAt?`, `EndedAt?`, `EndReason?` | One technician's connection to a session, with its own single-use token (§4 Remote session). `ConnectingAt` needs a signature (check constraint). Web writes it, the signer signs it, the gateway claims, connects and ends it, the workers end what never connected. |
 | **RemoteSessionAction** | `Id`, `SessionId`, `ParticipantId?`, `ClientId`, `EndpointId`, `Time`, `Action`, `Target`, `Detail?` | An action inside a remote background session as the endpoint reports it (file, service or process action with its target; written from 0.3.0 step 2). Terminal content is never stored. |
-| **CheckResult** | `Time` (ingest), `ClientId`, `EndpointId`, `CheckDefinitionId`, `Status`, `Value`, `Payload` | TimescaleDB hypertable, compressed, retention policy. Deduplicated per endpoint and agent batch sequence number. |
+| **CheckResult** | `Time` (ingest), `ClientId`, `EndpointId`, `CheckDefinitionId`, `Status`, `Value`, `Payload`, `ProcessesJson?` | TimescaleDB hypertable, compressed, retention policy. Deduplicated per endpoint and agent batch sequence number. `ProcessesJson` (0.6.0): the process list of a CPU or memory usage result, null for every other result; a partial index covers the rows that have one. Holds user names (personal data), kept as long as the raw results. |
 | **Alert** | `Id`, `ClientId`, `EndpointId`, `CheckDefinitionId`, `Severity`, `State`, `AcknowledgedBy`, `HeldUntil?`, `HeldAt?`, `HeldBy?`, timestamps | Deduplicated per endpoint and check. On hold while `HeldUntil` is in the future (§4, Alert hold). |
 | **InventorySnapshot** | `EndpointId`, `ClientId`, `ReceivedAt`, `Hash`, hardware facts, `DisksJson`, `NetworkInterfacesJson`, `SoftwareJson`, `ServicesJson`, `Action1AgentId`, `Desktop` | Latest inventory, one row per endpoint. `Desktop` (0.6.0): `graphical`, `none` or empty (an agent older than 0.6.0), see *Remote control only where there is a desktop* in §4. `Action1AgentId` (0.4.0): the id of the Action1 agent installed next to the Fleeto agent, read on the endpoint itself and indexed, so patch state is matched on it instead of on the host name. `ServicesJson` (0.2.0): name, display name, start type and state per service (at most 2,000), used to pick the service of a service check; for a monitoring template the services of the most recent 1,000 inventories of its endpoints are offered. |
 | **CheckResultHourly**, **CheckResultDaily** | `EndpointId`, `CheckDefinitionId`, `Target`, `Bucket`, `ClientId`, `MinValue?`, `MaxValue?`, `SumValue`, `ValueCount`, `ErrorCount`, `NoResponseCount` | Check history rollups (0.2.0), maintained by the workers with the evaluation, kept 13 months. Deleted with their endpoint or check. |
@@ -490,6 +490,18 @@ polling. Workers keep a cursor per endpoint (result ids are monotonic per endpoi
 agent sends one batch at a time, but not globally in commit order) and sweep for endpoints with
 newer results, so a lost notification makes alerts late and loses nothing. When Postgres is down, the gateway does not
 acknowledge and agents keep buffering on disk.
+
+**Process list of CPU and memory usage (0.6.0).** The configuration builder gives a CPU or memory usage check the
+parameter `process_list_at`: the lowest of its effective thresholds (endpoint overrides included), never a value from the
+check definition. A result at or above it, and every run started with Run now, carries the 10 processes using the most CPU
+or memory in `CheckResult.processes`: name, PID, user, memory (working set or resident set) and, for CPU, the share of the
+whole machine over the sample window of the check (the agent reads the CPU time per process before and after the window,
+and names, users and memory only for the listed processes). A result below it carries nothing, so a healthy endpoint stores
+nothing and the ingest stays as it was. The gateway stores the list with the result (at most 10 processes, names and users
+cut to length, CPU within 0 to 100 percent). The workers put the first three, with their CPU share or memory but never their
+user, in the alert detail, which goes out by email and webhook; the check state keeps the agent's detail. The check history
+marks every bucket that has a list with a dot, taken from the highest result in that bucket that has one; hovering or
+clicking the bucket shows the list below the chart. An agent before 0.6.0 ignores the parameter and sends no list.
 
 **Checks Fleeto evaluates itself (0.6.0).** A check type marked `EvaluatedByFleeto` in the catalog is left out of the
 agent's configuration. Its results come from the workers, which insert them into `CheckResults` (the one table the

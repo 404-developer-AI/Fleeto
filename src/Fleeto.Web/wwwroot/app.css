@@ -344,6 +344,13 @@ button.tag-chip:focus-visible { outline: 2px solid var(--fl-primary); outline-of
 .history-problem { fill: var(--fl-error); }
 .history-hit { fill: transparent; }
 .history-hit:hover { fill: rgba(28, 25, 23, 0.04); }
+.history-hit-processes { cursor: pointer; }
+.history-process-marker { fill: var(--fl-surface); stroke: var(--fl-primary); stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
+.history-process-marker.selected { fill: var(--fl-primary); }
+.history-legend-processes { width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--fl-primary); box-sizing: border-box; }
+.process-list-panel { margin-top: 12px; border: 1px solid var(--fl-border); border-radius: var(--fl-radius); padding: 10px 12px; }
+.process-list-panel .mud-table-cell { padding: 4px 8px; font-size: 0.8125rem; }
+.process-list-panel .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .history-legend { display: inline-block; width: 16px; height: 8px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
 .history-legend-line { height: 2px; background: var(--fl-primary); }
 .history-legend-band { background: var(--fl-primary-tint-strong); }

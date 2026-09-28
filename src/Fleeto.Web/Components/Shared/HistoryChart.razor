@@ -1,5 +1,7 @@
 @* Line chart of the check history: the average as a line, minimum to maximum as a band, thresholds as dashed lines, and a red mark
-   under a bucket where the check could not run or got no response. Inline SVG, no chart library. *@
+   under a bucket where the check could not run or got no response. Inline SVG, no chart library. A bucket with a process list
+   (CPU and memory usage, 0.6.0) has a dot at the value of that list; hovering or clicking the bucket reports it through
+   ProcessListSelected, and only those buckets send events. *@
 @inject TimeDisplay Time
 
 <svg class="history-chart" viewBox="0 0 @HistoryChartLayout.F(HistoryChartLayout.Width) @HistoryChartLayout.F(HistoryChartLayout.Height)"
@@ -41,14 +43,36 @@
             <rect x="@HistoryChartLayout.F(x)" y="@HistoryChartLayout.F(HistoryChartLayout.Height - HistoryChartLayout.Bottom + 2)"
                   width="@HistoryChartLayout.F(Math.Max(1, _layout.BucketWidth - 1))" height="4" class="history-problem" />
         }
-        <rect x="@HistoryChartLayout.F(x)" y="@HistoryChartLayout.F(HistoryChartLayout.Top)" width="@HistoryChartLayout.F(_layout.BucketWidth)"
-              height="@HistoryChartLayout.F(_layout.PlotHeight)" class="history-hit"><title>@Tooltip(point)</title></rect>
+        @if (View.ProcessLists.TryGetValue(point.Time, out var list))
+        {
+            var time = point.Time;
+            <circle cx="@HistoryChartLayout.F(x + _layout.BucketWidth / 2)" cy="@HistoryChartLayout.F(_layout.Y(list.Value))" r="@(time == SelectedProcessList ? "4.5" : "3")"
+                    class="history-process-marker @(time == SelectedProcessList ? "selected" : "")" />
+            <rect x="@HistoryChartLayout.F(x)" y="@HistoryChartLayout.F(HistoryChartLayout.Top)" width="@HistoryChartLayout.F(_layout.BucketWidth)"
+                  height="@HistoryChartLayout.F(_layout.PlotHeight)" class="history-hit history-hit-processes"
+                  @onmouseenter="@(() => SelectAsync(time))" @onclick="@(() => SelectAsync(time))"><title>@Tooltip(point)</title></rect>
+        }
+        else
+        {
+            <rect x="@HistoryChartLayout.F(x)" y="@HistoryChartLayout.F(HistoryChartLayout.Top)" width="@HistoryChartLayout.F(_layout.BucketWidth)"
+                  height="@HistoryChartLayout.F(_layout.PlotHeight)" class="history-hit"><title>@Tooltip(point)</title></rect>
+        }
     }
 </svg>
 
 @code {
     [Parameter, EditorRequired]
     public CheckHistoryView View { get; set; } = default!;
+
+    /// <summary>The bucket whose process list is shown, drawn as a larger dot.</summary>
+    [Parameter]
+    public DateTime? SelectedProcessList { get; set; }
+
+    [Parameter]
+    public EventCallback<DateTime> ProcessListSelected { get; set; }
+
+    private Task SelectAsync(DateTime bucket) =>
+        bucket == SelectedProcessList ? Task.CompletedTask : ProcessListSelected.InvokeAsync(bucket);
 
     private HistoryChartLayout _layout = default!;
 

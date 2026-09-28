@@ -11,6 +11,10 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
+- A CPU or memory usage result at or above the lowest threshold of its check, and every Run now, lists the 10 processes using
+  the most CPU or memory, with PID, user and memory. The check history marks those results with a dot; hovering over one
+  shows the list below the chart. An alert names the top three processes (without users) in its detail and email.
+
 - Action1 can follow your clients and sites. Switch on "Keep Action1 in step with clients and sites" in Settings,
   Integrations: a new client then gets its own Action1 organization, or the unmapped organization that already has its
   name, and is mapped to it. The organization of every mapped client is named after its client code and name, such as

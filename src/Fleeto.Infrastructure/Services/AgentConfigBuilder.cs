@@ -76,6 +76,13 @@ public sealed class AgentConfigBuilder
                     spec.Parameters[key] = value;
                 }
 
+                // The process list of a CPU or memory usage check starts at its lowest effective threshold; only the server sets it.
+                spec.Parameters.Remove(ProcessListRules.Parameter);
+                if (ProcessListRules.Applies(check.Type) && ProcessListRules.ListAt(check.WarningThreshold, check.CriticalThreshold) is { } listAt)
+                {
+                    spec.Parameters[ProcessListRules.Parameter] = ProcessListRules.FormatParameter(listAt);
+                }
+
                 if (check.Type == Core.Entities.CheckType.Script)
                 {
                     spec.IntervalSeconds = Math.Max(spec.IntervalSeconds, (uint)ScriptRules.MinCheckIntervalSeconds);

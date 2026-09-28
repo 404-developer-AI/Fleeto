@@ -500,7 +500,10 @@ public sealed class CheckEvaluationService : WorkerLoop
 
             var severity = CheckEvaluator.SeverityFor(status);
             var title = Truncate(CheckEvaluator.AlertTitle(endpoint.Hostname, check.ToEffectiveDefinition(), result.Target, status, result.Value, result.Error), 500);
-            var detail = Truncate(string.IsNullOrEmpty(result.Error) ? result.Detail : result.Error, 2000);
+            // A CPU or memory usage result names the processes using the most (0.6.0), without their users.
+            var detail = Truncate(string.IsNullOrEmpty(result.Error)
+                ? ProcessListRules.AlertDetail(definition.Type, result.Detail, ProcessListRules.Parse(result.ProcessesJson))
+                : result.Error, 2000);
 
             if (alert is null)
             {

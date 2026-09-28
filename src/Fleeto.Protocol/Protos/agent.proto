@@ -339,6 +339,22 @@ message CheckResult {
   string detail = 6;
   // Non-empty when the check could not run; value is then meaningless.
   string error = 7;
+  // CPU and memory usage checks only (0.6.0): the processes using the most CPU or memory, at most 10, highest first. Sent
+  // when the value reaches "process_list_at" of the check (the lowest of its thresholds, set by the server) and on a manual
+  // run, empty otherwise. Holds user names, so it is personal data.
+  repeated ProcessSample processes = 8;
+}
+
+// One process in the process list of a CPU or memory usage check.
+message ProcessSample {
+  uint32 pid = 1;
+  string name = 2;
+  // Account the process runs as, e.g. "NT AUTHORITY\SYSTEM" or "root"; empty when it cannot be read.
+  string user = 3;
+  // CPU usage checks: the process's share of the whole machine over the sample window of the check, in percent.
+  double cpu_percent = 4;
+  // Physical memory in use (working set on Windows, resident set on Linux).
+  uint64 memory_bytes = 5;
 }
 
 // Sent only after the batch is committed to PostgreSQL.
@@ -481,6 +497,8 @@ message CheckSpec {
   //   CHECK_TYPE_DISK_FREE: "drive" ("C:", "/var" or "*").
   //   CHECK_TYPE_SERVICE_RUNNING: "service".
   //   CHECK_TYPE_CPU_USAGE: optional "sample_seconds" (default 60, at most the interval).
+  //   CHECK_TYPE_CPU_USAGE and CHECK_TYPE_MEMORY_USAGE: "process_list_at", set by the server only: the value from which the
+  //     result carries its process list (CheckResult.processes). Without it only a manual run carries one.
   //   CHECK_TYPE_PING: "host", optional "count" (1-10, default 3).
   //   CHECK_TYPE_TCP_PORT: "host", "port", optional "timeout_seconds" (1-60, default 5).
   //   CHECK_TYPE_HTTP: "url", optional "expected_status" (default "200-399"), "contains", "timeout_seconds" (default 10),

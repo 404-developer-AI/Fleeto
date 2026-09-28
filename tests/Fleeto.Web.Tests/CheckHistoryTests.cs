@@ -45,12 +45,13 @@ public sealed class CheckHistoryTests
         return (client, endpoint, check);
     }
 
-    private async Task ResultAsync(Endpoint endpoint, CheckDefinition check, DateTime time, double value, string error = "")
+    private async Task ResultAsync(Endpoint endpoint, CheckDefinition check, DateTime time, double value, string error = "", string? processesJson = null)
     {
         await using var db = _fixture.Database.DbFactory.CreateSystem();
         db.CheckResults.Add(new CheckResult
         {
-            Time = time, ClientId = endpoint.ClientId, EndpointId = endpoint.Id, CheckDefinitionId = check.Id, AgentTime = time, Value = value, Error = error
+            Time = time, ClientId = endpoint.ClientId, EndpointId = endpoint.Id, CheckDefinitionId = check.Id, AgentTime = time, Value = value, Error = error,
+            ProcessesJson = processesJson
         });
         await db.SaveChangesAsync();
     }
@@ -119,6 +120,38 @@ public sealed class CheckHistoryTests
 
         var (_, agentOnly, agentOnlyCheck) = await SetupAsync(CheckType.CpuUsage, "{}", 80, EndpointTier.AgentOnly);
         Assert.Null(await History.GetAsync(WebFixture.Technician(), agentOnly.Id, agentOnlyCheck.Id, null, HistoryRange.Day));
+    }
+
+    [Fact]
+    public async Task A_bucket_shows_the_process_list_of_its_highest_result_that_has_one()
+    {
+        var (_, endpoint, check) = await SetupAsync(CheckType.CpuUsage, "{}", 80);
+        var now = _fixture.Database.Time.GetUtcNow().UtcDateTime;
+        var origin = new DateTime(2000, 1, 3, 0, 0, 0, DateTimeKind.Utc);
+        var bucket = TimeSpan.FromMinutes(10);
+        var start = origin + TimeSpan.FromTicks((now.AddHours(-2) - origin).Ticks / bucket.Ticks * bucket.Ticks);
+        string List(string name) => ProcessListRules.Serialize([new ProcessEntry(7, name, "root", 50, 1024)])!;
+        await ResultAsync(endpoint, check, start.AddMinutes(1), 90, processesJson: List("lower"));
+        await ResultAsync(endpoint, check, start.AddMinutes(2), 95, processesJson: List("highest"));
+        await ResultAsync(endpoint, check, start.AddMinutes(3), 99);
+        await ResultAsync(endpoint, check, start.AddMinutes(4), 100, "counters unavailable", List("error"));
+        await ResultAsync(endpoint, check, start.AddMinutes(-60), 85, processesJson: List("earlier"));
+        await ResultAsync(endpoint, check, now.AddDays(-3), 99, processesJson: List("too old"));
+
+        var view = await History.GetAsync(WebFixture.Technician(), endpoint.Id, check.Id, null, HistoryRange.Day);
+
+        Assert.NotNull(view);
+        Assert.Equal(2, view.ProcessLists.Count);
+        var list = view.ProcessLists[start];
+        Assert.Equal(95, list.Value);
+        Assert.Equal(start.AddMinutes(2), list.At);
+        Assert.Equal("highest", Assert.Single(list.Processes).Name);
+        Assert.Equal("earlier", view.ProcessLists[start.AddMinutes(-60)].Processes[0].Name);
+
+        // A check type without process lists never reads them.
+        var (_, other, disk) = await SetupAsync(CheckType.DiskFree, """{"drive":"C:"}""", 15);
+        await ResultAsync(other, disk, start.AddMinutes(1), 10, processesJson: List("disk"));
+        Assert.Empty((await History.GetAsync(WebFixture.Technician(), other.Id, disk.Id, null, HistoryRange.Day))!.ProcessLists);
     }
 
     [Fact]

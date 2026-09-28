@@ -23,6 +23,12 @@ public class CheckResult
     public string Detail { get; set; } = string.Empty;
     public string Error { get; set; } = string.Empty;
     public long ConfigVersion { get; set; }
+
+    /// <summary>
+    /// CPU and memory usage results only (0.6.0): the processes using the most, as JSON (<see cref="Domain.ProcessListRules"/>);
+    /// null when the result carries no list. Holds user names, so it is personal data.
+    /// </summary>
+    public string? ProcessesJson { get; set; }
 }
 
 /// <summary>Deduplication of agent result batches: a batch sequence number is stored once per endpoint.</summary>

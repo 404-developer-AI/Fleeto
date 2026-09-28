@@ -41,7 +41,7 @@
                 }
                 else
                 {
-                    <HistoryChart View="view" />
+                    <HistoryChart View="view" SelectedProcessList="_processList" ProcessListSelected="@(bucket => _processList = bucket)" />
                     <div class="d-flex gap-3 mt-2 muted flex-wrap" style="font-size:0.75rem">
                         <span><span class="history-legend history-legend-line"></span> Average</span>
                         <span><span class="history-legend history-legend-band"></span> Lowest to highest</span>
@@ -57,8 +57,13 @@
                         {
                             <span><span class="history-legend history-legend-problem"></span> @(view.Kind == ThresholdKind.Reachability ? "No response or could not run" : "Could not run")</span>
                         }
+                        @if (view.ProcessLists.Count > 0)
+                        {
+                            <span><span class="history-legend history-legend-processes"></span> Process list</span>
+                        }
                     </div>
                     <MudText Typo="Typo.caption" Class="muted d-block mt-2">@Summary(view)</MudText>
+                    @ProcessList(view)
                 }
             }
         </LoadState>
@@ -80,6 +85,8 @@
     private HistoryRange _range = HistoryRange.Day;
     private string? _target;
     private CheckHistoryView? _view;
+    // The bucket whose process list is shown; the latest one after every load.
+    private DateTime? _processList;
 
     protected override async Task OnInitializedAsync()
     {
@@ -91,7 +98,66 @@
     {
         _view = await HistorySvc.GetAsync(caller, EndpointId, CheckId, _target, _range);
         _target = _view?.Target ?? _target;
+        _processList = _view is { ProcessLists.Count: > 0 } ? _view.ProcessLists.Keys.Max() : null;
     });
+
+    /// <summary>The processes of the selected bucket (CPU and memory usage, 0.6.0), or where a list comes from when there is none.</summary>
+    private RenderFragment ProcessList(CheckHistoryView view) => __builder =>
+    {
+        if (!ProcessListRules.Applies(view.Type))
+        {
+            return;
+        }
+
+        var cpu = view.Type == CheckType.CpuUsage;
+        if (_processList is { } bucket && view.ProcessLists.TryGetValue(bucket, out var snapshot))
+        {
+            <div class="process-list-panel">
+                <div class="d-flex justify-space-between align-baseline flex-wrap gap-2 mb-1">
+                    <MudText Typo="Typo.subtitle2">@(cpu ? "CPU" : "Memory") @Ui.CheckValue(view.Type, snapshot.Value) at @Time.Absolute(snapshot.At)</MudText>
+                    <span class="muted" style="font-size:0.75rem">@(view.ProcessLists.Count > 1 ? "Hover over another dot to see its processes." : "")</span>
+                </div>
+                <MudSimpleTable Dense="true" Elevation="0">
+                    <thead>
+                        <tr>
+                            <th>Process</th>
+                            <th class="num">PID</th>
+                            <th>User</th>
+                            @if (cpu)
+                            {
+                                <th class="num">CPU</th>
+                            }
+                            <th class="num">Memory</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var process in snapshot.Processes)
+                        {
+                            <tr>
+                                <td>@process.Name</td>
+                                <td class="num">@process.Pid</td>
+                                <td>@(string.IsNullOrEmpty(process.User) ? "-" : process.User)</td>
+                                @if (cpu)
+                                {
+                                    <td class="num">@((process.CpuPercent ?? 0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture))%</td>
+                                }
+                                <td class="num">@Ui.Bytes(process.MemoryBytes)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+        else if (view.Range is not HistoryRange.Year)
+        {
+            <MudText Typo="Typo.caption" Class="muted d-block mt-1">@NoProcessListText(view)</MudText>
+        }
+    };
+
+    private static string NoProcessListText(CheckHistoryView view) =>
+        ProcessListRules.ListAt(view.WarningThreshold, view.CriticalThreshold) is { } at
+            ? $"No process list in this period. A result of {Ui.CheckValue(view.Type, at)} or more lists the processes using the most {(view.Type == CheckType.CpuUsage ? "CPU" : "memory")}, and so does Run now."
+            : "No process list in this period. Without thresholds only Run now lists the processes.";
 
     private async Task SetRangeAsync(HistoryRange range)
     {

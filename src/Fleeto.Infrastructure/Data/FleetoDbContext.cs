@@ -534,7 +534,11 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(r => r.Target).HasMaxLength(256);
             entity.Property(r => r.Detail).HasMaxLength(1000);
             entity.Property(r => r.Error).HasMaxLength(1000);
+            entity.Property(r => r.ProcessesJson).HasColumnType("jsonb");
             entity.HasIndex(r => new { r.EndpointId, r.CheckDefinitionId, r.Time });
+            // The few results with a process list, for the check history (0.6.0).
+            entity.HasIndex(r => new { r.EndpointId, r.CheckDefinitionId, r.Time }, "IX_CheckResults_ProcessLists")
+                .HasFilter("\"ProcessesJson\" IS NOT NULL");
             // Per-endpoint evaluation cursor in the workers: results with Id > cursor for one endpoint.
             entity.HasIndex(r => new { r.EndpointId, r.Id });
             entity.HasIndex(r => r.Id);

@@ -31,7 +31,17 @@ public sealed record CheckHistoryView(
     DateTime From,
     DateTime To,
     TimeSpan BucketSize,
-    IReadOnlyList<HistoryPoint> Points);
+    IReadOnlyList<HistoryPoint> Points)
+{
+    /// <summary>
+    /// CPU and memory usage checks (0.6.0): per bucket start, the process list of the highest result in that bucket that has one.
+    /// Only results of the last 30 days (raw results) have lists, and only those at or above the lowest threshold or run by hand.
+    /// </summary>
+    public IReadOnlyDictionary<DateTime, ProcessSnapshot> ProcessLists { get; init; } = new Dictionary<DateTime, ProcessSnapshot>();
+}
+
+/// <summary>The process list of one result: when it was measured, its value, and the processes using the most, highest first.</summary>
+public sealed record ProcessSnapshot(DateTime At, double Value, IReadOnlyList<ProcessEntry> Processes);
 
 /// <summary>
 /// Check history per check of an endpoint (ARCHITECTURE.md §4, Check history): the last hour and day from raw results (kept 30 days),
@@ -55,6 +65,19 @@ public sealed class CheckHistoryService
           AND r."Time" >= @from AND r."Time" < @to + interval '7 days'
           AND {{CheckHistoryRules.EffectiveTimeSql}} >= @from AND {{CheckHistoryRules.EffectiveTimeSql}} < @to
         GROUP BY 1
+        """;
+
+    /// <summary>Per bucket the highest result that carries a process list. Reads the partial index on results with a list.</summary>
+    private static readonly string ProcessListSql = $$"""
+        SELECT DISTINCT ON (1) date_bin(@bucket, {{CheckHistoryRules.EffectiveTimeSql}}, @origin) AS "Time",
+               {{CheckHistoryRules.EffectiveTimeSql}} AS "At", r."Value", r."ProcessesJson"::text AS "ProcessesJson"
+        FROM "CheckResults" r
+        WHERE r."EndpointId" = @endpointId AND r."CheckDefinitionId" = @checkId AND r."Target" = @target
+          AND r."ProcessesJson" IS NOT NULL AND r."Error" = ''
+          AND (@allClients OR r."ClientId" = ANY(@clientIds))
+          AND r."Time" >= @from AND r."Time" < @to + interval '7 days'
+          AND {{CheckHistoryRules.EffectiveTimeSql}} >= @from AND {{CheckHistoryRules.EffectiveTimeSql}} < @to
+        ORDER BY 1, r."Value" DESC, r."Time" DESC
         """;
 
     private const string RollupSql = """
@@ -149,15 +172,51 @@ public sealed class CheckHistoryService
                 : new HistoryPoint(t, null, null, null, 0, 0, 0));
         }
 
+        var processLists = new Dictionary<DateTime, ProcessSnapshot>();
+        if (ProcessListRules.Applies(check.Type))
+        {
+            var listRows = await db.Database.SqlQueryRaw<ProcessListRow>(ProcessListSql,
+                    new NpgsqlParameter("bucket", bucket),
+                    new NpgsqlParameter("origin", origin),
+                    new NpgsqlParameter("endpointId", endpointId),
+                    new NpgsqlParameter("checkId", checkId),
+                    new NpgsqlParameter("target", chosen),
+                    new NpgsqlParameter("allClients", caller.Scope.AllClients),
+                    new NpgsqlParameter("clientIds", caller.Scope.ClientIds.ToArray()),
+                    new NpgsqlParameter("from", from),
+                    new NpgsqlParameter("to", to))
+                .ToListAsync(cancellationToken);
+            foreach (var row in listRows)
+            {
+                var processes = ProcessListRules.Parse(row.ProcessesJson);
+                if (processes.Count > 0)
+                {
+                    processLists[DateTime.SpecifyKind(row.Time, DateTimeKind.Utc)] =
+                        new ProcessSnapshot(DateTime.SpecifyKind(row.At, DateTimeKind.Utc), row.Value, processes);
+                }
+            }
+        }
+
         var unit = certificate ? "days" : CheckCatalog.UnitOf(check.Type, parameters);
         var showThresholds = kind is not (ThresholdKind.Flag or ThresholdKind.ExitCode) && !certificate;
         return new CheckHistoryView(check.Id, check.Name, check.Type, chosen, targets, parameters, kind, unit,
             showThresholds ? check.WarningThreshold : null, showThresholds ? check.CriticalThreshold : null,
-            range, from, to, bucket, points);
+            range, from, to, bucket, points)
+        {
+            ProcessLists = processLists
+        };
     }
 
     private static DateTime Align(DateTime time, TimeSpan bucket, DateTime origin) =>
         origin + TimeSpan.FromTicks((time - origin).Ticks / bucket.Ticks * bucket.Ticks);
+
+    private sealed class ProcessListRow
+    {
+        public DateTime Time { get; set; }
+        public DateTime At { get; set; }
+        public double Value { get; set; }
+        public string? ProcessesJson { get; set; }
+    }
 
     private sealed class HistoryRow
     {

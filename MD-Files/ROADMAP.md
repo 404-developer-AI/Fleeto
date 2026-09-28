@@ -864,6 +864,11 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   spool); `StorageScans` and `StorageScanRequests` with their grants and retention; the gateway stores and acknowledges
   after the commit and delivers requests; `StorageScanService` in the workers (folder growth, scans on low disk space);
   the Storage tab, the folder history, the interval on the policy; check type `FolderGrowth` evaluated by the workers.
+- [done] **Process list of CPU and memory** (asked for by the developer on 2026-09-28). Decided the same day: a list only when
+  the value reaches the lowest threshold of the check, and on Run now; with the user of each process; the top three,
+  without users, in the alert. Done: `CheckResult.processes` and the server-set parameter `process_list_at` in the
+  protocol, the agent measures the processes over the sample window, `CheckResults.ProcessesJson` with a partial index, the
+  dots and the list under the chart of the check history.
 
 ## 0.7.0 — Hardening
 

@@ -71,6 +71,39 @@ public sealed class AgentSessionTests
     }
 
     [Fact]
+    public async Task A_process_list_is_stored_bounded_and_cleaned_with_its_result()
+    {
+        using var harness = _fixture.CreateHarness();
+        var endpoint = await _fixture.CreateEndpointAsync(EndpointTier.Managed);
+        using var session = await harness.OpenAsync(endpoint);
+        GatewayHarness.Drain(session);
+
+        var batch = Batch(sequence: 1, results: 2);
+        var listed = batch.Results[0];
+        listed.Processes.Add(new ProcessSample { Pid = 4321, Name = "sqlservr.exe", User = @"NT SERVICE\MSSQLSERVER", CpuPercent = 71.24, MemoryBytes = 2_147_483_648 });
+        listed.Processes.Add(new ProcessSample { Pid = 9, Name = "", CpuPercent = 50 });
+        listed.Processes.Add(new ProcessSample { Pid = 10, Name = "runaway" + new string('x', 500), CpuPercent = 400 });
+        for (var i = 0; i < 20; i++)
+        {
+            listed.Processes.Add(new ProcessSample { Pid = (uint)(100 + i), Name = $"p{i}", CpuPercent = double.NaN });
+        }
+
+        await harness.Manager.HandleAsync(session, new AgentMessage { CheckResults = batch }, CancellationToken.None);
+        await GatewayHarness.ReadUntilAsync(session, ServerMessage.BodyOneofCase.BatchAck);
+
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        var stored = await db.CheckResults.Where(r => r.EndpointId == endpoint.Id).ToListAsync();
+        var withList = Assert.Single(stored, r => r.ProcessesJson is not null);
+        Assert.Equal(listed.CheckId, withList.CheckDefinitionId.ToString());
+        var processes = Core.Domain.ProcessListRules.Parse(withList.ProcessesJson);
+        Assert.Equal(Core.Domain.ProcessListRules.MaxProcesses, processes.Count);
+        Assert.Equal(new Core.Domain.ProcessEntry(4321, "sqlservr.exe", @"NT SERVICE\MSSQLSERVER", 71.2, 2_147_483_648), processes[0]);
+        Assert.Equal(100, processes[1].CpuPercent);
+        Assert.Equal(Core.Domain.ProcessListRules.MaxNameLength, processes[1].Name.Length);
+        Assert.Null(processes[2].CpuPercent);
+    }
+
+    [Fact]
     public async Task Results_of_an_agent_only_endpoint_are_acknowledged_but_not_stored()
     {
         using var harness = _fixture.CreateHarness();

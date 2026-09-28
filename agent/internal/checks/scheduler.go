@@ -34,6 +34,16 @@ type Measurement struct {
 	Target string
 	Detail string
 	Error  string
+	// Processes is the process list of a CPU or memory usage check, when it carries one (processes.go).
+	Processes []*agentv1.ProcessSample
+}
+
+type manualRunKey struct{}
+
+// IsManualRun reports whether ctx belongs to a run started by RunNow rather than by the schedule.
+func IsManualRun(ctx context.Context) bool {
+	manual, _ := ctx.Value(manualRunKey{}).(bool)
+	return manual
 }
 
 // Collector measures a check. It must honour ctx and never panic (the scheduler recovers anyway).
@@ -217,13 +227,15 @@ func (s *Scheduler) run(ctx context.Context, r *runner) {
 	timer := time.NewTimer(FirstDelay(interval))
 	defer timer.Stop()
 	for {
+		manual := false
 		select {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
 		case <-r.trigger:
+			manual = true
 		}
-		s.runOnce(ctx, r)
+		s.runOnce(context.WithValue(ctx, manualRunKey{}, manual), r)
 		if ctx.Err() != nil {
 			return
 		}
@@ -253,7 +265,7 @@ func (s *Scheduler) runOnce(ctx context.Context, r *runner) {
 	for _, m := range measurements {
 		results = append(results, &agentv1.CheckResult{
 			CheckId: r.spec.GetId(), ConfigVersion: version, CollectedAt: collected,
-			Value: m.Value, Target: m.Target, Detail: m.Detail, Error: m.Error,
+			Value: m.Value, Target: m.Target, Detail: m.Detail, Error: m.Error, Processes: m.Processes,
 		})
 	}
 	if len(results) > 0 {
