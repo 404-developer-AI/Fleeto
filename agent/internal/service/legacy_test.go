@@ -27,7 +27,8 @@ func TestLegacyAgentIsTakenOverOnlyForTheSameInstance(t *testing.T) {
 	}
 	opts := InstallOptions{Server: "AGENTS.rmm.example:443", Token: "fet_unused", CAFingerprint: ca.Fingerprint()}
 
-	if err := legacyTakeover(legacy, opts); err != nil {
+	const uninstall = `& 'C:\Program Files\Fleetify\Agent\fleetify-agent.exe' uninstall`
+	if err := legacyTakeover(legacy, opts, uninstall); err != nil {
 		t.Fatalf("the same instance must be taken over: %v", err)
 	}
 
@@ -50,11 +51,11 @@ func TestLegacyAgentIsTakenOverOnlyForTheSameInstance(t *testing.T) {
 	}
 	for name, build := range cases {
 		st, o := build()
-		err := legacyTakeover(st, o)
+		err := legacyTakeover(st, o, uninstall)
 		if !errors.Is(err, errLegacyOtherInstance) {
 			t.Errorf("%s: expected a refusal, got %v", name, err)
-		} else if !strings.Contains(err.Error(), "fleetify-agent uninstall") {
-			t.Errorf("%s: the refusal must name the next step: %v", name, err)
+		} else if !strings.Contains(err.Error(), uninstall) {
+			t.Errorf("%s: the refusal must name the next step with its full path: %v", name, err)
 		}
 	}
 }

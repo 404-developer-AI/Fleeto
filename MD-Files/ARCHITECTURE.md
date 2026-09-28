@@ -1561,7 +1561,8 @@ run under the new names.
   directory moves from `C:\ProgramData\Fleetify\Agent` to `C:\ProgramData\Fleeto\Agent` (the identity key stays in the key
   store under its old name, which the state records), the `fleeto-agent` service is created and started, and only then are
   the old service, a legacy watchdog with its key and the old program files removed. The install token is not used. A revoked
-  agent, or one of another instance, is refused with the next step (`fleetify-agent uninstall`).
+  agent, or one of another instance, is refused with the next step, with its full path because the old program folder is
+  not on the PATH (`& 'C:\Program Files\Fleetify\Agent\fleetify-agent.exe' uninstall` in PowerShell as administrator).
 - **Data read under the old names**, never written: agent certificates with `urn:fleetify:endpoint:` (until renewed), license
   documents signed with `fleetify-license-v1`, backup files encrypted with the old HKDF salt, and key files with the old
   prefixes. `LegacyNames` holds these names; the branding check allows the old name only in the migration files. They are

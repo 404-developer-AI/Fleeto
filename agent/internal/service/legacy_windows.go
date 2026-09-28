@@ -31,6 +31,20 @@ func legacyProgramDir() string {
 	return filepath.Join(filepath.Dir(filepath.Dir(platform.ProgramDir())), legacyDirName, "Agent")
 }
 
+// legacyBinaryName is the executable of an agent from before the rename.
+const legacyBinaryName = "fleetify-agent.exe"
+
+// uninstallCommand is the command, for PowerShell as administrator, that uninstalls the agent at binary. The program folder is not on
+// the PATH, so a bare "fleetify-agent uninstall" is not found; this one can be pasted as it is.
+func uninstallCommand(binary string) string {
+	return fmt.Sprintf("& '%s' uninstall", binary)
+}
+
+// legacyUninstallCommand removes the agent from before the rename.
+func legacyUninstallCommand() string {
+	return uninstallCommand(filepath.Join(legacyProgramDir(), legacyBinaryName))
+}
+
 // takeOverLegacyAgent replaces an agent installed before the rename to Fleeto (0.2.1) by this one without enrolling again: the state
 // directory with the certificate, the pinned trust and the buffered results moves to the Fleeto location, the identity key stays where
 // it is (the state names it), and the Fleeto Agent service replaces the legacy service. Until the new service runs, every step is
@@ -46,15 +60,17 @@ func takeOverLegacyAgent(ctx context.Context, m *mgr.Mgr, opts InstallOptions, o
 		return false, nil
 	}
 	if loadErr != nil {
-		return false, fmt.Errorf("a Fleetify agent is installed but its state in %s cannot be read (%v); run 'fleetify-agent uninstall' first", legacyStateDir, loadErr)
+		return false, fmt.Errorf("a Fleetify agent is installed but its state in %s cannot be read (%v). Uninstall it first, in PowerShell as administrator: %s",
+			legacyStateDir, loadErr, legacyUninstallCommand())
 	}
-	if err := legacyTakeover(legacy, opts); err != nil {
-		return false, fmt.Errorf("a Fleetify agent is installed on this endpoint, but this install cannot take it over: %w", err)
+	if err := legacyTakeover(legacy, opts, legacyUninstallCommand()); err != nil {
+		return false, fmt.Errorf("a Fleetify agent is installed on this endpoint, but this install cannot take it over (commands for PowerShell as administrator): %w", err)
 	}
 	stateDir := platform.DefaultStateDir()
 	if exists(stateDir) {
 		if err := removeIfEmpty(stateDir); err != nil || exists(stateDir) {
-			return false, fmt.Errorf("both a Fleetify agent and %s exist; run 'fleetify-agent uninstall' and 'fleeto-agent uninstall', then install again", stateDir)
+			return false, fmt.Errorf("both a Fleetify agent and %s exist. Uninstall both, then install again, in PowerShell as administrator: %s; %s",
+				stateDir, legacyUninstallCommand(), uninstallCommand(filepath.Join(platform.ProgramDir(), platform.BinaryName)))
 		}
 	}
 	fmt.Fprintf(out, "Found the Fleetify agent of endpoint %s: taking it over as the Fleeto Agent, without enrolling again\n", legacy.EndpointID)

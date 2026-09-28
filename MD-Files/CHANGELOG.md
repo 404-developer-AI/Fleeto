@@ -98,6 +98,9 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- An install that finds an agent from before the rename to Fleeto, of another instance, names the command that removes it
+  with its full path (`& 'C:\Program Files\Fleetify\Agent\fleetify-agent.exe' uninstall`); the bare `fleetify-agent
+  uninstall` it named was not on the PATH and was never found.
 - The security severity of a missing update is read again: Action1 reports it with the version it would install, and
   Fleeto looked for it on the update, so every update showed as unspecified.
 - A deployment with automatic restart waited 30 hours instead of 30 minutes before Action1 restarted the endpoint: Action1
