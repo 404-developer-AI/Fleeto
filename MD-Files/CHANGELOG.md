@@ -67,6 +67,8 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Changed
 
+- The tabs of an endpoint all fit in view: each is as wide as its label instead of at least 160 pixels, without capitals, and
+  where the detail is narrow the icons give way to the labels instead of tabs hiding behind scroll arrows.
 - "Rename client" is "Edit client", and "Policy and monitoring" of a site is part of "Edit site".
 - The clients panel shows the full name of a client and site, with its tags and maintenance on a line below it. The icon of
   a client and site turns amber when one of its endpoints has an open warning and red when one has a critical alert;
