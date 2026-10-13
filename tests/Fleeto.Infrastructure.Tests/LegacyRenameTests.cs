@@ -178,8 +178,9 @@ public class RenameMigrationTests
         }
         finally
         {
+            // Back to the rule of the newest migration, which the other tests of the shared database rely on.
             await ExecuteAsync(connection, RenameToFleeto.RenameSql("fleetify_", "fleeto_"));
-            await ExecuteAsync(connection, RestoreSigningRequestOrigin.FunctionSql);
+            await ExecuteAsync(connection, Action1AgentAutoInstall.OriginFunctionSql);
         }
     }
 

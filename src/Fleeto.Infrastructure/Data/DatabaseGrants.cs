@@ -56,10 +56,12 @@ public static class DatabaseGrants
             ["EndpointPolicies"] = Grants(web: ReadWrite, gateway: Read, signer: Read, workers: Read),
             ["ClientMonitoringTemplates"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             // Patch policies (0.6.0): web links them, the workers turn them into automations in the patch management product.
-            ["PatchPolicies"] = Grants(web: ReadWrite, workers: Read),
-            ["ClientPatchPolicies"] = Grants(web: ReadWrite, workers: Read),
-            ["SitePatchPolicies"] = Grants(web: ReadWrite, workers: Read),
-            ["EndpointPatchPolicies"] = Grants(web: ReadWrite, workers: Read),
+            // The signer reads them to check that the patch policy of an endpoint still asks for an automatic installation of
+            // the product's agent before it signs one.
+            ["PatchPolicies"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+            ["ClientPatchPolicies"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+            ["SitePatchPolicies"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+            ["EndpointPatchPolicies"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             // Maintenance window occurrences: written by web when a policy is saved and by the workers every hour.
             ["MaintenanceWindowOccurrences"] = Grants(web: ReadWrite, workers: ReadWrite),
             ["EndpointMonitoringTemplates"] = Grants(web: ReadWrite, signer: Read, workers: Read),
@@ -90,9 +92,11 @@ public static class DatabaseGrants
 
             // Scripts and jobs (0.2.0): web writes, the signer decides and signs, the gateway delivers and stores output, the
             // workers expire and clean up. Who may request a job signature is also enforced by TR_SigningRequests_Origin.
+            // From 0.6.0 the workers also write the job that installs the Action1 agent when a patch policy asks for it, and
+            // TR_Jobs_Origin lets them write no other job.
             ["Scripts"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["ScriptVersions"] = Grants(web: ReadWrite, signer: Read, workers: Read),
-            ["Jobs"] = Grants(web: "SELECT, INSERT, UPDATE", gateway: "SELECT, UPDATE", signer: "SELECT, UPDATE", workers: "SELECT, UPDATE, DELETE"),
+            ["Jobs"] = Grants(web: "SELECT, INSERT, UPDATE", gateway: "SELECT, UPDATE", signer: "SELECT, UPDATE", workers: "SELECT, INSERT, UPDATE, DELETE"),
             ["JobOutputChunks"] = Grants(web: Read, gateway: "SELECT, INSERT", workers: "SELECT, DELETE"),
 
             // Remote sessions (0.3.0): web opens them, the signer signs each participant's token, the gateway pairs browser and endpoint
@@ -138,6 +142,9 @@ public static class DatabaseGrants
             ["PatchDeploymentSteps"] = Grants(web: Read, workers: ReadWrite),
             // Requests about the patch management of an endpoint (0.6.0): web asks, only the workers can reach the product.
             ["PatchRequests"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
+            // The Action1 agent of an endpoint and its automatic installation (0.6.0): only the workers judge it. The signer
+            // reads it to refuse an automatic installation on an endpoint whose agent was removed through Fleeto.
+            ["Action1AgentInstallStates"] = Grants(web: Read, signer: Read, workers: ReadWrite),
             // Sign-in with Entra ID (0.5.0): web writes the authorization code and reads the outcome, the workers exchange it
             // and write the claims back. Web may delete its own row as soon as the sign-in is done.
             ["SignInExchanges"] = Grants(web: "SELECT, INSERT, DELETE", workers: ReadWrite),

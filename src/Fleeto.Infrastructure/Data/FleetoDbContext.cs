@@ -112,6 +112,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<PatchDeploymentStep> PatchDeploymentSteps => Set<PatchDeploymentStep>();
     public DbSet<PatchRequest> PatchRequests => Set<PatchRequest>();
     public DbSet<IntegrationMapping> IntegrationMappings => Set<IntegrationMapping>();
+    public DbSet<Action1AgentInstallState> Action1AgentInstallStates => Set<Action1AgentInstallState>();
     public DbSet<IntegrationSiteGroup> IntegrationSiteGroups => Set<IntegrationSiteGroup>();
     public DbSet<IntegrationAutomation> IntegrationAutomations => Set<IntegrationAutomation>();
     public DbSet<IntegrationOperation> IntegrationOperations => Set<IntegrationOperation>();
@@ -985,6 +986,19 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             // those miss something.
             entity.HasIndex(p => new { p.ClientId, p.MissingCritical });
             EndpointChild(entity, p => new { p.EndpointId, p.ClientId });
+            ClientOwned(entity);
+        });
+
+        builder.Entity<Action1AgentInstallState>(entity =>
+        {
+            entity.HasKey(a => a.EndpointId);
+            entity.Property(a => a.Status).HasConversion<string>().HasMaxLength(20);
+            entity.Property(a => a.Failure).HasMaxLength(1000);
+            entity.Property(a => a.CheckDetail).HasMaxLength(1000);
+            // The patch policy page counts per client and status; the workers find the attempts that are due.
+            entity.HasIndex(a => new { a.ClientId, a.Status });
+            entity.HasIndex(a => a.NextAttemptAt).HasFilter("\"NextAttemptAt\" IS NOT NULL");
+            EndpointChild(entity, a => new { a.EndpointId, a.ClientId });
             ClientOwned(entity);
         });
 

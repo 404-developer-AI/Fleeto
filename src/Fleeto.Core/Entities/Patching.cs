@@ -363,3 +363,74 @@ public class PatchRequest
     /// <summary>Cause and next step when it failed; null when it succeeded or still waits.</summary>
     public string? Failure { get; set; }
 }
+
+/// <summary>Where the Action1 agent of one endpoint stands (0.6.0), as the workers last judged it.</summary>
+public enum Action1AgentStatus
+{
+    /// <summary>Action1 reports the endpoint in the organization of its client.</summary>
+    Installed,
+
+    /// <summary>No Action1 agent, and its patch policy does not install one by itself.</summary>
+    Missing,
+
+    /// <summary>An Action1 agent runs on the endpoint, but Action1 does not report it in the organization of its client.</summary>
+    NotReported,
+
+    /// <summary>
+    /// An installation is on its way: Fleeto waits for the endpoint to come online, for the job, for the Fleeto agent to
+    /// report the new agent, or for Action1 to report the endpoint.
+    /// </summary>
+    Installing,
+
+    /// <summary>The last installation failed; Fleeto tries again at <see cref="Action1AgentInstallState.NextAttemptAt"/>.</summary>
+    Failed,
+
+    /// <summary>Every automatic attempt failed; Fleeto waits until a technician installs the agent by hand.</summary>
+    Stopped,
+
+    /// <summary>
+    /// The agent was removed through Fleeto, so Fleeto does not install it again by itself until a technician installs it
+    /// by hand.
+    /// </summary>
+    Removed
+}
+
+/// <summary>
+/// The Action1 agent of one managed Windows endpoint whose client is mapped to Action1 (0.6.0): whether Action1 reports
+/// the endpoint, and the automatic installation a patch policy asks for, with its attempts and the reason of the last
+/// failure. Written by the workers only; the Patches tab, the patch policy and the "Action1 agent" check read it.
+/// </summary>
+public class Action1AgentInstallState
+{
+    public Guid EndpointId { get; set; }
+    public Guid ClientId { get; set; }
+    public Action1AgentStatus Status { get; set; }
+
+    /// <summary>Failed automatic attempts since the last success or the last installation by hand.</summary>
+    public int Attempts { get; set; }
+
+    /// <summary>The newest installation job of the endpoint, started by Fleeto or by a technician.</summary>
+    public Guid? JobId { get; set; }
+
+    /// <summary>When that job succeeded; the Fleeto agent should report the new Action1 agent within hours after it.</summary>
+    public DateTime? JobSucceededAt { get; set; }
+
+    /// <summary>When the Fleeto agent first reported the Action1 agent after the job; Action1 should report the endpoint soon after.</summary>
+    public DateTime? AgentReportedAt { get; set; }
+
+    /// <summary>When Fleeto next tries by itself after <see cref="Action1AgentStatus.Failed"/>.</summary>
+    public DateTime? NextAttemptAt { get; set; }
+
+    /// <summary>Cause and next step of the last failure, in the words of the UI; null when nothing failed.</summary>
+    public string? Failure { get; set; }
+
+    /// <summary>The newest removal through Fleeto that this row took into account (a request or a job), so it counts once.</summary>
+    public Guid? RemovalId { get; set; }
+
+    /// <summary>When the "Action1 agent" checks of the endpoint last got a result, and what it said.</summary>
+    public DateTime? CheckWrittenAt { get; set; }
+
+    public string? CheckDetail { get; set; }
+
+    public DateTime UpdatedAt { get; set; }
+}

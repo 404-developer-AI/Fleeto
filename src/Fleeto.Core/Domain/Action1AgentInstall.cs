@@ -86,18 +86,54 @@ public static class Action1AgentInstall
             }}
             $installer = Join-Path $env:ProgramData ('fleeto-action1-' + [guid]::NewGuid().ToString('N') + '.msi')
             try {{
-                Invoke-WebRequest -Uri '{0}' -OutFile $installer -UseBasicParsing
+                try {{
+                    Invoke-WebRequest -Uri '{0}' -OutFile $installer -UseBasicParsing
+                }}
+                catch {{
+                    Write-Error "Downloading the Action1 installer failed: $($_.Exception.Message)" -ErrorAction Continue
+                    exit {1}
+                }}
                 $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i', "`"$installer`"", '/quiet', '/qn', '/norestart' -Wait -PassThru
                 if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) {{
-                    throw "The Action1 installer ended with exit code $($process.ExitCode)."
+                    Write-Error "The Action1 installer ended with exit code $($process.ExitCode)." -ErrorAction Continue
+                    exit $process.ExitCode
                 }}
                 Write-Output 'The Action1 agent was installed. It reports itself to Fleeto with the next inventory.'
             }}
             finally {{
                 Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue
             }}
-            """, installerUrl);
+            """, installerUrl, DownloadFailedExitCode);
     }
+
+    /// <summary>
+    /// The initiator of an installation Fleeto starts by itself because a patch policy asks for it (0.6.0). No user has
+    /// this id: fleeto-signer signs such a job only for this job type, and only while the patch policy of the endpoint
+    /// still asks for it, and the database lets only the workers write one.
+    /// </summary>
+    public static readonly Guid AutomaticInitiator = Guid.Empty;
+
+    /// <summary>The name an automatic installation shows as its initiator, in the job list and the audit log.</summary>
+    public static string AutomaticInitiatorName(string patchPolicyName) => $"Fleeto (patch policy {patchPolicyName})";
+
+    /// <summary>The exit code of the job when the endpoint could not download the installer (0.6.0).</summary>
+    public const int DownloadFailedExitCode = 10;
+
+    /// <summary>
+    /// Why an installation job ended with this exit code, with the next step (0.6.0): the job passes on the exit code of
+    /// msiexec, so the common ones are named; any other points at the job output.
+    /// </summary>
+    public static string ExplainExitCode(int exitCode) => exitCode switch
+    {
+        DownloadFailedExitCode =>
+            "The endpoint could not download the Action1 installer. Check that it reaches the Action1 region of this instance over HTTPS, also through a proxy or firewall.",
+        1603 => "The Action1 installer failed on the endpoint (msiexec 1603, a fatal error during installation). See the job output on the Jobs tab and the Windows event log.",
+        1618 => "Another installation was running on the endpoint at the same time (msiexec 1618).",
+        1619 => "Windows could not open the downloaded Action1 installer (msiexec 1619). Check the installer link in Settings, Integrations.",
+        1625 => "A policy on the endpoint forbids installing software (msiexec 1625). Allow the installation, or install the agent by hand.",
+        1633 => "The Action1 installer does not support this version of Windows (msiexec 1633).",
+        _ => $"The installation ended with exit code {exitCode.ToString(CultureInfo.InvariantCulture)}. See the job output on the Jobs tab."
+    };
 }
 
 /// <summary>

@@ -23,6 +23,63 @@ namespace Fleeto.Infrastructure.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Fleeto.Core.Entities.Action1AgentInstallState", b =>
+                {
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("AgentReportedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CheckDetail")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("CheckWrittenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Failure")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid?>("JobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("JobSucceededAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("RemovalId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("EndpointId");
+
+                    b.HasIndex("NextAttemptAt")
+                        .HasFilter("\"NextAttemptAt\" IS NOT NULL");
+
+                    b.HasIndex("ClientId", "Status");
+
+                    b.HasIndex("EndpointId", "ClientId");
+
+                    b.ToTable("Action1AgentInstallStates");
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.AgentCertificate", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3278,6 +3335,9 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasColumnType("character varying(20)")
                         .HasDefaultValue("All");
 
+                    b.Property<bool>("AutoInstallAgent")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("AutoReboot")
                         .HasColumnType("boolean");
 
@@ -4608,6 +4668,16 @@ namespace Fleeto.Infrastructure.Migrations
                     b.HasKey("UserId", "LoginProvider", "Name");
 
                     b.ToTable("AspNetUserTokens", (string)null);
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.Action1AgentInstallState", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.AgentCertificate", b =>

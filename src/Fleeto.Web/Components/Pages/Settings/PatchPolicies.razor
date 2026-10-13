@@ -43,6 +43,7 @@
                 <MudTh>Restart</MudTh>
                 <MudTh>Used by</MudTh>
                 <MudTh>Action1</MudTh>
+                <MudTh>Action1 agent</MudTh>
                 @if (CanManage)
                 {
                     <MudTh Style="width:140px"></MudTh>
@@ -76,6 +77,32 @@
                     else
                     {
                         <span class="muted">@(context.Automations == 0 ? "No automations" : Ui.Count(context.Automations, "automation"))</span>
+                    }
+                </MudTd>
+                <MudTd>
+                    @if (context.Agents is not { } agents)
+                    {
+                        <span class="muted">By hand</span>
+                    }
+                    else
+                    {
+                        <div class="d-flex gap-1 flex-wrap">
+                            <MudTooltip Text="Endpoints Action1 reports">
+                                <StatusChip Text="@($"{agents.Installed} installed")" Kind="StatusKind.Ok" />
+                            </MudTooltip>
+                            @if (agents.Installing > 0)
+                            {
+                                <MudTooltip Text="Endpoints Fleeto is installing the agent on, or waits for to come online">
+                                    <StatusChip Text="@($"{agents.Installing} pending")" Kind="StatusKind.Neutral" />
+                                </MudTooltip>
+                            }
+                            @if (agents.Failed > 0)
+                            {
+                                <MudTooltip Text="Endpoints where the installation failed; the Patches tab of each says why">
+                                    <StatusChip Text="@($"{agents.Failed} failed")" Kind="StatusKind.Error" />
+                                </MudTooltip>
+                            }
+                        </div>
                     }
                 </MudTd>
                 @if (CanManage)

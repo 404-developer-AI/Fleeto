@@ -259,6 +259,81 @@ public sealed class Action1AgentJobTests
         Assert.Equal(JobHandler.AgentPlatformReason, refused.RefusalReason);
     }
 
+    /// <summary>Links a patch policy to the client (0.6.0), with or without the automatic installation of the agent.</summary>
+    private async Task LinkPatchPolicyAsync(Client client, bool autoInstall)
+    {
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        var policy = new PatchPolicy
+        {
+            Id = Guid.NewGuid(), ClientId = client.Id, Name = "Weekly " + client.Code, AutoInstallAgent = autoInstall,
+            CreatedAt = _fixture.Now, UpdatedAt = _fixture.Now
+        };
+        db.PatchPolicies.Add(policy);
+        db.ClientPatchPolicies.Add(new ClientPatchPolicy { ClientId = client.Id, PatchPolicyId = policy.Id, CreatedAt = _fixture.Now });
+        await db.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task An_automatic_installation_is_signed_while_the_patch_policy_of_the_endpoint_asks_for_it()
+    {
+        // 0.6.0: Fleeto starts the installation itself; no user is behind it, the patch policy is.
+        var (client, endpoint, _) = await ScopeAsync();
+        await LinkPatchPolicyAsync(client, autoInstall: true);
+        var job = await CreateJobAsync(client, endpoint, Action1AgentInstall.AutomaticInitiator);
+
+        var (request, signed) = await SignAsync(job);
+
+        Assert.Equal(SigningRequestState.Completed, request.State);
+        Assert.Equal(JobState.Queued, signed.State);
+        Assert.Contains(InstallerUrl, JobPayload.Parser.ParseFrom(signed.Payload).Script.Body);
+    }
+
+    [Fact]
+    public async Task An_automatic_installation_is_refused_when_the_patch_policy_does_not_ask_for_it()
+    {
+        var (withoutPolicy, endpoint, _) = await ScopeAsync();
+        var (_, none) = await SignAsync(await CreateJobAsync(withoutPolicy, endpoint, Action1AgentInstall.AutomaticInitiator));
+        Assert.Equal((JobState.Refused, JobHandler.AutomaticPolicyReason), (none.State, none.RefusalReason));
+
+        var (switchedOff, other, _) = await ScopeAsync();
+        await LinkPatchPolicyAsync(switchedOff, autoInstall: false);
+        var (_, off) = await SignAsync(await CreateJobAsync(switchedOff, other, Action1AgentInstall.AutomaticInitiator));
+        Assert.Equal((JobState.Refused, JobHandler.AutomaticPolicyReason), (off.State, off.RefusalReason));
+        Assert.Null(off.Payload);
+    }
+
+    [Fact]
+    public async Task An_automatic_installation_is_refused_after_the_agent_was_removed_through_Fleeto()
+    {
+        var (client, endpoint, _) = await ScopeAsync();
+        await LinkPatchPolicyAsync(client, autoInstall: true);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            db.Action1AgentInstallStates.Add(new Action1AgentInstallState
+            {
+                EndpointId = endpoint.Id, ClientId = client.Id, Status = Action1AgentStatus.Removed, UpdatedAt = _fixture.Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var (_, refused) = await SignAsync(await CreateJobAsync(client, endpoint, Action1AgentInstall.AutomaticInitiator));
+
+        Assert.Equal((JobState.Refused, JobHandler.AutomaticRemovedReason), (refused.State, refused.RefusalReason));
+    }
+
+    [Fact]
+    public async Task No_other_job_is_signed_without_a_user()
+    {
+        // The automatic initiator is no user: it never lets a removal or a script through, whatever the patch policy says.
+        var (client, endpoint, _) = await ScopeAsync();
+        await LinkPatchPolicyAsync(client, autoInstall: true);
+
+        var (_, refused) = await SignAsync(await CreateRemovalJobAsync(client, endpoint, Action1AgentInstall.AutomaticInitiator));
+
+        Assert.Equal((JobState.Refused, JobHandler.AutomaticTypeReason), (refused.State, refused.RefusalReason));
+        Assert.Null(refused.Payload);
+    }
+
     [Fact]
     public async Task An_agent_only_endpoint_is_refused_like_every_other_job()
     {

@@ -45,6 +45,11 @@ public sealed class JobHandler : ISigningRequestHandler
         "The Action1 agent installer link of this client changed after the job was started. Start the installation again.";
     public const string AgentRemovalPlatformReason = "Fleeto removes the Action1 agent from Windows endpoints only. Remove it on a Linux endpoint from the Action1 console.";
     public const string AgentRemovalChangedReason = "The job does not match the removal Fleeto composes. Start the removal again.";
+    public const string AutomaticTypeReason = "Fleeto starts only the installation of the Action1 agent by itself. This job has no initiator.";
+    public const string AutomaticPolicyReason =
+        "The patch policy of this endpoint no longer installs the Action1 agent automatically, so Fleeto did not start the installation.";
+    public const string AutomaticRemovedReason =
+        "The Action1 agent was removed from this endpoint through Fleeto, so Fleeto does not install it again by itself. Install it by hand on the Patches tab.";
 
     private readonly SignerKeyRing _keyRing;
     private readonly LicenseService _licenses;
@@ -88,7 +93,16 @@ public sealed class JobHandler : ISigningRequestHandler
             return SigningOutcome.Refused(ValidityReason);
         }
 
-        if (!await HasRoleAsync(db, job.InitiatedByUserId, now, cancellationToken, FleetoRoleNames.Admin, FleetoRoleNames.Technician))
+        // An installation of the Action1 agent that Fleeto starts by itself (0.6.0) has no user behind it: instead of the
+        // initiator's role, the patch policy of the endpoint has to ask for it, checked further down. No other job runs
+        // without a user.
+        var automatic = job.InitiatedByUserId == Action1AgentInstall.AutomaticInitiator;
+        if (automatic && job.Type != JobType.Action1Agent)
+        {
+            return SigningOutcome.Refused(AutomaticTypeReason);
+        }
+
+        if (!automatic && !await HasRoleAsync(db, job.InitiatedByUserId, now, cancellationToken, FleetoRoleNames.Admin, FleetoRoleNames.Technician))
         {
             return SigningOutcome.Refused(InitiatorReason);
         }
@@ -113,6 +127,11 @@ public sealed class JobHandler : ISigningRequestHandler
         // link of the client's organization, so nothing a user can edit decides what runs (0.4.0 step 3).
         if (job.Type == JobType.Action1Agent)
         {
+            if (automatic && await AutomaticRefusalAsync(db, job, cancellationToken) is { } refusal)
+            {
+                return SigningOutcome.Refused(refusal);
+            }
+
             return await SignAgentInstallAsync(db, job, endpoint.Id, endpoint.Hostname, endpoint.OsPlatform, now, cancellationToken);
         }
 
@@ -256,6 +275,30 @@ public sealed class JobHandler : ISigningRequestHandler
         // The link itself is not a secret, but it names the customer's organization, so only its host is recorded.
         return await SignComposedAsync(db, job, endpointId, hostname, Action1AgentInstall.JobName, body, sha256, Action1AgentInstall.TimeoutSeconds,
             Action1AgentInstall.MaxOutputBytes, new Uri(installerUrl!).Host, now, cancellationToken);
+    }
+
+    /// <summary>
+    /// Why an installation Fleeto started by itself may not be signed (0.6.0), or null: the patch policy that applies to the
+    /// endpoint now must still ask for it, and the agent must not have been removed through Fleeto since. The workers
+    /// decided the same when they wrote the job; this is the signer deciding again, independently of them.
+    /// </summary>
+    private static async Task<string?> AutomaticRefusalAsync(Infrastructure.Data.FleetoDbContext db, Job job,
+        CancellationToken cancellationToken)
+    {
+        var policyId = await EffectivePolicies.Query(db).IgnoreQueryFilters()
+            .Where(p => p.EndpointId == job.EndpointId)
+            .Select(p => p.PatchPolicyId)
+            .FirstOrDefaultAsync(cancellationToken);
+        var asks = policyId is { } id && await db.PatchPolicies.IgnoreQueryFilters().AsNoTracking()
+            .AnyAsync(p => p.Id == id && p.AutoInstallAgent, cancellationToken);
+        if (!asks)
+        {
+            return AutomaticPolicyReason;
+        }
+
+        var removed = await db.Action1AgentInstallStates.IgnoreQueryFilters().AsNoTracking()
+            .AnyAsync(a => a.EndpointId == job.EndpointId && a.Status == Action1AgentStatus.Removed, cancellationToken);
+        return removed ? AutomaticRemovedReason : null;
     }
 
     /// <summary>

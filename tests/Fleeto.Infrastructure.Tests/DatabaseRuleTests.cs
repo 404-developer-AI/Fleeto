@@ -168,6 +168,98 @@ public class DatabaseRuleTests
         await transaction.RollbackAsync();
     }
 
+    [Theory]
+    // 0.6.0: a job without a user is only the automatic installation of the Action1 agent, and only the workers write it.
+    [InlineData("fleeto_workers", "Action1Agent", true, true)]
+    [InlineData("fleeto_workers", "Script", true, false)]
+    [InlineData("fleeto_workers", "Action1AgentRemoval", true, false)]
+    [InlineData("fleeto_workers", "Action1Agent", false, false)]
+    [InlineData("fleeto_web", "Action1Agent", true, false)]
+    [InlineData("fleeto_web", "Action1Agent", false, true)]
+    [InlineData("fleeto_web", "Script", false, true)]
+    public async Task Only_the_workers_write_a_job_without_a_user_and_only_to_install_the_Action1_agent(string role, string type, bool automatic,
+        bool allowed)
+    {
+        var client = await _db.CreateClientAsync();
+        var site = await _db.CreateSiteAsync(client.Id);
+        var endpoint = await _db.CreateEndpointAsync(site, EndpointTier.Managed, "WS-JOBORIGIN");
+        await EnsureRolesAsync();
+        await using var connection = await _db.DataSource.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        await Execute(connection, DatabaseGrants.BuildSql());
+#pragma warning disable CA2100 // role names come from the fixed InlineData above
+        await Execute(connection, $"SET LOCAL ROLE {role}");
+#pragma warning restore CA2100
+        var jobId = Guid.NewGuid();
+        await using var insert = InsertJob(connection, transaction, jobId, client.Id, endpoint.Id, type, automatic ? Guid.Empty : Guid.NewGuid());
+
+        if (allowed)
+        {
+            await insert.ExecuteNonQueryAsync();
+            // The one who wrote the job asks for its signature: the workers only for their own installation.
+            await using var request = new NpgsqlCommand(
+                """INSERT INTO "SigningRequests" ("Id","ClientId","Kind","SubjectId","Payload","RequestedBy","State","CreatedAt") VALUES (gen_random_uuid(), @client, 'Job', @job, ''::bytea, 'test', 'Pending', now())""",
+                connection, transaction);
+            request.Parameters.AddWithValue("client", client.Id);
+            request.Parameters.AddWithValue("job", jobId);
+            await request.ExecuteNonQueryAsync();
+        }
+        else
+        {
+            var error = await Assert.ThrowsAsync<PostgresException>(() => insert.ExecuteNonQueryAsync());
+            Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
+        }
+
+        await transaction.RollbackAsync();
+    }
+
+    [Fact]
+    public async Task The_workers_cannot_ask_for_the_signature_of_a_job_a_technician_started()
+    {
+        var client = await _db.CreateClientAsync();
+        var site = await _db.CreateSiteAsync(client.Id);
+        var endpoint = await _db.CreateEndpointAsync(site, EndpointTier.Managed, "WS-SIGNORIGIN");
+        await EnsureRolesAsync();
+        await using var connection = await _db.DataSource.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        await Execute(connection, DatabaseGrants.BuildSql());
+        var jobId = Guid.NewGuid();
+        await using (var insert = InsertJob(connection, transaction, jobId, client.Id, endpoint.Id, "Action1Agent", Guid.NewGuid()))
+        {
+            await insert.ExecuteNonQueryAsync();
+        }
+
+        await Execute(connection, "SET LOCAL ROLE fleeto_workers");
+        await using var request = new NpgsqlCommand(
+            """INSERT INTO "SigningRequests" ("Id","ClientId","Kind","SubjectId","Payload","RequestedBy","State","CreatedAt") VALUES (gen_random_uuid(), @client, 'Job', @job, ''::bytea, 'test', 'Pending', now())""",
+            connection, transaction);
+        request.Parameters.AddWithValue("client", client.Id);
+        request.Parameters.AddWithValue("job", jobId);
+        var error = await Assert.ThrowsAsync<PostgresException>(() => request.ExecuteNonQueryAsync());
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
+
+        await transaction.RollbackAsync();
+    }
+
+    private static NpgsqlCommand InsertJob(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid id, Guid clientId, Guid endpointId,
+        string type, Guid initiator)
+    {
+        var insert = new NpgsqlCommand(
+            """
+            INSERT INTO "Jobs" ("Id","ClientId","EndpointId","BatchId","Type","ScriptName","ScriptVersionNumber","Language","ScriptSha256",
+              "TimeoutSeconds","MaxOutputBytes","CreatedAt","ValidUntil","InitiatedByUserId","InitiatedByName","State","ReceivedOutputBytes",
+              "OutputTruncated","OutputState")
+            VALUES (@id, @client, @endpoint, gen_random_uuid(), @type, 'Install Action1 agent', 0, 'PowerShell', repeat('a', 64), 1200, 1024,
+              now(), now() + interval '1 day', @initiator, 'Fleeto', 'PendingSignature', 0, false, 'None')
+            """, connection, transaction);
+        insert.Parameters.AddWithValue("id", id);
+        insert.Parameters.AddWithValue("client", clientId);
+        insert.Parameters.AddWithValue("endpoint", endpointId);
+        insert.Parameters.AddWithValue("type", type);
+        insert.Parameters.AddWithValue("initiator", initiator);
+        return insert;
+    }
+
     private async Task EnsureRolesAsync()
     {
         await using var command = _db.DataSource.CreateCommand(string.Join('\n', Hosting.DatabaseRoles.Application.Select(r =>

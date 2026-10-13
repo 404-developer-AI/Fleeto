@@ -860,6 +860,7 @@
         {
             <div class="d-flex justify-end mb-2">@SyncButton(patches)</div>
             @PatchRequestNotice(patches)
+            @AgentInstallNotice(patches)
             @if (patches.AgentOnEndpoint.Length > 0)
             {
                 <EmptyState Icon="@Icons.Material.Outlined.Security" Title="Not covered by patch management"
@@ -880,10 +881,11 @@
                             Text="Action1 does not report this endpoint. It needs the Action1 agent; Fleeto matches the endpoint as soon as its own agent reports that agent." />
                 @if (CanManage && patches.CanInstallAgent)
                 {
+                    var install = patches.AgentInstall;
                     <div class="d-flex justify-center">
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.InstallDesktop"
-                                   Disabled="_installingAgent" OnClick="InstallAction1AgentAsync">
-                            Install Action1 agent
+                                   Disabled="@(_installingAgent || install?.Status == Action1AgentStatus.Installing)" OnClick="InstallAction1AgentAsync">
+                            @(install?.Status is Action1AgentStatus.Failed or Action1AgentStatus.Stopped ? "Install Action1 agent again" : "Install Action1 agent")
                         </MudButton>
                     </div>
                 }
@@ -905,6 +907,7 @@
                 @SyncButton(patches)
             </div>
             @PatchRequestNotice(patches)
+            @AgentInstallNotice(patches)
 
             @if (state.Coverage == PatchCoverage.Inactive)
             {
@@ -1075,6 +1078,55 @@
                     Fleeto sees the agent gone with the next inventory.
                 </MudAlert>
             }
+        }
+    };
+
+    /// <summary>
+    /// Where the installation of the Action1 agent stands (0.6.0): on its way, failed with the reason and the next attempt,
+    /// or done. Green only once Action1 reports the endpoint, and only for a day after an installation through Fleeto.
+    /// </summary>
+    private RenderFragment AgentInstallNotice(EndpointPatchView patches) => __builder =>
+    {
+        var install = patches.AgentInstall;
+        switch (install?.Status)
+        {
+            case Action1AgentStatus.Installing:
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                    Fleeto is installing the Action1 agent on this endpoint@(install.Attempts > 0 ? $" (attempt {install.Attempts + 1})" : "").
+                    Patch management covers it as soon as Action1 reports it, usually within the hour.
+                </MudAlert>
+                break;
+            case Action1AgentStatus.Failed:
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">
+                    Installing the Action1 agent failed: @install.Failure
+                    @if (install.Automatic && install.NextAttemptAt is { } next)
+                    {
+                        <span>Fleeto tries again <TimeText Value="next" />.</span>
+                    }
+                </MudAlert>
+                break;
+            case Action1AgentStatus.Stopped:
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">
+                    Installing the Action1 agent failed @Ui.Count(install.Attempts, "time"), so Fleeto stopped trying: @install.Failure
+                    Install it again once the cause is solved.
+                </MudAlert>
+                break;
+            case Action1AgentStatus.Removed when install.Automatic:
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                    The Action1 agent was removed through Fleeto, so the patch policy does not install it again by itself. Installing it by hand
+                    lets the patch policy take care of it again.
+                </MudAlert>
+                break;
+            case Action1AgentStatus.Missing when install.Automatic:
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                    @(install.Failure ?? "The patch policy of this endpoint installs the Action1 agent automatically. Fleeto starts it within a few minutes.")
+                </MudAlert>
+                break;
+            case Action1AgentStatus.Installed when install.ByFleeto && DateTime.UtcNow - install.UpdatedAt < TimeSpan.FromDays(1):
+                <MudAlert Severity="Severity.Success" Dense="true" Class="mb-3">
+                    The Action1 agent is installed and Action1 reports this endpoint (<TimeText Value="install.UpdatedAt" />).
+                </MudAlert>
+                break;
         }
     };
 

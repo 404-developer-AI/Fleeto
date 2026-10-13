@@ -520,7 +520,10 @@ stores a fixed interval (4 hours, the patch sync), and "run now" and "reset" are
 automation of Fleeto targets (`EndpointPatchState.AutomationId`), the days since a scheduled deployment last succeeded on
 it, counted from `ScheduledSince` (when the automation of its current patch policy first targeted it) while none did;
 written after every patch sync, every sync of one endpoint and every change of a scheduled deployment. An endpoint without
-such an automation gets no result, and its checks of this type lose their state.
+such an automation gets no result, and its checks of this type lose their state. The fourth is **Action1 agent**: 1 when
+Action1 reports the endpoint, 0 with the reason when its agent is missing or an installation failed, written by
+`Action1AgentInstallService` when what it says changes and every 4 hours; nothing while an installation runs, and no
+result for an endpoint whose agent was removed through Fleeto (below, *Installing the Action1 agent*).
 
 **Instance health (0.6.0).** Every 5 minutes `InstanceHealthService` in the workers takes a sample: disk, memory, swap,
 CPU and load of the VPS from /proc (a container shares it with the host, so no Docker socket is needed; the disk is the file
@@ -1300,6 +1303,13 @@ on which endpoint. A compromised gateway that keeps a valid relay open is still 
   jobs: a technician who may open a terminal can run any command as SYSTEM. This is a deliberate
   product decision; the controls are the per-session signed token, end-to-end encryption and the
   audit entries per session and participant. Terminal transcripts are not recorded (recording is not scheduled).
+- **A job without a user (0.6.0), accepted risk.** The automatic installation of the Action1 agent is signed without an
+  admin or technician behind it, because the developer chose a system initiator over the user who switched the patch
+  policy on. What it can do is the same fixed body as the installation by hand, composed by the signer from the link of
+  the client's organization, and only on a managed Windows endpoint whose patch policy has the switch on. Full control of
+  the workers can therefore get that installation signed on such an endpoint, and nothing else: the database lets the
+  workers write no other job, the signer refuses every other type without a user, and switching a patch policy on is an
+  audited change in web.
 
 ### Backups
 
@@ -1789,8 +1799,8 @@ it, one when the product accepts it and one when it ends, with the counts per ou
 **Installing the Action1 agent (0.4.0 step 3).** An endpoint without the Action1 agent has no patch state at all, so
 Fleeto can put it there as a job of type `Action1Agent`. It is the one job whose script nobody writes: **fleeto-signer
 composes the body itself** from the installer link of the client's organization (`IntegrationMapping.AgentInstallerUrl`,
-read from Action1 with `GET /endpoints/agent-installation/{orgId}/WindowsMSI` once a day, and once an hour while there is
-none, which needs `manage_endpoints`; otherwise pasted by an admin in Settings), and signs that. Web
+read from Action1 with `GET /endpoints/agent-installation/{orgId}/WindowsMSI` once a day, once an hour while there is
+none (apart from the refresh of the organizations) and at once on a connection test, which needs `manage_endpoints`; otherwise pasted by an admin in Settings), and signs that. Web
 names the endpoint and binds the job to the body that link gives at that moment (its SHA-256 in `ScriptSha256`, which
 `TR_Jobs_Binding` freezes); the signer composes the body again and refuses when the link has changed since, so nothing
 runs that the technician did not ask for. A link is only accepted when it is https, on Action1's own domain and an MSI,
@@ -1798,7 +1808,27 @@ with nothing in it that could end the quoted string it lands in (`Action1AgentIn
 silently and never restarts. Windows only; Linux is not covered yet. There is no script in the library, so script
 approval does not apply — the same accepted risk as the agent update itself, documented in §5. From 0.6.0 web refuses the
 install when the Fleeto agent reports an Action1 agent, and the job itself stops without changes when it finds one (the
-key the Fleeto agent reads, or an "Action1 Agent" in the installed programs).
+key the Fleeto agent reads, or an "Action1 Agent" in the installed programs). The job passes on the exit code of msiexec,
+and ends with 10 when the download failed, so a failure can be named (`Action1AgentInstall.ExplainExitCode`).
+
+**Automatic installation (0.6.0).** A patch policy with `AutoInstallAgent` on asks Fleeto to install the agent by itself.
+Every 5 minutes `Action1AgentInstallService` in the workers judges every managed Windows endpoint of a mapped client and
+keeps one `Action1AgentInstallState` per endpoint: `Installed` once Action1 reports the endpoint (its patch state exists),
+which is the only proof; `Installing` while the job runs, while the Fleeto agent has to report the new agent (3 hours after
+the job) and while Action1 has to report the endpoint (2 hours after that; Fleeto asks for a sync of the endpoint the
+moment the Fleeto agent reports the agent); `Failed` with the reason of the job (exit code, expired, refused, lost) or of
+the wait, and the next attempt after 1, 6 and 24 hours; `Stopped` after the fourth failure; `Missing` and `NotReported`
+when nothing installs one or an agent runs that Action1 does not report; `Removed` after a removal through Fleeto (a
+completed `PatchRequest` or a succeeded removal job), which only an installation by hand undoes. An installation by hand
+is followed the same way and starts the count of attempts again. The workers start an installation only for an endpoint
+that is online, at most 50 a pass. They write the job with `InitiatedByUserId` all zeros
+(`Action1AgentInstall.AutomaticInitiator`) and the policy's name as the initiator name, then its signing request and an
+audit entry with the system as actor, in one transaction. Two database rules keep this narrow: `TR_Jobs_Origin` lets the
+workers write no other job and nobody else a job without a user, and `TR_SigningRequests_Origin` lets the workers ask
+the signature of nothing but such a job. fleeto-signer signs it without the initiator check, and instead checks that the
+patch policy of the endpoint now (`EffectivePolicies`) has the switch on and that the agent was not removed through
+Fleeto; everything else (tier, platform, link, body) as for a technician's installation. The Patches tab shows the state
+with its reason, the patch policy list counts installed, pending and failed endpoints.
 
 The alert kind `patch_state` covers what makes the state untrustworthy, not the updates themselves: Action1 no longer
 patches the endpoint (`subscription_status` inactive, which happens above the licensed number of its subscription), or it

@@ -71,7 +71,12 @@ public enum CheckType
     /// Days since a scheduled deployment of the endpoint's patch policy last succeeded on it, or since the policy's automation
     /// first targeted it while none did (0.6.0). Evaluated by the workers from the deployments Action1 ran, never sent to the agent.
     /// </summary>
-    ScheduledPatching
+    ScheduledPatching,
+    /// <summary>
+    /// 1 when Action1 reports the endpoint, 0 when its agent is missing or an installation failed, with the reason (0.6.0).
+    /// Evaluated by the workers with the automatic installation of the Action1 agent, never sent to the agent.
+    /// </summary>
+    Action1Agent
 }
 
 /// <summary>Which endpoint class a check definition applies to.</summary>

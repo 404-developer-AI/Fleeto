@@ -84,11 +84,6 @@ public sealed class IntegrationSyncService : WorkerLoop
         {
             var requested = integration.SyncRequestedAt is not null;
             var stale = integration.Enabled && (integration.TenantsUpdatedAt is null || now - integration.TenantsUpdatedAt >= RefreshInterval);
-            if (!requested && !stale)
-            {
-                continue;
-            }
-
             if (!integration.Enabled && !requested)
             {
                 continue;
@@ -101,7 +96,16 @@ public sealed class IntegrationSyncService : WorkerLoop
                 continue;
             }
 
-            await SyncOneAsync(db, integration, cancellationToken);
+            if (requested || stale)
+            {
+                await SyncOneAsync(db, integration, cancellationToken);
+            }
+            else
+            {
+                // Between two refreshes of the tenants, a link that is due is still read on its own: a tenant without one
+                // is asked every hour, not only with the tenants every four.
+                await ReadAgentInstallersAsync(db, integration, now, cancellationToken);
+            }
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -110,6 +114,7 @@ public sealed class IntegrationSyncService : WorkerLoop
     private async Task SyncOneAsync(FleetoDbContext db, Integration integration, CancellationToken cancellationToken)
     {
         var now = Time.GetUtcNow().UtcDateTime;
+        var requested = integration.SyncRequestedAt is not null;
         integration.SyncRequestedAt = null;
         integration.LastAttemptAt = now;
 
@@ -164,23 +169,59 @@ public sealed class IntegrationSyncService : WorkerLoop
                 mapping.ExternalTenantName = name;
             }
 
-            await ReadAgentInstallerAsync(client, mapping, now, cancellationToken);
+            // A connection test an admin asked for also asks again for every link that is missing, so a role that just got
+            // manage_endpoints shows at once.
+            await ReadAgentInstallerAsync(client, mapping, now, force: requested, cancellationToken);
         }
 
         _logger.LogInformation("{Type}: {Count} tenants read", integration.Type, tenants.Count);
     }
 
+    /// <summary>Reads the agent installer links that are due, without reading the tenants again.</summary>
+    private async Task ReadAgentInstallersAsync(FleetoDbContext db, Integration integration, DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var mappings = await db.IntegrationMappings.Where(m => m.IntegrationId == integration.Id).ToListAsync(cancellationToken);
+        var due = mappings.Where(m => AgentInstallerDue(m, now)).ToList();
+        if (due.Count == 0)
+        {
+            return;
+        }
+
+        using var client = _clients.TryCreate(integration);
+        if (client is null)
+        {
+            return;
+        }
+
+        try
+        {
+            foreach (var mapping in due)
+            {
+                await ReadAgentInstallerAsync(client, mapping, now, force: false, cancellationToken);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Reading the agent installer links of {Type} failed; they are read again later", integration.Type);
+        }
+    }
+
+    private static bool AgentInstallerDue(IntegrationMapping mapping, DateTime now) =>
+        mapping.AgentInstallerReadAt is not { } read ||
+        now - read >= (mapping.AgentInstallerUrl.Length == 0 ? MissingAgentInstallerInterval : AgentInstallerInterval);
+
     /// <summary>
     /// Keeps the link to the product's own agent installer current for one tenant (0.4.0 step 3), so an endpoint without
-    /// that agent can be given one. It is read once a day at most, and once an hour while there is none: the link rarely
+    /// that agent can be given one. It is read once a day at most, and once an hour while there is none (at once when an admin
+    /// tests the connection): the link rarely
     /// changes and every call counts against the request budget of the whole instance. A link an admin pasted is only replaced by one the product itself gives,
     /// never cleared.
     /// </summary>
-    private async Task ReadAgentInstallerAsync(Action1Client client, IntegrationMapping mapping, DateTime now,
+    private async Task ReadAgentInstallerAsync(Action1Client client, IntegrationMapping mapping, DateTime now, bool force,
         CancellationToken cancellationToken)
     {
-        var interval = mapping.AgentInstallerUrl.Length == 0 ? MissingAgentInstallerInterval : AgentInstallerInterval;
-        if (mapping.AgentInstallerReadAt is { } read && now - read < interval)
+        if (!AgentInstallerDue(mapping, now) && !(force && mapping.AgentInstallerUrl.Length == 0))
         {
             return;
         }
@@ -191,6 +232,11 @@ public sealed class IntegrationSyncService : WorkerLoop
         {
             mapping.AgentInstallerUrl = url.Length <= 500 ? url : string.Empty;
             _logger.LogInformation("The agent installer link of tenant {Tenant} was read from the product", mapping.ExternalTenantId);
+        }
+        else if (!result.Ok)
+        {
+            _logger.LogWarning("Reading the agent installer link of tenant {Tenant} failed: {Message}", mapping.ExternalTenantId,
+                result.Message);
         }
     }
 

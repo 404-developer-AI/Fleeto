@@ -3,6 +3,7 @@ using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Audit;
 using Fleeto.Infrastructure.Data;
+using Fleeto.Infrastructure.Services;
 using Fleeto.Web.Security;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,7 +14,13 @@ namespace Fleeto.Web.Services;
 /// <param name="AutomationProblem">Why the last change to one of those automations failed; null when all are in step.</param>
 public sealed record PatchPolicyListItem(Guid Id, string Name, string? Description, Guid? ClientId, string? ClientCode, bool Enabled,
     string Schedule, PatchUpdateScope Scope, bool AutoReboot, int Links, int ClientTemplateUses, int Automations, string? AutomationProblem,
-    CheckAppliesTo AppliesTo = CheckAppliesTo.All);
+    CheckAppliesTo AppliesTo = CheckAppliesTo.All, bool AutoInstallAgent = false, Action1AgentCounts? Agents = null);
+
+/// <summary>
+/// The Action1 agent on the managed Windows endpoints a patch policy applies to (0.6.0), as the workers last judged it:
+/// installed, being installed, and failed (a failure waiting for its next attempt or one Fleeto gave up on).
+/// </summary>
+public sealed record Action1AgentCounts(int Installed, int Installing, int Failed);
 
 /// <summary>Everything a patch policy holds (0.6.0); see <see cref="PatchPolicy"/> for what each option means in the product.</summary>
 public sealed record PatchPolicyInput(
@@ -40,12 +47,13 @@ public sealed record PatchPolicyInput(
     string? RebootMessageText,
     int RebootTimeoutMinutes,
     int RetryHours,
-    CheckAppliesTo AppliesTo = CheckAppliesTo.All)
+    CheckAppliesTo AppliesTo = CheckAppliesTo.All,
+    bool AutoInstallAgent = false)
 {
     public static PatchPolicyInput From(PatchPolicy p) => new(p.Name, p.Description, p.Enabled, p.ScheduleKind, p.WeekDays, p.MonthDay, p.MonthWeek,
         p.MonthWeekday, p.StartMinute, p.EndpointLocalTime, p.Scope, p.UpdateSources, p.UpdateTypes, p.Severities, p.ExcludedNames,
         p.ExcludedVendors, p.RequireApproval, p.InstallDelayDays, p.AutoReboot, p.RebootMessage, p.RebootMessageText, p.RebootTimeoutMinutes,
-        p.RetryHours, p.AppliesTo);
+        p.RetryHours, p.AppliesTo, p.AutoInstallAgent);
 }
 
 /// <summary>
@@ -85,9 +93,25 @@ public sealed class PatchPolicyService
                 Problem = db.IntegrationAutomations.Where(a => a.PatchPolicyId == p.Id && a.LastError != null).Select(a => a.LastError).FirstOrDefault()
             })
             .ToListAsync(cancellationToken);
+        // Where the agent stands on the endpoints of the policies that install it (0.6.0), one query for all of them.
+        var automatic = policies.Where(r => r.Policy.AutoInstallAgent).Select(r => r.Policy.Id).ToList();
+        var counts = automatic.Count == 0
+            ? []
+            : (await (from p in EffectivePolicies.Query(db)
+                      join a in db.Action1AgentInstallStates on p.EndpointId equals a.EndpointId
+                      where p.PatchPolicyId != null && automatic.Contains(p.PatchPolicyId.Value)
+                      group a by new { PolicyId = p.PatchPolicyId!.Value, a.Status } into g
+                      select new { g.Key.PolicyId, g.Key.Status, Count = g.Count() })
+                    .ToListAsync(cancellationToken))
+                .GroupBy(c => c.PolicyId)
+                .ToDictionary(g => g.Key, g => new Action1AgentCounts(
+                    g.Where(c => c.Status == Action1AgentStatus.Installed).Sum(c => c.Count),
+                    g.Where(c => c.Status is Action1AgentStatus.Installing or Action1AgentStatus.Missing).Sum(c => c.Count),
+                    g.Where(c => c.Status is Action1AgentStatus.Failed or Action1AgentStatus.Stopped or Action1AgentStatus.NotReported).Sum(c => c.Count)));
         return policies.Select(r => new PatchPolicyListItem(r.Policy.Id, r.Policy.Name, r.Policy.Description, r.Policy.ClientId, r.ClientCode,
                 r.Policy.Enabled, PatchPolicyRules.DescribeSchedule(r.Policy), r.Policy.Scope, r.Policy.AutoReboot, r.Links, r.ClientTemplateUses,
-                r.Automations, r.Problem, r.Policy.AppliesTo))
+                r.Automations, r.Problem, r.Policy.AppliesTo, r.Policy.AutoInstallAgent,
+                r.Policy.AutoInstallAgent ? counts.GetValueOrDefault(r.Policy.Id, new Action1AgentCounts(0, 0, 0)) : null))
             .ToList();
     }
 
@@ -260,6 +284,7 @@ public sealed class PatchPolicyService
         policy.RebootMessageText = ServiceSupport.Clean(input.RebootMessageText);
         policy.RebootTimeoutMinutes = input.RebootTimeoutMinutes;
         policy.RetryHours = input.RetryHours;
+        policy.AutoInstallAgent = input.AutoInstallAgent;
         policy.UpdatedAt = now;
     }
 
@@ -283,6 +308,7 @@ public sealed class PatchPolicyService
         policy.AutoReboot,
         policy.RebootMessage,
         policy.RebootTimeoutMinutes,
-        policy.RetryHours
+        policy.RetryHours,
+        policy.AutoInstallAgent
     };
 }

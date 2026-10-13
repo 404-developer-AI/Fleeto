@@ -72,6 +72,16 @@ When a third released version is added, the oldest entry moves to the top of
 - A "Scheduled patching" check for monitoring templates: the days since a scheduled deployment of the endpoint's patch
   policy last succeeded on it, so a round that fails or never runs raises an alert. Until one succeeds, it counts from the
   day the policy started on the endpoint; an endpoint without a patch policy gets no result.
+- A patch policy can install the Action1 agent by itself: switch on "Install the Action1 agent automatically" and Fleeto
+  installs the agent of the client's Action1 organization on every managed Windows endpoint the policy applies to that has
+  none, as soon as the endpoint is online. The Patches tab shows the installation with its reason when it fails, such as a
+  download the endpoint could not make or another installation running at the same time, and turns green once Action1
+  reports the endpoint. A failed installation is tried again after 1, 6 and 24 hours; then Fleeto stops until you install
+  the agent again by hand. An agent you removed through Fleeto is not installed again by itself. The list of patch
+  policies counts installed, pending and failed endpoints per policy, and the installation is in the audit log with the
+  patch policy as its initiator.
+- An "Action1 agent" check for monitoring templates: not OK when Action1 does not report the endpoint because its agent is
+  missing or an installation failed, with the reason, so it can raise an alert.
 - Tags on clients, in the way of Proxmox. Type a tag when you create a client, or later under Client settings, Edit
   tags, or pick one that exists; a new tag gets a color from its name. Tags show below the client name in the clients panel (three, and
   the number of the others) and in the client header; the tag button next to the search filters on one or more tags, and
@@ -151,11 +161,15 @@ When a third released version is added, the oldest entry moves to the top of
   of that job. It now reports it as `action1_agent_install`.
 - Fleeto reads the Action1 agent installer link of an organization from Action1 again: it asked without the install type
   (`/endpoints/agent-installation/{orgId}/WindowsMSI`), so Action1 never gave one and the link had to be pasted by hand.
-  An organization without a link is asked again every hour instead of every day. It needs the permission to manage
-  endpoints on the Action1 API credentials.
+  An organization without a link is asked again every hour instead of every day, on its own rather than only with the
+  organizations every four hours, and at once when an admin tests the connection. A refusal or an answer without a link
+  is logged by the workers. It needs the permission to manage endpoints on the Action1 API credentials.
 
 ### Security
 
+- The workers may now write one kind of job: the automatic installation of the Action1 agent, which has no user behind it.
+  The database lets them write no other job, and lets nobody else write a job without a user; fleeto-signer signs it only
+  while the patch policy of the endpoint asks for it and the agent was not removed through Fleeto.
 - The keys that protect sign-in cookies are stored encrypted with the root key of the instance. Keys stored before this
   version are withdrawn when Fleeto starts, so everybody signs in once more after the update.
 - Request paths and the error Microsoft returns at sign-in are written to the log with line breaks and control characters

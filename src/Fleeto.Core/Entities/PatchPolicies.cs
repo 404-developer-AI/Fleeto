@@ -108,6 +108,12 @@ public class PatchPolicy
     /// </summary>
     public int RetryHours { get; set; } = 24;
 
+    /// <summary>
+    /// Fleeto installs the Action1 agent by itself on the managed Windows endpoints this policy applies to that have none
+    /// (0.6.0): a signed job the workers start, with fleeto-signer checking this switch again before it signs.
+    /// </summary>
+    public bool AutoInstallAgent { get; set; }
+
     /// <summary>Patch policy this one was copied from; the copy is independent.</summary>
     public Guid? CopiedFromId { get; set; }
 

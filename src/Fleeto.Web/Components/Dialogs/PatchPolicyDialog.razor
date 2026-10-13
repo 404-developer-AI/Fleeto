@@ -147,6 +147,19 @@
         <MudNumericField T="int" @bind-Value="_m.RetryHours" Label="Keep trying for (hours)" Variant="Variant.Outlined" Margin="Margin.Dense"
                          Min="@PatchPolicyRules.MinRetryHours" Max="@PatchPolicyRules.MaxRetryHours" Style="max-width:220px"
                          HelperText="How long Action1 keeps trying endpoints that were off or offline at the start time. Keep it shorter than the time between two runs." />
+
+        <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Action1 agent</MudText>
+        <MudSwitch T="bool" @bind-Value="_m.AutoInstallAgent" Color="Color.Primary" Label="Install the Action1 agent automatically" />
+        <MudText Typo="Typo.caption" Class="muted d-block">
+            @if (_m.AutoInstallAgent)
+            {
+                @:Fleeto installs the agent of the client's Action1 organization on every managed Windows endpoint this policy applies to that has none, as soon as it is online. A failed installation is tried again after 1, 6 and 24 hours. An agent removed through Fleeto is not installed again by itself.
+            }
+            else
+            {
+                @:Endpoints without the Action1 agent get it only when a technician installs it on the Patches tab.
+            }
+        </MudText>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
@@ -185,11 +198,12 @@
         public string? RebootMessageText { get; set; }
         public int RebootTimeoutMinutes { get; set; } = 30;
         public int RetryHours { get; set; } = 24;
+        public bool AutoInstallAgent { get; set; }
 
         public PatchPolicyInput ToInput() => new(Name, Description, Enabled, ScheduleKind, WeekDays, MonthDay, MonthWeek, MonthWeekday,
             (int)(Start ?? TimeSpan.Zero).TotalMinutes, EndpointLocalTime, Scope, Sources.ToList(), Types.ToList(), Severities.ToList(),
             Split(ExcludedNames), Split(ExcludedVendors), RequireApproval, InstallDelayDays, AutoReboot, RebootMessage, RebootMessageText,
-            RebootTimeoutMinutes, RetryHours, AppliesTo);
+            RebootTimeoutMinutes, RetryHours, AppliesTo, AutoInstallAgent);
 
         /// <summary>A throwaway entity, only to describe the schedule while it is edited.</summary>
         public PatchPolicy ToPolicy() => new()
@@ -206,7 +220,8 @@
             Severities = p.Severities.ToHashSet(), ExcludedNames = string.Join(", ", p.ExcludedNames),
             ExcludedVendors = string.Join(", ", p.ExcludedVendors), RequireApproval = p.RequireApproval, InstallDelayDays = p.InstallDelayDays,
             AutoReboot = p.AutoReboot, RebootMessage = p.RebootMessage, RebootMessageText = p.RebootMessageText,
-            RebootTimeoutMinutes = p.RebootTimeoutMinutes, RetryHours = p.RetryHours, AppliesTo = p.AppliesTo
+            RebootTimeoutMinutes = p.RebootTimeoutMinutes, RetryHours = p.RetryHours, AppliesTo = p.AppliesTo,
+            AutoInstallAgent = p.AutoInstallAgent
         };
 
         private static List<string> Split(string? text) =>

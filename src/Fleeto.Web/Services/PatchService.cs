@@ -33,13 +33,23 @@ public sealed record MissingUpdateView(string Id, string Name, string Vendor, st
 /// <param name="AgentOnEndpoint">The id of the Action1 agent the Fleeto agent reports on the endpoint (0.6.0); empty when none.</param>
 /// <param name="Schedule">When and how the endpoint's patch policy deploys updates on it (0.6.0); null without patch state.</param>
 /// <param name="LastRequest">The newest sync or agent removal a technician asked for on this endpoint (0.6.0).</param>
+/// <param name="AgentInstall">Where the Action1 agent stands as the workers last judged it (0.6.0); null before their first look.</param>
 /// <param name="CanRemoveAgentByJob">
 /// True when an Action1 agent runs on this managed Windows endpoint that Action1 does not report (0.6.0): Fleeto can only
 /// remove it with a signed job, since Action1 cannot remove what it does not hold.
 /// </param>
 public sealed record EndpointPatchView(bool Managed, bool Configured, EndpointPatchState? State, IReadOnlyList<MissingUpdateView> Missing,
     DateTime? DetailUpdatedAt, bool CanInstallAgent = false, string AgentOnEndpoint = "", PatchScheduleView? Schedule = null,
-    PatchRequestView? LastRequest = null, bool CanRemoveAgentByJob = false);
+    PatchRequestView? LastRequest = null, bool CanRemoveAgentByJob = false, AgentInstallView? AgentInstall = null);
+
+/// <summary>
+/// The Action1 agent of an endpoint and its automatic installation (0.6.0).
+/// </summary>
+/// <param name="Automatic">True when the patch policy of the endpoint installs the agent by itself.</param>
+/// <param name="ByFleeto">True when the newest installation was a job, started by Fleeto or by a technician.</param>
+/// <param name="Failure">Cause and next step of the last failure, or why nothing can happen yet.</param>
+public sealed record AgentInstallView(Action1AgentStatus Status, bool Automatic, bool ByFleeto, int Attempts, string? Failure,
+    DateTime? NextAttemptAt, DateTime UpdatedAt);
 
 /// <summary>
 /// The patch policy of an endpoint as it plays out in the product (0.6.0): which policy, its schedule in words, and when the
@@ -171,7 +181,7 @@ public sealed class PatchService
                 .FirstOrDefaultAsync(cancellationToken);
             return new EndpointPatchView(true, true, null, [], null,
                 windows && agentOnEndpoint.Length == 0 && Action1AgentInstall.IsValidInstallerUrl(installerUrl), agentOnEndpoint, null, lastRequest,
-                windows && agentOnEndpoint.Length > 0);
+                windows && agentOnEndpoint.Length > 0, await AgentInstallAsync(db, endpointId, cancellationToken));
         }
 
         var rows = await db.EndpointMissingUpdates.AsNoTracking()
@@ -186,7 +196,23 @@ public sealed class PatchService
         var detailAt = rows.Count == 0 ? (DateTime?)null : rows.Max(u => u.UpdatedAt);
 
         return new EndpointPatchView(true, true, state, missing, detailAt, false, agentOnEndpoint,
-            await ScheduleAsync(db, endpointId, endpoint.ClientId, state, cancellationToken), lastRequest);
+            await ScheduleAsync(db, endpointId, endpoint.ClientId, state, cancellationToken), lastRequest, false,
+            await AgentInstallAsync(db, endpointId, cancellationToken));
+    }
+
+    /// <summary>Where the Action1 agent of the endpoint stands (0.6.0), with whether its patch policy installs it by itself.</summary>
+    private static async Task<AgentInstallView?> AgentInstallAsync(FleetoDbContext db, Guid endpointId, CancellationToken cancellationToken)
+    {
+        var row = await db.Action1AgentInstallStates.AsNoTracking().SingleOrDefaultAsync(a => a.EndpointId == endpointId, cancellationToken);
+        if (row is null)
+        {
+            return null;
+        }
+
+        var policyId = await EffectivePolicies.Query(db).Where(p => p.EndpointId == endpointId).Select(p => p.PatchPolicyId)
+            .SingleOrDefaultAsync(cancellationToken);
+        var automatic = policyId is { } id && await db.PatchPolicies.AsNoTracking().AnyAsync(p => p.Id == id && p.AutoInstallAgent, cancellationToken);
+        return new AgentInstallView(row.Status, automatic, row.JobId is not null, row.Attempts, row.Failure, row.NextAttemptAt, row.UpdatedAt);
     }
 
     /// <summary>

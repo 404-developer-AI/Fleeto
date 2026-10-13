@@ -112,6 +112,8 @@ public static class CheckEvaluator
                 $"Drive {target} on {hostname} grew {v} GB in {P("period_days")} days, above the {t} GB threshold. See the Storage tab for the folder that grows.",
             CheckType.ScheduledPatching =>
                 $"No scheduled deployment of its patch policy succeeded on {hostname} for {v} days, above the {t}-day threshold. See the deployments on the Patches tab.",
+            CheckType.Action1Agent =>
+                $"Patch management does not cover {hostname}: Action1 does not report it. See the Patches tab for the reason.",
             CheckType.SecurityCenter => P("component") == "firewall"
                 ? $"The firewall is off on {hostname}{(string.IsNullOrEmpty(target) ? string.Empty : $" ({target})")}. Turn it on."
                 : $"Antivirus protection is off or out of date on {hostname}. Check the antivirus software.",

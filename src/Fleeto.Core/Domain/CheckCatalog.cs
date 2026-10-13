@@ -298,7 +298,16 @@ public static partial class CheckCatalog
             CheckPlatforms.Windows, [],
             FleetoEvaluatedIntervalSeconds, 8, 15, _ => ThresholdKind.HigherIsWorse, _ => "days",
             "Alert when the last successful scheduled deployment is this many days ago or longer. For a weekly patch policy, 8 days means one round was missed.",
-            EvaluatedWhen: "after every patch sync and scheduled deployment")
+            EvaluatedWhen: "after every patch sync and scheduled deployment"),
+        new CheckTypeInfo(CheckType.Action1Agent, "Action1 agent",
+            "Whether Action1 reports the endpoint in the organization of its client, so patch management covers it. Not OK when " +
+            "the Action1 agent is missing or an installation failed, with the reason. Fleeto evaluates it while it installs the " +
+            "agent and every 4 hours; an endpoint whose client has no Action1 organization, or whose agent was removed through Fleeto, " +
+            "gets no result.",
+            CheckPlatforms.Windows, [],
+            FleetoEvaluatedIntervalSeconds, null, null, _ => ThresholdKind.Flag, _ => string.Empty, string.Empty,
+            "Report a missing Action1 agent as a warning instead of critical",
+            EvaluatedWhen: "while Fleeto installs the Action1 agent and every 4 hours")
     }.ToDictionary(t => t.Type);
 
     /// <summary>Parameter of a script check holding the script id.</summary>

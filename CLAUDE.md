@@ -370,6 +370,14 @@ Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
   through the Action1 API (`DELETE /endpoints/managed`, which uninstalls the agent and drops the endpoint from the console)
   when Action1 reports the endpoint, and otherwise through a signed job composed by the signer. The credentials then need
   `manage_endpoints`.
+- **A patch policy can install the Action1 agent by itself** (decided 2026-10-13, 0.6.0): with "Install the Action1 agent
+  automatically" on, the workers start the signed install job on every managed Windows endpoint the policy applies to that
+  has no Action1 agent, once it is online. Such a job has no user behind it (the developer chose a system initiator):
+  only the workers may write it and only of this type, enforced in the database, and fleeto-signer signs it only while
+  the patch policy of the endpoint still asks for it. A failure is shown with its reason and tried again after 1, 6 and
+  24 hours, then Fleeto stops until a technician installs the agent by hand; it counts as installed only once Action1
+  reports the endpoint; an agent removed through Fleeto is not installed again by itself. The "Action1 agent" check of a
+  monitoring template turns a missing or failed agent into an alert.
 - **Only the workers talk to an external product.** Web runs on a network without outbound NAT (`deploy/compose/compose.yml`),
   so it can never reach Action1: what an admin starts in Settings (a connection test, later a deployment) is a request web
   writes to the database and notifies on `fleeto_integrations`; the workers make the call and write the result back, which the

@@ -168,6 +168,14 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   (`ScheduledPatchingChecks`), job type `Action1AgentRemoval` composed by the signer, and the install job that stops when an
   Action1 agent is there. To verify against a real tenant in the next test build: the time zone Action1 means in `next_run`
   of an automation in endpoint time, and the status words of a scheduled run per endpoint.
+- [done] **Install the Action1 agent automatically** (asked for by the developer on 2026-10-13: a switch on the patch policy,
+  with an error and its reason when it fails and green when it worked). Decided with the developer the same day: a system
+  initiator rather than the user who switched it on, retries after 1, 6 and 24 hours, no reinstall after a removal through
+  Fleeto, and a check for monitoring templates. Done: `PatchPolicy.AutoInstallAgent`, `Action1AgentInstallService` and
+  `Action1AgentInstallStates` in the workers, the signer rule for a job without a user, `TR_Jobs_Origin` and the workers'
+  case of `TR_SigningRequests_Origin`, check type `Action1Agent`, exit codes of the install job, the state on the Patches
+  tab and the counts in the patch policy list. To verify on the test VPS: an installation on a real endpoint end to end,
+  and the reason shown for a download that fails.
 
 ## 0.7.0 — Hardening
 

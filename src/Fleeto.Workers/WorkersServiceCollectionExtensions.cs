@@ -87,6 +87,7 @@ public static class WorkersServiceCollectionExtensions
         services.AddHostedService<PatchSyncService>();
         services.AddHostedService<PatchDeploymentService>();
         services.AddHostedService<PatchRequestService>();
+        services.AddHostedService<Action1AgentInstallService>();
         services.AddHostedService<SignInExchangeService>();
         services.AddHostedService<MicrosoftRequestService>();
 

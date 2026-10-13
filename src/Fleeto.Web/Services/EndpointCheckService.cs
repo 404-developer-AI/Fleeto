@@ -541,9 +541,12 @@ public sealed class EndpointCheckService
 
         if (CheckCatalog.Get(check.Type) is { EvaluatedByFleeto: true } evaluated)
         {
-            var instead = check.Type == CheckType.FolderGrowth
-                ? "Start a scan on the Storage tab instead."
-                : "Sync the patch state on the Patches tab instead.";
+            var instead = check.Type switch
+            {
+                CheckType.FolderGrowth => "Start a scan on the Storage tab instead.",
+                CheckType.Action1Agent => "The Patches tab shows where the Action1 agent stands.",
+                _ => "Sync the patch state on the Patches tab instead."
+            };
             return ServiceResult<bool>.Fail($"Fleeto evaluates this check {evaluated.EvaluatedWhen}, not the agent. {instead}");
         }
 

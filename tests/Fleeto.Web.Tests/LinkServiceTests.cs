@@ -206,6 +206,64 @@ public class LinkServiceTests
     }
 
     [Fact]
+    public async Task A_patch_policy_that_installs_the_Action1_agent_counts_where_it_stands_and_the_Patches_tab_says_why()
+    {
+        // 0.6.0: the switch is stored, the list counts the agents of its endpoints, and the tab shows the workers' reason.
+        var admin = WebFixtureBase.Admin();
+        await _fixture.Database.LoadTestLicenseAsync(1000);
+        var created = await PatchPolicies.CreateAsync(admin, null, PatchInput(Unique("Agent nights")) with { AutoInstallAgent = true });
+        Assert.True(created.Success, created.Problem);
+        Assert.True((await PatchPolicies.GetAsync(admin, created.Value))!.AutoInstallAgent);
+
+        var client = await _fixture.Database.CreateClientAsync();
+        var site = await _fixture.Database.CreateSiteAsync(client.Id);
+        var installed = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "WS-AGENT-OK");
+        var failed = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "WS-AGENT-NO");
+        Assert.True((await Links.SetAsync(admin, LinkLevel.Client, client.Id, new LinksInput(null, created.Value, []))).Success);
+        var now = DateTime.UtcNow;
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            var integration = await db.Integrations.FirstOrDefaultAsync(i => i.Type == IntegrationType.Action1);
+            if (integration is null)
+            {
+                integration = new Integration
+                {
+                    Id = Guid.NewGuid(), Type = IntegrationType.Action1, Region = Action1Region.Europe, EncryptedCredentials = "x",
+                    CredentialName = "api-key@action1.com", Enabled = true, CreatedAt = now, UpdatedAt = now
+                };
+                db.Integrations.Add(integration);
+            }
+
+            db.IntegrationMappings.Add(new IntegrationMapping
+            {
+                Id = Guid.NewGuid(), IntegrationId = integration.Id, ClientId = client.Id, ExternalTenantId = "org-" + client.Code,
+                ExternalTenantName = client.Code, CreatedAt = now
+            });
+            db.Action1AgentInstallStates.Add(new Action1AgentInstallState
+            {
+                EndpointId = installed.Id, ClientId = client.Id, Status = Action1AgentStatus.Installed, UpdatedAt = now
+            });
+            db.Action1AgentInstallStates.Add(new Action1AgentInstallState
+            {
+                EndpointId = failed.Id, ClientId = client.Id, Status = Action1AgentStatus.Failed, Attempts = 1,
+                Failure = "Another installation was running on the endpoint at the same time (msiexec 1618).", NextAttemptAt = now.AddHours(1),
+                UpdatedAt = now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var listed = (await PatchPolicies.ListAsync(admin)).Single(p => p.Id == created.Value);
+        Assert.True(listed.AutoInstallAgent);
+        Assert.Equal(new Action1AgentCounts(1, 0, 1), listed.Agents);
+
+        var tab = await _fixture.Services.GetRequiredService<PatchService>().GetAsync(admin, failed.Id);
+        var install = tab!.AgentInstall!;
+        Assert.Equal((Action1AgentStatus.Failed, true, 1), (install.Status, install.Automatic, install.Attempts));
+        Assert.Contains("msiexec 1618", install.Failure);
+        Assert.NotNull(install.NextAttemptAt);
+    }
+
+    [Fact]
     public async Task A_patch_policy_is_validated_named_once_per_scope_and_its_links_go_when_it_is_deleted()
     {
         var admin = WebFixtureBase.Admin();

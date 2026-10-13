@@ -214,7 +214,17 @@ public sealed class Action1Client : IIntegration, IDisposable
         try
         {
             using var document = await GetAsync($"endpoints/agent-installation/{Uri.EscapeDataString(organizationId)}/WindowsMSI", null, cancellationToken);
-            return IntegrationResult<string>.Success(WindowsInstaller(document.RootElement) ?? string.Empty);
+            var url = WindowsInstaller(document.RootElement);
+            if (url is null)
+            {
+                // Only the field names: the answer itself is never logged.
+                _logger.LogWarning("Action1 answered without a Windows installer link for organization {Tenant} (fields: {Fields})",
+                    organizationId, document.RootElement.ValueKind == JsonValueKind.Object
+                        ? string.Join(", ", document.RootElement.EnumerateObject().Select(p => p.Name))
+                        : document.RootElement.ValueKind.ToString());
+            }
+
+            return IntegrationResult<string>.Success(url ?? string.Empty);
         }
         catch (Action1Exception ex) when (ex.IsPermanent)
         {

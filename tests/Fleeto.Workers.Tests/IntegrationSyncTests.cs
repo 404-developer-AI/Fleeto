@@ -237,9 +237,60 @@ public sealed class IntegrationSyncTests
         Assert.Equal(twoHoursAgo, kept.AgentInstallerReadAt!.Value, TimeSpan.FromMilliseconds(1));
     }
 
+    [Fact]
+    public async Task A_missing_installer_link_is_read_every_hour_without_reading_the_organizations_again()
+    {
+        var integration = await SeedAsync(requested: false);
+        var client = await _fixture.Db.CreateClientAsync("AIR" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var row = await db.Integrations.SingleAsync(i => i.Id == integration.Id);
+            row.TenantsUpdatedAt = _fixture.Now - TimeSpan.FromHours(1);
+            db.IntegrationMappings.Add(new IntegrationMapping
+            {
+                Id = Guid.NewGuid(), IntegrationId = integration.Id, ClientId = client.Id, ExternalTenantId = "org-1",
+                ExternalTenantName = "Contoso", AgentInstallerReadAt = _fixture.Now - TimeSpan.FromMinutes(61), CreatedAt = _fixture.Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        const string url = "https://app.eu.action1.com/agent/6e1c/Windows/agent(_000__Contoso).msi";
+        var handler = new StubHandler { AgentInstaller = url };
+        await Service(handler).SyncAsync(CancellationToken.None);
+
+        Assert.Equal(0, handler.TenantCalls);
+        await using var read = _fixture.Db.DbFactory.CreateSystem();
+        Assert.Equal(url, (await read.IntegrationMappings.AsNoTracking().SingleAsync(m => m.ClientId == client.Id)).AgentInstallerUrl);
+    }
+
+    [Fact]
+    public async Task A_connection_test_asks_for_a_missing_installer_link_at_once()
+    {
+        var integration = await SeedAsync();
+        var client = await _fixture.Db.CreateClientAsync("AIT" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            db.IntegrationMappings.Add(new IntegrationMapping
+            {
+                Id = Guid.NewGuid(), IntegrationId = integration.Id, ClientId = client.Id, ExternalTenantId = "org-1",
+                ExternalTenantName = "Contoso", AgentInstallerReadAt = _fixture.Now - TimeSpan.FromMinutes(5), CreatedAt = _fixture.Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        const string url = "https://app.eu.action1.com/agent/6e1c/Windows/agent(_000__Contoso).msi";
+        await Service(new StubHandler { AgentInstaller = url }).SyncAsync(CancellationToken.None);
+
+        await using var read = _fixture.Db.DbFactory.CreateSystem();
+        Assert.Equal(url, (await read.IntegrationMappings.AsNoTracking().SingleAsync(m => m.ClientId == client.Id)).AgentInstallerUrl);
+    }
+
     private sealed class StubHandler : HttpMessageHandler
     {
         public int Calls { get; private set; }
+
+        /// <summary>How often the organizations themselves were listed.</summary>
+        public int TenantCalls { get; private set; }
         public HttpStatusCode TokenStatus { get; init; } = HttpStatusCode.OK;
 
         /// <summary>The Windows installer link Action1 hands out, or null when it does not offer one.</summary>
@@ -267,6 +318,7 @@ public sealed class IntegrationSyncTests
                         """));
             }
 
+            TenantCalls++;
             return Task.FromResult(Json(HttpStatusCode.OK,
                 """{"items":[{"id":"org-1","name":"Contoso"},{"id":"org-2","name":"Fabrikam"}],"total_items":2}"""));
         }
