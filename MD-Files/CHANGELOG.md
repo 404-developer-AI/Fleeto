@@ -189,6 +189,8 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Security
 
+- System.Security.Cryptography.Pkcs pinned to 10.0.13 in the workers against CVE-2026-84008 and CVE-2026-70162
+  (.NET denial of service); MailKit through MimeKit still asks for 10.0.0.
 - Backups made outside Fleeto are an accepted risk, documented in ARCHITECTURE §5: an image of the VPS holds the root key
   and the signer key next to the database, unlike a Fleeto backup, which is encrypted to an offline key.
 - The uninstall command of a deleted endpoint is signed by fleeto-signer only for an endpoint that no longer exists and was

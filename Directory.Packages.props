@@ -24,6 +24,8 @@
     <PackageVersion Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.23.0" />
     <!-- Workers -->
     <PackageVersion Include="MailKit" Version="4.18.0" />
+    <!-- MimeKit 4.18 depends on 10.0.0, vulnerable to CVE-2026-84008 and CVE-2026-70162 (DoS); pinned until it moves on -->
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
     <PackageVersion Include="AWSSDK.S3" Version="4.0.103.2" />
     <!-- Tools -->
     <PackageVersion Include="System.CommandLine" Version="2.0.12" />
