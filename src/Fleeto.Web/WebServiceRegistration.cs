@@ -83,6 +83,7 @@ public static class WebServiceRegistration
         services.AddSingleton<AuditQueryService>();
         services.AddSingleton<ApiKeyService>();
         services.AddSingleton<AgentUpdateService>();
+        services.AddSingleton<AgentUninstallService>();
         services.AddSingleton<RemoteSessionService>();
         // Integrations (0.4.0): web stores the credentials and asks the workers to use them. It never calls the product
         // itself, because it is on a network without outbound access.

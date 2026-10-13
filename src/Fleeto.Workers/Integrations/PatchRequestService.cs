@@ -34,6 +34,7 @@ public sealed class PatchRequestService : WorkerLoop
     private readonly AlertNotificationService _notifier;
     private readonly LicenseService _licenses;
     private IDisposable? _subscription;
+    private IDisposable? _operations;
 
     public PatchRequestService(IFleetoDbContextFactory dbFactory, INotificationBus bus, Action1ClientFactory clients,
         AlertNotificationService notifier, LicenseService licenses, WorkerHeartbeat heartbeat, TimeProvider time, ILogger<PatchRequestService> logger)
@@ -50,14 +51,26 @@ public sealed class PatchRequestService : WorkerLoop
 
     protected override TimeSpan MaxRunDuration => TimeSpan.FromMinutes(10);
 
-    protected override void OnStarting() =>
+    protected override void OnStarting()
+    {
         _subscription = _bus.Subscribe(NotificationChannels.PatchRequests, (_, _) =>
         {
             Wake();
             return Task.CompletedTask;
         });
+        // Web wakes the workers on this channel when it asks for the removal of an endpoint that leaves Fleeto (0.6.0).
+        _operations = _bus.Subscribe(NotificationChannels.Integrations, (_, _) =>
+        {
+            Wake();
+            return Task.CompletedTask;
+        });
+    }
 
-    protected override void OnStopping() => _subscription?.Dispose();
+    protected override void OnStopping()
+    {
+        _subscription?.Dispose();
+        _operations?.Dispose();
+    }
 
     protected override Task<bool> RunOnceAsync(CancellationToken cancellationToken) => RunAsync(cancellationToken);
 
@@ -69,7 +82,13 @@ public sealed class PatchRequestService : WorkerLoop
             .OrderBy(r => r.RequestedAt)
             .Take(MaxPerPass + 1)
             .ToListAsync(cancellationToken);
-        if (pending.Count == 0)
+        var start = Time.GetUtcNow().UtcDateTime;
+        var removals = await db.IntegrationOperations
+            .Where(o => o.Kind == IntegrationOperationKind.RemoveEndpoint && o.NextAttemptAt <= start)
+            .OrderBy(o => o.CreatedAt)
+            .Take(MaxPerPass + 1)
+            .ToListAsync(cancellationToken);
+        if (pending.Count == 0 && removals.Count == 0)
         {
             return false;
         }
@@ -117,7 +136,105 @@ public sealed class PatchRequestService : WorkerLoop
             await FinishAsync(db, request, outcome, now, cancellationToken);
         }
 
-        return pending.Count > MaxPerPass;
+        if (client is not null && integration is { Enabled: true })
+        {
+            foreach (var operation in removals.Take(MaxPerPass).Where(o => o.IntegrationId == integration.Id))
+            {
+                await RemoveEndpointAsync(db, client, operation, cancellationToken);
+            }
+        }
+
+        return pending.Count > MaxPerPass || removals.Count > MaxPerPass;
+    }
+
+    /// <summary>
+    /// Removes an endpoint that left Fleeto, or went to agent-only, from its Action1 organization, which uninstalls its
+    /// Action1 agent (0.6.0). A failure stays in Settings, Integrations under "Waiting for Action1" until it succeeds or an
+    /// admin dismisses it. An endpoint that still exists loses its patch state at once, and Fleeto does not install the
+    /// agent on it again by itself.
+    /// </summary>
+    private async Task RemoveEndpointAsync(FleetoDbContext db, Action1Client client, IntegrationOperation operation, CancellationToken cancellationToken)
+    {
+        var now = Time.GetUtcNow().UtcDateTime;
+        var removed = await client.DeleteEndpointAsync(operation.ExternalTenantId, operation.ExternalEndpointId, cancellationToken);
+        if (!removed.Ok)
+        {
+            operation.Attempts++;
+            operation.LastError = Cut(removed.Permanent
+                ? $"{removed.Message} Check that the role of the Action1 API credentials may manage endpoints."
+                : $"Action1 did not answer: {removed.Message}", 1000);
+            operation.NextAttemptAt = now + (removed.Permanent
+                ? TimeSpan.FromHours(6)
+                : TimeSpan.FromMinutes(Math.Min(60, Math.Pow(2, Math.Min(operation.Attempts, 6)))));
+            await db.SaveChangesAsync(cancellationToken);
+            Logger.LogWarning("Removing Action1 endpoint {Endpoint} failed: {Message}", operation.ExternalEndpointId, removed.Message);
+            return;
+        }
+
+        db.IntegrationOperations.Remove(operation);
+        var outcome = new Outcome();
+        var key = operation.ExternalEndpointId.ToLower();
+        var states = await db.EndpointPatchStates.Where(s => s.ExternalEndpointId.ToLower() == key).ToListAsync(cancellationToken);
+        foreach (var state in states)
+        {
+            await PatchStateWriter.ForgetAsync(db, state, outcome.Transitions, now, RemovedReason, cancellationToken);
+        }
+
+        var endpoints = await (from e in db.Endpoints
+                               join i in db.InventorySnapshots on e.Id equals i.EndpointId
+                               where i.Action1AgentId.ToLower() == key
+                               select new { e.Id, e.ClientId, e.Hostname })
+            .ToListAsync(cancellationToken);
+        endpoints.AddRange((await db.Endpoints.AsNoTracking()
+                .Where(e => states.Select(s => s.EndpointId).Contains(e.Id))
+                .Select(e => new { e.Id, e.ClientId, e.Hostname })
+                .ToListAsync(cancellationToken))
+            .Where(e => endpoints.All(x => x.Id != e.Id)));
+        foreach (var endpoint in endpoints)
+        {
+            var row = await db.Action1AgentInstallStates.SingleOrDefaultAsync(a => a.EndpointId == endpoint.Id, cancellationToken);
+            if (row is null)
+            {
+                row = new Action1AgentInstallState { EndpointId = endpoint.Id, ClientId = endpoint.ClientId };
+                db.Action1AgentInstallStates.Add(row);
+            }
+
+            row.Status = Action1AgentStatus.Removed;
+            row.RemovalId = operation.Id;
+            row.Attempts = 0;
+            row.Failure = null;
+            row.NextAttemptAt = null;
+            row.JobSucceededAt = null;
+            row.AgentReportedAt = null;
+            row.UpdatedAt = now;
+        }
+
+        var ids = endpoints.Select(e => e.Id).ToList();
+        if (ids.Count > 0)
+        {
+            outcome.Transitions.AddRange(await MissingUpdateChecks.ForgetAsync(db, ids, now, cancellationToken));
+            var (_, transitions) = await ScheduledPatchingChecks.EvaluateAsync(db, ids, now, cancellationToken);
+            outcome.Transitions.AddRange(transitions);
+        }
+
+        var first = endpoints.FirstOrDefault();
+        db.AuditEntries.Add(AuditLog.ToEntry(new AuditRecord(AuditActions.PatchAgentRemovalEnded, "Endpoint",
+            first?.Id.ToString() ?? operation.ExternalEndpointId, first?.ClientId, AuditActorType.System, "fleeto-workers", "fleeto-workers", new
+            {
+                Hostname = operation.Name,
+                Removed = true,
+                Action1EndpointId = operation.ExternalEndpointId,
+                StillInFleeto = first is not null
+            }), now));
+        await _notifier.AddNotificationsAsync(db, outcome.Transitions, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await AlertCleanup.PublishAsync(_bus, outcome.Transitions.Select(t => t.AlertId), cancellationToken);
+        foreach (var id in ids)
+        {
+            await _bus.PublishAsync(NotificationChannels.PatchRequests, id.ToString(), cancellationToken);
+        }
+
+        Logger.LogInformation("Action1 endpoint {Endpoint} of {Name} removed", operation.ExternalEndpointId, operation.Name);
     }
 
     /// <summary>

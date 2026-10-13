@@ -433,7 +433,12 @@ public sealed class ClientService
     /// Deletes the client and, through cascading foreign keys, every site, endpoint and all other data of the client.
     /// The caller must type the client code. Revocations are published so the gateway drops live agent connections.
     /// </summary>
-    public async Task<ServiceResult> DeleteAsync(Caller caller, Guid clientId, string? typedCode, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Deletes a client with all of its sites and endpoints. With <paramref name="uninstallAgents"/>, the agent and watchdog of every
+    /// endpoint remove themselves when they next connect (0.6.0).
+    /// </summary>
+    public async Task<ServiceResult> DeleteAsync(Caller caller, Guid clientId, string? typedCode, bool uninstallAgents = false,
+        CancellationToken cancellationToken = default)
     {
         if (!caller.CanManage)
         {
@@ -468,6 +473,13 @@ public sealed class ClientService
         else
         {
             follow = null;
+        }
+
+        if (uninstallAgents)
+        {
+            // Before the endpoints and their certificates go with the client.
+            var endpoints = await db.Endpoints.AsNoTracking().Where(e => e.ClientId == clientId).ToListAsync(cancellationToken);
+            await AgentUninstallRequests.AddAsync(db, caller, endpoints, now, cancellationToken);
         }
 
         db.Clients.Remove(client);

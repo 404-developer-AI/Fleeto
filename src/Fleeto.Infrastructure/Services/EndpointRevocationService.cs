@@ -57,8 +57,11 @@ public sealed class EndpointRevocationService
     /// <summary>
     /// Deletes the endpoint and, through cascading foreign keys, everything that belongs to it, including its
     /// certificates (so the allow list no longer contains them). Check results are purged by the workers.
+    /// <paramref name="alsoInTransaction"/> adds what has to outlive the endpoint in the same save (0.6.0: the removal of its
+    /// Action1 agent), reading what it needs before the endpoint is gone.
     /// </summary>
-    public async Task<bool> DeleteAsync(Guid endpointId, Actor actor, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteAsync(Guid endpointId, Actor actor, CancellationToken cancellationToken = default,
+        Func<FleetoDbContext, Endpoint, DateTime, CancellationToken, Task>? alsoInTransaction = null)
     {
         await using var db = _dbFactory.Create(actor.Scope);
         var endpoint = await db.Endpoints.SingleOrDefaultAsync(e => e.Id == endpointId, cancellationToken);
@@ -68,6 +71,11 @@ public sealed class EndpointRevocationService
         }
 
         var now = _time.GetUtcNow().UtcDateTime;
+        if (alsoInTransaction is not null)
+        {
+            await alsoInTransaction(db, endpoint, now, cancellationToken);
+        }
+
         db.Endpoints.Remove(endpoint);
         db.AuditEntries.Add(AuditLog.ToEntry(new AuditRecord(AuditActions.EndpointDeleted, "Endpoint", endpointId.ToString(),
             endpoint.ClientId, AuditActorType.User, actor.UserId.ToString(), actor.Name,

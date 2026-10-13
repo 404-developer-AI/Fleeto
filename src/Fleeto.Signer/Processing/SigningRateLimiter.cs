@@ -20,6 +20,8 @@ public sealed class SigningRateLimiter
         // Every technician's connection to a remote session (0.3.0); a person opens a handful per minute at most.
         [SigningRequestKind.RemoteSessionToken] = 600,
         [SigningRequestKind.GatewayCertificate] = 10,
+        // The uninstall command of every endpoint of a deleted client (0.6.0) comes at once; more waits for the next minute.
+        [SigningRequestKind.AgentUninstall] = 3000,
         [SigningRequestKind.AgentConfig] = 20_000
     };
 

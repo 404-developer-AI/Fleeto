@@ -82,6 +82,16 @@ When a third released version is added, the oldest entry moves to the top of
   patch policy as its initiator.
 - An "Action1 agent" check for monitoring templates: not OK when Action1 does not report the endpoint because its agent is
   missing or an installation failed, with the reason, so it can raise an alert.
+- Deleting an endpoint or a client can uninstall the Fleeto agent too: "Also uninstall the Fleeto agent" is checked by
+  default. The endpoint disappears from every list at once; when its agent or watchdog connects again within 30 days,
+  it receives an uninstall command signed by the instance and removes both services, their keys and files, also on an
+  agent-only endpoint. Settings, Agent uninstalls (admins) lists the endpoints Fleeto waits for and those that removed
+  themselves, with "Stop waiting". An agent older than this version does not know the command and stays as before.
+- Deleting an endpoint, or switching it to agent-only, can remove its Action1 agent too: "Also remove the Action1 agent"
+  is checked by default when the endpoint has one. Fleeto asks Action1 to remove the endpoint, which uninstalls the agent
+  the next time the endpoint is online and frees its place in the Action1 subscription. A removal Action1 refuses waits
+  in Settings, Integrations under "Waiting for Action1" with the reason. An endpoint that stays in Fleeto as agent-only does
+  not get the agent back by itself when it becomes managed again.
 - Tags on clients, in the way of Proxmox. Type a tag when you create a client, or later under Client settings, Edit
   tags, or pick one that exists; a new tag gets a color from its name. Tags show below the client name in the clients panel (three, and
   the number of the others) and in the client header; the tag button next to the search filters on one or more tags, and
@@ -167,6 +177,10 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Security
 
+- The uninstall command of a deleted endpoint is signed by fleeto-signer only for an endpoint that no longer exists and was
+  deleted by an admin or technician, names that one endpoint and expires after 30 days; the agent and watchdog accept it
+  only with the instance signature they pinned at enrollment. What web and the signer wrote on the request cannot change
+  afterwards in the database.
 - The workers may now write one kind of job: the automatic installation of the Action1 agent, which has no user behind it.
   The database lets them write no other job, and lets nobody else write a job without a user; fleeto-signer signs it only
   while the patch policy of the endpoint asks for it and the agent was not removed through Fleeto.

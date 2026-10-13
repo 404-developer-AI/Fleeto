@@ -5,12 +5,14 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"path/filepath"
 	"time"
 
 	"github.com/404-developer-AI/Fleeto/agent/internal/agent"
 	"github.com/404-developer-AI/Fleeto/agent/internal/platform"
 	"github.com/404-developer-AI/Fleeto/agent/internal/screen"
 	"github.com/404-developer-AI/Fleeto/agent/internal/state"
+	"github.com/404-developer-AI/Fleeto/agent/internal/uninstall"
 )
 
 const (
@@ -48,7 +50,7 @@ func RunAgent(ctx context.Context, stateDir string, access platform.Access, logg
 		logger.Info("allowed services to send Ctrl+Alt+Del for remote control (SoftwareSASGeneration = 1)")
 	}
 	for ctx.Err() == nil {
-		a, err := agent.New(agent.Options{Store: store, Logger: logger, Watchdog: watchdog})
+		a, err := agent.New(agent.Options{Store: store, Logger: logger, Watchdog: watchdog, Uninstall: startUninstall})
 		if err != nil {
 			if errors.Is(err, state.ErrNotEnrolled) {
 				logger.Error("the agent is not enrolled; run the install command from the site page again")
@@ -72,6 +74,11 @@ func RunAgent(ctx context.Context, stateDir string, access platform.Access, logg
 			wait(ctx, retryDelay)
 		}
 	}
+}
+
+// startUninstall removes the installed agent and watchdog from a process of its own (0.6.0), started from the installed program.
+func startUninstall() error {
+	return uninstall.Start(filepath.Join(platform.ProgramDir(), platform.BinaryName))
 }
 
 func wait(ctx context.Context, d time.Duration) {

@@ -176,6 +176,16 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   case of `TR_SigningRequests_Origin`, check type `Action1Agent`, exit codes of the install job, the state on the Patches
   tab and the counts in the patch policy list. To verify on the test VPS: an installation on a real endpoint end to end,
   and the reason shown for a download that fails.
+- [done] **Uninstall the Fleeto agent of a deleted endpoint** (asked for by the developer on 2026-10-13: an offline agent is
+  removed when it comes back, within a term, but leaves the lists at once). Decided the same day: 30 days, also on agent-only
+  endpoints, also when a client is deleted, checked by default, a list in Settings. Done: `AgentUninstall` with the
+  certificate fingerprints, signing request kind `AgentUninstall` and `AgentUninstallHandler`, `UninstallCommand` in the
+  agent protocol (context `fleeto-uninstall-v1`), `DISCONNECT_CODE_RECONNECT`, the uninstall session of the gateway, the
+  agent and watchdog starting `fleeto-agent uninstall` in a process of their own, Settings, Agent uninstalls, retention. To
+  verify on the test VPS: a deleted Windows and Linux endpoint, online and offline, removing itself.
+- [done] **Remove the Action1 agent with the endpoint** (asked for by the developer on 2026-10-13, checked by default):
+  deleting an endpoint and switching it to agent-only offer it. Done: `IntegrationOperationKind.RemoveEndpoint` written by
+  web (inside the deletion's transaction), carried out by `PatchRequestService`, an option on `ConfirmDialog`.
 
 ## 0.7.0 — Hardening
 

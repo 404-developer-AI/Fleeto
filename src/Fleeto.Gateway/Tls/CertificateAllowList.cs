@@ -20,6 +20,15 @@ public enum AllowListDecision
 public sealed record AgentIdentity(Guid EndpointId, string Fingerprint, string PublicKeyFingerprint, DateTime ExpiresAt,
     AgentComponent Role = AgentComponent.Agent);
 
+/// <summary>
+/// A deleted endpoint whose agent or watchdog may connect once more to receive its uninstall command (0.6.0). The command is null
+/// while fleeto-signer has not signed it yet.
+/// </summary>
+public sealed record PendingUninstall(Guid Id, Guid EndpointId, byte[]? Payload, byte[]? Signature, string? KeyId)
+{
+    public bool IsSigned => Payload is not null && Signature is not null && KeyId is not null;
+}
+
 /// <summary>An expired, never revoked agent certificate that may renew itself through recovery (0.2.0).</summary>
 public sealed record ExpiredAgentIdentity(Guid EndpointId, Guid ClientId, string Fingerprint, string PublicKeyFingerprint, DateTime ExpiredAt);
 
@@ -34,6 +43,10 @@ public sealed record ExpiredAgentIdentity(Guid EndpointId, Guid ClientId, string
 /// <para>
 /// Separately it holds the certificates that expired within <see cref="ProtocolLimits.RecoveryGrace"/> and were never revoked
 /// (0.2.0). Those never open a session; they are accepted only by <see cref="AuthorizeRecovery"/> for the recovery request.
+/// </para>
+/// <para>
+/// And it holds the certificates of deleted endpoints that wait for their uninstall command (0.6.0, <see cref="AgentUninstall"/>).
+/// Those open only the session that delivers it, through <see cref="AuthorizeUninstall"/>.
 /// </para>
 /// </summary>
 public sealed class CertificateAllowList : BackgroundService
@@ -51,6 +64,9 @@ public sealed class CertificateAllowList : BackgroundService
     // right after receiving its certificate instead of waiting up to a minute for the next reload.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (Entry Entry, long AddedAt)> _recent = new(StringComparer.Ordinal);
     private volatile Snapshot? _snapshot;
+
+    // Uninstalls accepted since the last reload: the other service of the endpoint must not get the command a second time.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, byte> _uninstallsAccepted = new();
 
     public CertificateAllowList(NpgsqlDataSource dataSource, INotificationBus bus, TimeProvider time, ILogger<CertificateAllowList> logger)
     {
@@ -173,6 +189,56 @@ public sealed class CertificateAllowList : BackgroundService
     }
 
     /// <summary>
+    /// Decides whether a client certificate belongs to a deleted endpoint that waits for its uninstall command (0.6.0): its fingerprint
+    /// is one the endpoint had, the endpoint id in its SAN is that endpoint's, and it chains to an instance CA at a moment it was valid.
+    /// The TLS handshake has already proven possession of its key. Such a session receives the command and nothing else.
+    /// </summary>
+    public AllowListDecision AuthorizeUninstall(X509Certificate2? certificate, out PendingUninstall? pending)
+    {
+        pending = null;
+        var snapshot = _snapshot;
+        if (snapshot is null)
+        {
+            return AllowListDecision.NotLoaded;
+        }
+
+        if (certificate is null)
+        {
+            return AllowListDecision.Refused;
+        }
+
+        var fingerprint = KeyIds.Sha256Hex(certificate.RawDataMemory.Span);
+        if (!snapshot.Uninstalls.TryGetValue(fingerprint, out var found) || _uninstallsAccepted.ContainsKey(found.Id) ||
+            InternalCertificateAuthority.EndpointIdFromCertificate(certificate) != found.EndpointId)
+        {
+            return AllowListDecision.Refused;
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        var notAfter = certificate.NotAfter.ToUniversalTime();
+        var issuers = CertificateChains.Build(certificate, snapshot.CaCertificates, CertificateChains.ClientAuthOid,
+            notAfter <= now ? notAfter.AddMinutes(-1) : now);
+        if (issuers is null)
+        {
+            return AllowListDecision.Refused;
+        }
+
+        foreach (var issuer in issuers)
+        {
+            issuer.Dispose();
+        }
+
+        pending = found;
+        return AllowListDecision.Accepted;
+    }
+
+    /// <summary>True when a deleted endpoint waits for its uninstall command (0.6.0): its live sessions reconnect to receive it.</summary>
+    public bool HasPendingUninstall(Guid endpointId) => _snapshot?.UninstallEndpoints.Contains(endpointId) == true;
+
+    /// <summary>Stops offering an uninstall command that was accepted, until the next reload no longer lists it.</summary>
+    public void MarkUninstallAccepted(Guid uninstallId) => _uninstallsAccepted[uninstallId] = 0;
+
+    /// <summary>
     /// Re-check for a live session. Returns true while the list has not been loaded, so a database outage never drops
     /// sessions that were valid when they connected.
     /// </summary>
@@ -243,7 +309,14 @@ public sealed class CertificateAllowList : BackgroundService
                     new NpgsqlBatchCommand("""
                         SELECT "Fingerprint", "CertificateDer" FROM "CertificateAuthorities"
                         WHERE "RetiredAt" IS NULL ORDER BY "CreatedAt"
+                        """),
+                    new NpgsqlBatchCommand("""
+                        SELECT "Id", "EndpointId", "Fingerprints", "Payload", "Signature", "SigningKeyId" FROM "AgentUninstalls"
+                        WHERE "AcceptedAt" IS NULL AND "RefusalReason" IS NULL AND "ExpiresAt" > $1
                         """)
+                    {
+                        Parameters = { new NpgsqlParameter<DateTime> { TypedValue = now } }
+                    }
                 }
             };
 
@@ -251,6 +324,7 @@ public sealed class CertificateAllowList : BackgroundService
             var entries = new Dictionary<string, Entry>(Math.Max(16, previous?.Entries.Count ?? 0), StringComparer.Ordinal);
             var expired = new Dictionary<string, Entry>(StringComparer.Ordinal);
             var cas = new List<(string Fingerprint, byte[] Der)>();
+            var uninstalls = new Dictionary<string, PendingUninstall>(StringComparer.Ordinal);
             await using (var reader = await batch.ExecuteReaderAsync(cancellationToken))
             {
                 while (await reader.ReadAsync(cancellationToken))
@@ -265,6 +339,18 @@ public sealed class CertificateAllowList : BackgroundService
                 {
                     cas.Add((reader.GetString(0), reader.GetFieldValue<byte[]>(1)));
                 }
+
+                await reader.NextResultAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    var pending = new PendingUninstall(reader.GetGuid(0), reader.GetGuid(1),
+                        reader.IsDBNull(3) ? null : reader.GetFieldValue<byte[]>(3), reader.IsDBNull(4) ? null : reader.GetFieldValue<byte[]>(4),
+                        reader.IsDBNull(5) ? null : reader.GetString(5));
+                    foreach (var fingerprint in reader.GetFieldValue<string[]>(2))
+                    {
+                        uninstalls[fingerprint] = pending;
+                    }
+                }
             }
 
             var caSetKey = string.Join(",", cas.Select(c => c.Fingerprint));
@@ -272,7 +358,9 @@ public sealed class CertificateAllowList : BackgroundService
                 ? previous.CaCertificates
                 : LoadCas(cas);
 
-            _snapshot = new Snapshot(entries, expired, caCertificates, caSetKey, now);
+            _snapshot = new Snapshot(entries, expired, caCertificates, caSetKey, now, uninstalls,
+                [.. uninstalls.Values.Select(u => u.EndpointId)]);
+            _uninstallsAccepted.Clear();
 
             // Additions made before this reload read the database are now covered (or revoked) by the snapshot.
             foreach (var (fingerprint, recent) in _recent)
@@ -354,5 +442,5 @@ public sealed class CertificateAllowList : BackgroundService
     private readonly record struct Entry(Guid EndpointId, DateTime ExpiresAt, Guid ClientId, AgentComponent Role);
 
     private sealed record Snapshot(Dictionary<string, Entry> Entries, Dictionary<string, Entry> Expired, X509Certificate2Collection CaCertificates,
-        string CaSetKey, DateTime LoadedAt);
+        string CaSetKey, DateTime LoadedAt, Dictionary<string, PendingUninstall> Uninstalls, HashSet<Guid> UninstallEndpoints);
 }

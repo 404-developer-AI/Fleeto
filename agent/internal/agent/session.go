@@ -23,6 +23,7 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/safego"
 	"github.com/404-developer-AI/Fleeto/agent/internal/signedconfig"
 	"github.com/404-developer-AI/Fleeto/agent/internal/state"
+	"github.com/404-developer-AI/Fleeto/agent/internal/uninstall"
 	"github.com/404-developer-AI/Fleeto/agent/internal/version"
 )
 
@@ -461,10 +462,38 @@ func (s *session) handle(msg *agentv1.ServerMessage) (sessionOutcome, bool, erro
 			a.watchdog.certificateResponse(body.WatchdogCertificate)
 		}
 		return 0, false, nil
+	case *agentv1.ServerMessage_Uninstall:
+		return 0, false, s.handleUninstall(body.Uninstall)
 	default:
 		a.logger.Warn("ignored an unknown message from the gateway")
 		return 0, false, nil
 	}
+}
+
+// handleUninstall removes the agent when the instance deleted this endpoint and sent a signed uninstall command (0.6.0). A command
+// that does not verify is logged and ignored: it changes nothing. The gateway closes the session after the answer.
+func (s *session) handleUninstall(signed *agentv1.SignedUninstall) error {
+	a := s.a
+	command, err := uninstall.Verify(signed, a.trust, a.opts.Now())
+	if err != nil {
+		a.logger.Warn("refused an uninstall command", "error", err)
+		return nil
+	}
+	if a.opts.Uninstall == nil {
+		a.logger.Warn("the instance asks to uninstall this agent, but it runs in the foreground and is not installed; stop it yourself",
+			"requestedBy", command.GetRequestedBy())
+		return nil
+	}
+	a.logger.Warn("the endpoint was deleted from the instance; removing the agent and the watchdog", "requestedBy", command.GetRequestedBy())
+	if err := s.send(&agentv1.AgentMessage{Body: &agentv1.AgentMessage_UninstallAccepted{
+		UninstallAccepted: &agentv1.UninstallAccepted{UninstallId: command.GetUninstallId()},
+	}}); err != nil {
+		return err
+	}
+	if err := a.opts.Uninstall(); err != nil {
+		a.logger.Error("could not start removing the agent; remove it with 'fleeto-agent uninstall'", "error", err)
+	}
+	return nil
 }
 
 func (s *session) handleHelloAck(ack *agentv1.HelloAck) error {

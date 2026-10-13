@@ -39,6 +39,10 @@ public class DatabaseRuleTests
     [InlineData("fleeto_web", "WatchdogCertificate", false)]
     [InlineData("fleeto_signer", "WatchdogCertificate", false)]
     [InlineData("fleeto_workers", "WatchdogCertificate", false)]
+    [InlineData("fleeto_web", "AgentUninstall", true)]
+    [InlineData("fleeto_gateway", "AgentUninstall", false)]
+    [InlineData("fleeto_workers", "AgentUninstall", false)]
+    [InlineData("fleeto_signer", "AgentUninstall", false)]
     public async Task Signing_request_kind_is_restricted_to_the_right_role(string role, string kind, bool allowed)
     {
         await EnsureRolesAsync();
@@ -238,6 +242,37 @@ public class DatabaseRuleTests
         var error = await Assert.ThrowsAsync<PostgresException>(() => request.ExecuteNonQueryAsync());
         Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
 
+        await transaction.RollbackAsync();
+    }
+
+    [Fact]
+    public async Task The_gateway_records_the_answer_of_an_uninstall_and_cannot_change_what_was_signed()
+    {
+        // 0.6.0: an uninstall request keeps what web asked and the signer signed; the gateway only writes the answer.
+        var id = Guid.NewGuid();
+        await using (var db = _db.DbFactory.CreateSystem())
+        {
+            db.AgentUninstalls.Add(new AgentUninstall
+            {
+                Id = id, ClientId = Guid.NewGuid(), EndpointId = Guid.NewGuid(), Hostname = "WS-BOUND", Fingerprints = [new string('b', 64)],
+                RequestedByUserId = Guid.NewGuid(), RequestedByName = "Tech", RequestedAt = DateTime.UtcNow, ExpiresAt = DateTime.UtcNow.AddDays(30),
+                Payload = [1], Signature = new byte[64], SigningKeyId = "k", SignedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await EnsureRolesAsync();
+        await using var connection = await _db.DataSource.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        await Execute(connection, DatabaseGrants.BuildSql());
+        await Execute(connection, "SET LOCAL ROLE fleeto_gateway");
+#pragma warning disable CA2100 // test-only statements built from a generated id
+        await Execute(connection, $"""UPDATE "AgentUninstalls" SET "AcceptedAt" = now(), "AcceptedBy" = 'Agent' WHERE "Id" = '{id}'""");
+        await using var tamper = new NpgsqlCommand($"""UPDATE "AgentUninstalls" SET "Fingerprints" = ARRAY['{new string('c', 64)}'] WHERE "Id" = '{id}'""",
+            connection, transaction);
+#pragma warning restore CA2100
+        var error = await Assert.ThrowsAsync<PostgresException>(() => tamper.ExecuteNonQueryAsync());
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
         await transaction.RollbackAsync();
     }
 

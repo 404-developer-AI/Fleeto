@@ -129,6 +129,9 @@ public static class SignatureContexts
 
     /// <summary>Remote session tokens (0.3.0); must equal the Go agent constant.</summary>
     public const string RemoteSession = "fleeto-remote-session-v1";
+
+    /// <summary>The uninstall command of a deleted endpoint (0.6.0); must equal the Go agent constant.</summary>
+    public const string Uninstall = "fleeto-uninstall-v1";
     public const string License = "fleeto-license-v1";
     public const string ReleaseManifest = "fleeto-release-manifest-v1";
 }

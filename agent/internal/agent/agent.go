@@ -81,6 +81,10 @@ type Options struct {
 	// ClipboardLauncher starts the process that serves the clipboard of a Windows session as its signed-in user (0.3.0 step 4);
 	// default screen.DefaultClipboardLauncher. Tests replace it.
 	ClipboardLauncher screen.Launcher
+
+	// Uninstall removes the installed agent and watchdog when the instance sends a verified uninstall command (0.6.0): it starts
+	// 'fleeto-agent uninstall' in a process of its own. Nil in foreground development mode, where nothing is installed.
+	Uninstall func() error
 }
 
 func (o *Options) setDefaults() {

@@ -38,6 +38,14 @@
 // exact manifest bytes, without a context prefix, the same signature install.sh verifies). The receiver verifies it against the
 // release public keys compiled into its binary, installs only binaries named in it with the listed SHA-256 and size, and never
 // a version lower than or equal to the installed one. The agent installs and updates the watchdog; the watchdog updates the agent.
+//
+// Uninstall (0.6.0): when an endpoint is deleted with "Also uninstall the Fleeto agent", fleeto-signer signs an UninstallCommand
+// (context "fleeto-uninstall-v1") and the gateway keeps the certificates of the deleted endpoint for 30 days for this one purpose. A
+// live session is closed with DISCONNECT_CODE_RECONNECT; when the agent or the watchdog connects with such a certificate, the gateway
+// accepts the session, answers Hello with SignedUninstall and nothing else, waits for UninstallAccepted and closes it with
+// DISCONNECT_CODE_REVOKED. The receiver verifies the signature against the pinned instance signing key, the instance and endpoint
+// ids and valid_until, answers UninstallAccepted and removes both services, their keys and files, as 'fleeto-agent uninstall' does.
+// It does so on agent-only endpoints too: it can only remove Fleeto, never run anything else.
 syntax = "proto3";
 
 package fleeto.agent.v1;
@@ -123,6 +131,7 @@ message AgentMessage {
     RemoteSessionActionReport remote_session_action = 14;
     // 0.6.0
     StorageScanReport storage_scan = 15;
+    UninstallAccepted uninstall_accepted = 16;
   }
 }
 
@@ -146,6 +155,7 @@ message ServerMessage {
     // 0.6.0
     StorageScanRequest storage_scan_request = 14;
     StorageScanAck storage_scan_ack = 15;
+    SignedUninstall uninstall = 16;
   }
 }
 
@@ -882,6 +892,35 @@ message RelayEndpointHello {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// Uninstall (0.6.0)
+// ---------------------------------------------------------------------------------------------------------------
+
+// An UninstallCommand signed by fleeto-signer.
+message SignedUninstall {
+  // Serialized UninstallCommand.
+  bytes payload = 1;
+  // ed25519 over "fleeto-uninstall-v1" || 0x00 || payload.
+  bytes signature = 2;
+  string key_id = 3;
+}
+
+// Asks the Fleeto services of one endpoint to remove themselves: the endpoint was deleted from the instance.
+message UninstallCommand {
+  string uninstall_id = 1;
+  string instance_id = 2;
+  string endpoint_id = 3;
+  // The command is refused after this moment (5 minutes clock tolerance); at most 31 days after signing.
+  google.protobuf.Timestamp valid_until = 4;
+  // Display name of the user who deleted the endpoint, for the endpoint's log.
+  string requested_by = 5;
+}
+
+// The receiver verified the command and starts removing both services; the gateway records it and closes the session.
+message UninstallAccepted {
+  string uninstall_id = 1;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // Disconnect
 // ---------------------------------------------------------------------------------------------------------------
 
@@ -899,4 +938,7 @@ enum DisconnectCode {
   // Gateway shutting down; reconnect with backoff.
   DISCONNECT_CODE_SERVER_SHUTDOWN = 3;
   DISCONNECT_CODE_PROTOCOL_ERROR = 4;
+  // Connect again after the usual backoff (0.6.0): the endpoint was deleted and the gateway delivers its uninstall command on the
+  // next session. An older agent treats it like DISCONNECT_CODE_UNSPECIFIED and reconnects.
+  DISCONNECT_CODE_RECONNECT = 5;
 }

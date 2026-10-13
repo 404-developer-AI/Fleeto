@@ -225,6 +225,67 @@ public sealed class PatchRequestTests
         Assert.True(await read.EndpointPatchStates.AnyAsync(s => s.EndpointId == endpoint.Id));
     }
 
+    private async Task<IntegrationOperation> RemovalOperationAsync(Integration integration, string action1Id, string name)
+    {
+        var operation = new IntegrationOperation
+        {
+            Id = Guid.NewGuid(), IntegrationId = integration.Id, Kind = IntegrationOperationKind.RemoveEndpoint, ExternalTenantId = Tenant,
+            ExternalEndpointId = action1Id, Name = name, NextAttemptAt = Now, CreatedAt = Now
+        };
+        await using var db = _fixture.Db.DbFactory.CreateSystem();
+        db.IntegrationOperations.Add(operation);
+        await db.SaveChangesAsync();
+        return operation;
+    }
+
+    [Fact]
+    public async Task An_endpoint_that_left_Fleeto_or_went_agent_only_is_removed_from_Action1_and_not_given_the_agent_again()
+    {
+        // 0.6.0: the removal outlives a deleted endpoint; one that still exists (agent-only) loses its patch state and is
+        // marked as removed, so a patch policy does not install the agent again by itself.
+        var (client, integration) = await SeedAsync();
+        var deletedId = Guid.NewGuid().ToString();
+        var keptId = Guid.NewGuid().ToString();
+        var kept = await EndpointAsync(client, keptId);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            db.EndpointPatchStates.Add(new EndpointPatchState
+            {
+                EndpointId = kept.Id, ClientId = client.Id, ExternalEndpointId = keptId, ExternalTenantId = Tenant, UpdatedAt = Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var gone = await RemovalOperationAsync(integration, deletedId, "WS-GONE");
+        var agentOnly = await RemovalOperationAsync(integration, keptId, kept.Hostname);
+        var action1 = new FakeAction1();
+
+        await Service(action1).RunAsync(CancellationToken.None);
+
+        Assert.Equal([$"{Tenant}/{deletedId}", $"{Tenant}/{keptId}"], action1.Deleted);
+        await using var read = _fixture.Db.DbFactory.CreateSystem();
+        Assert.False(await read.IntegrationOperations.AnyAsync(o => o.Id == gone.Id || o.Id == agentOnly.Id));
+        Assert.False(await read.EndpointPatchStates.AnyAsync(s => s.EndpointId == kept.Id));
+        var state = await read.Action1AgentInstallStates.AsNoTracking().SingleAsync(a => a.EndpointId == kept.Id);
+        Assert.Equal((Action1AgentStatus.Removed, agentOnly.Id), (state.Status, state.RemovalId));
+        Assert.True(await read.AuditEntries.AnyAsync(a => a.Action == AuditActions.PatchAgentRemovalEnded && a.TargetId == deletedId));
+    }
+
+    [Fact]
+    public async Task A_removal_Action1_refuses_waits_in_Settings_with_the_reason()
+    {
+        var (_, integration) = await SeedAsync();
+        var operation = await RemovalOperationAsync(integration, Guid.NewGuid().ToString(), "WS-REFUSED");
+
+        await Service(new FakeAction1 { RefuseDelete = true }).RunAsync(CancellationToken.None);
+
+        await using var read = _fixture.Db.DbFactory.CreateSystem();
+        var waiting = await read.IntegrationOperations.AsNoTracking().SingleAsync(o => o.Id == operation.Id);
+        Assert.Equal(1, waiting.Attempts);
+        Assert.Contains("may manage endpoints", waiting.LastError);
+        Assert.True(waiting.NextAttemptAt > Now);
+    }
+
     [Fact]
     public async Task The_scheduled_patching_check_counts_the_days_since_a_scheduled_deployment_last_succeeded()
     {

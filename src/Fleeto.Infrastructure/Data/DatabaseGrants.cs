@@ -145,6 +145,9 @@ public static class DatabaseGrants
             // The Action1 agent of an endpoint and its automatic installation (0.6.0): only the workers judge it. The signer
             // reads it to refuse an automatic installation on an endpoint whose agent was removed through Fleeto.
             ["Action1AgentInstallStates"] = Grants(web: Read, signer: Read, workers: ReadWrite),
+            // Uninstalling the agent of a deleted endpoint (0.6.0): web writes it with the deletion and removes it when an admin stops
+            // waiting, the signer signs the command, the gateway delivers it and records the answer, the workers remove expired rows.
+            ["AgentUninstalls"] = Grants(web: "SELECT, INSERT, DELETE", gateway: "SELECT, UPDATE", signer: "SELECT, UPDATE", workers: "SELECT, DELETE"),
             // Sign-in with Entra ID (0.5.0): web writes the authorization code and reads the outcome, the workers exchange it
             // and write the claims back. Web may delete its own row as soon as the sign-in is done.
             ["SignInExchanges"] = Grants(web: "SELECT, INSERT, DELETE", workers: ReadWrite),

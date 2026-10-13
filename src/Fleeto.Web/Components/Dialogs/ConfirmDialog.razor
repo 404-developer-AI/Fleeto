@@ -1,4 +1,5 @@
-@* Confirmation for destructive or privileged actions. Optionally requires typing a text (such as a client code) or a reason. *@
+@* Confirmation for destructive or privileged actions. Optionally requires typing a text (such as a client code) or a reason,
+   and optionally offers choices that go with the action (the result is then a ConfirmDialog.Choice). *@
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">@Title</MudText>
@@ -14,6 +15,17 @@
         {
             <MudTextField @bind-Value="_reason" Label="@ReasonLabel" Variant="Variant.Outlined" Lines="2" Immediate="true"
                           AutoFocus="true" MaxLength="500" Counter="500" />
+        }
+        @for (var i = 0; i < _checked.Length; i++)
+        {
+            var index = i;
+            var option = Options![index];
+            <MudCheckBox T="bool" Value="_checked[index]" ValueChanged="@(value => _checked[index] = value)" Color="Color.Primary"
+                         Label="@option.Label" Class="mt-2" />
+            @if (!string.IsNullOrEmpty(option.Help))
+            {
+                <MudText Typo="Typo.caption" Class="muted d-block ml-3">@option.Help</MudText>
+            }
         }
     </DialogContent>
     <DialogActions>
@@ -37,8 +49,23 @@
     /// <summary>When set, a reason is required; the dialog result carries it.</summary>
     [Parameter] public string? ReasonLabel { get; set; }
 
+    /// <summary>A checkbox that goes with the action, with its help text and whether it starts checked.</summary>
+    public sealed record Option(string Key, string Label, string? Help = null, bool Checked = false);
+
+    /// <summary>When set, these checkboxes go with the action; the result is then a <see cref="Choice"/>.</summary>
+    [Parameter] public IReadOnlyList<Option>? Options { get; set; }
+
+    /// <summary>The result when the dialog offers choices: the typed text or reason, and the keys of the boxes that were checked.</summary>
+    public sealed record Choice(string Text, IReadOnlySet<string> Checked)
+    {
+        public bool Has(string key) => Checked.Contains(key);
+    }
+
     private string _typed = string.Empty;
     private string _reason = string.Empty;
+    private bool[] _checked = [];
+
+    protected override void OnInitialized() => _checked = Options?.Select(o => o.Checked).ToArray() ?? [];
 
     private bool CanConfirm =>
         (string.IsNullOrEmpty(TypeToConfirm) || string.Equals(_typed.Trim(), TypeToConfirm, StringComparison.OrdinalIgnoreCase)) &&
@@ -50,7 +77,10 @@
     {
         if (CanConfirm)
         {
-            MudDialog.Close(DialogResult.Ok(!string.IsNullOrEmpty(ReasonLabel) ? _reason.Trim() : _typed.Trim()));
+            var text = !string.IsNullOrEmpty(ReasonLabel) ? _reason.Trim() : _typed.Trim();
+            MudDialog.Close(Options is not { Count: > 0 }
+                ? DialogResult.Ok(text)
+                : DialogResult.Ok(new Choice(text, Options.Where((_, i) => _checked[i]).Select(o => o.Key).ToHashSet())));
         }
     }
 }

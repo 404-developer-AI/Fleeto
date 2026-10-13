@@ -244,7 +244,12 @@ public enum SigningRequestKind
     /// <summary>
     /// A single-use token for one participant of a remote session (0.3.0). SubjectId is the participant id; only web may request it.
     /// </summary>
-    RemoteSessionToken
+    RemoteSessionToken,
+    /// <summary>
+    /// The uninstall command of a deleted endpoint (0.6.0). SubjectId is the AgentUninstall id, the payload the endpoint id and the
+    /// user who deleted it; only web may request it, in the transaction that deletes the endpoint.
+    /// </summary>
+    AgentUninstall
 }
 
 public enum SigningRequestState

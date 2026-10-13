@@ -114,6 +114,12 @@ public sealed class RetentionService : WorkerLoop
           SELECT "Id" FROM "StorageScanRequests" WHERE "RequestedAt" < @cutoff LIMIT 5000)
         """;
 
+    // Uninstalls of deleted endpoints (0.6.0): nobody waits after the expiry, and an accepted one stays a week in the list of Settings.
+    private const string DeleteAgentUninstallsSql = """
+        DELETE FROM "AgentUninstalls" WHERE "Id" IN (
+          SELECT "Id" FROM "AgentUninstalls" WHERE "ExpiresAt" < @now OR "AcceptedAt" < @accepted LIMIT 5000)
+        """;
+
     private const string DeletePatchRequestsSql = """
         DELETE FROM "PatchRequests" WHERE "Id" IN (
           SELECT "Id" FROM "PatchRequests" WHERE "RequestedAt" < @cutoff LIMIT 5000)
@@ -252,6 +258,8 @@ public sealed class RetentionService : WorkerLoop
         deleted["PatchDeployments"] = await DeleteInBatchesAsync(DeletePatchDeploymentsSql,
             () => [new NpgsqlParameter("cutoff", now - JobRetention)], cancellationToken);
         deleted["PatchRequests"] = await DeleteInBatchesAsync(DeletePatchRequestsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-7))], cancellationToken);
+        deleted["AgentUninstalls"] = await DeleteInBatchesAsync(DeleteAgentUninstallsSql,
+            () => [new NpgsqlParameter("now", now), new NpgsqlParameter("accepted", now - Fleeto.Core.Entities.AgentUninstallRules.KeptAfterAccepted)], cancellationToken);
         deleted["RemoteSessions"] = await DeleteInBatchesAsync(DeleteRemoteSessionsSql,
             () => [new NpgsqlParameter("cutoff", now - RemoteSessionRules.HistoryRetention)], cancellationToken);
         deleted["InstanceHealthSamples"] = await DeleteInBatchesAsync(DeleteHealthSamplesSql,

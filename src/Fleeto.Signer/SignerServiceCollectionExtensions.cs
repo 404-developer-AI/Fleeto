@@ -23,6 +23,7 @@ public static class SignerServiceCollectionExtensions
         services.AddSingleton<ISigningRequestHandler, JobHandler>();
         services.AddSingleton<ISigningRequestHandler, WatchdogCertificateHandler>();
         services.AddSingleton<ISigningRequestHandler, RemoteSessionTokenHandler>();
+        services.AddSingleton<ISigningRequestHandler, AgentUninstallHandler>();
 
         services.AddSingleton<SigningRequestProcessor>();
         services.AddHostedService<SigningService>();

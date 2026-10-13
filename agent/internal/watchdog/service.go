@@ -10,6 +10,7 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/platform"
 	"github.com/404-developer-AI/Fleeto/agent/internal/state"
 	"github.com/404-developer-AI/Fleeto/agent/internal/svcctl"
+	"github.com/404-developer-AI/Fleeto/agent/internal/uninstall"
 	"github.com/404-developer-AI/Fleeto/agent/internal/update"
 )
 
@@ -24,6 +25,7 @@ func RunService(ctx context.Context, logger *slog.Logger) {
 	for ctx.Err() == nil {
 		w, err := New(Options{
 			Store: store, AgentStateDir: platform.DefaultStateDir(), ProgramDir: platform.ProgramDir(), Controller: controller, Logger: logger,
+			Uninstall: func() error { return uninstall.Start(agentExe()) },
 		})
 		if err != nil {
 			if errors.Is(err, ErrNotProvisioned) {

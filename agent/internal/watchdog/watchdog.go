@@ -37,6 +37,7 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/signedconfig"
 	"github.com/404-developer-AI/Fleeto/agent/internal/state"
 	"github.com/404-developer-AI/Fleeto/agent/internal/svcctl"
+	"github.com/404-developer-AI/Fleeto/agent/internal/uninstall"
 	"github.com/404-developer-AI/Fleeto/agent/internal/update"
 	"github.com/404-developer-AI/Fleeto/agent/internal/version"
 )
@@ -68,6 +69,8 @@ type Options struct {
 	UpdateMaxDelay   time.Duration
 	HandshakeTimeout time.Duration
 	Now              func() time.Time
+	// Uninstall removes the installed agent and watchdog on a verified uninstall command (0.6.0); nil refuses it.
+	Uninstall func() error
 }
 
 // Watchdog is a provisioned watchdog.
@@ -474,6 +477,10 @@ func (w *Watchdog) session(ctx context.Context) (renewed bool, err error) {
 					return true, nil
 				}
 				nextRenewal = w.opts.Now().Add(time.Hour)
+			case *agentv1.ServerMessage_Uninstall:
+				if err := w.handleUninstall(body.Uninstall, send); err != nil {
+					return false, err
+				}
 			case *agentv1.ServerMessage_Disconnect:
 				if body.Disconnect.GetCode() == agentv1.DisconnectCode_DISCONNECT_CODE_REVOKED {
 					w.markRevoked(body.Disconnect.GetReason())
@@ -486,6 +493,35 @@ func (w *Watchdog) session(ctx context.Context) (renewed bool, err error) {
 			}
 		}
 	}
+}
+
+// handleUninstall removes the agent and the watchdog when the instance deleted this endpoint (0.6.0): the watchdog gets the command
+// too, so an endpoint whose agent does not run is cleaned up as well. A command that does not verify changes nothing.
+func (w *Watchdog) handleUninstall(signed *agentv1.SignedUninstall, send func(*agentv1.AgentMessage) error) error {
+	trust, err := w.trust()
+	if err != nil {
+		w.logger.Warn("refused an uninstall command", "error", err)
+		return nil
+	}
+	command, err := uninstall.Verify(signed, trust, w.opts.Now())
+	if err != nil {
+		w.logger.Warn("refused an uninstall command", "error", err)
+		return nil
+	}
+	if w.opts.Uninstall == nil {
+		w.logger.Warn("the instance asks to uninstall this endpoint, but this watchdog cannot", "requestedBy", command.GetRequestedBy())
+		return nil
+	}
+	w.logger.Warn("the endpoint was deleted from the instance; removing the agent and the watchdog", "requestedBy", command.GetRequestedBy())
+	if err := send(&agentv1.AgentMessage{Body: &agentv1.AgentMessage_UninstallAccepted{
+		UninstallAccepted: &agentv1.UninstallAccepted{UninstallId: command.GetUninstallId()},
+	}}); err != nil {
+		return err
+	}
+	if err := w.opts.Uninstall(); err != nil {
+		w.logger.Error("could not start removing the agent; remove it with 'fleeto-agent uninstall'", "error", err)
+	}
+	return nil
 }
 
 func (w *Watchdog) storeRenewal(resp *agentv1.RenewCertificateResponse) bool {

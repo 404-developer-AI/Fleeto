@@ -407,6 +407,7 @@
         IntegrationOperationKind.CreateTenant => $"Create the organization of client {operation.Name}",
         IntegrationOperationKind.DeleteTenant => $"Remove organization {operation.Name}",
         IntegrationOperationKind.MoveEndpoint => $"Move endpoint {operation.Name} to the organization of its client",
+        IntegrationOperationKind.RemoveEndpoint => $"Remove endpoint {operation.Name} from Action1, which uninstalls its Action1 agent",
         _ => $"Remove the endpoint group of site {operation.Name}"
     };
 

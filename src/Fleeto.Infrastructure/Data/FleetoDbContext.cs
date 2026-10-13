@@ -113,6 +113,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<PatchRequest> PatchRequests => Set<PatchRequest>();
     public DbSet<IntegrationMapping> IntegrationMappings => Set<IntegrationMapping>();
     public DbSet<Action1AgentInstallState> Action1AgentInstallStates => Set<Action1AgentInstallState>();
+    public DbSet<AgentUninstall> AgentUninstalls => Set<AgentUninstall>();
     public DbSet<IntegrationSiteGroup> IntegrationSiteGroups => Set<IntegrationSiteGroup>();
     public DbSet<IntegrationAutomation> IntegrationAutomations => Set<IntegrationAutomation>();
     public DbSet<IntegrationOperation> IntegrationOperations => Set<IntegrationOperation>();
@@ -987,6 +988,18 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(p => new { p.ClientId, p.MissingCritical });
             EndpointChild(entity, p => new { p.EndpointId, p.ClientId });
             ClientOwned(entity);
+        });
+
+        // Not client-owned on purpose (0.6.0): the row outlives its endpoint and client, and the gateway finds it by fingerprint.
+        builder.Entity<AgentUninstall>(entity =>
+        {
+            entity.Property(u => u.ClientCode).HasMaxLength(20);
+            entity.Property(u => u.Hostname).HasMaxLength(255);
+            entity.Property(u => u.RequestedByName).HasMaxLength(200);
+            entity.Property(u => u.SigningKeyId).HasMaxLength(16);
+            entity.Property(u => u.RefusalReason).HasMaxLength(500);
+            entity.Property(u => u.AcceptedBy).HasConversion<string>().HasMaxLength(20);
+            entity.HasIndex(u => u.ExpiresAt);
         });
 
         builder.Entity<Action1AgentInstallState>(entity =>

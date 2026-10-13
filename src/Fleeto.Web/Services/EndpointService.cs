@@ -331,17 +331,57 @@ public sealed class EndpointService
             .ToListAsync(cancellationToken);
     }
 
-    /// <summary>Switches endpoints between agent-only and managed. The license problem text is returned verbatim.</summary>
+    /// <summary>
+    /// Switches endpoints between agent-only and managed. The license problem text is returned verbatim. With
+    /// <paramref name="removeAction1Agent"/>, an endpoint that goes to agent-only also loses its Action1 agent (0.6.0):
+    /// patch management no longer covers it, and the agent would keep a place in the Action1 subscription.
+    /// </summary>
     public async Task<ServiceResult<int>> SetTierAsync(Caller caller, IReadOnlyCollection<Guid> endpointIds, EndpointTier tier,
-        CancellationToken cancellationToken = default)
+        bool removeAction1Agent = false, CancellationToken cancellationToken = default)
     {
         if (!caller.CanManage)
         {
             return ServiceResult<int>.Forbidden();
         }
 
-        var result = await _tiers.SetTierAsync(endpointIds.Distinct().ToList(), tier, caller.ToActor(), cancellationToken);
-        return result.Success ? ServiceResult<int>.Ok(result.Changed) : ServiceResult<int>.Fail(result.Problem ?? ServiceSupport.GenericProblem);
+        var ids = endpointIds.Distinct().ToList();
+        var result = await _tiers.SetTierAsync(ids, tier, caller.ToActor(), cancellationToken);
+        if (!result.Success)
+        {
+            return ServiceResult<int>.Fail(result.Problem ?? ServiceSupport.GenericProblem);
+        }
+
+        if (removeAction1Agent && tier == EndpointTier.AgentOnly)
+        {
+            // After the switch, which may be refused as a whole: the removal is only asked for what really left managed.
+            await using var db = _dbFactory.Create(caller.Scope);
+            var now = _time.GetUtcNow().UtcDateTime;
+            foreach (var endpoint in await db.Endpoints.AsNoTracking().Where(e => ids.Contains(e.Id) && e.Tier == EndpointTier.AgentOnly)
+                         .ToListAsync(cancellationToken))
+            {
+                if (await Action1Removal.OperationAsync(db, endpoint, now, cancellationToken) is { } operation)
+                {
+                    Action1Removal.Add(db, caller, endpoint, operation, "Switched to agent-only", now);
+                }
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+            await IntegrationFollow.NotifyAsync(_bus, _logger, cancellationToken);
+        }
+
+        return ServiceResult<int>.Ok(result.Changed);
+    }
+
+    /// <summary>
+    /// True when Fleeto can have the Action1 agent of this endpoint removed through Action1 (0.6.0): Action1 reports the
+    /// endpoint, or the Fleeto agent reports an Action1 agent on it and its client has an Action1 organization.
+    /// </summary>
+    public async Task<bool> HasAction1AgentAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
+    {
+        caller.EnsureView();
+        await using var db = _dbFactory.Create(caller.Scope);
+        var endpoint = await db.Endpoints.AsNoTracking().SingleOrDefaultAsync(e => e.Id == endpointId, cancellationToken);
+        return endpoint is not null && await Action1Removal.OperationAsync(db, endpoint, _time.GetUtcNow().UtcDateTime, cancellationToken) is not null;
     }
 
     /// <summary>Overrides the detected class, or clears the override (null).</summary>
@@ -443,16 +483,47 @@ public sealed class EndpointService
             : ServiceResult.NotFound("endpoint");
     }
 
-    public async Task<ServiceResult> DeleteAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Deletes the endpoint. With <paramref name="removeAction1Agent"/>, Action1 is asked to remove it too (0.6.0), which
+    /// uninstalls its Action1 agent; with <paramref name="uninstallAgent"/>, the Fleeto agent and watchdog remove themselves when
+    /// they next connect, within 30 days. Both requests are written in the same transaction and outlive the endpoint.
+    /// </summary>
+    public async Task<ServiceResult> DeleteAsync(Caller caller, Guid endpointId, bool removeAction1Agent = false, bool uninstallAgent = false,
+        CancellationToken cancellationToken = default)
     {
         if (!caller.CanManage)
         {
             return ServiceResult.Forbidden();
         }
 
-        return await _revocations.DeleteAsync(endpointId, caller.ToActor(), cancellationToken)
-            ? ServiceResult.Ok()
-            : ServiceResult.NotFound("endpoint");
+        var removal = false;
+        var deleted = await _revocations.DeleteAsync(endpointId, caller.ToActor(), cancellationToken,
+            removeAction1Agent || uninstallAgent
+                ? async (db, endpoint, now, token) =>
+                {
+                    if (removeAction1Agent && await Action1Removal.OperationAsync(db, endpoint, now, token) is { } operation)
+                    {
+                        Action1Removal.Add(db, caller, endpoint, operation, "Endpoint deleted", now);
+                        removal = true;
+                    }
+
+                    if (uninstallAgent)
+                    {
+                        await AgentUninstallRequests.AddAsync(db, caller, [endpoint], now, token);
+                    }
+                }
+                : null);
+        if (!deleted)
+        {
+            return ServiceResult.NotFound("endpoint");
+        }
+
+        if (removal)
+        {
+            await IntegrationFollow.NotifyAsync(_bus, _logger, cancellationToken);
+        }
+
+        return ServiceResult.Ok();
     }
 
     private async Task PublishStatusAsync(Guid endpointId, CancellationToken cancellationToken)

@@ -378,6 +378,10 @@ Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
   24 hours, then Fleeto stops until a technician installs the agent by hand; it counts as installed only once Action1
   reports the endpoint; an agent removed through Fleeto is not installed again by itself. The "Action1 agent" check of a
   monitoring template turns a missing or failed agent into an alert.
+- **An endpoint that leaves patch management can take its Action1 agent along** (decided 2026-10-13, 0.6.0): deleting an
+  endpoint and switching it to agent-only offer "Also remove the Action1 agent", checked by default. Fleeto then asks
+  Action1 to remove the endpoint from its organization, which uninstalls the agent; the request is written in the same
+  transaction and outlives a deleted endpoint, and an endpoint that stays in Fleeto is not given the agent again by itself.
 - **Only the workers talk to an external product.** Web runs on a network without outbound NAT (`deploy/compose/compose.yml`),
   so it can never reach Action1: what an admin starts in Settings (a connection test, later a deployment) is a request web
   writes to the database and notifies on `fleeto_integrations`; the workers make the call and write the result back, which the
@@ -452,7 +456,8 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
 ## Security requirements (non-negotiable)
 
 - **Enrollment**: one-time enrollment token (per site, expiring, revocable, stored hashed) exchanged for a unique per-agent certificate (90 days, auto-renewed, TPM-backed key where available). All agent traffic is mTLS. No shared API keys across agents.
-- **Revocation**: the gateway accepts a client certificate only when it is on the allow list in the database (issued, not revoked, not expired) and drops live connections the moment a certificate is revoked. Deleting an endpoint revokes its certificates. A certificate connecting twice at once is refused and raises an alert (cloned VM).
+- **Revocation**: the gateway accepts a client certificate only when it is on the allow list in the database (issued, not revoked, not expired) and drops live connections the moment a certificate is revoked. Deleting an endpoint removes its certificates. A certificate connecting twice at once is refused and raises an alert (cloned VM).
+- **Uninstall on deletion** (decided 2026-10-13, 0.6.0): deleting an endpoint or client offers "Also uninstall the Fleeto agent", checked by default. The endpoint leaves every list at once; for 30 days the gateway recognises its certificates for one purpose only, to deliver an uninstall command signed by fleeto-signer (only for an endpoint that no longer exists, deleted by an admin or technician). The agent and watchdog verify it against the pinned instance key and remove themselves, also on an agent-only endpoint. Settings, Agent uninstalls lists them.
 - **Two signing keys, never mixed** (ed25519):
   - the **Steaan release key** signs agent binaries, `install.sh` and the release manifest. It lives offline on a hardware token, never on a VPS or in CI secrets; its public keys are compiled into the agent and `install.sh`. A compromised instance cannot push an agent update.
   - the **instance signing key** signs jobs, policies, check definitions and remote control session tokens for one instance. It is held only by **fleeto-signer**, which re-checks role, tier, script approval and validity before signing. Agents pin its public key at enrollment.

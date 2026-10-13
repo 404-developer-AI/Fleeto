@@ -1,5 +1,7 @@
 using System.Buffers;
 using System.Net.WebSockets;
+using Fleeto.Core.Entities;
+using Fleeto.Gateway.Data;
 using Fleeto.Gateway.Diagnostics;
 using Fleeto.Gateway.Http;
 using Fleeto.Gateway.Tls;
@@ -20,18 +22,26 @@ public sealed class AgentConnectionHandler
     private const int InitialBufferBytes = 4 * 1024;
     private static readonly TimeSpan SendLoopDrainTimeout = TimeSpan.FromSeconds(5);
 
+    /// <summary>How long a session that delivers an uninstall command waits for Hello and the answer (0.6.0).</summary>
+    internal static readonly TimeSpan UninstallSessionTimeout = TimeSpan.FromSeconds(60);
+
+    public const string UninstalledReason =
+        "The endpoint was deleted from Fleeto. The agent and the watchdog remove themselves; enroll the endpoint again to bring it back.";
+
     private readonly AgentSessionManager _manager;
     private readonly CertificateAllowList _allowList;
     private readonly GatewayMetrics _metrics;
     private readonly TimeProvider _time;
     private readonly GatewayOptions _options;
+    private readonly GatewayStore _store;
     private readonly ILogger<AgentConnectionHandler> _logger;
 
     public AgentConnectionHandler(AgentSessionManager manager, CertificateAllowList allowList, GatewayMetrics metrics, TimeProvider time,
-        IOptions<GatewayOptions> options, ILogger<AgentConnectionHandler> logger)
+        IOptions<GatewayOptions> options, GatewayStore store, ILogger<AgentConnectionHandler> logger)
     {
         _manager = manager;
         _allowList = allowList;
+        _store = store;
         _metrics = metrics;
         _time = time;
         _options = options.Value;
@@ -68,6 +78,23 @@ public sealed class AgentConnectionHandler
                 _logger.LogInformation("Refused an agent session from {RemoteAddress}: the certificate expired and can be recovered", RemoteAddress(context));
                 await Problems.WriteAsync(context, StatusCodes.Status401Unauthorized, "Agent certificate expired",
                     "The agent certificate has expired. The agent renews it through recovery and connects again.");
+                return;
+            }
+
+            // A deleted endpoint that waits for its uninstall command (0.6.0): this session delivers it and nothing else.
+            if (certificate is not null && _allowList.AuthorizeUninstall(certificate, out var pending) == AllowListDecision.Accepted &&
+                pending is not null)
+            {
+                if (!pending.IsSigned)
+                {
+                    context.Response.Headers.RetryAfter = "30";
+                    await Problems.WriteAsync(context, StatusCodes.Status503ServiceUnavailable, "Uninstall not ready",
+                        "The endpoint was deleted and its uninstall command is being prepared. Connect again in a moment.");
+                    return;
+                }
+
+                using var uninstallSocket = await context.WebSockets.AcceptWebSocketAsync(new WebSocketAcceptContext { DangerousEnableCompression = false });
+                await RunUninstallAsync(uninstallSocket, pending, PublicIp(context), context.RequestAborted);
                 return;
             }
 
@@ -183,6 +210,90 @@ public sealed class AgentConnectionHandler
             }
         }
     }
+
+    /// <summary>
+    /// The session of a deleted endpoint (0.6.0): answers Hello with the signed uninstall command, waits for the agent or the watchdog
+    /// to accept it, records that, and closes with Revoked. An agent too old to know the command never answers; it is closed with
+    /// Revoked all the same and stays idle, as before.
+    /// </summary>
+    internal async Task RunUninstallAsync(WebSocket webSocket, PendingUninstall pending, string? ipAddress, CancellationToken aborted)
+    {
+        var buffer = new ReceiveBuffer(InitialBufferBytes);
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(aborted);
+            timeout.CancelAfter(UninstallSessionTimeout);
+            var hello = await ReceiveAsync(webSocket, buffer, timeout.Token);
+            if (hello is null || hello.BodyCase != AgentMessage.BodyOneofCase.Hello)
+            {
+                return;
+            }
+
+            var component = hello.Hello.Component == Component.Watchdog ? AgentComponent.Watchdog : AgentComponent.Agent;
+            await SendAsync(webSocket, new ServerMessage
+            {
+                Uninstall = new SignedUninstall
+                {
+                    Payload = ByteString.CopyFrom(pending.Payload),
+                    Signature = ByteString.CopyFrom(pending.Signature),
+                    KeyId = pending.KeyId
+                }
+            }, timeout.Token);
+
+            var accepted = false;
+            try
+            {
+                while (!accepted)
+                {
+                    var message = await ReceiveAsync(webSocket, buffer, timeout.Token);
+                    if (message is null)
+                    {
+                        break;
+                    }
+
+                    accepted = message.BodyCase == AgentMessage.BodyOneofCase.UninstallAccepted &&
+                               Guid.TryParse(message.UninstallAccepted.UninstallId, out var id) && id == pending.Id;
+                }
+            }
+            catch (OperationCanceledException) when (!aborted.IsCancellationRequested)
+            {
+                // No answer in time: an agent from before 0.6.0, which does not know the command.
+            }
+
+            if (accepted)
+            {
+                _allowList.MarkUninstallAccepted(pending.Id);
+                await _store.RecordUninstallAcceptedAsync(pending.Id, component, _time.GetUtcNow().UtcDateTime, ipAddress, CancellationToken.None);
+                _logger.LogInformation("The {Component} of deleted endpoint {EndpointId} accepted its uninstall command", component, pending.EndpointId);
+            }
+            else
+            {
+                _logger.LogInformation("The {Component} of deleted endpoint {EndpointId} did not accept its uninstall command", component, pending.EndpointId);
+            }
+
+            using var closing = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await SendAsync(webSocket, new ServerMessage { Disconnect = new Disconnect { Code = DisconnectCode.Revoked, Reason = UninstalledReason } },
+                closing.Token);
+            await webSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, null, closing.Token);
+            await AwaitPeerCloseAsync(webSocket);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or WebSocketException or IOException or InvalidProtocolBufferException
+                                       or ProtocolViolationException)
+        {
+            // The connection went away or sent nonsense; the endpoint gets the command on its next connection.
+        }
+        finally
+        {
+            buffer.Dispose();
+            if (webSocket.State is not (WebSocketState.Closed or WebSocketState.Aborted))
+            {
+                webSocket.Abort();
+            }
+        }
+    }
+
+    private static async Task SendAsync(WebSocket webSocket, ServerMessage message, CancellationToken cancellationToken) =>
+        await webSocket.SendAsync(message.ToByteArray(), WebSocketMessageType.Binary, true, cancellationToken);
 
     /// <summary>
     /// Reads one complete binary message. Returns null when the agent closed the connection. The buffer grows up to the

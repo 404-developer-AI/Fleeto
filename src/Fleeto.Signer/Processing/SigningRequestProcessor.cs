@@ -152,8 +152,9 @@ public sealed class SigningRequestProcessor
                 outcome = SigningOutcome.Refused(UnknownKindReason);
             }
             // Configs are computed from the database, not from the request, so an old config request is still correct
-            // to serve; refusing it after an outage would leave endpoints on a stale configuration.
-            else if (kind != SigningRequestKind.AgentConfig && age > MaxRequestAge)
+            // to serve; refusing it after an outage would leave endpoints on a stale configuration. The uninstall command of a
+            // deleted endpoint (0.6.0) is the same: the endpoint is gone, and a refusal would leave its agent behind.
+            else if (kind is not (SigningRequestKind.AgentConfig or SigningRequestKind.AgentUninstall) && age > MaxRequestAge)
             {
                 outcome = SigningOutcome.Refused(ExpiredReason);
             }

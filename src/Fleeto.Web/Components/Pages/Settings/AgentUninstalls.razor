@@ -1,0 +1,105 @@
+@page "/settings/agent-uninstalls"
+@attribute [Authorize(Policy = FleetoPolicies.Admin)]
+@inherits FleetoPageBase
+@inject AgentUninstallService UninstallSvc
+@inject IDialogService DialogService
+
+<PageTitle>Agent uninstalls - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Agent uninstalls</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            Deleted endpoints whose agent and watchdog remove themselves the next time they connect to this instance. Fleeto waits 30 days
+            for each; an agent older than Fleeto 0.6.0 does not know the command and stays installed. Removed agents stay listed for 7 days.
+        </MudText>
+    </div>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_uninstalls.Count == 0)
+    {
+        <EmptyState Icon="@Icons.Material.Outlined.DeleteSweep" Title="No agents waiting"
+                    Text="An endpoint deleted with &quot;Also uninstall the Fleeto agent&quot; is listed here until its agent removed itself." />
+    }
+    else
+    {
+        <MudTable Items="_uninstalls" Dense="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>Endpoint</MudTh>
+                <MudTh>Client</MudTh>
+                <MudTh>Deleted</MudTh>
+                <MudTh>State</MudTh>
+                <MudTh>Waits until</MudTh>
+                <MudTh Style="width:60px"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Hostname</MudTd>
+                <MudTd>@context.ClientCode</MudTd>
+                <MudTd><TimeText Value="context.RequestedAt" /> <span class="muted">by @context.RequestedByName</span></MudTd>
+                <MudTd>
+                    @if (context.AcceptedAt is { } accepted)
+                    {
+                        <StatusChip Text="Removed" Kind="StatusKind.Ok" />
+                        <span class="muted ml-1" style="font-size:0.8125rem">
+                            @(context.AcceptedBy == AgentComponent.Watchdog ? "by the watchdog" : "by the agent") <TimeText Value="accepted" />
+                        </span>
+                    }
+                    else if (context.Problem is { } problem)
+                    {
+                        <MudTooltip Text="@problem"><StatusChip Text="Cannot be sent" Kind="StatusKind.Error" /></MudTooltip>
+                    }
+                    else
+                    {
+                        <StatusChip Text="@(context.Signed ? "Waiting for the agent" : "Being prepared")" Kind="StatusKind.Neutral" />
+                    }
+                </MudTd>
+                <MudTd><TimeText Value="context.ExpiresAt" Absolute="true" /></MudTd>
+                <MudTd Style="text-align:right">
+                    <MudTooltip Text="@(context.AcceptedAt is null ? "Stop waiting: the agent stays installed and is refused when it connects" : "Remove from the list")">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Close" Size="Size.Small" Disabled="_busy" OnClick="@(() => DismissAsync(context))"
+                                       aria-label="Stop waiting" />
+                    </MudTooltip>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</LoadState>
+
+@code {
+    private IReadOnlyList<AgentUninstallView> _uninstalls = [];
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => LoadAsync(async caller => _uninstalls = await UninstallSvc.ListAsync(caller));
+
+    private async Task DismissAsync(AgentUninstallView uninstall)
+    {
+        if (uninstall.AcceptedAt is null)
+        {
+            var parameters = new DialogParameters<ConfirmDialog>
+            {
+                { d => d.Title, $"Stop waiting for {uninstall.Hostname}" },
+                { d => d.Message, "The agent and the watchdog of this deleted endpoint stay installed. When they connect, the instance refuses them like any agent it does not know." },
+                { d => d.ConfirmText, "Stop waiting" }
+            };
+            var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+            if ((await dialog.Result)!.Canceled)
+            {
+                return;
+            }
+        }
+
+        _busy = true;
+        try
+        {
+            if (await RunAsync(caller => UninstallSvc.DismissAsync(caller, uninstall.Id), null))
+            {
+                await LoadAsync(async caller => _uninstalls = await UninstallSvc.ListAsync(caller));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -273,6 +273,18 @@ public static class AuditActions
     /// <summary>The workers removed the endpoint from the product, or the product refused (0.6.0).</summary>
     public const string PatchAgentRemovalEnded = "patch_agent.removal_ended";
 
+    /// <summary>An endpoint was deleted with "Also uninstall the Fleeto agent" (0.6.0); the gateway waits for it to connect.</summary>
+    public const string AgentUninstallRequested = "agent.uninstall_requested";
+
+    /// <summary>fleeto-signer signed the uninstall command of a deleted endpoint (0.6.0).</summary>
+    public const string AgentUninstallSigned = "agent.uninstall_signed";
+
+    /// <summary>The agent or the watchdog of a deleted endpoint accepted its uninstall command (0.6.0).</summary>
+    public const string AgentUninstallAccepted = "agent.uninstall_accepted";
+
+    /// <summary>An admin stopped waiting for a deleted endpoint to uninstall (0.6.0).</summary>
+    public const string AgentUninstallDismissed = "agent.uninstall_dismissed";
+
     public const string IntegrationChanged = "integration.changed";
     public const string IntegrationRemoved = "integration.removed";
     public const string IntegrationMappingChanged = "integration.mapping_changed";

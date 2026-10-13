@@ -155,7 +155,8 @@ AuditEntry (append-only)
 | **IntegrationMapping** | `Id`, `IntegrationId`, `ClientId`, `ExternalTenantId`, `ExternalTenantName`, `SyncedName` | One external tenant (Action1 organization, Sophos tenant) maps to one client, and a client to one tenant: both unique per integration. Client-owned, so deleting the client removes it. `SyncedName` (0.6.0): the tenant name Fleeto last brought the tenant in step with; set to the tenant's own name when the mapping is made, so following clients renames every mapped tenant to `[CODE] Name` once and then again only when the client is renamed. |
 | **IntegrationAutomation** | `Id`, `IntegrationId`, `ClientId`, `ExternalTenantId`, `PatchPolicyId`, `ExternalAutomationId?`, `SyncedHash`, `NextRunAt?`, `ReadAt?` (0.6.0), `SyncedAt?`, `LastError?` | The Action1 automation of one patch policy for one client (0.6.0), unique per integration, client and patch policy. No foreign key to the client or the patch policy on purpose: the row is how the workers find the automation to remove after either is gone. Written by the workers only; web shows `LastError` on the patch policy. `IntegrationMapping.OtherAutomationsJson` and `OtherAutomationsReadAt` hold the automations of the organization Fleeto does not manage, for the warning on the client. |
 | **IntegrationSiteGroup** | `Id`, `IntegrationId`, `ClientId`, `SiteId`, `ExternalTenantId`, `ExternalGroupId`, `SyncedName`, `MembersHash`, `MembersSyncedAt?` | The Action1 endpoint group of one site while the integration follows clients (0.6.0), unique per site. Deleted with its site (composite foreign key on `SiteId`, `ClientId`). Web reads, the workers write. |
-| **IntegrationOperation** | `Id`, `IntegrationId`, `Kind` (`CreateTenant`, `DeleteTenant`, `DeleteGroup`, `MoveEndpoint`), `TargetClientId?`, `ExternalTenantId`, `ExternalGroupId`, `ExternalEndpointId`, `Name`, `Attempts`, `LastError?`, `NextAttemptAt` | What the product still has to do for a client or site that was created or deleted (0.6.0). Written by web in the transaction of the change, done by the workers, dismissed by an admin. Not client-owned: a deletion outlives its client; a tenant waiting to be created goes with its client (`TargetClientId`, cascade). |
+| **AgentUninstall** | `Id`, `ClientId`, `ClientCode`, `EndpointId`, `Hostname`, `Fingerprints[]`, `RequestedByUserId`, `RequestedByName`, `RequestedAt`, `ExpiresAt`, `Payload?`, `Signature?`, `SigningKeyId?`, `SignedAt?`, `RefusalReason?`, `AcceptedAt?`, `AcceptedBy?` | The uninstall of a deleted endpoint's agent (0.6.0, §4). Written by web with the deletion, signed by the signer, answered through the gateway, removed by the workers after 30 days or a week after the answer. Not client-owned: it outlives its endpoint and client. `TR_AgentUninstalls_Binding` keeps what web wrote and the signer signed. |
+| **IntegrationOperation** | `Id`, `IntegrationId`, `Kind` (`CreateTenant`, `DeleteTenant`, `DeleteGroup`, `MoveEndpoint`, `RemoveEndpoint`), `TargetClientId?`, `ExternalTenantId`, `ExternalGroupId`, `ExternalEndpointId`, `Name`, `Attempts`, `LastError?`, `NextAttemptAt` | What the product still has to do for a client or site that was created or deleted (0.6.0). Written by web in the transaction of the change, done by the workers, dismissed by an admin. Not client-owned: a deletion outlives its client; a tenant waiting to be created goes with its client (`TargetClientId`, cascade). |
 | **EndpointPatchState**, **EndpointMissingUpdate** | `EndpointId`, `ClientId`, `ExternalEndpointId`, `ExternalTenantId`, `Coverage`, `MissingCritical`, `MissingOther`, `RebootRequired`, `ProductLastSeenAt?`, `ProductAgentVersion`, `UpdatedAt`, `AutomationId?`, `ScheduledPolicyId?`, `ScheduledSince?` (0.6.0); per update `ExternalUpdateId`, `Name`, `Vendor`, `Version`, `InstalledVersion`, `ReleaseDate?`, `KbNumber`, `UpdateType`, `ApprovalStatus`, `Severity`, `Cves` (0.6.0: the fields of `versions[0]` in Action1's answer), `RebootNeeded` (unused, kept for rollback) | Patch state per endpoint as the product last reported it (0.4.0), replaced on every sync and never kept as history. Detail rows exist only for endpoints that miss something. |
 | **PatchDeployment** | `Id`, `ClientId`, `BatchId`, `ExternalTenantId`, `ExternalDeploymentId`, `Scope` (`AllMissing`, `Specified`, `PatchPolicy`), `AutoReboot`, `State` (`Requested`, `Running`, `Completed`, `Failed`, `Abandoned`), `StatusMessage?`, `RequestedByUserId`, `RequestedByName`, `RequestedAt`, `StartedAt?`, `CompletedAt?`, `PolledAt?`, `PatchPolicyId?`, `ExternalAutomationId`, `FollowUntil?` (0.6.0) | One deployment of updates (0.4.0 step 3), always within one client, because the product runs it per tenant; scope `PatchPolicy` is a scheduled run of a patch policy, written by the workers (0.6.0). Web may only insert; the workers own every later change, so no state can be claimed that the product did not report. |
 | **PatchDeploymentTarget**, **PatchDeploymentUpdate** | Target: `Id`, `DeploymentId`, `ClientId`, `EndpointId`, `ExternalEndpointId`, `Hostname`, `State` (`Pending`, `Running`, `Succeeded`, `Failed`, `Unknown`), `Message?`, `UpdatedAt`. Update: `Id`, `DeploymentId`, `ClientId`, `ExternalUpdateId`, `Name`, `Version` | One row per endpoint of a deployment (unique per deployment and endpoint, so a re-read updates it), and one per chosen package. The host name is a copy from the moment it started, so the history reads the same after a rename. `StepsReadAt?` (0.6.0): when the workers last read the endpoint's history from the product, cleared by every change of state. |
@@ -408,21 +409,44 @@ back once a newer certificate exists.
 **Enrolling again (0.2.0).** For an agent beyond recovery (more than a year offline, revoked by
 mistake, a reinstalled machine) a technician chooses Enroll again on the endpoint → web creates a
 single-use enrollment token bound to that endpoint, valid one day, and shows the install command once →
-the agent enrolls with it (an agent whose certificate expired or was revoked may enroll again without
-uninstalling) → the signer takes over the existing endpoint instead of creating one: every earlier
+the agent enrolls with it (in foreground mode an agent whose certificate expired or was revoked may enroll
+again as it is; the installed service has to be uninstalled first, `fleeto-agent uninstall`, and installed with
+the new command) → the signer takes over the existing endpoint instead of creating one: every earlier
 certificate is revoked (live sessions drop), the batch sequences are cleared because the new agent state
 counts from 1, host name and OS facts are refreshed, and tier, site, checks, alerts, notes and history
 stay → `endpoint.enrolled_again` in the audit log. Decided while building: the technician chooses the
 endpoint; matching an unknown agent to an endpoint by key or state was left out, because an explicit,
 audited choice cannot attach a machine to the wrong endpoint.
 
-**Endpoint removal and agent revocation.** Technician deletes an endpoint or clicks Revoke
-agent (for a stolen laptop, a decommissioned machine, a suspected clone) → `RevokedAt` is
-set on all of its certificates and an audit entry is written → the revocation is published
-as a database notification and the gateway closes the live connection at once → every new TLS
-handshake checks the allow list: a certificate is accepted only when it was issued, is not
-revoked and has not expired, so a deleted endpoint (whose certificate rows cascade away) can
-never reconnect. The gateway keeps the allow list in memory, loaded from the database at start,
+**Endpoint removal and agent revocation.** Technician clicks Revoke agent (for a stolen laptop, a
+suspected clone) → `RevokedAt` is set on all of its certificates; or deletes the endpoint (a
+decommissioned machine) → the endpoint and its certificate rows are removed → either way an audit
+entry is written, the change is published as a database notification and the gateway closes the live
+connection at once → every new connection checks the allow list: a certificate is accepted only when
+it was issued, is not revoked and has not expired, so a deleted endpoint can never reconnect. An agent
+that receives the Revoked disconnect stays idle; one that was offline only ever gets 401 and keeps
+retrying with backoff (at most every 5 minutes).
+
+**Uninstalling the agent of a deleted endpoint (0.6.0).** Deleting an endpoint, or a client, offers "Also
+uninstall the Fleeto agent", checked by default. In the transaction that deletes the endpoint, web writes
+an `AgentUninstall` (the client code, host name, the SHA-256 fingerprints of every agent and watchdog
+certificate that could still connect, who deleted it, and an expiry 30 days later) and a signing request of
+kind `AgentUninstall` whose payload binds the endpoint id and the user (`AgentUninstallRules.Binding`); the
+endpoint itself is gone from every list at once. fleeto-signer signs an `UninstallCommand` (context
+`fleeto-uninstall-v1`, instance, endpoint, uninstall id, valid until the expiry) only when the row still names
+that endpoint and user, the endpoint no longer exists, and the user is an admin or technician
+(`AgentUninstallHandler`); it is not refused for age, because the endpoint is gone either way. The gateway
+loads the waiting rows with the allow list: a live session of such an endpoint is closed with
+`DISCONNECT_CODE_RECONNECT` instead of Revoked, and a connection with one of its certificates opens only the
+uninstall session (`AuthorizeUninstall`, then `RunUninstallAsync`): Hello is answered with `SignedUninstall`,
+`UninstallAccepted` is recorded on the row (`AcceptedAt`, `AcceptedBy`) with an audit entry, and the session
+closes with Revoked; 503 with Retry-After while the command is not signed yet. The agent and the watchdog
+verify the command against the pinned instance signing key and start `fleeto-agent uninstall` in a process of
+their own (Windows: a detached process, which the service manager does not stop with the service; Linux: a
+transient unit through `systemd-run`, because stopping a unit kills its control group), which removes both
+services, keys and files. An agent from before 0.6.0 ignores the command and is closed with Revoked as before.
+Settings, Agent uninstalls lists the waiting and recently removed ones; "Stop waiting" deletes the row. The
+workers remove a row after its expiry, or a week after it was accepted. The gateway keeps the allow list in memory, loaded from the database at start,
 updated on notification and fully reloaded every minute; a gateway that has not loaded it
 accepts no agent connections. A revoked agent cannot renew and has to enroll
 again with a new token.
@@ -1201,7 +1225,7 @@ on which endpoint. A compromised gateway that keeps a valid relay open is still 
 - Revocation uses an allow list in the database (`AgentCertificates`: issued, `RevokedAt` null,
   not expired), checked by the gateway on every handshake and pushed to live connections at
   once. No CRL or OCSP infrastructure. Deleting an endpoint removes its certificates, so it can
-  never reconnect.
+  never reconnect, except, for 30 days, to receive its signed uninstall command (§4, 0.6.0).
 - Certificates (internal CA, agents, gateway) use ECDSA P-256: Windows SChannel and the Windows
   platform key store do not support ed25519 certificates in TLS. Every application signature
   (configurations, licenses, releases) is ed25519.
@@ -1303,6 +1327,11 @@ on which endpoint. A compromised gateway that keeps a valid relay open is still 
   jobs: a technician who may open a terminal can run any command as SYSTEM. This is a deliberate
   product decision; the controls are the per-session signed token, end-to-end encryption and the
   audit entries per session and participant. Terminal transcripts are not recorded (recording is not scheduled).
+- **The uninstall command (0.6.0).** fleeto-signer signs it only after the endpoint was deleted by an admin or
+  technician, which is in the audit log; it names one instance and endpoint and expires within 31 days, and the agent
+  and watchdog accept it only with that signature. It can only remove Fleeto, so it also reaches an agent-only endpoint:
+  removing the agent is the one thing the instance may do there that it may not do otherwise. A compromised gateway can
+  withhold or replay the command to the endpoint it was signed for, never forge one or send it to another endpoint.
 - **A job without a user (0.6.0), accepted risk.** The automatic installation of the Action1 agent is signed without an
   admin or technician behind it, because the developer chose a system initiator over the user who switched the patch
   policy on. What it can do is the same fixed body as the installation by hand, composed by the signer from the link of
@@ -1829,6 +1858,16 @@ the signature of nothing but such a job. fleeto-signer signs it without the init
 patch policy of the endpoint now (`EffectivePolicies`) has the switch on and that the agent was not removed through
 Fleeto; everything else (tier, platform, link, body) as for a technician's installation. The Patches tab shows the state
 with its reason, the patch policy list counts installed, pending and failed endpoints.
+
+**An endpoint that leaves patch management (0.6.0).** Deleting an endpoint and switching it to agent-only offer to remove
+its Action1 agent too, checked by default, when Action1 reports the endpoint or the Fleeto agent reports an Action1 agent
+and the client has an organization. Web writes an `IntegrationOperation` of kind `RemoveEndpoint` with the organization
+and the Action1 id: for a deletion inside the transaction that deletes the endpoint (`EndpointRevocationService`), so the
+request outlives it; for agent-only after the switch, only for endpoints that really left managed. It is not tied to
+following the clients: `PatchRequestService` carries it out (`DELETE /endpoints/managed`, which uninstalls the agent),
+`IntegrationFollowService` leaves it alone. On success an endpoint that still exists loses its patch state and gets
+`Action1AgentStatus.Removed`; a failure waits in Settings, Integrations under "Waiting for Action1" with its reason (after
+6 hours again when Action1 refused, sooner when it did not answer) until it succeeds or an admin dismisses it.
 
 The alert kind `patch_state` covers what makes the state untrustworthy, not the updates themselves: Action1 no longer
 patches the endpoint (`subscription_status` inactive, which happens above the licensed number of its subscription), or it

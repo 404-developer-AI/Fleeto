@@ -147,8 +147,9 @@ public sealed class IntegrationFollowService : WorkerLoop
 
     private async Task RunOperationsAsync(Pass pass, CancellationToken cancellationToken)
     {
+        // The removal of an endpoint (0.6.0) is carried out by PatchRequestService, also when Action1 does not follow the clients.
         var due = await pass.Db.IntegrationOperations
-            .Where(o => o.IntegrationId == pass.Integration.Id && o.NextAttemptAt <= pass.Now)
+            .Where(o => o.IntegrationId == pass.Integration.Id && o.NextAttemptAt <= pass.Now && o.Kind != IntegrationOperationKind.RemoveEndpoint)
             .OrderBy(o => o.CreatedAt)
             .Take(MaxWorkPerPass)
             .ToListAsync(cancellationToken);

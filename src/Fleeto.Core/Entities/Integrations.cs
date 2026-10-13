@@ -234,7 +234,14 @@ public enum IntegrationOperationKind
     /// Move an endpoint to the tenant of the client it belongs to in Fleeto: it was enrolled again under another client,
     /// while the product still has it in the tenant of the old one.
     /// </summary>
-    MoveEndpoint
+    MoveEndpoint,
+
+    /// <summary>
+    /// Remove an endpoint from its tenant, which makes Action1 uninstall its agent (0.6.0): asked when the endpoint is
+    /// deleted from Fleeto or switched to agent-only. Carried out whether or not the integration follows the clients, and
+    /// written before the endpoint is gone, so it outlives it.
+    /// </summary>
+    RemoveEndpoint
 }
 
 /// <summary>
@@ -260,7 +267,7 @@ public class IntegrationOperation
     /// <summary>The group to delete.</summary>
     public string ExternalGroupId { get; set; } = string.Empty;
 
-    /// <summary>The endpoint to move, by its id in the product; it is moved out of <see cref="ExternalTenantId"/>.</summary>
+    /// <summary>The endpoint to move or remove, by its id in the product; it is moved out of <see cref="ExternalTenantId"/>.</summary>
     public string ExternalEndpointId { get; set; } = string.Empty;
 
     /// <summary>The name of the client or site, or the host name of the endpoint, for the admin and the audit log.</summary>

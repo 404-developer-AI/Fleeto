@@ -18,6 +18,7 @@
 @inject IJSRuntime JS
 @inject RemoteWindow RemoteWindow
 @inject TimeProvider Clock
+@inject ILogger<ClientsWorkspace> Log
 
 @* Clients workspace: clients and sites on the left, the endpoints of the selection on the right, and the selected endpoint below. *@
 <PageTitle>@PageTitleText - Fleeto</PageTitle>
@@ -880,11 +881,34 @@
 
     private async Task SetTierAsync(EndpointRow row, EndpointTier tier)
     {
+        // An endpoint that leaves managed keeps its Action1 agent unless it goes too (0.6.0): offered, checked by default.
+        var removeAction1Agent = false;
+        if (tier == EndpointTier.AgentOnly && await HasAction1AgentAsync(row.Id))
+        {
+            var parameters = new DialogParameters<ConfirmDialog>
+            {
+                { d => d.Title, $"Switch {row.Hostname} to agent-only" },
+                { d => d.Message, "Patch management no longer covers this endpoint, but its Action1 agent stays installed and keeps a place in the Action1 subscription." },
+                { d => d.Options, (IReadOnlyList<ConfirmDialog.Option>)[RemoveAction1Option] },
+                { d => d.ConfirmText, "Switch to agent-only" },
+                { d => d.ConfirmColor, Color.Primary }
+            };
+            var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+            var result = await dialog.Result;
+            if (result!.Canceled)
+            {
+                return;
+            }
+
+            removeAction1Agent = result.Data is ConfirmDialog.Choice choice && choice.Has(RemoveAction1Option.Key);
+        }
+
         _busy = true;
         try
         {
             var label = tier == EndpointTier.Managed ? "managed" : "agent-only";
-            if (await RunAsync(caller => EndpointSvc.SetTierAsync(caller, [row.Id], tier), $"{row.Hostname} is now {label}."))
+            if (await RunAsync(caller => EndpointSvc.SetTierAsync(caller, [row.Id], tier, removeAction1Agent),
+                    removeAction1Agent ? $"{row.Hostname} is now {label}; Action1 removes its agent." : $"{row.Hostname} is now {label}."))
             {
                 await AfterEndpointActionAsync(row.Id);
             }
@@ -892,6 +916,27 @@
         finally
         {
             _busy = false;
+        }
+    }
+
+    /// <summary>The choices that go with deleting an endpoint (0.6.0), checked by default (decided 2026-10-13).</summary>
+    private static readonly ConfirmDialog.Option UninstallFleetoOption = new("uninstall", "Also uninstall the Fleeto agent",
+        "The agent and the watchdog remove themselves the next time they connect, within 30 days. The endpoint leaves the lists at once.", true);
+
+    private static readonly ConfirmDialog.Option RemoveAction1Option = new("action1", "Also remove the Action1 agent",
+        "Fleeto asks Action1 to remove this endpoint, which uninstalls the agent the next time the endpoint is online.", true);
+
+    /// <summary>Whether the endpoint has an Action1 agent Fleeto can have removed (0.6.0); false when that cannot be read.</summary>
+    private async Task<bool> HasAction1AgentAsync(Guid endpointId)
+    {
+        try
+        {
+            return await EndpointSvc.HasAction1AgentAsync(await CurrentUser.GetAsync(), endpointId);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.LogWarning(ex, "Could not read whether endpoint {EndpointId} has an Action1 agent", endpointId);
+            return false;
         }
     }
 
@@ -1098,12 +1143,27 @@
         var parameters = new DialogParameters<ConfirmDialog>
         {
             { d => d.Title, $"Delete {row.Hostname}" },
-            { d => d.Message, "The endpoint and all of its data (inventory, checks, alerts, certificates) are removed and the agent is disconnected. If the agent is still installed, enroll it again to bring the endpoint back." },
+            { d => d.Message, "The endpoint and all of its data (inventory, checks, alerts, certificates) are removed and the agent is disconnected. To bring the endpoint back later, uninstall the agent on it and run the install command of a site again." },
             { d => d.TypeToConfirm, row.Hostname },
             { d => d.ConfirmText, "Delete endpoint" }
         };
+        // Without these, the agents stay on the machine (0.6.0): the Fleeto agent idle, the Action1 agent in the Action1 subscription.
+        // Both checked by default.
+        List<ConfirmDialog.Option> options = [UninstallFleetoOption];
+        if (await HasAction1AgentAsync(row.Id))
+        {
+            options.Add(RemoveAction1Option);
+        }
+
+        parameters.Add(d => d.Options, (IReadOnlyList<ConfirmDialog.Option>)options);
         var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
-        if ((await dialog.Result)!.Canceled || !await RunAsync(caller => EndpointSvc.DeleteAsync(caller, row.Id), $"{row.Hostname} was deleted."))
+        var result = await dialog.Result;
+        var choice = result!.Data as ConfirmDialog.Choice;
+        var removeAction1Agent = choice?.Has(RemoveAction1Option.Key) == true;
+        var uninstallAgent = choice?.Has(UninstallFleetoOption.Key) == true;
+        if (result.Canceled || !await RunAsync(caller => EndpointSvc.DeleteAsync(caller, row.Id, removeAction1Agent, uninstallAgent),
+                $"{row.Hostname} was deleted." + (uninstallAgent ? " Its agent removes itself the next time it connects." : "") +
+                (removeAction1Agent ? " Action1 removes its agent." : "")))
         {
             return;
         }
@@ -1413,12 +1473,15 @@
             { d => d.Title, $"Delete client {client.Code}" },
             { d => d.Message, $"This removes client {client.Code} with every site, every endpoint and all data of the client: inventory, checks, alerts, enrollment tokens and agent certificates. Connected agents are disconnected and must be enrolled again to return. This cannot be undone." },
             { d => d.TypeToConfirm, client.Code },
+            { d => d.Options, (IReadOnlyList<ConfirmDialog.Option>)[UninstallFleetoOption with { Label = "Also uninstall the Fleeto agent of every endpoint" }] },
             { d => d.ConfirmText, "Delete client" }
         };
         var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
         var result = await dialog.Result;
-        if (!result!.Canceled &&
-            await RunAsync(caller => ClientSvc.DeleteAsync(caller, client.Id, result.Data as string), $"Client {client.Code} was deleted."))
+        var choice = result!.Data as ConfirmDialog.Choice;
+        if (!result.Canceled && choice is not null &&
+            await RunAsync(caller => ClientSvc.DeleteAsync(caller, client.Id, choice.Text, choice.Has(UninstallFleetoOption.Key)),
+                $"Client {client.Code} was deleted."))
         {
             _expanded.Remove(client.Id);
             await LoadTreeAsync();

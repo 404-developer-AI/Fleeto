@@ -909,10 +909,21 @@ public sealed partial class AgentSessionManager : BackgroundService
     {
         if (!session.IsClosing && !_allowList.IsStillAllowed(session.Identity.Fingerprint, session.EndpointId))
         {
+            // A deleted endpoint that waits for its uninstall command (0.6.0) is told to connect again, so it receives the command on
+            // its next session instead of stopping for good.
+            if (_allowList.HasPendingUninstall(session.EndpointId))
+            {
+                _logger.LogInformation("Endpoint {EndpointId}: deleted with an uninstall; closing the session so it reconnects for it", session.EndpointId);
+                session.Close(DisconnectCode.Reconnect, ReconnectForUninstallReason);
+                return;
+            }
+
             _logger.LogInformation("Endpoint {EndpointId}: certificate no longer allowed; closing the session", session.EndpointId);
             session.Close(DisconnectCode.Revoked, RevokedReason);
         }
     }
+
+    public const string ReconnectForUninstallReason = "The endpoint was deleted. Connect again to receive the uninstall command.";
 
     /// <summary>Closes sessions whose certificate expired, whose agent went silent or who stopped reading.</summary>
     internal void Sweep()
