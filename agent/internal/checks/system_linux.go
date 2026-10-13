@@ -95,7 +95,7 @@ func serviceRunning(name string) Measurement {
 	}
 	switch state {
 	case svcctl.StateNotInstalled:
-		return Measurement{Target: name, Error: fmt.Sprintf("Service %s does not exist", name)}
+		return Measurement{Target: name, Value: ServiceMissing, Detail: "Does not exist"}
 	case svcctl.StateRunning:
 		return Measurement{Target: name, Value: 1, Detail: "Running"}
 	case svcctl.StateStarting:

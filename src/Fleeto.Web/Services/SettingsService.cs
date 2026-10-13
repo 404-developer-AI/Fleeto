@@ -33,10 +33,12 @@ public sealed record EmailView(EmailProvider Provider, SmtpView Smtp, GraphView 
 public sealed record GraphPublicCertificate(byte[] Der, string Thumbprint);
 
 public sealed record BackupView(BackupDestinationType DestinationType, string? S3Endpoint, string? S3Region, string? S3Bucket, string? S3Prefix,
-    string? S3AccessKeyId, bool HasS3Secret, string? DirectoryPath, string PublicKey, int ScheduleHourUtc, DateTime? RequestedAt);
+    string? S3AccessKeyId, bool HasS3Secret, string? DirectoryPath, string PublicKey, int ScheduleHourUtc, DateTime? RequestedAt,
+    string? ExternalDescription = null);
 
 public sealed record BackupInput(BackupDestinationType DestinationType, string? S3Endpoint, string? S3Region, string? S3Bucket, string? S3Prefix,
-    string? S3AccessKeyId, string? NewS3SecretAccessKey, string? DirectoryPath, string? PublicKey, int ScheduleHourUtc);
+    string? S3AccessKeyId, string? NewS3SecretAccessKey, string? DirectoryPath, string? PublicKey, int ScheduleHourUtc,
+    string? ExternalDescription = null);
 
 public sealed record BackupRunView(Guid Id, BackupKind Kind, BackupRunStatus Status, DateTime StartedAt, DateTime? CompletedAt, long SizeBytes,
     string ObjectKey, string? Error);
@@ -381,7 +383,8 @@ public sealed class SettingsService
             ? parsed
             : null;
         return new BackupView(backup.DestinationType, backup.S3Endpoint, backup.S3Region, backup.S3Bucket, backup.S3Prefix, backup.S3AccessKeyId,
-            !string.IsNullOrEmpty(backup.S3SecretAccessKey), backup.DirectoryPath, backup.PublicKey, backup.ScheduleHourUtc, requestedAt);
+            !string.IsNullOrEmpty(backup.S3SecretAccessKey), backup.DirectoryPath, backup.PublicKey, backup.ScheduleHourUtc, requestedAt,
+            backup.IsExternal ? backup.ExternalDescription : null);
     }
 
     /// <summary>Saves the backup destination and public key. The S3 secret is write-only: blank keeps the current one.</summary>
@@ -420,7 +423,11 @@ public sealed class SettingsService
                 PublicKey = input.PublicKey!.Trim(),
                 ScheduleHourUtc = input.ScheduleHourUtc
             },
-            _ => new BackupSettings { DestinationType = BackupDestinationType.None, PublicKey = input.PublicKey?.Trim() ?? string.Empty, ScheduleHourUtc = input.ScheduleHourUtc }
+            _ => new BackupSettings
+            {
+                DestinationType = BackupDestinationType.None, PublicKey = input.PublicKey?.Trim() ?? string.Empty, ScheduleHourUtc = input.ScheduleHourUtc,
+                ExternalDescription = ServiceSupport.Clean(input.ExternalDescription)
+            }
         };
 
         await _settings.SetAsync(SettingKeys.Backup, updated, encrypted: true, caller.UserId, cancellationToken);
@@ -434,6 +441,7 @@ public sealed class SettingsService
                 updated.S3Prefix,
                 updated.DirectoryPath,
                 updated.ScheduleHourUtc,
+                updated.ExternalDescription,
                 SecretChanged = secretChanged
             }, cancellationToken);
         return ServiceResult.Ok();
@@ -448,7 +456,9 @@ public sealed class SettingsService
 
         if (input.DestinationType == BackupDestinationType.None)
         {
-            return null;
+            return ServiceSupport.Clean(input.ExternalDescription) is { Length: > BackupSettings.MaxExternalDescriptionLength }
+                ? $"Describe the backups outside Fleeto in at most {BackupSettings.MaxExternalDescriptionLength} characters."
+                : null;
         }
 
         if (!BackupCipher.TryDecodePublicKey(input.PublicKey?.Trim(), out _))
@@ -501,7 +511,9 @@ public sealed class SettingsService
         var backup = await _settings.GetAsync<BackupSettings>(SettingKeys.Backup, cancellationToken);
         if (backup is null || backup.DestinationType == BackupDestinationType.None)
         {
-            return ServiceResult.Fail("Configure a backup destination and save it first, then start a backup.");
+            return ServiceResult.Fail(backup is { IsExternal: true }
+                ? "Backups are made outside Fleeto. Choose a destination in Settings, Backups to let Fleeto make them."
+                : "Configure a backup destination and save it first, then start a backup.");
         }
 
         var now = _time.GetUtcNow().UtcDateTime;

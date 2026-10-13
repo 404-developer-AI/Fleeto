@@ -36,7 +36,8 @@ public sealed record FleetoHealth(
     int UnprocessedEvents,
     DateTime? OldestUnprocessedEvent,
     int EndpointsOnline,
-    int Endpoints)
+    int Endpoints,
+    string? ExternalBackups = null)
 {
     public static readonly FleetoHealth Empty = new([], false, null, false, 0, null, 0, null, 0, null, 0, 0);
 }
@@ -260,7 +261,11 @@ public static class InstanceHealthRules
                 "Offline alerts and endpoint status are late. Check that the workers container runs, and copy the diagnostics on the Instance health page if the number keeps growing."));
         }
 
-        if (!fleeto.BackupConfigured)
+        if (fleeto.ExternalBackups is not null)
+        {
+            // Made outside Fleeto (0.6.0), for example by Veeam: Fleeto cannot see them and goes by what the admin wrote.
+        }
+        else if (!fleeto.BackupConfigured)
         {
             findings.Add(new HealthFinding("backups", HealthComponent.Backups, AlertSeverity.Warning,
                 "No backup destination is configured.",

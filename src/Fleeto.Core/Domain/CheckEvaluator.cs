@@ -35,6 +35,13 @@ public static class CheckEvaluator
             return CheckStatus.Unknown;
         }
 
+        // A service that does not exist is OK when the check says so, and otherwise a problem like a stopped service (0.6.0).
+        if (type == CheckType.ServiceRunning && value <= CheckCatalog.ServiceMissingValue &&
+            CheckCatalog.ParameterOrDefault(type, parameters, CheckCatalog.ServiceMissingOkParameter) == "true")
+        {
+            return CheckStatus.Ok;
+        }
+
         return CheckCatalog.ThresholdKindOf(type, parameters) switch
         {
             // 1 = fine. A problem is critical unless the technician chose "warning instead of critical" (warning threshold 1).
@@ -74,7 +81,9 @@ public static class CheckEvaluator
             CheckType.CpuUsage => $"{hostname} has used {v}% CPU on average, above the {t}% threshold.",
             CheckType.MemoryUsage => $"{hostname} is using {v}% of its memory, above the {t}% threshold.",
             CheckType.DiskFree => $"{hostname} has less than {t}% free disk space on {DisplayTarget(target)} ({v}% free).",
-            CheckType.ServiceRunning => $"Service {ParameterOrTarget(definition, "service", target)} is not running on {hostname}.",
+            CheckType.ServiceRunning => value <= CheckCatalog.ServiceMissingValue
+                ? $"Service {ParameterOrTarget(definition, "service", target)} does not exist on {hostname}. Install it, or check the service name."
+                : $"Service {ParameterOrTarget(definition, "service", target)} is not running on {hostname}.",
             CheckType.Uptime => $"{hostname} has not restarted for {v} days, above the {t}-day threshold. Plan a restart.",
             CheckType.Ping => value < 0
                 ? $"{P("host")} does not answer ping from {hostname}. Check that the host is up and reachable."

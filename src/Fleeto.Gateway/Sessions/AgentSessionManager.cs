@@ -78,6 +78,7 @@ public sealed partial class AgentSessionManager : BackgroundService
         _subscriptions.Add(_bus.Subscribe(NotificationChannels.EndpointStatus, OnEndpointStatusAsync));
         _subscriptions.Add(_bus.Subscribe(NotificationChannels.CheckRunRequests, OnCheckRunRequestAsync));
         _subscriptions.Add(_bus.Subscribe(NotificationChannels.StorageScanRequests, OnStorageScanRequestAsync));
+        _subscriptions.Add(_bus.Subscribe(NotificationChannels.InventoryRequests, OnInventoryRequestAsync));
         _subscriptions.Add(_bus.Subscribe(NotificationChannels.Jobs, OnJobsAsync));
     }
 

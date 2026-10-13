@@ -11,6 +11,13 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
+- Refresh on an endpoint: the round arrow in its header reloads the endpoint and, while it is online, asks the agent for a
+  fresh inventory, at most once a minute. The page shows it when it arrives.
+- Backups can be made outside Fleeto, for example by Veeam: Settings, Backups, "Made outside Fleeto" with a description of
+  how. Fleeto then makes no backups of its own and the dashboard and instance health show the backups as healthy. The form
+  warns that an image of the VPS holds every secret of the instance.
+- A service check can leave out endpoints without the service: "No alert when the service does not exist". Without it, a
+  service that does not exist is a problem like a stopped one, with its own alert title. Needs agents of this version.
 - Instance health, for admins: a tile on the dashboard and a page in Settings show disk, memory and CPU of the VPS, the
   database, the workers, backups and notifications, with 7-day trends. A problem says why and what to do, and goes to the
   notification channels where "Also send instance health problems" is switched on. The page copies or downloads a
@@ -145,6 +152,11 @@ When a third released version is added, the oldest entry moves to the top of
   `desktop` on the inventory.
 - Remote control and remote background open from the right-click menu of the endpoint list only; the two buttons on
   the endpoint detail are gone.
+- Every date and time is chosen with the same fields: the browser's own calendar with a time (hold, maintenance), a date
+  (audit log, end dates of secrets) and a time of day (patch policy, maintenance windows). They fit in every dialog; the
+  clock of the time picker was larger than the dialog of a patch policy.
+- An agent reports a service that does not exist as a value of its own instead of an error, so the check no longer reads
+  "could not run" for it.
 - An alert about two endpoints using the same agent identity resolves on its own once it has been open for 24 hours
   without a new second connection.
 - Email through Microsoft Graph gets its token the same way as the tests in Settings, so a refusal from Microsoft reads
@@ -177,6 +189,8 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Security
 
+- Backups made outside Fleeto are an accepted risk, documented in ARCHITECTURE §5: an image of the VPS holds the root key
+  and the signer key next to the database, unlike a Fleeto backup, which is encrypted to an offline key.
 - The uninstall command of a deleted endpoint is signed by fleeto-signer only for an endpoint that no longer exists and was
   deleted by an admin or technician, names that one endpoint and expires after 30 days; the agent and watchdog accept it
   only with the instance signature they pinned at enrollment. What web and the signer wrote on the request cannot change

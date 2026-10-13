@@ -29,6 +29,10 @@ const (
 )
 
 // Measurement is one result of a check run, before the scheduler stamps check id, version and time.
+// ServiceMissing is the value of a service check for a service that does not exist (0.6.0). The server decides what it
+// means: OK when the check allows a missing service, otherwise a problem like a stopped service.
+const ServiceMissing = -1.0
+
 type Measurement struct {
 	Value  float64
 	Target string

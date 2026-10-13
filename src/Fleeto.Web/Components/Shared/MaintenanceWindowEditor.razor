@@ -26,7 +26,7 @@
             }
         </div>
         <div class="d-flex flex-wrap gap-2">
-            <MudTimePicker @bind-Time="window.Start" Label="Starts at" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:130px" />
+            <TimeField @bind-Value="window.Start" Label="Starts at" Margin="Margin.Dense" />
             <MudNumericField T="int" @bind-Value="window.Hours" Label="Hours" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0" Max="168" Style="max-width:100px" />
             <MudNumericField T="int" @bind-Value="window.Minutes" Label="Minutes" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0" Max="59" Style="max-width:100px" />
             <MudSelect T="CheckAppliesTo" @bind-Value="window.AppliesTo" Label="Applies to" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:170px">

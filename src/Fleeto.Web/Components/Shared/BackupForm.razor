@@ -4,13 +4,25 @@
 
 @* Backup destination form, shared by Settings, Backups and the first-admin setup step. *@
 <LoadState Loading="Loading" Failed="LoadFailed">
-    <MudSelect T="BackupDestinationType" @bind-Value="_type" Label="Destination" Variant="Variant.Outlined" Class="mb-3">
-        <MudSelectItem T="BackupDestinationType" Value="BackupDestinationType.S3">S3-compatible object storage (EU)</MudSelectItem>
-        <MudSelectItem T="BackupDestinationType" Value="BackupDestinationType.Directory">Directory</MudSelectItem>
-        <MudSelectItem T="BackupDestinationType" Value="BackupDestinationType.None">None (backups stay on this server only)</MudSelectItem>
+    <MudSelect T="Choice" @bind-Value="_choice" Label="Destination" Variant="Variant.Outlined" Class="mb-3">
+        <MudSelectItem T="Choice" Value="Choice.S3">S3-compatible object storage (EU)</MudSelectItem>
+        <MudSelectItem T="Choice" Value="Choice.Directory">Directory</MudSelectItem>
+        <MudSelectItem T="Choice" Value="Choice.External">Made outside Fleeto, for example by Veeam</MudSelectItem>
+        <MudSelectItem T="Choice" Value="Choice.None">None (backups stay on this server only)</MudSelectItem>
     </MudSelect>
 
-    @if (_type == BackupDestinationType.S3)
+    @if (_choice == Choice.External)
+    {
+        <MudTextField @bind-Value="_external" Label="How the backups are made" Variant="Variant.Outlined" MaxLength="@BackupSettings.MaxExternalDescriptionLength"
+                      Placeholder="Veeam, daily image of the VPS, kept 30 days" Class="mb-1" />
+        <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+            Fleeto then makes no backups of its own and counts the backups as healthy, because it cannot see them. The update of
+            install.sh still makes its own backup first. An image of the VPS holds the database together with the root key and the
+            signer key, so whoever reads it can read every secret of this instance: keep it in an encrypted repository with restricted
+            access, and test a restore.
+        </MudText>
+    }
+    else if (_choice == Choice.S3)
     {
         <MudTextField @bind-Value="_endpoint" Label="Endpoint URL" Variant="Variant.Outlined" MaxLength="255" Class="mb-3"
                       Placeholder="https://s3.eu-central-1.amazonaws.com" />
@@ -28,13 +40,13 @@
             the parts of an upload that failed stay until that rule removes them.
         </MudText>
     }
-    else if (_type == BackupDestinationType.Directory)
+    else if (_choice == Choice.Directory)
     {
         <MudTextField @bind-Value="_directory" Label="Directory path" Variant="Variant.Outlined" MaxLength="500" Class="mb-3"
                       HelperText="A directory the workers container can write to, for example a mounted remote file system." />
     }
 
-    @if (_type != BackupDestinationType.None)
+    @if (_choice is Choice.S3 or Choice.Directory)
     {
         <MudTextField @bind-Value="_publicKey" Label="Backup public key" Variant="Variant.Outlined" MaxLength="200" Class="mb-1" />
         <MudText Typo="Typo.caption" Class="muted d-block mb-3">
@@ -43,13 +55,16 @@
         </MudText>
     }
 
-    <MudSelect T="int" @bind-Value="_hour" Label="Nightly backup at (UTC)" Variant="Variant.Outlined" Class="mb-4" Style="max-width:240px">
-        @for (var hour = 0; hour < 24; hour++)
-        {
-            var value = hour;
-            <MudSelectItem T="int" Value="@value">@($"{value:00}:00")</MudSelectItem>
-        }
-    </MudSelect>
+    @if (_choice != Choice.External)
+    {
+        <MudSelect T="int" @bind-Value="_hour" Label="Nightly backup at (UTC)" Variant="Variant.Outlined" Class="mb-4" Style="max-width:240px">
+            @for (var hour = 0; hour < 24; hour++)
+            {
+                var value = hour;
+                <MudSelectItem T="int" Value="@value">@($"{value:00}:00")</MudSelectItem>
+            }
+        </MudSelect>
+    }
 
     <div class="d-flex gap-2 flex-wrap">
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="_busy">@SaveText</MudButton>
@@ -65,7 +80,11 @@
     [Parameter] public EventCallback OnSaved { get; set; }
     [Parameter] public RenderFragment? SecondaryContent { get; set; }
 
-    private BackupDestinationType _type = BackupDestinationType.S3;
+    /// <summary>The destination types plus "made outside Fleeto", which is stored as None with a description.</summary>
+    private enum Choice { S3, Directory, External, None }
+
+    private Choice _choice = Choice.S3;
+    private string? _external;
     private string? _endpoint;
     private string? _region;
     private string? _bucket;
@@ -81,7 +100,15 @@
     protected override Task OnInitializedAsync() => LoadAsync(async caller =>
     {
         var backup = await SettingsSvc.GetBackupAsync(caller);
-        _type = backup.DestinationType == BackupDestinationType.None && string.IsNullOrEmpty(backup.PublicKey) ? BackupDestinationType.S3 : backup.DestinationType;
+        _choice = backup.DestinationType switch
+        {
+            BackupDestinationType.S3 => Choice.S3,
+            BackupDestinationType.Directory => Choice.Directory,
+            _ when backup.ExternalDescription is not null => Choice.External,
+            _ when string.IsNullOrEmpty(backup.PublicKey) => Choice.S3,
+            _ => Choice.None
+        };
+        _external = backup.ExternalDescription;
         _endpoint = backup.S3Endpoint;
         _region = backup.S3Region;
         _bucket = backup.S3Bucket;
@@ -98,11 +125,24 @@
         _busy = true;
         try
         {
-            var input = new BackupInput(_type, _endpoint, _region, _bucket, _prefix, _accessKey, _secret, _directory, _publicKey, _hour);
+            if (_choice == Choice.External && string.IsNullOrWhiteSpace(_external))
+            {
+                Snackbar.Add("Describe how the backups are made, for example Veeam, daily image of the VPS.", MudBlazor.Severity.Warning);
+                return;
+            }
+
+            var type = _choice switch
+            {
+                Choice.S3 => BackupDestinationType.S3,
+                Choice.Directory => BackupDestinationType.Directory,
+                _ => BackupDestinationType.None
+            };
+            var input = new BackupInput(type, _endpoint, _region, _bucket, _prefix, _accessKey, _secret, _directory, _publicKey, _hour,
+                _choice == Choice.External ? _external : null);
             if (await RunAsync(caller => SettingsSvc.SaveBackupAsync(caller, input), "The backup settings were saved."))
             {
                 _secret = null;
-                _hasSecret = _hasSecret || _type == BackupDestinationType.S3;
+                _hasSecret = _hasSecret || _choice == Choice.S3;
                 await OnSaved.InvokeAsync();
             }
         }

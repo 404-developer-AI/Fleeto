@@ -150,6 +150,20 @@ public sealed record BackupSettings
 
     /// <summary>Hour of the nightly backup, UTC.</summary>
     public int ScheduleHourUtc { get; init; } = 2;
+
+    /// <summary>The longest description of backups made outside Fleeto.</summary>
+    public const int MaxExternalDescriptionLength = 300;
+
+    /// <summary>
+    /// How the instance is backed up outside Fleeto, for example "Veeam, daily image of the VPS" (0.6.0). Set only with
+    /// <see cref="BackupDestinationType.None"/>: Fleeto then makes no backups of its own and instance health counts the backups as
+    /// handled. A separate field rather than a destination type, so a release before it still reads the setting (as None).
+    /// </summary>
+    public string? ExternalDescription { get; init; }
+
+    /// <summary>True when the backups are made outside Fleeto.</summary>
+    [JsonIgnore]
+    public bool IsExternal => DestinationType == BackupDestinationType.None && !string.IsNullOrWhiteSpace(ExternalDescription);
 }
 
 /// <summary>Typed access to <see cref="Setting"/> rows. Encrypted values are bound to their key.</summary>

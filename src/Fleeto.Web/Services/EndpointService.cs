@@ -384,6 +384,45 @@ public sealed class EndpointService
         return endpoint is not null && await Action1Removal.OperationAsync(db, endpoint, _time.GetUtcNow().UtcDateTime, cancellationToken) is not null;
     }
 
+    /// <summary>
+    /// Refresh on an endpoint (0.6.0): asks a live agent for a fresh inventory, at most once per
+    /// <see cref="InventoryRefreshRules.Interval"/> per endpoint. Any user who can see the endpoint may ask, also for an agent-only
+    /// one: the inventory is what such an endpoint shows anyway. True when the agent was asked; false when it is offline or was
+    /// asked within the interval, and the page only reloads.
+    /// </summary>
+    public async Task<ServiceResult<bool>> RequestInventoryAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
+    {
+        if (!caller.CanView)
+        {
+            return ServiceResult<bool>.Forbidden();
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        var since = now - InventoryRefreshRules.Interval;
+        await using var db = _dbFactory.Create(caller.Scope);
+        var asked = await db.Endpoints
+            .Where(e => e.Id == endpointId && e.IsOnline && (e.InventoryRequestedAt == null || e.InventoryRequestedAt <= since))
+            .ExecuteUpdateAsync(s => s.SetProperty(e => e.InventoryRequestedAt, now), cancellationToken);
+        if (asked == 0)
+        {
+            return await db.Endpoints.AnyAsync(e => e.Id == endpointId, cancellationToken)
+                ? ServiceResult<bool>.Ok(false)
+                : ServiceResult<bool>.NotFound("endpoint");
+        }
+
+        try
+        {
+            await _bus.PublishAsync(NotificationChannels.InventoryRequests, endpointId.ToString(), cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // The request is stored; the gateway also finds it when its notifications resume.
+            _logger.LogWarning(ex, "Could not publish an inventory request for endpoint {EndpointId}", endpointId);
+        }
+
+        return ServiceResult<bool>.Ok(true);
+    }
+
     /// <summary>Overrides the detected class, or clears the override (null).</summary>
     public async Task<ServiceResult> SetClassOverrideAsync(Caller caller, Guid endpointId, EndpointClass? classOverride,
         CancellationToken cancellationToken = default)

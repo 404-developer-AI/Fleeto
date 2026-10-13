@@ -9,10 +9,15 @@
     <div>
         <MudText Typo="Typo.h4" Class="page-title">Backups</MudText>
         <MudText Typo="Typo.body2" Class="muted">
-            A nightly database backup, encrypted on this server with the backup public key before it is uploaded.
+            @(_external is null
+                ? "A nightly database backup, encrypted on this server with the backup public key before it is uploaded."
+                : $"Backups are made outside Fleeto: {_external}. Fleeto makes none of its own.")
         </MudText>
     </div>
-    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Backup" OnClick="BackUpNowAsync">Back up now</MudButton>
+    @if (_external is null)
+    {
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Backup" OnClick="BackUpNowAsync">Back up now</MudButton>
+    }
 </div>
 
 <MudGrid Spacing="3">
@@ -65,13 +70,16 @@
 @code {
     private IReadOnlyList<BackupRunView> _runs = [];
     private DateTime? _requestedAt;
+    private string? _external;
 
     protected override Task OnInitializedAsync() => ReloadAsync();
 
     private Task ReloadAsync() => LoadAsync(async caller =>
     {
         _runs = await SettingsSvc.ListBackupRunsAsync(caller);
-        _requestedAt = (await SettingsSvc.GetBackupAsync(caller)).RequestedAt;
+        var backup = await SettingsSvc.GetBackupAsync(caller);
+        _requestedAt = backup.RequestedAt;
+        _external = backup.ExternalDescription;
     });
 
     private async Task BackUpNowAsync()

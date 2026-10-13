@@ -40,8 +40,8 @@
                               Label="@(_view?.HasClientSecret == true ? "Client secret (leave blank to keep the current secret)" : "Client secret")"
                               Variant="Variant.Outlined" InputType="InputType.Password" MaxLength="1000" Class="mb-3"
                               HelperText="The secret value, not the secret ID. It is stored encrypted and never shown again." />
-                <MudDatePicker @bind-Date="_secretExpiresOn" Label="End date of the client secret" Variant="Variant.Outlined" Class="mb-3"
-                               HelperText="As shown under Certificates & secrets. Fleeto warns before it expires." />
+                <DateField @bind-Value="_secretExpiresOn" Label="End date of the client secret" Class="mb-3" Style="max-width:320px"
+                           HelperText="As shown under Certificates & secrets. Fleeto warns before it expires." />
 
                 <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Class="mb-3">
                     Offer Microsoft Entra ID on the sign-in page

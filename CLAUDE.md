@@ -499,6 +499,11 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
 - **Backups leave the VPS encrypted with a public key**: the VPS holds only the backup public
   key; the private key is created in the key ceremony and stays offline. Backup storage
   credentials are write-only, so a compromised VPS can neither read nor delete backups.
+  **Backups made outside Fleeto** (decided 2026-10-13, 0.6.0): an admin can choose instead that the instance is backed
+  up by other means, for example a Veeam image of the VPS, with a required description. Fleeto then makes no backups of
+  its own (the backup `install.sh` makes before an update stays) and counts the backups as healthy. Accepted risk: such an
+  image holds the database with the root key and signer key, so it is protected only by the repository it is kept in
+  (`MD-Files/ARCHITECTURE.md` §5).
 - **GDPR**: Fleeto processes personal data (user accounts, endpoint user names, IP addresses,
   log content, remote session history) on behalf of customers and their clients. Rules:
   data stays in the EU; retention limits apply to every data type and are enforced
@@ -516,7 +521,7 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
 - **Acknowledge only after a durable write**: the gateway writes agent batches (check results) and job output chunks to Postgres and only then acks; the agent deletes data from its disk buffer only after the ack. Job output travels as numbered chunks per stream, stored idempotently, completed by a message with counts and hashes, so a dropped connection never duplicates or loses output. PostgreSQL notifications only wake components up; every subscriber also catches up from the database, so a lost notification delays work and never loses it.
 - Every external call (integrations, Action1, SMTP) has timeouts, retries with backoff, and a circuit breaker. An integration being down must never degrade core monitoring.
 - Migrations are forward-only, tested against a copy of production data, and follow **expand/contract**: the previous release must still run on the new schema so an image rollback works; CI proves it. A release that cannot comply is marked in the release manifest, and `install.sh` then rolls back by restoring the pre-update backup. Details in `MD-Files/ARCHITECTURE.md` §7.
-- Backups: nightly `pg_dump` to off-VPS object storage in the EU, per instance, encrypted before upload; the dashboard warns while no destination is configured; restore procedure documented and tested (a backup that has never been restored does not exist). No WAL archiving for now (decided 2026-09-16): archived WAL cannot be restored without physical base backups, so up to 24 hours of data loss is accepted until point-in-time recovery is built.
+- Backups: nightly `pg_dump` to off-VPS object storage in the EU, per instance, encrypted before upload, or made outside Fleeto (0.6.0, see Secrets); the dashboard warns while neither is configured; restore procedure documented and tested (a backup that has never been restored does not exist). No WAL archiving for now (decided 2026-09-16): archived WAL cannot be restored without physical base backups, so up to 24 hours of data loss is accepted until point-in-time recovery is built.
 - Health endpoints on every container; Compose restart policies; every instance self-recovers from a VPS reboot with no manual steps.
 - Clock skew tolerance: never trust agent timestamps for ordering; stamp on ingest.
 - A remote control session that drops reconnects on its own; a dropped session never leaves input stuck (keys released) on the endpoint.

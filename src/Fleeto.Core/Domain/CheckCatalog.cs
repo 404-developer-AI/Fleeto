@@ -99,12 +99,21 @@ public sealed record CheckTypeInfo(
 }
 
 /// <summary>
-/// The check catalog of Fleeto (ROADMAP 0.2.0, decided 2026-09-15): every check type described once, so validation, evaluation,
+/// The check catalog of Fleeto (0.2.0, decided 2026-09-15): every check type described once, so validation, evaluation,
 /// alert titles, the signed configuration and the check dialog all follow the same description. The agent measures; this
 /// catalog decides what a value means.
 /// </summary>
 public static partial class CheckCatalog
 {
+    /// <summary>
+    /// Parameter of a service check (0.6.0): a service that does not exist, which the agent reports as <see cref="ServiceMissingValue"/>,
+    /// is OK instead of a problem.
+    /// </summary>
+    public const string ServiceMissingOkParameter = "missing_ok";
+
+    /// <summary>The value an agent of 0.6.0 or later reports for a service that does not exist on the endpoint.</summary>
+    public const double ServiceMissingValue = -1;
+
     private static readonly IReadOnlyList<ParameterChoice> FileConditions =
     [
         new("exists", "Must exist"),
@@ -169,7 +178,9 @@ public static partial class CheckCatalog
             CheckPlatforms.All,
             [new("service", "Service name", ParameterKind.Service, Required: true, MaxLength: 256,
                 Help: "The service name on Windows or the systemd unit on Linux, not the display name. Pick one from the list or type a name.",
-                Validate: ServiceName)],
+                Validate: ServiceName),
+             new(ServiceMissingOkParameter, "No alert when the service does not exist", ParameterKind.Boolean, Default: "false",
+                Help: "For a template on endpoints where the service is optional: an endpoint without it is OK. Needs agent 0.6.0 or later.")],
             300, null, null, _ => ThresholdKind.Flag, _ => string.Empty, string.Empty,
             "Report a stopped service as a warning instead of critical"),
         new CheckTypeInfo(CheckType.Uptime, "Uptime", "Days since the last restart.",

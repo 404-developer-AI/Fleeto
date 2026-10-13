@@ -1004,7 +1004,7 @@ check.
 | `cpu_usage` | Average CPU usage, % | none | all |
 | `memory_usage` | Physical memory in use, % | none | all |
 | `disk_free` | Free space per drive, %; one item per drive | `drive` (`C:`, `/var` or `*`) | all |
-| `service_running` | 1 running, 0 not running | `service` | all |
+| `service_running` | 1 running, 0 not running, -1 the service does not exist (agents from 0.6.0; older agents report an error) | `service`, `missing_ok` (`true`: a service that does not exist is OK, 0.6.0) | all |
 | `uptime` | Days since the last restart | none | all |
 | `ping` | Average round-trip time, ms; -1 no reply | `host`, `count` | all |
 | `tcp_port` | Connect time, ms; -1 not reachable | `host`, `port`, `timeout_seconds` | all |

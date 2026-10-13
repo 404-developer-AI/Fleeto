@@ -72,7 +72,7 @@ func serviceRunning(name string) Measurement {
 	running, state, err := QueryService(name)
 	if err != nil {
 		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
-			return Measurement{Target: name, Error: fmt.Sprintf("Service %s does not exist", name)}
+			return Measurement{Target: name, Value: ServiceMissing, Detail: "Does not exist"}
 		}
 		return Measurement{Target: name, Error: fmt.Sprintf("Service %s could not be queried: %v", name, err)}
 	}

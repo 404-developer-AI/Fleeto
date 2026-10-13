@@ -95,6 +95,12 @@ public static class NotificationChannels
     /// <summary>Payload: StorageScanRequest id. Raised by a database trigger on insert; the gateway delivers the request (0.6.0).</summary>
     public const string StorageScanRequests = "fleeto_storage_scan_requests";
 
+    /// <summary>
+    /// Payload: endpoint id. A user asked for a fresh inventory (Endpoints.InventoryRequestedAt); the gateway asks the live agent
+    /// for it (0.6.0).
+    /// </summary>
+    public const string InventoryRequests = "fleeto_inventory_requests";
+
     /// <summary>Payload: endpoint id. The gateway stored a storage scan of the endpoint; the workers evaluate folder growth (0.6.0).</summary>
     public const string StorageScans = "fleeto_storage_scans";
 

@@ -113,7 +113,7 @@ AuditEntry (append-only)
 | **Client** | `Id`, `Code` (unique, uppercase), `Name`, `CreatedAt`, `Maintenance` | Tenant boundary inside the instance. Every client-owned table carries its own `ClientId`, denormalized on purpose (see the rule below the table), and every query filters on it. |
 | **Tag**, **ClientTag** | Tag: `Id`, `Name`, `NormalizedName` (unique), `Color` (`Red`, `Orange`, `Amber`, `Lime`, `Green`, `Teal`, `Cyan`, `Blue`, `Pink`, `Brown`, `Gray`), `CreatedAt`, `UpdatedAt`. ClientTag: `ClientId`, `TagId`, `CreatedAt` | Tags on clients (0.6.0), in the way of Proxmox. A tag is created the first time an admin or technician types it on a client, with the color its name points at (a stable hash over the palette without gray); a name is unique regardless of case, at most 32 characters of letters, digits and `-` `_` `.` `+`, and a client carries at most 10. The tag itself is instance-wide, so one name has one color on every client; **ClientTag** is client-owned and deleted with either side. Renaming, recoloring and deleting a tag is for admins who see every client (Settings, Tags); a caller limited to clients only sees the tags of those clients. Web only (grants). |
 | **Site** | `Id`, `ClientId`, `Name`, `Description`, `Maintenance` | Groups endpoints. Holds the link to at most one policy and one patch policy, and to any number of monitoring templates (see *Links on three levels* below the table). Enrollment tokens belong to a site. |
-| **Endpoint** | `Id`, `ClientId`, `SiteId`, `Hostname`, `Class` (`workstation`/`server`), `ClassOverride`, `Tier` (`agent_only`/`managed`), `Os`, `AgentVersion`, `LastSeenAt`, `Source` (`agent`/`integration`), `Maintenance`, `PublicIpAddress?`, `PublicIpSeenAt?`, `WatchdogOnline`, `WatchdogVersion`, `WatchdogLastSeenAt?`, `SignedInUsersJson?`, `SignedInUsersAt?` | Endpoints without an agent exist only for hypervisor inventory (ESXi hosts and VMs from vCenter or Proxmox). `Tier` gates every feature server-side. `IsOnline` and the watchdog columns (0.2.1) are maintained separately for the agent and the watchdog session. `PublicIpAddress` is the address the gateway saw for the latest agent connection (personal data: only the latest value is kept, deleted with the endpoint). `SignedInUsersJson` (0.2.2) is the latest list of signed-in users the agent reported: per user the SID or uid, the account name and the sessions (personal data: only the latest list is kept, deleted with the endpoint). |
+| **Endpoint** | `Id`, `ClientId`, `SiteId`, `Hostname`, `Class` (`workstation`/`server`), `ClassOverride`, `Tier` (`agent_only`/`managed`), `Os`, `AgentVersion`, `LastSeenAt`, `Source` (`agent`/`integration`), `Maintenance`, `PublicIpAddress?`, `PublicIpSeenAt?`, `WatchdogOnline`, `WatchdogVersion`, `WatchdogLastSeenAt?`, `SignedInUsersJson?`, `SignedInUsersAt?`, `InventoryRequestedAt?` | Endpoints without an agent exist only for hypervisor inventory (ESXi hosts and VMs from vCenter or Proxmox). `Tier` gates every feature server-side. `IsOnline` and the watchdog columns (0.2.1) are maintained separately for the agent and the watchdog session. `PublicIpAddress` is the address the gateway saw for the latest agent connection (personal data: only the latest value is kept, deleted with the endpoint). `SignedInUsersJson` (0.2.2) is the latest list of signed-in users the agent reported: per user the SID or uid, the account name and the sessions (personal data: only the latest list is kept, deleted with the endpoint). `InventoryRequestedAt` (0.6.0): the last Refresh that asked the agent for its inventory (§3, Refresh). |
 | `Maintenance` (on Client, Site, Endpoint) | `MaintenanceStartedAt?`, `MaintenanceEndsAt?`, `MaintenanceStartedByUserId?`, `MaintenanceStartedByName?`, `MaintenanceReason?` | Maintenance mode (0.2.0), stored as nullable columns on each of the three tables. Active while `MaintenanceStartedAt` is set and not in the future and `MaintenanceEndsAt` is null or in the future; ending by hand clears the columns, an end time that passes is left in place and every query compares with the current time. The reason is free text and personal data may appear in it: it is never copied into the audit log. See *Maintenance mode* in §4. |
 | **AgentCertificate** | `Id`, `ClientId`, `EndpointId`, `Role` (`agent`/`watchdog`), `Fingerprint`, `IssuedAt`, `ExpiresAt`, `RevokedAt?`, `RevokedBy?`, `RevokedReason?` | One row per issued certificate, renewals included. The gateway refuses every certificate with `RevokedAt` set. `Role` (0.2.1) decides which session the certificate may open; a renewal keeps it. |
 | **EndpointComponentState** | `EndpointId`, `Component` (`agent`/`watchdog`), `ClientId`, `InstalledVersion`, `ServiceState`, `ServiceDetail`, `ServiceStateAt?`, `UpdateVersion`, `UpdateState?`, `UpdateDetail`, `UpdateAt?`, `WaitVersion?`, `WaitReason?`, `WaitUntil?`, `WaitAt?` | Per endpoint and component (0.2.1): the service state its peer reports and the latest update report (`downloading`, `installing`, `installed`, `failed`, `rolled_back`). From 0.2.2 also the offered release the installer holds back and why (`UpdateRing`, `NextAttempt`, `RandomDelay`, `InstallerUpdate`, `RolledBack`), cleared by the next update report that is not a wait. Written by the gateway, deleted with the endpoint. |
@@ -293,6 +293,11 @@ Three kinds of tables:
   most cause extra runs. The agent bounds that: one manual run per check per 30 seconds, 20
   per minute in total, 100 ids per message; unknown ids and agent-only configurations start
   nothing. `InventoryRequest` follows the same reasoning.
+- **Refresh (0.6.0).** The Refresh button of an endpoint reloads the page and, while the endpoint is online, sets
+  `Endpoints.InventoryRequestedAt` (at most once a minute per endpoint, any user who can see it, also on an agent-only
+  endpoint) and notifies `fleeto_inventory_requests`. The gateway sends `InventoryRequest` to the live agent when the
+  stored request is under 5 minutes old and no inventory arrived after it, also after a resync of its notifications; the
+  agent sends its inventory even when the hash did not change, and the page shows it when the gateway publishes the status.
 - **Jobs (0.2.0).** Signed jobs are verified and run by `internal/jobs`. Each job has a directory
   in the protected state directory (`jobs/<id>`) holding the signed job, a started marker, the
   output chunks and the completion; files are removed as their acks arrive, the directory when the
@@ -557,7 +562,8 @@ database (`pg_database_size`, client connections against `max_connections`, the 
 backup, emails and webhooks that wait, unprocessed endpoint events, endpoints online). `InstanceHealthRules` judges it with
 fixed thresholds: disk 80 and 90% used or full within 14 and 3 days at the growth of the last week (a least-squares line),
 memory under 10 and 5% available or swap half in use, CPU 85 and 95% on average over 15 minutes, connections 80 and 95%, a
-stuck worker task, no backup destination or no successful backup for 36 hours, and notifications or events that wait
+stuck worker task, no backup destination or no successful backup for 36 hours (neither when the backups are made outside
+Fleeto, 0.6.0), and notifications or events that wait
 longer than 30 or 10 minutes. A finding opens an `InstanceHealthIssue` whose title and detail state cause and next step; a
 worse one escalates it; it resolves once the finding has been away for 15 minutes, so a value around a threshold does not
 flap. Every transition is queued in the same transaction for the notification channels with `InstanceHealth` switched on
@@ -1332,6 +1338,11 @@ on which endpoint. A compromised gateway that keeps a valid relay open is still 
   and watchdog accept it only with that signature. It can only remove Fleeto, so it also reaches an agent-only endpoint:
   removing the agent is the one thing the instance may do there that it may not do otherwise. A compromised gateway can
   withhold or replay the command to the endpoint it was signed for, never forge one or send it to another endpoint.
+- **Backups made outside Fleeto (0.6.0), accepted risk.** An image of the VPS, for example by Veeam, holds the database
+  together with the root key and the signer key, so whoever reads it can read every secret of the instance and sign as it;
+  a Fleeto backup holds only the database, encrypted to a public key whose private half is offline. The choice is an
+  admin's, audited, and the form says that the image belongs in an encrypted repository with restricted access and needs a
+  tested restore. Fleeto trusts the description and cannot check that a backup exists.
 - **A job without a user (0.6.0), accepted risk.** The automatic installation of the Action1 agent is signed without an
   admin or technician behind it, because the developer chose a system initiator over the user who switched the patch
   policy on. What it can do is the same fixed body as the installation by hand, composed by the signer from the link of
@@ -1364,6 +1375,12 @@ on which endpoint. A compromised gateway that keeps a valid relay open is still 
   rule that backups expire on their own schedule.
 - Until a destination is configured the dashboard shows a warning tile and backups exist on
   the VPS only.
+- **Backups made outside Fleeto (0.6.0).** Instead of a destination an admin can choose "Made outside Fleeto" with a
+  description (for example "Veeam, daily image of the VPS"). It is stored in the backup setting as destination `None`
+  with `ExternalDescription`, a field a release before 0.6.0 ignores, so a rollback reads it as no destination. The
+  workers then make no nightly or manual backup and log no warning; instance health, the dashboard tile and the Backups
+  page show the description and count the backups as healthy, because Fleeto cannot see them. The backup `install.sh`
+  makes before an update is not affected. See the accepted risk in §5.
 - Restoring onto a fresh VPS needs three things kept offline: the backup private key, the
   root key and the signer key, plus read credentials for the destination.
 

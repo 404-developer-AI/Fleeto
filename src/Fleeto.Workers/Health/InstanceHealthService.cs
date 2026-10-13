@@ -164,10 +164,12 @@ public sealed class InstanceHealthService : WorkerLoop
     private async Task<FleetoHealth> ReadFleetoAsync(FleetoDbContext db, CancellationToken cancellationToken)
     {
         var configured = false;
+        string? external = null;
         try
         {
             var settings = await _settings.GetAsync<BackupSettings>(SettingKeys.Backup, cancellationToken);
             configured = settings is not null && settings.DestinationType != BackupDestinationType.None;
+            external = settings is { IsExternal: true } ? settings.ExternalDescription!.Trim() : null;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -195,7 +197,8 @@ public sealed class InstanceHealthService : WorkerLoop
             await events.CountAsync(cancellationToken),
             await events.MinAsync(e => (DateTime?)e.Time, cancellationToken),
             await db.Endpoints.CountAsync(e => e.IsOnline, cancellationToken),
-            await db.Endpoints.CountAsync(cancellationToken));
+            await db.Endpoints.CountAsync(cancellationToken),
+            external);
     }
 
     private async Task ApplyAsync(FleetoDbContext db, IReadOnlyList<HealthFinding> findings, DateTime now, CancellationToken cancellationToken)

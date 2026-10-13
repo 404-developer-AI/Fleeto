@@ -115,6 +115,14 @@ public sealed class InstanceHealthRuleTests
     }
 
     [Fact]
+    public void Backups_made_outside_Fleeto_are_healthy_without_a_destination_or_a_run()
+    {
+        var external = Healthy with { BackupConfigured = false, LastBackupAt = null, LastBackupFailed = true, ExternalBackups = "Veeam, daily image" };
+
+        Assert.DoesNotContain(Evaluate(Snapshot(fleeto: external)), f => f.Key == "backups");
+    }
+
+    [Fact]
     public void The_stored_detail_survives_the_round_trip_and_damage_reads_as_empty()
     {
         var detail = new InstanceHealthDetail([new TableSize("Alerts", 42, 7)], Healthy with { StaleLoops = ["retention"] });

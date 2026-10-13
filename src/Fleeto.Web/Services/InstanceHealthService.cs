@@ -192,6 +192,7 @@ public sealed class InstanceHealthService
                 : fleeto.StaleLoops.Count == 0 ? $"Every task reports · {fleeto.UnprocessedEvents} endpoint events waiting"
                 : $"{fleeto.StaleLoops.Count} task(s) stuck"),
             Component(HealthComponent.Backups, "Backups", s is null ? null
+                : fleeto.ExternalBackups is { } external ? $"Made outside Fleeto: {external}"
                 : !fleeto.BackupConfigured ? "No destination configured"
                 : fleeto.LastBackupAt is { } at ? $"Last successful {At(at)}" : "No successful backup yet"),
             Component(HealthComponent.Notifications, "Notifications", s is null ? null
@@ -347,7 +348,7 @@ public sealed class InstanceHealthService
         Line($"- Endpoint events waiting: {fleeto.UnprocessedEvents}{(fleeto.OldestUnprocessedEvent is { } e ? $", oldest {Utc(e)}" : "")}");
         Line($"- Emails waiting: {fleeto.OutboxEmails}{(fleeto.OldestOutboxEmail is { } m ? $", oldest {Utc(m)}" : "")}");
         Line($"- Webhooks waiting: {fleeto.OutboxWebhooks}{(fleeto.OldestOutboxWebhook is { } w ? $", oldest {Utc(w)}" : "")}");
-        Line($"- Backups: {(fleeto.BackupConfigured ? "destination configured" : "no destination")}, last success {(fleeto.LastBackupAt is { } b ? Utc(b) : "never")}" +
+        Line($"- Backups: {(fleeto.ExternalBackups is not null ? "made outside Fleeto" : fleeto.BackupConfigured ? "destination configured" : "no destination")}, last success {(fleeto.LastBackupAt is { } b ? Utc(b) : "never")}" +
              $"{(fleeto.LastBackupFailed ? ", last run failed" : "")}");
         return md.ToString();
     }

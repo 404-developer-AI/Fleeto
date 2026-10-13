@@ -20,16 +20,13 @@
         </MudRadioGroup>
         @if (_choice == 0)
         {
-            <div class="d-flex gap-2 mt-2">
-                <MudDatePicker @bind-Date="_date" Label="Date" Variant="Variant.Outlined" MinDate="@LocalNow.Date" MaxDate="@LocalNow.Date.AddDays(7)" />
-                <MudTimePicker @bind-Time="_time" Label="Time" Variant="Variant.Outlined" />
-            </div>
+            <DateTimeField @bind-Value="_until" Label="On hold until" Min="@LocalNow" Max="@LocalNow.AddDays(7)" Class="mt-2" />
             <MudText Typo="Typo.caption" Class="muted d-block mt-1">In your time zone. A hold lasts at most 7 days.</MudText>
         }
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="@(_busy || (_choice == 0 && (_date is null || _time is null)))">Put on hold</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="@(_busy || (_choice == 0 && _until is null))">Put on hold</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -43,8 +40,7 @@
     [Parameter] public Func<DateTime, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
 
     private int _choice = 1;
-    private DateTime? _date;
-    private TimeSpan? _time;
+    private DateTime? _until;
     private bool _busy;
 
     private DateTime LocalNow => TimeZoneInfo.ConvertTimeFromUtc(Clock.GetUtcNow().UtcDateTime, Time.Zone);
@@ -52,8 +48,7 @@
     protected override void OnInitialized()
     {
         var suggestion = LocalNow.AddHours(2);
-        _date = suggestion.Date;
-        _time = new TimeSpan(suggestion.Hour, 0, 0);
+        _until = suggestion.Date.AddHours(suggestion.Hour);
     }
 
     private void Cancel() => MudDialog.Cancel();
@@ -63,7 +58,7 @@
         DateTime untilUtc;
         if (_choice == 0)
         {
-            var local = DateTime.SpecifyKind(_date!.Value.Date + _time!.Value, DateTimeKind.Unspecified);
+            var local = DateTime.SpecifyKind(_until!.Value, DateTimeKind.Unspecified);
             if (Time.Zone.IsInvalidTime(local))
             {
                 local = local.AddHours(1);

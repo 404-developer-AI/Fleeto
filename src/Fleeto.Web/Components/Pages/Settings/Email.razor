@@ -62,7 +62,7 @@
         {
             <MudTextField @bind-Value="_secret" Label="@(_graph.HasClientSecret ? "Client secret value (leave blank to keep the current secret)" : "Client secret value")"
                           Variant="Variant.Outlined" InputType="InputType.Password" MaxLength="1000" Class="mb-3" />
-            <MudDatePicker @bind-Date="_secretEndsOn" Label="Secret expires on" Variant="Variant.Outlined" Class="mb-1" DateFormat="yyyy-MM-dd" />
+            <DateField @bind-Value="_secretEndsOn" Label="Secret expires on" Class="mb-1" />
             <MudText Typo="Typo.caption" Class="muted d-block mb-3">
                 The date under Certificates &amp; secrets in the app registration. Fleeto warns 30 days before it.
                 @if (_graph.HasClientSecret && _graph.ClientSecretExpiresAt is { } ends)

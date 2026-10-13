@@ -65,7 +65,7 @@
                 break;
         }
         <div class="d-flex gap-2 align-start">
-            <MudTimePicker @bind-Time="_m.Start" Label="Starts at" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:140px" />
+            <TimeField @bind-Value="_m.Start" Label="Starts at" Margin="Margin.Dense" />
             <MudSelect T="bool" @bind-Value="_m.EndpointLocalTime" Label="Time zone" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:260px">
                 <MudSelectItem T="bool" Value="true">The endpoint's own time</MudSelectItem>
                 <MudSelectItem T="bool" Value="false">UTC</MudSelectItem>

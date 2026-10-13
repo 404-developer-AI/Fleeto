@@ -30,8 +30,8 @@
             <MudSelectItem T="Guid?" Value="@((Guid?)client.Id)">@client.Code</MudSelectItem>
         }
     </MudSelect>
-    <MudDatePicker @bind-Date="_from" Label="From" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:170px" />
-    <MudDatePicker @bind-Date="_to" Label="To" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:170px" />
+    <DateField @bind-Value="_from" Label="From" Margin="Margin.Dense" Clearable="true" Style="max-width:170px" />
+    <DateField @bind-Value="_to" Label="To" Margin="Margin.Dense" Clearable="true" Style="max-width:170px" />
     <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SearchAsync">Search</MudButton>
 </div>
 

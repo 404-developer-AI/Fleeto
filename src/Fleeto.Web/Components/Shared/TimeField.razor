@@ -1,0 +1,27 @@
+@using System.Globalization
+@* The one time-of-day field of Fleeto (0.6.0): typed as HH:mm or picked from the browser's own list, compact enough for any
+   dialog. For a schedule that repeats (a patch policy, a maintenance window); a moment in time uses DateTimeField. *@
+<MudTextField T="string" Value="@Text" ValueChanged="OnChangedAsync" InputType="InputType.Time" Label="@Label" Variant="Variant.Outlined"
+              Margin="Margin" Class="@Class" Style="@Style" HelperText="@HelperText" Disabled="Disabled" ShrinkLabel="true"
+              UserAttributes="@Attributes" />
+
+@code {
+    [Parameter] public TimeSpan? Value { get; set; }
+    [Parameter] public EventCallback<TimeSpan?> ValueChanged { get; set; }
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public Margin Margin { get; set; } = Margin.None;
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public string? Style { get; set; } = "max-width:140px";
+    [Parameter] public string? HelperText { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+
+    private string? Text => Value is { } value ? $"{value.Hours:00}:{value.Minutes:00}" : null;
+
+    private static readonly Dictionary<string, object?> Attributes = PickerAttributes.Range(null, null, step: 60);
+
+    private Task OnChangedAsync(string? text) =>
+        ValueChanged.InvokeAsync(TimeSpan.TryParseExact(text, [@"hh\:mm", @"hh\:mm\:ss"], CultureInfo.InvariantCulture, out var parsed) &&
+                                 parsed >= TimeSpan.Zero && parsed < TimeSpan.FromDays(1)
+            ? new TimeSpan(parsed.Hours, parsed.Minutes, 0)
+            : null);
+}

@@ -133,6 +133,12 @@ public class Endpoint
     /// <summary>Server time the agent last reported the signed-in users.</summary>
     public DateTime? SignedInUsersAt { get; set; }
 
+    /// <summary>
+    /// When a user last asked for a fresh inventory with Refresh on the endpoint (0.6.0); the gateway asks the live agent for it.
+    /// At most once per <see cref="Domain.InventoryRefreshRules.Interval"/>.
+    /// </summary>
+    public DateTime? InventoryRequestedAt { get; set; }
+
     /// <summary>Maintenance mode: active while started and the end is unset or in the future (MaintenanceRules).</summary>
     public DateTime? MaintenanceStartedAt { get; set; }
 

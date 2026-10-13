@@ -42,6 +42,10 @@
                 </div>
                 <div class="endpoint-detail-actions">
                     @* Remote control and remote background open from the right-click menu of the endpoint list only (0.6.0). *@
+                    <MudTooltip Text="@(e.IsOnline ? "Refresh: reload this endpoint and ask the agent for a fresh inventory" : "Refresh")">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Variant="Variant.Outlined" Disabled="_refreshing" OnClick="RefreshNowAsync"
+                                       aria-label="Refresh" />
+                    </MudTooltip>
                     @if (Embedded)
                     {
                         <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.OpenInNew" Href="@($"/endpoints/{e.Id}")">Open page</MudButton>
@@ -127,6 +131,7 @@
     private readonly HashSet<string> _storageExpanded = new(StringComparer.OrdinalIgnoreCase);
     private bool _storageScanning;
     private DebouncedRefresh? _refresh;
+    private bool _refreshing;
 
     protected override void OnInitialized()
     {
@@ -156,6 +161,34 @@
         _storageExpanded.Clear();
         Loading = _endpoint is null;
         await ReloadAsync();
+    }
+
+    /// <summary>
+    /// The Refresh button (0.6.0): asks a live agent for a fresh inventory, which the page shows when it arrives (the gateway
+    /// publishes the endpoint status), and reloads what is stored now.
+    /// </summary>
+    private async Task RefreshNowAsync()
+    {
+        _refreshing = true;
+        try
+        {
+            var asked = false;
+            await RunAsync(async caller =>
+            {
+                var result = await EndpointSvc.RequestInventoryAsync(caller, EndpointId);
+                asked = result is { Success: true, Value: true };
+                return result;
+            }, null);
+            await ReloadAsync();
+            if (asked)
+            {
+                Snackbar.Add("Asked the agent for a fresh inventory. The page updates when it arrives.", MudBlazor.Severity.Info);
+            }
+        }
+        finally
+        {
+            _refreshing = false;
+        }
     }
 
     /// <summary>Reloads the endpoint after its owner changed it (the endpoint menu of the clients workspace).</summary>

@@ -121,6 +121,24 @@ public class DomainRuleTests
     }
 
     [Fact]
+    public void A_service_that_does_not_exist_is_a_problem_unless_the_check_allows_it()
+    {
+        var missing = CheckCatalog.ServiceMissingValue;
+        var strict = new Dictionary<string, string> { ["service"] = "Spooler" };
+        var optional = new Dictionary<string, string> { ["service"] = "Spooler", [CheckCatalog.ServiceMissingOkParameter] = "true" };
+
+        Assert.Equal(CheckStatus.Critical, CheckEvaluator.Evaluate(CheckType.ServiceRunning, "Spooler", missing, null, null, null, strict));
+        Assert.Equal(CheckStatus.Warning, CheckEvaluator.Evaluate(CheckType.ServiceRunning, "Spooler", missing, null, 1, null, strict));
+        Assert.Equal(CheckStatus.Ok, CheckEvaluator.Evaluate(CheckType.ServiceRunning, "Spooler", missing, null, null, null, optional));
+        // The option only covers a missing service: a stopped one still alerts.
+        Assert.Equal(CheckStatus.Critical, CheckEvaluator.Evaluate(CheckType.ServiceRunning, "Spooler", 0, null, null, null, optional));
+
+        var definition = new CheckDefinition { Name = "Print spooler", Type = CheckType.ServiceRunning, ParametersJson = """{"service":"Spooler"}""" };
+        Assert.Equal("Service Spooler does not exist on WS-01. Install it, or check the service name.",
+            CheckEvaluator.AlertTitle("WS-01", definition, "", CheckStatus.Critical, missing, null));
+    }
+
+    [Fact]
     public void Check_definition_validation_explains_problems()
     {
         var disk = new CheckDefinition { Name = "Disk", Type = CheckType.DiskFree, IntervalSeconds = 5, WarningThreshold = 5, CriticalThreshold = 15 };

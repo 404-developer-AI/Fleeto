@@ -74,7 +74,8 @@ public sealed class BackupService : WorkerLoop
         var settings = await _settings.GetAsync<BackupSettings>(SettingKeys.Backup, cancellationToken);
         if (settings is null || settings.DestinationType == BackupDestinationType.None)
         {
-            if (Time.GetUtcNow() - _lastNotConfiguredLog >= NotConfiguredLogInterval)
+            // Backups made outside Fleeto (0.6.0): nothing to do and nothing to warn about.
+            if (settings is not { IsExternal: true } && Time.GetUtcNow() - _lastNotConfiguredLog >= NotConfiguredLogInterval)
             {
                 Logger.LogWarning("A backup is due but no backup destination is configured; backups exist on the VPS only. Configure one in Settings, Backups");
                 _lastNotConfiguredLog = Time.GetUtcNow();

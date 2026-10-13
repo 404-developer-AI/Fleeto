@@ -8,7 +8,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Fleeto.Web.Services;
 
-public sealed record BackupTile(bool DestinationConfigured, DateTime? LastSucceededAt, bool LastRunFailed, string? LastError);
+/// <param name="ExternalDescription">How the backups are made outside Fleeto (0.6.0), or null when Fleeto makes them.</param>
+public sealed record BackupTile(bool DestinationConfigured, DateTime? LastSucceededAt, bool LastRunFailed, string? LastError,
+    string? ExternalDescription = null);
 
 /// <summary>A stored credential that expires within 30 days or has expired (0.2.0).</summary>
 public sealed record CredentialWarning(string Name, DateTime ExpiresAt, bool Expired, string StopsWorking, string NextStep, string SettingsPath,
@@ -101,10 +103,12 @@ public sealed class DashboardService
     private async Task<BackupTile> GetBackupTileAsync(FleetoDbContext db, CancellationToken cancellationToken)
     {
         var configured = false;
+        string? external = null;
         try
         {
             var settings = await _settings.GetAsync<BackupSettings>(SettingKeys.Backup, cancellationToken);
             configured = settings is not null && settings.DestinationType != BackupDestinationType.None;
+            external = settings is { IsExternal: true } ? settings.ExternalDescription!.Trim() : null;
         }
         catch (Exception ex)
         {
@@ -117,6 +121,6 @@ public sealed class DashboardService
         var last = await db.BackupRuns.AsNoTracking().Where(r => r.Status != BackupRunStatus.Running)
             .OrderByDescending(r => r.StartedAt).Select(r => new { r.Status, r.Error }).FirstOrDefaultAsync(cancellationToken);
 
-        return new BackupTile(configured, lastSuccess == default ? null : lastSuccess, last?.Status == BackupRunStatus.Failed, last?.Error);
+        return new BackupTile(configured, lastSuccess == default ? null : lastSuccess, last?.Status == BackupRunStatus.Failed, last?.Error, external);
     }
 }

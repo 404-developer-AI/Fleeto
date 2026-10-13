@@ -107,9 +107,14 @@
                 </MudItem>
             }
             <MudItem xs="12" sm="6" md="4" lg="2">
-                <div class="stat-card fl-panel @(!data.Backups.DestinationConfigured || data.Backups.LastRunFailed ? "stat-warning" : "")">
+                <div class="stat-card fl-panel @(data.Backups.ExternalDescription is null && (!data.Backups.DestinationConfigured || data.Backups.LastRunFailed) ? "stat-warning" : "")">
                     <div class="stat-label">Backups</div>
-                    @if (!data.Backups.DestinationConfigured)
+                    @if (data.Backups.ExternalDescription is { } external)
+                    {
+                        <div class="stat-number" style="font-size:1.125rem;margin-top:10px;">Outside Fleeto</div>
+                        <div class="stat-detail">@external</div>
+                    }
+                    else if (!data.Backups.DestinationConfigured)
                     {
                         <div class="stat-detail" style="margin-top:0">
                             No backup destination is configured, so backups exist on this server only.

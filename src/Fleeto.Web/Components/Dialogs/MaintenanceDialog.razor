@@ -17,10 +17,7 @@
         </MudRadioGroup>
         @if (_choice == ChosenTime)
         {
-            <div class="d-flex gap-2 mt-2">
-                <MudDatePicker @bind-Date="_date" Label="Date" Variant="Variant.Outlined" MinDate="@LocalNow.Date" MaxDate="@LocalNow.Date.AddDays(365)" />
-                <MudTimePicker @bind-Time="_time" Label="Time" Variant="Variant.Outlined" />
-            </div>
+            <DateTimeField @bind-Value="_until" Label="Maintenance until" Min="@LocalNow" Max="@LocalNow.AddDays(365)" Class="mt-2" />
             <MudText Typo="Typo.caption" Class="muted d-block mt-1">In your time zone.</MudText>
         }
         @if (IsChange)
@@ -33,7 +30,7 @@
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
         <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync"
-                   Disabled="@(_busy || (_choice == ChosenTime && (_date is null || _time is null)))">@(IsChange ? "Save" : "Start maintenance")</MudButton>
+                   Disabled="@(_busy || (_choice == ChosenTime && _until is null))">@(IsChange ? "Save" : "Start maintenance")</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -57,8 +54,7 @@
     [Parameter] public Func<DateTime?, string?, Task<bool>> OnSubmit { get; set; } = (_, _) => Task.FromResult(true);
 
     private int _choice = 4;
-    private DateTime? _date;
-    private TimeSpan? _time;
+    private DateTime? _until;
     private string? _reason;
     private bool _busy;
 
@@ -74,8 +70,7 @@
     protected override void OnInitialized()
     {
         var suggestion = LocalNow.AddHours(2);
-        _date = suggestion.Date;
-        _time = new TimeSpan(suggestion.Hour, 0, 0);
+        _until = suggestion.Date.AddHours(suggestion.Hour);
         if (Current is { } current)
         {
             _reason = current.Reason;
@@ -87,8 +82,7 @@
             {
                 var end = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(current.EndsAt.Value, DateTimeKind.Utc), Time.Zone);
                 _choice = ChosenTime;
-                _date = end.Date;
-                _time = new TimeSpan(end.Hour, end.Minute, 0);
+                _until = end.Date.AddHours(end.Hour).AddMinutes(end.Minute);
             }
         }
     }
@@ -104,7 +98,7 @@
         }
         else if (_choice == ChosenTime)
         {
-            var local = DateTime.SpecifyKind(_date!.Value.Date + _time!.Value, DateTimeKind.Unspecified);
+            var local = DateTime.SpecifyKind(_until!.Value, DateTimeKind.Unspecified);
             if (Time.Zone.IsInvalidTime(local))
             {
                 local = local.AddHours(1);

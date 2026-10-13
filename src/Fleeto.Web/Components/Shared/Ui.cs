@@ -240,7 +240,7 @@ public static class Ui
 
     private static string FlagText(CheckType type, IReadOnlyDictionary<string, string> parameters, bool fine, double value) => type switch
     {
-        CheckType.ServiceRunning => fine ? "Running" : "Not running",
+        CheckType.ServiceRunning => fine ? "Running" : value <= CheckCatalog.ServiceMissingValue ? "Does not exist" : "Not running",
         CheckType.ProcessRunning => fine ? $"{value.ToString("0", CultureInfo.InvariantCulture)} running" : "Not running",
         CheckType.PendingReboot => fine ? "No restart pending" : "Restart pending",
         CheckType.SecurityCenter => fine ? "On" : "Off",

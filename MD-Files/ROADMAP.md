@@ -176,6 +176,19 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   case of `TR_SigningRequests_Origin`, check type `Action1Agent`, exit codes of the install job, the state on the Patches
   tab and the counts in the patch policy list. To verify on the test VPS: an installation on a real endpoint end to end,
   and the reason shown for a download that fails.
+- [done] **Four requests from testing** (asked for by the developer on 2026-10-13, built as proposed the same day):
+  - *One date and time field everywhere*: `DateTimeField`, `DateField` and `TimeField` on the browser's own inputs replace
+    MudDatePicker and MudTimePicker in the hold, maintenance, patch policy, maintenance window, audit log and secret end
+    date fields. "Starts at" of a patch policy stays a time of day: its schedule repeats and an Action1 automation has no
+    start date.
+  - *Backups made outside Fleeto*: `BackupSettings.ExternalDescription`, no backups by the workers, healthy in instance
+    health and on the dashboard, an accepted risk in ARCHITECTURE §5.
+  - *Refresh on an endpoint*: `Endpoints.InventoryRequestedAt`, `fleeto_inventory_requests`, the gateway sending
+    `InventoryRequest`, once a minute per endpoint.
+  - *A service that does not exist*: the agent reports -1, parameter `missing_ok` ("No alert when the service does not
+    exist"), and without it a problem like a stopped service.
+  To verify on the test VPS: the fields in Chrome and Edge, Refresh on an online endpoint, a service check for a service
+  that is not installed with and without the option.
 - [done] **Uninstall the Fleeto agent of a deleted endpoint** (asked for by the developer on 2026-10-13: an offline agent is
   removed when it comes back, within a term, but leaves the lists at once). Decided the same day: 30 days, also on agent-only
   endpoints, also when a client is deleted, checked by default, a list in Settings. Done: `AgentUninstall` with the
