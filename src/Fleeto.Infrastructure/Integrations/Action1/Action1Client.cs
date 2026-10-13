@@ -203,15 +203,17 @@ public sealed class Action1Client : IIntegration, IDisposable
 
     /// <summary>
     /// Where the Action1 agent installer of one organization is downloaded (0.4.0 step 3), or an empty string when
-    /// Action1 does not hand it out over the API. Action1 documents no contract for this, so a refusal is not an error
-    /// here: an admin can paste the link from the Action1 console instead, and Settings says so.
+    /// Action1 does not hand it out over the API. Action1's OpenAPI document names the call
+    /// <c>GET /endpoints/agent-installation/{orgId}/WindowsMSI</c>, answering <c>download_URL</c>, and it needs
+    /// <c>manage_endpoints</c>; before 0.6.0 Fleeto left out the install type and never got a link. A refusal is not an
+    /// error here: an admin can paste the link from the Action1 console instead, and Settings says so.
     /// </summary>
     public async Task<IntegrationResult<string>> GetAgentInstallerUrlAsync(string organizationId,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            using var document = await GetAsync($"endpoints/agent-installation/{Uri.EscapeDataString(organizationId)}", null, cancellationToken);
+            using var document = await GetAsync($"endpoints/agent-installation/{Uri.EscapeDataString(organizationId)}/WindowsMSI", null, cancellationToken);
             return IntegrationResult<string>.Success(WindowsInstaller(document.RootElement) ?? string.Empty);
         }
         catch (Action1Exception ex) when (ex.IsPermanent)

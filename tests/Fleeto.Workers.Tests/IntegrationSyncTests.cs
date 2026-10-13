@@ -204,6 +204,39 @@ public sealed class IntegrationSyncTests
         Assert.Equal("https://app.eu.action1.com/agent/typed/Windows/agent.msi", kept.Single(m => m.ClientId == pasted.Id).AgentInstallerUrl);
     }
 
+    [Fact]
+    public async Task A_tenant_without_an_installer_link_is_asked_again_after_an_hour_one_with_a_link_after_a_day()
+    {
+        var integration = await SeedAsync();
+        var without = await _fixture.Db.CreateClientAsync("AIW" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        var with = await _fixture.Db.CreateClientAsync("AIH" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        var twoHoursAgo = _fixture.Now - TimeSpan.FromHours(2);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            db.IntegrationMappings.Add(new IntegrationMapping
+            {
+                Id = Guid.NewGuid(), IntegrationId = integration.Id, ClientId = without.Id, ExternalTenantId = "org-1",
+                ExternalTenantName = "Contoso", AgentInstallerReadAt = twoHoursAgo, CreatedAt = _fixture.Now
+            });
+            db.IntegrationMappings.Add(new IntegrationMapping
+            {
+                Id = Guid.NewGuid(), IntegrationId = integration.Id, ClientId = with.Id, ExternalTenantId = "org-2",
+                ExternalTenantName = "Fabrikam", AgentInstallerUrl = "https://app.eu.action1.com/agent/typed/Windows/agent.msi",
+                AgentInstallerReadAt = twoHoursAgo, CreatedAt = _fixture.Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        const string url = "https://app.eu.action1.com/agent/6e1c/Windows/agent(_000__Contoso).msi";
+        await Service(new StubHandler { AgentInstaller = url }).SyncAsync(CancellationToken.None);
+
+        await using var read = _fixture.Db.DbFactory.CreateSystem();
+        var mappings = await read.IntegrationMappings.AsNoTracking().Where(m => m.IntegrationId == integration.Id).ToListAsync();
+        Assert.Equal(url, mappings.Single(m => m.ClientId == without.Id).AgentInstallerUrl);
+        var kept = mappings.Single(m => m.ClientId == with.Id);
+        Assert.Equal(twoHoursAgo, kept.AgentInstallerReadAt!.Value, TimeSpan.FromMilliseconds(1));
+    }
+
     private sealed class StubHandler : HttpMessageHandler
     {
         public int Calls { get; private set; }
@@ -226,9 +259,12 @@ public sealed class IntegrationSyncTests
             {
                 // Action1 offers a link for the first organization only, as it does for an organization whose agent
                 // deployment has not been set up.
-                return Task.FromResult(AgentInstaller is null || !request.RequestUri.AbsolutePath.EndsWith("org-1", StringComparison.Ordinal)
+                // The answer of Action1's OpenAPI document: GET /endpoints/agent-installation/{orgId}/WindowsMSI.
+                return Task.FromResult(AgentInstaller is null || !request.RequestUri.AbsolutePath.EndsWith("/org-1/WindowsMSI", StringComparison.Ordinal)
                     ? Json(HttpStatusCode.NotFound, """{"user_message":"unknown"}""")
-                    : Json(HttpStatusCode.OK, $$"""{"platforms":[{"platform":"Windows","url":"{{AgentInstaller}}"}]}"""));
+                    : Json(HttpStatusCode.OK, $$"""
+                        {"id":"WindowsMSI","type":"AgentInstallation","self":"/API/agent-installation/org-1/WindowsMSI","download_URL":"{{AgentInstaller}}"}
+                        """));
             }
 
             return Task.FromResult(Json(HttpStatusCode.OK,

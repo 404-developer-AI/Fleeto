@@ -30,6 +30,12 @@ public sealed class IntegrationSyncService : WorkerLoop
     /// <summary>How often the link to the product's own agent installer is read again per tenant (0.4.0 step 3).</summary>
     public static readonly TimeSpan AgentInstallerInterval = TimeSpan.FromHours(24);
 
+    /// <summary>
+    /// How soon a tenant without a link is asked again (0.6.0): a role that gets <c>manage_endpoints</c> later, or an
+    /// organization whose agent deployment is set up later, should not wait a day before its endpoints can get the agent.
+    /// </summary>
+    public static readonly TimeSpan MissingAgentInstallerInterval = TimeSpan.FromHours(1);
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private readonly IFleetoDbContextFactory _dbFactory;
@@ -166,14 +172,15 @@ public sealed class IntegrationSyncService : WorkerLoop
 
     /// <summary>
     /// Keeps the link to the product's own agent installer current for one tenant (0.4.0 step 3), so an endpoint without
-    /// that agent can be given one. It is read once a day at most: the link rarely changes and every call counts against
-    /// the request budget of the whole instance. A link an admin pasted is only replaced by one the product itself gives,
+    /// that agent can be given one. It is read once a day at most, and once an hour while there is none: the link rarely
+    /// changes and every call counts against the request budget of the whole instance. A link an admin pasted is only replaced by one the product itself gives,
     /// never cleared.
     /// </summary>
     private async Task ReadAgentInstallerAsync(Action1Client client, IntegrationMapping mapping, DateTime now,
         CancellationToken cancellationToken)
     {
-        if (mapping.AgentInstallerReadAt is { } read && now - read < AgentInstallerInterval)
+        var interval = mapping.AgentInstallerUrl.Length == 0 ? MissingAgentInstallerInterval : AgentInstallerInterval;
+        if (mapping.AgentInstallerReadAt is { } read && now - read < interval)
         {
             return;
         }

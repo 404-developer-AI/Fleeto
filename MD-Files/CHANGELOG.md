@@ -149,6 +149,10 @@ When a third released version is added, the oldest entry moves to the top of
   on the endpoint. The Patches tab says when an agent runs there that Action1 does not report for this client.
 - The public API listed no jobs at all once an endpoint had a job that installs the Action1 agent: it failed on the type
   of that job. It now reports it as `action1_agent_install`.
+- Fleeto reads the Action1 agent installer link of an organization from Action1 again: it asked without the install type
+  (`/endpoints/agent-installation/{orgId}/WindowsMSI`), so Action1 never gave one and the link had to be pasted by hand.
+  An organization without a link is asked again every hour instead of every day. It needs the permission to manage
+  endpoints on the Action1 API credentials.
 
 ### Security
 

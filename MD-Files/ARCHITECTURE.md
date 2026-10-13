@@ -1789,7 +1789,8 @@ it, one when the product accepts it and one when it ends, with the counts per ou
 **Installing the Action1 agent (0.4.0 step 3).** An endpoint without the Action1 agent has no patch state at all, so
 Fleeto can put it there as a job of type `Action1Agent`. It is the one job whose script nobody writes: **fleeto-signer
 composes the body itself** from the installer link of the client's organization (`IntegrationMapping.AgentInstallerUrl`,
-read from Action1 once a day where Action1 hands it out, otherwise pasted by an admin in Settings), and signs that. Web
+read from Action1 with `GET /endpoints/agent-installation/{orgId}/WindowsMSI` once a day, and once an hour while there is
+none, which needs `manage_endpoints`; otherwise pasted by an admin in Settings), and signs that. Web
 names the endpoint and binds the job to the body that link gives at that moment (its SHA-256 in `ScriptSha256`, which
 `TR_Jobs_Binding` freezes); the signer composes the body again and refuses when the link has changed since, so nothing
 runs that the technician did not ask for. A link is only accepted when it is https, on Action1's own domain and an MSI,
