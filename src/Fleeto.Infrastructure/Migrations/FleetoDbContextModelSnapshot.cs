@@ -1640,6 +1640,9 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<Guid>("EndpointId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("AutomationId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("ClientId")
                         .HasColumnType("uuid");
 
@@ -1675,10 +1678,19 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<bool>("RebootRequired")
                         .HasColumnType("boolean");
 
+                    b.Property<Guid?>("ScheduledPolicyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ScheduledSince")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("EndpointId");
+
+                    b.HasIndex("AutomationId")
+                        .HasFilter("\"AutomationId\" IS NOT NULL");
 
                     b.HasIndex("ClientId", "MissingCritical");
 
@@ -2073,8 +2085,14 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
+                    b.Property<DateTime?>("NextRunAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("PatchPolicyId")
                         .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ReadAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("SyncedAt")
                         .HasColumnType("timestamp with time zone");
@@ -3044,6 +3062,13 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("ExternalAutomationId")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasDefaultValue("");
+
                     b.Property<string>("ExternalDeploymentId")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -3053,6 +3078,12 @@ namespace Fleeto.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("FollowUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("PatchPolicyId")
+                        .HasColumnType("uuid");
 
                     b.Property<DateTime?>("PolledAt")
                         .HasColumnType("timestamp with time zone");
@@ -3093,6 +3124,10 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.HasIndex("State")
                         .HasFilter("\"State\" IN ('Requested', 'Running')");
+
+                    b.HasIndex("ClientId", "ExternalDeploymentId")
+                        .IsUnique()
+                        .HasFilter("\"ExternalAutomationId\" <> ''");
 
                     b.HasIndex("ClientId", "RequestedAt")
                         .IsDescending(false, true);
@@ -3362,6 +3397,64 @@ namespace Fleeto.Infrastructure.Migrations
 
                             t.HasCheckConstraint("CK_PatchPolicies_WeekDays", "\"WeekDays\" BETWEEN 0 AND 127");
                         });
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.PatchRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ExternalEndpointId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ExternalTenantId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Failure")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("RequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RequestedByName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("RequestedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestedAt")
+                        .HasDatabaseName("IX_PatchRequests_Pending")
+                        .HasFilter("\"CompletedAt\" IS NULL");
+
+                    b.HasIndex("EndpointId", "ClientId");
+
+                    b.HasIndex("EndpointId", "RequestedAt");
+
+                    b.ToTable("PatchRequests");
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.Policy", b =>
@@ -5170,6 +5263,16 @@ namespace Fleeto.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("ClientId")
                         .OnDelete(DeleteBehavior.Cascade);
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.PatchRequest", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.Policy", b =>

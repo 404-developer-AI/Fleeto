@@ -543,7 +543,7 @@ public sealed class EndpointCheckService
         {
             var instead = check.Type == CheckType.FolderGrowth
                 ? "Start a scan on the Storage tab instead."
-                : "Refresh the patch state on the Patches tab instead.";
+                : "Sync the patch state on the Patches tab instead.";
             return ServiceResult<bool>.Fail($"Fleeto evaluates this check {evaluated.EvaluatedWhen}, not the agent. {instead}");
         }
 

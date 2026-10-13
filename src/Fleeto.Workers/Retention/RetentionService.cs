@@ -114,6 +114,11 @@ public sealed class RetentionService : WorkerLoop
           SELECT "Id" FROM "StorageScanRequests" WHERE "RequestedAt" < @cutoff LIMIT 5000)
         """;
 
+    private const string DeletePatchRequestsSql = """
+        DELETE FROM "PatchRequests" WHERE "Id" IN (
+          SELECT "Id" FROM "PatchRequests" WHERE "RequestedAt" < @cutoff LIMIT 5000)
+        """;
+
     private const string DeleteEndpointEventsSql = """
         DELETE FROM "EndpointEvents" WHERE "Id" IN (
           SELECT "Id" FROM "EndpointEvents" WHERE "ProcessedAt" IS NOT NULL AND "Time" < @cutoff LIMIT 5000)
@@ -246,6 +251,7 @@ public sealed class RetentionService : WorkerLoop
         deleted["Jobs"] = await DeleteInBatchesAsync(DeleteJobsSql, () => [new NpgsqlParameter("cutoff", now - JobRetention)], cancellationToken);
         deleted["PatchDeployments"] = await DeleteInBatchesAsync(DeletePatchDeploymentsSql,
             () => [new NpgsqlParameter("cutoff", now - JobRetention)], cancellationToken);
+        deleted["PatchRequests"] = await DeleteInBatchesAsync(DeletePatchRequestsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-7))], cancellationToken);
         deleted["RemoteSessions"] = await DeleteInBatchesAsync(DeleteRemoteSessionsSql,
             () => [new NpgsqlParameter("cutoff", now - RemoteSessionRules.HistoryRetention)], cancellationToken);
         deleted["InstanceHealthSamples"] = await DeleteInBatchesAsync(DeleteHealthSamplesSql,

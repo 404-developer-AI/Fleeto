@@ -170,6 +170,16 @@ public class IntegrationAutomation
     /// <summary>A hash of what Fleeto last sent (settings and targets); a different one is written again.</summary>
     public string SyncedHash { get; set; } = string.Empty;
 
+    /// <summary>
+    /// When the product plans the next run (0.6.0), as it reports it in <c>next_run</c>; null while not read or not planned.
+    /// For a patch policy in the endpoint's local time this is that local time, stored as if it were UTC: the product
+    /// does not say which time zone it means.
+    /// </summary>
+    public DateTime? NextRunAt { get; set; }
+
+    /// <summary>When the workers last read the automation from the product, which is where <see cref="NextRunAt"/> comes from.</summary>
+    public DateTime? ReadAt { get; set; }
+
     public DateTime? SyncedAt { get; set; }
 
     /// <summary>Why the last attempt failed, in the product's words where it gave them; null after a success.</summary>

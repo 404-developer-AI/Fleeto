@@ -45,8 +45,29 @@ public static class Action1AgentInstall
     }
 
     /// <summary>
-    /// The PowerShell the agent runs as SYSTEM: download the installer of this organization, install it silently without
-    /// restarting, and remove the file again. It never restarts the endpoint and never installs anything else.
+    /// PowerShell that defines how both jobs find the Action1 agent on an endpoint (0.6.0): the key where it keeps its id,
+    /// which is what the Fleeto agent reads, in both registry views, or its entry in the installed programs. Installing and
+    /// removing judge "installed" the same way.
+    /// </summary>
+    internal const string FindAgent = """
+        function Find-Action1Agent {
+            $roots = @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall')
+            @(Get-ChildItem -Path $roots -ErrorAction SilentlyContinue |
+                Get-ItemProperty -ErrorAction SilentlyContinue |
+                Where-Object { $_.DisplayName -like 'Action1 Agent*' -and $_.PSChildName -match '^\{[0-9A-Fa-f-]{36}\}$' })
+        }
+        function Test-Action1Agent {
+            foreach ($key in @('HKLM:\SOFTWARE\WOW6432Node\Action1', 'HKLM:\SOFTWARE\Action1')) {
+                if ((Get-ItemProperty -Path $key -Name 'agent.guid' -ErrorAction SilentlyContinue).'agent.guid') { return $true }
+            }
+            return (Find-Action1Agent).Count -gt 0
+        }
+        """;
+
+    /// <summary>
+    /// The PowerShell the agent runs as SYSTEM: stop without changing anything when an Action1 agent is already installed
+    /// (0.6.0), otherwise download the installer of this organization, install it silently without restarting, and remove
+    /// the file again. It never restarts the endpoint and never installs anything else.
     /// </summary>
     /// <exception cref="ArgumentException">The link is not one <see cref="IsValidInstallerUrl"/> accepts.</exception>
     public static string Body(string installerUrl)
@@ -56,14 +77,18 @@ public static class Action1AgentInstall
             throw new ArgumentException("The Action1 agent installer link is not a valid Action1 download link.", nameof(installerUrl));
         }
 
-        return string.Format(CultureInfo.InvariantCulture, """
+        return FindAgent + "\n" + string.Format(CultureInfo.InvariantCulture, """
             $ErrorActionPreference = 'Stop'
             $ProgressPreference = 'SilentlyContinue'
+            if (Test-Action1Agent) {{
+                Write-Output 'An Action1 agent is already installed on this endpoint, so nothing was changed. It reports itself to Fleeto with the next inventory.'
+                exit 0
+            }}
             $installer = Join-Path $env:ProgramData ('fleeto-action1-' + [guid]::NewGuid().ToString('N') + '.msi')
             try {{
                 Invoke-WebRequest -Uri '{0}' -OutFile $installer -UseBasicParsing
                 $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i', "`"$installer`"", '/quiet', '/qn', '/norestart' -Wait -PassThru
-                if ($process.ExitCode -ne 0) {{
+                if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) {{
                     throw "The Action1 installer ended with exit code $($process.ExitCode)."
                 }}
                 Write-Output 'The Action1 agent was installed. It reports itself to Fleeto with the next inventory.'
@@ -73,4 +98,40 @@ public static class Action1AgentInstall
             }}
             """, installerUrl);
     }
+}
+
+/// <summary>
+/// The job that uninstalls the Action1 agent from a Windows endpoint (0.6.0). Only for an agent that Action1 does not
+/// report in the organization of the endpoint's client: every other one is removed through the Action1 API, so Action1
+/// also drops the endpoint from its console. Like the install, <b>fleeto-signer composes the body</b>, which here takes
+/// no input at all.
+/// </summary>
+public static class Action1AgentRemoval
+{
+    /// <summary>The name of the job in the job list and the audit log.</summary>
+    public const string JobName = "Remove Action1 agent";
+
+    public const int TimeoutSeconds = 10 * 60;
+
+    public const long MaxOutputBytes = Action1AgentInstall.MaxOutputBytes;
+
+    /// <summary>
+    /// The PowerShell the agent runs as SYSTEM: uninstall every installed Action1 agent by its product code, silently and
+    /// without restarting. Exit code 3010 (restart needed) and 1605 (no longer installed) count as done.
+    /// </summary>
+    public static string Body() => Action1AgentInstall.FindAgent + "\n" + """
+        $ErrorActionPreference = 'Stop'
+        $agents = Find-Action1Agent
+        if ($agents.Count -eq 0) {
+            Write-Output 'No Action1 agent is installed on this endpoint, so nothing was changed.'
+            exit 0
+        }
+        foreach ($agent in $agents) {
+            $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList '/x', $agent.PSChildName, '/quiet', '/qn', '/norestart' -Wait -PassThru
+            if ($process.ExitCode -notin @(0, 1605, 3010)) {
+                throw "Uninstalling $($agent.DisplayName) ended with exit code $($process.ExitCode)."
+            }
+        }
+        Write-Output 'The Action1 agent was removed. Fleeto sees it gone with the next inventory.'
+        """;
 }

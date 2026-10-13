@@ -47,6 +47,39 @@ public class Action1AgentInstallTests
     }
 
     [Fact]
+    public void The_install_stops_without_changes_when_an_Action1_agent_is_already_there()
+    {
+        var body = Action1AgentInstall.Body("https://app.eu.action1.com/agent/abc/Windows/agent.msi");
+
+        // The check comes before the download, and it reads the key the Fleeto agent reads.
+        Assert.True(body.IndexOf("if (Test-Action1Agent)", StringComparison.Ordinal) < body.IndexOf("Invoke-WebRequest", StringComparison.Ordinal));
+        Assert.Contains("agent.guid", body);
+        Assert.Contains("exit 0", body);
+    }
+
+    [Fact]
+    public void The_removal_uninstalls_every_Action1_agent_by_product_code_and_restarts_nothing()
+    {
+        var body = Action1AgentRemoval.Body();
+
+        Assert.Contains("'Action1 Agent*'", body);
+        Assert.Contains("'/x', $agent.PSChildName", body);
+        Assert.Contains("/norestart", body);
+        // Already gone and a restart that is needed count as done, not as a failure.
+        Assert.Contains("@(0, 1605, 3010)", body);
+        Assert.Equal(body, Action1AgentRemoval.Body());
+    }
+
+    [Theory]
+    [InlineData("/API/automations/instances/abc-123", "abc-123")]
+    [InlineData("/API/automations/instances/org-1/abc-123/", "abc-123")]
+    [InlineData("", "")]
+    [InlineData(null, "")]
+    [InlineData("/API/automations/instances/{instance-id}", "")]
+    public void The_last_run_of_an_automation_is_the_last_segment_of_its_link(string? link, string expected) =>
+        Assert.Equal(expected, Fleeto.Infrastructure.Integrations.Action1.Action1AutomationInfo.LastSegment(link));
+
+    [Fact]
     public void A_link_the_rules_refuse_never_becomes_a_body() =>
         Assert.Throws<ArgumentException>(() => Action1AgentInstall.Body("https://example.test/agent.msi"));
 }

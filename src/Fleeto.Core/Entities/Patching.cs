@@ -65,6 +65,22 @@ public class EndpointPatchState
     /// <summary>When Fleeto last read this state.</summary>
     public DateTime UpdatedAt { get; set; }
 
+    /// <summary>
+    /// The automation of the endpoint's patch policy that targets it in the product (0.6.0), by the id of its
+    /// <see cref="IntegrationAutomation"/> row; null while no automation of Fleeto targets the endpoint. Set by the workers
+    /// when the automation was written with the endpoint among its targets.
+    /// </summary>
+    public Guid? AutomationId { get; set; }
+
+    /// <summary>
+    /// Since when an automation of the same patch policy targets the endpoint (0.6.0). The "Scheduled patching" check counts
+    /// from here while no scheduled deployment succeeded on the endpoint yet; a different patch policy starts it again.
+    /// </summary>
+    public DateTime? ScheduledSince { get; set; }
+
+    /// <summary>The patch policy of <see cref="AutomationId"/>, kept so a change of policy can restart <see cref="ScheduledSince"/>.</summary>
+    public Guid? ScheduledPolicyId { get; set; }
+
     /// <summary>True when the endpoint misses nothing the product knows about.</summary>
     public bool IsCompliant => MissingCritical == 0 && MissingOther == 0;
 }
@@ -126,7 +142,13 @@ public enum PatchDeploymentScope
     AllMissing,
 
     /// <summary>Only the updates the technician chose.</summary>
-    Specified
+    Specified,
+
+    /// <summary>
+    /// What a patch policy installs, on its schedule (0.6.0): a run of the automation Fleeto keeps for the policy, found in
+    /// the product rather than started by a technician.
+    /// </summary>
+    PatchPolicy
 }
 
 /// <summary>
@@ -211,6 +233,21 @@ public class PatchDeployment
     /// <summary>When the workers last asked the product how it is going.</summary>
     public DateTime? PolledAt { get; set; }
 
+    /// <summary>
+    /// The patch policy whose automation ran this deployment (0.6.0), for <see cref="PatchDeploymentScope.PatchPolicy"/>
+    /// only. Not a foreign key: the history stays when the policy is deleted, with its name in <see cref="RequestedByName"/>.
+    /// </summary>
+    public Guid? PatchPolicyId { get; set; }
+
+    /// <summary>The id of the automation in the product that ran it (0.6.0); empty for a deployment a technician started.</summary>
+    public string ExternalAutomationId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Until when Fleeto follows the deployment (0.6.0); null follows it for <see cref="Fleeto.Core.Domain.PatchRules.FollowFor"/>
+    /// after it started. A scheduled one follows the retry window of its patch policy, which can be longer than a day.
+    /// </summary>
+    public DateTime? FollowUntil { get; set; }
+
     public List<PatchDeploymentUpdate> Updates { get; set; } = [];
     public List<PatchDeploymentTarget> Targets { get; set; } = [];
 
@@ -287,4 +324,42 @@ public class PatchDeploymentStep
     public string Status { get; set; } = string.Empty;
 
     public string Details { get; set; } = string.Empty;
+}
+
+/// <summary>What a technician asks the workers to do about the patch management of one endpoint (0.6.0).</summary>
+public enum PatchRequestKind
+{
+    /// <summary>Read the patch state, missing updates, scheduled deployments and next run of the endpoint from the product now.</summary>
+    Sync,
+
+    /// <summary>Remove the endpoint from the product, which also uninstalls the product's agent on it.</summary>
+    RemoveAgent
+}
+
+/// <summary>
+/// A request of a technician about the patch management of one endpoint (0.6.0). Web writes it, because only the workers
+/// can reach the product; the workers carry it out and write the outcome on the row, which the Patches tab shows. Kept a
+/// day after it completed, so the outcome can be read, and gone with its endpoint.
+/// </summary>
+public class PatchRequest
+{
+    public Guid Id { get; set; }
+    public Guid ClientId { get; set; }
+    public Guid EndpointId { get; set; }
+    public PatchRequestKind Kind { get; set; }
+
+    /// <summary>The tenant and the endpoint in the product when the request was made, for <see cref="PatchRequestKind.RemoveAgent"/>.</summary>
+    public string ExternalTenantId { get; set; } = string.Empty;
+
+    public string ExternalEndpointId { get; set; } = string.Empty;
+
+    public Guid RequestedByUserId { get; set; }
+    public string RequestedByName { get; set; } = string.Empty;
+    public DateTime RequestedAt { get; set; }
+
+    /// <summary>When the workers finished it; null while it waits.</summary>
+    public DateTime? CompletedAt { get; set; }
+
+    /// <summary>Cause and next step when it failed; null when it succeeded or still waits.</summary>
+    public string? Failure { get; set; }
 }

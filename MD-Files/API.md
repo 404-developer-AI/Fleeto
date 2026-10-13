@@ -425,8 +425,8 @@ something, which can be one pass behind the counts. `detailUpdatedAt` says when 
 ### GET /api/v1/endpoints/{endpointId}/patch-deployments
 
 Lists the deployments of updates that touched a managed endpoint, newest first (from Fleeto 0.4.0). A deployment is
-started by a technician in Fleeto and carried out by Action1; what every endpoint did is what Action1 reports, not what
-Fleeto expects. A deployment covers one client, so a run over several clients appears as one deployment per client with
+started by a technician in Fleeto, or (from Fleeto 0.6.0) by the schedule of the endpoint's patch policy, and carried out
+by Action1; what every endpoint did is what Action1 reports, not what Fleeto expects. A deployment covers one client, so a run over several clients appears as one deployment per client with
 the same `batchId`.
 
 | Path parameter | Type | Meaning |
@@ -461,7 +461,8 @@ Errors: 401, 404 (the endpoint does not exist), 409 `endpoint_not_managed`, 429.
         "state": "succeeded",
         "message": null
       }
-    ]
+    ],
+    "patchPolicyId": null
   }
 ]
 ```
@@ -815,8 +816,9 @@ of its own; Action1 has it.
 
 ### Deployment
 
-One deployment of updates started in Fleeto and carried out by Action1 (0.4.0). It belongs to one client, because Action1
-runs a deployment inside one organization.
+One deployment of updates started in Fleeto and carried out by Action1 (0.4.0), or a run of the automation of a patch
+policy on its schedule (scope `patch_policy`, from 0.6.0). It belongs to one client, because Action1 runs a deployment
+inside one organization. A scheduled run appears within minutes after Action1 started it, at the latest within the hour.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -827,11 +829,12 @@ runs a deployment inside one organization.
 | `autoReboot` | boolean | True when Action1 may restart an endpoint by itself to finish the updates. |
 | `state` | string | [Deployment state](#deployment-state). |
 | `statusMessage` | string, nullable | Cause and next step when something went wrong, in the wording an admin sees in Fleeto. Null while nothing is wrong. |
-| `requestedByName` | string | The technician who started it (personal data). |
-| `requestedAt` | timestamp | When it was started in Fleeto. |
+| `requestedByName` | string | The technician who started it (personal data); for scope `patch_policy` the name of the patch policy. |
+| `requestedAt` | timestamp | When it was started in Fleeto. For scope `patch_policy`, when Action1 started the run for a policy in UTC, and when Fleeto found it for a policy in the endpoint's own time (Action1 names no time zone for those). |
 | `completedAt` | timestamp, nullable | When every endpoint had an answer, or Fleeto stopped following it. Null while it runs. |
 | `updates` | array of string | The chosen updates with their version, for a deployment of scope `specified`. Empty for `all_missing`, where Action1 decides what is missing at the moment it runs. |
-| `targets` | array | One per endpoint: `endpointId`, `hostname` (as it was when the deployment started), `state` ([Deployment target state](#deployment-target-state)) and `message` (what Action1 said, null when it said nothing). |
+| `targets` | array | One per endpoint: `endpointId`, `hostname` (as it was when the deployment started), `state` ([Deployment target state](#deployment-target-state)) and `message` (what Action1 said, null when it said nothing). For scope `patch_policy`, the endpoints Fleeto put in the automation of the policy. |
+| `patchPolicyId` | UUID, nullable | The patch policy whose schedule ran it, for scope `patch_policy` (from 0.6.0); null otherwise, and the id of a policy that may since have been deleted. |
 
 ### Inventory
 
@@ -913,7 +916,7 @@ not read them.
 | `batchId` | UUID | Jobs started together share it. |
 | `clientId` | UUID | |
 | `endpointId` | UUID | |
-| `type` | string | `script`. More types may be added. |
+| `type` | string | `script`, `action1_agent_install` (installs the Action1 agent, from 0.4.0) or `action1_agent_removal` (uninstalls an Action1 agent that Action1 does not report, from 0.6.0). For the two Action1 jobs fleeto-signer composes the script itself: `script.id` and `script.versionId` are null. More types may be added. |
 | `script` | object | The script as it was when the job was created: `id` (UUID, nullable: `null` after the script was deleted), `versionId` (UUID, nullable), `name`, `versionNumber` (integer), `language` ([script language](#script-language)), `sha256` (hex SHA-256 of the script body). |
 | `runAs` | [job run as](#job-run-as) | The account the script ran under on the endpoint. |
 | `runAsAccount` | string, nullable | For `logged_on_user`: the account the agent ran the script under, as `DOMAIN\name` on Windows and the user name on Linux, once the job started. `null` for `service` and before the start. |
@@ -1014,6 +1017,7 @@ check.
 | `security_center` | 1 protection on, 0 off | `component` (`antivirus` or `firewall`) | Windows |
 | `script` | Exit code of a library script: 0 ok, 1 warning, other critical | `script` (script id), `language` | per script language |
 | `missing_updates` | Days since the release of the oldest update Action1 reports as missing, 0 when none counts; evaluated by Fleeto after every patch sync, not by the agent (from Fleeto 0.6.0) | `severity` (`any`, `moderate`, `important` or `critical`: the lowest security severity that counts) | Windows |
+| `scheduled_patching` | Days since a scheduled deployment of the endpoint's patch policy last succeeded on it; until one did, since the automation of the policy first targeted the endpoint. Evaluated by Fleeto after every patch sync and scheduled deployment, not by the agent; an endpoint without a patch policy gets no result (from Fleeto 0.6.0) | none | Windows |
 | `folder_growth` | GB the used space of a drive grew over the period, negative when it shrank; one item per drive, target the drive (`C:`, `/`); `detail` names the folder that grew most. Evaluated by Fleeto after every storage scan, not by the agent (from Fleeto 0.6.0) | `drive` (`C:`, `/var` or `*` for every scanned drive), `period_days` (1-90, default 7) | Windows, Linux |
 
 Parameters that were never set are left out of `parameters`, and the check uses its default.
@@ -1039,7 +1043,8 @@ because the endpoint is above the licensed number of the Action1 subscription, s
 ### Deployment scope
 
 `all_missing` (every update Action1 reports as missing on the endpoints at the moment it runs), `specified` (only the
-updates the technician chose, listed in `updates`).
+updates the technician chose, listed in `updates`), `patch_policy` (what the patch policy installs, on its schedule; from
+0.6.0).
 
 ### Deployment state
 

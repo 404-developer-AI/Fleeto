@@ -359,6 +359,17 @@ Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
   the automations it made, known by the id it stored; the others in an organization are shown as a warning on the client,
   because an endpoint they target can be patched twice. Without a patch policy Fleeto schedules nothing. The credentials
   then need `view_automations` and `manage_automations`.
+- **The scheduled rounds of a patch policy are visible** (decided 2026-10-13, 0.6.0): every run of an automation of Fleeto
+  becomes a scheduled deployment on the Patches tab, found through `last_instance` of the automation, which the workers read
+  hourly and a few minutes after its `next_run`; the next run Action1 planned is shown with the patch policy. A round that
+  fails or never runs is not an alert of its own but the "Scheduled patching" check of a monitoring template: days since a
+  scheduled deployment last succeeded on the endpoint.
+- **Sync and the Action1 agent from the Patches tab** (decided 2026-10-13, 0.6.0): Sync reads the endpoint from Action1 at
+  once (Action1 offers no way to make an endpoint scan for missing updates), one per endpoint a minute. Installing refuses
+  an endpoint that already reports an Action1 agent, and the job stops without changes when it finds one. Removing goes
+  through the Action1 API (`DELETE /endpoints/managed`, which uninstalls the agent and drops the endpoint from the console)
+  when Action1 reports the endpoint, and otherwise through a signed job composed by the signer. The credentials then need
+  `manage_endpoints`.
 - **Only the workers talk to an external product.** Web runs on a network without outbound NAT (`deploy/compose/compose.yml`),
   so it can never reach Action1: what an admin starts in Settings (a connection test, later a deployment) is a request web
   writes to the database and notifies on `fleeto_integrations`; the workers make the call and write the result back, which the

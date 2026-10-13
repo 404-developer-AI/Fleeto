@@ -290,7 +290,15 @@ public static partial class CheckCatalog
             ],
             FleetoEvaluatedIntervalSeconds, 10, 50, _ => ThresholdKind.HigherIsWorse, _ => "GB",
             "Alert when the drive grew this many GB or more within the period.",
-            EvaluatedWhen: "after every storage scan")
+            EvaluatedWhen: "after every storage scan"),
+        new CheckTypeInfo(CheckType.ScheduledPatching, "Scheduled patching",
+            "Days since a scheduled deployment of the endpoint's patch policy last succeeded on it, so a patch round that fails or " +
+            "never runs is noticed. Until one succeeds, counted from when the automation of the policy first targeted the endpoint. " +
+            "Fleeto evaluates it after every patch sync and every scheduled deployment; an endpoint without a patch policy gets no result.",
+            CheckPlatforms.Windows, [],
+            FleetoEvaluatedIntervalSeconds, 8, 15, _ => ThresholdKind.HigherIsWorse, _ => "days",
+            "Alert when the last successful scheduled deployment is this many days ago or longer. For a weekly patch policy, 8 days means one round was missed.",
+            EvaluatedWhen: "after every patch sync and scheduled deployment")
     }.ToDictionary(t => t.Type);
 
     /// <summary>Parameter of a script check holding the script id.</summary>

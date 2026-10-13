@@ -116,6 +116,8 @@
     private IReadOnlyList<DeploymentView> _deployments = [];
     private HashSet<MissingUpdateView> _chosenUpdates = [];
     private bool _installingAgent;
+    private bool _removingAgent;
+    private bool _requestingSync;
     private IReadOnlyList<AlertView> _alerts = [];
     private IReadOnlyList<EndpointEventView> _events = [];
     private IReadOnlyList<AuditEntryView> _audit = [];
@@ -136,6 +138,7 @@
         Live.JobsChanged += OnJobsChange;
         Live.PatchDeploymentsChanged += OnDeploymentChange;
         Live.StorageScansChanged += OnStorageChange;
+        Live.PatchRequestsChanged += OnDeploymentChange;
     }
 
     protected override async Task OnParametersSetAsync()
@@ -250,7 +253,7 @@
         }
     }
 
-    // The payload is a deployment id, so the tab reloads its own deployments rather than matching on an endpoint id.
+    // The payload is a deployment or patch request id, so the tab reloads its own patch state rather than matching on an endpoint id.
     private void OnDeploymentChange(Guid _)
     {
         if (_tab == PatchesTab)
@@ -855,16 +858,35 @@
         }
         else if (patches.State is not { } state)
         {
-            <EmptyState Icon="@Icons.Material.Outlined.Security" Title="Not covered by patch management"
-                        Text="Action1 does not report this endpoint. It needs the Action1 agent; Fleeto matches the endpoint as soon as its own agent reports that agent." />
-            @if (CanManage && patches.CanInstallAgent)
+            <div class="d-flex justify-end mb-2">@SyncButton(patches)</div>
+            @PatchRequestNotice(patches)
+            @if (patches.AgentOnEndpoint.Length > 0)
             {
-                <div class="d-flex justify-center">
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.InstallDesktop"
-                               Disabled="_installingAgent" OnClick="InstallAction1AgentAsync">
-                        Install Action1 agent
-                    </MudButton>
-                </div>
+                <EmptyState Icon="@Icons.Material.Outlined.Security" Title="Not covered by patch management"
+                            Text="An Action1 agent runs on this endpoint, but Action1 does not report it in the organization of this client. Sync to read it again; if it registered elsewhere, remove it and install the agent of this client's organization." />
+                @if (CanManage && patches.CanRemoveAgentByJob)
+                {
+                    <div class="d-flex justify-center">
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Outlined.RemoveCircleOutline"
+                                   Disabled="_removingAgent" OnClick="@(() => RemoveAction1AgentAsync(false))">
+                            Remove Action1 agent
+                        </MudButton>
+                    </div>
+                }
+            }
+            else
+            {
+                <EmptyState Icon="@Icons.Material.Outlined.Security" Title="Not covered by patch management"
+                            Text="Action1 does not report this endpoint. It needs the Action1 agent; Fleeto matches the endpoint as soon as its own agent reports that agent." />
+                @if (CanManage && patches.CanInstallAgent)
+                {
+                    <div class="d-flex justify-center">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.InstallDesktop"
+                                   Disabled="_installingAgent" OnClick="InstallAction1AgentAsync">
+                            Install Action1 agent
+                        </MudButton>
+                    </div>
+                }
             }
         }
         else
@@ -879,7 +901,10 @@
                 <MudText Typo="Typo.body2" Class="muted">
                     Read <TimeText Value="state.UpdatedAt" />, Action1 last saw this endpoint <TimeText Value="state.ProductLastSeenAt" />
                 </MudText>
+                <MudSpacer />
+                @SyncButton(patches)
             </div>
+            @PatchRequestNotice(patches)
 
             @if (state.Coverage == PatchCoverage.Inactive)
             {
@@ -896,22 +921,36 @@
                 </tbody>
             </MudSimpleTable>
 
+            @if (patches.Schedule is { } schedule)
+            {
+                @PatchSchedule(schedule)
+            }
+
             @Deployments()
 
-            @if (CanManage && state.Coverage == PatchCoverage.Active && !state.IsCompliant)
+            @if (CanManage)
             {
-                <div class="d-flex gap-2 flex-wrap mb-3">
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.SystemUpdateAlt"
-                               OnClick="@(() => DeployAsync(null))">
-                        Deploy all missing updates
-                    </MudButton>
-                    @if (_chosenUpdates.Count > 0)
+                <div class="d-flex gap-2 flex-wrap align-center mb-3">
+                    @if (state.Coverage == PatchCoverage.Active && !state.IsCompliant)
                     {
-                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.PlaylistAddCheck"
-                                   OnClick="@(() => DeployAsync([.. _chosenUpdates]))">
-                            Deploy @Ui.Count(_chosenUpdates.Count, "chosen update")
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.SystemUpdateAlt"
+                                   OnClick="@(() => DeployAsync(null))">
+                            Deploy all missing updates
                         </MudButton>
+                        @if (_chosenUpdates.Count > 0)
+                        {
+                            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.PlaylistAddCheck"
+                                       OnClick="@(() => DeployAsync([.. _chosenUpdates]))">
+                                Deploy @Ui.Count(_chosenUpdates.Count, "chosen update")
+                            </MudButton>
+                        }
                     }
+                    <MudSpacer />
+                    <MudButton Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Outlined.RemoveCircleOutline"
+                               Disabled="@(_removingAgent || patches.LastRequest is { IsPending: true, Kind: PatchRequestKind.RemoveAgent })"
+                               OnClick="@(() => RemoveAction1AgentAsync(true))">
+                        Remove Action1 agent
+                    </MudButton>
                 </div>
             }
 
@@ -993,6 +1032,93 @@
     };
 
     /// <summary>
+    /// Reads this endpoint from Action1 now (0.6.0). The icon turns until the workers have done it, which the live update of
+    /// the request tells this tab.
+    /// </summary>
+    private RenderFragment SyncButton(EndpointPatchView patches) => __builder =>
+    {
+        @if (CanManage)
+        {
+            var syncing = _requestingSync || patches.LastRequest is { IsPending: true, Kind: PatchRequestKind.Sync };
+            <MudTooltip Text="Read the patch state, the missing updates and the next deployment of this endpoint from Action1 now">
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Outlined.Sync"
+                           Class="@(syncing ? "icon-spin" : null)" Disabled="syncing" OnClick="SyncPatchesAsync">
+                    @(syncing ? "Syncing" : "Sync")
+                </MudButton>
+            </MudTooltip>
+        }
+    };
+
+    /// <summary>What became of the last sync or removal of the Action1 agent, while it matters (0.6.0).</summary>
+    private RenderFragment PatchRequestNotice(EndpointPatchView patches) => __builder =>
+    {
+        var request = patches.LastRequest;
+        if (request is { IsPending: true, Kind: PatchRequestKind.RemoveAgent })
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                Fleeto asks Action1 to remove this endpoint and uninstall its agent.
+            </MudAlert>
+        }
+        else if (request is { CompletedAt: { } completed } && DateTime.UtcNow - completed < TimeSpan.FromDays(1))
+        {
+            if (request.Failure is { } failure)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                    @(request.Kind == PatchRequestKind.Sync ? "The sync" : "Removing the Action1 agent") did not succeed
+                    (<TimeText Value="completed" />): @failure
+                </MudAlert>
+            }
+            else if (request.Kind == PatchRequestKind.RemoveAgent)
+            {
+                <MudAlert Severity="Severity.Success" Dense="true" Class="mb-3">
+                    Action1 removed this endpoint (<TimeText Value="completed" />) and uninstalls its agent the next time the endpoint is online.
+                    Fleeto sees the agent gone with the next inventory.
+                </MudAlert>
+            }
+        }
+    };
+
+    /// <summary>
+    /// The patch policy of this endpoint and the next deployment Action1 planned for it (0.6.0). A policy in the endpoint's
+    /// own time shows the time as Action1 gives it, in that time zone; one in UTC shows in the user's time zone.
+    /// </summary>
+    private RenderFragment PatchSchedule(PatchScheduleView schedule) => __builder =>
+    {
+        <MudText Typo="Typo.h6" Class="section-title mb-2">Patch schedule</MudText>
+        <MudSimpleTable Dense="true" Elevation="0" Class="detail-table mb-3" Style="max-width:620px">
+            <tbody>
+                <tr><td class="muted">Patch policy</td><td>@(schedule.PolicyName ?? "None")</td></tr>
+                @if (schedule.PolicyName is not null)
+                {
+                    <tr><td class="muted">Schedule</td><td>@schedule.Schedule</td></tr>
+                    <tr>
+                        <td class="muted">Next deployment</td>
+                        <td>
+                            @if (schedule.NextRunAt is not { } next)
+                            {
+                                <span class="muted">Not known</span>
+                            }
+                            else if (schedule.EndpointLocalTime)
+                            {
+                                @next.ToString("ddd d MMM yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture)<span class="muted"> endpoint time</span>
+                            }
+                            else
+                            {
+                                <TimeText Value="next" Absolute="true" />
+                            }
+                        </td>
+                    </tr>
+                    <tr><td class="muted">Restart</td><td>@(schedule.AutoReboot ? "Action1 restarts the endpoint when an update needs it" : "No automatic restart")</td></tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+        @if (schedule.Problem is { } problem)
+        {
+            <MudAlert Severity="@(schedule.ProblemNeedsAction ? Severity.Warning : Severity.Info)" Dense="true" Class="mb-4">@problem</MudAlert>
+        }
+    };
+
+    /// <summary>
     /// The recent deployments of this endpoint, above the deploy buttons so a running one is seen before another starts.
     /// More than five scroll in a box the user can drag taller; it is back to five rows on the next visit.
     /// </summary>
@@ -1014,9 +1140,12 @@
                     <RowTemplate>
                         <MudTd><TimeText Value="context.RequestedAt" /></MudTd>
                         <MudTd>
-                            @(context.Scope == PatchDeploymentScope.Specified
-                                ? Ui.Count(context.UpdateNames.Count, "update")
-                                : "Every missing update")@(context.AutoReboot ? ", restart allowed" : "")
+                            @(context.Scope switch
+                            {
+                                PatchDeploymentScope.Specified => Ui.Count(context.UpdateNames.Count, "update"),
+                                PatchDeploymentScope.PatchPolicy => "Scheduled by its patch policy",
+                                _ => "Every missing update"
+                            })@(context.AutoReboot ? ", restart allowed" : "")
                         </MudTd>
                         <MudTd>
                             @if (context.Targets.FirstOrDefault(t => t.EndpointId == EndpointId) is { } target)
@@ -1029,7 +1158,7 @@
                             }
                         </MudTd>
                         <MudTd><StatusChip Text="@Ui.DeploymentStateLabel(context.State)" Kind="@Ui.DeploymentStateKind(context.State)" /></MudTd>
-                        <MudTd class="muted">@context.RequestedByName</MudTd>
+                        <MudTd class="muted">@(context.IsScheduled ? $"Patch policy {context.RequestedByName}" : context.RequestedByName)</MudTd>
                         <MudTd>
                             <MudTooltip Text="History from Action1">
                                 <MudIconButton Icon="@Icons.Material.Outlined.History" Size="Size.Small" aria-label="Deployment history from Action1"
@@ -1115,6 +1244,73 @@
         finally
         {
             _installingAgent = false;
+        }
+    }
+
+    private async Task SyncPatchesAsync()
+    {
+        if (_endpoint is null || _requestingSync)
+        {
+            return;
+        }
+
+        _requestingSync = true;
+        try
+        {
+            await RunAsync(caller => PatchSvc.RequestSyncAsync(caller, EndpointId), null);
+            await RefreshAsync();
+        }
+        finally
+        {
+            _requestingSync = false;
+        }
+    }
+
+    /// <summary>
+    /// Removes the Action1 agent from this endpoint (0.6.0): through Action1 when it reports the endpoint, which also drops
+    /// it from the Action1 console, otherwise with a signed job.
+    /// </summary>
+    private async Task RemoveAction1AgentAsync(bool throughAction1)
+    {
+        if (_endpoint is not { } endpoint || _removingAgent)
+        {
+            return;
+        }
+
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Remove the Action1 agent from {endpoint.Hostname}" },
+            {
+                d => d.Message,
+                throughAction1
+                    ? "Fleeto asks Action1 to remove this endpoint from its organization. Action1 then uninstalls its agent from the endpoint and stops patching it, " +
+                      "and the patch state and scheduled deployments of this endpoint stop in Fleeto. The Fleeto agent stays. Install the Action1 agent again to undo it."
+                    : "Fleeto sends a signed job that uninstalls the Action1 agent silently, without a restart. The Fleeto agent stays."
+            },
+            { d => d.ConfirmText, "Remove agent" },
+            { d => d.ConfirmColor, Color.Error }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if ((await dialog.Result)!.Canceled)
+        {
+            return;
+        }
+
+        _removingAgent = true;
+        try
+        {
+            var removed = await RunForValueAsync(caller => PatchSvc.RemoveAgentAsync(caller, endpoint.Id), null);
+            if (removed is { Success: true, Value: var viaAction1 })
+            {
+                Snackbar.Add(viaAction1
+                    ? "Fleeto asks Action1 to remove the agent. The outcome appears on this tab."
+                    : "The removal was started. Its result appears on the Jobs tab.", MudBlazor.Severity.Success);
+                await RefreshAsync();
+            }
+        }
+        finally
+        {
+            _removingAgent = false;
         }
     }
 
@@ -1813,6 +2009,7 @@
         Live.JobsChanged -= OnJobsChange;
         Live.PatchDeploymentsChanged -= OnDeploymentChange;
         Live.StorageScansChanged -= OnStorageChange;
+        Live.PatchRequestsChanged -= OnDeploymentChange;
         _refresh?.Dispose();
         base.Dispose();
     }

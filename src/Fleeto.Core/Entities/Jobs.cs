@@ -69,7 +69,13 @@ public enum JobType
     /// Installs the Action1 agent on a Windows endpoint (0.4.0 step 3). There is no script version: fleeto-signer
     /// composes the body from the installer link of the client's Action1 organization (see <c>Action1AgentInstall</c>).
     /// </summary>
-    Action1Agent
+    Action1Agent,
+
+    /// <summary>
+    /// Uninstalls an Action1 agent that Action1 does not report from a Windows endpoint (0.6.0). The body is fixed and
+    /// composed by fleeto-signer (see <c>Action1AgentRemoval</c>).
+    /// </summary>
+    Action1AgentRemoval
 }
 
 public enum JobState

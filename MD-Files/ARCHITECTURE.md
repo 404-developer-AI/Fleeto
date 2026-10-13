@@ -153,13 +153,14 @@ AuditEntry (append-only)
 | **OutboxEmail**, **OutboxWebhook** | `Id`, recipient or `NotificationChannelId`, `Category`, content or `Payload`, `Attempts`, `NextAttemptAt`, `SentAt?`, `LastError?` | Written in the transaction that changes the alert; delivered by the workers (§4, Alert notifications). Sent rows kept 30 days, given up rows 90 days. |
 | **Integration** | `Id`, `Type`, `Enabled`, `Region?`, `EncryptedCredentials`, `CredentialName`, `Status`, `StatusMessage?`, `LastAttemptAt?`, `LastSuccessAt?` | One external product per instance (unique on `Type`, 0.4.0). Credentials are ciphertext bound to the row, see §5; `CredentialName` is the client id, for display. `Region` is the Action1 region, which decides the base URL. `FollowClients` and `FollowMessage?` (0.6.0): Action1 follows the clients and sites (§4, Following clients and sites) and why that last failed. |
 | **IntegrationMapping** | `Id`, `IntegrationId`, `ClientId`, `ExternalTenantId`, `ExternalTenantName`, `SyncedName` | One external tenant (Action1 organization, Sophos tenant) maps to one client, and a client to one tenant: both unique per integration. Client-owned, so deleting the client removes it. `SyncedName` (0.6.0): the tenant name Fleeto last brought the tenant in step with; set to the tenant's own name when the mapping is made, so following clients renames every mapped tenant to `[CODE] Name` once and then again only when the client is renamed. |
-| **IntegrationAutomation** | `Id`, `IntegrationId`, `ClientId`, `ExternalTenantId`, `PatchPolicyId`, `ExternalAutomationId?`, `SyncedHash`, `SyncedAt?`, `LastError?` | The Action1 automation of one patch policy for one client (0.6.0), unique per integration, client and patch policy. No foreign key to the client or the patch policy on purpose: the row is how the workers find the automation to remove after either is gone. Written by the workers only; web shows `LastError` on the patch policy. `IntegrationMapping.OtherAutomationsJson` and `OtherAutomationsReadAt` hold the automations of the organization Fleeto does not manage, for the warning on the client. |
+| **IntegrationAutomation** | `Id`, `IntegrationId`, `ClientId`, `ExternalTenantId`, `PatchPolicyId`, `ExternalAutomationId?`, `SyncedHash`, `NextRunAt?`, `ReadAt?` (0.6.0), `SyncedAt?`, `LastError?` | The Action1 automation of one patch policy for one client (0.6.0), unique per integration, client and patch policy. No foreign key to the client or the patch policy on purpose: the row is how the workers find the automation to remove after either is gone. Written by the workers only; web shows `LastError` on the patch policy. `IntegrationMapping.OtherAutomationsJson` and `OtherAutomationsReadAt` hold the automations of the organization Fleeto does not manage, for the warning on the client. |
 | **IntegrationSiteGroup** | `Id`, `IntegrationId`, `ClientId`, `SiteId`, `ExternalTenantId`, `ExternalGroupId`, `SyncedName`, `MembersHash`, `MembersSyncedAt?` | The Action1 endpoint group of one site while the integration follows clients (0.6.0), unique per site. Deleted with its site (composite foreign key on `SiteId`, `ClientId`). Web reads, the workers write. |
 | **IntegrationOperation** | `Id`, `IntegrationId`, `Kind` (`CreateTenant`, `DeleteTenant`, `DeleteGroup`, `MoveEndpoint`), `TargetClientId?`, `ExternalTenantId`, `ExternalGroupId`, `ExternalEndpointId`, `Name`, `Attempts`, `LastError?`, `NextAttemptAt` | What the product still has to do for a client or site that was created or deleted (0.6.0). Written by web in the transaction of the change, done by the workers, dismissed by an admin. Not client-owned: a deletion outlives its client; a tenant waiting to be created goes with its client (`TargetClientId`, cascade). |
-| **EndpointPatchState**, **EndpointMissingUpdate** | `EndpointId`, `ClientId`, `ExternalEndpointId`, `ExternalTenantId`, `Coverage`, `MissingCritical`, `MissingOther`, `RebootRequired`, `ProductLastSeenAt?`, `ProductAgentVersion`, `UpdatedAt`; per update `ExternalUpdateId`, `Name`, `Vendor`, `Version`, `InstalledVersion`, `ReleaseDate?`, `KbNumber`, `UpdateType`, `ApprovalStatus`, `Severity`, `Cves` (0.6.0: the fields of `versions[0]` in Action1's answer), `RebootNeeded` (unused, kept for rollback) | Patch state per endpoint as the product last reported it (0.4.0), replaced on every sync and never kept as history. Detail rows exist only for endpoints that miss something. |
-| **PatchDeployment** | `Id`, `ClientId`, `BatchId`, `ExternalTenantId`, `ExternalDeploymentId`, `Scope` (`AllMissing`, `Specified`), `AutoReboot`, `State` (`Requested`, `Running`, `Completed`, `Failed`, `Abandoned`), `StatusMessage?`, `RequestedByUserId`, `RequestedByName`, `RequestedAt`, `StartedAt?`, `CompletedAt?`, `PolledAt?` | One deployment of updates (0.4.0 step 3), always within one client, because the product runs it per tenant. Web may only insert; the workers own every later change, so no state can be claimed that the product did not report. |
+| **EndpointPatchState**, **EndpointMissingUpdate** | `EndpointId`, `ClientId`, `ExternalEndpointId`, `ExternalTenantId`, `Coverage`, `MissingCritical`, `MissingOther`, `RebootRequired`, `ProductLastSeenAt?`, `ProductAgentVersion`, `UpdatedAt`, `AutomationId?`, `ScheduledPolicyId?`, `ScheduledSince?` (0.6.0); per update `ExternalUpdateId`, `Name`, `Vendor`, `Version`, `InstalledVersion`, `ReleaseDate?`, `KbNumber`, `UpdateType`, `ApprovalStatus`, `Severity`, `Cves` (0.6.0: the fields of `versions[0]` in Action1's answer), `RebootNeeded` (unused, kept for rollback) | Patch state per endpoint as the product last reported it (0.4.0), replaced on every sync and never kept as history. Detail rows exist only for endpoints that miss something. |
+| **PatchDeployment** | `Id`, `ClientId`, `BatchId`, `ExternalTenantId`, `ExternalDeploymentId`, `Scope` (`AllMissing`, `Specified`, `PatchPolicy`), `AutoReboot`, `State` (`Requested`, `Running`, `Completed`, `Failed`, `Abandoned`), `StatusMessage?`, `RequestedByUserId`, `RequestedByName`, `RequestedAt`, `StartedAt?`, `CompletedAt?`, `PolledAt?`, `PatchPolicyId?`, `ExternalAutomationId`, `FollowUntil?` (0.6.0) | One deployment of updates (0.4.0 step 3), always within one client, because the product runs it per tenant; scope `PatchPolicy` is a scheduled run of a patch policy, written by the workers (0.6.0). Web may only insert; the workers own every later change, so no state can be claimed that the product did not report. |
 | **PatchDeploymentTarget**, **PatchDeploymentUpdate** | Target: `Id`, `DeploymentId`, `ClientId`, `EndpointId`, `ExternalEndpointId`, `Hostname`, `State` (`Pending`, `Running`, `Succeeded`, `Failed`, `Unknown`), `Message?`, `UpdatedAt`. Update: `Id`, `DeploymentId`, `ClientId`, `ExternalUpdateId`, `Name`, `Version` | One row per endpoint of a deployment (unique per deployment and endpoint, so a re-read updates it), and one per chosen package. The host name is a copy from the moment it started, so the history reads the same after a rename. `StepsReadAt?` (0.6.0): when the workers last read the endpoint's history from the product, cleared by every change of state. |
 | **PatchDeploymentStep** | `Id`, `TargetId`, `ClientId`, `Position`, `Time?`, `Operation`, `Status`, `Details` | The history the product keeps for one endpoint of a deployment (0.6.0): Action1's "Automation History", such as "Deploy Update, Success, Installing 2026-09 .NET Framework Security Update (KB5126052)". Replaced as a whole on every read, deleted with its target (composite foreign key on `TargetId`, `ClientId`). Web reads, the workers write. |
+| **PatchRequest** | `Id`, `ClientId`, `EndpointId`, `Kind` (`Sync`, `RemoveAgent`), `ExternalTenantId`, `ExternalEndpointId`, `RequestedByUserId`, `RequestedByName`, `RequestedAt`, `CompletedAt?`, `Failure?` | A sync or agent removal a technician asked for on one endpoint (0.6.0). Web inserts, the workers carry it out and write the outcome; kept 7 days, gone with its endpoint. |
 | **User**, **Role** | `Id`, `Email`, `PasswordHash` (Argon2id), `TotpSecret` (encrypted), roles | Roles: admin, technician, read-only. |
 | **AuditEntry** | `Time`, `ClientId?`, `ActorId` (user or API key), `Action`, `TargetType`, `TargetId`, `Details` | Append-only; no update or delete path in code or DB grants. `ClientId` null for instance-wide actions. |
 
@@ -515,7 +516,11 @@ declined update or one without a release date; `MissingUpdateAge`), or 0 when th
 missing updates were not read in detail gets no result, because the counts alone say nothing about age. When Action1 stops
 reporting an endpoint, the states of its missing updates checks are removed and their open alerts resolve. Such a check
 stores a fixed interval (4 hours, the patch sync), and "run now" and "reset" are refused. The second is **Folder growth**
-(below, *Storage analysis*), written after every storage scan.
+(below, *Storage analysis*), written after every storage scan. The third is **Scheduled patching**: per endpoint that an
+automation of Fleeto targets (`EndpointPatchState.AutomationId`), the days since a scheduled deployment last succeeded on
+it, counted from `ScheduledSince` (when the automation of its current patch policy first targeted it) while none did;
+written after every patch sync, every sync of one endpoint and every change of a scheduled deployment. An endpoint without
+such an automation gets no result, and its checks of this type lose their state.
 
 **Instance health (0.6.0).** Every 5 minutes `InstanceHealthService` in the workers takes a sample: disk, memory, swap,
 CPU and load of the VPS from /proc (a container shares it with the host, so no Docker socket is needed; the disk is the file
@@ -1720,6 +1725,34 @@ managed, Fleeto wants no automations and removes them. A refusal is kept on the 
 patch policy; the same body is tried again after 30 minutes. At most 10 calls a pass, with the shared request budget. The
 credentials need `view_automations` and `manage_automations`.
 
+After every pass the workers record on the patch state of each endpoint which automation targets it (`AutomationId`), but
+only once Action1 holds the automation as Fleeto last wrote it; while a change waits, the endpoint keeps what it had. A
+different patch policy restarts `ScheduledSince`.
+
+**Scheduled deployments (0.6.0).** The listing of the automations also gives, per automation, `next_run` (stored as
+`IntegrationAutomation.NextRunAt` and shown on the Patches tab) and `last_instance`, the run Action1 started last. A run
+that is not yet a deployment becomes one (`ScheduledDeployments`): a `PatchDeployment` of scope `PatchPolicy` with the
+policy's id and name, the automation id, the instance id as its external id (unique per client for scheduled ones), and a
+target per endpoint that the automation targets in Fleeto. From there `PatchDeploymentService` follows it like any other
+deployment (endpoint results, history), but until `FollowUntil`: the retry window of the policy plus an hour, at least a
+day. A schedule runs at most once a day, so reading `last_instance` finds every run: the automations of an organization are
+read every hour, right after Fleeto wrote one of them, and 5 minutes after a planned run (`RunReadDelay`). Action1 writes
+`next_run` and `last_run` without a time zone; for a policy in UTC they are UTC, for a policy in the endpoint's own time the
+tab shows `next_run` as endpoint time and a run starts at the moment Fleeto found it.
+
+**Requests about one endpoint (0.6.0).** A technician asks from the Patches tab; web writes a `PatchRequest` (a trigger
+notifies `fleeto_patch_requests`) and `PatchRequestService` in the workers carries it out, at most 5 a pass, and writes the
+outcome on the row, which the tab shows live. **Sync** reads the endpoint (`GET /endpoints/managed/{orgId}/{endpointId}`,
+which may leave out the counts of missing updates; they are then taken from the list), its missing updates, and the
+automation that targets it (`GET /automations/schedules/{orgId}/{automationId}`: next run and a run that just happened),
+through the same code as the patch sync (`PatchStateWriter`); one request per endpoint a minute. An endpoint Action1 no
+longer holds loses its patch state. **Remove agent** calls `DELETE /endpoints/managed/{orgId}/{endpointId}`: Action1
+removes the endpoint from the organization and uninstalls its agent (permission `manage_endpoints`); Fleeto forgets the
+patch state at once and audits the outcome. For an agent the Fleeto agent reports but Action1 does not hold in the
+client's organization, web writes a job of type `Action1AgentRemoval` instead: like the install, fleeto-signer composes
+its fixed body (`Action1AgentRemoval`: `msiexec /x` of every installed "Action1 Agent" by product code, silent, no
+restart).
+
 **Following clients and sites (0.6.0).** With `Integration.FollowClients` on, Action1 is kept in step with Fleeto by
 `IntegrationFollowService` in the workers, woken on `fleeto_integrations` and running every minute. What cannot be read
 from the current state is an `IntegrationOperation` that web writes in the same transaction as the change: a new client
@@ -1762,7 +1795,9 @@ names the endpoint and binds the job to the body that link gives at that moment 
 runs that the technician did not ask for. A link is only accepted when it is https, on Action1's own domain and an MSI,
 with nothing in it that could end the quoted string it lands in (`Action1AgentInstall`). The job runs as SYSTEM, installs
 silently and never restarts. Windows only; Linux is not covered yet. There is no script in the library, so script
-approval does not apply — the same accepted risk as the agent update itself, documented in §5.
+approval does not apply — the same accepted risk as the agent update itself, documented in §5. From 0.6.0 web refuses the
+install when the Fleeto agent reports an Action1 agent, and the job itself stops without changes when it finds one (the
+key the Fleeto agent reads, or an "Action1 Agent" in the installed programs).
 
 The alert kind `patch_state` covers what makes the state untrustworthy, not the updates themselves: Action1 no longer
 patches the endpoint (`subscription_status` inactive, which happens above the licensed number of its subscription), or it
@@ -1772,7 +1807,7 @@ endpoint has none, and a license without the managed tier resolves the ones that
 
 | Integration | Data in | Actions out |
 |---|---|---|
-| Action1 | Patch compliance, missing updates, deployment status per endpoint | Start deployment, install Action1 agent via signed job |
+| Action1 | Patch compliance, missing updates, deployment status per endpoint, scheduled runs and next run of patch policy automations | Start deployment, keep patch policy automations, install or remove the Action1 agent (signed job or removal of the endpoint) |
 
 | Sophos Central | Endpoint health, detections | None in v1 |
 | Veeam | Backup job status | None in v1 |

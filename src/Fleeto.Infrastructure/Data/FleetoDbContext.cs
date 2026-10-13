@@ -110,6 +110,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<PatchDeploymentUpdate> PatchDeploymentUpdates => Set<PatchDeploymentUpdate>();
     public DbSet<PatchDeploymentTarget> PatchDeploymentTargets => Set<PatchDeploymentTarget>();
     public DbSet<PatchDeploymentStep> PatchDeploymentSteps => Set<PatchDeploymentStep>();
+    public DbSet<PatchRequest> PatchRequests => Set<PatchRequest>();
     public DbSet<IntegrationMapping> IntegrationMappings => Set<IntegrationMapping>();
     public DbSet<IntegrationSiteGroup> IntegrationSiteGroups => Set<IntegrationSiteGroup>();
     public DbSet<IntegrationAutomation> IntegrationAutomations => Set<IntegrationAutomation>();
@@ -978,6 +979,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(p => p.Coverage).HasConversion<string>().HasMaxLength(20);
             entity.Property(p => p.ProductAgentVersion).HasMaxLength(50);
             entity.Ignore(p => p.IsCompliant);
+            // The scheduled patching check and the Patches tab find the automation of an endpoint (0.6.0).
+            entity.HasIndex(p => p.AutomationId).HasFilter("\"AutomationId\" IS NOT NULL");
             // The dashboard and the client rollups count per client: how many endpoints have patch state, and how many of
             // those miss something.
             entity.HasIndex(p => new { p.ClientId, p.MissingCritical });
@@ -1009,7 +1012,10 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(d => d.State).HasConversion<string>().HasMaxLength(20);
             entity.Property(d => d.StatusMessage).HasMaxLength(1000);
             entity.Property(d => d.RequestedByName).HasMaxLength(200);
+            entity.Property(d => d.ExternalAutomationId).HasMaxLength(200).HasDefaultValue(string.Empty);
             entity.Ignore(d => d.IsOpen);
+            // A run of an automation becomes one scheduled deployment, however often the workers find it (0.6.0).
+            entity.HasIndex(d => new { d.ClientId, d.ExternalDeploymentId }).IsUnique().HasFilter("\"ExternalAutomationId\" <> ''");
             entity.HasAlternateKey(d => new { d.Id, d.ClientId });
             entity.HasOne<Client>().WithMany().HasForeignKey(d => d.ClientId).OnDelete(DeleteBehavior.Cascade);
             entity.HasMany(d => d.Updates).WithOne().HasForeignKey(u => u.DeploymentId).OnDelete(DeleteBehavior.Cascade);
@@ -1055,6 +1061,21 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 .HasForeignKey(s => new { s.TargetId, s.ClientId })
                 .HasPrincipalKey(t => new { t.Id, t.ClientId })
                 .OnDelete(DeleteBehavior.Cascade);
+            ClientOwned(entity);
+        });
+
+        // What a technician asked about the patch management of an endpoint (0.6.0): gone with the endpoint.
+        builder.Entity<PatchRequest>(entity =>
+        {
+            entity.Property(r => r.Kind).HasConversion<string>().HasMaxLength(20);
+            entity.Property(r => r.ExternalTenantId).HasMaxLength(200);
+            entity.Property(r => r.ExternalEndpointId).HasMaxLength(64);
+            entity.Property(r => r.RequestedByName).HasMaxLength(200);
+            entity.Property(r => r.Failure).HasMaxLength(1000);
+            // The workers pick up what waits; the Patches tab reads the newest of an endpoint.
+            entity.HasIndex(r => r.RequestedAt).HasFilter("\"CompletedAt\" IS NULL").HasDatabaseName("IX_PatchRequests_Pending");
+            entity.HasIndex(r => new { r.EndpointId, r.RequestedAt });
+            EndpointChild(entity, r => new { r.EndpointId, r.ClientId });
             ClientOwned(entity);
         });
 

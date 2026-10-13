@@ -97,7 +97,8 @@ public enum ApiPatchCoverage
 public enum ApiDeploymentScope
 {
     [JsonStringEnumMemberName("all_missing")] AllMissing,
-    [JsonStringEnumMemberName("specified")] Specified
+    [JsonStringEnumMemberName("specified")] Specified,
+    [JsonStringEnumMemberName("patch_policy")] PatchPolicy
 }
 
 /// <summary>Where a deployment stands (0.4.0).</summary>
@@ -277,12 +278,13 @@ public sealed record ApiPatchState(Guid EndpointId, ApiPatchCoverage Coverage, b
 public sealed record ApiDeploymentTarget(Guid EndpointId, string Hostname, ApiDeploymentTargetState State, string? Message);
 
 /// <summary>
-/// One deployment of updates started from Fleeto (0.4.0). It covers one client, so a run over several clients appears as
-/// one deployment per client with the same <c>batchId</c>.
+/// One deployment of updates started from Fleeto (0.4.0), or a scheduled run of a patch policy (0.6.0). It covers one
+/// client, so a run over several clients appears as one deployment per client with the same <c>batchId</c>.
 /// </summary>
+/// <param name="PatchPolicyId">The patch policy whose schedule ran it, for scope <c>patch_policy</c> (0.6.0); null otherwise.</param>
 public sealed record ApiDeployment(Guid Id, Guid BatchId, Guid ClientId, ApiDeploymentScope Scope, bool AutoReboot,
     ApiDeploymentState State, string? StatusMessage, string RequestedByName, DateTime RequestedAt, DateTime? CompletedAt,
-    IReadOnlyList<string> Updates, IReadOnlyList<ApiDeploymentTarget> Targets);
+    IReadOnlyList<string> Updates, IReadOnlyList<ApiDeploymentTarget> Targets, Guid? PatchPolicyId);
 
 public sealed record ApiInventory(Guid EndpointId, DateTime ReceivedAt, string Manufacturer, string Model, string SerialNumber, ApiCpu Cpu,
     long MemoryTotalBytes, DateTime? BootTime, string Domain, string LoggedOnUser, IReadOnlyList<ApiDisk> Disks,

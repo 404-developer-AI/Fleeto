@@ -6,6 +6,7 @@ using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Integrations;
 using Fleeto.Infrastructure.Integrations.Action1;
+using Fleeto.Workers.Alerts;
 using Fleeto.Workers.Integrations;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -113,7 +114,8 @@ public sealed class PatchDeploymentTests
         new(_fixture.Db.DbFactory, _fixture.Db.Bus,
             new Action1ClientFactory(_fixture.Db.SecretProtector, _fixture.Db.Time, NullLoggerFactory.Instance,
                 IntegrationBudgets.WorkerRequestsPerMinute, () => handler),
-            _fixture.Db.Licenses, _fixture.Heartbeat(), _fixture.Db.Time, NullLogger<PatchDeploymentService>.Instance);
+            new AlertNotificationService(_fixture.Db.Time), _fixture.Db.Licenses, _fixture.Heartbeat(), _fixture.Db.Time,
+            NullLogger<PatchDeploymentService>.Instance);
 
     private async Task<PatchDeployment> ReadAsync(Guid id)
     {
@@ -344,6 +346,50 @@ public sealed class PatchDeploymentTests
         var stored = await ReadAsync(deployment.Id);
         Assert.Equal(PatchDeploymentState.Failed, stored.State);
         Assert.Contains("Settings, Integrations", stored.StatusMessage);
+    }
+
+    [Fact]
+    public async Task A_scheduled_deployment_is_followed_past_a_day_and_its_success_clears_the_scheduled_patching_check()
+    {
+        var (client, _) = await SeedAsync("PDS" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        var endpoint = await CreateEndpointAsync(client, "SCHED-01");
+        var check = await _fixture.CreateCheckAsync(new Site { Id = endpoint.SiteId, ClientId = client.Id }, CheckType.ScheduledPatching,
+            warning: 8, critical: 15);
+        var startedAt = _fixture.Now - TimeSpan.FromHours(30);
+        var deployment = await RequestAsync(client, endpoint, "s1", requestedAt: startedAt, state: PatchDeploymentState.Running,
+            externalId: "run-30h");
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            // A policy that retries for two days: Fleeto follows it that long, not just a day.
+            await db.PatchDeployments.Where(d => d.Id == deployment.Id).ExecuteUpdateAsync(u => u
+                .SetProperty(d => d.Scope, PatchDeploymentScope.PatchPolicy)
+                .SetProperty(d => d.ExternalAutomationId, "automation-1")
+                .SetProperty(d => d.FollowUntil, startedAt + TimeSpan.FromHours(49)));
+            db.EndpointPatchStates.Add(new EndpointPatchState
+            {
+                EndpointId = endpoint.Id, ClientId = client.Id, ExternalEndpointId = "s1", ExternalTenantId = Tenant, UpdatedAt = _fixture.Now,
+                AutomationId = Guid.NewGuid(), ScheduledPolicyId = Guid.NewGuid(), ScheduledSince = _fixture.Now.AddDays(-20)
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await Service(new StubHandler { Results = [("s1", "Running")] }).RunAsync(CancellationToken.None);
+        Assert.Equal(PatchDeploymentState.Running, (await ReadAsync(deployment.Id)).State);
+
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            // Running is a change too: the check already counts the 20 days since the policy started on the endpoint.
+            Assert.Equal(20, (await db.CheckResults.AsNoTracking().SingleAsync(r => r.EndpointId == endpoint.Id && r.CheckDefinitionId == check.Id)).Value);
+            await db.CheckResults.Where(r => r.EndpointId == endpoint.Id).ExecuteDeleteAsync();
+            await db.PatchDeployments.Where(d => d.Id == deployment.Id).ExecuteUpdateAsync(u => u.SetProperty(d => d.PolledAt, (DateTime?)null));
+        }
+
+        await Service(new StubHandler { Results = [("s1", "Success")] }).RunAsync(CancellationToken.None);
+
+        Assert.Equal(PatchDeploymentState.Completed, (await ReadAsync(deployment.Id)).State);
+        await using var read = _fixture.Db.DbFactory.CreateSystem();
+        var result = await read.CheckResults.AsNoTracking().SingleAsync(r => r.EndpointId == endpoint.Id && r.CheckDefinitionId == check.Id);
+        Assert.Equal(0, result.Value);
     }
 
     private async Task<Endpoint> CreateEndpointAsync(Client client, string hostname)

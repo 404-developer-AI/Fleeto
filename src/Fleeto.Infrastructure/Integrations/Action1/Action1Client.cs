@@ -439,9 +439,9 @@ public sealed class Action1Client : IIntegration, IDisposable
                 var items = Items(document.RootElement);
                 foreach (var item in items)
                 {
-                    if (Text(item, "id") is { Length: > 0 } id)
+                    if (Action1AutomationInfo.From(item) is { } automation)
                     {
-                        automations.Add(new Action1AutomationInfo(id, Text(item, "name"), Text(item, "settings")));
+                        automations.Add(automation);
                     }
                 }
 
@@ -458,6 +458,64 @@ public sealed class Action1Client : IIntegration, IDisposable
             return IntegrationResult<IReadOnlyList<Action1AutomationInfo>>.Fail(ex.Message, ex.IsPermanent);
         }
     }
+
+    /// <summary>
+    /// One scheduled automation (0.6.0), with its next and last run; null when Action1 no longer has it. Read when a
+    /// technician syncs an endpoint, so the next run and a run that just happened show without waiting for the hourly read.
+    /// </summary>
+    public async Task<IntegrationResult<Action1AutomationInfo?>> GetAutomationAsync(string organizationId, string automationId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var document = await GetAsync(
+                $"automations/schedules/{Uri.EscapeDataString(organizationId)}/{Uri.EscapeDataString(automationId)}", null, cancellationToken);
+            return IntegrationResult<Action1AutomationInfo?>.Success(Action1AutomationInfo.From(document.RootElement));
+        }
+        catch (Action1Exception ex) when (ex.Status == HttpStatusCode.NotFound)
+        {
+            return IntegrationResult<Action1AutomationInfo?>.Success(null);
+        }
+        catch (Action1Exception ex)
+        {
+            return IntegrationResult<Action1AutomationInfo?>.Fail(ex.Message, ex.IsPermanent);
+        }
+    }
+
+    /// <summary>
+    /// One endpoint of an organization (0.6.0), for a technician who syncs it; null when the organization does not hold
+    /// it. Action1 may leave the counts of missing updates out of a single endpoint; <see cref="Action1EndpointRead.CountsKnown"/>
+    /// says whether they came along.
+    /// </summary>
+    public async Task<IntegrationResult<Action1EndpointRead?>> GetEndpointAsync(string organizationId, string endpointId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var document = await GetAsync(
+                $"endpoints/managed/{Uri.EscapeDataString(organizationId)}/{Uri.EscapeDataString(endpointId)}", null, cancellationToken);
+            var item = document.RootElement;
+            return IntegrationResult<Action1EndpointRead?>.Success(Action1Endpoint.From(item, organizationId) is { } endpoint
+                ? new Action1EndpointRead(endpoint, item.TryGetProperty("missing_updates", out var counts) && counts.ValueKind == JsonValueKind.Object)
+                : null);
+        }
+        catch (Action1Exception ex) when (ex.Status == HttpStatusCode.NotFound)
+        {
+            return IntegrationResult<Action1EndpointRead?>.Success(null);
+        }
+        catch (Action1Exception ex)
+        {
+            return IntegrationResult<Action1EndpointRead?>.Fail(ex.Message, ex.IsPermanent);
+        }
+    }
+
+    /// <summary>
+    /// Removes an endpoint from its organization, which makes Action1 uninstall its agent on the endpoint (0.6.0). Needs
+    /// <c>manage_endpoints</c>. An endpoint the organization no longer holds counts as removed.
+    /// </summary>
+    public Task<IntegrationResult> DeleteEndpointAsync(string organizationId, string endpointId, CancellationToken cancellationToken = default) =>
+        ChangeAsync(HttpMethod.Delete, $"endpoints/managed/{Uri.EscapeDataString(organizationId)}/{Uri.EscapeDataString(endpointId)}", null,
+            cancellationToken, goneIsDone: true);
 
     /// <summary>
     /// Creates a scheduled automation (0.6.0) and returns its id. Needs <c>manage_automations</c> on the role of the API

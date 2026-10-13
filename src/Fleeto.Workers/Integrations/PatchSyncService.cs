@@ -32,7 +32,7 @@ public sealed class PatchSyncService : WorkerLoop
     public static readonly TimeSpan SyncInterval = TimeSpan.FromHours(4);
 
     /// <summary>After this long without contact, the product's patch state is too old to mean anything.</summary>
-    public static readonly TimeSpan StaleAfter = TimeSpan.FromDays(7);
+    public static readonly TimeSpan StaleAfter = PatchStateWriter.StaleAfter;
 
     /// <summary>
     /// Endpoints whose missing updates are read in detail in one pass. The counts of every endpoint are always current;
@@ -171,25 +171,28 @@ public sealed class PatchSyncService : WorkerLoop
         await db.SaveChangesAsync(cancellationToken);
         await AlertCleanup.PublishAsync(_bus, transitions.Select(t => t.AlertId), cancellationToken);
         await _bus.PublishAsync(NotificationChannels.Integrations, IntegrationType.Action1.ToString(), cancellationToken);
-        await WriteCheckResultsAsync(db, synced, now, cancellationToken);
+        await WriteCheckResultsAsync(db, synced, gone, now, cancellationToken);
     }
 
     /// <summary>
-    /// Gives the missing updates checks their results from the patch state just stored (0.6.0), then wakes check
-    /// evaluation for those endpoints. After the patch state is saved, so a failure here never loses the sync; the next
-    /// pass writes the results again.
+    /// Gives the missing updates and scheduled patching checks their results from the patch state just stored (0.6.0), then
+    /// wakes check evaluation for those endpoints. After the patch state is saved, so a failure here never loses the sync;
+    /// the next pass writes the results again. An endpoint that left patch management loses its scheduled patching checks.
     /// </summary>
-    private async Task WriteCheckResultsAsync(FleetoDbContext db, IReadOnlyCollection<Guid> endpointIds, DateTime now,
+    private async Task WriteCheckResultsAsync(FleetoDbContext db, IReadOnlyCollection<Guid> endpointIds, IReadOnlyCollection<Guid> gone, DateTime now,
         CancellationToken cancellationToken)
     {
         var written = await MissingUpdateChecks.WriteResultsAsync(db, endpointIds, now, cancellationToken);
-        if (written.Count == 0)
+        var (scheduled, transitions) = await ScheduledPatchingChecks.EvaluateAsync(db, [.. endpointIds.Concat(gone)], now, cancellationToken);
+        if (written.Count == 0 && scheduled.Count == 0 && transitions.Count == 0)
         {
             return;
         }
 
+        await _notifier.AddNotificationsAsync(db, transitions, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
-        foreach (var endpointId in written)
+        await AlertCleanup.PublishAsync(_bus, transitions.Select(t => t.AlertId), cancellationToken);
+        foreach (var endpointId in written.Concat(scheduled).Distinct())
         {
             await _bus.PublishAsync(NotificationChannels.CheckResults, endpointId.ToString(), cancellationToken);
         }
@@ -268,7 +271,7 @@ public sealed class PatchSyncService : WorkerLoop
         var states = await db.EndpointPatchStates.Where(p => p.ClientId == mapping.ClientId).ToListAsync(cancellationToken);
         var statesByEndpoint = states.ToDictionary(p => p.EndpointId);
         var seen = new HashSet<Guid>();
-        var inMaintenance = await InMaintenanceAsync(db, mapping.ClientId, now, cancellationToken);
+        var inMaintenance = await PatchStateWriter.InMaintenanceAsync(db, mapping.ClientId, now, cancellationToken);
 
         foreach (var item in reported)
         {
@@ -280,36 +283,22 @@ public sealed class PatchSyncService : WorkerLoop
             }
 
             seen.Add(endpoint.Id);
-            if (!statesByEndpoint.TryGetValue(endpoint.Id, out var state))
-            {
-                state = new EndpointPatchState { EndpointId = endpoint.Id, ClientId = endpoint.ClientId };
-                db.EndpointPatchStates.Add(state);
-                statesByEndpoint[endpoint.Id] = state;
-            }
-
-            var wasCompliant = state.IsCompliant;
-            state.ExternalEndpointId = item.Id;
-            state.ExternalTenantId = mapping.ExternalTenantId;
-            state.Coverage = item.Coverage;
-            state.MissingCritical = item.MissingCritical;
-            state.MissingOther = item.MissingOther;
-            state.RebootRequired = item.RebootRequired;
-            state.ProductLastSeenAt = item.LastSeenAt;
-            state.ProductAgentVersion = item.AgentVersion.Length <= 50 ? item.AgentVersion : item.AgentVersion[..50];
-            state.UpdatedAt = now;
+            statesByEndpoint.TryGetValue(endpoint.Id, out var existing);
+            var wasCompliant = existing?.IsCompliant ?? true;
+            var state = PatchStateWriter.Store(db, existing, endpoint, item, mapping.ExternalTenantId, now);
+            statesByEndpoint[endpoint.Id] = state;
 
             if (!state.IsCompliant && detailBudget > 0 && (wasCompliant || state.MissingCritical > 0 || detailBudget > MaxDetailPerPass / 2))
             {
                 detailBudget--;
-                await ReadDetailAsync(db, client, mapping, endpoint, state, now, cancellationToken);
+                await PatchStateWriter.ReadDetailAsync(db, client, mapping.ExternalTenantId, endpoint, state, now, Logger, cancellationToken);
             }
             else if (state.IsCompliant)
             {
-                db.EndpointMissingUpdates.RemoveRange(
-                    await db.EndpointMissingUpdates.Where(u => u.EndpointId == endpoint.Id).ToListAsync(cancellationToken));
+                await PatchStateWriter.ClearDetailAsync(db, endpoint.Id, cancellationToken);
             }
 
-            await AlertAsync(db, endpoint, state, inMaintenance.Contains(endpoint.Id), transitions, now, cancellationToken);
+            await PatchStateWriter.AlertAsync(db, endpoint, state, inMaintenance.Contains(endpoint.Id), transitions, now, cancellationToken);
             synced.Add(endpoint.Id);
         }
 
@@ -317,131 +306,12 @@ public sealed class PatchSyncService : WorkerLoop
         // was true a week ago.
         foreach (var gone in states.Where(s => !seen.Contains(s.EndpointId) && s.ExternalTenantId == mapping.ExternalTenantId))
         {
-            db.EndpointPatchStates.Remove(gone);
             goneEndpoints.Add(gone.EndpointId);
-            db.EndpointMissingUpdates.RemoveRange(
-                await db.EndpointMissingUpdates.Where(u => u.EndpointId == gone.EndpointId).ToListAsync(cancellationToken));
-            await ResolveAsync(db, gone.EndpointId, transitions, now, "The endpoint is no longer in patch management.", cancellationToken);
+            await PatchStateWriter.ForgetAsync(db, gone, transitions, now, PatchStateWriter.GoneReason, cancellationToken);
         }
 
         return detailBudget;
     }
-
-    private async Task ReadDetailAsync(FleetoDbContext db, Action1Client client, IntegrationMapping mapping, Endpoint endpoint,
-        EndpointPatchState state, DateTime now, CancellationToken cancellationToken)
-    {
-        var updates = await client.ListMissingUpdatesAsync(mapping.ExternalTenantId, state.ExternalEndpointId, cancellationToken);
-        if (!updates.Ok)
-        {
-            Logger.LogInformation("The missing updates of endpoint {EndpointId} could not be read: {Message}", endpoint.Id, updates.Message);
-            return;
-        }
-
-        db.EndpointMissingUpdates.RemoveRange(
-            await db.EndpointMissingUpdates.Where(u => u.EndpointId == endpoint.Id).ToListAsync(cancellationToken));
-
-        foreach (var update in updates.Value ?? [])
-        {
-            db.EndpointMissingUpdates.Add(new EndpointMissingUpdate
-            {
-                Id = Guid.NewGuid(),
-                EndpointId = endpoint.Id,
-                ClientId = endpoint.ClientId,
-                ExternalUpdateId = Cut(update.Id, 200),
-                Name = Cut(update.Name, 300),
-                Vendor = Cut(update.Vendor, 200),
-                Version = Cut(update.Version, 100),
-                KbNumber = Cut(update.KbNumber, 20),
-                Severity = update.Severity,
-                InstalledVersion = Cut(update.InstalledVersion, 100),
-                ReleaseDate = update.ReleaseDate,
-                UpdateType = Cut(update.UpdateType, 50),
-                ApprovalStatus = Cut(update.ApprovalStatus, 20),
-                Cves = [.. update.Cves.Take(200)],
-                UpdatedAt = now
-            });
-        }
-    }
-
-    /// <summary>
-    /// Opens or resolves the alert about the patch state itself: the product does not patch this endpoint, or has not
-    /// seen it for too long. Missing updates are not an alert; they are the state the UI shows.
-    /// </summary>
-    private async Task AlertAsync(FleetoDbContext db, Endpoint endpoint, EndpointPatchState state, bool inMaintenance,
-        List<AlertTransition> transitions, DateTime now, CancellationToken cancellationToken)
-    {
-        var problem = state.Coverage == PatchCoverage.Inactive
-            ? $"{endpoint.Hostname} is not patched by Action1 any more. Check the Action1 subscription: endpoints above the licensed number become inactive."
-            : state.ProductLastSeenAt is { } seen && now - seen > StaleAfter
-                ? $"Action1 has not seen {endpoint.Hostname} since {seen:yyyy-MM-dd}. Its patch state is too old to rely on; check the Action1 agent on the endpoint."
-                : null;
-
-        var open = await db.Alerts.FirstOrDefaultAsync(
-            a => a.EndpointId == endpoint.Id && a.Kind == AlertKind.PatchState && a.State != AlertState.Resolved, cancellationToken);
-
-        if (problem is null)
-        {
-            if (open is not null)
-            {
-                open.State = AlertState.Resolved;
-                open.ResolvedAt = now;
-                open.ResolvedReason = "Action1 patches this endpoint again.";
-                open.UpdatedAt = now;
-                transitions.Add(new AlertTransition(open.Id, NotificationEvent.Resolved));
-            }
-
-            return;
-        }
-
-        if (open is not null || inMaintenance)
-        {
-            // An endpoint in maintenance opens no alerts (CLAUDE.md, Maintenance mode); the state is stored either way.
-            return;
-        }
-
-        var alert = new Alert
-        {
-            Id = Guid.NewGuid(),
-            ClientId = endpoint.ClientId,
-            EndpointId = endpoint.Id,
-            Kind = AlertKind.PatchState,
-            Target = state.Coverage == PatchCoverage.Inactive ? "coverage" : "stale",
-            Severity = AlertSeverity.Warning,
-            State = AlertState.Open,
-            Title = Cut(problem, 500),
-            Detail = Cut($"Missing updates: {state.MissingCritical} critical, {state.MissingOther} other.", 2000),
-            OpenedAt = now,
-            UpdatedAt = now
-        };
-        db.Alerts.Add(alert);
-        transitions.Add(new AlertTransition(alert.Id, NotificationEvent.Opened));
-    }
-
-    private async Task ResolveAsync(FleetoDbContext db, Guid endpointId, List<AlertTransition> transitions, DateTime now, string reason,
-        CancellationToken cancellationToken)
-    {
-        var open = await db.Alerts.FirstOrDefaultAsync(
-            a => a.EndpointId == endpointId && a.Kind == AlertKind.PatchState && a.State != AlertState.Resolved, cancellationToken);
-        if (open is null)
-        {
-            return;
-        }
-
-        open.State = AlertState.Resolved;
-        open.ResolvedAt = now;
-        open.ResolvedReason = reason;
-        open.UpdatedAt = now;
-        transitions.Add(new AlertTransition(open.Id, NotificationEvent.Resolved));
-    }
-
-    /// <summary>The endpoints of the client that are in maintenance right now, by any of the four ways maintenance applies.</summary>
-    private static async Task<HashSet<Guid>> InMaintenanceAsync(FleetoDbContext db, Guid clientId, DateTime now,
-        CancellationToken cancellationToken) =>
-        [.. await db.Endpoints
-            .Where(e => e.ClientId == clientId)
-            .Where(MaintenanceRules.EndpointInMaintenance(now, db.MaintenanceWindowOccurrences, EffectivePolicies.Query(db)))
-            .Select(e => e.Id)
-            .ToListAsync(cancellationToken)];
 
     private static string Cut(string value, int max) => value.Length <= max ? value : value[..max];
 }

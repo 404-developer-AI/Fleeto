@@ -335,7 +335,7 @@ public sealed class PublicApiQueries
         return new ManagedRead<IReadOnlyList<ApiDeployment>>(true, [.. deployments.Select(d => new ApiDeployment(
             d.Id, d.BatchId, d.ClientId, Map(d.Scope), d.AutoReboot, Map(d.State), d.StatusMessage, d.RequestedByName,
             Utc(d.RequestedAt), UtcOrNull(d.CompletedAt), d.UpdateNames,
-            [.. d.Targets.Select(t => new ApiDeploymentTarget(t.EndpointId, t.Hostname, Map(t.State), t.Message))]))]);
+            [.. d.Targets.Select(t => new ApiDeploymentTarget(t.EndpointId, t.Hostname, Map(t.State), t.Message))], d.PatchPolicyId))]);
     }
 
     /// <summary>Null when the endpoint does not exist.</summary>
@@ -516,7 +516,13 @@ public sealed class PublicApiQueries
             j.StartedAt, j.CompletedAt, j.OutputState, j.OutputTruncated, j.ReceivedOutputBytes));
 
     private static ApiJob ToApi(JobRow j) =>
-        new(j.Id, j.BatchId, j.ClientId, j.EndpointId, j.Type switch { JobType.Script => "script", _ => throw Unmapped(j.Type) },
+        new(j.Id, j.BatchId, j.ClientId, j.EndpointId, j.Type switch
+            {
+                JobType.Script => "script",
+                JobType.Action1Agent => "action1_agent_install",
+                JobType.Action1AgentRemoval => "action1_agent_removal",
+                _ => throw Unmapped(j.Type)
+            },
             new ApiJobScript(j.ScriptId, j.ScriptVersionId, j.ScriptName, j.ScriptVersionNumber, Map(j.Language), j.ScriptSha256), Map(j.RunAs),
             j.RunAsAccount, j.RunAsChosenAccount, Map(j.State), j.Result is { } result ? Map(result) : null, j.ExitCode, j.Problem, j.InitiatedByName, Utc(j.CreatedAt), Utc(j.ValidUntil),
             UtcOrNull(j.DeliveredAt), UtcOrNull(j.StartedAt), UtcOrNull(j.CompletedAt), new ApiJobOutputSummary(Map(j.OutputState), j.OutputTruncated,
@@ -617,6 +623,7 @@ public sealed class PublicApiQueries
     {
         PatchDeploymentScope.AllMissing => ApiDeploymentScope.AllMissing,
         PatchDeploymentScope.Specified => ApiDeploymentScope.Specified,
+        PatchDeploymentScope.PatchPolicy => ApiDeploymentScope.PatchPolicy,
         _ => throw Unmapped(value)
     };
 

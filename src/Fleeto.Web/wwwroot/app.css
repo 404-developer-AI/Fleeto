@@ -312,6 +312,11 @@ button.tag-chip:focus-visible { outline: 2px solid var(--fl-primary); outline-of
 .deployment-list-scroll .mud-table-container { overflow: visible; }
 .deployment-list-scroll .mud-table-head th { position: sticky; top: 0; z-index: 1; background: var(--fl-surface); }
 
+/* An icon that turns while the workers are busy, such as the Sync button of the Patches tab (0.6.0). */
+@keyframes fl-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.icon-spin .mud-button-icon-start svg, .icon-spin.mud-icon-button svg { animation: fl-spin 1.2s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .icon-spin .mud-button-icon-start svg, .icon-spin.mud-icon-button svg { animation: none; } }
+
 /* Sign-in and setup pages (static HTML forms) */
 .login-background { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box; background: var(--fl-bg); }
 .login-card { background: var(--fl-surface); border: 1px solid var(--fl-border); border-radius: 16px; padding: 36px 40px; width: 100%; max-width: 420px; box-shadow: var(--fl-shadow-lg); box-sizing: border-box; }

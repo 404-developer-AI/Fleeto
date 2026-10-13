@@ -56,6 +56,22 @@ When a third released version is added, the oldest entry moves to the top of
   a site follows the client unless it has its own. The sites fold open one at a time.
 - The history Action1 keeps per endpoint of a deployment, its "Automation History", opens from the Patches tab of the
   endpoint: operation, time, status and details, newest first, refreshed while the deployment runs.
+- Scheduled deployments: every run of a patch policy in Action1 appears in the deployments of the Patches tab, with the
+  result per endpoint and the history Action1 keeps, so you see whether the Monday round with its restart happened. Fleeto
+  finds a run within minutes after it was planned and at the latest within the hour, and follows it as long as the patch
+  policy lets Action1 retry endpoints. The public API reports them with scope `patch_policy` and `patchPolicyId`.
+- The Patches tab shows the patch schedule of the endpoint: its patch policy, the schedule in words, whether Action1
+  restarts the endpoint, and when Action1 planned the next deployment. When no deployment is planned it says why: no patch
+  policy, a policy that is switched off, an automation Action1 refused, or Fleeto still writing it.
+- A Sync button on the Patches tab reads the endpoint from Action1 at once: its patch state, missing updates, the next
+  deployment and a scheduled deployment that just ran. Its icon turns until the workers are done; a sync that fails says
+  why. One sync per endpoint a minute.
+- Remove the Action1 agent from the Patches tab. When Action1 reports the endpoint, Fleeto asks Action1 to remove it from
+  its organization, which uninstalls the agent and frees its place in the subscription; otherwise a signed job uninstalls
+  the agent. The Action1 API credentials need permission to manage endpoints. Both are in the audit log.
+- A "Scheduled patching" check for monitoring templates: the days since a scheduled deployment of the endpoint's patch
+  policy last succeeded on it, so a round that fails or never runs raises an alert. Until one succeeds, it counts from the
+  day the policy started on the endpoint; an endpoint without a patch policy gets no result.
 - Tags on clients, in the way of Proxmox. Type a tag when you create a client, or later under Client settings, Edit
   tags, or pick one that exists; a new tag gets a color from its name. Tags show below the client name in the clients panel (three, and
   the number of the others) and in the client header; the tag button next to the search filters on one or more tags, and
@@ -129,6 +145,10 @@ When a third released version is added, the oldest entry moves to the top of
   windows always clean up after themselves.
 - The gateway refuses a certificate from an unknown authority also when it runs on Windows, instead of failing on it.
 - The build has no warnings left.
+- Installing the Action1 agent is no longer offered, and the job stops without changes, when an Action1 agent is already
+  on the endpoint. The Patches tab says when an agent runs there that Action1 does not report for this client.
+- The public API listed no jobs at all once an endpoint had a job that installs the Action1 agent: it failed on the type
+  of that job. It now reports it as `action1_agent_install`.
 
 ### Security
 

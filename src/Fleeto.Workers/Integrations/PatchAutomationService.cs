@@ -34,6 +34,12 @@ public sealed class PatchAutomationService : WorkerLoop
     /// <summary>How often the automations of each organization are read, to find removed ones and the ones Fleeto does not manage.</summary>
     public static readonly TimeSpan ReadInterval = TimeSpan.FromHours(1);
 
+    /// <summary>
+    /// How long after its planned run an automation is read again, so the run shows as a scheduled deployment within minutes
+    /// instead of within the hour (0.6.0).
+    /// </summary>
+    public static readonly TimeSpan RunReadDelay = TimeSpan.FromMinutes(5);
+
     /// <summary>After Action1 refused an automation, it is tried again after this long unless the policy or its targets change.</summary>
     public static readonly TimeSpan RefusedRetry = TimeSpan.FromMinutes(30);
 
@@ -92,10 +98,16 @@ public sealed class PatchAutomationService : WorkerLoop
 
         var now = Time.GetUtcNow().UtcDateTime;
         var budget = new Budget();
+        var written = new HashSet<string>(StringComparer.Ordinal);
+        IReadOnlyList<PatchDeployment> started = [];
         try
         {
             var wanted = await WantedAsync(db, integration.Id, cancellationToken);
             var rows = await db.IntegrationAutomations.Where(a => a.IntegrationId == integration.Id).ToListAsync(cancellationToken);
+            // Only the endpoints an automation targets now or should target: at 10,000 endpoints every minute counts.
+            var targeted = wanted.Values.SelectMany(t => t.FleetoEndpointIds).ToList();
+            var states = await db.EndpointPatchStates.Where(p => p.AutomationId != null || targeted.Contains(p.EndpointId))
+                .ToListAsync(cancellationToken);
 
             var unwanted = rows.Where(r => !wanted.TryGetValue((r.ClientId, r.PatchPolicyId), out var target) || target.TenantId != r.ExternalTenantId)
                 .ToList();
@@ -162,6 +174,8 @@ public sealed class PatchAutomationService : WorkerLoop
                     if (updated.Value)
                     {
                         row.SyncedAt = now;
+                        // The schedule may have changed, and with it the next run: read it again in this pass.
+                        written.Add(row.ExternalTenantId);
                         continue;
                     }
 
@@ -174,10 +188,13 @@ public sealed class PatchAutomationService : WorkerLoop
                 {
                     row.ExternalAutomationId = created.Value;
                     row.SyncedAt = now;
+                    row.NextRunAt = null;
+                    written.Add(row.ExternalTenantId);
                 }
             }
 
-            await ReadOrganizationsAsync(db, integration.Id, client, rows, budget, now, cancellationToken);
+            LinkEndpoints(wanted, rows, states, now);
+            started = await ReadOrganizationsAsync(db, integration.Id, client, rows, written, budget, now, cancellationToken);
             _breaker.RecordSuccess();
         }
         catch (TransientException)
@@ -186,6 +203,58 @@ public sealed class PatchAutomationService : WorkerLoop
         }
 
         await db.SaveChangesAsync(cancellationToken);
+        foreach (var deployment in started)
+        {
+            await _bus.PublishAsync(NotificationChannels.PatchDeployments, deployment.Id.ToString(), cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Records on the patch state of every endpoint which automation of Fleeto targets it (0.6.0), for the next run on the
+    /// Patches tab and the scheduled patching check. Only an automation Action1 holds as Fleeto last wrote it counts; while
+    /// one waits for a change, its endpoints keep what they had. A different patch policy starts the count of the check again.
+    /// </summary>
+    private static void LinkEndpoints(Dictionary<(Guid ClientId, Guid PatchPolicyId), Target> wanted, List<IntegrationAutomation> rows,
+        List<EndpointPatchState> states, DateTime now)
+    {
+        var current = new Dictionary<Guid, IntegrationAutomation>();
+        var waiting = new HashSet<Guid>();
+        foreach (var ((clientId, policyId), target) in wanted)
+        {
+            var row = rows.SingleOrDefault(r => r.ClientId == clientId && r.PatchPolicyId == policyId);
+            var inStep = row is { ExternalAutomationId: not null, LastError: null } &&
+                         row.SyncedHash == Hash(new Action1Automation(target.Policy, target.EndpointIds));
+            foreach (var endpointId in target.FleetoEndpointIds)
+            {
+                if (inStep)
+                {
+                    current[endpointId] = row!;
+                }
+                else
+                {
+                    waiting.Add(endpointId);
+                }
+            }
+        }
+
+        foreach (var state in states)
+        {
+            if (current.TryGetValue(state.EndpointId, out var row))
+            {
+                state.AutomationId = row.Id;
+                if (state.ScheduledPolicyId != row.PatchPolicyId || state.ScheduledSince is null)
+                {
+                    state.ScheduledPolicyId = row.PatchPolicyId;
+                    state.ScheduledSince = now;
+                }
+            }
+            else if (!waiting.Contains(state.EndpointId) && state.AutomationId is not null)
+            {
+                state.AutomationId = null;
+                state.ScheduledPolicyId = null;
+                state.ScheduledSince = null;
+            }
+        }
     }
 
     /// <summary>
@@ -210,7 +279,7 @@ public sealed class PatchAutomationService : WorkerLoop
                           where m.IntegrationId == integrationId && e.Tier == EndpointTier.Managed && ep.PatchPolicyId != null &&
                                 ps.ExternalEndpointId != "" &&
                                 ps.ExternalTenantId == m.ExternalTenantId
-                          select new { e.ClientId, PatchPolicyId = ep.PatchPolicyId!.Value, m.ExternalTenantId, ps.ExternalEndpointId })
+                          select new { EndpointId = e.Id, e.ClientId, PatchPolicyId = ep.PatchPolicyId!.Value, m.ExternalTenantId, ps.ExternalEndpointId })
             .ToListAsync(cancellationToken);
         if (rows.Count == 0)
         {
@@ -222,25 +291,35 @@ public sealed class PatchAutomationService : WorkerLoop
         return rows.Where(r => policies.ContainsKey(r.PatchPolicyId))
             .GroupBy(r => (r.ClientId, r.PatchPolicyId))
             .ToDictionary(g => g.Key, g => new Target(g.First().ExternalTenantId, policies[g.Key.PatchPolicyId],
-                g.Select(r => r.ExternalEndpointId).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList()));
+                g.Select(r => r.ExternalEndpointId).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList(),
+                [.. g.Select(r => r.EndpointId).Distinct()]));
     }
 
     /// <summary>
-    /// Reads the automations of each mapped organization once per <see cref="ReadInterval"/>: an automation of Fleeto that
-    /// is gone is created again on the next pass, and the others are recorded for the warning in the UI.
+    /// Reads the automations of each mapped organization once per <see cref="ReadInterval"/>, right after Fleeto wrote one
+    /// of them, and shortly after one was planned to run: an automation of Fleeto that is gone is created again on the next
+    /// pass, the next and last run of the others are recorded (0.6.0), and the automations Fleeto does not manage are
+    /// recorded for the warning in the UI. Returns the scheduled deployments it found.
     /// </summary>
-    private async Task ReadOrganizationsAsync(FleetoDbContext db, Guid integrationId, Action1Client client, List<IntegrationAutomation> rows,
-        Budget budget, DateTime now, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<PatchDeployment>> ReadOrganizationsAsync(FleetoDbContext db, Guid integrationId, Action1Client client,
+        List<IntegrationAutomation> rows, IReadOnlySet<string> written, Budget budget, DateTime now, CancellationToken cancellationToken)
     {
-        var due = await db.IntegrationMappings
-            .Where(m => m.IntegrationId == integrationId && (m.OtherAutomationsReadAt == null || m.OtherAutomationsReadAt < now - ReadInterval))
-            .OrderBy(m => m.OtherAutomationsReadAt)
-            .ToListAsync(cancellationToken);
+        var started = new List<PatchDeployment>();
+        var ran = rows.Where(r => r.NextRunAt is { } next && next + RunReadDelay <= now && (r.ReadAt is null || r.ReadAt < next + RunReadDelay))
+            .Select(r => r.ExternalTenantId)
+            .ToHashSet(StringComparer.Ordinal);
+        var due = (await db.IntegrationMappings
+                .Where(m => m.IntegrationId == integrationId)
+                .OrderBy(m => m.OtherAutomationsReadAt)
+                .ToListAsync(cancellationToken))
+            .Where(m => m.OtherAutomationsReadAt is null || m.OtherAutomationsReadAt < now - ReadInterval ||
+                        written.Contains(m.ExternalTenantId) || ran.Contains(m.ExternalTenantId))
+            .ToList();
         foreach (var mapping in due)
         {
             if (!budget.Spend())
             {
-                return;
+                break;
             }
 
             var listed = await client.ListAutomationsAsync(mapping.ExternalTenantId, cancellationToken);
@@ -258,14 +337,24 @@ public sealed class PatchAutomationService : WorkerLoop
             }
 
             var ours = rows.Where(r => r.ExternalTenantId == mapping.ExternalTenantId && r.ExternalAutomationId is not null).ToList();
-            var present = listed.Value!.Select(a => a.Id).ToHashSet(StringComparer.Ordinal);
-            foreach (var gone in ours.Where(r => !present.Contains(r.ExternalAutomationId!)))
+            var present = listed.Value!.GroupBy(a => a.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+            var ourIds = ours.Select(r => r.ExternalAutomationId).ToHashSet(StringComparer.Ordinal);
+            foreach (var row in ours)
             {
-                gone.ExternalAutomationId = null;
-                gone.UpdatedAt = now;
+                if (!present.TryGetValue(row.ExternalAutomationId!, out var info))
+                {
+                    row.ExternalAutomationId = null;
+                    row.NextRunAt = null;
+                    row.UpdatedAt = now;
+                    continue;
+                }
+
+                if (await ScheduledDeployments.RecordAsync(db, row, info, now, cancellationToken) is { } deployment)
+                {
+                    started.Add(deployment);
+                }
             }
 
-            var ourIds = ours.Select(r => r.ExternalAutomationId).ToHashSet(StringComparer.Ordinal);
             var others = listed.Value!.Where(a => !ourIds.Contains(a.Id))
                 .OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase)
                 .Select(a => new OtherAutomation(a.Name, a.Settings))
@@ -273,6 +362,8 @@ public sealed class PatchAutomationService : WorkerLoop
             mapping.OtherAutomationsJson = OtherAutomation.Serialize(others);
             mapping.OtherAutomationsReadAt = now;
         }
+
+        return started;
     }
 
     /// <summary>
@@ -319,7 +410,7 @@ public sealed class PatchAutomationService : WorkerLoop
 
     private static string Cut(string value, int length) => value.Length <= length ? value : value[..length];
 
-    private sealed record Target(string TenantId, PatchPolicy Policy, IReadOnlyList<string> EndpointIds);
+    private sealed record Target(string TenantId, PatchPolicy Policy, IReadOnlyList<string> EndpointIds, IReadOnlyList<Guid> FleetoEndpointIds);
 
     private sealed class Budget
     {

@@ -158,6 +158,72 @@ public sealed class PatchAutomationTests
     }
 
     [Fact]
+    public async Task Endpoints_know_their_automation_its_next_run_is_read_and_each_run_becomes_one_scheduled_deployment()
+    {
+        var integration = await SeedAsync();
+        var (client, servers, _) = await MappedClientAsync(integration, "org-c");
+        var server = await ReportedEndpointAsync(servers, "org-c", "c1");
+        var policy = await PatchPolicyAsync("Weekly");
+        await AddAsync(new ClientPatchPolicy { ClientId = client.Id, PatchPolicyId = policy.Id, CreatedAt = Now });
+        var action1 = new FakeAction1();
+
+        // The automation is written and read back in the same pass, so its next run is known at once.
+        await Service(action1).SyncAsync(CancellationToken.None);
+
+        IntegrationAutomation row;
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            row = await db.IntegrationAutomations.AsNoTracking().SingleAsync(a => a.ClientId == client.Id);
+            Assert.Equal(new DateTime(2026, 12, 2, 20, 0, 0), row.NextRunAt);
+            var state = await db.EndpointPatchStates.AsNoTracking().SingleAsync(s => s.EndpointId == server.Id);
+            Assert.Equal((row.Id, policy.Id), (state.AutomationId, state.ScheduledPolicyId));
+            // PostgreSQL keeps microseconds, the clock of the test has ticks.
+            Assert.Equal(Now, state.ScheduledSince!.Value, TimeSpan.FromMilliseconds(1));
+            Assert.False(await db.PatchDeployments.AnyAsync(d => d.ClientId == client.Id));
+        }
+
+        // Action1 ran it: the next read turns the run into a scheduled deployment of the endpoints Fleeto put in it.
+        action1.LastInstances[row.ExternalAutomationId!] = "run-1";
+        await ReadAgainAsync(client.Id);
+        await Service(action1).SyncAsync(CancellationToken.None);
+        await ReadAgainAsync(client.Id);
+        await Service(action1).SyncAsync(CancellationToken.None);
+
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var deployment = await db.PatchDeployments.AsNoTracking().Include(d => d.Targets).SingleAsync(d => d.ClientId == client.Id);
+            Assert.Equal((PatchDeploymentScope.PatchPolicy, "run-1", row.ExternalAutomationId, policy.Id, policy.Name),
+                (deployment.Scope, deployment.ExternalDeploymentId, deployment.ExternalAutomationId, deployment.PatchPolicyId, deployment.RequestedByName));
+            Assert.Equal(PatchDeploymentState.Running, deployment.State);
+            // Followed as long as Action1 retries endpoints for this policy, plus an hour.
+            Assert.Equal(deployment.StartedAt + TimeSpan.FromHours(policy.RetryHours + 1), deployment.FollowUntil);
+            var target = Assert.Single(deployment.Targets);
+            Assert.Equal((server.Id, "c1", PatchDeploymentTargetState.Pending), (target.EndpointId, target.ExternalEndpointId, target.State));
+        }
+
+        // The policy no longer applies: the endpoint forgets its automation.
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            await db.ClientPatchPolicies.Where(l => l.ClientId == client.Id).ExecuteDeleteAsync();
+        }
+
+        await Service(action1).SyncAsync(CancellationToken.None);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var state = await db.EndpointPatchStates.AsNoTracking().SingleAsync(s => s.EndpointId == server.Id);
+            Assert.Equal((null, null, null), (state.AutomationId, state.ScheduledPolicyId, state.ScheduledSince));
+        }
+    }
+
+    /// <summary>Makes the automations of the client's organization due for their hourly read.</summary>
+    private async Task ReadAgainAsync(Guid clientId)
+    {
+        await using var db = _fixture.Db.DbFactory.CreateSystem();
+        await db.IntegrationMappings.Where(m => m.ClientId == clientId)
+            .ExecuteUpdateAsync(u => u.SetProperty(m => m.OtherAutomationsReadAt, (DateTime?)null));
+    }
+
+    [Fact]
     public async Task An_automation_removed_in_the_console_comes_back_a_refusal_is_kept_and_a_deleted_policy_takes_its_automation_along()
     {
         var integration = await SeedAsync();
@@ -218,6 +284,13 @@ public sealed class PatchAutomationTests
         private int _next;
 
         public Dictionary<string, FakeAutomation> Automations { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>The run Action1 started last, per automation id (0.6.0).</summary>
+        public Dictionary<string, string> LastInstances { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>The next run every automation reports, in Action1's notation (0.6.0).</summary>
+        public string NextRun { get; set; } = "2026-12-02_20-00-00";
+
         public int Writes { get; private set; }
         public bool Refuse { get; set; }
 
@@ -235,7 +308,11 @@ public sealed class PatchAutomationTests
             if (request.Method == HttpMethod.Get)
             {
                 var items = Automations.Where(a => a.Value.Organization == organization)
-                    .Select(a => new { id = a.Key, name = a.Value.Name, settings = a.Value.Settings }).ToList();
+                    .Select(a => new
+                    {
+                        id = a.Key, name = a.Value.Name, settings = a.Value.Settings, next_run = NextRun,
+                        last_instance = LastInstances.TryGetValue(a.Key, out var instance) ? "/API/automations/instances/" + instance : ""
+                    }).ToList();
                 return Json(HttpStatusCode.OK, JsonSerializer.Serialize(new { items, total_items = items.Count }));
             }
 

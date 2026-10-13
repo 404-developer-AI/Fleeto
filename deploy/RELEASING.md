@@ -78,7 +78,7 @@ under `agentBinaries`; the binaries themselves carry no separate signature.
 - An agent or watchdog installs a binary only when the manifest signature verifies against the release keys compiled
   into it, the version is newer than the installed one, and the downloaded file has the listed size and SHA-256. A
   compromised instance can therefore withhold an update but never push a binary of its own.
-- Authenticode signing of the Windows binaries is planned separately (0.2.1 roadmap); it does not replace this check.
+- Authenticode signing of the Windows binaries is planned separately (ROADMAP, Later); it does not replace this check.
 
 For local development, `pwsh tools/dev/build-agent.ps1 -Sign [-Version 0.2.1-dev.2]` builds both binaries into
 `agent/dist/windows-amd64/` and writes `agent/dist/manifest.json(.sig)` signed with the development release key; the

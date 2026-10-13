@@ -114,6 +114,12 @@ public static class NotificationChannels
     public const string PatchDeployments = "fleeto_patch_deployments";
 
     /// <summary>
+    /// Payload: PatchRequest id. Raised by a database trigger on insert, when a technician asks to read an endpoint from
+    /// the patch management product again or to remove its agent (0.6.0), and by the workers when they finished it.
+    /// </summary>
+    public const string PatchRequests = "fleeto_patch_requests";
+
+    /// <summary>
     /// Payload: SignInExchange id. Somebody is signing in with Microsoft Entra ID (0.5.0) and web wrote the authorization
     /// code; the workers exchange it, because only they can reach Microsoft. Raised again when the outcome is written, so
     /// the sign-in does not wait for its next poll.
@@ -260,6 +266,12 @@ public static class AuditActions
 
     /// <summary>The deployment ended: completed, refused by the product, or no longer followed.</summary>
     public const string PatchDeploymentEnded = "patch_deployment.ended";
+
+    /// <summary>A technician asked to remove the endpoint from the patch management product and uninstall its agent (0.6.0).</summary>
+    public const string PatchAgentRemovalRequested = "patch_agent.removal_requested";
+
+    /// <summary>The workers removed the endpoint from the product, or the product refused (0.6.0).</summary>
+    public const string PatchAgentRemovalEnded = "patch_agent.removal_ended";
 
     public const string IntegrationChanged = "integration.changed";
     public const string IntegrationRemoved = "integration.removed";

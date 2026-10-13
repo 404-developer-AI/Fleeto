@@ -43,6 +43,8 @@ public sealed class JobHandler : ISigningRequestHandler
         "There is no Action1 agent installer link for this client. Add it in Settings, Integrations, next to the organization of this client.";
     public const string AgentInstallerChangedReason =
         "The Action1 agent installer link of this client changed after the job was started. Start the installation again.";
+    public const string AgentRemovalPlatformReason = "Fleeto removes the Action1 agent from Windows endpoints only. Remove it on a Linux endpoint from the Action1 console.";
+    public const string AgentRemovalChangedReason = "The job does not match the removal Fleeto composes. Start the removal again.";
 
     private readonly SignerKeyRing _keyRing;
     private readonly LicenseService _licenses;
@@ -79,7 +81,7 @@ public sealed class JobHandler : ISigningRequestHandler
             return SigningOutcome.Completed(null);
         }
 
-        if (job.Type is not (JobType.Script or JobType.Action1Agent) || job.ValidUntil <= now ||
+        if (job.Type is not (JobType.Script or JobType.Action1Agent or JobType.Action1AgentRemoval) || job.ValidUntil <= now ||
             job.ValidUntil > job.CreatedAt + ScriptRules.MaxValidity + TimeSpan.FromMinutes(5) ||
             job.ValidUntil > now + ScriptRules.MaxValidity + TimeSpan.FromMinutes(5))
         {
@@ -112,6 +114,12 @@ public sealed class JobHandler : ISigningRequestHandler
         if (job.Type == JobType.Action1Agent)
         {
             return await SignAgentInstallAsync(db, job, endpoint.Id, endpoint.Hostname, endpoint.OsPlatform, now, cancellationToken);
+        }
+
+        // The job that removes the Action1 agent (0.6.0) has a fixed body the signer writes; nothing about it comes from web.
+        if (job.Type == JobType.Action1AgentRemoval)
+        {
+            return await SignAgentRemovalAsync(db, job, endpoint.Id, endpoint.Hostname, endpoint.OsPlatform, now, cancellationToken);
         }
 
         var version = job.ScriptVersionId is { } versionId
@@ -245,6 +253,40 @@ public sealed class JobHandler : ISigningRequestHandler
             return SigningOutcome.Refused(AgentInstallerChangedReason);
         }
 
+        // The link itself is not a secret, but it names the customer's organization, so only its host is recorded.
+        return await SignComposedAsync(db, job, endpointId, hostname, Action1AgentInstall.JobName, body, sha256, Action1AgentInstall.TimeoutSeconds,
+            Action1AgentInstall.MaxOutputBytes, new Uri(installerUrl!).Host, now, cancellationToken);
+    }
+
+    /// <summary>
+    /// Signs the job that uninstalls the Action1 agent (0.6.0). The body is <see cref="Action1AgentRemoval"/> and has no
+    /// input at all, so web can pick the endpoint but never what runs. Windows only, like the install; script approval
+    /// does not apply, as there is no script to approve.
+    /// </summary>
+    private async Task<SigningOutcome> SignAgentRemovalAsync(Infrastructure.Data.FleetoDbContext db, Job job, Guid endpointId,
+        string hostname, string osPlatform, DateTime now, CancellationToken cancellationToken)
+    {
+        if (!ScriptLanguages.RunsOn(ScriptLanguage.PowerShell, osPlatform))
+        {
+            return SigningOutcome.Refused(AgentRemovalPlatformReason);
+        }
+
+        var body = Action1AgentRemoval.Body();
+        var sha256 = ScriptLanguages.Sha256(body);
+        if (!SecureCompare.HexEquals(sha256, job.ScriptSha256))
+        {
+            return SigningOutcome.Refused(AgentRemovalChangedReason);
+        }
+
+        return await SignComposedAsync(db, job, endpointId, hostname, Action1AgentRemoval.JobName, body, sha256, Action1AgentRemoval.TimeoutSeconds,
+            Action1AgentRemoval.MaxOutputBytes, null, now, cancellationToken);
+    }
+
+    /// <summary>Signs a job whose PowerShell body the signer composed itself, runs it as the service, and audits it.</summary>
+    private async Task<SigningOutcome> SignComposedAsync(Infrastructure.Data.FleetoDbContext db, Job job, Guid endpointId, string hostname,
+        string name, string body, string sha256, int timeoutSeconds, long maxOutputBytes, string? installerHost, DateTime now,
+        CancellationToken cancellationToken)
+    {
         var payload = new JobPayload
         {
             JobId = job.Id.ToString("D"),
@@ -253,14 +295,14 @@ public sealed class JobHandler : ISigningRequestHandler
             Type = Protocol.Agent.V1.JobType.Script,
             ValidUntil = Timestamp.FromDateTime(DateTime.SpecifyKind(job.ValidUntil, DateTimeKind.Utc)),
             InitiatedBy = job.InitiatedByName,
-            TimeoutSeconds = Action1AgentInstall.TimeoutSeconds,
-            MaxOutputBytes = Action1AgentInstall.MaxOutputBytes,
+            TimeoutSeconds = (uint)timeoutSeconds,
+            MaxOutputBytes = (ulong)maxOutputBytes,
             RunAs = Protocol.Agent.V1.JobRunAs.Service,
             RunAsUserId = string.Empty,
             Script = new ScriptJob
             {
                 Language = AgentConfigBuilder.ToProto(ScriptLanguage.PowerShell),
-                Name = Action1AgentInstall.JobName,
+                Name = name,
                 Version = 1,
                 Body = body,
                 Sha256 = sha256
@@ -272,9 +314,9 @@ public sealed class JobHandler : ISigningRequestHandler
         job.SigningKeyId = _keyRing.SigningKeyId;
         job.SignedAt = now;
         // Language and the body hash are part of what was requested and cannot change any more (TR_Jobs_Binding).
-        job.ScriptName = Action1AgentInstall.JobName;
-        job.TimeoutSeconds = Action1AgentInstall.TimeoutSeconds;
-        job.MaxOutputBytes = Action1AgentInstall.MaxOutputBytes;
+        job.ScriptName = name;
+        job.TimeoutSeconds = timeoutSeconds;
+        job.MaxOutputBytes = maxOutputBytes;
         job.State = JobState.Queued;
 
         await SignerAudit.WriteAsync(db, new AuditRecord(AuditActions.JobSigned, "Job", job.Id.ToString(), job.ClientId, AuditActorType.System,
@@ -287,12 +329,11 @@ public sealed class JobHandler : ISigningRequestHandler
                 job.ScriptSha256,
                 job.ValidUntil,
                 InitiatedBy = job.InitiatedByName,
-                // The link itself is not a secret, but it names the customer's organization, so only its host is recorded.
-                InstallerHost = new Uri(installerUrl!).Host
+                InstallerHost = installerHost
             }), now, cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
-        _logger.LogInformation("Signed the Action1 agent install job {JobId} for endpoint {EndpointId}", job.Id, endpointId);
+        _logger.LogInformation("Signed the job {Name} {JobId} for endpoint {EndpointId}", name, job.Id, endpointId);
         return SigningOutcome.Completed(null, new PendingNotification(NotificationChannels.Jobs, endpointId.ToString()));
     }
 

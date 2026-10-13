@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
@@ -7,7 +8,27 @@ namespace Fleeto.Infrastructure.Integrations.Action1;
 
 /// <summary>A scheduled automation as Action1 lists it (0.6.0).</summary>
 /// <param name="Settings">The schedule in Action1's own notation, such as <c>ENABLED WEEKLY:Wed AT:20-00-00</c>.</param>
-public sealed record Action1AutomationInfo(string Id, string Name, string Settings);
+/// <param name="NextRunAt">When Action1 plans the next run, as it writes it (no time zone); null when it plans none.</param>
+/// <param name="LastRunAt">When it last ran; null when it never did.</param>
+/// <param name="LastInstanceId">The id of the run Action1 started last (an automation instance); empty when it never ran.</param>
+public sealed record Action1AutomationInfo(string Id, string Name, string Settings, DateTime? NextRunAt = null, DateTime? LastRunAt = null,
+    string LastInstanceId = "")
+{
+    public static Action1AutomationInfo? From(JsonElement item) =>
+        Action1Client.Text(item, "id") is { Length: > 0 } id
+            ? new Action1AutomationInfo(id, Action1Client.Text(item, "name"), Action1Client.Text(item, "settings"),
+                Action1Api.ParseTime(Action1Client.Text(item, "next_run")), Action1Api.ParseTime(Action1Client.Text(item, "last_run")),
+                LastSegment(Action1Client.Text(item, "last_instance")))
+            : null;
+
+    /// <summary>Action1 links the last run as <c>/API/automations/instances/{instance-id}</c>; the id is the last segment.</summary>
+    public static string LastSegment(string? link)
+    {
+        var trimmed = (link ?? string.Empty).Trim().TrimEnd('/');
+        var id = trimmed.Length == 0 ? string.Empty : trimmed[(trimmed.LastIndexOf('/') + 1)..];
+        return id.Length is > 0 and <= 200 && !id.Contains('{') ? id : string.Empty;
+    }
+}
 
 /// <summary>
 /// The scheduled automation Fleeto keeps for one patch policy in one organization (0.6.0): a "Deploy Update" action on the

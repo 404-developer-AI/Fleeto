@@ -5,6 +5,7 @@ using Fleeto.Infrastructure.Audit;
 using Fleeto.Infrastructure.Data;
 using Fleeto.Infrastructure.Integrations.Action1;
 using Fleeto.Infrastructure.Licensing;
+using Fleeto.Workers.Alerts;
 using Fleeto.Workers.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -39,16 +40,19 @@ public sealed class PatchDeploymentService : WorkerLoop
     private readonly IFleetoDbContextFactory _dbFactory;
     private readonly INotificationBus _bus;
     private readonly Action1ClientFactory _clients;
+    private readonly AlertNotificationService _notifier;
     private readonly LicenseService _licenses;
     private IDisposable? _subscription;
 
     public PatchDeploymentService(IFleetoDbContextFactory dbFactory, INotificationBus bus, Action1ClientFactory clients,
-        LicenseService licenses, WorkerHeartbeat heartbeat, TimeProvider time, ILogger<PatchDeploymentService> logger)
+        AlertNotificationService notifier, LicenseService licenses, WorkerHeartbeat heartbeat, TimeProvider time,
+        ILogger<PatchDeploymentService> logger)
         : base("patch-deployments", heartbeat, time, logger)
     {
         _dbFactory = dbFactory;
         _bus = bus;
         _clients = clients;
+        _notifier = notifier;
         _licenses = licenses;
     }
 
@@ -112,7 +116,7 @@ public sealed class PatchDeploymentService : WorkerLoop
             // The credentials cannot be read. Retrying every minute does not help, but failing a deployment an admin can
             // still rescue by entering them again would be premature; it waits until Fleeto gives up following it.
             Logger.LogWarning("The Action1 credentials could not be read; {Count} deployment(s) wait", open.Count);
-            foreach (var deployment in open.Where(d => now - d.RequestedAt > PatchRules.FollowFor))
+            foreach (var deployment in open.Where(d => Expired(d, now)))
             {
                 End(deployment, PatchDeploymentState.Failed,
                     "The Action1 credentials could not be read, so the deployment never started. Enter them again in Settings, Integrations.", now);
@@ -126,6 +130,7 @@ public sealed class PatchDeploymentService : WorkerLoop
         var calls = 0;
         var more = false;
         var finished = false;
+        var scheduled = new HashSet<Guid>();
         foreach (var deployment in open)
         {
             var mapping = integration!.Mappings.FirstOrDefault(m => m.ClientId == deployment.ClientId);
@@ -154,6 +159,10 @@ public sealed class PatchDeploymentService : WorkerLoop
                 ? await StartAsync(db, client, deployment, now, cancellationToken)
                 : await PollAsync(db, client, deployment, now, cancellationToken);
             finished |= ended;
+            if (deployment.Scope == PatchDeploymentScope.PatchPolicy)
+            {
+                scheduled.UnionWith(deployment.Targets.Where(t => t.UpdatedAt == now).Select(t => t.EndpointId));
+            }
         }
 
         // A deployment that ended changes what its endpoints are missing, so the patch state is read again instead of
@@ -164,9 +173,39 @@ public sealed class PatchDeploymentService : WorkerLoop
         }
 
         await SaveAsync(db, open, cancellationToken);
+        await EvaluateScheduledAsync(db, scheduled, now, cancellationToken);
         more |= await ReadStepsAsync(db, client, now, cancellationToken);
         return more;
     }
+
+    /// <summary>
+    /// Gives the scheduled patching checks of the endpoints whose scheduled deployment changed their result (0.6.0), so a
+    /// round that succeeded clears its alert at once and one that failed counts from the right day.
+    /// </summary>
+    private async Task EvaluateScheduledAsync(FleetoDbContext db, IReadOnlyCollection<Guid> endpointIds, DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var (written, transitions) = await ScheduledPatchingChecks.EvaluateAsync(db, endpointIds, now, cancellationToken);
+        if (written.Count == 0 && transitions.Count == 0)
+        {
+            return;
+        }
+
+        await _notifier.AddNotificationsAsync(db, transitions, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await AlertCleanup.PublishAsync(_bus, transitions.Select(t => t.AlertId), cancellationToken);
+        foreach (var endpointId in written)
+        {
+            await _bus.PublishAsync(NotificationChannels.CheckResults, endpointId.ToString(), cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// True when Fleeto stops following a deployment: after its own follow window (a scheduled one, by the retry window of
+    /// its patch policy), or <see cref="PatchRules.FollowFor"/> after it started.
+    /// </summary>
+    internal static bool Expired(PatchDeployment deployment, DateTime now) =>
+        deployment.FollowUntil is { } until ? now > until : now - (deployment.StartedAt ?? deployment.RequestedAt) > PatchRules.FollowFor;
 
     /// <summary>
     /// The endpoints of deployments of the last two days whose history is worth reading: never read since the state last
@@ -175,7 +214,7 @@ public sealed class PatchDeploymentService : WorkerLoop
     /// </summary>
     private static IQueryable<PatchDeploymentTarget> StepsDue(FleetoDbContext db, DateTime now)
     {
-        var since = now - 2 * PatchRules.FollowFor;
+        var since = now - 2 * TimeSpan.FromHours(PatchPolicyRules.MaxRetryHours + 1);
         var stale = now - StepsRefresh;
         return db.PatchDeploymentTargets
             .Where(t => t.State != PatchDeploymentTargetState.Pending && t.ExternalEndpointId != string.Empty)
@@ -299,7 +338,7 @@ public sealed class PatchDeploymentService : WorkerLoop
             return false;
         }
 
-        if (result.Permanent || now - deployment.RequestedAt > PatchRules.FollowFor)
+        if (result.Permanent || Expired(deployment, now))
         {
             End(deployment, PatchDeploymentState.Failed, result.Message, now);
             Audit(db, deployment, AuditActions.PatchDeploymentEnded, now);
@@ -321,7 +360,7 @@ public sealed class PatchDeploymentService : WorkerLoop
         if (!result.Ok)
         {
             deployment.StatusMessage = Cut(result.Message, 1000);
-            if (!result.Permanent && now - (deployment.StartedAt ?? deployment.RequestedAt) <= PatchRules.FollowFor)
+            if (!result.Permanent && !Expired(deployment, now))
             {
                 return false;
             }
@@ -366,10 +405,13 @@ public sealed class PatchDeploymentService : WorkerLoop
             return true;
         }
 
-        if (now - (deployment.StartedAt ?? deployment.RequestedAt) > PatchRules.FollowFor)
+        if (Expired(deployment, now))
         {
             End(deployment, PatchDeploymentState.Abandoned,
-                "Action1 did not finish this deployment within a day, so Fleeto stopped following it. Check it in the Action1 console.", now);
+                deployment.FollowUntil is null
+                    ? "Action1 did not finish this deployment within a day, so Fleeto stopped following it. Check it in the Action1 console."
+                    : "Action1 did not finish this deployment within the retry window of its patch policy, so Fleeto stopped following it. Check it in the Action1 console.",
+                now);
             Audit(db, deployment, AuditActions.PatchDeploymentEnded, now);
             return true;
         }

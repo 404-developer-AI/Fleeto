@@ -386,4 +386,168 @@ public sealed class PatchServiceTests
         Assert.Empty(await db.PatchDeployments.AsNoTracking().Where(d => d.ClientId == theirs.ClientId).ToListAsync());
         Assert.Empty(await Patches.ListDeploymentsAsync(caller, theirs.Id));
     }
+
+    private async Task ReportAgentAsync(Endpoint endpoint, string action1Id)
+    {
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        db.InventorySnapshots.Add(new InventorySnapshot
+        {
+            EndpointId = endpoint.Id, ClientId = endpoint.ClientId, ReceivedAt = _fixture.Database.Time.GetUtcNow().UtcDateTime,
+            Hash = Guid.NewGuid().ToString("N"), Action1AgentId = action1Id
+        });
+        await db.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task A_sync_is_one_request_per_endpoint_a_minute_and_only_for_a_technician_or_admin()
+    {
+        var (_, endpoint) = await SeedAsync("PS1" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        var readOnly = WebFixtureBase.CallerWith(SystemClientScope.Instance, FleetoRoles.ReadOnly);
+        Assert.Equal(ServiceResult.ForbiddenProblem, (await Patches.RequestSyncAsync(readOnly, endpoint.Id)).Problem);
+
+        Assert.True((await Patches.RequestSyncAsync(WebFixture.Technician(), endpoint.Id)).Success);
+        // Asked again while it waits: the waiting request answers both.
+        Assert.True((await Patches.RequestSyncAsync(WebFixture.Technician(), endpoint.Id)).Success);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            var request = await db.PatchRequests.SingleAsync(r => r.EndpointId == endpoint.Id);
+            Assert.Equal(PatchRequestKind.Sync, request.Kind);
+            request.CompletedAt = request.RequestedAt;
+            await db.SaveChangesAsync();
+        }
+
+        var view = await Patches.GetAsync(WebFixture.Technician(), endpoint.Id);
+        Assert.Equal(PatchRequestKind.Sync, view!.LastRequest!.Kind);
+        Assert.False(view.LastRequest.IsPending);
+
+        var again = await Patches.RequestSyncAsync(WebFixture.Technician(), endpoint.Id);
+        Assert.False(again.Success);
+        Assert.Contains("less than a minute ago", again.Problem);
+    }
+
+    [Fact]
+    public async Task A_sync_of_a_client_without_an_Action1_organization_is_refused()
+    {
+        var (_, endpoint) = await SeedAsync("PS2" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), mapped: false);
+
+        var result = await Patches.RequestSyncAsync(WebFixture.Technician(), endpoint.Id);
+
+        Assert.False(result.Success);
+        Assert.Contains("Settings, Integrations", result.Problem);
+    }
+
+    [Fact]
+    public async Task Removing_the_agent_of_an_endpoint_Action1_reports_goes_through_Action1_and_is_audited()
+    {
+        var (_, endpoint) = await SeedAsync("PR1" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        await StoreStateAsync(endpoint, critical: 0, other: 0);
+
+        var result = await Patches.RemoveAgentAsync(WebFixture.Technician(), endpoint.Id);
+
+        Assert.True(result is { Success: true, Value: true });
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        var state = await db.EndpointPatchStates.AsNoTracking().SingleAsync(s => s.EndpointId == endpoint.Id);
+        var request = await db.PatchRequests.AsNoTracking().SingleAsync(r => r.EndpointId == endpoint.Id);
+        Assert.Equal((PatchRequestKind.RemoveAgent, state.ExternalTenantId, state.ExternalEndpointId),
+            (request.Kind, request.ExternalTenantId, request.ExternalEndpointId));
+        Assert.True(await db.AuditEntries.AnyAsync(a => a.Action == AuditActions.PatchAgentRemovalRequested && a.TargetId == endpoint.Id.ToString()));
+        Assert.Empty(await db.Jobs.AsNoTracking().Where(j => j.EndpointId == endpoint.Id).ToListAsync());
+
+        var again = await Patches.RemoveAgentAsync(WebFixture.Technician(), endpoint.Id);
+        Assert.Contains("already on its way", again.Problem);
+    }
+
+    [Fact]
+    public async Task An_agent_Action1_does_not_report_is_not_installed_twice_and_is_removed_with_a_signed_job()
+    {
+        var (client, endpoint) = await SeedAsync("PR2" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            var mapping = await db.IntegrationMappings.SingleAsync(m => m.ClientId == client.Id);
+            mapping.AgentInstallerUrl = "https://app.eu.action1.com/agent/9f2c/Windows/agent.msi";
+            await db.SaveChangesAsync();
+        }
+
+        await ReportAgentAsync(endpoint, Guid.NewGuid().ToString());
+
+        var view = await Patches.GetAsync(WebFixture.Technician(), endpoint.Id);
+        Assert.False(view!.CanInstallAgent);
+        Assert.True(view.CanRemoveAgentByJob);
+        var install = await Patches.InstallAgentAsync(WebFixture.Technician(), endpoint.Id);
+        Assert.False(install.Success);
+        Assert.Contains("already installed", install.Problem);
+
+        var removal = await Patches.RemoveAgentAsync(WebFixture.Technician(), endpoint.Id);
+
+        Assert.True(removal is { Success: true, Value: false });
+        await using var read = _fixture.Database.DbFactory.CreateSystem();
+        var job = await read.Jobs.AsNoTracking().SingleAsync(j => j.EndpointId == endpoint.Id);
+        Assert.Equal((JobType.Action1AgentRemoval, JobState.PendingSignature), (job.Type, job.State));
+        Assert.Equal(Fleeto.Core.Domain.ScriptLanguages.Sha256(Fleeto.Core.Domain.Action1AgentRemoval.Body()), job.ScriptSha256);
+        Assert.True(await read.SigningRequests.AsNoTracking().AnyAsync(r => r.SubjectId == job.Id));
+    }
+
+    [Fact]
+    public async Task Without_any_Action1_agent_there_is_nothing_to_remove()
+    {
+        var (_, endpoint) = await SeedAsync("PR3" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+
+        var result = await Patches.RemoveAgentAsync(WebFixture.Technician(), endpoint.Id);
+
+        Assert.False(result.Success);
+        Assert.Contains("nothing to remove", result.Problem);
+    }
+
+    [Fact]
+    public async Task The_schedule_shows_the_patch_policy_and_the_next_run_Action1_planned()
+    {
+        var (client, endpoint) = await SeedAsync("PSC" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        await StoreStateAsync(endpoint, critical: 0, other: 0);
+
+        // No patch policy: nothing is scheduled, and the tab says how to change that.
+        var none = (await Patches.GetAsync(WebFixture.Technician(), endpoint.Id))!.Schedule!;
+        Assert.Null(none.PolicyName);
+        Assert.True(none.ProblemNeedsAction);
+
+        var now = _fixture.Database.Time.GetUtcNow().UtcDateTime;
+        var policy = new PatchPolicy
+        {
+            Id = Guid.NewGuid(), Name = "Monday " + Guid.NewGuid().ToString("N")[..6], WeekDays = Fleeto.Core.Domain.WeekDays.Monday,
+            EndpointLocalTime = false, AutoReboot = true, CreatedAt = now, UpdatedAt = now
+        };
+        var automation = new IntegrationAutomation
+        {
+            Id = Guid.NewGuid(), ClientId = client.Id, ExternalTenantId = "org", PatchPolicyId = policy.Id, CreatedAt = now, UpdatedAt = now
+        };
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            automation.IntegrationId = (await db.Integrations.FirstAsync(i => i.Type == IntegrationType.Action1)).Id;
+            db.PatchPolicies.Add(policy);
+            db.ClientPatchPolicies.Add(new ClientPatchPolicy { ClientId = client.Id, PatchPolicyId = policy.Id, CreatedAt = now });
+            db.IntegrationAutomations.Add(automation);
+            await db.SaveChangesAsync();
+        }
+
+        // Not in Action1 yet: Fleeto is still busy, which is not a problem anybody has to solve.
+        var writing = (await Patches.GetAsync(WebFixture.Technician(), endpoint.Id))!.Schedule!;
+        Assert.Equal(policy.Name, writing.PolicyName);
+        Assert.Null(writing.NextRunAt);
+        Assert.False(writing.ProblemNeedsAction);
+        Assert.Contains("writing the automation", writing.Problem);
+
+        var next = new DateTime(2026, 12, 7, 20, 0, 0, DateTimeKind.Utc);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.IntegrationAutomations.Where(a => a.Id == automation.Id)
+                .ExecuteUpdateAsync(u => u.SetProperty(a => a.ExternalAutomationId, "automation-1").SetProperty(a => a.NextRunAt, next));
+            await db.EndpointPatchStates.Where(s => s.EndpointId == endpoint.Id)
+                .ExecuteUpdateAsync(u => u.SetProperty(s => s.AutomationId, automation.Id));
+        }
+
+        var planned = (await Patches.GetAsync(WebFixture.Technician(), endpoint.Id))!.Schedule!;
+        Assert.Equal(next, planned.NextRunAt);
+        Assert.Null(planned.Problem);
+        Assert.True(planned.AutoReboot);
+        Assert.Equal("Every Monday at 20:00 (UTC)", planned.Schedule);
+    }
 }

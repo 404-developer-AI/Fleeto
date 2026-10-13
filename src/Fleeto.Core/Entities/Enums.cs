@@ -66,7 +66,12 @@ public enum CheckType
     /// GB the used space of a drive grew over a period, from the storage scans of the agent (0.6.0). Evaluated by the workers
     /// after every storage scan, never sent to the agent.
     /// </summary>
-    FolderGrowth
+    FolderGrowth,
+    /// <summary>
+    /// Days since a scheduled deployment of the endpoint's patch policy last succeeded on it, or since the policy's automation
+    /// first targeted it while none did (0.6.0). Evaluated by the workers from the deployments Action1 ran, never sent to the agent.
+    /// </summary>
+    ScheduledPatching
 }
 
 /// <summary>Which endpoint class a check definition applies to.</summary>

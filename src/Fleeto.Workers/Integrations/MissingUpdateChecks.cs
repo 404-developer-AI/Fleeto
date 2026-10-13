@@ -95,8 +95,17 @@ public static class MissingUpdateChecks
     /// their state and their open alerts resolve, instead of keeping a value from a patch state that is gone. The caller
     /// saves and sends the returned transitions.
     /// </summary>
-    public static async Task<IReadOnlyList<AlertTransition>> ForgetAsync(FleetoDbContext db, IReadOnlyCollection<Guid> endpointIds, DateTime now,
-        CancellationToken cancellationToken)
+    public static Task<IReadOnlyList<AlertTransition>> ForgetAsync(FleetoDbContext db, IReadOnlyCollection<Guid> endpointIds, DateTime now,
+        CancellationToken cancellationToken) =>
+        ForgetChecksAsync(db, CheckType.MissingUpdates, endpointIds, now, ResolvedReasonGone, cancellationToken);
+
+    /// <summary>
+    /// Removes the state of every check of <paramref name="type"/> on the endpoints and resolves their open alerts with
+    /// <paramref name="reason"/>: for a check Fleeto evaluates whose data is gone (0.6.0). The caller saves and sends the
+    /// returned transitions.
+    /// </summary>
+    internal static async Task<IReadOnlyList<AlertTransition>> ForgetChecksAsync(FleetoDbContext db, CheckType type,
+        IReadOnlyCollection<Guid> endpointIds, DateTime now, string reason, CancellationToken cancellationToken)
     {
         if (endpointIds.Count == 0)
         {
@@ -105,7 +114,7 @@ public static class MissingUpdateChecks
 
         var ids = endpointIds.ToList();
         var definitions = await db.CheckDefinitions.AsNoTracking()
-            .Where(d => d.Type == CheckType.MissingUpdates)
+            .Where(d => d.Type == type)
             .Select(d => d.Id)
             .ToListAsync(cancellationToken);
         if (definitions.Count == 0)
@@ -125,7 +134,7 @@ public static class MissingUpdateChecks
         {
             alert.State = AlertState.Resolved;
             alert.ResolvedAt = now;
-            alert.ResolvedReason = ResolvedReasonGone;
+            alert.ResolvedReason = reason;
             alert.UpdatedAt = now;
             transitions.Add(new AlertTransition(alert.Id, NotificationEvent.Resolved));
         }

@@ -99,6 +99,65 @@ public sealed class Action1AgentJobTests
         return job;
     }
 
+    /// <summary>The job that removes the Action1 agent (0.6.0), bound to the body as PatchService binds it.</summary>
+    private async Task<Job> CreateRemovalJobAsync(Client client, Endpoint endpoint, Guid technicianId, string? sha256 = null)
+    {
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        var job = new Job
+        {
+            Id = Guid.NewGuid(),
+            ClientId = client.Id,
+            EndpointId = endpoint.Id,
+            BatchId = Guid.NewGuid(),
+            Type = JobType.Action1AgentRemoval,
+            ScriptName = Action1AgentRemoval.JobName,
+            Language = ScriptLanguage.PowerShell,
+            ScriptSha256 = sha256 ?? ScriptLanguages.Sha256(Action1AgentRemoval.Body()),
+            TimeoutSeconds = Action1AgentRemoval.TimeoutSeconds,
+            MaxOutputBytes = Action1AgentRemoval.MaxOutputBytes,
+            CreatedAt = _fixture.Now,
+            ValidUntil = _fixture.Now.AddHours(24),
+            InitiatedByUserId = technicianId,
+            InitiatedByName = "Tess Tech",
+            State = JobState.PendingSignature
+        };
+        db.Jobs.Add(job);
+        await db.SaveChangesAsync();
+        return job;
+    }
+
+    [Fact]
+    public async Task The_signer_writes_the_removal_job_itself_and_it_uninstalls_without_a_restart()
+    {
+        var (client, endpoint, technicianId) = await ScopeAsync();
+        var job = await CreateRemovalJobAsync(client, endpoint, technicianId);
+
+        var (request, signed) = await SignAsync(job);
+
+        Assert.Equal(SigningRequestState.Completed, request.State);
+        Assert.Equal(JobState.Queued, signed.State);
+        var payload = JobPayload.Parser.ParseFrom(signed.Payload);
+        Assert.Equal(Action1AgentRemoval.JobName, payload.Script.Name);
+        Assert.Equal(Action1AgentRemoval.Body(), payload.Script.Body);
+        Assert.Contains("'/x'", payload.Script.Body);
+        Assert.Contains("/norestart", payload.Script.Body);
+        Assert.Equal(Protocol.Agent.V1.JobRunAs.Service, payload.RunAs);
+        Assert.Equal(payload.Script.Sha256, signed.ScriptSha256);
+    }
+
+    [Fact]
+    public async Task A_removal_job_with_another_body_or_on_Linux_is_refused()
+    {
+        var (client, endpoint, technicianId) = await ScopeAsync();
+        var (_, changed) = await SignAsync(await CreateRemovalJobAsync(client, endpoint, technicianId, ScriptLanguages.Sha256("Remove-Item C:\\")));
+        Assert.Equal((JobState.Refused, JobHandler.AgentRemovalChangedReason), (changed.State, changed.RefusalReason));
+
+        var (linuxClient, linux, linuxTechnicianId) = await ScopeAsync(osPlatform: "linux");
+        var (_, refused) = await SignAsync(await CreateRemovalJobAsync(linuxClient, linux, linuxTechnicianId));
+        Assert.Equal((JobState.Refused, JobHandler.AgentRemovalPlatformReason), (refused.State, refused.RefusalReason));
+        Assert.Null(refused.Payload);
+    }
+
     private async Task<(SigningRequest Request, Job Job)> SignAsync(Job job)
     {
         var request = await _fixture.ProcessAsync(SigningRequestKind.Job, job.ClientId, job.Id, [], "web:198.51.100.40");

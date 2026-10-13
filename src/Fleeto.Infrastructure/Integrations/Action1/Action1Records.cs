@@ -72,6 +72,9 @@ public sealed record Action1Endpoint(string Id, string OrganizationId, string Na
     }
 }
 
+/// <summary>One endpoint read on its own (0.6.0), and whether Action1 included its counts of missing updates.</summary>
+public sealed record Action1EndpointRead(Action1Endpoint Endpoint, bool CountsKnown);
+
 /// <summary>
 /// One update Action1 reports as missing on an endpoint (0.4.0 step 2). Action1 describes the update at the top and the
 /// version it would install in <c>versions[0]</c>, which carries the severity, type, release date, approval and CVEs
