@@ -112,6 +112,7 @@ public static class DatabaseGrants
             ["ClientAutomationTasks"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["SiteAutomationTasks"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["EndpointAutomationTasks"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+            ["MonitoringTemplateAutomationTasks"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["AutomationTaskStates"] = Grants(web: Read, workers: ReadWrite),
             ["AutomationTaskRuns"] = Grants(web: "SELECT, INSERT", signer: Read, workers: ReadWrite),
             ["AutomationTaskRunTargets"] = Grants(web: "SELECT, INSERT", signer: Read, workers: ReadWrite),

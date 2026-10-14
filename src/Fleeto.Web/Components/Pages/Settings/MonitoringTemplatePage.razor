@@ -3,6 +3,7 @@
 @inherits FleetoPageBase
 @inject MonitoringTemplateService TemplateSvc
 @inject ScriptService ScriptSvc
+@inject TaskService TaskSvc
 @inject IDialogService DialogService
 
 <PageTitle>@(_template?.Name ?? "Monitoring template") - Fleeto</PageTitle>
@@ -78,6 +79,67 @@
                 </RowTemplate>
             </MudTable>
         }
+
+        @if (Can(Permissions.TasksView))
+        {
+            <div class="d-flex align-center justify-space-between flex-wrap gap-2 mt-6 mb-2">
+                <div>
+                    <MudText Typo="Typo.h6">Tasks</MudText>
+                    <MudText Typo="Typo.body2" Class="muted">These tasks run on every endpoint that gets this monitoring template, wherever it is linked.</MudText>
+                </div>
+                @if (CanLinkTasks)
+                {
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.AddLink" OnClick="LinkTaskAsync">Link task</MudButton>
+                }
+            </div>
+            @if (_tasks.Count == 0)
+            {
+                <EmptyState Icon="@Icons.Material.Outlined.EventRepeat" Title="No tasks linked"
+                            Text="Link a task to run its script on every endpoint that gets this monitoring template." />
+            }
+            else
+            {
+                <MudTable Items="_tasks" Hover="true" Elevation="0" Dense="true">
+                    <HeaderContent>
+                        <MudTh>Task</MudTh>
+                        <MudTh>For</MudTh>
+                        <MudTh>Runs</MudTh>
+                        <MudTh>Next run</MudTh>
+                        <MudTh>Last run</MudTh>
+                        @if (CanLinkTasks)
+                        {
+                            <MudTh Style="width:52px"></MudTh>
+                        }
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>
+                            <MudLink Href="@($"/settings/tasks/{context.Id}")" Typo="Typo.body2"><strong>@context.Name</strong></MudLink>
+                            @if (!context.Enabled)
+                            {
+                                <span class="ml-1"><StatusChip Text="Off" Kind="StatusKind.Neutral" /></span>
+                            }
+                            <div class="muted" style="font-size:0.75rem">@context.ScriptName</div>
+                        </MudTd>
+                        <MudTd>@(context.ClientCode is null ? "Global" : context.ClientCode)</MudTd>
+                        <MudTd>
+                            @context.Schedule
+                            <div class="muted" style="font-size:0.75rem">@context.Triggers</div>
+                        </MudTd>
+                        <MudTd><TimeText Value="context.NextRunAt" Never="-" /></MudTd>
+                        <MudTd><TimeText Value="context.LastRunAt" Never="Never" /></MudTd>
+                        @if (CanLinkTasks)
+                        {
+                            <MudTd>
+                                <MudTooltip Text="Unlink from this monitoring template">
+                                    <MudIconButton Icon="@Icons.Material.Outlined.LinkOff" Size="Size.Small" aria-label="Unlink from this monitoring template"
+                                                   OnClick="@(() => UnlinkTaskAsync(context))" />
+                                </MudTooltip>
+                            </MudTd>
+                        }
+                    </RowTemplate>
+                </MudTable>
+            }
+        }
     }
 </LoadState>
 
@@ -88,6 +150,10 @@
     private MonitoringTemplateDetail? _template;
     private IReadOnlyDictionary<string, string> _scriptNames = new Dictionary<string, string>();
     private bool _notFound;
+    private IReadOnlyList<TaskListItem> _tasks = [];
+
+    /// <summary>Linking a task to a monitoring template changes the template too, so it needs both permissions.</summary>
+    private bool CanLinkTasks => Can(Permissions.TasksEdit) && Can(Permissions.MonitoringTemplatesEdit);
 
     protected override Task OnParametersSetAsync() => ReloadAsync();
 
@@ -99,7 +165,44 @@
         {
             _scriptNames = (await ScriptSvc.ListForChecksAsync(caller, _template.ClientId)).ToDictionary(s => s.Id.ToString("D"), s => s.Name);
         }
+
+        _tasks = _template is not null && caller.Has(Permissions.TasksView) ? await TaskSvc.ListAsync(caller, TemplateId) : [];
     });
+
+    private async Task LinkTaskAsync()
+    {
+        IReadOnlyList<TaskOption> tasks = [];
+        await LoadAsync(async caller => tasks = await TaskSvc.GetTaskChoicesForTemplateAsync(caller, TemplateId));
+        var parameters = new DialogParameters<LinkTaskDialog>
+        {
+            { d => d.Target, _template!.Name },
+            { d => d.HelperText, "The task runs on every endpoint that gets this monitoring template, on top of where it is linked already." },
+            { d => d.EmptyText, "Every task you can link is already linked to this monitoring template. Create one in Settings, Tasks." },
+            { d => d.Tasks, tasks },
+            { d => d.OnSubmit, taskId => RunAsync(caller => TaskSvc.LinkTemplateAsync(caller, taskId, TemplateId), "The task was linked to this monitoring template.") }
+        };
+        var dialog = await DialogService.ShowAsync<LinkTaskDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task UnlinkTaskAsync(TaskListItem task)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Unlink task {task.Name}" },
+            { d => d.Message, "The task no longer runs on the endpoints of this monitoring template, unless it is linked to them in another way." },
+            { d => d.ConfirmText, "Unlink" }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled &&
+            await RunAsync(caller => TaskSvc.UnlinkTemplateAsync(caller, task.Id, TemplateId), "The task was unlinked from this monitoring template."))
+        {
+            await ReloadAsync();
+        }
+    }
 
     private static string Thresholds(CheckDefinitionView check) =>
         Ui.ThresholdsText(check.Type, check.Parameters, check.WarningThreshold, check.CriticalThreshold);

@@ -3264,6 +3264,29 @@ namespace Fleeto.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.MonitoringTemplateAutomationTask", b =>
+                {
+                    b.Property<Guid>("MonitoringTemplateId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AutomationTaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("MonitoringTemplateId", "AutomationTaskId");
+
+                    b.HasIndex("AutomationTaskId");
+
+                    b.HasIndex("ClientId");
+
+                    b.ToTable("MonitoringTemplateAutomationTasks");
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.Note", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5910,6 +5933,30 @@ namespace Fleeto.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("ClientId")
                         .OnDelete(DeleteBehavior.Cascade);
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.MonitoringTemplateAutomationTask", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.AutomationTask", "AutomationTask")
+                        .WithMany()
+                        .HasForeignKey("AutomationTaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleeto.Core.Entities.Client", null)
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Fleeto.Core.Entities.MonitoringTemplate", "MonitoringTemplate")
+                        .WithMany()
+                        .HasForeignKey("MonitoringTemplateId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AutomationTask");
+
+                    b.Navigation("MonitoringTemplate");
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.Note", b =>

@@ -17,7 +17,10 @@ When a third released version is added, the oldest entry moves to the top of
   endpoint, when an endpoint is switched to managed, or with Run now. Options: a random delay per endpoint, catching up a run an
   offline endpoint missed, skipping or waiting for an endpoint where the previous run still runs, and an alert on the endpoint
   when a run fails, resolved by the next successful run. Every run shows per endpoint its state, exit code and output, and
-  exports as CSV for collecting inventory. A run Fleeto starts has no user behind it; fleeto-signer signs it only while the task
+  exports as CSV for collecting inventory. A task can also be linked to a monitoring template: it then runs on every endpoint
+  that gets the template, wherever the template is linked; the page of a monitoring template lists, links and unlinks its tasks. The Tasks tab of an endpoint lists the tasks that apply to it, with
+  where they are linked, their next run and the result of their last run, and the history of task runs on it; a run opens the
+  output of its script. From the tab a task is linked to or unlinked from the endpoint, or created already linked to it. A run Fleeto starts has no user behind it; fleeto-signer signs it only while the task
   still asks for it, and script approval of the policy applies as to every job. New permissions View tasks, Edit tasks and Run
   tasks now (technicians have them; read-only users can view).
 

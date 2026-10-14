@@ -77,13 +77,11 @@
                                  Style="max-width:200px" Class="mb-2" HelperText="A shorter month runs on its last day." />
             }
             <div class="d-flex flex-wrap gap-2 align-start mb-2">
-                <MudDatePicker @bind-Date="_m.StartDate" Label="@(_m.ScheduleKind == TaskScheduleKind.Once ? "On" : "From")" Variant="Variant.Outlined"
-                               Margin="Margin.Dense" DateFormat="yyyy-MM-dd" Style="max-width:170px" />
+                <DateField @bind-Value="_m.StartDate" Label="@(_m.ScheduleKind == TaskScheduleKind.Once ? "On" : "From")" Margin="Margin.Dense" />
                 <TimeField @bind-Value="_m.Start" Label="At" Margin="Margin.Dense" />
                 @if (_m.ScheduleKind != TaskScheduleKind.Once)
                 {
-                    <MudDatePicker @bind-Date="_m.EndDate" Label="Until (optional)" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="yyyy-MM-dd"
-                                   Clearable="true" Style="max-width:190px" />
+                    <DateField @bind-Value="_m.EndDate" Label="Until (optional)" Margin="Margin.Dense" Min="@_m.StartDate" Clearable="true" />
                 }
             </div>
             <MudAutocomplete T="string" @bind-Value="_m.TimeZone" Label="Time zone" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2"
@@ -211,6 +209,9 @@
 
     [Parameter] public IReadOnlyList<ClientOption> Clients { get; set; } = [];
 
+    /// <summary>The client a new task starts with (the Tasks tab of an endpoint: its client); null starts with a global task.</summary>
+    [Parameter] public Guid? DefaultClientId { get; set; }
+
     /// <summary>The time zone a new task starts with: the one the user sees times in.</summary>
     [Parameter] public string DefaultTimeZone { get; set; } = "UTC";
 
@@ -233,7 +234,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _m = Existing is { } existing ? Model.From(existing) : new Model { TimeZone = DefaultTimeZone };
+        _m = Existing is { } existing ? Model.From(existing) : new Model { TimeZone = DefaultTimeZone, ClientId = DefaultClientId };
         await LoadChoicesAsync();
     }
 

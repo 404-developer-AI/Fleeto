@@ -64,7 +64,49 @@ public sealed class TaskServiceTests
 
         var targets = await Tasks.GetRunAsync(technician, run.Id);
         Assert.Equal(["LNX-RUNNOW", "WS-RUNNOW"], targets.Select(t => t.Hostname).ToArray());
-        Assert.Equal("Skipped", TaskService.StateText(targets[0]));
+        Assert.Equal("Could not start", TaskService.StateText(targets[0]));
+    }
+
+    [Fact]
+    public async Task The_tasks_tab_of_an_endpoint_lists_the_tasks_that_apply_to_it_and_its_runs()
+    {
+        await _fixture.Database.LoadTestLicenseAsync(1000);
+        var client = await _fixture.Database.CreateClientAsync();
+        var site = await _fixture.Database.CreateSiteAsync(client.Id);
+        var otherSite = await _fixture.Database.CreateSiteAsync(client.Id, "Other");
+        var endpoint = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "WS-TASKTAB");
+        var (_, script, _) = await _fixture.Database.CreateTaskAsync();
+        var admin = WebFixture.Admin();
+
+        var inventory = await Tasks.SaveAsync(admin, null, Input(script.Id, name: "Inventory tab"));
+        await Tasks.LinkAsync(admin, inventory.Value, LinkLevel.Client, client.Id);
+        await Tasks.LinkAsync(admin, inventory.Value, LinkLevel.Endpoint, endpoint.Id);
+        var servers = await Tasks.SaveAsync(admin, null, Input(script.Id, name: "Servers only tab") with { AppliesTo = CheckAppliesTo.Server });
+        await Tasks.LinkAsync(admin, servers.Value, LinkLevel.Site, site.Id);
+        var elsewhere = await Tasks.SaveAsync(admin, null, Input(script.Id, name: "Other site tab"));
+        await Tasks.LinkAsync(admin, elsewhere.Value, LinkLevel.Site, otherSite.Id);
+        var run = await Tasks.RunNowAsync(admin, inventory.Value);
+        Assert.True(run.Success, run.Problem);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.Jobs.Where(j => j.TaskId == inventory.Value)
+                .ExecuteUpdateAsync(s => s.SetProperty(j => j.State, JobState.Refused).SetProperty(j => j.RefusalReason, "Script approval is required."));
+        }
+
+        var view = await Tasks.GetForEndpointAsync(WebFixture.Technician(), endpoint.Id);
+
+        var task = Assert.Single(view!.Tasks);
+        Assert.Equal("Inventory tab", task.Name);
+        Assert.Equal([LinkLevel.Client, LinkLevel.Endpoint], task.LinkedThrough);
+        Assert.Null(task.Problem);
+        Assert.NotNull(task.LastRun);
+        var history = Assert.Single(view.History);
+        Assert.Equal((TaskTrigger.Manual, "Refused", "Script approval is required."), (history.Trigger, TaskService.StateText(history.Target), history.Target.Problem));
+        Assert.NotNull(history.Target.JobId);
+
+        var otherClient = await _fixture.Database.CreateClientAsync();
+        var limited = WebFixture.CallerWith(new RestrictedClientScope([otherClient.Id]), FleetoRoles.Technician);
+        Assert.Null(await Tasks.GetForEndpointAsync(limited, endpoint.Id));
     }
 
     [Fact]
@@ -150,6 +192,90 @@ public sealed class TaskServiceTests
         Assert.EndsWith(".csv", export.Value.FileName);
         Assert.Contains("\"WS-EXPORT\"", export.Value.Csv);
         Assert.Contains("\"'=HYPERLINK(\"\"x\"\")\nserial \"\"ABC\"\"\"", export.Value.Csv);
+    }
+
+    [Fact]
+    public async Task A_task_linked_to_a_monitoring_template_shows_on_the_endpoints_that_get_it()
+    {
+        await _fixture.Database.LoadTestLicenseAsync(1000);
+        var client = await _fixture.Database.CreateClientAsync();
+        var site = await _fixture.Database.CreateSiteAsync(client.Id);
+        var endpoint = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "WS-TEMPLATETAB");
+        var template = await _fixture.Database.CreateMonitoringTemplateAsync(linkSite: site);
+        var (_, script, _) = await _fixture.Database.CreateTaskAsync();
+        var admin = WebFixture.Admin();
+        var task = await Tasks.SaveAsync(admin, null, Input(script.Id, name: "Through template"));
+
+        Assert.Contains(await Tasks.GetTemplateChoicesAsync(admin, task.Value), t => t.Id == template.Id);
+        var linked = await Tasks.LinkTemplateAsync(admin, task.Value, template.Id);
+
+        Assert.True(linked.Success, linked.Problem);
+        Assert.Equal(template.Id, Assert.Single((await Tasks.GetAsync(admin, task.Value))!.Templates).Id);
+        Assert.DoesNotContain(await Tasks.GetTemplateChoicesAsync(admin, task.Value), t => t.Id == template.Id);
+        Assert.Equal(task.Value, Assert.Single(await Tasks.ListAsync(admin, template.Id)).Id);
+        Assert.DoesNotContain(await Tasks.GetTaskChoicesForTemplateAsync(admin, template.Id), t => t.Id == task.Value);
+        var item = Assert.Single((await Tasks.GetForEndpointAsync(admin, endpoint.Id))!.Tasks, t => t.Id == task.Value);
+        Assert.Equal([template.Name], item.LinkedTemplates);
+        Assert.Empty(item.LinkedThrough);
+
+        Assert.True((await Tasks.UnlinkTemplateAsync(admin, task.Value, template.Id)).Success);
+        Assert.DoesNotContain((await Tasks.GetForEndpointAsync(admin, endpoint.Id))!.Tasks, t => t.Id == task.Value);
+    }
+
+    [Fact]
+    public async Task Linking_a_task_to_a_monitoring_template_needs_access_to_everywhere_the_template_is_used()
+    {
+        var mine = await _fixture.Database.CreateClientAsync();
+        var theirs = await _fixture.Database.CreateClientAsync();
+        var theirSite = await _fixture.Database.CreateSiteAsync(theirs.Id);
+        var shared = await _fixture.Database.CreateMonitoringTemplateAsync(linkSite: theirSite);
+        var theirTemplate = await _fixture.Database.CreateMonitoringTemplateAsync(theirs.Id);
+        var (_, script, _) = await _fixture.Database.CreateTaskAsync();
+        var admin = WebFixture.Admin();
+        var mineTask = await Tasks.SaveAsync(admin, null, Input(script.Id, mine.Id));
+        var limited = WebFixture.CallerWith(new RestrictedClientScope([mine.Id]), FleetoRoles.Technician);
+
+        var usedElsewhere = await Tasks.LinkTemplateAsync(limited, mineTask.Value, shared.Id);
+        Assert.False(usedElsewhere.Success);
+        Assert.Contains("also used where your groups give you no access", usedElsewhere.Problem);
+
+        var otherClient = await Tasks.LinkTemplateAsync(admin, mineTask.Value, theirTemplate.Id);
+        Assert.False(otherClient.Success);
+        Assert.Contains("monitoring template of that client or one for every client", otherClient.Problem);
+
+        var readOnly = WebFixture.CallerWith(SystemClientScope.Instance, FleetoRoles.ReadOnly);
+        Assert.Equal(ServiceResult.ForbiddenProblem, (await Tasks.LinkTemplateAsync(readOnly, mineTask.Value, shared.Id)).Problem);
+
+        // A global task linked to a template used at another client is used there too: the limited user cannot change it.
+        var global = await Tasks.SaveAsync(admin, null, Input(script.Id));
+        Assert.True((await Tasks.LinkTemplateAsync(admin, global.Value, shared.Id)).Success);
+        var change = await Tasks.SaveAsync(limited, global.Value, Input(script.Id, name: "Changed through template"));
+        Assert.False(change.Success);
+        Assert.Contains("also used where your groups give you no access", change.Problem);
+    }
+
+    [Fact]
+    public async Task The_tasks_tab_offers_the_global_tasks_and_those_of_the_endpoints_client_that_are_not_linked_to_it_yet()
+    {
+        var client = await _fixture.Database.CreateClientAsync();
+        var other = await _fixture.Database.CreateClientAsync();
+        var site = await _fixture.Database.CreateSiteAsync(client.Id);
+        var endpoint = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "WS-CHOICES");
+        var (_, script, _) = await _fixture.Database.CreateTaskAsync();
+        var (_, otherScript, _) = await _fixture.Database.CreateTaskAsync(clientId: other.Id);
+        var admin = WebFixture.Admin();
+        var global = await Tasks.SaveAsync(admin, null, Input(script.Id, name: "Global choice"));
+        var own = await Tasks.SaveAsync(admin, null, Input(script.Id, client.Id, "Own choice"));
+        var foreign = await Tasks.SaveAsync(admin, null, Input(otherScript.Id, other.Id, "Foreign choice"));
+        Assert.True((await Tasks.LinkAsync(admin, own.Value, LinkLevel.Endpoint, endpoint.Id)).Success);
+
+        var choices = (await Tasks.GetEndpointTaskChoicesAsync(WebFixture.Technician(), endpoint.Id)).Select(t => t.Id).ToList();
+
+        Assert.Contains(global.Value, choices);
+        Assert.DoesNotContain(own.Value, choices);
+        Assert.DoesNotContain(foreign.Value, choices);
+        var item = Assert.Single((await Tasks.GetForEndpointAsync(admin, endpoint.Id))!.Tasks);
+        Assert.True(item.LinkedToEndpoint);
     }
 
     [Fact]

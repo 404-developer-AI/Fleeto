@@ -1,4 +1,4 @@
-@* Endpoint detail: header and the tabs Summary, Checks, Software, Notes, Jobs, Patches, Storage and History. Used below the endpoint list in the
+@* Endpoint detail: header and the tabs Summary, Checks, Software, Notes, Jobs, Tasks, Patches, Storage and History. Used below the endpoint list in the
    clients workspace (Embedded) and on the full endpoint page. Only data of the visible tab is loaded. *@
 @inherits FleetoPageBase
 @inject EndpointService EndpointSvc
@@ -8,6 +8,7 @@
 @inject PatchService PatchSvc
 @inject ScriptService ScriptSvc
 @inject StorageService StorageSvc
+@inject TaskService TaskSvc
 @using System.Globalization
 @inject IDialogService DialogService
 @inject TimeProvider Clock
@@ -83,6 +84,12 @@
                         @Jobs(e)
                     </MudTabPanel>
                 }
+                @if (VisibleTabs.Contains(TasksTab))
+                {
+                    <MudTabPanel Text="Tasks" Icon="@Icons.Material.Outlined.EventRepeat">
+                        @Tasks(e)
+                    </MudTabPanel>
+                }
                 @if (VisibleTabs.Contains(PatchesTab))
                 {
                     <MudTabPanel Text="Patches" Icon="@Icons.Material.Outlined.Security">
@@ -118,6 +125,7 @@
     private const int PatchesTab = 5;
     private const int StorageTab = 6;
     private const int HistoryTab = 7;
+    private const int TasksTab = 8;
 
     /// <summary>The tabs the roles of the user allow, in order (0.6.0); the summary always.</summary>
     private List<int> VisibleTabs
@@ -129,6 +137,7 @@
             AddIf(SoftwareTab, Permissions.SoftwareView);
             AddIf(NotesTab, Permissions.NotesView);
             AddIf(JobsTab, Permissions.JobsView);
+            AddIf(TasksTab, Permissions.TasksView);
             AddIf(PatchesTab, Permissions.PatchesView);
             AddIf(StorageTab, Permissions.StorageView);
             AddIf(HistoryTab, Permissions.HistoryView);
@@ -167,6 +176,7 @@
     private NotePage? _notes;
     private List<NoteView> _noteItems = [];
     private IReadOnlyList<JobListItem>? _jobs;
+    private EndpointTasksView? _tasks;
     private EndpointPatchView? _patches;
     private IReadOnlyList<DeploymentView> _deployments = [];
     private HashSet<MissingUpdateView> _chosenUpdates = [];
@@ -192,6 +202,7 @@
         Live.CheckResultsChanged += OnEndpointChange;
         Live.AlertChanged += OnAlertChange;
         Live.JobsChanged += OnJobsChange;
+        Live.TasksChanged += OnTasksChange;
         Live.PatchDeploymentsChanged += OnDeploymentChange;
         Live.StorageScansChanged += OnStorageChange;
         Live.PatchRequestsChanged += OnDeploymentChange;
@@ -286,6 +297,9 @@
             case JobsTab:
                 _jobs = await JobSvc.ListForEndpointAsync(caller, EndpointId);
                 break;
+            case TasksTab:
+                _tasks = await TaskSvc.GetForEndpointAsync(caller, EndpointId);
+                break;
             case PatchesTab:
                 _patches = await PatchSvc.GetAsync(caller, EndpointId);
                 _deployments = await PatchSvc.ListDeploymentsAsync(caller, EndpointId);
@@ -337,7 +351,16 @@
 
     private void OnJobsChange(Guid id)
     {
-        if (_tab == JobsTab && (id == EndpointId || id == Guid.Empty))
+        if (_tab is JobsTab or TasksTab && (id == EndpointId || id == Guid.Empty))
+        {
+            _refresh?.Trigger();
+        }
+    }
+
+    // The payload is a task id; a change to any task can change what applies to this endpoint.
+    private void OnTasksChange(Guid _)
+    {
+        if (_tab == TasksTab)
         {
             _refresh?.Trigger();
         }
@@ -780,6 +803,259 @@
             </RowTemplate>
         </MudTable>
     };
+
+    private RenderFragment Tasks(EndpointDetail e) => __builder =>
+    {
+        if (_tasks is null)
+        {
+            return;
+        }
+
+        <div class="d-flex align-center justify-space-between flex-wrap gap-2 mb-2">
+            <MudText Typo="Typo.h6" Class="section-title">Linked tasks</MudText>
+            @if (Can(Permissions.TasksEdit))
+            {
+                <div class="d-flex gap-2">
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.AddLink" OnClick="@(() => LinkTaskAsync(e))">Link task</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="@(() => NewTaskAsync(e))">New task</MudButton>
+                </div>
+            }
+        </div>
+        if (_tasks.Tasks.Count == 0)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.EventRepeat" Title="No tasks for this endpoint"
+                        Text="Link a task to this endpoint, or to its client, its site or a monitoring template it gets." />
+        }
+        else
+        {
+            <MudTable Items="_tasks.Tasks" Dense="true" Hover="true" Elevation="0" Class="mb-4">
+                <HeaderContent>
+                    <MudTh>Task</MudTh>
+                    <MudTh>Runs</MudTh>
+                    <MudTh>Next run</MudTh>
+                    <MudTh>Last run</MudTh>
+                    <MudTh>Last result</MudTh>
+                    @if (Can(Permissions.TasksEdit))
+                    {
+                        <MudTh Style="width:52px"></MudTh>
+                    }
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd>
+                        <MudLink Href="@($"/settings/tasks/{context.Id}")" Typo="Typo.body2"><strong>@context.Name</strong></MudLink>
+                        @if (!context.Enabled)
+                        {
+                            <span class="ml-1"><StatusChip Text="Off" Kind="StatusKind.Neutral" /></span>
+                        }
+                        <div class="muted" style="font-size:0.75rem">@context.ScriptName · linked to @LinkedText(context)</div>
+                    </MudTd>
+                    <MudTd>
+                        @context.Schedule
+                        <div class="muted" style="font-size:0.75rem">@context.Triggers</div>
+                    </MudTd>
+                    <MudTd>
+                        @if (context.Problem is { } problem)
+                        {
+                            <span style="color:var(--mud-palette-warning-darken)">Does not run here: @problem</span>
+                        }
+                        else if (!context.Enabled)
+                        {
+                            <span class="muted">Switched off</span>
+                        }
+                        else if (context.NextRunAt is { } next)
+                        {
+                            <TimeText Value="next" />
+                            @if (context.RandomDelayMinutes > 0)
+                            {
+                                <div class="muted" style="font-size:0.75rem">plus a random delay of up to @Ui.Count(context.RandomDelayMinutes, "minute")</div>
+                            }
+                        }
+                        else
+                        {
+                            <span class="muted">Not scheduled</span>
+                        }
+                    </MudTd>
+                    <MudTd>
+                        @if (context.LastRun is { } last)
+                        {
+                            <TimeText Value="last.At" />
+                            <div class="muted" style="font-size:0.75rem">@Ui.TaskTriggerText(last.Trigger, last.CheckName, last.InitiatedByName)</div>
+                        }
+                        else
+                        {
+                            <span class="muted">Never</span>
+                        }
+                    </MudTd>
+                    <MudTd>
+                        @if (context.LastRun is { } lastRun)
+                        {
+                            <div style="@(CanOpenOutput(lastRun) ? "cursor:pointer" : "")"
+                                 title="@(CanOpenOutput(lastRun) ? "Show the output of the script" : null)" @onclick="@(() => ShowTaskOutputAsync(lastRun))">
+                                @TaskResult(lastRun)
+                            </div>
+                        }
+                    </MudTd>
+                    @if (Can(Permissions.TasksEdit))
+                    {
+                        <MudTd>
+                            @if (context.LinkedToEndpoint)
+                            {
+                                <MudTooltip Text="Unlink from this endpoint">
+                                    <MudIconButton Icon="@Icons.Material.Outlined.LinkOff" Size="Size.Small" aria-label="Unlink from this endpoint"
+                                                   OnClick="@(() => UnlinkTaskAsync(context))" />
+                                </MudTooltip>
+                            }
+                        </MudTd>
+                    }
+                </RowTemplate>
+            </MudTable>
+        }
+
+        <MudText Typo="Typo.h6" Class="section-title mb-2">History</MudText>
+        if (_tasks.History.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted">No task has run on this endpoint yet.</MudText>
+            return;
+        }
+
+        <MudText Typo="Typo.body2" Class="muted mb-2">
+            Newest first@(Can(Permissions.JobsView) ? ". Click a run for the output of the script." : ".")
+        </MudText>
+        <MudTable Items="_tasks.History" Dense="true" Hover="true" Elevation="0" RowsPerPage="25"
+                  OnRowClick="@((TableRowClickEventArgs<EndpointTaskRunItem> args) => ShowTaskOutputAsync(args.Item!))"
+                  RowStyleFunc="@((EndpointTaskRunItem run, int _) => CanOpenOutput(run) ? "cursor:pointer" : "")">
+            <HeaderContent>
+                <MudTh Style="width:170px">When</MudTh>
+                <MudTh>Task</MudTh>
+                <MudTh>Started by</MudTh>
+                <MudTh>Result</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd><TimeText Value="context.At" /></MudTd>
+                <MudTd>@context.TaskName</MudTd>
+                <MudTd>@Ui.TaskTriggerText(context.Trigger, context.CheckName, context.InitiatedByName)</MudTd>
+                <MudTd>@TaskResult(context)</MudTd>
+            </RowTemplate>
+            <PagerContent>
+                <MudTablePager PageSizeOptions="new[] { 25, 50 }" />
+            </PagerContent>
+        </MudTable>
+    };
+
+    /// <summary>The result of a run of a task on this endpoint: the state, the exit code and why it did not run or failed.</summary>
+    private RenderFragment TaskResult(EndpointTaskRunItem run) => __builder =>
+    {
+        var target = run.Target;
+        <StatusChip Text="@TaskService.StateText(target)" Kind="@Ui.TaskStateKind(target)" />
+        @if (target.ExitCode is { } exitCode)
+        {
+            <span class="muted ml-1">exit @exitCode</span>
+        }
+        @if ((target.Reason ?? target.Problem) is { } why)
+        {
+            <div class="muted" style="font-size:0.75rem">@why</div>
+        }
+        @if (target.State == TaskTargetState.Pending)
+        {
+            <div class="muted" style="font-size:0.75rem">Due @Time.Absolute(target.DueAt)</div>
+        }
+    };
+
+    /// <summary>"the client and this endpoint", "monitoring template Servers": every way the task reaches this endpoint.</summary>
+    private static string LinkedText(EndpointTaskItem task)
+    {
+        var parts = task.LinkedThrough.Select(l => l switch
+        {
+            LinkLevel.Client => "the client",
+            LinkLevel.Site => "the site",
+            _ => "this endpoint"
+        }).Concat(task.LinkedTemplates.Select(t => $"monitoring template {t}")).ToList();
+        return parts.Count <= 1 ? string.Concat(parts) : string.Join(", ", parts[..^1]) + " and " + parts[^1];
+    }
+
+    private async Task LinkTaskAsync(EndpointDetail e)
+    {
+        IReadOnlyList<TaskOption> tasks = [];
+        await LoadAsync(async caller => tasks = await TaskSvc.GetEndpointTaskChoicesAsync(caller, e.Id));
+        var parameters = new DialogParameters<LinkTaskDialog>
+        {
+            { d => d.Target, e.Hostname },
+            { d => d.HelperText, "The task runs on this endpoint on top of where it is linked already." },
+            { d => d.EmptyText, "Every task you can link is already linked to this endpoint. Create a new task instead." },
+            { d => d.Tasks, tasks },
+            { d => d.OnSubmit, taskId => RunAsync(caller => TaskSvc.LinkAsync(caller, taskId, LinkLevel.Endpoint, e.Id), "The task was linked to this endpoint.") }
+        };
+        var dialog = await DialogService.ShowAsync<LinkTaskDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await LoadAsync(LoadTabAsync);
+        }
+    }
+
+    /// <summary>A new task, linked to this endpoint when it is saved; it starts as a task of the endpoint's client.</summary>
+    private async Task NewTaskAsync(EndpointDetail e)
+    {
+        var parameters = new DialogParameters<TaskDialog>
+        {
+            { d => d.Clients, new[] { new ClientOption(e.ClientId, e.ClientCode, e.ClientName) } },
+            { d => d.DefaultClientId, e.ClientId },
+            { d => d.DefaultTimeZone, TimeZoneOptions.IanaId(Time.Zone) },
+            { d => d.LoadScripts, clientId => TaskSvc.GetScriptChoicesAsync(Caller!, clientId) },
+            { d => d.LoadChecks, clientId => TaskSvc.GetCheckChoicesAsync(Caller!, clientId) },
+            {
+                d => d.OnSubmit, async input =>
+                {
+                    var created = await RunForValueAsync(caller => TaskSvc.SaveAsync(caller, null, input), null);
+                    if (created?.Value is not { } taskId)
+                    {
+                        return false;
+                    }
+
+                    // The task exists now; a link that fails leaves it for Settings, Tasks, with the reason shown.
+                    await RunAsync(caller => TaskSvc.LinkAsync(caller, taskId, LinkLevel.Endpoint, e.Id), "The task was created and linked to this endpoint.");
+                    return true;
+                }
+            }
+        };
+        var dialog = await DialogService.ShowAsync<TaskDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await LoadAsync(LoadTabAsync);
+        }
+    }
+
+    private async Task UnlinkTaskAsync(EndpointTaskItem task)
+    {
+        var message = task.LinkedThrough.Count > 1 || task.LinkedTemplates.Count > 0
+            ? "The link to this endpoint is removed. The task keeps running here through its other links."
+            : "The task no longer runs on this endpoint. Its runs here stay in the history.";
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Unlink task {task.Name}" },
+            { d => d.Message, message },
+            { d => d.ConfirmText, "Unlink" }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled &&
+            await RunAsync(caller => TaskSvc.UnlinkAsync(caller, task.Id, LinkLevel.Endpoint, EndpointId), "The task was unlinked from this endpoint."))
+        {
+            await LoadAsync(LoadTabAsync);
+        }
+    }
+
+    private bool CanOpenOutput(EndpointTaskRunItem run) => run.Target.JobId is not null && Can(Permissions.JobsView);
+
+    private async Task ShowTaskOutputAsync(EndpointTaskRunItem run)
+    {
+        if (!CanOpenOutput(run))
+        {
+            return;
+        }
+
+        var parameters = new DialogParameters<JobOutputDialog> { { d => d.JobId, run.Target.JobId!.Value }, { d => d.EndpointId, EndpointId } };
+        var dialog = await DialogService.ShowAsync<JobOutputDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
+        await dialog.Result;
+    }
 
     private async Task RunScriptAsync(EndpointDetail e)
     {
@@ -2155,6 +2431,7 @@
         Live.CheckResultsChanged -= OnEndpointChange;
         Live.AlertChanged -= OnAlertChange;
         Live.JobsChanged -= OnJobsChange;
+        Live.TasksChanged -= OnTasksChange;
         Live.PatchDeploymentsChanged -= OnDeploymentChange;
         Live.StorageScansChanged -= OnStorageChange;
         Live.PatchRequestsChanged -= OnDeploymentChange;

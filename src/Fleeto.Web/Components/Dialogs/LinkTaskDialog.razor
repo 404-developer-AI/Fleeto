@@ -1,0 +1,61 @@
+@* Link an existing task to one endpoint (its Tasks tab) or to a monitoring template (its page) (0.6.0). *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Link a task to @Target</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (Tasks.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted">@EmptyText</MudText>
+        }
+        else
+        {
+            <MudSelect T="Guid?" @bind-Value="_taskId" Label="Task" Variant="Variant.Outlined" AutoFocus="true" HelperText="@HelperText">
+                @foreach (var task in Tasks)
+                {
+                    <MudSelectItem T="Guid?" Value="@((Guid?)task.Id)">@task.Name (@task.ScriptName@(task.ClientCode is null ? "" : $", {task.ClientCode}"))</MudSelectItem>
+                }
+            </MudSelect>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(_taskId is null || _busy)" OnClick="SubmitAsync">Link</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    /// <summary>What the task is linked to, as the title names it: a host name or a monitoring template.</summary>
+    [Parameter] public string Target { get; set; } = string.Empty;
+    [Parameter] public string HelperText { get; set; } = string.Empty;
+    [Parameter] public string EmptyText { get; set; } = "Every task you can link is already linked here.";
+    [Parameter] public IReadOnlyList<TaskOption> Tasks { get; set; } = [];
+    [Parameter] public Func<Guid, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+
+    private Guid? _taskId;
+    private bool _busy;
+
+    private async Task SubmitAsync()
+    {
+        if (_taskId is not { } taskId)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(taskId))
+            {
+                MudDialog.Close(DialogResult.Ok(taskId));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

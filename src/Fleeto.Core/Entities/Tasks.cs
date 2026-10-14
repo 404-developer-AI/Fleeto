@@ -156,6 +156,22 @@ public class EndpointAutomationTask
 }
 
 /// <summary>
+/// A task linked to a monitoring template (0.6.0): it runs on every endpoint that gets the template, wherever the template is
+/// linked. <see cref="ClientId"/> is the client of the template or the task, null when both are for every client; a task and a
+/// template of two different clients are never linked (trigger <c>TR_MonitoringTemplateAutomationTasks_Client</c>).
+/// </summary>
+public class MonitoringTemplateAutomationTask
+{
+    public Guid MonitoringTemplateId { get; set; }
+    public Guid AutomationTaskId { get; set; }
+    public Guid? ClientId { get; set; }
+    public DateTime CreatedAt { get; set; }
+
+    public AutomationTask? AutomationTask { get; set; }
+    public MonitoringTemplate? MonitoringTemplate { get; set; }
+}
+
+/// <summary>
 /// Where the workers stand with one task (0.6.0): the occurrences of its schedule already handled, and how far they read the
 /// alerts and the endpoints switched to managed. Written by the workers only; created when they first see the task, so
 /// nothing that happened before a task existed starts it.

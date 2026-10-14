@@ -51,14 +51,45 @@ public sealed record TaskCheckOption(Guid Id, string Name, string TemplateName);
 public sealed record TaskScriptOption(Guid Id, string Name, ScriptLanguage Language, string? ClientCode);
 
 public sealed record TaskDetail(Guid Id, TaskInput Input, string? ClientCode, string ScriptName, ScriptLanguage Language,
-    IReadOnlyList<TaskLinkView> Links, IReadOnlyList<TaskCheckOption> TriggerChecks, DateTime? NextRunAt, string UpdatedByName, DateTime UpdatedAt);
+    IReadOnlyList<TaskLinkView> Links, IReadOnlyList<TaskCheckOption> TriggerChecks, DateTime? NextRunAt, string UpdatedByName, DateTime UpdatedAt,
+    IReadOnlyList<TaskTemplateLinkView> Templates);
+
+/// <summary>A monitoring template a task is linked to, or can be: the task runs on every endpoint that gets the template.</summary>
+public sealed record TaskTemplateLinkView(Guid Id, string Name, string? ClientCode, CheckAppliesTo AppliesTo);
 
 public sealed record TaskRunItem(Guid Id, Guid ClientId, string? ClientCode, TaskTrigger Trigger, DateTime OccurrenceAt, DateTime CreatedAt,
     string InitiatedByName, string? CheckName, int Endpoints, int Waiting, int Running, int Succeeded, int Failed, int Skipped);
 
 /// <summary>One endpoint of a run: the target, and the job once it was written, with the start of its output.</summary>
 public sealed record TaskRunTargetItem(Guid EndpointId, string Hostname, TaskTargetState State, DateTime DueAt, string? Reason, Guid? JobId,
-    JobState? JobState, int? ExitCode, string? Problem, DateTime? StartedAt, DateTime? CompletedAt, string OutputPreview, long OutputBytes);
+    JobState? JobState, int? ExitCode, string? Problem, DateTime? StartedAt, DateTime? CompletedAt, string OutputPreview, long OutputBytes,
+    JobResult? JobResult);
+
+/// <summary>
+/// A task that applies to one endpoint (0.6.0, the Tasks tab): where it is linked, when it runs next and how its last run on the
+/// endpoint ended. <see cref="Problem"/> says why the endpoint cannot run it now.
+/// </summary>
+public sealed record EndpointTaskItem(Guid Id, string Name, string ScriptName, bool Enabled, IReadOnlyList<LinkLevel> LinkedThrough,
+    IReadOnlyList<string> LinkedTemplates, string Schedule, string Triggers, DateTime? NextRunAt, int RandomDelayMinutes, string? Problem,
+    EndpointTaskRunItem? LastRun)
+{
+    /// <summary>Linked to this endpoint itself, so it can be unlinked here.</summary>
+    public bool LinkedToEndpoint => LinkedThrough.Contains(LinkLevel.Endpoint);
+}
+
+/// <summary>A task that can be linked to an endpoint from its Tasks tab.</summary>
+public sealed record TaskOption(Guid Id, string Name, string? ClientCode, string ScriptName);
+
+/// <summary>One run of a task on one endpoint: why it started, and the job with its result once it was written.</summary>
+public sealed record EndpointTaskRunItem(Guid RunId, Guid TaskId, string TaskName, TaskTrigger Trigger, string InitiatedByName, string? CheckName,
+    DateTime CreatedAt, TaskRunTargetItem Target)
+{
+    /// <summary>When it ran, or when it is or was due.</summary>
+    public DateTime At => Target.StartedAt ?? Target.DueAt;
+}
+
+/// <summary>The Tasks tab of an endpoint: the tasks that apply to it and the newest runs on it.</summary>
+public sealed record EndpointTasksView(IReadOnlyList<EndpointTaskItem> Tasks, IReadOnlyList<EndpointTaskRunItem> History);
 
 /// <summary>The clients, sites and endpoints a task can be linked to, within the caller's groups.</summary>
 public sealed record TaskLinkChoices(IReadOnlyList<TaskLinkView> Clients, IReadOnlyList<TaskLinkView> Sites, IReadOnlyList<TaskLinkView> Endpoints);
@@ -97,11 +128,18 @@ public sealed class TaskService
         _time = time;
     }
 
-    public async Task<IReadOnlyList<TaskListItem>> ListAsync(Caller caller, CancellationToken cancellationToken = default)
+    /// <summary>The tasks the caller sees; with <paramref name="monitoringTemplateId"/> only those linked to that monitoring template.</summary>
+    public async Task<IReadOnlyList<TaskListItem>> ListAsync(Caller caller, Guid? monitoringTemplateId = null, CancellationToken cancellationToken = default)
     {
         caller.Ensure(Permissions.TasksView);
         await using var db = _dbFactory.Create(caller.Scope);
-        var tasks = await db.AutomationTasks.AsNoTracking().OrderBy(t => t.Name).ToListAsync(cancellationToken);
+        var query = db.AutomationTasks.AsNoTracking();
+        if (monitoringTemplateId is { } templateId)
+        {
+            query = query.Where(t => db.MonitoringTemplateAutomationTasks.Any(l => l.AutomationTaskId == t.Id && l.MonitoringTemplateId == templateId));
+        }
+
+        var tasks = await query.OrderBy(t => t.Name).ToListAsync(cancellationToken);
         var ids = tasks.Select(t => t.Id).ToList();
         var clientCodes = await db.Clients.AsNoTracking().ToDictionaryAsync(c => c.Id, c => c.Code, cancellationToken);
         var scriptIds = tasks.Select(t => t.ScriptId).Distinct().ToList();
@@ -112,6 +150,7 @@ public sealed class TaskService
         var links = (await db.ClientAutomationTasks.Where(l => ids.Contains(l.AutomationTaskId)).Select(l => l.AutomationTaskId).ToListAsync(cancellationToken))
             .Concat(await db.SiteAutomationTasks.Where(l => ids.Contains(l.AutomationTaskId)).Select(l => l.AutomationTaskId).ToListAsync(cancellationToken))
             .Concat(await db.EndpointAutomationTasks.Where(l => ids.Contains(l.AutomationTaskId)).Select(l => l.AutomationTaskId).ToListAsync(cancellationToken))
+            .Concat(await db.MonitoringTemplateAutomationTasks.Where(l => ids.Contains(l.AutomationTaskId)).Select(l => l.AutomationTaskId).ToListAsync(cancellationToken))
             .GroupBy(id => id).ToDictionary(g => g.Key, g => g.Count());
         var lastRuns = (await db.AutomationTaskRuns.AsNoTracking().Where(r => ids.Contains(r.AutomationTaskId))
                 .GroupBy(r => r.AutomationTaskId).Select(g => new { g.Key, Last = g.Max(r => r.CreatedAt) }).ToListAsync(cancellationToken))
@@ -148,7 +187,7 @@ public sealed class TaskService
             .Select(s => s.NextOccurrenceAt).SingleOrDefaultAsync(cancellationToken);
         return new TaskDetail(task.Id, ToInput(task), clientCode, script?.Name ?? "Script not available", script?.Language ?? ScriptLanguage.PowerShell,
             await LinksAsync(db, taskId, cancellationToken), checks.OrderBy(c => c.TemplateName).ThenBy(c => c.Name).ToList(),
-            task.Enabled ? next : null, task.UpdatedByName, task.UpdatedAt);
+            task.Enabled ? next : null, task.UpdatedByName, task.UpdatedAt, await TemplateLinksAsync(db, taskId, cancellationToken));
     }
 
     /// <summary>The scripts a task of this client (null: global) can run: global ones, and the client's own for a client's task.</summary>
@@ -375,6 +414,137 @@ public sealed class TaskService
 
     public async Task<ServiceResult> UnlinkAsync(Caller caller, Guid taskId, LinkLevel level, Guid id, CancellationToken cancellationToken = default) =>
         await ChangeLinkAsync(caller, taskId, level, id, false, cancellationToken);
+
+    /// <summary>
+    /// The monitoring templates a task can be linked to: global ones, and those of the task's client for a client's task; those
+    /// already linked are left out.
+    /// </summary>
+    public async Task<IReadOnlyList<TaskTemplateLinkView>> GetTemplateChoicesAsync(Caller caller, Guid taskId, CancellationToken cancellationToken = default)
+    {
+        caller.Ensure(Permissions.TasksEdit);
+        await using var db = _dbFactory.Create(caller.Scope);
+        var task = await db.AutomationTasks.AsNoTracking().SingleOrDefaultAsync(t => t.Id == taskId, cancellationToken);
+        if (task is null)
+        {
+            return [];
+        }
+
+        var taskClientId = task.ClientId;
+        var linked = db.MonitoringTemplateAutomationTasks.Where(l => l.AutomationTaskId == taskId).Select(l => l.MonitoringTemplateId);
+        return await (
+                from t in db.MonitoringTemplates.AsNoTracking()
+                where (t.ClientId == null || taskClientId == null || t.ClientId == taskClientId) && !linked.Contains(t.Id)
+                join c in db.Clients on t.ClientId equals c.Id into owners
+                from c in owners.DefaultIfEmpty()
+                orderby t.Name
+                select new TaskTemplateLinkView(t.Id, t.Name, c.Code, t.AppliesTo))
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// The tasks that can be linked to a monitoring template from its page: global ones, and for a template of a client also that
+    /// client's; for a global template also the tasks of a client, which then run only on that client's endpoints. Those already
+    /// linked are left out.
+    /// </summary>
+    public async Task<IReadOnlyList<TaskOption>> GetTaskChoicesForTemplateAsync(Caller caller, Guid templateId, CancellationToken cancellationToken = default)
+    {
+        caller.Ensure(Permissions.TasksEdit);
+        await using var db = _dbFactory.Create(caller.Scope);
+        var template = await db.MonitoringTemplates.AsNoTracking().SingleOrDefaultAsync(t => t.Id == templateId, cancellationToken);
+        if (template is null)
+        {
+            return [];
+        }
+
+        var templateClientId = template.ClientId;
+        var linked = db.MonitoringTemplateAutomationTasks.Where(l => l.MonitoringTemplateId == templateId).Select(l => l.AutomationTaskId);
+        return await (
+                from t in db.AutomationTasks.AsNoTracking()
+                where (t.ClientId == null || templateClientId == null || t.ClientId == templateClientId) && !linked.Contains(t.Id)
+                join s in db.Scripts.IgnoreQueryFilters() on t.ScriptId equals s.Id
+                join c in db.Clients on t.ClientId equals c.Id into owners
+                from c in owners.DefaultIfEmpty()
+                orderby t.Name
+                select new TaskOption(t.Id, t.Name, c.Code, s.Name))
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Links a task to a monitoring template (0.6.0): it then runs on every endpoint that gets the template, also where the
+    /// template is linked later. That changes what the template does wherever it is used, so it needs the permissions to edit
+    /// tasks and monitoring templates and, for a template for every client, access to everything the template is used on.
+    /// </summary>
+    public async Task<ServiceResult> LinkTemplateAsync(Caller caller, Guid taskId, Guid templateId, CancellationToken cancellationToken = default) =>
+        await ChangeTemplateLinkAsync(caller, taskId, templateId, true, cancellationToken);
+
+    public async Task<ServiceResult> UnlinkTemplateAsync(Caller caller, Guid taskId, Guid templateId, CancellationToken cancellationToken = default) =>
+        await ChangeTemplateLinkAsync(caller, taskId, templateId, false, cancellationToken);
+
+    private async Task<ServiceResult> ChangeTemplateLinkAsync(Caller caller, Guid taskId, Guid templateId, bool link, CancellationToken cancellationToken)
+    {
+        if (!caller.Has(Permissions.TasksEdit) || !caller.Has(Permissions.MonitoringTemplatesEdit))
+        {
+            return ServiceResult.Forbidden();
+        }
+
+        await using var db = _dbFactory.Create(caller.Scope);
+        var task = await db.AutomationTasks.AsNoTracking().SingleOrDefaultAsync(t => t.Id == taskId, cancellationToken);
+        if (task is null)
+        {
+            return ServiceResult.NotFound("task");
+        }
+
+        var template = await db.MonitoringTemplates.AsNoTracking().SingleOrDefaultAsync(t => t.Id == templateId, cancellationToken);
+        if (template is null)
+        {
+            return ServiceResult.NotFound("monitoring template");
+        }
+
+        if (task.ClientId is { } taskClient && template.ClientId is { } templateClient && taskClient != templateClient)
+        {
+            return ServiceResult.Fail("A task of a client can only be linked to a monitoring template of that client or one for every client.");
+        }
+
+        // The task then runs wherever the template is used: the caller needs access to all of it, as for a change of the template.
+        if (await TemplateAccess.ProblemAsync(db, caller, TemplateKind.MonitoringTemplate, template.Id, template.ClientId, false, cancellationToken)
+            is { } accessProblem)
+        {
+            return ServiceResult.Fail(accessProblem);
+        }
+
+        var clientId = template.ClientId ?? task.ClientId;
+        if (clientId is null)
+        {
+            // Both are for every client, so the link is instance-wide; the access check above allowed it.
+            db.AllowInstanceWideWrites();
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        var changed = await ToggleAsync(db.MonitoringTemplateAutomationTasks, l => l.MonitoringTemplateId == templateId && l.AutomationTaskId == taskId,
+            () => new MonitoringTemplateAutomationTask { MonitoringTemplateId = templateId, AutomationTaskId = taskId, ClientId = clientId, CreatedAt = now },
+            link, cancellationToken);
+        if (!changed)
+        {
+            return ServiceResult.Ok();
+        }
+
+        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.TaskUpdated, "Task", taskId.ToString(), clientId,
+            new { task.Name, Change = link ? "linked" : "unlinked", Level = "MonitoringTemplate", Target = template.Name }), now));
+        await db.SaveChangesAsync(cancellationToken);
+        await PublishAsync(taskId, cancellationToken);
+        return ServiceResult.Ok();
+    }
+
+    private static async Task<IReadOnlyList<TaskTemplateLinkView>> TemplateLinksAsync(FleetoDbContext db, Guid taskId, CancellationToken cancellationToken) =>
+        await (
+                from l in db.MonitoringTemplateAutomationTasks
+                where l.AutomationTaskId == taskId
+                join t in db.MonitoringTemplates on l.MonitoringTemplateId equals t.Id
+                join c in db.Clients on t.ClientId equals c.Id into owners
+                from c in owners.DefaultIfEmpty()
+                orderby t.Name
+                select new TaskTemplateLinkView(t.Id, t.Name, c.Code, t.AppliesTo))
+            .ToListAsync(cancellationToken);
 
     private async Task<ServiceResult> ChangeLinkAsync(Caller caller, Guid taskId, LinkLevel level, Guid id, bool link, CancellationToken cancellationToken)
     {
@@ -729,17 +899,129 @@ public sealed class TaskService
         return ($"fleeto-task-{safeName}-{clientCode}-{run.CreatedAt:yyyyMMdd-HHmm}.csv", csv.ToString());
     }
 
+    /// <summary>
+    /// The Tasks tab of an endpoint (0.6.0): every task that applies to it by <see cref="AutomationTaskTargets.Linked"/>, with the
+    /// levels it is linked on, its next run (the run already waiting on this endpoint, else the next occurrence of its schedule)
+    /// and its last run here; and the newest runs on the endpoint, of tasks that still exist. Null when the endpoint is not visible.
+    /// </summary>
+    public async Task<EndpointTasksView?> GetForEndpointAsync(Caller caller, Guid endpointId, int limit = 50, CancellationToken cancellationToken = default)
+    {
+        caller.Ensure(Permissions.TasksView);
+        await using var db = _dbFactory.Create(caller.Scope);
+        var endpoint = await db.Endpoints.AsNoTracking().Where(e => e.Id == endpointId)
+            .Select(e => new { e.ClientId, e.SiteId, e.Hostname, e.Tier, e.OsPlatform, Class = e.ClassOverride ?? e.DetectedClass })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (endpoint is null)
+        {
+            return null;
+        }
+
+        var links = (await db.ClientAutomationTasks.Where(l => l.ClientId == endpoint.ClientId)
+                .Select(l => new { l.AutomationTaskId, Level = LinkLevel.Client }).ToListAsync(cancellationToken))
+            .Concat(await db.SiteAutomationTasks.Where(l => l.SiteId == endpoint.SiteId)
+                .Select(l => new { l.AutomationTaskId, Level = LinkLevel.Site }).ToListAsync(cancellationToken))
+            .Concat(await db.EndpointAutomationTasks.Where(l => l.EndpointId == endpointId)
+                .Select(l => new { l.AutomationTaskId, Level = LinkLevel.Endpoint }).ToListAsync(cancellationToken))
+            .GroupBy(l => l.AutomationTaskId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<LinkLevel>)g.Select(l => l.Level).Distinct().Order().ToList());
+        // Tasks of the monitoring templates the endpoint gets: linked to its client, site or itself, and for its class.
+        var templateIds = db.ClientMonitoringTemplates.Where(m => m.ClientId == endpoint.ClientId).Select(m => m.MonitoringTemplateId)
+            .Concat(db.SiteMonitoringTemplates.Where(m => m.SiteId == endpoint.SiteId).Select(m => m.MonitoringTemplateId))
+            .Concat(db.EndpointMonitoringTemplates.Where(m => m.EndpointId == endpointId).Select(m => m.MonitoringTemplateId));
+        var templateLinks = (await (
+                from l in db.MonitoringTemplateAutomationTasks
+                where templateIds.Contains(l.MonitoringTemplateId)
+                join t in db.MonitoringTemplates on l.MonitoringTemplateId equals t.Id
+                select new { l.AutomationTaskId, t.Name, t.AppliesTo })
+            .ToListAsync(cancellationToken))
+            .Where(t => EffectivePolicyRules.IsFor(t.AppliesTo, endpoint.Class))
+            .GroupBy(t => t.AutomationTaskId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<string>)g.Select(t => t.Name).Distinct().Order().ToList());
+        var candidateIds = links.Keys.Union(templateLinks.Keys).ToList();
+        var tasks = await db.AutomationTasks.AsNoTracking().Where(t => candidateIds.Contains(t.Id)).OrderBy(t => t.Name).ToListAsync(cancellationToken);
+
+        var scriptIds = tasks.Select(t => t.ScriptId).Distinct().ToList();
+        var scripts = await db.Scripts.IgnoreQueryFilters().AsNoTracking().Where(s => scriptIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, cancellationToken);
+        var states = await db.AutomationTaskStates.AsNoTracking().Where(s => candidateIds.Contains(s.AutomationTaskId))
+            .ToDictionaryAsync(s => s.AutomationTaskId, s => s.NextOccurrenceAt, cancellationToken);
+        var license = await _licenses.GetStatusAsync(db, cancellationToken);
+
+        var items = new List<EndpointTaskItem>();
+        foreach (var task in tasks)
+        {
+            // The one targeting rule decides, so the class and the client of the task count as they do for a run.
+            if (!await AutomationTaskTargets.Linked(db, task).AnyAsync(e => e.Id == endpointId, cancellationToken))
+            {
+                continue;
+            }
+
+            var taskId = task.Id;
+            var ofTask = db.AutomationTaskRunTargets.AsNoTracking().Where(t => t.EndpointId == endpointId && t.AutomationTaskId == taskId);
+            var waiting = await Runs(db, ofTask.Where(t => t.State == TaskTargetState.Pending).OrderBy(t => t.DueAt).Take(1), endpoint.Hostname)
+                .FirstOrDefaultAsync(cancellationToken);
+            var last = await Runs(db, ofTask.Where(t => t.State != TaskTargetState.Pending).OrderByDescending(t => t.DueAt).Take(1), endpoint.Hostname)
+                .FirstOrDefaultAsync(cancellationToken);
+            var problem = scripts.TryGetValue(task.ScriptId, out var script)
+                ? AutomationTaskTargets.Problem(script, license, endpoint.ClientId, endpoint.Tier, endpoint.OsPlatform)
+                : "The script of the task is not available.";
+            items.Add(new EndpointTaskItem(task.Id, task.Name, script?.Name ?? "Script not available", task.Enabled, links.GetValueOrDefault(task.Id, []),
+                templateLinks.GetValueOrDefault(task.Id, []), AutomationTasks.Describe(task), Triggers(task),
+                task.Enabled ? waiting?.Target.DueAt ?? states.GetValueOrDefault(task.Id) : null,
+                waiting is null ? task.RandomDelayMinutes : 0, problem, last));
+        }
+
+        var newest = db.AutomationTaskRunTargets.AsNoTracking().Where(t => t.EndpointId == endpointId)
+            .OrderByDescending(t => t.DueAt).Take(Math.Clamp(limit, 1, 200));
+        var history = await Runs(db, newest, endpoint.Hostname).ToListAsync(cancellationToken);
+        return new EndpointTasksView(items, history);
+    }
+
+    /// <summary>These targets of runs on one endpoint, newest first, each with its run, task and job.</summary>
+    private static IQueryable<EndpointTaskRunItem> Runs(FleetoDbContext db, IQueryable<AutomationTaskRunTarget> targets, string hostname) =>
+        from t in targets
+        join r in db.AutomationTaskRuns on t.RunId equals r.Id
+        join task in db.AutomationTasks.IgnoreQueryFilters() on r.AutomationTaskId equals task.Id
+        join j in db.Jobs on t.JobId equals j.Id into jobs
+        from j in jobs.DefaultIfEmpty()
+        orderby t.DueAt descending
+        select new EndpointTaskRunItem(r.Id, task.Id, task.Name, r.Trigger, r.InitiatedByName, r.CheckName, r.CreatedAt,
+            new TaskRunTargetItem(t.EndpointId, hostname, t.State, t.DueAt, t.Reason, t.JobId, (JobState?)j.State, j.ExitCode,
+                j.RefusalReason ?? j.Error, j.StartedAt, j.CompletedAt, string.Empty, (long?)j.ReceivedOutputBytes ?? 0, j.Result));
+
+    /// <summary>The tasks that can be linked to an endpoint from its Tasks tab: global ones and those of its client, not linked to it yet.</summary>
+    public async Task<IReadOnlyList<TaskOption>> GetEndpointTaskChoicesAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
+    {
+        caller.Ensure(Permissions.TasksEdit);
+        await using var db = _dbFactory.Create(caller.Scope);
+        var clientId = await db.Endpoints.Where(e => e.Id == endpointId).Select(e => (Guid?)e.ClientId).SingleOrDefaultAsync(cancellationToken);
+        if (clientId is null)
+        {
+            return [];
+        }
+
+        var linked = db.EndpointAutomationTasks.Where(l => l.EndpointId == endpointId).Select(l => l.AutomationTaskId);
+        return await (
+                from t in db.AutomationTasks.AsNoTracking()
+                where (t.ClientId == null || t.ClientId == clientId) && !linked.Contains(t.Id)
+                join s in db.Scripts.IgnoreQueryFilters() on t.ScriptId equals s.Id
+                join c in db.Clients on t.ClientId equals c.Id into owners
+                from c in owners.DefaultIfEmpty()
+                orderby t.Name
+                select new TaskOption(t.Id, t.Name, c.Code, s.Name))
+            .ToListAsync(cancellationToken);
+    }
+
     /// <summary>The state of an endpoint of a run as one word, for lists and the export.</summary>
     public static string StateText(TaskRunTargetItem item) => item.State switch
     {
         TaskTargetState.Pending => "Waiting",
-        TaskTargetState.Skipped => "Skipped",
+        TaskTargetState.Skipped => "Could not start",
         _ => item.JobState switch
         {
             JobState.PendingSignature or JobState.Queued => "Queued",
             JobState.Running => "Running",
             JobState.Succeeded => "Succeeded",
-            JobState.Failed => "Failed",
+            JobState.Failed => item.JobResult == JobResult.TimedOut ? "Timed out" : item.JobResult == JobResult.FailedToStart ? "Could not start" : "Failed",
             JobState.Expired => "Missed",
             JobState.Refused => "Refused",
             JobState.Lost => "Lost",
@@ -756,7 +1038,7 @@ public sealed class TaskService
                 join j in db.Jobs on t.JobId equals j.Id into jobs
                 from j in jobs.DefaultIfEmpty()
                 select new TaskRunTargetItem(t.EndpointId, e.Hostname, t.State, t.DueAt, t.Reason, t.JobId, (JobState?)j.State, j.ExitCode,
-                    j.RefusalReason ?? j.Error, j.StartedAt, j.CompletedAt, string.Empty, (long?)j.ReceivedOutputBytes ?? 0))
+                    j.RefusalReason ?? j.Error, j.StartedAt, j.CompletedAt, string.Empty, (long?)j.ReceivedOutputBytes ?? 0, j.Result))
             .ToListAsync(cancellationToken))
         .OrderBy(t => t.Hostname, StringComparer.OrdinalIgnoreCase).ToList();
 

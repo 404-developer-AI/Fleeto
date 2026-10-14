@@ -33,7 +33,7 @@
                 @if (Can(Permissions.TasksRun) && Can(Permissions.ScriptsRun))
                 {
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PlayArrow" OnClick="RunNowAsync"
-                               Disabled="@(!task.Input.Enabled || task.Links.Count == 0 || _running)">Run now</MudButton>
+                               Disabled="@(!task.Input.Enabled || (task.Links.Count == 0 && task.Templates.Count == 0) || _running)">Run now</MudButton>
                 }
             </div>
         </div>
@@ -75,11 +75,11 @@
 
         <MudText Typo="Typo.h6" Class="mb-2">Linked to</MudText>
         <div class="fl-panel pa-4 mb-4">
-            @if (task.Links.Count == 0)
+            @if (task.Links.Count == 0 && task.Templates.Count == 0)
             {
-                <MudText Typo="Typo.body2" Class="muted mb-2">Not linked yet: the task runs nowhere. Link it to a client, a site or an endpoint.</MudText>
+                <MudText Typo="Typo.body2" Class="muted mb-2">Not linked yet: the task runs nowhere. Link it to a client, a site, an endpoint or a monitoring template.</MudText>
             }
-            else
+            else if (task.Links.Count > 0)
             {
                 <div class="d-flex flex-wrap gap-2 mb-3">
                     @foreach (var link in task.Links)
@@ -128,6 +128,46 @@
                     whose operating system runs the script.
                 </MudText>
             }
+
+            <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Monitoring templates</MudText>
+            @if (task.Templates.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted mb-2">Not linked to a monitoring template.</MudText>
+            }
+            else
+            {
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    @foreach (var template in task.Templates)
+                    {
+                        @if (CanLinkTemplates)
+                        {
+                            <MudChip T="string" Icon="@Icons.Material.Outlined.LibraryAddCheck" Variant="Variant.Outlined" Size="Size.Small"
+                                     OnClose="@(_ => UnlinkTemplateAsync(template))">@TemplateName(template)</MudChip>
+                        }
+                        else
+                        {
+                            <MudChip T="string" Icon="@Icons.Material.Outlined.LibraryAddCheck" Variant="Variant.Outlined" Size="Size.Small">@TemplateName(template)</MudChip>
+                        }
+                    }
+                </div>
+            }
+            @if (CanLinkTemplates)
+            {
+                <div class="d-flex flex-wrap gap-2 align-start">
+                    <MudSelect T="Guid?" @bind-Value="_linkTemplate" Label="Monitoring template" Variant="Variant.Outlined" Margin="Margin.Dense"
+                               Style="max-width:320px" Clearable="true">
+                        @foreach (var template in _templateChoices)
+                        {
+                            <MudSelectItem T="Guid?" Value="@((Guid?)template.Id)">@TemplateName(template)</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="mt-1" Disabled="@(_linkTemplate is null)"
+                               OnClick="@(() => LinkTemplateAsync(_linkTemplate!.Value))">Link the monitoring template</MudButton>
+                </div>
+            }
+            <MudText Typo="Typo.caption" Class="muted d-block mt-2">
+                The task runs on every endpoint that gets a linked monitoring template, wherever the template is linked, also later.
+            </MudText>
         </div>
 
         <MudText Typo="Typo.h6" Class="mb-2">Runs</MudText>
@@ -157,7 +197,7 @@
                             @if (context.Failed > 0) { <StatusChip Text="@($"{context.Failed} failed or missed")" Kind="StatusKind.Error" /> }
                             @if (context.Running > 0) { <StatusChip Text="@($"{context.Running} running")" Kind="StatusKind.Active" /> }
                             @if (context.Waiting > 0) { <StatusChip Text="@($"{context.Waiting} waiting")" Kind="StatusKind.Neutral" /> }
-                            @if (context.Skipped > 0) { <StatusChip Text="@($"{context.Skipped} skipped")" Kind="StatusKind.Neutral" /> }
+                            @if (context.Skipped > 0) { <StatusChip Text="@($"{context.Skipped} not started")" Kind="StatusKind.Neutral" /> }
                         </div>
                     </MudTd>
                 </RowTemplate>
@@ -184,7 +224,7 @@
                 <RowTemplate>
                     <MudTd>@context.Hostname</MudTd>
                     <MudTd>
-                        <StatusChip Text="@TaskService.StateText(context)" Kind="@StateKind(context)" />
+                        <StatusChip Text="@TaskService.StateText(context)" Kind="@Ui.TaskStateKind(context)" />
                         @if ((context.Reason ?? context.Problem) is { } why)
                         {
                             <div class="muted" style="font-size:0.75rem">@why</div>
@@ -221,6 +261,8 @@
     private Guid? _linkClient;
     private Guid? _linkSite;
     private Guid? _linkEndpoint;
+    private Guid? _linkTemplate;
+    private IReadOnlyList<TaskTemplateLinkView> _templateChoices = [];
     private bool _running;
     private DebouncedRefresh? _refresh;
 
@@ -269,6 +311,11 @@
             _choices = await TaskSvc.GetLinkChoicesAsync(caller, _task.Input.ClientId, _linkClient);
             _clients = await ClientSvc.ListOptionsAsync(caller);
         }
+
+        if (CanLinkTemplates)
+        {
+            _templateChoices = await TaskSvc.GetTemplateChoicesAsync(caller, TaskId);
+        }
     });
 
     private static AutomationTask Entity(TaskDetail task) => new()
@@ -285,21 +332,7 @@
         _ => Icons.Material.Outlined.Computer
     };
 
-    private static string Why(TaskRunItem run) => run.Trigger switch
-    {
-        TaskTrigger.Schedule => "Schedule",
-        TaskTrigger.CheckAlert => $"Alert of {run.CheckName ?? "a check"}",
-        TaskTrigger.Managed => "Endpoint became managed",
-        _ => $"Run now by {run.InitiatedByName}"
-    };
-
-    private static StatusKind StateKind(TaskRunTargetItem item) => TaskService.StateText(item) switch
-    {
-        "Succeeded" => StatusKind.Ok,
-        "Running" or "Queued" => StatusKind.Active,
-        "Failed" or "Refused" or "Lost" or "Missed" => StatusKind.Error,
-        _ => StatusKind.Neutral
-    };
+    private static string Why(TaskRunItem run) => Ui.TaskTriggerText(run.Trigger, run.CheckName, run.InitiatedByName);
 
     private async Task LinkClientChangedAsync(Guid? clientId)
     {
@@ -328,6 +361,30 @@
         {
             _linkSite = null;
             _linkEndpoint = null;
+            await ReloadAsync();
+        }
+    }
+
+    /// <summary>Linking a task to a monitoring template changes the template too, so it needs both permissions.</summary>
+    private bool CanLinkTemplates => Can(Permissions.TasksEdit) && Can(Permissions.MonitoringTemplatesEdit);
+
+    private static string TemplateName(TaskTemplateLinkView template) =>
+        (template.ClientCode is null ? template.Name : $"{template.ClientCode} · {template.Name}") +
+        (template.AppliesTo == CheckAppliesTo.All ? "" : $" ({Ui.AppliesToLabel(template.AppliesTo).ToLowerInvariant()})");
+
+    private async Task LinkTemplateAsync(Guid templateId)
+    {
+        if (await RunAsync(caller => TaskSvc.LinkTemplateAsync(caller, TaskId, templateId), "The task was linked to the monitoring template."))
+        {
+            _linkTemplate = null;
+            await ReloadAsync();
+        }
+    }
+
+    private async Task UnlinkTemplateAsync(TaskTemplateLinkView template)
+    {
+        if (await RunAsync(caller => TaskSvc.UnlinkTemplateAsync(caller, TaskId, template.Id), "The link was removed."))
+        {
             await ReloadAsync();
         }
     }

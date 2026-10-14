@@ -12,7 +12,8 @@ public sealed record TaskEndpoint(Guid Id, Guid ClientId, Guid SiteId, string Ho
 /// The one rule for which endpoints a task runs on (0.6.0), used by web (Run now, the task page), the workers (starting runs) and
 /// fleeto-signer (before it signs a job of a run Fleeto started):
 /// <list type="bullet">
-/// <item>the task is linked to the endpoint's client, its site or the endpoint itself (the links add up, like monitoring templates);</item>
+/// <item>the task is linked to the endpoint's client, its site or the endpoint itself (the links add up, like monitoring templates),
+/// or to a monitoring template the endpoint gets: one linked to its client, site or itself and for its class;</item>
 /// <item>a task of a client only reaches that client's endpoints, and its class (servers, workstations) must match the endpoint's;</item>
 /// <item>only endpoints with an agent; of those, an endpoint that is not managed, runs another platform than the script's language
 /// or belongs to another client than the script is linked but cannot run it, with the reason.</item>
@@ -23,7 +24,10 @@ public static class AutomationTaskTargets
     public const string NotManagedProblem = "Not managed. Switch it to managed to run tasks.";
     public const string ScriptClientProblem = "The script belongs to another client.";
 
-    /// <summary>The endpoints with an agent the task is linked to, on any level, of its client and class. Scope filters apply.</summary>
+    /// <summary>
+    /// The endpoints with an agent the task is linked to, on any level or through a monitoring template, of its client and class.
+    /// Scope filters apply.
+    /// </summary>
     public static IQueryable<Endpoint> Linked(FleetoDbContext db, AutomationTask task)
     {
         var taskId = task.Id;
@@ -39,7 +43,15 @@ public static class AutomationTaskTargets
                                        (endpointClass == null || (e.ClassOverride ?? e.DetectedClass) == endpointClass) &&
                                        (db.ClientAutomationTasks.Any(l => l.AutomationTaskId == taskId && l.ClientId == e.ClientId) ||
                                         db.SiteAutomationTasks.Any(l => l.AutomationTaskId == taskId && l.SiteId == e.SiteId) ||
-                                        db.EndpointAutomationTasks.Any(l => l.AutomationTaskId == taskId && l.EndpointId == e.Id)));
+                                        db.EndpointAutomationTasks.Any(l => l.AutomationTaskId == taskId && l.EndpointId == e.Id) ||
+                                        db.MonitoringTemplateAutomationTasks.Any(l => l.AutomationTaskId == taskId &&
+                                            db.MonitoringTemplates.Any(t => t.Id == l.MonitoringTemplateId &&
+                                                (t.AppliesTo == CheckAppliesTo.All ||
+                                                 (t.AppliesTo == CheckAppliesTo.Server && (e.ClassOverride ?? e.DetectedClass) == EndpointClass.Server) ||
+                                                 (t.AppliesTo == CheckAppliesTo.Workstation && (e.ClassOverride ?? e.DetectedClass) == EndpointClass.Workstation))) &&
+                                            (db.ClientMonitoringTemplates.Any(m => m.MonitoringTemplateId == l.MonitoringTemplateId && m.ClientId == e.ClientId) ||
+                                             db.SiteMonitoringTemplates.Any(m => m.MonitoringTemplateId == l.MonitoringTemplateId && m.SiteId == e.SiteId) ||
+                                             db.EndpointMonitoringTemplates.Any(m => m.MonitoringTemplateId == l.MonitoringTemplateId && m.EndpointId == e.Id)))));
     }
 
     /// <summary>

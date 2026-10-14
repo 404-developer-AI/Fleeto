@@ -140,7 +140,8 @@ the API and the database follows it.
   check limited to Windows or Linux (0.6.0) only to endpoints of that operating system). It says where it can be linked:
   clients, sites, endpoints or more of them (decided 2026-09-28, 0.6.0).
 - **Task** (0.6.0, decided 2026-10-14): a library script that runs by itself, linked to clients, sites and endpoints like a
-  monitoring template (adding up), on a schedule, when an alert of a chosen check opens, when an endpoint becomes managed, or
+  monitoring template (adding up), or to monitoring templates (decided 2026-10-15: it then runs on every endpoint that gets the
+  template; linking needs Edit tasks, Edit monitoring templates and access to everywhere the template is used), on a schedule, when an alert of a chosen check opens, when an endpoint becomes managed, or
   by hand. Only library scripts, never a command of its own. A run Fleeto starts has a system initiator: the workers write it
   only for an enabled task (database trigger) and fleeto-signer signs it only while the task still asks for it, with the script
   approval of the policy. A failed run opens an alert of kind Task. Details in `MD-Files/ROADMAP.md` §0.6.0.
@@ -188,7 +189,7 @@ UI structure:
   site) with tabs **Servers**, **Workstations** and **Mixed** (all endpoints together), search
   and filters. Selecting an endpoint shows its detail below the list (resizable split); the
   same detail opens as a full page with its own URL. Detail tabs grow with the features that
-  exist: Summary, Checks, Software, Notes, Jobs, Patches, Storage (0.6.0) and History. The tier
+  exist: Summary, Checks, Software, Notes, Jobs, Tasks (0.6.0), Patches, Storage (0.6.0) and History. The tier
   switch lives in the right-click menu of the endpoint list.
 - **Navigation**: a persistent sidebar that collapses to icons; the choice is remembered per
   browser. It lists Dashboard, Clients and Alerts; its footer holds the settings, profile and

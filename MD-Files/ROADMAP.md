@@ -270,10 +270,14 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   origin, signature origin and binding triggers, a column grant on `Alerts` for the signer), `AutomationTasks` (schedule, delay,
   validity, validation), `AutomationTaskTargets`, `AutomationTaskService` in the workers, the task rule in `JobHandler`, alert
   kind `Task` (public API `task`), `TaskService` with Settings, Tasks and the task page (links, Run now, runs, output, CSV), the
-  permissions View tasks, Edit tasks and Run tasks now. Linking happens on the task page; the link editor of clients, sites and
+  Tasks tab of an endpoint (the tasks that apply with next run and last result, and the history of runs with their output; link,
+  unlink or create a task for the endpoint), tasks linked to monitoring templates (migration `TemplateTasks`, asked for by the
+  developer on 2026-10-15), the permissions View tasks, Edit tasks and Run tasks now. Linking happens on the task page; the link editor of clients, sites and
   endpoints does not show tasks yet. To verify on the test VPS: a daily inventory task with a random delay on a site of Windows
   endpoints, its CSV export; a task on the alert of a service check restarting the service; a task when an endpoint becomes
-  managed; a failing script opening an alert and the next good run resolving it; an endpoint offline during a run catching up.
+  managed; a failing script opening an alert and the next good run resolving it; an endpoint offline during a run catching up;
+  the Tasks tab of an endpoint showing these runs with their output; a task linked to a monitoring template running on the
+  endpoints of a site the template is linked to, and on an endpoint that gets the template later.
 
 ## 0.7.0 — Performance monitor
 

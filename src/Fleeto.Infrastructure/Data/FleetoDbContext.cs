@@ -67,6 +67,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<ClientAutomationTask> ClientAutomationTasks => Set<ClientAutomationTask>();
     public DbSet<SiteAutomationTask> SiteAutomationTasks => Set<SiteAutomationTask>();
     public DbSet<EndpointAutomationTask> EndpointAutomationTasks => Set<EndpointAutomationTask>();
+    public DbSet<MonitoringTemplateAutomationTask> MonitoringTemplateAutomationTasks => Set<MonitoringTemplateAutomationTask>();
     public DbSet<AutomationTaskState> AutomationTaskStates => Set<AutomationTaskState>();
     public DbSet<AutomationTaskRun> AutomationTaskRuns => Set<AutomationTaskRun>();
     public DbSet<AutomationTaskRunTarget> AutomationTaskRunTargets => Set<AutomationTaskRunTarget>();
@@ -852,6 +853,16 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasOne(l => l.AutomationTask).WithMany().HasForeignKey(l => l.AutomationTaskId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(l => l.AutomationTaskId);
             EndpointOwned(entity);
+        });
+
+        builder.Entity<MonitoringTemplateAutomationTask>(entity =>
+        {
+            entity.HasKey(l => new { l.MonitoringTemplateId, l.AutomationTaskId });
+            entity.HasOne(l => l.MonitoringTemplate).WithMany().HasForeignKey(l => l.MonitoringTemplateId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(l => l.AutomationTask).WithMany().HasForeignKey(l => l.AutomationTaskId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Client>().WithMany().HasForeignKey(l => l.ClientId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(l => l.AutomationTaskId);
+            GlobalOrClientOwned(entity);
         });
 
         builder.Entity<AutomationTaskState>(entity =>

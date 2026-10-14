@@ -120,12 +120,24 @@ internal static class TemplateAccess
                     (await db.EndpointPatchPolicies.IgnoreQueryFilters().Where(l => l.PatchPolicyId == id).Select(l => new { l.EndpointId, l.ClientId })
                         .ToListAsync(cancellationToken)).Select(l => (l.EndpointId, l.ClientId)).ToList());
             case TemplateKind.Task:
-                return (await db.ClientAutomationTasks.IgnoreQueryFilters().Where(l => l.AutomationTaskId == id).Select(l => l.ClientId)
+                // A task also runs wherever a monitoring template it is linked to is used.
+                var (clients, sites, endpoints) = (
+                    await db.ClientAutomationTasks.IgnoreQueryFilters().Where(l => l.AutomationTaskId == id).Select(l => l.ClientId)
                         .ToListAsync(cancellationToken),
                     (await db.SiteAutomationTasks.IgnoreQueryFilters().Where(l => l.AutomationTaskId == id).Select(l => new { l.SiteId, l.ClientId })
                         .ToListAsync(cancellationToken)).Select(l => (l.SiteId, l.ClientId)).ToList(),
                     (await db.EndpointAutomationTasks.IgnoreQueryFilters().Where(l => l.AutomationTaskId == id)
                         .Select(l => new { l.EndpointId, l.ClientId }).ToListAsync(cancellationToken)).Select(l => (l.EndpointId, l.ClientId)).ToList());
+                foreach (var templateId in await db.MonitoringTemplateAutomationTasks.IgnoreQueryFilters().Where(l => l.AutomationTaskId == id)
+                             .Select(l => l.MonitoringTemplateId).ToListAsync(cancellationToken))
+                {
+                    var uses = await UsesAsync(db, TemplateKind.MonitoringTemplate, templateId, cancellationToken);
+                    clients.AddRange(uses.Clients);
+                    sites.AddRange(uses.Sites);
+                    endpoints.AddRange(uses.Endpoints);
+                }
+
+                return (clients, sites, endpoints);
             default:
                 return (await db.ClientMonitoringTemplates.IgnoreQueryFilters().Where(l => l.MonitoringTemplateId == id).Select(l => l.ClientId)
                         .ToListAsync(cancellationToken),

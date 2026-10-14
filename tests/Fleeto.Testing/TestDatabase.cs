@@ -227,7 +227,6 @@ public sealed class TestDatabase : IAsyncDisposable
         return user;
     }
 
-    /// <summary>A custom role (0.6.0) with these permissions; returns its name, which <see cref="CreateUserAsync"/> takes as role.</summary>
     /// <summary>
     /// A PowerShell script with one version and an enabled task that runs it (0.6.0), for the client or global, linked to
     /// <paramref name="linkSite"/> when given. <paramref name="configure"/> changes the task before it is saved.
@@ -266,6 +265,31 @@ public sealed class TestDatabase : IAsyncDisposable
         return (task, script, version);
     }
 
+    /// <summary>A monitoring template for the client or global, linked to <paramref name="linkSite"/> when given.</summary>
+    public async Task<MonitoringTemplate> CreateMonitoringTemplateAsync(Guid? clientId = null, Site? linkSite = null,
+        CheckAppliesTo appliesTo = CheckAppliesTo.All)
+    {
+        await using var db = DbFactory.CreateSystem();
+        var now = Time.GetUtcNow().UtcDateTime;
+        var template = new MonitoringTemplate
+        {
+            Id = Guid.NewGuid(), ClientId = clientId, Name = "Template " + Convert.ToHexString(RandomNumberGenerator.GetBytes(3)), AppliesTo = appliesTo,
+            CreatedAt = now, UpdatedAt = now
+        };
+        db.MonitoringTemplates.Add(template);
+        if (linkSite is not null)
+        {
+            db.SiteMonitoringTemplates.Add(new SiteMonitoringTemplate
+            {
+                SiteId = linkSite.Id, ClientId = linkSite.ClientId, MonitoringTemplateId = template.Id, CreatedAt = now
+            });
+        }
+
+        await db.SaveChangesAsync();
+        return template;
+    }
+
+    /// <summary>A custom role (0.6.0) with these permissions; returns its name, which <see cref="CreateUserAsync"/> takes as role.</summary>
     public async Task<string> CreateRoleAsync(params string[] permissions)
     {
         await using var db = DbFactory.CreateSystem();

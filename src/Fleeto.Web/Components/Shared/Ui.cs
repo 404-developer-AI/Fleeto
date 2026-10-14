@@ -305,6 +305,29 @@ public static class Ui
         _ => StatusKind.Neutral
     };
 
+    /// <summary>The color of the state of an endpoint in a run of a task (0.6.0); the words are <see cref="TaskService.StateText"/>.</summary>
+    public static StatusKind TaskStateKind(TaskRunTargetItem item) => item.State switch
+    {
+        TaskTargetState.Pending => StatusKind.Neutral,
+        TaskTargetState.Skipped => StatusKind.Warning,
+        _ => item.JobState switch
+        {
+            JobState.Succeeded => StatusKind.Ok,
+            JobState.PendingSignature or JobState.Queued or JobState.Running => StatusKind.Active,
+            JobState.Cancelled => StatusKind.Neutral,
+            _ => StatusKind.Error
+        }
+    };
+
+    /// <summary>What started a run of a task (0.6.0).</summary>
+    public static string TaskTriggerText(TaskTrigger trigger, string? checkName, string initiatedByName) => trigger switch
+    {
+        TaskTrigger.Schedule => "Schedule",
+        TaskTrigger.CheckAlert => $"Alert of {checkName ?? "a check"}",
+        TaskTrigger.Managed => "Endpoint became managed",
+        _ => $"Run now by {initiatedByName}"
+    };
+
     /// <summary>How a deployment is named in the UI (0.4.0 step 3). It says what Action1 is doing, not what Fleeto hopes.</summary>
     public static string DeploymentStateLabel(PatchDeploymentState state) => state switch
     {

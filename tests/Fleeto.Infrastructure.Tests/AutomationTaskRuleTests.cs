@@ -1,5 +1,7 @@
 using Fleeto.Core.Entities;
 using Fleeto.Infrastructure.Data;
+using Fleeto.Infrastructure.Services;
+using Microsoft.EntityFrameworkCore;
 using Fleeto.Testing;
 using Npgsql;
 
@@ -114,6 +116,76 @@ public sealed class AutomationTaskRuleTests
             var error = await Assert.ThrowsAnyAsync<Exception>(() => db.SaveChangesAsync());
             Assert.Contains("own client", error.InnerException?.Message ?? error.Message);
         }
+    }
+
+    [Fact]
+    public async Task A_task_and_a_monitoring_template_of_two_clients_are_never_linked_and_a_link_carries_their_client()
+    {
+        var client = await _db.CreateClientAsync();
+        var other = await _db.CreateClientAsync();
+        var (task, _, _) = await _db.CreateTaskAsync(clientId: client.Id);
+        var otherTemplate = await _db.CreateMonitoringTemplateAsync(other.Id);
+        var globalTemplate = await _db.CreateMonitoringTemplateAsync();
+
+        await using (var db = _db.DbFactory.CreateSystem())
+        {
+            db.MonitoringTemplateAutomationTasks.Add(new MonitoringTemplateAutomationTask
+            {
+                MonitoringTemplateId = otherTemplate.Id, AutomationTaskId = task.Id, ClientId = other.Id, CreatedAt = DateTime.UtcNow
+            });
+            var error = await Assert.ThrowsAnyAsync<Exception>(() => db.SaveChangesAsync());
+            Assert.Contains("two different clients", error.InnerException?.Message ?? error.Message);
+        }
+
+        await using (var db = _db.DbFactory.CreateSystem())
+        {
+            db.MonitoringTemplateAutomationTasks.Add(new MonitoringTemplateAutomationTask
+            {
+                MonitoringTemplateId = globalTemplate.Id, AutomationTaskId = task.Id, ClientId = null, CreatedAt = DateTime.UtcNow
+            });
+            var error = await Assert.ThrowsAnyAsync<Exception>(() => db.SaveChangesAsync());
+            Assert.Contains("client of either", error.InnerException?.Message ?? error.Message);
+        }
+
+        await using (var db = _db.DbFactory.CreateSystem())
+        {
+            db.MonitoringTemplateAutomationTasks.Add(new MonitoringTemplateAutomationTask
+            {
+                MonitoringTemplateId = globalTemplate.Id, AutomationTaskId = task.Id, ClientId = client.Id, CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+    }
+
+    [Fact]
+    public async Task A_task_linked_to_a_monitoring_template_reaches_every_endpoint_that_gets_the_template_and_only_those()
+    {
+        var client = await _db.CreateClientAsync();
+        var site = await _db.CreateSiteAsync(client.Id);
+        var otherSite = await _db.CreateSiteAsync(client.Id, "Other");
+        var workstation = await _db.CreateEndpointAsync(site, EndpointTier.Managed, "WS-TEMPLATETASK");
+        var server = await _db.CreateEndpointAsync(site, EndpointTier.Managed, "SRV-TEMPLATETASK", EndpointClass.Server);
+        var elsewhere = await _db.CreateEndpointAsync(otherSite, EndpointTier.Managed, "WS-NOTEMPLATE");
+        var lateServer = await _db.CreateEndpointAsync(otherSite, EndpointTier.Managed, "SRV-LATER", EndpointClass.Server);
+        var everyone = await _db.CreateMonitoringTemplateAsync(linkSite: site);
+        var servers = await _db.CreateMonitoringTemplateAsync(appliesTo: CheckAppliesTo.Server);
+        var (task, _, _) = await _db.CreateTaskAsync();
+        var (serverTask, _, _) = await _db.CreateTaskAsync();
+        await using (var db = _db.DbFactory.CreateSystem())
+        {
+            db.MonitoringTemplateAutomationTasks.Add(new MonitoringTemplateAutomationTask { MonitoringTemplateId = everyone.Id, AutomationTaskId = task.Id, CreatedAt = DateTime.UtcNow });
+            db.MonitoringTemplateAutomationTasks.Add(new MonitoringTemplateAutomationTask { MonitoringTemplateId = servers.Id, AutomationTaskId = serverTask.Id, CreatedAt = DateTime.UtcNow });
+            // The servers template is linked to the whole client: its task reaches the servers, never a workstation.
+            db.ClientMonitoringTemplates.Add(new ClientMonitoringTemplate { ClientId = client.Id, MonitoringTemplateId = servers.Id, CreatedAt = DateTime.UtcNow });
+            await db.SaveChangesAsync();
+        }
+
+        await using var check = _db.DbFactory.CreateSystem();
+        var reached = await AutomationTaskTargets.Linked(check, task).Select(e => e.Id).ToListAsync();
+        Assert.Equal(new[] { server.Id, workstation.Id }.Order(), reached.Order());
+        Assert.DoesNotContain(elsewhere.Id, reached);
+        var reachedServers = await AutomationTaskTargets.Linked(check, serverTask).Select(e => e.Id).ToListAsync();
+        Assert.Equal(new[] { lateServer.Id, server.Id }.Order(), reachedServers.Order());
     }
 
     [Fact]

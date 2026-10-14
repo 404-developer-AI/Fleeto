@@ -134,6 +134,7 @@ AuditEntry (append-only)
 | **Script**, **ScriptVersion** | `Id`, `ClientId?`, `Name`, `Description`, `Language` (`PowerShell`, `Batch`, `Shell`, `Bash`), `CurrentVersionId`; version: `ClientId?`, `Number`, `Body`, `Sha256`, `TimeoutSeconds`, `AuthorUserId`, `ApprovedByUserId?`, `ApprovedAt?`, `ApprovedSha256?` | `ClientId` null = global, immutable (trigger); a version carries the client of its script (constraint trigger). Saving a changed body or timeout creates a new version; the language is fixed. A version is approved only when approver and author differ and `ApprovedSha256` equals `Sha256` (check constraint). |
 | **AutomationTask** (0.6.0) | `Id`, `ClientId?`, `Name`, `Description?`, `ScriptId`, `RunAs`, `AppliesTo`, `Enabled`, `ScheduleKind` (`None`, `Once`, `Daily`, `Weekly`, `Monthly`), `TimeZone`, `StartDate`, `StartMinute`, `EndDate?`, `Every` (1-365), `WeekDays`, `MonthDay` (1-31), `RepeatMinutes?` (15-720), `TriggerCheckIds[]` (at most 20), `OnManaged`, `RandomDelayMinutes` (0-720), `CatchUp`, `Overlap` (`Skip`, `Wait`), `AlertOnFailure`, `AlertSeverity`, `UpdatedByName` | A library script that runs by itself (§4, Tasks). `ClientId` null = global; a task of a client runs a global script or one of its client (constraint trigger) and is linked within its client. Its script cannot be deleted while it runs it (foreign key, checked at the end of the statement). Written by web only. |
 | **ClientAutomationTask**, **SiteAutomationTask**, **EndpointAutomationTask** (0.6.0) | `ClientId` / `SiteId`, `ClientId` / `EndpointId`, `ClientId`, `AutomationTaskId` | Where a task runs; the links add up. Never a task of another client (constraint triggers). |
+| **MonitoringTemplateAutomationTask** (0.6.0) | `MonitoringTemplateId`, `AutomationTaskId`, `ClientId?`, `CreatedAt` | A task that runs on every endpoint that gets the template. `ClientId` is the client of the template or the task (null when both are global); a template and a task of two clients are never linked (constraint trigger `TR_MonitoringTemplateAutomationTasks_Client`). |
 | **AutomationTaskState** (0.6.0) | `AutomationTaskId`, `LastOccurrenceAt?`, `NextOccurrenceAt?`, `AlertsSeenUntil`, `ManagedSeenUntil`, `ScheduleHash` | The workers' position per task. Written by the workers only. |
 | **AutomationTaskRun**, **AutomationTaskRunTarget** (0.6.0) | run: `Id`, `AutomationTaskId`, `ClientId`, `Trigger` (`Schedule`, `CheckAlert`, `Managed`, `Manual`), `OccurrenceAt`, `InitiatedByName`, `CheckName?`; target: `RunId`, `EndpointId`, `ClientId`, `DueAt`, `ValidUntil`, `State` (`Pending`, `Started`, `Skipped`), `JobId?`, `Reason?`, `OutcomeHandledAt?` | One run per client and start, one target per endpoint. A scheduled occurrence runs once per client (unique index). Deleted with the task, and after the job retention. |
 | **Job** | `Id`, `ClientId`, `EndpointId`, `BatchId`, `Type` (`Script`), snapshot of the script (`ScriptId?`, `ScriptVersionId?`, name, version number, `Language`, `ScriptSha256`, `TimeoutSeconds`, `MaxOutputBytes`), `RunAs` (`service`/`logged_on_user`, 0.2.1), `RunAsAccount?` (the user the agent reported, 0.2.1), `RunAsUserId?` and `RunAsChosenAccount?` (the user the technician chose, 0.2.2), `ValidUntil`, `InitiatedByUserId`, `State` (`pending_signature`, `queued`, `running`, `succeeded`, `failed`, `expired`, `refused`, `lost`, `cancelled`), `RefusalReason?`, `Payload`, `Signature`, `SigningKeyId`, `DeliveredAt?`, `StartedAt?`, `CompletedAt?`, `Result?` (`exited`, `timed_out`, `refused`, `failed_to_start`, `interrupted`), `ExitCode?`, `OutputState` (`none`, `receiving`, `complete`, `incomplete`), `OutputTruncated`, per stream announced chunks, bytes and SHA-256 | One row per endpoint. Idempotent by `Id`. Never delivered or executed after `ValidUntil` (at most 7 days after creation, check constraint). `State` describes execution, `OutputState` describes the output; they move independently. The snapshot keeps the history readable after the script changes or is deleted. `TaskId?` and `TaskRunId?` (0.6.0) name the task and run of a job of a task; they only become empty when those are deleted (trigger). |
@@ -939,9 +940,17 @@ for server sites. Scripts live under Settings, Templates, Scripts: every user ca
 admins and technicians write them, admins approve.
 
 **Tasks (0.6.0, decided 2026-10-14).** A task names one library script, the account it runs as and the class it is for, and is
-linked to clients, sites and endpoints (`ClientAutomationTasks`, `SiteAutomationTasks`, `EndpointAutomationTasks`); the links add
-up like those of monitoring templates, and `AutomationTaskTargets.Linked` is the one rule for which endpoints it reaches (only
-endpoints with an agent, of its client and class). It starts in four ways:
+linked to clients, sites and endpoints (`ClientAutomationTasks`, `SiteAutomationTasks`, `EndpointAutomationTasks`) and to monitoring
+templates (`MonitoringTemplateAutomationTasks`, 2026-10-15); the links add up like those of monitoring templates, and
+`AutomationTaskTargets.Linked` is the one rule for which endpoints it reaches (only endpoints with an agent, of its client and class).
+Through a monitoring template it reaches every endpoint that gets the template: linked to its client, site or itself and for its
+class, as for the checks of the template, also where the template is linked later. Linking a task to a template changes what the
+template does wherever it is used, so it needs Edit tasks and Edit monitoring templates and, for a global template, access to
+everything the template is used on; a global task linked to a template counts as used wherever the template is. Whoever links the
+template to a client, site or endpoint thereby also starts its tasks there, as it starts its checks (script checks included).
+Tasks are linked on the task page, to one endpoint on its Tasks tab (link a task, unlink it, or create one linked to it), and to a
+monitoring template on its page, which lists the tasks linked to it. It
+starts in four ways:
 
 - *Schedule*: once, every N days, every N weeks on chosen days or every N months on a day (the last day of a shorter month),
   optionally again every 15 to 720 minutes until midnight, in an IANA time zone between a start and an optional end date.
@@ -966,7 +975,10 @@ The workers follow every ended job of a run: a failed, lost or refused one opens
 the task id) when the task asks for it and the endpoint is not in maintenance; the next successful run resolves it, and so does
 deleting the task or switching its alert off. An expired job is a missed run, not a failure. Settings, Tasks shows per run every
 endpoint with its state, exit code and the start of its output, and exports the run as CSV (the first 64 KB of the output and 16 KB
-of the errors per endpoint; a value a spreadsheet would read as a formula is kept as text).
+of the errors per endpoint; a value a spreadsheet would read as a formula is kept as text). The Tasks tab of an endpoint
+(`TaskService.GetForEndpointAsync`) lists the tasks that apply to it by the same targeting rule, with the levels they are linked
+on, the next run (a run already waiting there, else the next occurrence) and the last run, and the newest 50 runs on the
+endpoint; the output opens with the permission View jobs.
 
 Only the workers write a job without a user (§5): a trigger lets them write one only for a run of an enabled task with that task's
 script and account (`TR_Jobs_Origin`) and ask for its signature only for such a job; web writes tasks and the workers only read
