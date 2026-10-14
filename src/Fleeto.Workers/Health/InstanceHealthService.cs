@@ -1,5 +1,6 @@
 using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
+using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Data;
 using Fleeto.Infrastructure.Email;
 using Fleeto.Infrastructure.Notifications;
@@ -72,19 +73,31 @@ public sealed class InstanceHealthService : WorkerLoop
     private readonly SettingsStore _settings;
     private readonly HostMetricsReader _host;
     private readonly WorkerHeartbeat _heartbeat;
+    private readonly INotificationBus _bus;
+    private IDisposable? _subscription;
     private DateTimeOffset _nextQueries = DateTimeOffset.MinValue;
 
     public InstanceHealthService(IFleetoDbContextFactory dbFactory, SettingsStore settings, HostMetricsReader host, WorkerHeartbeat heartbeat,
-        TimeProvider time, ILogger<InstanceHealthService> logger)
+        INotificationBus bus, TimeProvider time, ILogger<InstanceHealthService> logger)
         : base("instance-health", heartbeat, time, logger)
     {
         _dbFactory = dbFactory;
         _settings = settings;
         _host = host;
         _heartbeat = heartbeat;
+        _bus = bus;
     }
 
     protected override TimeSpan Interval => InstanceHealthRules.SampleInterval;
+
+    protected override void OnStarting() =>
+        _subscription = _bus.Subscribe(NotificationChannels.InstanceHealth, (_, _) =>
+        {
+            Wake();
+            return Task.CompletedTask;
+        });
+
+    protected override void OnStopping() => _subscription?.Dispose();
 
     protected override async Task<bool> RunOnceAsync(CancellationToken cancellationToken)
     {

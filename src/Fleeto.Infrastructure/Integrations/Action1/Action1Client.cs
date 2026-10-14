@@ -28,6 +28,13 @@ public sealed class Action1Exception : Exception
 
     /// <summary>What Action1 said about the refusal (its <c>user_message</c>), shortened; null when it said nothing.</summary>
     public string? Detail { get; }
+
+    /// <summary>
+    /// Action1 does not hold what was asked for: a 404, or a 400 that says so, which is how Action1 answers for an endpoint
+    /// it removed (found testing 0.6.0 on 2026-10-14: "The endpoint was not found").
+    /// </summary>
+    public bool IsGone => Status == HttpStatusCode.NotFound ||
+                          (Status == HttpStatusCode.BadRequest && Detail?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true);
 }
 
 /// <summary>
@@ -511,7 +518,7 @@ public sealed class Action1Client : IIntegration, IDisposable
                 ? new Action1EndpointRead(endpoint, item.TryGetProperty("missing_updates", out var counts) && counts.ValueKind == JsonValueKind.Object)
                 : null);
         }
-        catch (Action1Exception ex) when (ex.Status == HttpStatusCode.NotFound)
+        catch (Action1Exception ex) when (ex.IsGone)
         {
             return IntegrationResult<Action1EndpointRead?>.Success(null);
         }
@@ -734,7 +741,7 @@ public sealed class Action1Client : IIntegration, IDisposable
             using var document = await RequestAsync(method, path, null, body, cancellationToken);
             return IntegrationResult.Success();
         }
-        catch (Action1Exception ex) when (goneIsDone && ex.Status == HttpStatusCode.NotFound)
+        catch (Action1Exception ex) when (goneIsDone && ex.IsGone)
         {
             return IntegrationResult.Success();
         }

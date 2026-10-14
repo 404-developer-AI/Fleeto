@@ -25,3 +25,26 @@ func TestAnAction1AgentIDIsOnlyReportedWhenItIsAGuid(t *testing.T) {
 		})
 	}
 }
+
+func TestAnAction1IDLeftBehindByAnUninstallIsNotReported(t *testing.T) {
+	const id = "ef17c844-5b7c-4b32-9724-f2716b596639"
+	if got := action1Reported(id, installYes); got != id {
+		t.Fatalf("an installed agent must be reported, got %q", got)
+	}
+	if got := action1Reported(id, installNo); got != "" {
+		t.Fatalf("an id without an installed agent must not be reported, got %q", got)
+	}
+	if got := action1Reported(id, installUnknown); got != id {
+		t.Fatalf("when the installed programs cannot be read the id must be kept, got %q", got)
+	}
+	for _, name := range []string{"Action1 Agent", "action1 agent 5.2", "  Action1 Agent (x64)"} {
+		if !isAction1AgentName(name) {
+			t.Fatalf("%q is the Action1 agent", name)
+		}
+	}
+	for _, name := range []string{"", "Action1 Connector", "My Action1 Agent"} {
+		if isAction1AgentName(name) {
+			t.Fatalf("%q is not the Action1 agent", name)
+		}
+	}
+}

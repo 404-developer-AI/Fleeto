@@ -11,6 +11,9 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
+- Run a library script in remote background: "Run script" in the session window runs it in the terminal, as SYSTEM, root or the
+  signed-in user, with its output live and its prompts answered there. Where the policy requires approval only approved versions
+  are offered; every run is in the audit log by name, version and hash. Needs the watchdog of this version.
 - Refresh on an endpoint: the round arrow in its header reloads the endpoint and, while it is online, asks the agent for a
   fresh inventory, at most once a minute. The page shows it when it arrives.
 - Backups can be made outside Fleeto, for example by Veeam: Settings, Backups, "Made outside Fleeto" with a description of
@@ -161,9 +164,19 @@ When a third released version is added, the oldest entry moves to the top of
   without a new second connection.
 - Email through Microsoft Graph gets its token the same way as the tests in Settings, so a refusal from Microsoft reads
   the same in both places.
+- The Linux install command works in a root shell without sudo, such as on Proxmox VE: it uses sudo only where it is
+  installed, and tells a user who is not root to run it as root or with sudo.
+- Saving Settings, Backups makes the workers measure instance health at once, so a changed backup setting no longer shows
+  the old problem for up to 5 minutes.
+- Settings, Agent uninstalls shows for a removed agent the day it leaves the list (a week after the removal) instead of
+  the 30 days Fleeto would have waited.
 
 ### Fixed
 
+- An endpoint whose Action1 agent was removed could not get it back: Action1 leaves its id in the registry when it is
+  uninstalled, so the endpoint still looked like it had the agent, showed only "Remove Action1 agent" and its sync failed with
+  "Action1 answered 400 (The endpoint was not found)". The agent now reports the id only while the Action1 agent is installed,
+  the install and remove jobs clear a left-over id, and that answer of Action1 counts as an endpoint it does not hold.
 - An install that finds an agent from before the rename to Fleeto, of another instance, names the command that removes it
   with its full path (`& 'C:\Program Files\Fleetify\Agent\fleetify-agent.exe' uninstall`); the bare `fleetify-agent
   uninstall` it named was not on the PATH and was never found.

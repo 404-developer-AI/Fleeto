@@ -45,9 +45,11 @@ public static class Action1AgentInstall
     }
 
     /// <summary>
-    /// PowerShell that defines how both jobs find the Action1 agent on an endpoint (0.6.0): the key where it keeps its id,
-    /// which is what the Fleeto agent reads, in both registry views, or its entry in the installed programs. Installing and
-    /// removing judge "installed" the same way.
+    /// PowerShell that defines how both jobs find the Action1 agent on an endpoint (0.6.0): its entry in the installed
+    /// programs, the rule the Fleeto agent also follows before it reports the id Action1 keeps in the registry. Installing and
+    /// removing judge "installed" the same way. Action1 leaves that id behind when it is uninstalled (found testing 0.6.0 on
+    /// 2026-10-14), so <c>Clear-Action1Id</c> removes a left-over id: an older Fleeto agent reports it, and the endpoint
+    /// would otherwise look like it still has the agent.
     /// </summary>
     internal const string FindAgent = """
         function Find-Action1Agent {
@@ -57,10 +59,17 @@ public static class Action1AgentInstall
                 Where-Object { $_.DisplayName -like 'Action1 Agent*' -and $_.PSChildName -match '^\{[0-9A-Fa-f-]{36}\}$' })
         }
         function Test-Action1Agent {
-            foreach ($key in @('HKLM:\SOFTWARE\WOW6432Node\Action1', 'HKLM:\SOFTWARE\Action1')) {
-                if ((Get-ItemProperty -Path $key -Name 'agent.guid' -ErrorAction SilentlyContinue).'agent.guid') { return $true }
-            }
             return (Find-Action1Agent).Count -gt 0
+        }
+        function Clear-Action1Id {
+            $cleared = $false
+            foreach ($key in @('HKLM:\SOFTWARE\WOW6432Node\Action1', 'HKLM:\SOFTWARE\Action1')) {
+                if ((Get-ItemProperty -Path $key -Name 'agent.guid' -ErrorAction SilentlyContinue).'agent.guid') {
+                    Remove-ItemProperty -Path $key -Name 'agent.guid' -ErrorAction SilentlyContinue
+                    $cleared = $true
+                }
+            }
+            return $cleared
         }
         """;
 
@@ -83,6 +92,9 @@ public static class Action1AgentInstall
             if (Test-Action1Agent) {{
                 Write-Output 'An Action1 agent is already installed on this endpoint, so nothing was changed. It reports itself to Fleeto with the next inventory.'
                 exit 0
+            }}
+            if (Clear-Action1Id) {{
+                Write-Output 'Removed the id a previous Action1 agent left behind, so the new agent registers as itself.'
             }}
             $installer = Join-Path $env:ProgramData ('fleeto-action1-' + [guid]::NewGuid().ToString('N') + '.msi')
             try {{
@@ -159,7 +171,12 @@ public static class Action1AgentRemoval
         $ErrorActionPreference = 'Stop'
         $agents = Find-Action1Agent
         if ($agents.Count -eq 0) {
-            Write-Output 'No Action1 agent is installed on this endpoint, so nothing was changed.'
+            if (Clear-Action1Id) {
+                Write-Output 'No Action1 agent is installed on this endpoint. The id a previous Action1 agent left behind was removed, so Fleeto offers to install the agent again after the next inventory.'
+            }
+            else {
+                Write-Output 'No Action1 agent is installed on this endpoint, so nothing was changed.'
+            }
             exit 0
         }
         foreach ($agent in $agents) {
@@ -168,6 +185,7 @@ public static class Action1AgentRemoval
                 throw "Uninstalling $($agent.DisplayName) ended with exit code $($process.ExitCode)."
             }
         }
+        $null = Clear-Action1Id
         Write-Output 'The Action1 agent was removed. Fleeto sees it gone with the next inventory.'
         """;
 }

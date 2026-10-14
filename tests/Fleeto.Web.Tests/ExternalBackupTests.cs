@@ -1,3 +1,4 @@
+using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Settings;
 using Fleeto.Web.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -6,7 +7,7 @@ namespace Fleeto.Web.Tests;
 
 /// <summary>
 /// Backups made outside Fleeto (0.6.0): stored as no destination with a description, shown as healthy on the dashboard, and
-/// Back up now explains that Fleeto makes none.
+/// Back up now explains that Fleeto makes none. Saving asks the workers to measure instance health again.
 /// </summary>
 [Collection(WebCollection.Name)]
 public sealed class ExternalBackupTests
@@ -26,7 +27,10 @@ public sealed class ExternalBackupTests
         var admin = WebFixtureBase.Admin();
         try
         {
+            var measured = _fixture.Database.Bus.PayloadsFor(NotificationChannels.InstanceHealth).Count;
             Assert.True((await settings.SaveBackupAsync(admin, Input("  Veeam, daily image of the VPS  "))).Success);
+            // The workers measure instance health again at once instead of showing the old backup problem for 5 minutes.
+            Assert.True(_fixture.Database.Bus.PayloadsFor(NotificationChannels.InstanceHealth).Count > measured);
 
             Assert.Equal("Veeam, daily image of the VPS", (await settings.GetBackupAsync(admin)).ExternalDescription);
             Assert.Equal("Veeam, daily image of the VPS", (await dashboard.GetAsync(admin)).Backups.ExternalDescription);

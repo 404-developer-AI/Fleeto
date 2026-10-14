@@ -55,12 +55,17 @@ public sealed class SettingsService
     private readonly IFleetoDbContextFactory _dbFactory;
     private readonly SettingsStore _settings;
     private readonly TimeProvider _time;
+    private readonly INotificationBus _bus;
+    private readonly ILogger<SettingsService> _logger;
 
-    public SettingsService(IFleetoDbContextFactory dbFactory, SettingsStore settings, TimeProvider time)
+    public SettingsService(IFleetoDbContextFactory dbFactory, SettingsStore settings, TimeProvider time, INotificationBus bus,
+        ILogger<SettingsService> logger)
     {
         _dbFactory = dbFactory;
         _settings = settings;
         _time = time;
+        _bus = bus;
+        _logger = logger;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -444,6 +449,17 @@ public sealed class SettingsService
                 updated.ExternalDescription,
                 SecretChanged = secretChanged
             }, cancellationToken);
+
+        try
+        {
+            // Instance health shows the backups as they are set now, not until its next measurement in 5 minutes.
+            await _bus.PublishAsync(NotificationChannels.InstanceHealth, string.Empty, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not ask the workers to measure instance health again");
+        }
+
         return ServiceResult.Ok();
     }
 

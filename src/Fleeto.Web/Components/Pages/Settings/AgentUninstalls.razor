@@ -30,7 +30,7 @@
                 <MudTh>Client</MudTh>
                 <MudTh>Deleted</MudTh>
                 <MudTh>State</MudTh>
-                <MudTh>Waits until</MudTh>
+                <MudTh>Until</MudTh>
                 <MudTh Style="width:60px"></MudTh>
             </HeaderContent>
             <RowTemplate>
@@ -54,7 +54,16 @@
                         <StatusChip Text="@(context.Signed ? "Waiting for the agent" : "Being prepared")" Kind="StatusKind.Neutral" />
                     }
                 </MudTd>
-                <MudTd><TimeText Value="context.ExpiresAt" Absolute="true" /></MudTd>
+                <MudTd>
+                    @if (context.AcceptedAt is null)
+                    {
+                        <span>Waits until</span> <TimeText Value="context.ExpiresAt" Absolute="true" />
+                    }
+                    else
+                    {
+                        <span class="muted">Listed until</span> <TimeText Value="context.ListedUntil" Absolute="true" />
+                    }
+                </MudTd>
                 <MudTd Style="text-align:right">
                     <MudTooltip Text="@(context.AcceptedAt is null ? "Stop waiting: the agent stays installed and is refused when it connects" : "Remove from the list")">
                         <MudIconButton Icon="@Icons.Material.Outlined.Close" Size="Size.Small" Disabled="_busy" OnClick="@(() => DismissAsync(context))"

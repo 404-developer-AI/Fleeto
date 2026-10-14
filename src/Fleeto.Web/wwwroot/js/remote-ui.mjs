@@ -86,12 +86,19 @@ export class Workspace {
         }
         if (opened.error) {
           this.terminal.write(`\r\n${opened.error}\r\n`);
+          if (this.script) {
+            this.channel = 0;
+            this.script = null;
+            this.showRestart();
+          }
           return;
         }
         this.pty = opened.pty !== false;
         this.terminal.options.convertEol = !this.pty;
         if (!this.pty) {
-          this.terminal.write("This endpoint has no pseudo console (Windows Server 2016): type a command and press Enter.\r\n");
+          this.terminal.write(this.script
+            ? "Type an answer and press Enter: the script gets its input a line at a time.\r\n"
+            : "This endpoint has no pseudo console (Windows Server 2016): type a command and press Enter.\r\n");
         }
         this.fit();
         this.terminal.focus();
@@ -106,8 +113,10 @@ export class Workspace {
         const closed = JSON.parse(decoder.decode(body));
         if (closed.channel === this.channel && this.terminal) {
           const code = typeof closed.exitCode === "number" ? ` with exit code ${closed.exitCode}` : "";
-          this.terminal.write(`\r\n\r\nThe shell ended${code}.${closed.error ? " " + closed.error : ""}\r\n`);
+          const what = this.script ? `The script ${this.script}` : "The shell";
+          this.terminal.write(`\r\n\r\n${what} ended${code}.${closed.error ? " " + closed.error : ""}\r\n`);
           this.channel = 0;
+          this.script = null;
           this.showRestart();
         }
         break;
@@ -158,6 +167,28 @@ export class Workspace {
     this.fit();
     const shell = this.options.shell || (this.hello.shells && this.hello.shells[0]) || "";
     this.session.openTerminalChannel(this.channel, shell, this.terminal.cols, this.terminal.rows);
+  }
+
+  // Runs a library script in the terminal (0.6.0): the open shell is closed, and the script gets a channel of its own whose output and
+  // prompts show here like the shell's.
+  runScript(script) {
+    if (this.disabled) {
+      return;
+    }
+    this.select("terminal");
+    if (this.channel) {
+      this.session.closeTerminalChannel(this.channel);
+    }
+    this.channel = (this.lastChannel || 0) + 1;
+    this.lastChannel = this.channel;
+    this.line = "";
+    this.script = `${script.name} (version ${script.version})`;
+    this.removeRestart();
+    this.terminal.reset();
+    this.fit();
+    const account = script.runAs === "user" ? "the signed-in user" : (this.windows ? "SYSTEM" : "root");
+    this.terminal.write(`Running ${this.script} as ${account}.\r\n\r\n`);
+    this.session.openScriptChannel(this.channel, script, this.terminal.cols, this.terminal.rows);
   }
 
   showRestart() {

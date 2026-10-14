@@ -101,6 +101,9 @@ public static class NotificationChannels
     /// </summary>
     public const string InventoryRequests = "fleeto_inventory_requests";
 
+    /// <summary>Payload: empty. A setting that instance health reads changed (the backups, 0.6.0); the workers measure again.</summary>
+    public const string InstanceHealth = "fleeto_instance_health";
+
     /// <summary>Payload: endpoint id. The gateway stored a storage scan of the endpoint; the workers evaluate folder growth (0.6.0).</summary>
     public const string StorageScans = "fleeto_storage_scans";
 
@@ -319,4 +322,7 @@ public static class AuditActions
     public const string RemoteSessionJoined = "remote_session.joined";
     public const string RemoteSessionLeft = "remote_session.left";
     public const string RemoteSessionRefused = "remote_session.refused";
+
+    /// <summary>A library script was sent to run in a remote background terminal (0.6.0): the script, its version and hash, never its body.</summary>
+    public const string RemoteSessionScript = "remote_session.script";
 }

@@ -124,6 +124,8 @@ class RemoteSession {
         this.state = "connected";
         this.report("connected");
         this.startWorkspace();
+        // Whether a library script can run in a terminal (0.6.0); an older watchdog does not say, and the window offers no Run script.
+        this.dotnet.invokeMethodAsync("OnHello", this.hello.scripts === true).catch(() => {});
         break;
       case Frame.IdleWarning:
         this.dotnet.invokeMethodAsync("OnIdleWarning", JSON.parse(decoder.decode(body)).secondsLeft ?? 120);
@@ -158,6 +160,18 @@ class RemoteSession {
 
   openTerminalChannel(channel, shell, cols, rows) {
     this.sendFrame(jsonFrame(Frame.Open, { channel, service: "terminal", shell, cols, rows })).catch(() => {});
+  }
+
+  // A library script (0.6.0): the endpoint stages it, checks it against its hash and runs it in a terminal on this channel.
+  openScriptChannel(channel, script, cols, rows) {
+    this.sendFrame(jsonFrame(Frame.Open, { channel, service: "script", cols, rows, script })).catch(() => {});
+  }
+
+  // Called by the window with the script web prepared for this participant.
+  runScript(script) {
+    if (this.workspace && this.state === "connected") {
+      this.workspace.runScript(script);
+    }
   }
 
   sendTerminalData(channel, bytes) {

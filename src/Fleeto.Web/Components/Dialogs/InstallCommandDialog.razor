@@ -19,7 +19,7 @@
                 </MudTabPanel>
                 <MudTabPanel Text="Linux">
                     <MudText Typo="Typo.body2" Class="mt-3 mb-2">
-                        Run in a shell on the endpoint. On a system without sudo, such as Proxmox VE, run it as root without the sudo in front.
+                        Run in a shell on the endpoint. It uses sudo where sudo is installed, and runs as it is in a root shell without sudo, such as on Proxmox VE.
                     </MudText>
                     <div class="command-box mb-3">@commands.Linux</div>
                     <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.ContentCopy"

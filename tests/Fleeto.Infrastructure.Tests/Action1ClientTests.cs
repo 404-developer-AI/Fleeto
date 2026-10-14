@@ -96,6 +96,28 @@ public class Action1ClientTests
     }
 
     [Fact]
+    public async Task An_endpoint_Action1_answers_400_not_found_for_is_not_held_and_counts_as_removed()
+    {
+        // Found testing 0.6.0 on 2026-10-14: for an endpoint it removed, Action1 answers 400 "The endpoint was not found".
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 10, 14, 12, 0, 0, TimeSpan.Zero));
+        using (var client = Create(new StubHandler(time) { ApiStatus = HttpStatusCode.BadRequest, ApiMessage = "The endpoint was not found" }, time))
+        {
+            var read = await client.GetEndpointAsync("org-1", "ef17c844-5b7c-4b32-9724-f2716b596639");
+            Assert.True(read.Ok, read.Message);
+            Assert.Null(read.Value);
+            Assert.True((await client.DeleteEndpointAsync("org-1", "ef17c844-5b7c-4b32-9724-f2716b596639")).Ok);
+        }
+
+        // Any other 400 is still a failure.
+        using (var client = Create(new StubHandler(time) { ApiStatus = HttpStatusCode.BadRequest, ApiMessage = "Invalid request" }, time))
+        {
+            var read = await client.GetEndpointAsync("org-1", "ef17c844-5b7c-4b32-9724-f2716b596639");
+            Assert.False(read.Ok);
+            Assert.Contains("Invalid request", read.Message);
+        }
+    }
+
+    [Fact]
     public async Task Every_organization_is_read_over_as_many_pages_as_Action1_returns()
     {
         var time = new FakeTimeProvider(new DateTimeOffset(2026, 9, 20, 12, 0, 0, TimeSpan.Zero));
@@ -163,6 +185,7 @@ public class Action1ClientTests
         public TimeSpan? LastGap { get; private set; }
         public HttpStatusCode TokenStatus { get; init; } = HttpStatusCode.OK;
         public HttpStatusCode ApiStatus { get; init; } = HttpStatusCode.OK;
+        public string ApiMessage { get; init; } = "not allowed";
         public bool RefuseNextApiCallOnce { get; set; }
         public bool RateLimitNextApiCallOnce { get; set; }
         public int RetryAfterSeconds { get; init; } = 3;
@@ -198,7 +221,7 @@ public class Action1ClientTests
 
             if (ApiStatus != HttpStatusCode.OK)
             {
-                return Task.FromResult(Json(ApiStatus, """{"user_message":"not allowed"}"""));
+                return Task.FromResult(Json(ApiStatus, $$"""{"user_message":"{{ApiMessage}}"}"""));
             }
 
             var query = System.Web.HttpUtility.ParseQueryString(request.RequestUri.Query);

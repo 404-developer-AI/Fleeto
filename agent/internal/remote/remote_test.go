@@ -458,13 +458,23 @@ func (b *browser) read() (byte, []byte) {
 
 func startSession(t *testing.T, now func() time.Time, tick time.Duration) (*browser, chan string) {
 	t.Helper()
+	return startSessionWith(t, now, tick, nil)
+}
+
+// startSessionWith starts a session with the options changed by configure first.
+func startSessionWith(t *testing.T, now func() time.Time, tick time.Duration, configure func(*SessionOptions)) (*browser, chan string) {
+	t.Helper()
 	f := newFixture(t)
 	token, endpoint, browserKeys := f.handshake(t)
 	p := newPipe()
-	session, err := NewSession(SessionOptions{
+	opts := SessionOptions{
 		Token: token, Keys: endpoint.Keys, Transport: endpointSide{p}, Hello: Hello{Hostname: "SRV-01", Platform: "windows", Shells: []string{"powershell"}},
 		Open: func(shell string, cols, rows int) (Terminal, error) { return newFakeTerminal(), nil }, Now: now, Tick: tick,
-	})
+	}
+	if configure != nil {
+		configure(&opts)
+	}
+	session, err := NewSession(opts)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -91,6 +91,11 @@ type conPTY struct {
 }
 
 func openConPTY(path, cmdLine string, cols, rows int) (Terminal, error) {
+	return openConPTYIn(path, cmdLine, filepath.Join(os.Getenv("SystemRoot"), "System32"), cols, rows)
+}
+
+// openConPTYIn starts a program as SYSTEM in a pseudo console, in the given working directory.
+func openConPTYIn(path, cmdLine, workDir string, cols, rows int) (Terminal, error) {
 	var inRead, inWrite, outRead, outWrite windows.Handle
 	if err := windows.CreatePipe(&inRead, &inWrite, nil, 0); err != nil {
 		return nil, fmt.Errorf("create the terminal input: %w", err)
@@ -142,7 +147,7 @@ func openConPTY(path, cmdLine string, cols, rows int) (Terminal, error) {
 		closeHandles(inWrite, outRead, job)
 		return nil, err
 	}
-	dir, _ := windows.UTF16PtrFromString(os.Getenv("SystemRoot") + `\System32`)
+	dir, _ := windows.UTF16PtrFromString(workDir)
 	var process windows.ProcessInformation
 	flags := uint32(windows.EXTENDED_STARTUPINFO_PRESENT | windows.CREATE_UNICODE_ENVIRONMENT | windows.CREATE_SUSPENDED)
 	if err := windows.CreateProcess(pathPtr, cmdPtr, nil, nil, false, flags, nil, dir, &info.StartupInfo, &process); err != nil {
@@ -230,10 +235,10 @@ func (t *conPTY) Close() error {
 	return nil
 }
 
-// pipeTerminal is a shell with redirected standard streams, for Windows versions without a pseudo console. It has no terminal
-// emulation: the browser edits the line and sends it with Enter, and output arrives in the console code page, converted to UTF-8.
+// pipeTerminal is a shell with redirected standard streams, for Windows versions without a pseudo console, and a library script run as
+// the signed-in user (0.6.0). It has no terminal emulation: the browser edits the line and sends it with Enter, and output arrives in the
+// console code page, converted to UTF-8.
 type pipeTerminal struct {
-	proc   *os.Process
 	job    windows.Handle
 	stdin  io.WriteCloser
 	output *os.File
@@ -251,6 +256,11 @@ func openPipes(path, cmdLine, shell string) (Terminal, error) {
 	} else {
 		cmdLine += " /q"
 	}
+	return openPipesIn(path, cmdLine, filepath.Join(os.Getenv("SystemRoot"), "System32"))
+}
+
+// openPipesIn starts a program as SYSTEM with redirected standard streams, in the given working directory.
+func openPipesIn(path, cmdLine, workDir string) (Terminal, error) {
 	job, err := jobObject()
 	if err != nil {
 		return nil, err
@@ -268,7 +278,7 @@ func openPipes(path, cmdLine, shell string) (Terminal, error) {
 		return nil, err
 	}
 	attr := &os.ProcAttr{
-		Dir:   filepath.Join(os.Getenv("SystemRoot"), "System32"),
+		Dir:   workDir,
 		Env:   os.Environ(),
 		Files: []*os.File{inRead, outWrite, outWrite},
 		Sys:   &syscall.SysProcAttr{CmdLine: cmdLine, HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW},
@@ -286,7 +296,7 @@ func openPipes(path, cmdLine, shell string) (Terminal, error) {
 		_ = windows.AssignProcessToJobObject(job, handle)
 		closeHandles(handle)
 	}
-	t := &pipeTerminal{proc: proc, job: job, stdin: inWrite, output: outRead, done: make(chan struct{})}
+	t := &pipeTerminal{job: job, stdin: inWrite, output: outRead, done: make(chan struct{})}
 	go func() {
 		state, err := proc.Wait()
 		if err == nil {

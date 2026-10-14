@@ -51,10 +51,24 @@ public class Action1AgentInstallTests
     {
         var body = Action1AgentInstall.Body("https://app.eu.action1.com/agent/abc/Windows/agent.msi");
 
-        // The check comes before the download, and it reads the key the Fleeto agent reads.
+        // The check comes before the download, and it looks at the installed programs, the rule the Fleeto agent follows.
         Assert.True(body.IndexOf("if (Test-Action1Agent)", StringComparison.Ordinal) < body.IndexOf("Invoke-WebRequest", StringComparison.Ordinal));
-        Assert.Contains("agent.guid", body);
+        Assert.Contains("return (Find-Action1Agent).Count -gt 0", body);
         Assert.Contains("exit 0", body);
+        // An id an uninstalled agent left behind is removed before the new agent installs (found testing 0.6.0 on 2026-10-14).
+        Assert.True(body.IndexOf("if (Clear-Action1Id)", StringComparison.Ordinal) < body.IndexOf("Invoke-WebRequest", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void The_removal_clears_the_id_an_uninstalled_agent_left_behind()
+    {
+        var body = Action1AgentRemoval.Body();
+
+        // With no agent installed, a left-over id is removed so the endpoint no longer looks like it has the agent.
+        Assert.True(body.IndexOf("if (Clear-Action1Id)", StringComparison.Ordinal) < body.IndexOf("foreach ($agent in $agents)", StringComparison.Ordinal));
+        Assert.Contains("Remove-ItemProperty -Path $key -Name 'agent.guid'", body);
+        // And after an uninstall, which leaves the id behind too.
+        Assert.True(body.IndexOf("$null = Clear-Action1Id", StringComparison.Ordinal) > body.IndexOf("foreach ($agent in $agents)", StringComparison.Ordinal));
     }
 
     [Fact]

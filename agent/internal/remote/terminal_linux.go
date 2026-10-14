@@ -50,7 +50,29 @@ func OpenTerminal(shell string, cols, rows int) (Terminal, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, fmt.Errorf("%s is not installed on this endpoint", path)
 	}
+	dir := "/root"
+	if unix.Access(dir, unix.X_OK) != nil {
+		dir = "/"
+	}
+	return openPTY(path, []string{"-l"}, dir, rootEnvironment(path, dir), nil, -1, cols, rows)
+}
 
+// rootEnvironment is the fixed environment of a program that runs as root in a terminal.
+func rootEnvironment(shell, home string) []string {
+	return []string{
+		"TERM=xterm-256color",
+		"HOME=" + home,
+		"USER=root",
+		"LOGNAME=root",
+		"SHELL=" + shell,
+		"LANG=" + firstNonEmpty(os.Getenv("LANG"), "C.UTF-8"),
+		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+	}
+}
+
+// openPTY starts a program in a pseudo terminal, in its own session. With a credential it runs as that account (a library script as the
+// signed-in user, 0.6.0), and the terminal is handed to the account like a login does.
+func openPTY(path string, args []string, dir string, env []string, credential *syscall.Credential, owner, cols, rows int) (Terminal, error) {
 	master, err := os.OpenFile("/dev/ptmx", os.O_RDWR|unix.O_NOCTTY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, fmt.Errorf("open a pseudo terminal: %w", err)
@@ -71,27 +93,23 @@ func OpenTerminal(shell string, cols, rows int) (Terminal, error) {
 		return nil, fmt.Errorf("open the pseudo terminal: %w", err)
 	}
 	_ = unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, &unix.Winsize{Col: uint16(cols), Row: uint16(rows)})
+	if owner >= 0 {
+		if err := slave.Chown(owner, -1); err != nil {
+			_ = slave.Close()
+			_ = master.Close()
+			return nil, fmt.Errorf("hand the terminal to the user: %w", err)
+		}
+	}
 
-	cmd := exec.Command(path, "-l")
-	cmd.Dir = "/root"
-	if unix.Access(cmd.Dir, unix.X_OK) != nil {
-		cmd.Dir = "/"
-	}
-	cmd.Env = []string{
-		"TERM=xterm-256color",
-		"HOME=" + cmd.Dir,
-		"USER=root",
-		"LOGNAME=root",
-		"SHELL=" + path,
-		"LANG=" + firstNonEmpty(os.Getenv("LANG"), "C.UTF-8"),
-		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-	}
+	cmd := exec.Command(path, args...)
+	cmd.Dir = dir
+	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0, Credential: credential}
 	if err := cmd.Start(); err != nil {
 		_ = slave.Close()
 		_ = master.Close()
-		return nil, fmt.Errorf("start the shell: %w", err)
+		return nil, fmt.Errorf("start %s: %w", path, err)
 	}
 	_ = slave.Close()
 

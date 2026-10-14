@@ -347,6 +347,19 @@ Three kinds of tables:
     of a transfer it does not know yet, and a download without acknowledgements for 2 minutes stops and closes the file), upload a file (written to a `.fleeto-part` file, then renamed), and
     create, rename, delete and copy within the endpoint. All over the same encrypted session; the watchdog acts as SYSTEM or
     root.
+  - **Library scripts in the terminal** (0.6.0): "Run script" in the session window picks a script of the library and the endpoint
+    runs it in the terminal of the session, so its output shows as it comes and its prompts (Read-Host, `set /p`, `read`) can be
+    answered; the open shell is closed first. Web offers only what a job may run there (managed, the platform, the client, and where
+    the policy requires approval only an approved current version), only to the technician of a connected participant
+    (`RemoteScriptService`), and writes `remote_session.script` with the script, version and hash. The browser sends the body over
+    the encrypted session (`Open` with service `script`); the watchdog stages it like a job (`jobs.StageInteractive`: checked
+    against its hash and language, in a protected directory for SYSTEM or root, in the job staging directory of the user
+    otherwise), runs it without `-NonInteractive`, removes it when it ends and reports `terminal.script` (name, version, account,
+    hash). As SYSTEM or root it gets a pseudo console or terminal like the shell; as the signed-in user it runs in that user's
+    session, on Windows with redirected streams and line input (a pseudo console created by a service for a process in another
+    session is not relied on), on Linux in a pseudo terminal handed to the user. Nothing is signed and nothing outlives the session:
+    the script stops when the terminal closes. A watchdog before 0.6.0 does not announce `scripts` in its hello, and the window
+    offers no Run script.
   - **Services** (0.3.0 step 2): list them and start, stop, restart or change the start type (the service control manager on
     Windows, systemctl on Linux). **Processes** (0.3.0 step 2): list them with a short CPU sample, memory and user, and end one.
   - Every file, service and process action is reported to the gateway over the watchdog's own control session
@@ -372,7 +385,8 @@ Three kinds of tables:
 
 **Enrollment.** Technician creates an enrollment token for a site (expiring, revocable,
 optionally single-use, stored hashed). The UI produces a one-line install command per platform (Windows: PowerShell;
-Linux: a POSIX shell command run with sudo or as root, which picks amd64 or arm64 from `uname -m` and runs the
+Linux: a POSIX shell command that runs through sudo where sudo exists and as it is in a root shell without it, such as
+Proxmox VE (0.6.0; it refuses a user who is not root), which picks amd64 or arm64 from `uname -m` and runs the
 installer from a directory under `/opt`, because `/tmp` is mounted without exec permission on hardened endpoints) that
 embeds the instance FQDN, the token and the SHA-256 fingerprint of the instance CA
 certificate. The command downloads the agent from the instance itself, `GET /agent/download/<platform>-<architecture>`
@@ -450,7 +464,8 @@ verify the command against the pinned instance signing key and start `fleeto-age
 their own (Windows: a detached process, which the service manager does not stop with the service; Linux: a
 transient unit through `systemd-run`, because stopping a unit kills its control group), which removes both
 services, keys and files. An agent from before 0.6.0 ignores the command and is closed with Revoked as before.
-Settings, Agent uninstalls lists the waiting and recently removed ones; "Stop waiting" deletes the row. The
+Settings, Agent uninstalls lists the waiting and recently removed ones, a waiting one with its expiry and a removed one
+with the day the workers take it off the list; "Stop waiting" deletes the row. The
 workers remove a row after its expiry, or a week after it was accepted. The gateway keeps the allow list in memory, loaded from the database at start,
 updated on notification and fully reloaded every minute; a gateway that has not loaded it
 accepts no agent connections. A revoked agent cannot renew and has to enroll
@@ -554,7 +569,8 @@ Action1 reports the endpoint, 0 with the reason when its agent is missing or an 
 `Action1AgentInstallService` when what it says changes and every 4 hours; nothing while an installation runs, and no
 result for an endpoint whose agent was removed through Fleeto (below, *Installing the Action1 agent*).
 
-**Instance health (0.6.0).** Every 5 minutes `InstanceHealthService` in the workers takes a sample: disk, memory, swap,
+**Instance health (0.6.0).** Every 5 minutes, and at once when web notifies `fleeto_instance_health` after the backup
+setting is saved, `InstanceHealthService` in the workers takes a sample: disk, memory, swap,
 CPU and load of the VPS from /proc (a container shares it with the host, so no Docker socket is needed; the disk is the file
 system of the container root, which holds the Docker data directory; CPU is the average since the previous sample), the
 database (`pg_database_size`, client connections against `max_connections`, the 15 largest tables with
@@ -1333,6 +1349,9 @@ on which endpoint. A compromised gateway that keeps a valid relay open is still 
   jobs: a technician who may open a terminal can run any command as SYSTEM. This is a deliberate
   product decision; the controls are the per-session signed token, end-to-end encryption and the
   audit entries per session and participant. Terminal transcripts are not recorded (recording is not scheduled).
+  A library script run in the terminal (0.6.0) follows the approval of the policy, but only as far as web enforces it: the script
+  is not signed, because the terminal it runs in could run the same commands typed by hand. A compromised web container can send
+  any script to a session it opens anyway; the endpoint checks only that the body matches the hash it was sent with.
 - **The uninstall command (0.6.0).** fleeto-signer signs it only after the endpoint was deleted by an admin or
   technician, which is in the audit log; it names one instance and endpoint and expires within 31 days, and the agent
   and watchdog accept it only with that signature. It can only remove Fleeto, so it also reaches an agent-only endpoint:
@@ -1723,7 +1742,9 @@ and timestamps arrive as `2026-09-20_14-11-14` without a timezone, read as UTC (
 
 Endpoints are matched on the id of the Action1 agent, which the Fleeto agent reads on the endpoint itself
 (`HKLM\SOFTWARE\WOW6432Node\Action1`, value `agent.guid`) and reports with its inventory; a value that is not a GUID is
-dropped rather than reported. Host names are not unique across clients and change, so they are never the join. Action1
+dropped rather than reported. From 0.6.0 the id is reported only while the installed programs hold the Action1 agent: Action1
+leaves the value behind when it is uninstalled, and the jobs that install and remove the agent remove such a left-over value
+(found testing 0.6.0 on 2026-10-14). A 400 of Action1 that says the endpoint was not found counts as not held, like a 404. Host names are not unique across clients and change, so they are never the join. Action1
 does not document the relation between that local value and the endpoint id of its API, but a test endpoint showed them
 to be the same value (2026-09-20), which is what the patch steps match on. An endpoint whose id Fleeto does not know (no
 Action1 agent, an agent older than 0.4.0, or Linux, which patch management does not cover yet) has no patch state, and

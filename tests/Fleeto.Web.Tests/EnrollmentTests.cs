@@ -48,7 +48,9 @@ public class EnrollmentTests
         var (token, _, _) = OpaqueTokens.Create(OpaqueTokens.EnrollmentPrefix);
         var command = InstallCommand.Build("https://rmm.example.com", "agents.rmm.example.com", 443, token, Fingerprint).Linux;
 
-        Assert.StartsWith("sudo sh -c '", command);
+        // Through sudo where it exists, as is where it does not (Proxmox VE: root without sudo); not root without sudo is refused.
+        Assert.StartsWith("$(command -v sudo) sh -c '", command);
+        Assert.Contains("if [ \"$(id -u)\" != 0 ]; then echo \"Run this as root or with sudo.\" >&2; exit 1; fi;", command);
         Assert.EndsWith("'", command);
         // The command is one single-quoted shell argument, so nothing in it may be quoted with a single quote.
         Assert.Equal(2, command.Count(c => c == '\''));

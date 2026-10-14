@@ -285,12 +285,14 @@ public static partial class InstallCommand
     /// <summary>
     /// The Linux command: it picks the architecture, downloads with curl or wget, and runs the installer from a directory under /opt,
     /// because /tmp is mounted without exec permission on hardened systems. The downloaded file is removed afterwards, whether the
-    /// install succeeds or not.
+    /// install succeeds or not. It runs through sudo where sudo exists and as is where it does not, such as on Proxmox VE, where
+    /// the shell is root and has no sudo; a user who is not root there gets a message instead of a failed install.
     /// </summary>
     private static string BuildLinux(string downloadBase, string server, string token, string fingerprint)
     {
         var inner =
             "set -e; " +
+            "if [ \"$(id -u)\" != 0 ]; then echo \"Run this as root or with sudo.\" >&2; exit 1; fi; " +
             "case \"$(uname -m)\" in x86_64) a=amd64;; aarch64|arm64) a=arm64;; *) " +
             "echo \"Fleeto has no Linux agent for $(uname -m).\" >&2; exit 1;; esac; " +
             "d=$(mktemp -d /opt/.fleeto-install.XXXXXX); " +
@@ -303,7 +305,7 @@ public static partial class InstallCommand
             " --token " + token +
             " --ca-fingerprint " + fingerprint;
 
-        return "sudo sh -c '" + inner + "'";
+        return "$(command -v sudo) sh -c '" + inner + "'";
     }
 
     /// <summary>A PowerShell single-quoted string literal.</summary>

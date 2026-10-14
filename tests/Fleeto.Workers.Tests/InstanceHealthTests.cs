@@ -20,7 +20,7 @@ public sealed class InstanceHealthTests
     public InstanceHealthTests(WorkersFixture fixture) => _fixture = fixture;
 
     private InstanceHealthService Service() =>
-        new(_fixture.Db.DbFactory, _fixture.Settings(), new HostMetricsReader(), _fixture.Heartbeat(), _fixture.Db.Time,
+        new(_fixture.Db.DbFactory, _fixture.Settings(), new HostMetricsReader(), _fixture.Heartbeat(), _fixture.Db.Bus, _fixture.Db.Time,
             NullLogger<InstanceHealthService>.Instance);
 
     private static HostHealth Disk(long totalGb, long freeGb) => HostHealth.Unknown with { DiskTotalBytes = totalGb * Gb, DiskFreeBytes = freeGb * Gb };

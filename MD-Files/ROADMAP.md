@@ -189,16 +189,31 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
     exist"), and without it a problem like a stopped service.
   To verify on the test VPS: the fields in Chrome and Edge, Refresh on an online endpoint, a service check for a service
   that is not installed with and without the option.
+  After testing alpha.16 (2026-10-14): saving the backups notifies `fleeto_instance_health` so the workers measure at once,
+  and a removed agent in Settings, Agent uninstalls shows "Listed until" (a week after the removal) instead of the expiry.
+  The Linux install command starts with `$(command -v sudo)` instead of `sudo`, so it also runs on Proxmox VE (root, no sudo).
+- [done] **Reinstall the Action1 agent after Fleeto removed it** (found by the developer testing alpha.16 on 2026-10-14): Action1
+  leaves `agent.guid` behind on uninstall. The agent reports it only with an "Action1 Agent" entry in the installed programs,
+  `Clear-Action1Id` in both jobs removes a left-over one, and `Action1Exception.IsGone` reads a 400 "not found" as not held.
+  To verify on the test VPS: Remove Action1 agent once more on the server (with alpha.17 it clears the id), Refresh, then Install.
+- [done] **Run a library script interactively in remote background** (asked for by the developer on 2026-10-14; decided the same
+  day: it follows the approval of the policy, and it runs as SYSTEM or root, or as the signed-in user). Done: `RemoteScriptService`
+  and `remote_session.script`, `TerminalScriptDialog`, service `script` on the terminal channel with `Hello.scripts`,
+  `jobs.StageInteractive` and `remote.OpenScript` in the watchdog, the action `terminal.script`. On Windows a script as the signed-in
+  user gets line input (redirected streams), as SYSTEM a pseudo console. To verify on the test VPS: a script with Read-Host as
+  SYSTEM and as the signed-in user on Windows, a script with `read` on Linux, and an approval policy hiding an unapproved script.
 - [done] **Uninstall the Fleeto agent of a deleted endpoint** (asked for by the developer on 2026-10-13: an offline agent is
   removed when it comes back, within a term, but leaves the lists at once). Decided the same day: 30 days, also on agent-only
   endpoints, also when a client is deleted, checked by default, a list in Settings. Done: `AgentUninstall` with the
   certificate fingerprints, signing request kind `AgentUninstall` and `AgentUninstallHandler`, `UninstallCommand` in the
   agent protocol (context `fleeto-uninstall-v1`), `DISCONNECT_CODE_RECONNECT`, the uninstall session of the gateway, the
   agent and watchdog starting `fleeto-agent uninstall` in a process of their own, Settings, Agent uninstalls, retention. To
-  verify on the test VPS: a deleted Windows and Linux endpoint, online and offline, removing itself.
+  verify on the test VPS: a deleted Windows and Linux endpoint, online and offline, removing itself. Verified on alpha.16
+  (2026-10-14): a deleted Windows endpoint and a deleted Linux endpoint removed their agents; an offline one still to see.
 - [done] **Remove the Action1 agent with the endpoint** (asked for by the developer on 2026-10-13, checked by default):
   deleting an endpoint and switching it to agent-only offer it. Done: `IntegrationOperationKind.RemoveEndpoint` written by
-  web (inside the deletion's transaction), carried out by `PatchRequestService`, an option on `ConfirmDialog`.
+  web (inside the deletion's transaction), carried out by `PatchRequestService`, an option on `ConfirmDialog`. Verified on
+  alpha.16 (2026-10-14): switching to agent-only and deleting both removed the Action1 agent.
 
 ## 0.7.0 — Hardening
 

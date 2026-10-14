@@ -100,6 +100,8 @@ type Hello struct {
 	WindowsSession uint32 `json:"windowsSession,omitempty"`
 	// Clipboard reports whether a remote control session synchronises the clipboard, from the token (policy). Set by Run.
 	Clipboard bool `json:"clipboard,omitempty"`
+	// Scripts reports whether a library script can run in a terminal (0.6.0). Set by Run.
+	Scripts bool `json:"scripts,omitempty"`
 }
 
 // ScreenHandler serves the screen of a remote control session for one technician (internal/screen.Participant).
@@ -138,6 +140,8 @@ type openBody struct {
 	Shell   string `json:"shell"`
 	Cols    int    `json:"cols"`
 	Rows    int    `json:"rows"`
+	// Script is the library script of service "script" (0.6.0).
+	Script *ScriptRequest `json:"script,omitempty"`
 }
 
 type channelBody struct {
@@ -161,6 +165,8 @@ type SessionOptions struct {
 	Transport Transport
 	Hello     Hello
 	Open      TerminalOpener
+	// OpenScript runs a library script in a terminal (0.6.0); nil where scripts are not served.
+	OpenScript ScriptOpener
 	// Report records an action the technician took (files, services, processes) for the audit log; nil disables reporting.
 	Report func(action, target, detail string)
 	// Screen serves remote control sessions; nil where remote control is not served.
@@ -221,6 +227,7 @@ func (s *Session) Run(ctx context.Context) (reason string) {
 	hello.IdleTimeoutSeconds = int(s.opts.Token.IdleTimeout() / time.Second)
 	hello.MaxFileBytes = s.opts.Token.MaxFileBytes()
 	hello.Kind = "remote_background"
+	hello.Scripts = s.opts.OpenScript != nil && !s.remoteControl()
 	if s.remoteControl() {
 		hello.Kind = "remote_control"
 		hello.WindowsSession = s.opts.Token.GetWindowsSessionId()
@@ -378,7 +385,15 @@ func (s *Session) open(ctx context.Context, open openBody) {
 	}
 	channel := uint16(open.Channel)
 	reply := channelBody{Channel: open.Channel, Shell: open.Shell}
-	if open.Service != "terminal" {
+	if open.Service == "script" && (s.opts.OpenScript == nil || s.remoteControl()) {
+		reply.Error = "This endpoint cannot run a script in a terminal. Update the agent."
+		_ = s.sendJSON(ctx, FrameOpened, reply)
+		return
+	}
+	if open.Service == "script" && open.Script == nil {
+		return
+	}
+	if open.Service != "terminal" && open.Service != "script" {
 		reply.Error = "This endpoint does not offer that service yet. Update the agent."
 		_ = s.sendJSON(ctx, FrameOpened, reply)
 		return
@@ -395,7 +410,14 @@ func (s *Session) open(ctx context.Context, open openBody) {
 		_ = s.sendJSON(ctx, FrameOpened, reply)
 		return
 	}
-	opened, err := s.opts.Open(open.Shell, clampSize(open.Cols, 20, 500), clampSize(open.Rows, 5, 300))
+	var opened Terminal
+	var account string
+	var err error
+	if open.Service == "script" {
+		opened, account, err = s.opts.OpenScript(*open.Script, clampSize(open.Cols, 20, 500), clampSize(open.Rows, 5, 300))
+	} else {
+		opened, err = s.opts.Open(open.Shell, clampSize(open.Cols, 20, 500), clampSize(open.Rows, 5, 300))
+	}
 	if err != nil {
 		reply.Error = err.Error()
 		_ = s.sendJSON(ctx, FrameOpened, reply)
@@ -406,10 +428,18 @@ func (s *Session) open(ctx context.Context, open openBody) {
 	s.terminals[channel] = terminal
 	s.mu.Unlock()
 	reply.PTY = terminal.PTY()
-	s.opts.Logger.Info("remote terminal opened", "participant", s.opts.Token.GetParticipantId(), "technician", s.opts.Token.GetTechnicianName(),
-		"shell", open.Shell)
-	// Opening a terminal is audited like the other actions of a session (never what is typed in it).
-	s.report("terminal.open", open.Shell, "")
+	if open.Service == "script" {
+		// A script run is audited by name, version and hash, and the account it ran as; never its body, input or output.
+		runAs := "as " + firstNonEmptyText(account, map[bool]string{true: "SYSTEM", false: "root"}[runtimeIsWindows])
+		s.opts.Logger.Info("remote script started", "participant", s.opts.Token.GetParticipantId(), "technician", s.opts.Token.GetTechnicianName(),
+			"script", open.Script.Name, "version", open.Script.Version)
+		s.report("terminal.script", scriptTarget(*open.Script), runAs+", sha256 "+strings.ToLower(open.Script.Sha256))
+	} else {
+		s.opts.Logger.Info("remote terminal opened", "participant", s.opts.Token.GetParticipantId(), "technician", s.opts.Token.GetTechnicianName(),
+			"shell", open.Shell)
+		// Opening a terminal is audited like the other actions of a session (never what is typed in it).
+		s.report("terminal.open", open.Shell, "")
+	}
 	if err := s.sendJSON(ctx, FrameOpened, reply); err != nil {
 		return
 	}

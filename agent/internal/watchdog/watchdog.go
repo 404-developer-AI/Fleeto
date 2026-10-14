@@ -47,6 +47,9 @@ const (
 	ServiceName = "fleeto-watchdog"
 	// AgentServiceName is the agent service the watchdog supervises.
 	AgentServiceName = "fleeto-agent"
+	// RemoteScriptsDirName is the directory in the watchdog's state where library scripts run in a remote background terminal are
+	// staged as SYSTEM or root (0.6.0).
+	RemoteScriptsDirName = "remote-scripts"
 
 	connectPath      = "/v1/connect"
 	maxMessageBytes  = 4 * 1024 * 1024
@@ -144,6 +147,10 @@ func New(opts Options) (*Watchdog, error) {
 		Pause:    w.supervisor.Pause,
 		MaxDelay: opts.UpdateMaxDelay,
 	})
+	// Library scripts run in a remote background terminal (0.6.0) are staged here; nothing runs yet, so what is left from before a restart
+	// is removed.
+	scriptsDir := filepath.Join(opts.Store.Dir(), RemoteScriptsDirName)
+	_ = os.RemoveAll(scriptsDir)
 	// Remote background sessions (0.3.0) are served here, so they also work when the agent is broken.
 	w.remote = &remote.Server{
 		Component: agentv1.Component_COMPONENT_WATCHDOG,
@@ -166,10 +173,11 @@ func New(opts Options) (*Watchdog, error) {
 			return remote.Hello{Hostname: inventory.Hostname(), Platform: runtime.GOOS, Shells: remote.Shells(), PTY: remote.PTYAvailable(),
 				Version: version.Version}
 		},
-		Open:   remote.OpenTerminal,
-		Report: w.reportRemoteAction,
-		Logger: opts.Logger,
-		Now:    opts.Now,
+		Open:       remote.OpenTerminal,
+		OpenScript: remote.OpenScript(scriptsDir, opts.Store.Access()),
+		Report:     w.reportRemoteAction,
+		Logger:     opts.Logger,
+		Now:        opts.Now,
 	}
 	return w, nil
 }

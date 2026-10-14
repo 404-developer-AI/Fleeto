@@ -1,0 +1,133 @@
+@using Fleeto.Core.Domain
+@* Picks a library script to run in the terminal of a remote background session (0.6.0). The endpoint runs it at once, in the terminal
+   of the session, where its output shows as it comes and its prompts can be answered. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Run script in the terminal</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (Choices.Scripts.Count == 0)
+        {
+            <MudText Typo="Typo.body2">
+                @if (Choices.ApprovalRequired)
+                {
+                    <text>
+                        The policy of this endpoint requires approved scripts, and no script for its operating system has an approved current version.
+                        A second admin approves a version under Settings, Scripts.
+                    </text>
+                }
+                else
+                {
+                    <text>
+                        No script in the library runs on this endpoint. Create one under Settings, Scripts, in a language for its operating system and
+                        for this client or all clients.
+                    </text>
+                }
+            </MudText>
+        }
+        else
+        {
+            <MudSelect T="Guid?" @bind-Value="_scriptId" Label="Script" Variant="Variant.Outlined" Class="mb-3" AnchorOrigin="Origin.BottomCenter">
+                @foreach (var script in Choices.Scripts)
+                {
+                    <MudSelectItem T="Guid?" Value="@((Guid?)script.Id)">
+                        @script.Name · @ScriptLanguages.Label(script.Language) · version @script.VersionNumber@(script.Approved ? " · approved" : "")@(script.ClientCode is null ? "" : $" · {script.ClientCode}")
+                    </MudSelectItem>
+                }
+            </MudSelect>
+            @if (Choices.ApprovalRequired)
+            {
+                <MudText Typo="Typo.caption" Class="muted d-block mb-3">The policy of this endpoint requires approved scripts, so only approved versions are listed.</MudText>
+            }
+            <MudSelect T="bool" @bind-Value="_runAsUser" Label="Run as" Variant="Variant.Outlined" Class="mb-1">
+                <MudSelectItem T="bool" Value="false">@(Windows ? "SYSTEM" : "root")</MudSelectItem>
+                <MudSelectItem T="bool" Value="true">The signed-in user</MudSelectItem>
+            </MudSelect>
+            <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+                @if (!_runAsUser)
+                {
+                    <text>The script runs as @(Windows ? "SYSTEM" : "root"), like the terminal.</text>
+                }
+                else if (Windows)
+                {
+                    <text>
+                        The script runs in a session of the user, with their rights and profile. Type an answer and press Enter: input goes to the
+                        script a line at a time. The user can read the script while it runs.
+                    </text>
+                }
+                else
+                {
+                    <text>The script runs as the user, with their rights and home directory. The user can read the script while it runs.</text>
+                }
+            </MudText>
+            @if (_runAsUser && Choices.SignedInUsers is { } signedIn)
+            {
+                <MudSelect T="string" @bind-Value="_userId" Label="User" Variant="Variant.Outlined" Class="mb-1">
+                    <MudSelectItem T="string" Value="@AnyUser">Whoever is signed in (the console session first)</MudSelectItem>
+                    @foreach (var user in signedIn.Users)
+                    {
+                        <MudSelectItem T="string" Value="@user.Id">@Ui.SignedInUserLabel(user)</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+                    @(signedIn.Users.Count == 0 ? "Nobody was signed in when the agent last reported, " : "Signed-in users as the agent last reported them, ")<TimeText Value="signedIn.ReportedAt" />.
+                </MudText>
+            }
+            <MudText Typo="Typo.caption" Class="muted d-block">
+                The script runs in the terminal of this session; a terminal that is open there now is closed first. It runs as long as it takes and stops
+                when you close the terminal or end the session. The run is recorded in the audit log, never its output.
+            </MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        @if (Choices.Scripts.Count > 0)
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="@(_busy || _scriptId is null)">Run script</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public TerminalScriptChoices Choices { get; set; } = new([], false, null);
+
+    /// <summary>The endpoint runs Windows (SYSTEM) rather than Linux (root).</summary>
+    [Parameter] public bool Windows { get; set; }
+
+    /// <summary>Script, run as the signed-in user, and the chosen user's SID or uid (null for whoever is signed in).</summary>
+    [Parameter] public Func<Guid, bool, string?, Task<bool>> OnSubmit { get; set; } = (_, _, _) => Task.FromResult(true);
+
+    // Not a valid SID or uid, so it never collides with a user.
+    private const string AnyUser = "any";
+
+    private Guid? _scriptId;
+    private bool _runAsUser;
+    private string _userId = AnyUser;
+    private bool _busy;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        if (_scriptId is not { } scriptId)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(scriptId, _runAsUser, _runAsUser && _userId != AnyUser ? _userId : null))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

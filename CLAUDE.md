@@ -226,7 +226,8 @@ Screen takeover is built into Fleeto: no external tool, no third-party account. 
   (default off, access granted after a timeout of 30 seconds, an explicit refusal ends the session; only the first technician of a
   session is asked, and with nobody signed in access is granted at once) and a banner naming the technicians on/off (default on).
   Remote background never prompts.
-- **Remote background**: terminal as SYSTEM or root, file explorer (streamed, resumable, never stored on the server, at most
+- **Remote background**: terminal as SYSTEM or root (a library script can run in it, as SYSTEM, root or the signed-in user,
+  interactively; it follows the approval of the policy, 0.6.0), file explorer (streamed, resumable, never stored on the server, at most
   10 GB per file by policy), services and processes. Audited per session, participant and action; never terminal content.
 - A session without input closes after the policy's idle timeout (default 30 minutes, warned 2 minutes before); no maximum
   duration. **Recording** of sessions is not scheduled.

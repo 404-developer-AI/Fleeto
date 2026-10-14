@@ -4,6 +4,8 @@
 @inherits FleetoPageBase
 @implements IAsyncDisposable
 @inject RemoteSessionService RemoteSvc
+@inject RemoteScriptService ScriptSvc
+@inject IDialogService DialogService
 @inject IJSRuntime JS
 @inject IConfiguration Configuration
 @inject ILogger<RemoteBackground> Logger
@@ -25,6 +27,10 @@
     </div>
     <StatusChip Text="@StateLabel" Kind="@StateKind" Dot="true" />
     <MudSpacer />
+    @if (_state == SessionState.Connected && _scriptsSupported)
+    {
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.PlayArrow" OnClick="RunScriptAsync" Class="mr-2">Run script</MudButton>
+    }
     @if (_state == SessionState.Connected)
     {
         <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Outlined.Close" OnClick="EndAsync">End session</MudButton>
@@ -113,6 +119,8 @@
     private IJSObjectReference? _module;
     private IJSObjectReference? _session;
     private DotNetObjectReference<RemoteBackground>? _self;
+    private Guid? _participantId;
+    private bool _scriptsSupported;
 
     private string StateLabel => _state switch
     {
@@ -197,6 +205,7 @@
         try
         {
             var result = await RemoteSvc.OpenBackgroundAsync(await CurrentUser.GetAsync(), EndpointId, key, _reason);
+            _participantId = result.Value?.ParticipantId;
             return result is { Success: true, Value: { } ticket }
                 ? new { participantId = ticket.ParticipantId, token = ticket.Token, signature = ticket.Signature, keyId = ticket.KeyId, fingerprints = ticket.CertificateFingerprints }
                 : new { problem = result.Problem ?? ServiceSupport.GenericProblem };
@@ -229,6 +238,52 @@
         }
 
         return InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Called by remote.js with what the endpoint offers: whether a library script can run in a terminal (0.6.0).</summary>
+    [JSInvokable]
+    public Task OnHello(bool scripts)
+    {
+        _scriptsSupported = scripts;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RunScriptAsync()
+    {
+        if (_session is null || _participantId is not { } participantId || _target is null)
+        {
+            return;
+        }
+
+        TerminalScriptChoices? choices = null;
+        await LoadAsync(async caller => choices = await ScriptSvc.ListAsync(caller, EndpointId));
+        if (choices is null)
+        {
+            return;
+        }
+
+        var parameters = new DialogParameters<TerminalScriptDialog>
+        {
+            { d => d.Choices, choices },
+            { d => d.Windows, _target.OsPlatform == "windows" },
+            { d => d.OnSubmit, async (scriptId, runAsUser, userId) =>
+                {
+                    var result = await RunForValueAsync(caller => ScriptSvc.PrepareAsync(caller, participantId, scriptId, runAsUser, userId), null);
+                    if (result is not { Success: true, Value: { } script } || _session is null)
+                    {
+                        return false;
+                    }
+
+                    await _session.InvokeVoidAsync("runScript", new
+                    {
+                        name = script.Name, version = script.Version, language = script.Language, body = script.Body, sha256 = script.Sha256,
+                        runAs = script.RunAsUser ? "user" : "system", user = script.UserId
+                    });
+                    return true;
+                }
+            }
+        };
+        await DialogService.ShowAsync<TerminalScriptDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
     }
 
     [JSInvokable]

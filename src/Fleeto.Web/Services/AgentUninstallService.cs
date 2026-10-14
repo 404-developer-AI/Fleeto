@@ -13,6 +13,11 @@ public sealed record AgentUninstallView(Guid Id, string ClientCode, string Hostn
     DateTime ExpiresAt, bool Signed, string? Problem, DateTime? AcceptedAt, AgentComponent? AcceptedBy)
 {
     public bool IsWaiting => AcceptedAt is null && Problem is null;
+
+    /// <summary>When the workers remove the row: at its expiry, or a week after the agent removed itself if that is sooner.</summary>
+    public DateTime ListedUntil => AcceptedAt is { } accepted && accepted + AgentUninstallRules.KeptAfterAccepted < ExpiresAt
+        ? accepted + AgentUninstallRules.KeptAfterAccepted
+        : ExpiresAt;
 }
 
 /// <summary>
