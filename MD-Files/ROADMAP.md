@@ -44,8 +44,8 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   `OnInitializedAsync`, which subscribed it twice to the time zone and unsubscribed it once (the subscription in the base is
   now idempotent as well); and the two remote pages, which Blazor disposes only through `DisposeAsync`, now run the base
   clean-up in a `finally`, so a browser error during disposal can no longer skip it.
-- [done] Whatever the open items of 0.1.0 and its known limitations still held that is not hardening work (0.7.0).
-  Gone through on 2026-09-24: the open items are either done or already part of 0.7.0, and the four known limitations that
+- [done] Whatever the open items of 0.1.0 and its known limitations still held that is not hardening work (0.8.0, was
+  0.7.0 until 2026-10-14). Gone through on 2026-09-24: the open items are either done or already part of hardening, and the four known limitations that
   still hold are the next four items, in this order (agreed with the developer).
 - [done] **The key ring of web encrypted at rest.** The ASP.NET Core data protection keys (they protect the authentication
   cookies and antiforgery tokens) are stored unencrypted on the volume of web, so whoever reads that volume can forge a
@@ -237,10 +237,67 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   deleting an endpoint and switching it to agent-only offer it. Done: `IntegrationOperationKind.RemoveEndpoint` written by
   web (inside the deletion's transaction), carried out by `PatchRequestService`, an option on `ConfirmDialog`. Verified on
   alpha.16 (2026-10-14): switching to agent-only and deleting both removed the Action1 agent.
+- [done] **A template check for Windows or Linux only** (asked for by the developer on 2026-10-14, per check, next to "Runs on"
+  for servers and workstations). Done: `CheckDefinition.OperatingSystem` (migration `CheckOperatingSystem`, existing checks
+  `All`), `CheckCatalog.MatchesOperatingSystem` and its SQL twin in `EffectiveCheckResolver.AppliesSql`, offered only for a type
+  that runs on both (a script check by its language) and refused otherwise, "Operating system" in the check dialog, Runs on
+  as "Linux servers" on the template. To verify on the test VPS: a service check for sshd limited to Linux in a template linked
+  to a mixed site reaches only the Linux endpoints.
+- [done] **Tasks: library scripts that run by themselves** (asked for by the developer on 2026-10-14; decided the same day: a
+  run Fleeto starts has a system initiator, like the Action1 install; only library scripts, no commands of their own; linked
+  like monitoring templates; in 0.6.0). A task names one library script, how it runs (SYSTEM or root, or the signed-in user)
+  and for which class, and is linked to clients, sites and endpoints, adding up over the levels. It starts:
+  - on a schedule in a time zone: once, every N days, every N weeks on chosen days, or every N months on a day (the last day
+    when the month is shorter), optionally repeated every N minutes during the day, between a start date and an optional end;
+  - when an alert of one of its chosen checks opens on an endpoint (at most once an hour per endpoint);
+  - when an endpoint becomes managed (an agent-only endpoint runs no jobs, so enrollment itself is not the moment);
+  - by hand, "Run now", as the user who presses it.
 
-## 0.7.0 — Hardening
+  Options: a random delay per endpoint (spreads the load), catching up a missed run (the job waits for an offline endpoint
+  until the next run, at most 7 days; without it the job expires after an hour), and when the previous run still runs: skip
+  or wait for it (stopping a delivered job is not something the agent can do). A failed run (failed, lost or refused) opens an
+  alert of kind Task on the endpoint when the task asks for it, resolved by the next successful run, so the dashboard,
+  email, Slack, Teams, the digest and hold all work; an expired job is a missed run, not a failure. Each run shows per endpoint
+  its state, exit code and output, exported as CSV, for collecting inventory.
 
-- Load test at 10,000 simulated agents on the full ingest path; fix what breaks. Document
+  Security: the workers may write a job without a user only for an enabled task with the same script and run-as (database
+  trigger), and fleeto-signer signs it only while the task exists, is enabled, within its dates, has the trigger the run
+  names, still applies to the endpoint, and no other automatic job of the task started there in the last 15 minutes; script
+  approval of the policy applies as to every job. Web writes tasks, the workers only read them. Accepted risk (ARCHITECTURE
+  §5): full control of the workers can start the linked tasks at other moments, never another script.
+
+  Done: `AutomationTask` with its links, state, runs and targets (migration `AutomationTasks`, `Endpoint.ManagedSince`, the job
+  origin, signature origin and binding triggers, a column grant on `Alerts` for the signer), `AutomationTasks` (schedule, delay,
+  validity, validation), `AutomationTaskTargets`, `AutomationTaskService` in the workers, the task rule in `JobHandler`, alert
+  kind `Task` (public API `task`), `TaskService` with Settings, Tasks and the task page (links, Run now, runs, output, CSV), the
+  permissions View tasks, Edit tasks and Run tasks now. Linking happens on the task page; the link editor of clients, sites and
+  endpoints does not show tasks yet. To verify on the test VPS: a daily inventory task with a random delay on a site of Windows
+  endpoints, its CSV export; a task on the alert of a service check restarting the service; a task when an endpoint becomes
+  managed; a failing script opening an alert and the next good run resolving it; an endpoint offline during a run catching up.
+
+## 0.7.0 — Performance monitor
+
+Asked for by the developer on 2026-10-14, after the performance monitor of the Servicedesk: an admin-only page that shows
+where Fleeto itself is slow and why, with an export to hand to Claude Code in this repository. It measures Fleeto, never the
+endpoints it manages. Placed before hardening (which moved from 0.7.0 to 0.8.0 the same day) so the load test at 10,000
+agents is measured by it. The generic spec is `performance-monitoring.md`; how it maps onto Fleeto, the data model and the
+build plan are in `PERFORMANCE.md`. Built in three steps, each an alpha on the test VPS, released as a whole.
+
+- [open] **Step 1, the core**: collectors in web, gateway, workers and signer (in memory, one batch write per minute,
+  bounded keys without values), database time through the shared Npgsql data source, a run scope in `WorkerLoop` so every
+  loop is measured, the agent channel of the gateway, the VPS figures of Instance health reused, deltas of
+  `pg_stat_statements`, the findings engine with a score per category, Settings, Performance with Overview, and the
+  Markdown export with instructions for Claude Code. Level Basic on by default, below 1 % overhead.
+- [open] **Step 2, Diagnose**: a mode that ends by itself on server time (60 minutes by default) and adds statement
+  fingerprints, N+1 detection, the calling method per query and the heaviest queries per slow interaction; the tabs Database,
+  Server and Background; a generic plan and ANALYZE on click; deploy markers and manual markers; the JSON and ZIP export.
+- [open] **Step 3, the rest**: the Frontend tab (Web Vitals of staff users, sampled), the edge check of the instance URL, the
+  benchmark, budgets, comparison by version and with the previous period, critical findings as an instance health problem.
+
+## 0.8.0 — Hardening
+
+- Load test at 10,000 simulated agents on the full ingest path, measured with the performance monitor of 0.7.0 in
+  Diagnose and handed to Claude Code as its export; fix what breaks. Document
   the per-instance footprint and how many instances fit on one VPS size.
 - External security review of enrollment, signing, secrets handling, licensing, remote
   control and multi-tenancy.

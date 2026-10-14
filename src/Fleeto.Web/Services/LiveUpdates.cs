@@ -24,6 +24,7 @@ public sealed class LiveUpdates : IDisposable
         _subscriptions.Add(bus.Subscribe(NotificationChannels.StorageScans, (payload, _) => Raise(StorageScansChanged, payload)));
         _subscriptions.Add(bus.Subscribe(NotificationChannels.PatchRequests, (payload, _) => Raise(PatchRequestsChanged, payload)));
         _subscriptions.Add(bus.Subscribe(NotificationChannels.UserAccess, (payload, _) => Raise(UserAccessChanged, payload)));
+        _subscriptions.Add(bus.Subscribe(NotificationChannels.Tasks, (payload, _) => Raise(TasksChanged, payload)));
     }
 
     /// <summary>Payload: endpoint id, or <see cref="Guid.Empty"/> after a resync.</summary>
@@ -58,6 +59,9 @@ public sealed class LiveUpdates : IDisposable
     /// reloads the open pages of that user, so they show only what it may still reach.
     /// </summary>
     public event Action<Guid>? UserAccessChanged;
+
+    /// <summary>Payload: the id of a task that changed or got a run (0.6.0), or <see cref="Guid.Empty"/> after a resync.</summary>
+    public event Action<Guid>? TasksChanged;
 
     private Task Raise(Action<Guid>? handlers, string payload)
     {

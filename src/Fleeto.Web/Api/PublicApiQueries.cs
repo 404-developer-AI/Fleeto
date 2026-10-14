@@ -599,6 +599,7 @@ public sealed class PublicApiQueries
         AlertKind.AgentStopped => ApiAlertKind.AgentStopped,
         AlertKind.WatchdogStopped => ApiAlertKind.WatchdogStopped,
         AlertKind.PatchState => ApiAlertKind.PatchState,
+        AlertKind.Task => ApiAlertKind.Task,
         _ => throw Unmapped(value)
     };
 

@@ -493,6 +493,274 @@ namespace Fleeto.Infrastructure.Migrations
                     b.ToTable("AuditEntries");
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.AutomationTask", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("AlertOnFailure")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("AlertSeverity")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("AppliesTo")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<bool>("CatchUp")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid?>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CopiedFromId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateOnly?>("EndDate")
+                        .HasColumnType("date");
+
+                    b.Property<int>("Every")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MonthDay")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("OnManaged")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Overlap")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("RandomDelayMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("RepeatMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RunAs")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ScheduleKind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("ScriptId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date");
+
+                    b.Property<int>("StartMinute")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TimeZone")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.PrimitiveCollection<List<Guid>>("TriggerCheckIds")
+                        .IsRequired()
+                        .HasColumnType("uuid[]");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedByName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("WeekDays")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ScriptId");
+
+                    b.HasIndex("ClientId", "Name")
+                        .IsUnique();
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("ClientId", "Name"), false);
+
+                    b.ToTable("AutomationTasks", t =>
+                        {
+                            t.HasCheckConstraint("CK_AutomationTasks_Dates", "\"EndDate\" IS NULL OR \"EndDate\" >= \"StartDate\"");
+
+                            t.HasCheckConstraint("CK_AutomationTasks_Delay", "\"RandomDelayMinutes\" BETWEEN 0 AND 720");
+
+                            t.HasCheckConstraint("CK_AutomationTasks_Every", "\"Every\" BETWEEN 1 AND 365");
+
+                            t.HasCheckConstraint("CK_AutomationTasks_MonthDay", "\"MonthDay\" BETWEEN 1 AND 31");
+
+                            t.HasCheckConstraint("CK_AutomationTasks_Repeat", "\"RepeatMinutes\" IS NULL OR \"RepeatMinutes\" BETWEEN 15 AND 720");
+
+                            t.HasCheckConstraint("CK_AutomationTasks_StartMinute", "\"StartMinute\" BETWEEN 0 AND 1439");
+
+                            t.HasCheckConstraint("CK_AutomationTasks_TriggerChecks", "cardinality(\"TriggerCheckIds\") <= 20");
+
+                            t.HasCheckConstraint("CK_AutomationTasks_WeekDays", "\"WeekDays\" BETWEEN 0 AND 127");
+                        });
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.AutomationTaskRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AutomationTaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CheckName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("InitiatedByName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("OccurrenceAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClientId");
+
+                    b.HasIndex("AutomationTaskId", "CreatedAt")
+                        .IsDescending(false, true);
+
+                    b.HasIndex("AutomationTaskId", "ClientId", "OccurrenceAt")
+                        .IsUnique()
+                        .HasDatabaseName("IX_AutomationTaskRuns_Occurrence")
+                        .HasFilter("\"Trigger\" = 'Schedule'");
+
+                    b.ToTable("AutomationTaskRuns");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.AutomationTaskRunTarget", b =>
+                {
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AutomationTaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("DueAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("JobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("OutcomeHandledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ValidUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("RunId", "EndpointId");
+
+                    b.HasIndex("DueAt")
+                        .HasDatabaseName("IX_AutomationTaskRunTargets_Pending")
+                        .HasFilter("\"State\" = 'Pending'");
+
+                    b.HasIndex("JobId")
+                        .HasDatabaseName("IX_AutomationTaskRunTargets_Outcome")
+                        .HasFilter("\"JobId\" IS NOT NULL AND \"OutcomeHandledAt\" IS NULL");
+
+                    b.HasIndex("AutomationTaskId", "EndpointId");
+
+                    b.HasIndex("EndpointId", "ClientId");
+
+                    b.HasIndex("RunId", "ClientId");
+
+                    b.ToTable("AutomationTaskRunTargets");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.AutomationTaskState", b =>
+                {
+                    b.Property<Guid>("AutomationTaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("AlertsSeenUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastOccurrenceAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ManagedSeenUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("NextOccurrenceAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ScheduleHash")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("AutomationTaskId");
+
+                    b.ToTable("AutomationTaskStates");
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.BackupRun", b =>
                 {
                     b.Property<Guid>("Id")
@@ -609,6 +877,13 @@ namespace Fleeto.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("OperatingSystem")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("All");
 
                     b.Property<string>("ParametersJson")
                         .IsRequired()
@@ -965,6 +1240,24 @@ namespace Fleeto.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("CK_Clients_Maintenance", "\"MaintenanceEndsAt\" IS NULL OR \"MaintenanceStartedAt\" IS NOT NULL");
                         });
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.ClientAutomationTask", b =>
+                {
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AutomationTaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("ClientId", "AutomationTaskId");
+
+                    b.HasIndex("AutomationTaskId");
+
+                    b.ToTable("ClientAutomationTasks");
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.ClientMonitoringTemplate", b =>
@@ -1355,6 +1648,9 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<Guid?>("MaintenanceStartedByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("ManagedSince")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("OsName")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -1431,6 +1727,29 @@ namespace Fleeto.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("CK_Endpoints_Maintenance", "\"MaintenanceEndsAt\" IS NULL OR \"MaintenanceStartedAt\" IS NOT NULL");
                         });
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.EndpointAutomationTask", b =>
+                {
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AutomationTaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("EndpointId", "AutomationTaskId");
+
+                    b.HasIndex("AutomationTaskId");
+
+                    b.HasIndex("EndpointId", "ClientId");
+
+                    b.ToTable("EndpointAutomationTasks");
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.EndpointCheckOverride", b =>
@@ -2664,6 +2983,12 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<Guid?>("TaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TaskRunId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("TimeoutSeconds")
                         .HasColumnType("integer");
 
@@ -2683,6 +3008,9 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.HasIndex("ScriptVersionId");
 
+                    b.HasIndex("TaskRunId")
+                        .HasFilter("\"TaskRunId\" IS NOT NULL");
+
                     b.HasIndex("CreatedAt", "Id")
                         .IsDescending();
 
@@ -2693,6 +3021,9 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.HasIndex("State", "EndpointId")
                         .HasFilter("\"State\" IN ('PendingSignature', 'Queued', 'Running')");
+
+                    b.HasIndex("TaskId", "EndpointId", "CreatedAt")
+                        .HasFilter("\"TaskId\" IS NOT NULL");
 
                     b.ToTable("Jobs", t =>
                         {
@@ -4246,6 +4577,29 @@ namespace Fleeto.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.SiteAutomationTask", b =>
+                {
+                    b.Property<Guid>("SiteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AutomationTaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("SiteId", "AutomationTaskId");
+
+                    b.HasIndex("AutomationTaskId");
+
+                    b.HasIndex("SiteId", "ClientId");
+
+                    b.ToTable("SiteAutomationTasks");
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.SiteMonitoringTemplate", b =>
                 {
                     b.Property<Guid>("SiteId")
@@ -4926,6 +5280,66 @@ namespace Fleeto.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.AutomationTask", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Client", null)
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Fleeto.Core.Entities.Script", null)
+                        .WithMany()
+                        .HasForeignKey("ScriptId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.AutomationTaskRun", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.AutomationTask", null)
+                        .WithMany()
+                        .HasForeignKey("AutomationTaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleeto.Core.Entities.Client", null)
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.AutomationTaskRunTarget", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Job", null)
+                        .WithMany()
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Fleeto.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleeto.Core.Entities.AutomationTaskRun", null)
+                        .WithMany()
+                        .HasForeignKey("RunId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.AutomationTaskState", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.AutomationTask", null)
+                        .WithMany()
+                        .HasForeignKey("AutomationTaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.CheckDefinition", b =>
                 {
                     b.HasOne("Fleeto.Core.Entities.MonitoringTemplate", "MonitoringTemplate")
@@ -5012,6 +5426,23 @@ namespace Fleeto.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("ClientTemplateId")
                         .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.ClientAutomationTask", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.AutomationTask", "AutomationTask")
+                        .WithMany()
+                        .HasForeignKey("AutomationTaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleeto.Core.Entities.Client", null)
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AutomationTask");
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.ClientMonitoringTemplate", b =>
@@ -5194,6 +5625,24 @@ namespace Fleeto.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Site");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.EndpointAutomationTask", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.AutomationTask", "AutomationTask")
+                        .WithMany()
+                        .HasForeignKey("AutomationTaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleeto.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AutomationTask");
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.EndpointCheckOverride", b =>
@@ -5418,6 +5867,16 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasForeignKey("ScriptVersionId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("Fleeto.Core.Entities.AutomationTask", null)
+                        .WithMany()
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Fleeto.Core.Entities.AutomationTaskRun", null)
+                        .WithMany()
+                        .HasForeignKey("TaskRunId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Fleeto.Core.Entities.Endpoint", null)
                         .WithMany()
                         .HasForeignKey("EndpointId", "ClientId")
@@ -5630,6 +6089,24 @@ namespace Fleeto.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Client");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.SiteAutomationTask", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.AutomationTask", "AutomationTask")
+                        .WithMany()
+                        .HasForeignKey("AutomationTaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleeto.Core.Entities.Site", null)
+                        .WithMany()
+                        .HasForeignKey("SiteId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AutomationTask");
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.SiteMonitoringTemplate", b =>

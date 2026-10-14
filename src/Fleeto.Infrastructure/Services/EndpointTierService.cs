@@ -96,6 +96,8 @@ public sealed class EndpointTierService
             {
                 var previous = endpoint.Tier;
                 endpoint.Tier = tier;
+                // The tasks that start on an endpoint switched to managed (0.6.0) read this moment.
+                endpoint.ManagedSince = tier == EndpointTier.Managed ? now : null;
                 endpoint.UpdatedAt = now;
                 db.ConfigChangeEvents.Add(new ConfigChangeEvent { Scope = ConfigChangeScope.Endpoint, ScopeId = endpoint.Id, CreatedAt = now });
                 db.AuditEntries.Add(AuditLog.ToEntry(new AuditRecord(AuditActions.EndpointTierChanged, "Endpoint", endpoint.Id.ToString(),

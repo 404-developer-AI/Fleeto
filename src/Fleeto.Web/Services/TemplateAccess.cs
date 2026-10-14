@@ -10,7 +10,8 @@ internal enum TemplateKind
 {
     Policy,
     MonitoringTemplate,
-    PatchPolicy
+    PatchPolicy,
+    Task
 }
 
 /// <summary>
@@ -65,6 +66,7 @@ internal static class TemplateAccess
         {
             TemplateKind.Policy => "policy",
             TemplateKind.PatchPolicy => "patch policy",
+            TemplateKind.Task => "task",
             _ => "monitoring template"
         });
     }
@@ -117,6 +119,13 @@ internal static class TemplateAccess
                         .ToListAsync(cancellationToken)).Select(l => (l.SiteId, l.ClientId)).ToList(),
                     (await db.EndpointPatchPolicies.IgnoreQueryFilters().Where(l => l.PatchPolicyId == id).Select(l => new { l.EndpointId, l.ClientId })
                         .ToListAsync(cancellationToken)).Select(l => (l.EndpointId, l.ClientId)).ToList());
+            case TemplateKind.Task:
+                return (await db.ClientAutomationTasks.IgnoreQueryFilters().Where(l => l.AutomationTaskId == id).Select(l => l.ClientId)
+                        .ToListAsync(cancellationToken),
+                    (await db.SiteAutomationTasks.IgnoreQueryFilters().Where(l => l.AutomationTaskId == id).Select(l => new { l.SiteId, l.ClientId })
+                        .ToListAsync(cancellationToken)).Select(l => (l.SiteId, l.ClientId)).ToList(),
+                    (await db.EndpointAutomationTasks.IgnoreQueryFilters().Where(l => l.AutomationTaskId == id)
+                        .Select(l => new { l.EndpointId, l.ClientId }).ToListAsync(cancellationToken)).Select(l => (l.EndpointId, l.ClientId)).ToList());
             default:
                 return (await db.ClientMonitoringTemplates.IgnoreQueryFilters().Where(l => l.MonitoringTemplateId == id).Select(l => l.ClientId)
                         .ToListAsync(cancellationToken),

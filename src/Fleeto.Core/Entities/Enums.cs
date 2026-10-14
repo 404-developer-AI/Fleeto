@@ -87,6 +87,17 @@ public enum CheckAppliesTo
     Server
 }
 
+/// <summary>
+/// Which operating system a check of a monitoring template runs on (0.6.0), on top of the platforms of its type
+/// (<see cref="Domain.CheckCatalog.IsSupported(CheckType, string?)"/>): a service check for sshd only on Linux, for example.
+/// </summary>
+public enum CheckOperatingSystem
+{
+    All,
+    Windows,
+    Linux
+}
+
 /// <summary>Evaluated state of one check on one endpoint.</summary>
 public enum CheckStatus
 {
@@ -152,7 +163,10 @@ public enum AlertKind
     /// The patch state of the endpoint cannot be trusted (0.4.0): the patch management product has not seen it for too
     /// long, or it no longer patches the endpoint at all.
     /// </summary>
-    PatchState
+    PatchState,
+
+    /// <summary>A run of a task failed on the endpoint (0.6.0); the target is the task id. Resolved by its next successful run.</summary>
+    Task
 }
 
 /// <summary>The Fleeto services on an endpoint (0.2.1). Also the role of an agent certificate. Stored by name.</summary>

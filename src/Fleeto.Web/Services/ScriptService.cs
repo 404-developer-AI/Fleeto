@@ -431,6 +431,15 @@ public sealed class ScriptService
                 : $"{checks} checks use this script. Remove them or choose another script for them, then delete the script.");
         }
 
+        // A task needs its script (0.6.0), also a task of a client the caller does not see.
+        var tasks = await db.AutomationTasks.IgnoreQueryFilters().CountAsync(t => t.ScriptId == script.Id, cancellationToken);
+        if (tasks > 0)
+        {
+            return ServiceResult.Fail(tasks == 1
+                ? "A task runs this script. Choose another script for the task or delete it, then delete the script."
+                : $"{tasks} tasks run this script. Choose another script for them or delete them, then delete the script.");
+        }
+
         var now = _time.GetUtcNow().UtcDateTime;
         db.Scripts.Remove(script);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.ScriptDeleted, "Script", script.Id.ToString(), script.ClientId, new { script.Name }), now));

@@ -64,7 +64,7 @@
                     <MudTd>@Ui.CheckTypeLabel(context.Type)</MudTd>
                     <MudTd>@Ui.CheckInterval(context.Type, context.IntervalSeconds)</MudTd>
                     <MudTd>@Thresholds(context)</MudTd>
-                    <MudTd>@Ui.AppliesToLabel(context.AppliesTo)</MudTd>
+                    <MudTd>@Ui.RunsOnLabel(context.AppliesTo, context.OperatingSystem)</MudTd>
                     <MudTd>
                         <MudSwitch T="bool" Value="context.Enabled" ValueChanged="@(v => SetEnabledAsync(context, v))" Color="Color.Primary" Disabled="@(!Can(Permissions.MonitoringTemplatesEdit))" />
                     </MudTd>

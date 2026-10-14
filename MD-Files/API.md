@@ -1029,7 +1029,8 @@ Parameters that were never set are left out of `parameters`, and the check uses 
 (the same agent certificate connected twice at once, for example a cloned virtual machine), `agent_stopped` (the watchdog
 is online but the agent is not: its service is stopped or it does not connect; from Fleeto 0.2.1), `watchdog_stopped`
 (the agent is online but its watchdog is not; from Fleeto 0.2.1), `patch_state` (patch management does not patch the
-endpoint any more, or has not seen it for over a week; from Fleeto 0.4.0).
+endpoint any more, or has not seen it for over a week; from Fleeto 0.4.0), `task` (a run of a task failed on the endpoint;
+its `target` is the id of the task, and the next successful run resolves it; from Fleeto 0.6.0).
 
 ### Patch severity
 

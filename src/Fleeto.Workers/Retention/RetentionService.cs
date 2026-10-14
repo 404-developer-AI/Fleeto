@@ -170,6 +170,14 @@ public sealed class RetentionService : WorkerLoop
           SELECT "Id" FROM "Jobs" WHERE "CreatedAt" < @cutoff AND "State" NOT IN ('PendingSignature', 'Queued', 'Running') LIMIT 5000)
         """;
 
+    // Targets go with their run (foreign key cascade). A run is part of the job history of its endpoints, so it follows the job
+    // retention (0.6.0); one with a target still waiting for its turn is never removed.
+    private const string DeleteTaskRunsSql = """
+        DELETE FROM "AutomationTaskRuns" WHERE "Id" IN (
+          SELECT r."Id" FROM "AutomationTaskRuns" r WHERE r."CreatedAt" < @cutoff
+            AND NOT EXISTS (SELECT 1 FROM "AutomationTaskRunTargets" t WHERE t."RunId" = r."Id" AND t."State" = 'Pending') LIMIT 5000)
+        """;
+
     // Targets and chosen updates go with their deployment (foreign key cascade). One still running is never removed
     // (0.4.0 step 3); a deployment is part of the patch history of its endpoints, so it follows the job retention.
     private const string DeletePatchDeploymentsSql = """
@@ -255,6 +263,7 @@ public sealed class RetentionService : WorkerLoop
             () => [new NpgsqlParameter("cutoff", now.AddDays(-90)), new NpgsqlParameter("maxAttempts", OutboxWebhookService.MaxAttempts)], cancellationToken);
         deleted["JobOutputChunks"] = await DeleteInBatchesAsync(DeleteJobOutputSql, () => [new NpgsqlParameter("cutoff", now - JobOutputRetention)], cancellationToken);
         deleted["Jobs"] = await DeleteInBatchesAsync(DeleteJobsSql, () => [new NpgsqlParameter("cutoff", now - JobRetention)], cancellationToken);
+        deleted["AutomationTaskRuns"] = await DeleteInBatchesAsync(DeleteTaskRunsSql, () => [new NpgsqlParameter("cutoff", now - JobRetention)], cancellationToken);
         deleted["PatchDeployments"] = await DeleteInBatchesAsync(DeletePatchDeploymentsSql,
             () => [new NpgsqlParameter("cutoff", now - JobRetention)], cancellationToken);
         deleted["PatchRequests"] = await DeleteInBatchesAsync(DeletePatchRequestsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-7))], cancellationToken);

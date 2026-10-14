@@ -1362,7 +1362,7 @@
 
         var all = wholeScope || count >= endpoints;
         <span class="tree-badge" title="@(all ? "Every endpoint is in maintenance" : $"{count} of {endpoints} endpoints are in maintenance")">
-            <MudIcon Icon="@Icons.Material.Outlined.Construction" Style="font-size:11px;vertical-align:-1px" />
+            <MudIcon Icon="@Icons.Material.Outlined.Construction" Class="health-maintenance" Style="font-size:11px;vertical-align:-1px" />
             @(all ? "all" : $"{count}/{endpoints}")
         </span>
     };

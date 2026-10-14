@@ -63,6 +63,13 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<ScriptVersion> ScriptVersions => Set<ScriptVersion>();
     public DbSet<Job> Jobs => Set<Job>();
     public DbSet<JobOutputChunk> JobOutputChunks => Set<JobOutputChunk>();
+    public DbSet<AutomationTask> AutomationTasks => Set<AutomationTask>();
+    public DbSet<ClientAutomationTask> ClientAutomationTasks => Set<ClientAutomationTask>();
+    public DbSet<SiteAutomationTask> SiteAutomationTasks => Set<SiteAutomationTask>();
+    public DbSet<EndpointAutomationTask> EndpointAutomationTasks => Set<EndpointAutomationTask>();
+    public DbSet<AutomationTaskState> AutomationTaskStates => Set<AutomationTaskState>();
+    public DbSet<AutomationTaskRun> AutomationTaskRuns => Set<AutomationTaskRun>();
+    public DbSet<AutomationTaskRunTarget> AutomationTaskRunTargets => Set<AutomationTaskRunTarget>();
     public DbSet<RemoteSession> RemoteSessions => Set<RemoteSession>();
     public DbSet<RemoteSessionParticipant> RemoteSessionParticipants => Set<RemoteSessionParticipant>();
     public DbSet<RemoteSessionAction> RemoteSessionActions => Set<RemoteSessionAction>();
@@ -402,6 +409,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(c => c.Name).HasMaxLength(100);
             entity.Property(c => c.Type).HasConversion<string>().HasMaxLength(30);
             entity.Property(c => c.AppliesTo).HasConversion<string>().HasMaxLength(20);
+            entity.Property(c => c.OperatingSystem).HasConversion<string>().HasMaxLength(20)
+                .HasDefaultValue(CheckOperatingSystem.All).HasSentinel(CheckOperatingSystem.All);
             entity.Property(c => c.ParametersJson).HasColumnType("jsonb");
             // An endpoint-only check: the composite key keeps its ClientId equal to the endpoint's. Template checks are
             // kept consistent by trigger TR_CheckDefinitions_Client.
@@ -768,6 +777,11 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(j => new { j.EndpointId, j.CreatedAt }).IsDescending(false, true);
             entity.HasIndex(j => new { j.State, j.EndpointId }).HasFilter("\"State\" IN ('PendingSignature', 'Queued', 'Running')");
             entity.HasIndex(j => j.BatchId);
+            // Tasks (0.6.0): the jobs of a run, and the last job of a task on an endpoint (overlap, signing interval).
+            entity.HasOne<AutomationTask>().WithMany().HasForeignKey(j => j.TaskId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<AutomationTaskRun>().WithMany().HasForeignKey(j => j.TaskRunId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasIndex(j => j.TaskRunId).HasFilter("\"TaskRunId\" IS NOT NULL");
+            entity.HasIndex(j => new { j.TaskId, j.EndpointId, j.CreatedAt }).HasFilter("\"TaskId\" IS NOT NULL");
             // Public API: the job list across endpoints, newest first, with keyset pagination (0.2.1).
             entity.HasIndex(j => new { j.CreatedAt, j.Id }).IsDescending(true, true);
             entity.ToTable(t =>
@@ -775,6 +789,108 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 t.HasCheckConstraint("CK_Jobs_Validity", "\"ValidUntil\" > \"CreatedAt\" AND \"ValidUntil\" <= \"CreatedAt\" + interval '7 days 5 minutes'");
                 t.HasCheckConstraint("CK_Jobs_Signed", "\"State\" IN ('PendingSignature', 'Refused', 'Cancelled', 'Expired') OR \"Signature\" IS NOT NULL");
             });
+            EndpointOwned(entity);
+        });
+
+        builder.Entity<AutomationTask>(entity =>
+        {
+            entity.Property(t => t.Name).HasMaxLength(Core.Domain.AutomationTasks.MaxNameLength);
+            entity.Property(t => t.Description).HasMaxLength(Core.Domain.AutomationTasks.MaxDescriptionLength);
+            entity.Property(t => t.RunAs).HasConversion<string>().HasMaxLength(20);
+            entity.Property(t => t.AppliesTo).HasConversion<string>().HasMaxLength(20);
+            entity.Property(t => t.ScheduleKind).HasConversion<string>().HasMaxLength(20);
+            entity.Property(t => t.TimeZone).HasMaxLength(64);
+            entity.Property(t => t.WeekDays).HasConversion<int>();
+            entity.Property(t => t.Overlap).HasConversion<string>().HasMaxLength(20);
+            entity.Property(t => t.AlertSeverity).HasConversion<string>().HasMaxLength(20);
+            entity.Property(t => t.UpdatedByName).HasMaxLength(200);
+            entity.HasIndex(t => new { t.ClientId, t.Name }).IsUnique().AreNullsDistinct(false);
+            entity.HasIndex(t => t.ScriptId);
+            // A task needs its script: deleting a script a task runs is refused until the task uses another one. Checked at the end
+            // of the statement, so deleting a client with its scripts and tasks still works.
+            entity.HasOne<Script>().WithMany().HasForeignKey(t => t.ScriptId).OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne<Client>().WithMany().HasForeignKey(t => t.ClientId).OnDelete(DeleteBehavior.Cascade);
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_AutomationTasks_StartMinute", "\"StartMinute\" BETWEEN 0 AND 1439");
+                t.HasCheckConstraint("CK_AutomationTasks_Every", "\"Every\" BETWEEN 1 AND 365");
+                t.HasCheckConstraint("CK_AutomationTasks_WeekDays", "\"WeekDays\" BETWEEN 0 AND 127");
+                t.HasCheckConstraint("CK_AutomationTasks_MonthDay", "\"MonthDay\" BETWEEN 1 AND 31");
+                t.HasCheckConstraint("CK_AutomationTasks_Repeat", "\"RepeatMinutes\" IS NULL OR \"RepeatMinutes\" BETWEEN 15 AND 720");
+                t.HasCheckConstraint("CK_AutomationTasks_Delay", "\"RandomDelayMinutes\" BETWEEN 0 AND 720");
+                t.HasCheckConstraint("CK_AutomationTasks_Dates", "\"EndDate\" IS NULL OR \"EndDate\" >= \"StartDate\"");
+                t.HasCheckConstraint("CK_AutomationTasks_TriggerChecks", "cardinality(\"TriggerCheckIds\") <= 20");
+            });
+            GlobalOrClientOwned(entity);
+        });
+
+        builder.Entity<ClientAutomationTask>(entity =>
+        {
+            entity.HasKey(l => new { l.ClientId, l.AutomationTaskId });
+            entity.HasOne<Client>().WithMany().HasForeignKey(l => l.ClientId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(l => l.AutomationTask).WithMany().HasForeignKey(l => l.AutomationTaskId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(l => l.AutomationTaskId);
+            ClientOwned(entity);
+        });
+
+        builder.Entity<SiteAutomationTask>(entity =>
+        {
+            entity.HasKey(l => new { l.SiteId, l.AutomationTaskId });
+            entity.HasOne<Site>().WithMany()
+                .HasForeignKey(l => new { l.SiteId, l.ClientId })
+                .HasPrincipalKey(s => new { s.Id, s.ClientId })
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(l => l.AutomationTask).WithMany().HasForeignKey(l => l.AutomationTaskId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(l => l.AutomationTaskId);
+            SiteOwned(entity);
+        });
+
+        builder.Entity<EndpointAutomationTask>(entity =>
+        {
+            entity.HasKey(l => new { l.EndpointId, l.AutomationTaskId });
+            EndpointChild(entity, l => new { l.EndpointId, l.ClientId });
+            entity.HasOne(l => l.AutomationTask).WithMany().HasForeignKey(l => l.AutomationTaskId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(l => l.AutomationTaskId);
+            EndpointOwned(entity);
+        });
+
+        builder.Entity<AutomationTaskState>(entity =>
+        {
+            entity.HasKey(s => s.AutomationTaskId);
+            entity.Property(s => s.ScheduleHash).HasMaxLength(200);
+            entity.HasOne<AutomationTask>().WithMany().HasForeignKey(s => s.AutomationTaskId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<AutomationTaskRun>(entity =>
+        {
+            entity.Property(r => r.Trigger).HasConversion<string>().HasMaxLength(20);
+            entity.Property(r => r.InitiatedByName).HasMaxLength(200);
+            entity.Property(r => r.CheckName).HasMaxLength(100);
+            entity.HasAlternateKey(r => new { r.Id, r.ClientId });
+            entity.HasOne<AutomationTask>().WithMany().HasForeignKey(r => r.AutomationTaskId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Client>().WithMany().HasForeignKey(r => r.ClientId).OnDelete(DeleteBehavior.Cascade);
+            // Newest first per task; a scheduled occurrence runs once per client, whatever the workers retry.
+            entity.HasIndex(r => new { r.AutomationTaskId, r.CreatedAt }).IsDescending(false, true);
+            entity.HasIndex(r => new { r.AutomationTaskId, r.ClientId, r.OccurrenceAt }).IsUnique()
+                .HasFilter("\"Trigger\" = 'Schedule'").HasDatabaseName("IX_AutomationTaskRuns_Occurrence");
+            ClientOwned(entity);
+        });
+
+        builder.Entity<AutomationTaskRunTarget>(entity =>
+        {
+            entity.HasKey(t => new { t.RunId, t.EndpointId });
+            entity.Property(t => t.State).HasConversion<string>().HasMaxLength(20);
+            entity.Property(t => t.Reason).HasMaxLength(500);
+            entity.HasOne<AutomationTaskRun>().WithMany()
+                .HasForeignKey(t => new { t.RunId, t.ClientId })
+                .HasPrincipalKey(r => new { r.Id, r.ClientId })
+                .OnDelete(DeleteBehavior.Cascade);
+            EndpointChild(entity, t => new { t.EndpointId, t.ClientId });
+            entity.HasOne<Job>().WithMany().HasForeignKey(t => t.JobId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasIndex(t => t.DueAt).HasFilter("\"State\" = 'Pending'").HasDatabaseName("IX_AutomationTaskRunTargets_Pending");
+            entity.HasIndex(t => t.JobId).HasFilter("\"JobId\" IS NOT NULL AND \"OutcomeHandledAt\" IS NULL")
+                .HasDatabaseName("IX_AutomationTaskRunTargets_Outcome");
+            entity.HasIndex(t => new { t.AutomationTaskId, t.EndpointId });
             EndpointOwned(entity);
         });
 
@@ -1427,7 +1543,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             return _scope.HasWholeSite(clientId, site);
         }
 
-        return entry.Entity is AuditEntry or SigningRequest or PatchDeployment or PatchDeploymentUpdate
+        // A run of a task started by hand (0.6.0) is written per client; its targets are checked per endpoint.
+        return entry.Entity is AuditEntry or SigningRequest or PatchDeployment or PatchDeploymentUpdate or AutomationTaskRun
             ? _scope.SeesClient(clientId)
             : _scope.HasWholeClient(clientId);
     }

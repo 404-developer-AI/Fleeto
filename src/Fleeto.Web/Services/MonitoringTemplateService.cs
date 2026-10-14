@@ -28,13 +28,15 @@ public sealed record TemplateLevels(bool ForClients, bool ForSites, bool ForEndp
 }
 
 public sealed record CheckDefinitionView(Guid Id, string Name, CheckType Type, int IntervalSeconds, IReadOnlyDictionary<string, string> Parameters,
-    double? WarningThreshold, double? CriticalThreshold, int FailuresBeforeAlert, CheckAppliesTo AppliesTo, bool Enabled);
+    double? WarningThreshold, double? CriticalThreshold, int FailuresBeforeAlert, CheckAppliesTo AppliesTo, bool Enabled,
+    CheckOperatingSystem OperatingSystem = CheckOperatingSystem.All);
 
 public sealed record MonitoringTemplateDetail(Guid Id, string Name, string? Description, Guid? ClientId, string? ClientCode, int SiteCount,
     IReadOnlyList<CheckDefinitionView> Checks, CheckAppliesTo AppliesTo = CheckAppliesTo.All, TemplateLevels? Levels = null);
 
 public sealed record CheckDefinitionInput(string? Name, CheckType Type, int IntervalSeconds, IReadOnlyDictionary<string, string> Parameters,
-    double? WarningThreshold, double? CriticalThreshold, int FailuresBeforeAlert, CheckAppliesTo AppliesTo, bool Enabled);
+    double? WarningThreshold, double? CriticalThreshold, int FailuresBeforeAlert, CheckAppliesTo AppliesTo, bool Enabled,
+    CheckOperatingSystem OperatingSystem = CheckOperatingSystem.All);
 
 /// <summary>
 /// Monitoring templates (global or per client) and their checks. Linked, not copied: a change applies at once to every
@@ -85,7 +87,8 @@ public sealed class MonitoringTemplateService
         var siteCount = await db.SiteMonitoringTemplates.CountAsync(l => l.MonitoringTemplateId == templateId, cancellationToken);
         return new MonitoringTemplateDetail(template.Id, template.Name, template.Description, template.ClientId, clientCode, siteCount,
             template.Checks.OrderBy(c => c.Name).Select(c => new CheckDefinitionView(c.Id, c.Name, c.Type, c.IntervalSeconds,
-                CheckParameters.Parse(c.ParametersJson), c.WarningThreshold, c.CriticalThreshold, c.FailuresBeforeAlert, c.AppliesTo, c.Enabled)).ToList(),
+                CheckParameters.Parse(c.ParametersJson), c.WarningThreshold, c.CriticalThreshold, c.FailuresBeforeAlert, c.AppliesTo, c.Enabled,
+                c.OperatingSystem)).ToList(),
             template.AppliesTo, new TemplateLevels(template.ForClients, template.ForSites, template.ForEndpoints));
     }
 
@@ -338,6 +341,7 @@ public sealed class MonitoringTemplateService
         check.CriticalThreshold = input.CriticalThreshold;
         check.FailuresBeforeAlert = input.FailuresBeforeAlert;
         check.AppliesTo = input.AppliesTo;
+        check.OperatingSystem = input.OperatingSystem;
         check.Enabled = input.Enabled;
         check.UpdatedAt = now;
 
@@ -366,6 +370,7 @@ public sealed class MonitoringTemplateService
                 Change = checkId is null ? "check added" : "check changed",
                 Check = check.Name,
                 Type = check.Type.ToString(),
+                OperatingSystem = check.OperatingSystem.ToString(),
                 check.IntervalSeconds,
                 check.WarningThreshold,
                 check.CriticalThreshold,
@@ -526,6 +531,7 @@ public sealed class MonitoringTemplateService
                 CriticalThreshold = check.CriticalThreshold,
                 FailuresBeforeAlert = check.FailuresBeforeAlert,
                 AppliesTo = check.AppliesTo,
+                OperatingSystem = check.OperatingSystem,
                 Enabled = check.Enabled,
                 CreatedAt = now,
                 UpdatedAt = now

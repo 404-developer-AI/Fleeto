@@ -61,11 +61,21 @@
         <MudNumericField T="int" @bind-Value="_failures" Label="Failed results before an alert opens" Variant="Variant.Outlined" Min="1" Max="100" Class="mb-3" />
         @if (!ForEndpoint)
         {
-            <MudSelect T="CheckAppliesTo" @bind-Value="_appliesTo" Label="Runs on" Variant="Variant.Outlined" Class="mb-3">
-                <MudSelectItem T="CheckAppliesTo" Value="CheckAppliesTo.All">All endpoints</MudSelectItem>
-                <MudSelectItem T="CheckAppliesTo" Value="CheckAppliesTo.Workstation">Workstations only</MudSelectItem>
-                <MudSelectItem T="CheckAppliesTo" Value="CheckAppliesTo.Server">Servers only</MudSelectItem>
-            </MudSelect>
+            <div class="d-flex gap-2 mb-3">
+                <MudSelect T="CheckAppliesTo" @bind-Value="_appliesTo" Label="Runs on" Variant="Variant.Outlined">
+                    <MudSelectItem T="CheckAppliesTo" Value="CheckAppliesTo.All">All endpoints</MudSelectItem>
+                    <MudSelectItem T="CheckAppliesTo" Value="CheckAppliesTo.Workstation">Workstations only</MudSelectItem>
+                    <MudSelectItem T="CheckAppliesTo" Value="CheckAppliesTo.Server">Servers only</MudSelectItem>
+                </MudSelect>
+                @if (OffersOperatingSystem)
+                {
+                    <MudSelect T="CheckOperatingSystem" @bind-Value="_operatingSystem" Label="Operating system" Variant="Variant.Outlined">
+                        <MudSelectItem T="CheckOperatingSystem" Value="CheckOperatingSystem.All">Windows and Linux</MudSelectItem>
+                        <MudSelectItem T="CheckOperatingSystem" Value="CheckOperatingSystem.Windows">Windows only</MudSelectItem>
+                        <MudSelectItem T="CheckOperatingSystem" Value="CheckOperatingSystem.Linux">Linux only</MudSelectItem>
+                    </MudSelect>
+                }
+            </div>
         }
         <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Label="Enabled" />
     </DialogContent>
@@ -81,7 +91,10 @@
 
     [Parameter] public CheckDefinitionView? Existing { get; set; }
 
-    /// <summary>A check that exists only on one endpoint: it runs whatever the endpoint class, so "Runs on" is hidden.</summary>
+    /// <summary>
+    /// A check that exists only on one endpoint: it runs whatever the endpoint class and on the endpoint's own operating system, so
+    /// "Runs on" and "Operating system" are hidden.
+    /// </summary>
     [Parameter] public bool ForEndpoint { get; set; }
 
     /// <summary>For a check on one endpoint: its platform, so only check types that run there are offered.</summary>
@@ -105,6 +118,7 @@
     private bool _flagWarningOnly;
     private int _failures = 1;
     private CheckAppliesTo _appliesTo = CheckAppliesTo.All;
+    private CheckOperatingSystem _operatingSystem = CheckOperatingSystem.All;
     private bool _enabled = true;
     private bool _busy;
     private IReadOnlyList<ServiceOption>? _services;
@@ -113,6 +127,9 @@
     private CheckTypeInfo Info => CheckCatalog.Get(_type);
 
     private ThresholdKind ThresholdKind => Info.ThresholdKindFor(_values);
+
+    /// <summary>Only a type that runs on Windows and Linux (with these parameters, for a script check) can be limited to one.</summary>
+    private bool OffersOperatingSystem => CheckCatalog.OffersOperatingSystemChoice(_type, _values);
 
     private IEnumerable<CheckTypeInfo> AvailableTypes =>
         CheckCatalog.All.Where(t => (!ForEndpoint || CheckCatalog.IsSupported(t.Type, EndpointPlatform) || t.Type == Existing?.Type) &&
@@ -156,6 +173,7 @@
         _flagWarningOnly = c.WarningThreshold >= 1;
         _failures = c.FailuresBeforeAlert;
         _appliesTo = c.AppliesTo;
+        _operatingSystem = c.OperatingSystem;
         _enabled = c.Enabled;
     }
 
@@ -180,6 +198,7 @@
         _warning = info.DefaultWarning;
         _critical = info.DefaultCritical;
         _flagWarningOnly = info.DefaultWarning >= 1;
+        _operatingSystem = CheckOperatingSystem.All;
         _values.Clear();
         foreach (var spec in info.Parameters.Where(s => s.Default is not null))
         {
@@ -288,7 +307,7 @@
             var warning = kind == ThresholdKind.Flag ? (_flagWarningOnly ? 1d : null) : kind == ThresholdKind.ExitCode ? null : _warning;
             var critical = kind is ThresholdKind.Flag or ThresholdKind.ExitCode ? null : _critical;
             var input = new CheckDefinitionInput(_name, _type, Info.RunsOnAgent ? IntervalSeconds : CheckCatalog.FleetoEvaluatedIntervalSeconds, new Dictionary<string, string>(_values), warning, critical, _failures,
-                _appliesTo, _enabled);
+                _appliesTo, _enabled, ForEndpoint || !OffersOperatingSystem ? CheckOperatingSystem.All : _operatingSystem);
             if (await OnSubmit(input))
             {
                 MudDialog.Close(DialogResult.Ok(true));

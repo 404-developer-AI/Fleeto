@@ -288,7 +288,7 @@ public sealed class JobService
     /// Queues an email to every admin when a run is above the threshold of Settings, Scripts. The rows are added to the caller's
     /// context, not saved: they are committed with the jobs themselves.
     /// </summary>
-    private async Task<int> AddAdminNoticeAsync(FleetoDbContext db, Caller caller, IReadOnlyList<Job> created, int skippedCount, DateTime now,
+    internal async Task<int> AddAdminNoticeAsync(FleetoDbContext db, Caller caller, IReadOnlyList<Job> created, int skippedCount, DateTime now,
         CancellationToken cancellationToken)
     {
         // The threshold counts endpoints: a run for all signed-in users has several jobs per endpoint.
@@ -400,7 +400,7 @@ public sealed class JobService
         return ServiceResult.Ok();
     }
 
-    private static IQueryable<JobListItem> Project(FleetoDbContext db, IQueryable<Job> jobs) =>
+    internal static IQueryable<JobListItem> Project(FleetoDbContext db, IQueryable<Job> jobs) =>
         jobs.Select(j => new JobListItem(j.Id, j.BatchId, j.EndpointId,
             db.Endpoints.Where(e => e.Id == j.EndpointId).Select(e => e.Hostname).FirstOrDefault() ?? string.Empty,
             db.Clients.Where(c => c.Id == j.ClientId).Select(c => c.Code).FirstOrDefault(),
@@ -408,13 +408,13 @@ public sealed class JobService
             j.ReceivedOutputBytes, j.CreatedAt, j.ValidUntil, j.StartedAt, j.CompletedAt, j.InitiatedByName,
             (j.State == JobState.PendingSignature || j.State == JobState.Queued) && j.DeliveredAt == null, j.RunAs, j.RunAsAccount, j.RunAsChosenAccount));
 
-    private static async Task<(string Text, long Bytes, bool Shortened)> ReadStreamAsync(FleetoDbContext db, Guid jobId, JobStream stream,
-        CancellationToken cancellationToken)
+    internal static async Task<(string Text, long Bytes, bool Shortened)> ReadStreamAsync(FleetoDbContext db, Guid jobId, JobStream stream,
+        CancellationToken cancellationToken, int maxBytes = MaxViewBytes)
     {
         var total = await db.JobOutputChunks.Where(c => c.JobId == jobId && c.Stream == stream).SumAsync(c => (long)c.Data.Length, cancellationToken);
         var buffer = new MemoryStream();
         long sequence = 0;
-        while (buffer.Length < MaxViewBytes)
+        while (buffer.Length < maxBytes)
         {
             var chunks = await db.JobOutputChunks.AsNoTracking()
                 .Where(c => c.JobId == jobId && c.Stream == stream && c.Sequence >= sequence)
@@ -434,9 +434,9 @@ public sealed class JobService
                     return (Decode(buffer), total, true);
                 }
 
-                buffer.Write(chunk.Data, 0, (int)Math.Min(chunk.Data.Length, MaxViewBytes - buffer.Length));
+                buffer.Write(chunk.Data, 0, (int)Math.Min(chunk.Data.Length, maxBytes - buffer.Length));
                 sequence++;
-                if (buffer.Length >= MaxViewBytes)
+                if (buffer.Length >= maxBytes)
                 {
                     break;
                 }

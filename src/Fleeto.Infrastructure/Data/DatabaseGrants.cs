@@ -106,6 +106,15 @@ public static class DatabaseGrants
             ["ScriptVersions"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["Jobs"] = Grants(web: "SELECT, INSERT, UPDATE", gateway: "SELECT, UPDATE", signer: "SELECT, UPDATE", workers: "SELECT, INSERT, UPDATE, DELETE"),
             ["JobOutputChunks"] = Grants(web: Read, gateway: "SELECT, INSERT", workers: "SELECT, DELETE"),
+            // Tasks (0.6.0): web writes them and their links; the workers only read them to start runs, and the signer reads them
+            // again before it signs a job of a run Fleeto started. Runs are written by the workers, and by web for Run now.
+            ["AutomationTasks"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+            ["ClientAutomationTasks"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+            ["SiteAutomationTasks"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+            ["EndpointAutomationTasks"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+            ["AutomationTaskStates"] = Grants(web: Read, workers: ReadWrite),
+            ["AutomationTaskRuns"] = Grants(web: "SELECT, INSERT", signer: Read, workers: ReadWrite),
+            ["AutomationTaskRunTargets"] = Grants(web: "SELECT, INSERT", signer: Read, workers: ReadWrite),
 
             // Remote sessions (0.3.0): web opens them, the signer signs each participant's token, the gateway pairs browser and endpoint
             // and records who joined and left, the workers end stale rows and apply retention. Actions are reported by the endpoint.
@@ -194,6 +203,9 @@ public static class DatabaseGrants
         ("CertificateAuthorities", DatabaseRoles.Web, PublicCaColumns),
         ("CertificateAuthorities", DatabaseRoles.Gateway, PublicCaColumns),
         ("CertificateAuthorities", DatabaseRoles.Workers, PublicCaColumns),
+        // Tasks (0.6.0): the signer checks that an alert of one of a task's checks opened on the endpoint at the moment its run names;
+        // titles and details, which name hosts and paths, stay unreadable to it.
+        ("Alerts", DatabaseRoles.Signer, ["Id", "EndpointId", "Kind", "CheckDefinitionId", "OpenedAt"]),
         // INSERT ... RETURNING "Id" (EF Core) needs SELECT on the returned column; the rest of the audit trail stays unreadable.
         ("AuditEntries", DatabaseRoles.Gateway, ["Id"]),
         ("AuditEntries", DatabaseRoles.Signer, ["Id"]),

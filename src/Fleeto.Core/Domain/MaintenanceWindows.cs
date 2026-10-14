@@ -164,7 +164,7 @@ public static class MaintenanceWindows
         return $"{days} {window.Start}, {duration}, {window.TimeZone}{appliesTo}";
     }
 
-    private static DateTime ToUtc(DateTime local, TimeZoneInfo zone)
+    internal static DateTime ToUtc(DateTime local, TimeZoneInfo zone)
     {
         local = DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
         if (zone.IsInvalidTime(local))

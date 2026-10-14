@@ -11,6 +11,20 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
+- Tasks: Settings, Tasks. A task runs a script from the library by itself on the clients, sites and endpoints it is linked to
+  (the links add up): on a schedule (once, every few days, weeks on chosen days or months on a day, optionally repeated during
+  the day, between a start and an end date, in a time zone of your choice), when an alert of a chosen check opens on an
+  endpoint, when an endpoint is switched to managed, or with Run now. Options: a random delay per endpoint, catching up a run an
+  offline endpoint missed, skipping or waiting for an endpoint where the previous run still runs, and an alert on the endpoint
+  when a run fails, resolved by the next successful run. Every run shows per endpoint its state, exit code and output, and
+  exports as CSV for collecting inventory. A run Fleeto starts has no user behind it; fleeto-signer signs it only while the task
+  still asks for it, and script approval of the policy applies as to every job. New permissions View tasks, Edit tasks and Run
+  tasks now (technicians have them; read-only users can view).
+
+- A check of a monitoring template can run on Windows only or Linux only: "Operating system" next to "Runs on" in the check,
+  for check types that run on both, such as a service check for sshd on Linux servers. The template shows it under Runs on,
+  for example "Linux servers". Existing checks keep running on both.
+
 - Roles with permissions: Settings, Roles. A role is a set of permissions, such as remote control, remote background, run
   scripts, edit scripts, approve scripts, view or change each endpoint tab, switch the license tier, install or remove the
   Action1 agent, add or delete endpoints, create or delete clients and sites, tag clients, and each administration page.
@@ -155,7 +169,8 @@ When a third released version is added, the oldest entry moves to the top of
   a client and site turns amber when one of its endpoints has an open warning and red when one has a critical alert;
   endpoints in maintenance do not count. In the endpoint list the icon of an endpoint shows the same: green in maintenance
   (whatever its alerts), red with a critical alert, amber with a warning, gray otherwise, with the details on hover; the
-  Status column shows only online or offline.
+  Status column shows only online or offline. The maintenance icon in the badge of a client or site ("all", "1/2") is
+  the same green.
 - The badge next to a client or site in the clients panel only counts open alerts, with a bell icon, amber or red for the
   worst of them, and leaves out alerts of endpoints in maintenance. A site without alerts no longer shows its number of
   endpoints in the same place, which read as a number of alerts; the tabs of the selection show that number.
@@ -220,6 +235,9 @@ When a third released version is added, the oldest entry moves to the top of
   An organization without a link is asked again every hour instead of every day, on its own rather than only with the
   organizations every four hours, and at once when an admin tests the connection. A refusal or an answer without a link
   is logged by the workers. It needs the permission to manage endpoints on the Action1 API credentials.
+- Opening an endpoint on the Workstations or Mixed tab no longer jumps back to Servers. Since pages check their permission
+  in the database, every navigation briefly replaced the page while it was checked, which reset its tab, search and
+  filters. A navigation within the same page now keeps it while it is checked again; a refusal still replaces it.
 
 ### Security
 

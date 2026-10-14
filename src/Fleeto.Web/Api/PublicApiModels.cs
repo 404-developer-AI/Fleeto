@@ -70,7 +70,8 @@ public enum ApiAlertKind
     [JsonStringEnumMemberName("duplicate_identity")] DuplicateIdentity,
     [JsonStringEnumMemberName("agent_stopped")] AgentStopped,
     [JsonStringEnumMemberName("watchdog_stopped")] WatchdogStopped,
-    [JsonStringEnumMemberName("patch_state")] PatchState
+    [JsonStringEnumMemberName("patch_state")] PatchState,
+    [JsonStringEnumMemberName("task")] Task
 }
 
 /// <summary>How severe the vendor of an update calls it (0.4.0).</summary>

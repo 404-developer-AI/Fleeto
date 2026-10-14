@@ -61,6 +61,7 @@ public sealed record EffectiveCheck(
         CriticalThreshold = CriticalThreshold,
         FailuresBeforeAlert = FailuresBeforeAlert,
         AppliesTo = Definition.AppliesTo,
+        OperatingSystem = Definition.OperatingSystem,
         Enabled = Definition.Enabled
     };
 }
@@ -73,7 +74,8 @@ public sealed record EffectiveCheck(
 /// both the check and its template (0.6.0) match the endpoint class and it is not disabled on the endpoint.</item>
 /// <item>An endpoint-only check applies when it is enabled; it runs whatever the class.</item>
 /// <item>Either kind applies only when its type runs on the endpoint's platform (<see cref="CheckCatalog.IsSupported"/>), so a Windows
-/// event log check in a template linked to a mixed site never reaches a Linux endpoint.</item>
+/// event log check in a template linked to a mixed site never reaches a Linux endpoint, and only when its operating system
+/// (0.6.0) matches the endpoint's (<see cref="CheckCatalog.MatchesOperatingSystem"/>).</item>
 /// </list>
 /// Tier is not part of the rule: every caller applies <see cref="TierRules.EffectiveTier"/> itself.
 /// </summary>
@@ -98,7 +100,8 @@ public static class EffectiveChecks
         {
             var definition = candidate.Definition;
             if (!definition.Enabled || result.ContainsKey(definition.Id) || !Enum.IsDefined(definition.Type) ||
-                !CheckCatalog.IsSupported(definition.Type, CheckParameters.Parse(definition.ParametersJson), osPlatform))
+                !CheckCatalog.IsSupported(definition.Type, CheckParameters.Parse(definition.ParametersJson), osPlatform) ||
+                !CheckCatalog.MatchesOperatingSystem(definition.OperatingSystem, osPlatform))
             {
                 continue;
             }

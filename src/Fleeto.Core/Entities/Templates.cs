@@ -151,6 +151,10 @@ public class CheckDefinition
     public int FailuresBeforeAlert { get; set; } = 1;
 
     public CheckAppliesTo AppliesTo { get; set; } = CheckAppliesTo.All;
+
+    /// <summary>The operating system a template check runs on (0.6.0); an endpoint-only check is always <see cref="CheckOperatingSystem.All"/>.</summary>
+    public CheckOperatingSystem OperatingSystem { get; set; } = CheckOperatingSystem.All;
+
     public bool Enabled { get; set; } = true;
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

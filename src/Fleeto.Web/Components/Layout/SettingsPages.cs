@@ -17,6 +17,7 @@ public static class SettingsPages
         new("/settings/policies", Icons.Material.Outlined.Tune, "Policies", Permissions.PoliciesView, false),
         new("/settings/patch-policies", Icons.Material.Outlined.SystemUpdateAlt, "Patch policies", Permissions.PatchPoliciesView, false),
         new("/settings/scripts", Icons.Material.Outlined.Terminal, "Scripts", Permissions.ScriptsView, false),
+        new("/settings/tasks", Icons.Material.Outlined.EventRepeat, "Tasks", Permissions.TasksView, false),
         new("/settings/users", Icons.Material.Outlined.People, "Users", Permissions.UsersManage, true),
         new("/settings/roles", Icons.Material.Outlined.Badge, "Roles", Permissions.RolesManage, true),
         new("/settings/groups", Icons.Material.Outlined.Groups, "Groups", Permissions.GroupsManage, true),

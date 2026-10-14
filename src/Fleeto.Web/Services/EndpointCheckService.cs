@@ -344,6 +344,7 @@ public sealed class EndpointCheckService
         check.CriticalThreshold = input.CriticalThreshold;
         check.FailuresBeforeAlert = input.FailuresBeforeAlert;
         check.AppliesTo = CheckAppliesTo.All;
+        check.OperatingSystem = CheckOperatingSystem.All;
         check.Enabled = input.Enabled;
         check.UpdatedAt = now;
 

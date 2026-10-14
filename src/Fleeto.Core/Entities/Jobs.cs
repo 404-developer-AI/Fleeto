@@ -162,6 +162,12 @@ public class Job
     /// <summary>The account name of <see cref="RunAsUserId"/> when it was chosen, for the job history.</summary>
     public string? RunAsChosenAccount { get; set; }
 
+    /// <summary>The task this job runs for (0.6.0); null for a job started from Run script or by the patch policy.</summary>
+    public Guid? TaskId { get; set; }
+
+    /// <summary>The run of the task this job belongs to (0.6.0).</summary>
+    public Guid? TaskRunId { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime ValidUntil { get; set; }
     public Guid InitiatedByUserId { get; set; }

@@ -36,6 +36,8 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 | `MD-Files/branding-fleeto.md` | Names, colors, typography, vocabulary, tone of voice. |
 | `MD-Files/API.md` | The public REST API as a contract for integrators: authentication, conventions, errors and every endpoint. |
 | `MD-Files/API-WAITLIST.md` | Features that are not in the public API yet, added in the same commit as the feature. |
+| `MD-Files/performance-monitoring.md` | The generic spec of a built-in performance monitor, shared with other products; not edited for Fleeto. |
+| `MD-Files/PERFORMANCE.md` | The performance monitor of Fleeto (0.7.0): how the spec maps onto Fleeto, its data model and build plan. |
 
 ## Priorities (in this order)
 
@@ -134,8 +136,14 @@ the API and the database follows it.
   alerts stay open and still resolve). The clients panel shows per client and site whether all
   or some endpoints are in maintenance.
 - **Monitoring template**: a named set of checks with thresholds and alert rules. Linked to a
-  client, site or endpoint, applied to all of their endpoints (class-specific checks apply to matching endpoints only). It
-  says where it can be linked: clients, sites, endpoints or more of them (decided 2026-09-28, 0.6.0).
+  client, site or endpoint, applied to all of their endpoints (class-specific checks apply to matching endpoints only, and a
+  check limited to Windows or Linux (0.6.0) only to endpoints of that operating system). It says where it can be linked:
+  clients, sites, endpoints or more of them (decided 2026-09-28, 0.6.0).
+- **Task** (0.6.0, decided 2026-10-14): a library script that runs by itself, linked to clients, sites and endpoints like a
+  monitoring template (adding up), on a schedule, when an alert of a chosen check opens, when an endpoint becomes managed, or
+  by hand. Only library scripts, never a command of its own. A run Fleeto starts has a system initiator: the workers write it
+  only for an enabled task (database trigger) and fleeto-signer signs it only while the task still asks for it, with the script
+  approval of the policy. A failed run opens an alert of kind Task. Details in `MD-Files/ROADMAP.md` §0.6.0.
 - **Storage analysis** (0.6.0, decided 2026-09-28): a managed endpoint, server or workstation, scans its drives at the lowest
   CPU and I/O priority, daily by default (set per policy, or only on request), on "Scan now" and when a Disk free check turns
   warning; on NTFS by reading the master file table, elsewhere by walking the folders. Only the 300 largest folders and 50
@@ -189,7 +197,7 @@ UI structure:
   a disabled or hidden one.
 - **Settings**: opened from the settings button in the sidebar footer. One workspace like
   Clients: left, a settings panel; right, the selected page. Group **Templates** (client
-  templates, monitoring templates, policies, patch policies) for every user, and the administration pages for
+  templates, monitoring templates, policies, patch policies, scripts, tasks) for every user, and the administration pages for
   admins: users and roles, groups, tags, licensing, API keys, integrations, notification channels, retention,
   audit log, instance health.
 
@@ -597,7 +605,7 @@ home-grown patch engine. Note them, do not build them. (File transfer inside rem
 - **Fleeto is the only name**: namespaces, images, env vars, service names, database objects and user-visible text (decided
   2026-09-15; the internal name Fleetify was renamed in 0.2.1). The old name appears only in the migration code listed in
   `deploy/ci/branding-check.sh`. Run that check (`MD-Files/branding-fleeto.md` §7) before every release.
-- UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, patch policy, monitoring template, client template, integration, note, tag, remote control session, API key, role, permission).
+- UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, patch policy, monitoring template, client template, integration, note, tag, task, remote control session, API key, role, permission).
 - Follow the Migrify codebase conventions where they exist (project layout, EF Core patterns, MudBlazor usage, email templates).
 - Tests: unit tests for domain logic, integration tests against real PostgreSQL in CI, the cross-client tests from Security, license-tier enforcement tests, signer rule tests (refused roles, tiers, unapproved scripts, expired jobs), certificate revocation tests, and the load-test scenario. New features without tests are not done, and neither are new features
   that are not in `MD-Files/API.md` or on `MD-Files/API-WAITLIST.md` (see Public API).

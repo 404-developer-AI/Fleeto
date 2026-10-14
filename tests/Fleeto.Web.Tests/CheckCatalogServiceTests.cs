@@ -109,4 +109,32 @@ public sealed class CheckCatalogServiceTests
         Assert.False(changed.Success);
         Assert.Contains("cannot change", changed.Problem);
     }
+
+    [Fact]
+    public async Task A_template_check_keeps_its_operating_system_when_saved_and_copied_and_a_one_platform_type_refuses_one()
+    {
+        var technician = WebFixture.Technician();
+        var created = await Templates.CreateAsync(technician, "Linux only " + Guid.NewGuid().ToString("N")[..6], null, null);
+        Assert.True(created.Success, created.Problem);
+
+        var sshd = new CheckDefinitionInput("sshd", CheckType.ServiceRunning, 300, new Dictionary<string, string> { ["service"] = "sshd" },
+            null, null, 1, CheckAppliesTo.Server, true, CheckOperatingSystem.Linux);
+        var saved = await Templates.SaveCheckAsync(technician, created.Value, null, sshd);
+        Assert.True(saved.Success, saved.Problem);
+
+        var eventLog = new CheckDefinitionInput("Errors", CheckType.EventLog, 900, new Dictionary<string, string> { ["log"] = "System", ["level"] = "error" },
+            1, null, 1, CheckAppliesTo.All, true, CheckOperatingSystem.Linux);
+        var refused = await Templates.SaveCheckAsync(technician, created.Value, null, eventLog);
+        Assert.False(refused.Success);
+        Assert.Contains("Windows only", refused.Problem);
+
+        var copy = await Templates.CopyAsync(technician, created.Value, "Copy " + Guid.NewGuid().ToString("N")[..6], null);
+        Assert.True(copy.Success, copy.Problem);
+        foreach (var templateId in new[] { created.Value, copy.Value })
+        {
+            var detail = await Templates.GetAsync(technician, templateId);
+            var check = Assert.Single(detail!.Checks);
+            Assert.Equal(CheckOperatingSystem.Linux, check.OperatingSystem);
+        }
+    }
 }

@@ -228,6 +228,44 @@ public sealed class TestDatabase : IAsyncDisposable
     }
 
     /// <summary>A custom role (0.6.0) with these permissions; returns its name, which <see cref="CreateUserAsync"/> takes as role.</summary>
+    /// <summary>
+    /// A PowerShell script with one version and an enabled task that runs it (0.6.0), for the client or global, linked to
+    /// <paramref name="linkSite"/> when given. <paramref name="configure"/> changes the task before it is saved.
+    /// </summary>
+    public async Task<(AutomationTask Task, Script Script, ScriptVersion Version)> CreateTaskAsync(Site? linkSite = null,
+        Action<AutomationTask>? configure = null, Guid? clientId = null, string body = "Write-Output 'inventory'")
+    {
+        await using var db = DbFactory.CreateSystem();
+        var now = Time.GetUtcNow().UtcDateTime;
+        var script = new Script
+        {
+            Id = Guid.NewGuid(), ClientId = clientId, Name = "Script " + Convert.ToHexString(RandomNumberGenerator.GetBytes(3)),
+            Language = ScriptLanguage.PowerShell, CreatedAt = now, UpdatedAt = now
+        };
+        var version = new ScriptVersion
+        {
+            Id = Guid.NewGuid(), ScriptId = script.Id, ClientId = clientId, Number = 1, Body = body, Sha256 = Core.Domain.ScriptLanguages.Sha256(body),
+            TimeoutSeconds = 600, AuthorUserId = Guid.NewGuid(), AuthorName = "Author", CreatedAt = now
+        };
+        script.CurrentVersionId = version.Id;
+        db.Scripts.Add(script);
+        db.ScriptVersions.Add(version);
+        var task = new AutomationTask
+        {
+            Id = Guid.NewGuid(), ClientId = clientId, Name = "Task " + Convert.ToHexString(RandomNumberGenerator.GetBytes(3)), ScriptId = script.Id,
+            TimeZone = "UTC", StartDate = DateOnly.FromDateTime(now), UpdatedByName = "Tech", CreatedAt = now, UpdatedAt = now
+        };
+        configure?.Invoke(task);
+        db.AutomationTasks.Add(task);
+        if (linkSite is not null)
+        {
+            db.SiteAutomationTasks.Add(new SiteAutomationTask { SiteId = linkSite.Id, ClientId = linkSite.ClientId, AutomationTaskId = task.Id, CreatedAt = now });
+        }
+
+        await db.SaveChangesAsync();
+        return (task, script, version);
+    }
+
     public async Task<string> CreateRoleAsync(params string[] permissions)
     {
         await using var db = DbFactory.CreateSystem();

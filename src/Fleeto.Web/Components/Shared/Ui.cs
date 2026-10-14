@@ -133,6 +133,14 @@ public static class Ui
         _ => "All endpoints"
     };
 
+    /// <summary>Where a template check runs: its class and operating system together, e.g. "Linux servers" or "Windows".</summary>
+    public static string RunsOnLabel(CheckAppliesTo appliesTo, CheckOperatingSystem operatingSystem) => (appliesTo, operatingSystem) switch
+    {
+        (_, CheckOperatingSystem.All) => AppliesToLabel(appliesTo),
+        (CheckAppliesTo.All, _) => operatingSystem.ToString(),
+        _ => $"{operatingSystem} {AppliesToLabel(appliesTo).ToLowerInvariant()}"
+    };
+
     /// <summary>The unit a threshold of this check type is expressed in, given its parameters.</summary>
     public static string ThresholdUnit(CheckType type, IReadOnlyDictionary<string, string>? parameters = null) =>
         Enum.IsDefined(type) ? CheckCatalog.UnitOf(type, parameters ?? NoParameters) : string.Empty;

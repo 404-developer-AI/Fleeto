@@ -1,0 +1,431 @@
+@page "/settings/tasks/{TaskId:guid}"
+@attribute [RequirePermission(Permissions.TasksView)]
+@inherits FleetoPageBase
+@inject TaskService TaskSvc
+@inject ClientService ClientSvc
+@inject LiveUpdates Live
+@inject IJSRuntime JS
+@inject IDialogService DialogService
+
+<PageTitle>@(_task?.Input.Name ?? "Task") - Fleeto</PageTitle>
+
+<LoadState Loading="Loading" Failed="LoadFailed" NotFound="_notFound" What="task">
+    @if (_task is { } task)
+    {
+        <div class="mb-1"><a href="/settings/tasks" class="breadcrumb-link">Tasks</a></div>
+        <div class="page-header">
+            <div>
+                <MudText Typo="Typo.h4" Class="page-title">@task.Input.Name</MudText>
+                <MudText Typo="Typo.body2" Class="muted">
+                    @(task.ClientCode is null ? "Global" : $"For client {task.ClientCode}") · @Ui.AppliesToLabel(task.Input.AppliesTo) ·
+                    @(task.Input.Enabled ? "on" : "off") · changed by @task.UpdatedByName @Time.Relative(task.UpdatedAt)
+                    @if (!string.IsNullOrEmpty(task.Input.Description))
+                    {
+                        <span> · @task.Input.Description</span>
+                    }
+                </MudText>
+            </div>
+            <div class="d-flex gap-2">
+                @if (Can(Permissions.TasksEdit))
+                {
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Edit" OnClick="EditAsync">Edit</MudButton>
+                }
+                @if (Can(Permissions.TasksRun) && Can(Permissions.ScriptsRun))
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PlayArrow" OnClick="RunNowAsync"
+                               Disabled="@(!task.Input.Enabled || task.Links.Count == 0 || _running)">Run now</MudButton>
+                }
+            </div>
+        </div>
+
+        <div class="fl-panel pa-4 mb-4">
+            <MudSimpleTable Dense="true" Elevation="0">
+                <tbody>
+                    <tr><td class="muted" style="width:200px">Script</td><td>@task.ScriptName (@ScriptLanguages.Label(task.Language)), as @(task.Input.RunAs == JobRunAs.Service ? "SYSTEM or root" : "the signed-in user")</td></tr>
+                    <tr><td class="muted">Schedule</td><td>@AutomationTasks.Describe(Entity(task))@(task.NextRunAt is { } next ? $" · next run {Time.Absolute(next)}" : "")</td></tr>
+                    <tr>
+                        <td class="muted">Also starts</td>
+                        <td>
+                            @if (task.TriggerChecks.Count == 0 && !task.Input.OnManaged)
+                            {
+                                <span>By hand only</span>
+                            }
+                            @foreach (var check in task.TriggerChecks)
+                            {
+                                <div>When an alert of @check.Name (@check.TemplateName) opens</div>
+                            }
+                            @if (task.Input.OnManaged)
+                            {
+                                <div>When an endpoint becomes managed</div>
+                            }
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="muted">Options</td>
+                        <td>
+                            @(task.Input.RandomDelayMinutes == 0 ? "No random delay" : $"Random delay up to {task.Input.RandomDelayMinutes} minutes") ·
+                            @(task.Input.CatchUp ? "catches up a missed run" : "an offline endpoint misses the run") ·
+                            @(task.Input.Overlap == TaskOverlap.Skip ? "skips an endpoint where the previous run still runs" : "waits for the previous run") ·
+                            @(task.Input.AlertOnFailure ? $"a failed run opens a {task.Input.AlertSeverity.ToString().ToLowerInvariant()} alert" : "no alert on a failed run")
+                        </td>
+                    </tr>
+                </tbody>
+            </MudSimpleTable>
+        </div>
+
+        <MudText Typo="Typo.h6" Class="mb-2">Linked to</MudText>
+        <div class="fl-panel pa-4 mb-4">
+            @if (task.Links.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted mb-2">Not linked yet: the task runs nowhere. Link it to a client, a site or an endpoint.</MudText>
+            }
+            else
+            {
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    @foreach (var link in task.Links)
+                    {
+                        @if (Can(Permissions.TasksEdit))
+                        {
+                            <MudChip T="string" Icon="@LinkIcon(link.Level)" Variant="Variant.Outlined" Size="Size.Small"
+                                     OnClose="@(_ => UnlinkAsync(link))">@link.Name</MudChip>
+                        }
+                        else
+                        {
+                            <MudChip T="string" Icon="@LinkIcon(link.Level)" Variant="Variant.Outlined" Size="Size.Small">@link.Name</MudChip>
+                        }
+                    }
+                </div>
+            }
+            @if (Can(Permissions.TasksEdit))
+            {
+                <div class="d-flex flex-wrap gap-2 align-start">
+                    <MudSelect T="Guid?" Value="_linkClient" ValueChanged="LinkClientChangedAsync" Label="Client" Variant="Variant.Outlined" Margin="Margin.Dense"
+                               Style="max-width:260px">
+                        @foreach (var client in _choices.Clients)
+                        {
+                            <MudSelectItem T="Guid?" Value="@((Guid?)client.Id)">@client.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                    @if (_linkClient is { } chosen)
+                    {
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="mt-1" OnClick="@(() => LinkAsync(LinkLevel.Client, chosen))">Link the client</MudButton>
+                        <MudSelect T="Guid?" @bind-Value="_linkSite" Label="Site" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:220px" Clearable="true">
+                            @foreach (var site in _choices.Sites)
+                            {
+                                <MudSelectItem T="Guid?" Value="@((Guid?)site.Id)">@site.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="mt-1" Disabled="@(_linkSite is null)"
+                                   OnClick="@(() => LinkAsync(LinkLevel.Site, _linkSite!.Value))">Link the site</MudButton>
+                        <MudAutocomplete T="Guid?" @bind-Value="_linkEndpoint" Label="Endpoint" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:240px"
+                                         SearchFunc="SearchEndpointsAsync" ToStringFunc="EndpointName" MaxItems="50" Clearable="true" />
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="mt-1" Disabled="@(_linkEndpoint is null)"
+                                   OnClick="@(() => LinkAsync(LinkLevel.Endpoint, _linkEndpoint!.Value))">Link the endpoint</MudButton>
+                    }
+                </div>
+                <MudText Typo="Typo.caption" Class="muted d-block mt-2">
+                    Links add up: a task linked to a client and one of its sites runs once on each endpoint. It runs only on managed endpoints of its class
+                    whose operating system runs the script.
+                </MudText>
+            }
+        </div>
+
+        <MudText Typo="Typo.h6" Class="mb-2">Runs</MudText>
+        @if (_runs.Count == 0)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.History" Title="No runs yet" Text="A run appears here when the task starts, by its schedule, a trigger or Run now." />
+        }
+        else
+        {
+            <MudTable Items="_runs" Hover="true" Elevation="0" Dense="true" OnRowClick="@((TableRowClickEventArgs<TaskRunItem> e) => OpenRunAsync(e.Item!))"
+                      RowClass="cursor-pointer">
+                <HeaderContent>
+                    <MudTh>Started</MudTh>
+                    <MudTh>Client</MudTh>
+                    <MudTh>Why</MudTh>
+                    <MudTh>Endpoints</MudTh>
+                    <MudTh>Result</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd>@Time.Absolute(context.OccurrenceAt)</MudTd>
+                    <MudTd>@context.ClientCode</MudTd>
+                    <MudTd>@Why(context)</MudTd>
+                    <MudTd>@context.Endpoints</MudTd>
+                    <MudTd>
+                        <div class="d-flex flex-wrap gap-1">
+                            @if (context.Succeeded > 0) { <StatusChip Text="@($"{context.Succeeded} succeeded")" Kind="StatusKind.Ok" /> }
+                            @if (context.Failed > 0) { <StatusChip Text="@($"{context.Failed} failed or missed")" Kind="StatusKind.Error" /> }
+                            @if (context.Running > 0) { <StatusChip Text="@($"{context.Running} running")" Kind="StatusKind.Active" /> }
+                            @if (context.Waiting > 0) { <StatusChip Text="@($"{context.Waiting} waiting")" Kind="StatusKind.Neutral" /> }
+                            @if (context.Skipped > 0) { <StatusChip Text="@($"{context.Skipped} skipped")" Kind="StatusKind.Neutral" /> }
+                        </div>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+
+        @if (_openRun is { } run)
+        {
+            <div class="d-flex align-center justify-space-between mt-4 mb-2">
+                <MudText Typo="Typo.h6">Run of @Time.Absolute(run.OccurrenceAt) · @run.ClientCode</MudText>
+                <div class="d-flex gap-2">
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Outlined.Download" OnClick="@(() => ExportAsync(run))">Export CSV</MudButton>
+                    <MudIconButton Icon="@Icons.Material.Outlined.Close" Size="Size.Small" OnClick="@(() => _openRun = null)" />
+                </div>
+            </div>
+            <MudTable Items="_targets" Hover="true" Elevation="0" Dense="true">
+                <HeaderContent>
+                    <MudTh>Endpoint</MudTh>
+                    <MudTh>State</MudTh>
+                    <MudTh>Exit code</MudTh>
+                    <MudTh>Output</MudTh>
+                    <MudTh Style="width:60px"></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd>@context.Hostname</MudTd>
+                    <MudTd>
+                        <StatusChip Text="@TaskService.StateText(context)" Kind="@StateKind(context)" />
+                        @if ((context.Reason ?? context.Problem) is { } why)
+                        {
+                            <div class="muted" style="font-size:0.75rem">@why</div>
+                        }
+                        @if (context.State == TaskTargetState.Pending)
+                        {
+                            <div class="muted" style="font-size:0.75rem">Due @Time.Absolute(context.DueAt)</div>
+                        }
+                    </MudTd>
+                    <MudTd>@context.ExitCode</MudTd>
+                    <MudTd><span class="mono" style="font-size:0.75rem;white-space:pre-wrap">@context.OutputPreview</span></MudTd>
+                    <MudTd>
+                        @if (context.JobId is { } jobId)
+                        {
+                            <MudTooltip Text="Output"><MudIconButton Icon="@Icons.Material.Outlined.Article" Size="Size.Small" OnClick="@(() => ShowOutputAsync(jobId, context.EndpointId))" /></MudTooltip>
+                        }
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+    }
+</LoadState>
+
+@code {
+    [Parameter] public Guid TaskId { get; set; }
+
+    private TaskDetail? _task;
+    private bool _notFound;
+    private IReadOnlyList<TaskRunItem> _runs = [];
+    private TaskRunItem? _openRun;
+    private IReadOnlyList<TaskRunTargetItem> _targets = [];
+    private TaskLinkChoices _choices = new([], [], []);
+    private IReadOnlyList<ClientOption> _clients = [];
+    private Guid? _linkClient;
+    private Guid? _linkSite;
+    private Guid? _linkEndpoint;
+    private bool _running;
+    private DebouncedRefresh? _refresh;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _refresh = new DebouncedRefresh(() => InvokeAsync(async () => { await ReloadAsync(); StateHasChanged(); }));
+        Live.TasksChanged += OnTaskChanged;
+        Live.JobsChanged += OnJobsChanged;
+        await ReloadAsync();
+    }
+
+    private void OnTaskChanged(Guid id)
+    {
+        if (id == TaskId || id == Guid.Empty)
+        {
+            _refresh?.Trigger();
+        }
+    }
+
+    private void OnJobsChanged(Guid endpointId)
+    {
+        if (_openRun is not null && (endpointId == Guid.Empty || _targets.Any(t => t.EndpointId == endpointId)))
+        {
+            _refresh?.Trigger();
+        }
+    }
+
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        _task = await TaskSvc.GetAsync(caller, TaskId);
+        _notFound = _task is null;
+        if (_task is null)
+        {
+            return;
+        }
+
+        _runs = await TaskSvc.ListRunsAsync(caller, TaskId);
+        if (_openRun is { } open)
+        {
+            _openRun = _runs.FirstOrDefault(r => r.Id == open.Id);
+            _targets = _openRun is null ? [] : await TaskSvc.GetRunAsync(caller, _openRun.Id);
+        }
+
+        if (Can(Permissions.TasksEdit))
+        {
+            _choices = await TaskSvc.GetLinkChoicesAsync(caller, _task.Input.ClientId, _linkClient);
+            _clients = await ClientSvc.ListOptionsAsync(caller);
+        }
+    });
+
+    private static AutomationTask Entity(TaskDetail task) => new()
+    {
+        ScheduleKind = task.Input.ScheduleKind, TimeZone = task.Input.TimeZone, StartDate = task.Input.StartDate, StartMinute = task.Input.StartMinute,
+        EndDate = task.Input.EndDate, Every = task.Input.Every, WeekDays = task.Input.WeekDays, MonthDay = task.Input.MonthDay,
+        RepeatMinutes = task.Input.RepeatMinutes
+    };
+
+    private static string LinkIcon(LinkLevel level) => level switch
+    {
+        LinkLevel.Client => Icons.Material.Outlined.Business,
+        LinkLevel.Site => Icons.Material.Outlined.LocationOn,
+        _ => Icons.Material.Outlined.Computer
+    };
+
+    private static string Why(TaskRunItem run) => run.Trigger switch
+    {
+        TaskTrigger.Schedule => "Schedule",
+        TaskTrigger.CheckAlert => $"Alert of {run.CheckName ?? "a check"}",
+        TaskTrigger.Managed => "Endpoint became managed",
+        _ => $"Run now by {run.InitiatedByName}"
+    };
+
+    private static StatusKind StateKind(TaskRunTargetItem item) => TaskService.StateText(item) switch
+    {
+        "Succeeded" => StatusKind.Ok,
+        "Running" or "Queued" => StatusKind.Active,
+        "Failed" or "Refused" or "Lost" or "Missed" => StatusKind.Error,
+        _ => StatusKind.Neutral
+    };
+
+    private async Task LinkClientChangedAsync(Guid? clientId)
+    {
+        _linkClient = clientId;
+        _linkSite = null;
+        _linkEndpoint = null;
+        if (Caller is { } caller && _task is { } task)
+        {
+            _choices = await TaskSvc.GetLinkChoicesAsync(caller, task.Input.ClientId, clientId);
+        }
+    }
+
+    private Task<IEnumerable<Guid?>> SearchEndpointsAsync(string? text, CancellationToken cancellationToken)
+    {
+        var term = text?.Trim();
+        return Task.FromResult(_choices.Endpoints
+            .Where(e => string.IsNullOrEmpty(term) || e.Name.Contains(term, StringComparison.OrdinalIgnoreCase))
+            .Select(e => (Guid?)e.Id));
+    }
+
+    private string EndpointName(Guid? id) => _choices.Endpoints.FirstOrDefault(e => e.Id == id)?.Name ?? string.Empty;
+
+    private async Task LinkAsync(LinkLevel level, Guid id)
+    {
+        if (await RunAsync(caller => TaskSvc.LinkAsync(caller, TaskId, level, id), "The task was linked."))
+        {
+            _linkSite = null;
+            _linkEndpoint = null;
+            await ReloadAsync();
+        }
+    }
+
+    private async Task UnlinkAsync(TaskLinkView link)
+    {
+        if (await RunAsync(caller => TaskSvc.UnlinkAsync(caller, TaskId, link.Level, link.Id), "The link was removed."))
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task EditAsync()
+    {
+        var task = _task!;
+        var parameters = new DialogParameters<TaskDialog>
+        {
+            { d => d.Existing, task.Input },
+            { d => d.Clients, _clients },
+            { d => d.LoadScripts, clientId => TaskSvc.GetScriptChoicesAsync(Caller!, clientId) },
+            { d => d.LoadChecks, clientId => TaskSvc.GetCheckChoicesAsync(Caller!, clientId) },
+            { d => d.OnSubmit, input => RunAsync(caller => TaskSvc.SaveAsync(caller, TaskId, input), "The task was saved.") }
+        };
+        var dialog = await DialogService.ShowAsync<TaskDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task RunNowAsync()
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Run task {_task!.Input.Name} now" },
+            { d => d.Message, $"Runs {_task.ScriptName} on every managed endpoint the task is linked to that you have access to, as you. Endpoints where the previous run still runs are skipped." },
+            { d => d.ConfirmText, "Run now" }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if ((await dialog.Result)!.Canceled)
+        {
+            return;
+        }
+
+        _running = true;
+        try
+        {
+            var result = await RunForValueAsync(caller => TaskSvc.RunNowAsync(caller, TaskId), null);
+            if (result?.Value is { } run)
+            {
+                Snackbar.Add(run.Skipped.Count == 0
+                    ? $"The task started on {Ui.Count(run.Created, "endpoint")}."
+                    : $"The task started on {Ui.Count(run.Created, "endpoint")}; {run.Skipped.Count} skipped.", Severity.Success);
+                await ReloadAsync();
+                if (_runs.FirstOrDefault(r => r.Id == run.BatchId) is { } created)
+                {
+                    await OpenRunAsync(created);
+                }
+            }
+        }
+        finally
+        {
+            _running = false;
+        }
+    }
+
+    private async Task OpenRunAsync(TaskRunItem run)
+    {
+        _openRun = run;
+        if (Caller is { } caller)
+        {
+            _targets = await TaskSvc.GetRunAsync(caller, run.Id);
+        }
+    }
+
+    private async Task ShowOutputAsync(Guid jobId, Guid endpointId)
+    {
+        var parameters = new DialogParameters<JobOutputDialog> { { d => d.JobId, jobId }, { d => d.EndpointId, endpointId } };
+        await DialogService.ShowAsync<JobOutputDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
+    }
+
+    private async Task ExportAsync(TaskRunItem run)
+    {
+        if (Caller is not { } caller || await TaskSvc.ExportRunAsync(caller, run.Id) is not { } export)
+        {
+            Snackbar.Add("The run no longer exists. Refresh the page.", Severity.Warning);
+            return;
+        }
+
+        await JS.InvokeVoidAsync("fleeto.saveFile", export.FileName, "text/csv", Convert.ToBase64String(new System.Text.UTF8Encoding(true).GetPreamble()
+            .Concat(System.Text.Encoding.UTF8.GetBytes(export.Csv)).ToArray()));
+    }
+
+    public override void Dispose()
+    {
+        Live.TasksChanged -= OnTaskChanged;
+        Live.JobsChanged -= OnJobsChanged;
+        _refresh?.Dispose();
+        base.Dispose();
+    }
+}

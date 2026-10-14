@@ -98,6 +98,7 @@ Use these terms consistently in UI, docs and email; do not introduce synonyms.
 | **watchdog** | The second Fleeto service on an endpoint that keeps the agent running (0.2.0). Never "helper" or "guardian". |
 | **remote terminal** | A command line on an endpoint from the browser (0.3.0). Never "remote shell", "SSH" or "console" in UI text. |
 | **job** | One execution of a script, patch run or task on an endpoint |
+| **task** | A library script that runs by itself, linked to a client, site or endpoint (0.6.0): on a schedule, when an alert of a check opens, when an endpoint becomes managed, or with "Run now". One start is a "run", with a job per endpoint. Never "scheduled job", "automation" or "cron" in UI text. |
 | **policy** | Agent behaviour settings linked to a client, site or endpoint; the most specific one applies |
 | **patch policy** | When and how Action1 installs updates, linked to a client, site or endpoint (0.6.0). "Patch policy", never "update policy" or "patch schedule" in UI text. What it becomes in Action1 is an "automation". |
 | **monitoring template** | A named set of checks with thresholds, linked to a client, site or endpoint; they add up |

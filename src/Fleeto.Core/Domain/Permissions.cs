@@ -80,6 +80,9 @@ public static class Permissions
     public const string ScriptsEdit = "scripts.edit";
     public const string ScriptsRun = "scripts.run";
     public const string ScriptsApprove = "scripts.approve";
+    public const string TasksView = "tasks.view";
+    public const string TasksEdit = "tasks.edit";
+    public const string TasksRun = "tasks.run";
 
     public const string ClientTemplatesView = "clienttemplates.view";
     public const string ClientTemplatesEdit = "clienttemplates.edit";
@@ -166,6 +169,10 @@ public static class Permissions
         new(ScriptsRun, ScriptsGroup, "Run scripts", "Run a script on endpoints, also from the remote terminal.", [ScriptsView, JobsView]),
         new(ScriptsApprove, ScriptsGroup, "Approve scripts",
             "Approve a script version written by somebody else, and change whether a policy requires approval.", [ScriptsView]),
+        new(TasksView, ScriptsGroup, "View tasks", "The tasks, where they are linked and the output of their runs.", [ScriptsView, JobsView]),
+        new(TasksEdit, ScriptsGroup, "Edit tasks",
+            "Create, edit, link and delete tasks. A task runs its script by itself on every endpoint it is linked to.", [TasksView]),
+        new(TasksRun, ScriptsGroup, "Run tasks now", "Start a task by hand on the endpoints it is linked to.", [TasksView, ScriptsRun]),
 
         new(ClientTemplatesView, TemplatesGroup, "View client templates", "The client templates.", []),
         new(ClientTemplatesEdit, TemplatesGroup, "Edit client templates", "Create, edit, copy and delete client templates.", [ClientTemplatesView]),
@@ -238,6 +245,7 @@ public static class BuiltInRoles
         Permissions.AlertsView, Permissions.ClientsView, Permissions.ChecksView, Permissions.SoftwareView, Permissions.NotesView,
         Permissions.JobsView, Permissions.PatchesView, Permissions.StorageView, Permissions.HistoryView, Permissions.ScriptsView,
         Permissions.ClientTemplatesView, Permissions.MonitoringTemplatesView, Permissions.PoliciesView, Permissions.PatchPoliciesView,
+        Permissions.TasksView,
     ];
 
     public static readonly IReadOnlyList<string> TechnicianPermissions =
@@ -251,7 +259,7 @@ public static class BuiltInRoles
         Permissions.ChecksEdit, Permissions.ChecksRun, Permissions.NotesCreate, Permissions.JobsCancel,
         Permissions.PatchesSync, Permissions.PatchesDeploy, Permissions.Action1AgentInstall, Permissions.Action1AgentRemove,
         Permissions.StorageScan, Permissions.RemoteControl, Permissions.RemoteBackground,
-        Permissions.ScriptsEdit, Permissions.ScriptsRun,
+        Permissions.ScriptsEdit, Permissions.ScriptsRun, Permissions.TasksEdit, Permissions.TasksRun,
         Permissions.ClientTemplatesEdit, Permissions.MonitoringTemplatesEdit, Permissions.PoliciesEdit, Permissions.PatchPoliciesEdit,
     ];
 

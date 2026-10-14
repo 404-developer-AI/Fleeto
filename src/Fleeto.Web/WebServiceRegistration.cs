@@ -82,6 +82,7 @@ public static class WebServiceRegistration
         services.AddSingleton<NotificationChannelService>();
         services.AddSingleton<ScriptService>();
         services.AddSingleton<JobService>();
+        services.AddSingleton<TaskService>();
         services.AddSingleton<AuditQueryService>();
         services.AddSingleton<ApiKeyService>();
         services.AddSingleton<AgentUpdateService>();

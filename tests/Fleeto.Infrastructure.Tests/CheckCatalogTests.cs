@@ -162,6 +162,26 @@ public sealed class CheckCatalogTests
     }
 
     [Fact]
+    public void Only_a_check_that_runs_on_windows_and_linux_can_be_limited_to_one_of_them()
+    {
+        var ping = Definition(CheckType.Ping, P(("host", "10.0.0.1")));
+        ping.OperatingSystem = CheckOperatingSystem.Linux;
+        Assert.Empty(CheckParameters.Validate(ping));
+
+        var eventLog = Definition(CheckType.EventLog, P(("log", "System"), ("level", "error")), 1);
+        eventLog.OperatingSystem = CheckOperatingSystem.Windows;
+        Assert.Contains(CheckParameters.Validate(eventLog), p => p.Contains("Windows only"));
+
+        // A script check offers the choice only while its language runs on both.
+        Assert.False(CheckCatalog.OffersOperatingSystemChoice(CheckType.Script, P(("language", "PowerShell"))));
+        Assert.True(CheckCatalog.OffersOperatingSystemChoice(CheckType.Script, P(("script", Guid.NewGuid().ToString("D")))));
+
+        var undefined = Definition(CheckType.Ping, P(("host", "10.0.0.1")));
+        undefined.OperatingSystem = (CheckOperatingSystem)7;
+        Assert.Contains(CheckParameters.Validate(undefined), p => p.Contains("operating system"));
+    }
+
+    [Fact]
     public void A_script_check_is_judged_by_its_exit_code_and_has_no_thresholds()
     {
         var parameters = P(("script", Guid.NewGuid().ToString("D")));
@@ -182,19 +202,21 @@ public sealed class CheckCatalogTests
     }
 
     [Fact]
-    public async Task A_check_type_reaches_only_the_platforms_that_run_it_in_csharp_and_sql()
+    public async Task A_check_reaches_only_the_platforms_that_run_it_and_its_operating_system_in_csharp_and_sql()
     {
         var client = await _db.CreateClientAsync();
         var site = await _db.CreateSiteAsync(client.Id);
         var windows = await _db.CreateEndpointAsync(site, EndpointTier.Managed, "WS-PLATFORM");
         var linux = await _db.CreateEndpointAsync(site, EndpointTier.Managed, "LNX-PLATFORM", EndpointClass.Server);
         var mac = await _db.CreateEndpointAsync(site, EndpointTier.Managed, "MAC-PLATFORM");
+        var unknown = await _db.CreateEndpointAsync(site, EndpointTier.Managed, "NEW-PLATFORM");
         var now = DateTime.UtcNow;
         var template = new MonitoringTemplate { Id = Guid.NewGuid(), Name = "Platforms " + Guid.NewGuid(), CreatedAt = now, UpdatedAt = now };
-        CheckDefinition Add(CheckType type, string parameters, double? warning = null) => new()
+        CheckDefinition Add(CheckType type, string parameters, double? warning = null,
+            CheckOperatingSystem operatingSystem = CheckOperatingSystem.All) => new()
         {
             Id = Guid.NewGuid(), MonitoringTemplateId = template.Id, Name = type.ToString(), Type = type, ParametersJson = parameters,
-            WarningThreshold = warning, CreatedAt = now, UpdatedAt = now
+            WarningThreshold = warning, OperatingSystem = operatingSystem, CreatedAt = now, UpdatedAt = now
         };
         var eventLog = Add(CheckType.EventLog, """{"log":"System","level":"error"}""", 1);
         var reboot = Add(CheckType.PendingReboot, "{}", 1);
@@ -203,7 +225,10 @@ public sealed class CheckCatalogTests
         var powerShell = Add(CheckType.Script, $$"""{"script":"{{Guid.NewGuid()}}","language":"PowerShell"}""");
         var bash = Add(CheckType.Script, $$"""{"script":"{{Guid.NewGuid()}}","language":"Bash"}""");
         var numeric = Add(CheckType.Script, $$"""{"script":"{{Guid.NewGuid()}}","language":"1"}""");
-        var checks = new[] { eventLog, reboot, ping, powerShell, bash, numeric };
+        // A check limited to one operating system (0.6.0) skips the other, and macOS; an unknown platform runs it.
+        var windowsPing = Add(CheckType.Ping, """{"host":"10.0.0.2"}""", operatingSystem: CheckOperatingSystem.Windows);
+        var linuxPing = Add(CheckType.Ping, """{"host":"10.0.0.3"}""", operatingSystem: CheckOperatingSystem.Linux);
+        var checks = new[] { eventLog, reboot, ping, powerShell, bash, numeric, windowsPing, linuxPing };
         foreach (var check in checks)
         {
             template.Checks.Add(check);
@@ -215,14 +240,16 @@ public sealed class CheckCatalogTests
             db.SiteMonitoringTemplates.Add(new SiteMonitoringTemplate { SiteId = site.Id, ClientId = client.Id, MonitoringTemplateId = template.Id, CreatedAt = now });
             await db.Endpoints.Where(e => e.Id == linux.Id).ExecuteUpdateAsync(s => s.SetProperty(e => e.OsPlatform, "linux"));
             await db.Endpoints.Where(e => e.Id == mac.Id).ExecuteUpdateAsync(s => s.SetProperty(e => e.OsPlatform, "darwin"));
+            await db.Endpoints.Where(e => e.Id == unknown.Id).ExecuteUpdateAsync(s => s.SetProperty(e => e.OsPlatform, string.Empty));
             await db.SaveChangesAsync();
         }
 
         var expected = new Dictionary<Guid, Guid[]>
         {
-            [windows.Id] = [eventLog.Id, reboot.Id, ping.Id, powerShell.Id, numeric.Id],
-            [linux.Id] = [reboot.Id, ping.Id, bash.Id, numeric.Id],
-            [mac.Id] = [ping.Id, bash.Id, numeric.Id]
+            [windows.Id] = [eventLog.Id, reboot.Id, ping.Id, powerShell.Id, numeric.Id, windowsPing.Id],
+            [linux.Id] = [reboot.Id, ping.Id, bash.Id, numeric.Id, linuxPing.Id],
+            [mac.Id] = [ping.Id, bash.Id, numeric.Id],
+            [unknown.Id] = [.. checks.Select(c => c.Id)]
         };
 
         await using var context = _db.DbFactory.CreateSystem();

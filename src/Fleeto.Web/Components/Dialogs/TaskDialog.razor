@@ -1,0 +1,292 @@
+@* Create or edit a task (0.6.0): the library script and how it runs, when it starts, and what happens around a run. The scope
+   (global or one client) is chosen at creation and cannot change. Validation messages come from AutomationTasks.Validate. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(IsEdit ? $"Edit task {_m.Name}" : "New task")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_m.Name" Label="Name" Variant="Variant.Outlined" MaxLength="@AutomationTasks.MaxNameLength" AutoFocus="true" Class="mb-3" />
+        <MudTextField @bind-Value="_m.Description" Label="Description (optional)" Variant="Variant.Outlined" Lines="2"
+                      MaxLength="@AutomationTasks.MaxDescriptionLength" Class="mb-3" />
+        @if (!IsEdit)
+        {
+            <MudSelect T="Guid?" Value="_m.ClientId" ValueChanged="ClientChangedAsync" Label="Available for" Variant="Variant.Outlined" Class="mb-3"
+                       HelperText="A global task can be linked anywhere and runs a script for every client; a client task only within that client.">
+                <MudSelectItem T="Guid?" Value="@((Guid?)null)">Global (all clients)</MudSelectItem>
+                @foreach (var client in Clients)
+                {
+                    <MudSelectItem T="Guid?" Value="@((Guid?)client.Id)">@client.Code - @client.Name</MudSelectItem>
+                }
+            </MudSelect>
+        }
+
+        <MudText Typo="Typo.subtitle2" Class="mt-2 mb-2">Script</MudText>
+        <MudSelect T="Guid" @bind-Value="_m.ScriptId" Label="Script from the library" Variant="Variant.Outlined" Class="mb-3"
+                   HelperText="Every run takes the current version of the script. Where the policy requires approval, only an approved version runs.">
+            @foreach (var script in _scripts)
+            {
+                <MudSelectItem T="Guid" Value="script.Id">@script.Name (@ScriptLanguages.Label(script.Language)@(script.ClientCode is null ? "" : $", {script.ClientCode}"))</MudSelectItem>
+            }
+            @if (_m.ScriptId != Guid.Empty && _scripts.All(s => s.Id != _m.ScriptId))
+            {
+                <MudSelectItem T="Guid" Value="_m.ScriptId">Script not available</MudSelectItem>
+            }
+        </MudSelect>
+        <div class="d-flex gap-2 mb-1">
+            <MudSelect T="JobRunAs" @bind-Value="_m.RunAs" Label="Runs as" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:260px">
+                <MudSelectItem T="JobRunAs" Value="JobRunAs.Service">SYSTEM or root</MudSelectItem>
+                <MudSelectItem T="JobRunAs" Value="JobRunAs.LoggedOnUser">The signed-in user</MudSelectItem>
+            </MudSelect>
+            <AppliesToSelect @bind-Value="_m.AppliesTo"
+                             HelperText="A task for servers or workstations never runs on the other class, wherever it is linked." />
+        </div>
+        @if (_m.RunAs == JobRunAs.LoggedOnUser)
+        {
+            <MudText Typo="Typo.caption" Class="muted d-block mb-2">The run fails on an endpoint where nobody is signed in.</MudText>
+        }
+
+        <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Schedule</MudText>
+        <MudSelect T="TaskScheduleKind" @bind-Value="_m.ScheduleKind" Label="Runs" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2">
+            <MudSelectItem T="TaskScheduleKind" Value="TaskScheduleKind.None">No schedule</MudSelectItem>
+            <MudSelectItem T="TaskScheduleKind" Value="TaskScheduleKind.Once">Once</MudSelectItem>
+            <MudSelectItem T="TaskScheduleKind" Value="TaskScheduleKind.Daily">Every day or every few days</MudSelectItem>
+            <MudSelectItem T="TaskScheduleKind" Value="TaskScheduleKind.Weekly">Every week or every few weeks, on the chosen days</MudSelectItem>
+            <MudSelectItem T="TaskScheduleKind" Value="TaskScheduleKind.Monthly">Every month or every few months, on a day of the month</MudSelectItem>
+        </MudSelect>
+        @if (_m.ScheduleKind != TaskScheduleKind.None)
+        {
+            @if (_m.ScheduleKind != TaskScheduleKind.Once)
+            {
+                <MudNumericField T="int" @bind-Value="_m.Every" Label="@EveryLabel" Variant="Variant.Outlined" Margin="Margin.Dense" Min="1"
+                                 Max="@AutomationTasks.MaxEvery" Style="max-width:200px" Class="mb-2" />
+            }
+            @if (_m.ScheduleKind == TaskScheduleKind.Weekly)
+            {
+                <div class="d-flex flex-wrap gap-1 mb-2">
+                    @foreach (var day in WeekOrder)
+                    {
+                        var flag = AutomationTasks.DayFlag(day);
+                        <MudCheckBox T="bool" Value="@_m.WeekDays.HasFlag(flag)" ValueChanged="@(v => _m.WeekDays = v ? _m.WeekDays | flag : _m.WeekDays & ~flag)"
+                                     Label="@day.ToString()[..3]" Size="Size.Small" Color="Color.Primary" Dense="true" />
+                    }
+                </div>
+            }
+            @if (_m.ScheduleKind == TaskScheduleKind.Monthly)
+            {
+                <MudNumericField T="int" @bind-Value="_m.MonthDay" Label="Day of the month" Variant="Variant.Outlined" Margin="Margin.Dense" Min="1" Max="31"
+                                 Style="max-width:200px" Class="mb-2" HelperText="A shorter month runs on its last day." />
+            }
+            <div class="d-flex flex-wrap gap-2 align-start mb-2">
+                <MudDatePicker @bind-Date="_m.StartDate" Label="@(_m.ScheduleKind == TaskScheduleKind.Once ? "On" : "From")" Variant="Variant.Outlined"
+                               Margin="Margin.Dense" DateFormat="yyyy-MM-dd" Style="max-width:170px" />
+                <TimeField @bind-Value="_m.Start" Label="At" Margin="Margin.Dense" />
+                @if (_m.ScheduleKind != TaskScheduleKind.Once)
+                {
+                    <MudDatePicker @bind-Date="_m.EndDate" Label="Until (optional)" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="yyyy-MM-dd"
+                                   Clearable="true" Style="max-width:190px" />
+                }
+            </div>
+            <MudAutocomplete T="string" @bind-Value="_m.TimeZone" Label="Time zone" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2"
+                             SearchFunc="SearchZonesAsync" ToStringFunc="ZoneLabel" MaxItems="50" Strict="true" ResetValueOnEmptyText="false" />
+            @if (_m.ScheduleKind != TaskScheduleKind.Once)
+            {
+                <div class="d-flex gap-2 align-center mb-2">
+                    <MudSwitch T="bool" @bind-Value="_m.Repeat" Color="Color.Primary" Label="Repeat during the day" />
+                    @if (_m.Repeat)
+                    {
+                        <MudNumericField T="int" @bind-Value="_m.RepeatMinutes" Label="Every (minutes)" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                         Min="@AutomationTasks.MinRepeatMinutes" Max="@AutomationTasks.MaxRepeatMinutes" Style="max-width:170px" />
+                    }
+                </div>
+            }
+            <MudText Typo="Typo.caption" Class="muted d-block">@Describe().</MudText>
+        }
+
+        <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Also starts</MudText>
+        <MudSelect T="Guid" MultiSelection="true" @bind-SelectedValues="_m.TriggerChecks" Label="When an alert of these checks opens" Variant="Variant.Outlined"
+                   Margin="Margin.Dense" Class="mb-2" ToStringFunc="CheckLabel"
+                   HelperText="On the endpoint of the alert, at most once an hour there. Checks of monitoring templates for every client, or of this client.">
+            @foreach (var check in _checks)
+            {
+                <MudSelectItem T="Guid" Value="check.Id">@check.TemplateName · @check.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSwitch T="bool" @bind-Value="_m.OnManaged" Color="Color.Primary" Label="When an endpoint becomes managed" />
+        <MudText Typo="Typo.caption" Class="muted d-block mb-2">
+            A new endpoint is agent-only until it is switched to managed; that is when the task first runs there. A task also runs by hand with Run now.
+        </MudText>
+
+        <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Options</MudText>
+        <div class="d-flex flex-wrap gap-2 align-start mb-2">
+            <MudNumericField T="int" @bind-Value="_m.RandomDelayMinutes" Label="Random delay (minutes)" Variant="Variant.Outlined" Margin="Margin.Dense"
+                             Min="0" Max="@AutomationTasks.MaxRandomDelayMinutes" Style="max-width:200px"
+                             HelperText="Each endpoint starts at a random moment within it." />
+            <MudSelect T="TaskOverlap" @bind-Value="_m.Overlap" Label="When the previous run still runs" Variant="Variant.Outlined" Margin="Margin.Dense"
+                       Style="max-width:300px">
+                <MudSelectItem T="TaskOverlap" Value="TaskOverlap.Skip">Skip the endpoint this time</MudSelectItem>
+                <MudSelectItem T="TaskOverlap" Value="TaskOverlap.Wait">Wait until it has ended</MudSelectItem>
+            </MudSelect>
+        </div>
+        <MudSwitch T="bool" @bind-Value="_m.CatchUp" Color="Color.Primary" Label="Catch up a missed run" />
+        <MudText Typo="Typo.caption" Class="muted d-block mb-2">
+            @(_m.CatchUp
+                ? "An endpoint that is offline runs it when it comes back, until the next run (at most 7 days)."
+                : "An endpoint that is offline for more than an hour misses the run.")
+        </MudText>
+        <div class="d-flex gap-2 align-center mb-2">
+            <MudSwitch T="bool" @bind-Value="_m.AlertOnFailure" Color="Color.Primary" Label="Open an alert when a run fails" />
+            @if (_m.AlertOnFailure)
+            {
+                <MudSelect T="AlertSeverity" @bind-Value="_m.AlertSeverity" Label="Severity" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:150px">
+                    <MudSelectItem T="AlertSeverity" Value="AlertSeverity.Warning">Warning</MudSelectItem>
+                    <MudSelectItem T="AlertSeverity" Value="AlertSeverity.Critical">Critical</MudSelectItem>
+                </MudSelect>
+            }
+        </div>
+        <MudText Typo="Typo.caption" Class="muted d-block mb-2">
+            The alert is on the endpoint, follows the notification channels like every alert, and resolves with the next successful run.
+        </MudText>
+        <MudSwitch T="bool" @bind-Value="_m.Enabled" Color="Color.Primary" Label="Enabled" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">@(IsEdit ? "Save" : "Create")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private static readonly DayOfWeek[] WeekOrder =
+        [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday];
+
+    /// <summary>The form state.</summary>
+    private sealed class Model
+    {
+        public string? Name { get; set; }
+        public string? Description { get; set; }
+        public Guid? ClientId { get; set; }
+        public Guid ScriptId { get; set; }
+        public JobRunAs RunAs { get; set; } = JobRunAs.Service;
+        public CheckAppliesTo AppliesTo { get; set; } = CheckAppliesTo.All;
+        public bool Enabled { get; set; } = true;
+        public TaskScheduleKind ScheduleKind { get; set; } = TaskScheduleKind.Daily;
+        public string TimeZone { get; set; } = "UTC";
+        public DateTime? StartDate { get; set; } = DateTime.Today;
+        public TimeSpan? Start { get; set; } = TimeSpan.FromHours(2);
+        public DateTime? EndDate { get; set; }
+        public int Every { get; set; } = 1;
+        public WeekDays WeekDays { get; set; } = WeekDays.Monday;
+        public int MonthDay { get; set; } = 1;
+        public bool Repeat { get; set; }
+        public int RepeatMinutes { get; set; } = 60;
+        public IReadOnlyCollection<Guid> TriggerChecks { get; set; } = new HashSet<Guid>();
+        public bool OnManaged { get; set; }
+        public int RandomDelayMinutes { get; set; }
+        public bool CatchUp { get; set; } = true;
+        public TaskOverlap Overlap { get; set; } = TaskOverlap.Skip;
+        public bool AlertOnFailure { get; set; } = true;
+        public AlertSeverity AlertSeverity { get; set; } = AlertSeverity.Warning;
+
+        public TaskInput ToInput() => new(Name, Description, ClientId, ScriptId, RunAs, AppliesTo, Enabled, ScheduleKind, TimeZone,
+            DateOnly.FromDateTime(StartDate ?? DateTime.Today), (int)(Start ?? TimeSpan.Zero).TotalMinutes,
+            EndDate is { } end ? DateOnly.FromDateTime(end) : null, Every, WeekDays, MonthDay, Repeat ? RepeatMinutes : null,
+            TriggerChecks.ToList(), OnManaged, RandomDelayMinutes, CatchUp, Overlap, AlertOnFailure, AlertSeverity);
+
+        public static Model From(TaskInput t) => new()
+        {
+            Name = t.Name, Description = t.Description, ClientId = t.ClientId, ScriptId = t.ScriptId, RunAs = t.RunAs, AppliesTo = t.AppliesTo,
+            Enabled = t.Enabled, ScheduleKind = t.ScheduleKind, TimeZone = t.TimeZone, StartDate = t.StartDate.ToDateTime(TimeOnly.MinValue),
+            Start = TimeSpan.FromMinutes(t.StartMinute), EndDate = t.EndDate?.ToDateTime(TimeOnly.MinValue), Every = Math.Max(1, t.Every),
+            WeekDays = t.WeekDays == WeekDays.None ? WeekDays.Monday : t.WeekDays, MonthDay = t.MonthDay, Repeat = t.RepeatMinutes is not null,
+            RepeatMinutes = t.RepeatMinutes ?? 60, TriggerChecks = t.TriggerCheckIds.ToHashSet(), OnManaged = t.OnManaged,
+            RandomDelayMinutes = t.RandomDelayMinutes, CatchUp = t.CatchUp, Overlap = t.Overlap, AlertOnFailure = t.AlertOnFailure,
+            AlertSeverity = t.AlertSeverity
+        };
+    }
+
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    /// <summary>The task to edit; null creates one.</summary>
+    [Parameter] public TaskInput? Existing { get; set; }
+
+    [Parameter] public IReadOnlyList<ClientOption> Clients { get; set; } = [];
+
+    /// <summary>The time zone a new task starts with: the one the user sees times in.</summary>
+    [Parameter] public string DefaultTimeZone { get; set; } = "UTC";
+
+    [Parameter] public Func<Guid?, Task<IReadOnlyList<TaskScriptOption>>> LoadScripts { get; set; } = _ => Task.FromResult<IReadOnlyList<TaskScriptOption>>([]);
+    [Parameter] public Func<Guid?, Task<IReadOnlyList<TaskCheckOption>>> LoadChecks { get; set; } = _ => Task.FromResult<IReadOnlyList<TaskCheckOption>>([]);
+    [Parameter] public Func<TaskInput, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+
+    private bool IsEdit => Existing is not null;
+    private Model _m = new();
+    private IReadOnlyList<TaskScriptOption> _scripts = [];
+    private IReadOnlyList<TaskCheckOption> _checks = [];
+    private bool _busy;
+
+    private string EveryLabel => _m.ScheduleKind switch
+    {
+        TaskScheduleKind.Daily => "Every how many days",
+        TaskScheduleKind.Weekly => "Every how many weeks",
+        _ => "Every how many months"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _m = Existing is { } existing ? Model.From(existing) : new Model { TimeZone = DefaultTimeZone };
+        await LoadChoicesAsync();
+    }
+
+    private async Task ClientChangedAsync(Guid? clientId)
+    {
+        _m.ClientId = clientId;
+        await LoadChoicesAsync();
+    }
+
+    private async Task LoadChoicesAsync()
+    {
+        _scripts = await LoadScripts(_m.ClientId);
+        _checks = await LoadChecks(_m.ClientId);
+        if (_m.ScriptId == Guid.Empty && _scripts.Count > 0)
+        {
+            _m.ScriptId = _scripts[0].Id;
+        }
+    }
+
+    private string CheckLabel(Guid id) => _checks.FirstOrDefault(c => c.Id == id) is { } check ? check.Name : string.Empty;
+
+    private string Describe() => AutomationTasks.Describe(new AutomationTask
+    {
+        ScheduleKind = _m.ScheduleKind, TimeZone = _m.TimeZone, StartDate = DateOnly.FromDateTime(_m.StartDate ?? DateTime.Today),
+        StartMinute = (int)(_m.Start ?? TimeSpan.Zero).TotalMinutes, EndDate = _m.EndDate is { } end ? DateOnly.FromDateTime(end) : null,
+        Every = Math.Max(1, _m.Every), WeekDays = _m.WeekDays, MonthDay = _m.MonthDay, RepeatMinutes = _m.Repeat ? _m.RepeatMinutes : null
+    });
+
+    private static string ZoneLabel(string? id) => TimeZoneOptions.All.FirstOrDefault(z => z.Id == id)?.Label ?? id ?? string.Empty;
+
+    private static Task<IEnumerable<string>> SearchZonesAsync(string? text, CancellationToken cancellationToken)
+    {
+        var term = text?.Trim();
+        return Task.FromResult(TimeZoneOptions.All
+            .Where(z => string.IsNullOrEmpty(term) || z.Label.Contains(term, StringComparison.OrdinalIgnoreCase))
+            .Select(z => z.Id));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(_m.ToInput()))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

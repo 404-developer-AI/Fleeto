@@ -88,6 +88,9 @@ public class Endpoint
     public EndpointClass? ClassOverride { get; set; }
 
     public EndpointTier Tier { get; set; } = EndpointTier.AgentOnly;
+
+    /// <summary>When the endpoint was last switched to managed (0.6.0), for the tasks that start then; null while agent-only.</summary>
+    public DateTime? ManagedSince { get; set; }
     public EndpointSource Source { get; set; } = EndpointSource.Agent;
 
     public string OsPlatform { get; set; } = string.Empty;

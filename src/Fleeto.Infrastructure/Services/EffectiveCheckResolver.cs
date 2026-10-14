@@ -17,7 +17,7 @@ public static class EffectiveCheckResolver
     /// </summary>
     public static readonly string AppliesSql = """
         (d."Enabled" AND
-        """ + CheckCatalog.PlatformSql + """
+        """ + CheckCatalog.PlatformSql + " AND " + CheckCatalog.OperatingSystemSql + """
          AND (
           (d."MonitoringTemplateId" IS NOT NULL
             AND (d."AppliesTo" = 'All' OR d."AppliesTo" = COALESCE(e."ClassOverride", e."DetectedClass"))

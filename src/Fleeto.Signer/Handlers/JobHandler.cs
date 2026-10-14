@@ -45,7 +45,13 @@ public sealed class JobHandler : ISigningRequestHandler
         "The Action1 agent installer link of this client changed after the job was started. Start the installation again.";
     public const string AgentRemovalPlatformReason = "Fleeto removes the Action1 agent from Windows endpoints only. Remove it on a Linux endpoint from the Action1 console.";
     public const string AgentRemovalChangedReason = "The job does not match the removal Fleeto composes. Start the removal again.";
-    public const string AutomaticTypeReason = "Fleeto starts only the installation of the Action1 agent by itself. This job has no initiator.";
+    public const string AutomaticTypeReason =
+        "Fleeto starts only the installation of the Action1 agent and the runs of tasks by itself. This job has no initiator.";
+    public const string TaskGoneReason = "The task of this job no longer exists or is switched off, so Fleeto did not start it.";
+    public const string TaskChangedReason = "The task changed after this run started: its script, account or run no longer match. The next run uses the task as it is now.";
+    public const string TaskTriggerReason = "The task no longer starts for what started this run, so Fleeto did not start it.";
+    public const string TaskTargetReason = "The task no longer applies to this endpoint, so Fleeto did not start it.";
+    public const string TaskIntervalReason = "This task already ran on this endpoint less than 15 minutes ago, so Fleeto did not start it again.";
     public const string AccessReason = "The user who started the job no longer has access to this endpoint. Ask an admin to add it to a group that has.";
     public const string AutomaticPolicyReason =
         "The patch policy of this endpoint no longer installs the Action1 agent automatically, so Fleeto did not start the installation.";
@@ -98,7 +104,8 @@ public sealed class JobHandler : ISigningRequestHandler
         // initiator's role, the patch policy of the endpoint has to ask for it, checked further down. No other job runs
         // without a user.
         var automatic = job.InitiatedByUserId == Action1AgentInstall.AutomaticInitiator;
-        if (automatic && job.Type != JobType.Action1Agent)
+        // A run of a task Fleeto started (0.6.0) has no user either: the task itself has to ask for it, checked further down.
+        if (automatic && !(job.Type == JobType.Action1Agent || (job.Type == JobType.Script && job.TaskId is not null)))
         {
             return SigningOutcome.Refused(AutomaticTypeReason);
         }
@@ -146,6 +153,11 @@ public sealed class JobHandler : ISigningRequestHandler
         if (job.Type == JobType.Action1AgentRemoval)
         {
             return await SignAgentRemovalAsync(db, job, endpoint.Id, endpoint.Hostname, endpoint.OsPlatform, now, cancellationToken);
+        }
+
+        if (automatic && await AutomaticTaskRefusalAsync(db, job, now, cancellationToken) is { } taskRefusal)
+        {
+            return SigningOutcome.Refused(taskRefusal);
         }
 
         var version = job.ScriptVersionId is { } versionId
@@ -239,7 +251,8 @@ public sealed class JobHandler : ISigningRequestHandler
                 job.ValidUntil,
                 InitiatedBy = job.InitiatedByName,
                 ApprovalRequired = policy?.ScriptApprovalRequired == true,
-                RunAs = job.RunAs.ToString()
+                RunAs = job.RunAs.ToString(),
+                job.TaskId
             }), now, cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
@@ -306,6 +319,67 @@ public sealed class JobHandler : ISigningRequestHandler
         var removed = await db.Action1AgentInstallStates.IgnoreQueryFilters().AsNoTracking()
             .AnyAsync(a => a.EndpointId == job.EndpointId && a.Status == Action1AgentStatus.Removed, cancellationToken);
         return removed ? AutomaticRemovedReason : null;
+    }
+
+    /// <summary>
+    /// Why a job of a run of a task Fleeto started may not be signed (0.6.0), or null. The workers wrote it; the signer decides
+    /// again from the database: the task exists, is enabled and still runs this script as this account; the run and its endpoint
+    /// belong to the job; what started the run is still something the task starts on (an occurrence of its schedule, an alert of
+    /// one of its checks on this endpoint, the moment the endpoint became managed); the task still applies to the endpoint; and no
+    /// other job of the task Fleeto started was signed for the endpoint in the last 15 minutes. Script approval follows after this,
+    /// as for every job. Full control of the workers can so start the linked tasks at other moments, never another script.
+    /// </summary>
+    private static async Task<string?> AutomaticTaskRefusalAsync(Infrastructure.Data.FleetoDbContext db, Job job, DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var task = await db.AutomationTasks.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(t => t.Id == job.TaskId, cancellationToken);
+        if (task is null || !task.Enabled)
+        {
+            return TaskGoneReason;
+        }
+
+        if (task.ScriptId != job.ScriptId || task.RunAs != job.RunAs || job.RunAsUserId is not null ||
+            (task.ClientId is { } taskClient && taskClient != job.ClientId))
+        {
+            return TaskChangedReason;
+        }
+
+        var run = await db.AutomationTaskRuns.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(r => r.Id == job.TaskRunId, cancellationToken);
+        var target = run is null
+            ? null
+            : await db.AutomationTaskRunTargets.IgnoreQueryFilters().AsNoTracking()
+                .SingleOrDefaultAsync(t => t.RunId == run.Id && t.EndpointId == job.EndpointId, cancellationToken);
+        if (run is null || run.AutomationTaskId != task.Id || run.ClientId != job.ClientId || target?.JobId != job.Id)
+        {
+            return TaskChangedReason;
+        }
+
+        var checkIds = task.TriggerCheckIds;
+        var occurrence = run.OccurrenceAt;
+        var started = run.Trigger switch
+        {
+            TaskTrigger.Schedule => AutomationTasks.IsOccurrence(task, occurrence),
+            TaskTrigger.CheckAlert => checkIds.Count > 0 && await db.Alerts.IgnoreQueryFilters().AnyAsync(a =>
+                a.EndpointId == job.EndpointId && a.Kind == AlertKind.Check && a.CheckDefinitionId != null &&
+                checkIds.Contains(a.CheckDefinitionId.Value) && a.OpenedAt == occurrence, cancellationToken),
+            TaskTrigger.Managed => task.OnManaged && await db.Endpoints.IgnoreQueryFilters().AnyAsync(e =>
+                e.Id == job.EndpointId && e.ManagedSince == occurrence, cancellationToken),
+            _ => false
+        };
+        if (!started)
+        {
+            return TaskTriggerReason;
+        }
+
+        if (!await AutomationTaskTargets.Linked(db, task).IgnoreQueryFilters().AnyAsync(e => e.Id == job.EndpointId, cancellationToken))
+        {
+            return TaskTargetReason;
+        }
+
+        var since = now - AutomationTasks.AutomaticSigningInterval;
+        var recent = await db.Jobs.IgnoreQueryFilters().AnyAsync(j => j.TaskId == task.Id && j.EndpointId == job.EndpointId && j.Id != job.Id &&
+            j.InitiatedByUserId == AutomationTasks.AutomaticInitiator && j.SignedAt != null && j.SignedAt > since, cancellationToken);
+        return recent ? TaskIntervalReason : null;
     }
 
     /// <summary>

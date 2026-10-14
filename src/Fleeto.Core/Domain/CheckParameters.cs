@@ -76,6 +76,16 @@ public static class CheckParameters
         }
 
         var info = CheckCatalog.Get(definition.Type);
+        if (!Enum.IsDefined(definition.OperatingSystem))
+        {
+            problems.Add("Choose the operating system the check runs on.");
+        }
+        else if (definition.OperatingSystem != CheckOperatingSystem.All && !CheckCatalog.OffersOperatingSystemChoice(definition.Type, parameters))
+        {
+            // Limiting a check whose type runs on one platform only would either change nothing or stop it everywhere.
+            problems.Add($"This {info.Label.ToLowerInvariant()} check runs on {CheckCatalog.PlatformLabel(info.PlatformsOf(parameters))} only. Choose Windows and Linux as its operating system.");
+        }
+
         foreach (var spec in info.Parameters.Where(s => s.AppliesTo(definition.Type, parameters)))
         {
             parameters.TryGetValue(spec.Name, out var value);

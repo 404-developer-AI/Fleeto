@@ -381,6 +381,35 @@ public static partial class CheckCatalog
     public static bool IsSupported(CheckType type, IReadOnlyDictionary<string, string> parameters, string? osPlatform) =>
         PlatformOf(osPlatform) is not { } platform || Get(type).PlatformsOf(parameters).HasFlag(platform);
 
+    /// <summary>
+    /// True when a check limited to <paramref name="operatingSystem"/> runs on an endpoint with this OS platform (0.6.0). An unknown
+    /// platform counts as a match, as in <see cref="IsSupported(CheckType, string?)"/>.
+    /// </summary>
+    public static bool MatchesOperatingSystem(CheckOperatingSystem operatingSystem, string? osPlatform) =>
+        operatingSystem == CheckOperatingSystem.All || PlatformOf(osPlatform) is not { } platform || platform == PlatformsOf(operatingSystem);
+
+    public static CheckPlatforms PlatformsOf(CheckOperatingSystem operatingSystem) => operatingSystem switch
+    {
+        CheckOperatingSystem.Windows => CheckPlatforms.Windows,
+        CheckOperatingSystem.Linux => CheckPlatforms.Linux,
+        _ => CheckPlatforms.All
+    };
+
+    /// <summary>
+    /// True when a check of this type with these parameters runs on both Windows and Linux, so limiting it to one of them means
+    /// something. A Windows-only type (event log) or a PowerShell script check offers no choice.
+    /// </summary>
+    public static bool OffersOperatingSystemChoice(CheckType type, IReadOnlyDictionary<string, string> parameters) =>
+        Enum.IsDefined(type) && Get(type).PlatformsOf(parameters) is var platforms &&
+        platforms.HasFlag(CheckPlatforms.Windows) && platforms.HasFlag(CheckPlatforms.Linux);
+
+    /// <summary>
+    /// SQL condition, true when the operating system of check definition <c>d</c> matches endpoint <c>e</c> (the twin of
+    /// <see cref="MatchesOperatingSystem"/>).
+    /// </summary>
+    public const string OperatingSystemSql =
+        """(d."OperatingSystem" = 'All' OR lower(COALESCE(e."OsPlatform", '')) NOT IN ('windows', 'linux', 'darwin') OR lower(COALESCE(e."OsPlatform", '')) = lower(d."OperatingSystem"))""";
+
     public static CheckPlatforms? PlatformOf(string? osPlatform) => osPlatform?.ToLowerInvariant() switch
     {
         "windows" => CheckPlatforms.Windows,

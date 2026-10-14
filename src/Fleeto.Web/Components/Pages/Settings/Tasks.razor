@@ -1,0 +1,133 @@
+@page "/settings/tasks"
+@attribute [RequirePermission(Permissions.TasksView)]
+@inherits FleetoPageBase
+@inject TaskService TaskSvc
+@inject ClientService ClientSvc
+@inject IDialogService DialogService
+
+<PageTitle>Tasks - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Tasks</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            Library scripts that run by themselves on the clients, sites and endpoints they are linked to: on a schedule, when an alert of
+            a check opens, when an endpoint becomes managed, or by hand.
+        </MudText>
+    </div>
+    @if (Can(Permissions.TasksEdit))
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="CreateAsync">New task</MudButton>
+    }
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_tasks.Count == 0)
+    {
+        <EmptyState Icon="@Icons.Material.Outlined.EventRepeat" Title="No tasks yet"
+                    Text="Create a task, choose a script from the library and when it runs, then link it to clients, sites or endpoints." />
+    }
+    else
+    {
+        <MudTable Items="_tasks" Hover="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>Name</MudTh>
+                <MudTh>Available for</MudTh>
+                <MudTh>Script</MudTh>
+                <MudTh>Runs</MudTh>
+                <MudTh>Next run</MudTh>
+                <MudTh>Last run</MudTh>
+                <MudTh>Enabled</MudTh>
+                @if (Can(Permissions.TasksEdit))
+                {
+                    <MudTh Style="width:60px"></MudTh>
+                }
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>
+                    <MudLink Href="@($"/settings/tasks/{context.Id}")"><strong>@context.Name</strong></MudLink>
+                    <div class="muted" style="font-size:0.8125rem">@(context.Links == 0 ? "Not linked yet" : Ui.Count(context.Links, "link"))</div>
+                </MudTd>
+                <MudTd>@(context.ClientCode ?? "All clients")</MudTd>
+                <MudTd>@context.ScriptName</MudTd>
+                <MudTd>
+                    @context.Schedule
+                    <div class="muted" style="font-size:0.8125rem">@context.Triggers</div>
+                </MudTd>
+                <MudTd>@(context.NextRunAt is { } next ? Time.Short(next) : "—")</MudTd>
+                <MudTd>@Time.Relative(context.LastRunAt)</MudTd>
+                <MudTd>
+                    <MudSwitch T="bool" Value="context.Enabled" ValueChanged="@(v => SetEnabledAsync(context, v))" Color="Color.Primary"
+                               Disabled="@(!Can(Permissions.TasksEdit))" />
+                </MudTd>
+                @if (Can(Permissions.TasksEdit))
+                {
+                    <MudTd>
+                        <MudTooltip Text="Delete"><MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context))" /></MudTooltip>
+                    </MudTd>
+                }
+            </RowTemplate>
+        </MudTable>
+    }
+</LoadState>
+
+@code {
+    private IReadOnlyList<TaskListItem> _tasks = [];
+    private IReadOnlyList<ClientOption> _clients = [];
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        _tasks = await TaskSvc.ListAsync(caller);
+        _clients = await ClientSvc.ListOptionsAsync(caller);
+    });
+
+    private async Task CreateAsync()
+    {
+        Guid? createdId = null;
+        var parameters = new DialogParameters<TaskDialog>
+        {
+            { d => d.Clients, _clients },
+            { d => d.DefaultTimeZone, TimeZoneOptions.IanaId(Time.Zone) },
+            { d => d.LoadScripts, clientId => TaskSvc.GetScriptChoicesAsync(Caller!, clientId) },
+            { d => d.LoadChecks, clientId => TaskSvc.GetCheckChoicesAsync(Caller!, clientId) },
+            {
+                d => d.OnSubmit, async input =>
+                {
+                    var result = await RunForValueAsync(caller => TaskSvc.SaveAsync(caller, null, input), "The task was created. Link it to clients, sites or endpoints.");
+                    createdId = result?.Value;
+                    return result is not null;
+                }
+            }
+        };
+        var dialog = await DialogService.ShowAsync<TaskDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        await dialog.Result;
+        if (createdId is { } id)
+        {
+            Navigation.NavigateTo($"/settings/tasks/{id}");
+        }
+    }
+
+    private async Task SetEnabledAsync(TaskListItem task, bool enabled)
+    {
+        if (await RunAsync(caller => TaskSvc.SetEnabledAsync(caller, task.Id, enabled), enabled ? "The task is on." : "The task is off."))
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(TaskListItem task)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Delete task {task.Name}" },
+            { d => d.Message, "The task stops running everywhere it is linked, and its runs are deleted. The jobs it ran stay in the history of their endpoints. This cannot be undone." }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => TaskSvc.DeleteAsync(caller, task.Id), "The task was deleted."))
+        {
+            await ReloadAsync();
+        }
+    }
+}

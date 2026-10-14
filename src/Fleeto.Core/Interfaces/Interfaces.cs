@@ -167,6 +167,12 @@ public static class NotificationChannels
     /// the workers can reach Microsoft, so they answer and web reads the answer from the row.
     /// </summary>
     public const string MicrosoftRequests = "fleeto_microsoft_requests";
+
+    /// <summary>
+    /// Payload: AutomationTask id. A user changed a task or started it by hand, or the workers started a run of it (0.6.0); the
+    /// workers look at its schedule again and the task page reloads its runs.
+    /// </summary>
+    public const string Tasks = "fleeto_tasks";
 }
 
 /// <summary>Writes audit entries. The table is append-only; there is no update or delete.</summary>
@@ -282,6 +288,10 @@ public static class AuditActions
     public const string MonitoringTemplateCreated = "monitoring_template.created";
     public const string MonitoringTemplateUpdated = "monitoring_template.updated";
     public const string MonitoringTemplateDeleted = "monitoring_template.deleted";
+    public const string TaskCreated = "task.created";
+    public const string TaskUpdated = "task.updated";
+    public const string TaskDeleted = "task.deleted";
+    public const string TaskRunStarted = "task.run_started";
     public const string ClientTemplateCreated = "client_template.created";
     public const string ClientTemplateUpdated = "client_template.updated";
     public const string ClientTemplateDeleted = "client_template.deleted";
