@@ -1,7 +1,8 @@
 @inherits LayoutComponentBase
 @layout MainLayout
+@inject CurrentUser CurrentUser
 
-@* Settings workspace: the settings pages on the left, the selected page on the right. *@
+@* Settings workspace: the settings pages on the left, the selected page on the right. Each page shows only with its permission (0.6.0). *@
 <div class="settings-workspace">
     <aside class="client-panel">
         <div class="client-panel-head">
@@ -11,30 +12,22 @@
             </span>
         </div>
         <nav class="client-panel-list" aria-label="Settings">
-            <div class="settings-group-title">Templates</div>
-            @Item("/settings/client-templates", Icons.Material.Outlined.AccountTree, "Client templates")
-            @Item("/settings/monitoring-templates", Icons.Material.Outlined.Rule, "Monitoring templates")
-            @Item("/settings/policies", Icons.Material.Outlined.Tune, "Policies")
-            @Item("/settings/patch-policies", Icons.Material.Outlined.SystemUpdateAlt, "Patch policies")
-            @Item("/settings/scripts", Icons.Material.Outlined.Terminal, "Scripts")
-            <AuthorizeView Policy="@FleetoPolicies.Admin">
+            @if (_pages.Any(p => !p.Administration))
+            {
+                <div class="settings-group-title">Templates</div>
+                @foreach (var entry in _pages.Where(p => !p.Administration))
+                {
+                    @Item(entry)
+                }
+            }
+            @if (_pages.Any(p => p.Administration))
+            {
                 <div class="settings-group-title">Administration</div>
-                @Item("/settings/users", Icons.Material.Outlined.People, "Users")
-                @Item("/settings/groups", Icons.Material.Outlined.Groups, "Groups")
-                @Item("/settings/sign-in", Icons.Material.Outlined.Login, "Sign-in")
-                @Item("/settings/tags", Icons.Material.Outlined.Sell, "Tags")
-                @Item("/settings/licensing", Icons.Material.Outlined.WorkspacePremium, "Licensing")
-                @Item("/settings/email", Icons.Material.Outlined.Email, "Email")
-                @Item("/settings/notification-channels", Icons.Material.Outlined.Campaign, "Notification channels")
-                @Item("/settings/integrations", Icons.Material.Outlined.Hub, "Integrations")
-                @Item("/settings/api-keys", Icons.Material.Outlined.Key, "API keys")
-                @Item("/settings/agent-updates", Icons.Material.Outlined.SystemUpdateAlt, "Agent updates")
-                @Item("/settings/agent-uninstalls", Icons.Material.Outlined.DeleteSweep, "Agent uninstalls")
-                @Item("/settings/backups", Icons.Material.Outlined.Backup, "Backups")
-                @Item("/settings/audit-log", Icons.Material.Outlined.History, "Audit log")
-                @Item("/settings/instance", Icons.Material.Outlined.Dns, "Instance")
-                @Item("/settings/instance-health", Icons.Material.Outlined.MonitorHeart, "Instance health")
-            </AuthorizeView>
+                @foreach (var entry in _pages.Where(p => p.Administration))
+                {
+                    @Item(entry)
+                }
+            }
         </nav>
     </aside>
 
@@ -44,11 +37,25 @@
 </div>
 
 @code {
-    private static RenderFragment Item(string href, string icon, string label) => __builder =>
+    private IReadOnlyList<SettingsPage> _pages = [];
+
+    protected override async Task OnInitializedAsync()
     {
-        <NavLink href="@href" Match="NavLinkMatch.Prefix" class="settings-link" ActiveClass="selected">
-            <MudIcon Icon="@icon" Size="Size.Small" Class="settings-link-icon" />
-            <span class="client-name">@label</span>
+        try
+        {
+            _pages = SettingsPages.For(await CurrentUser.TryGetAsync());
+        }
+        catch (Exception)
+        {
+            // The panel stays empty; the page itself decides whether it may be shown.
+        }
+    }
+
+    private static RenderFragment Item(SettingsPage entry) => __builder =>
+    {
+        <NavLink href="@entry.Href" Match="NavLinkMatch.Prefix" class="settings-link" ActiveClass="selected">
+            <MudIcon Icon="@entry.Icon" Size="Size.Small" Class="settings-link-icon" />
+            <span class="client-name">@entry.Label</span>
         </NavLink>
     };
 }

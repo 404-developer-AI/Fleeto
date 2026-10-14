@@ -74,7 +74,7 @@ public sealed class IntegrationService
     /// <summary>The Action1 integration, or null while none is configured.</summary>
     public async Task<IntegrationView?> GetAction1Async(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.IntegrationsManage);
         await using var db = _dbFactory.CreateSystem();
         var integration = await db.Integrations.AsNoTracking().Include(i => i.Mappings)
             .SingleOrDefaultAsync(i => i.Type == IntegrationType.Action1, cancellationToken);
@@ -97,7 +97,7 @@ public sealed class IntegrationService
     /// <summary>Every client of the instance, for the mapping choice.</summary>
     public async Task<IReadOnlyList<IntegrationClient>> ListClientsAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.IntegrationsManage);
         await using var db = _dbFactory.CreateSystem();
         return await db.Clients.AsNoTracking().OrderBy(c => c.Code)
             .Select(c => new IntegrationClient(c.Id, c.Code, c.Name)).ToListAsync(cancellationToken);
@@ -106,7 +106,7 @@ public sealed class IntegrationService
     /// <summary>Stores the Action1 credentials. A blank secret keeps the one that is stored.</summary>
     public async Task<ServiceResult> SaveAction1Async(Caller caller, Action1Input input, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.IntegrationsManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -197,7 +197,7 @@ public sealed class IntegrationService
     /// </summary>
     public async Task<ServiceResult> DismissOperationAsync(Caller caller, Guid operationId, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.IntegrationsManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -226,7 +226,7 @@ public sealed class IntegrationService
     /// <summary>Removes the integration with its mappings. The patch state Fleeto stored stays until its own cleanup.</summary>
     public async Task<ServiceResult> RemoveAction1Async(Caller caller, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.IntegrationsManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -254,7 +254,7 @@ public sealed class IntegrationService
     /// </summary>
     public async Task<ServiceResult> RequestTestAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.IntegrationsManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -276,7 +276,7 @@ public sealed class IntegrationService
     public async Task<ServiceResult> SaveMappingAsync(Caller caller, Guid clientId, string tenantId, string tenantName,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.IntegrationsManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -341,7 +341,7 @@ public sealed class IntegrationService
     public async Task<ServiceResult> SaveAgentInstallerUrlAsync(Caller caller, Guid mappingId, string? url,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.IntegrationsManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -373,7 +373,7 @@ public sealed class IntegrationService
     /// <summary>Removes one mapping. The client keeps its endpoints; they simply have no patch state any more.</summary>
     public async Task<ServiceResult> RemoveMappingAsync(Caller caller, Guid mappingId, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.IntegrationsManage))
         {
             return ServiceResult.Forbidden();
         }

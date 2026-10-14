@@ -143,7 +143,7 @@ public sealed class PatchService
     /// <summary>The patch state of one endpoint. Null when the endpoint does not exist or is not visible to the caller.</summary>
     public async Task<EndpointPatchView?> GetAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.PatchesView);
         await using var db = _dbFactory.Create(caller.Scope);
         var endpoint = await db.Endpoints.AsNoTracking().Where(e => e.Id == endpointId)
             .Select(e => new { e.Tier, e.ClientId, e.OsPlatform }).SingleOrDefaultAsync(cancellationToken);
@@ -255,7 +255,7 @@ public sealed class PatchService
     /// </summary>
     public async Task<ServiceResult> RequestSyncAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.PatchesSync))
         {
             return ServiceResult.Forbidden();
         }
@@ -316,7 +316,7 @@ public sealed class PatchService
     /// </summary>
     public async Task<ServiceResult<bool>> RemoveAgentAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.Action1AgentRemove))
         {
             return ServiceResult<bool>.Forbidden();
         }
@@ -403,7 +403,7 @@ public sealed class PatchService
     public async Task<PatchCompliance> GetComplianceAsync(Caller caller, Guid? clientId = null, Guid? siteId = null,
         CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var states = db.EndpointPatchStates.AsNoTracking();
         if (clientId is { } client)
@@ -445,7 +445,7 @@ public sealed class PatchService
     public async Task<ServiceResult<DeploymentStartResult>> StartDeploymentAsync(Caller caller, IReadOnlyCollection<Guid> endpointIds,
         IReadOnlyCollection<string>? updateIds = null, bool autoReboot = false, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.PatchesDeploy))
         {
             return ServiceResult<DeploymentStartResult>.Forbidden();
         }
@@ -624,7 +624,7 @@ public sealed class PatchService
     /// </summary>
     public async Task<ServiceResult> InstallAgentAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.Action1AgentInstall))
         {
             return ServiceResult.Forbidden();
         }
@@ -737,7 +737,7 @@ public sealed class PatchService
     public async Task<IReadOnlyList<DeploymentView>> ListDeploymentsAsync(Caller caller, Guid endpointId, int limit = 10,
         CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.PatchesView);
         await using var db = _dbFactory.Create(caller.Scope);
         var deployments = await db.PatchDeployments.AsNoTracking()
             .Include(d => d.Targets)
@@ -756,7 +756,7 @@ public sealed class PatchService
     public async Task<DeploymentHistoryView?> GetHistoryAsync(Caller caller, Guid deploymentId, Guid endpointId,
         CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.PatchesView);
         await using var db = _dbFactory.Create(caller.Scope);
         var target = await db.PatchDeploymentTargets.AsNoTracking()
             .Where(t => t.DeploymentId == deploymentId && t.EndpointId == endpointId)
@@ -782,7 +782,7 @@ public sealed class PatchService
     /// <summary>The deployments of one run, for the window that shows how it went.</summary>
     public async Task<IReadOnlyList<DeploymentView>> ListBatchAsync(Caller caller, Guid batchId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.PatchesView);
         await using var db = _dbFactory.Create(caller.Scope);
         var deployments = await db.PatchDeployments.AsNoTracking()
             .Include(d => d.Targets)

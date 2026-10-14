@@ -1,5 +1,5 @@
 @page "/settings/email"
-@attribute [Authorize(Policy = FleetoPolicies.Admin)]
+@attribute [RequirePermission(Permissions.EmailManage)]
 @inherits FleetoPageBase
 @using Fleeto.Infrastructure.Settings
 @inject SettingsService SettingsSvc

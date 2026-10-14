@@ -1,3 +1,4 @@
+using Fleeto.Core.Domain;
 using Fleeto.Infrastructure.Data;
 using Fleeto.Web.Security;
 using Microsoft.EntityFrameworkCore;
@@ -21,7 +22,7 @@ public sealed class AuditQueryService
 
     public async Task<AuditPage> QueryAsync(Caller caller, AuditQuery query, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.AuditView);
         var limit = Math.Clamp(query.Limit, 1, 200);
         await using var db = _dbFactory.Create(caller.Scope);
         var entries = db.AuditEntries.AsNoTracking();

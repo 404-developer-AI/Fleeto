@@ -1,0 +1,102 @@
+@page "/settings/roles"
+@attribute [RequirePermission(Permissions.RolesManage)]
+@inherits FleetoPageBase
+@inject RoleService RoleSvc
+@inject IDialogService DialogService
+
+<PageTitle>Roles - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Roles</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            A role says what its users may do; their groups say where. A user with more roles may do what they give together. The
+            default roles cannot be changed: copy one to make your own. A permission added by a later update is off in your own roles
+            until you give it.
+        </MudText>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="@(() => ShowAsync(null, null))">New role</MudButton>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    <MudTable Items="_roles" Hover="true" Elevation="0">
+        <HeaderContent>
+            <MudTh>Role</MudTh>
+            <MudTh>Type</MudTh>
+            <MudTh>Permissions</MudTh>
+            <MudTh>Users</MudTh>
+            <MudTh Style="width:150px"></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>
+                <strong>@context.DisplayName</strong>
+                @if (!string.IsNullOrEmpty(context.Description))
+                {
+                    <div class="muted" style="font-size:0.8125rem">@context.Description</div>
+                }
+            </MudTd>
+            <MudTd>
+                <StatusChip Text="@(context.IsBuiltIn ? "Default" : "Custom")" Kind="@(context.IsBuiltIn ? StatusKind.Neutral : StatusKind.Ok)" />
+            </MudTd>
+            <MudTd>@context.Permissions.Count of @Permissions.All.Count</MudTd>
+            <MudTd>@Ui.Count(context.UserCount, "user")</MudTd>
+            <MudTd Style="white-space:nowrap">
+                @if (context.IsBuiltIn)
+                {
+                    <MudTooltip Text="View"><MudIconButton Icon="@Icons.Material.Outlined.Visibility" Size="Size.Small" aria-label="@($"View role {context.DisplayName}")" OnClick="@(() => ShowAsync(context, null))" /></MudTooltip>
+                }
+                else
+                {
+                    <MudTooltip Text="Edit"><MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" aria-label="@($"Edit role {context.DisplayName}")" OnClick="@(() => ShowAsync(context, null))" /></MudTooltip>
+                }
+                <MudTooltip Text="Copy"><MudIconButton Icon="@Icons.Material.Outlined.ContentCopy" Size="Size.Small" aria-label="@($"Copy role {context.DisplayName}")" OnClick="@(() => ShowAsync(null, context))" /></MudTooltip>
+                @if (!context.IsBuiltIn)
+                {
+                    <MudTooltip Text="Delete"><MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" aria-label="@($"Delete role {context.DisplayName}")" OnClick="@(() => DeleteAsync(context))" /></MudTooltip>
+                }
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+</LoadState>
+
+@code {
+    private IReadOnlyList<RoleListItem> _roles = [];
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private Task ReloadAsync() => LoadAsync(async caller => _roles = await RoleSvc.ListAsync(caller));
+
+    private async Task ShowAsync(RoleListItem? existing, RoleListItem? copyOf)
+    {
+        var parameters = new DialogParameters<RoleDialog>
+        {
+            { d => d.Existing, existing },
+            { d => d.CopyOf, copyOf },
+            { d => d.Allowed, Caller?.Effective ?? [] },
+            {
+                d => d.OnSubmit, input => existing is null
+                    ? RunAsync(caller => RoleSvc.CreateAsync(caller, input), "The role was created.")
+                    : RunAsync(caller => RoleSvc.UpdateAsync(caller, existing.Id, input), "The role was saved. Its users may do what it gives at once.")
+            }
+        };
+        var dialog = await DialogService.ShowAsync<RoleDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(RoleListItem role)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Delete role {role.DisplayName}" },
+            { d => d.Message, "This cannot be undone. A role that users still have cannot be deleted." }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => RoleSvc.DeleteAsync(caller, role.Id), "The role was deleted."))
+        {
+            await ReloadAsync();
+        }
+    }
+}

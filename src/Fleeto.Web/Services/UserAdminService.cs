@@ -1,3 +1,4 @@
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Audit;
@@ -23,8 +24,9 @@ public sealed record UserListItem(Guid Id, string Email, string DisplayName, IRe
 }
 
 /// <summary>
-/// User administration (admins only). Every operation runs in its own service scope, so the Identity context is never
-/// shared between concurrent events of a circuit. The last admin can never be deleted or demoted.
+/// User administration (permission users.manage, 0.6.0). Every operation runs in its own service scope, so the Identity context is
+/// never shared between concurrent events of a circuit. The last admin can never be deleted or demoted, and a user that is not an
+/// admin can only change users and give roles whose permissions it holds itself (<see cref="RoleAuthority"/>).
 /// </summary>
 public sealed class UserAdminService
 {
@@ -56,7 +58,7 @@ public sealed class UserAdminService
 
     public async Task<IReadOnlyList<UserListItem>> ListAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.EnsureAny(Permissions.UsersManage, Permissions.GroupsManage);
         await using var db = _dbFactory.CreateSystem();
         var now = _time.GetUtcNow();
         var users = await db.Users.AsNoTracking().OrderBy(u => u.Email).ToListAsync(cancellationToken);
@@ -77,7 +79,7 @@ public sealed class UserAdminService
     public async Task<ServiceResult<Guid>> CreateAsync(Caller caller, string? email, string? displayName, string? temporaryPassword,
         IReadOnlyCollection<string> roles, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.UsersManage))
         {
             return ServiceResult<Guid>.Forbidden();
         }
@@ -94,7 +96,7 @@ public sealed class UserAdminService
             return ServiceResult<Guid>.Fail("Enter a display name of at most 200 characters.");
         }
 
-        if (RoleProblem(roles) is { } roleProblem)
+        if (await GrantProblemAsync(caller, roles, cancellationToken) is { } roleProblem)
         {
             return ServiceResult<Guid>.Fail(roleProblem);
         }
@@ -145,12 +147,12 @@ public sealed class UserAdminService
 
     public async Task<ServiceResult> SetRolesAsync(Caller caller, Guid userId, IReadOnlyCollection<string> roles, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.UsersManage))
         {
             return ServiceResult.Forbidden();
         }
 
-        if (RoleProblem(roles) is { } roleProblem)
+        if (await GrantProblemAsync(caller, roles, cancellationToken) is { } roleProblem)
         {
             return ServiceResult.Fail(roleProblem);
         }
@@ -165,6 +167,11 @@ public sealed class UserAdminService
         if (user is null)
         {
             return ServiceResult.NotFound("user");
+        }
+
+        if (await RoleAuthority.ManageProblemAsync(db, caller, user.Id, cancellationToken) is { } manageProblem)
+        {
+            return ServiceResult.Fail(manageProblem);
         }
 
         var current = await users.GetRolesAsync(user);
@@ -205,7 +212,7 @@ public sealed class UserAdminService
     /// <summary>Turns two-factor authentication off and removes the key and recovery codes; the user sets it up again at the next sign-in.</summary>
     public async Task<ServiceResult> ResetTwoFactorAsync(Caller caller, Guid userId, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.UsersManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -217,6 +224,11 @@ public sealed class UserAdminService
         if (user is null)
         {
             return ServiceResult.NotFound("user");
+        }
+
+        if (await RoleAuthority.ManageProblemAsync(db, caller, user.Id, cancellationToken) is { } manageProblem)
+        {
+            return ServiceResult.Fail(manageProblem);
         }
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -241,7 +253,7 @@ public sealed class UserAdminService
     public async Task<ServiceResult> LinkEntraAsync(Caller caller, Guid userId, string? objectId, string? account,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.UsersManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -270,6 +282,11 @@ public sealed class UserAdminService
         if (user is null)
         {
             return ServiceResult.NotFound("user");
+        }
+
+        if (await RoleAuthority.ManageProblemAsync(db, caller, user.Id, cancellationToken) is { } manageProblem)
+        {
+            return ServiceResult.Fail(manageProblem);
         }
 
         var takenBy = await db.Users.AsNoTracking()
@@ -330,7 +347,7 @@ public sealed class UserAdminService
     public async Task<ServiceResult<Guid>> CreateFromEntraAsync(Caller caller, Guid objectId, string? email, string? displayName, string? account,
         IReadOnlyCollection<string> roles, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.UsersManage))
         {
             return ServiceResult<Guid>.Forbidden();
         }
@@ -358,7 +375,7 @@ public sealed class UserAdminService
             return ServiceResult<Guid>.Fail("The account name is at most 320 characters.");
         }
 
-        if (RoleProblem(roles) is { } roleProblem)
+        if (await GrantProblemAsync(caller, roles, cancellationToken) is { } roleProblem)
         {
             return ServiceResult<Guid>.Fail(roleProblem);
         }
@@ -423,7 +440,7 @@ public sealed class UserAdminService
     /// <summary>Removes the Entra ID link, after which the user signs in with a local account again.</summary>
     public async Task<ServiceResult> UnlinkEntraAsync(Caller caller, Guid userId, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.UsersManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -435,6 +452,11 @@ public sealed class UserAdminService
         if (user is null)
         {
             return ServiceResult.NotFound("user");
+        }
+
+        if (await RoleAuthority.ManageProblemAsync(db, caller, user.Id, cancellationToken) is { } manageProblem)
+        {
+            return ServiceResult.Fail(manageProblem);
         }
 
         if (!user.IsLinkedToEntra)
@@ -469,7 +491,7 @@ public sealed class UserAdminService
     /// </summary>
     public async Task<ServiceResult> SetPasswordAsync(Caller caller, Guid userId, string? password, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.UsersManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -486,6 +508,11 @@ public sealed class UserAdminService
         if (user is null)
         {
             return ServiceResult.NotFound("user");
+        }
+
+        if (await RoleAuthority.ManageProblemAsync(db, caller, user.Id, cancellationToken) is { } manageProblem)
+        {
+            return ServiceResult.Fail(manageProblem);
         }
 
         if (user.IsLinkedToEntra)
@@ -519,7 +546,7 @@ public sealed class UserAdminService
 
     public async Task<ServiceResult> DeleteAsync(Caller caller, Guid userId, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.UsersManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -539,6 +566,11 @@ public sealed class UserAdminService
         if (user is null)
         {
             return ServiceResult.NotFound("user");
+        }
+
+        if (await RoleAuthority.ManageProblemAsync(db, caller, user.Id, cancellationToken) is { } manageProblem)
+        {
+            return ServiceResult.Fail(manageProblem);
         }
 
         if (await users.IsInRoleAsync(user, FleetoRoles.Admin))
@@ -609,14 +641,11 @@ public sealed class UserAdminService
     /// </summary>
     private static bool SignsInWithPassword(ApplicationUser user) => !user.IsLinkedToEntra && user.PasswordHash is not null;
 
-    private static string? RoleProblem(IReadOnlyCollection<string> roles)
+    /// <summary>Why the caller may not give these roles (0.6.0): see <see cref="RoleAuthority.GrantProblemAsync"/>.</summary>
+    private async Task<string?> GrantProblemAsync(Caller caller, IReadOnlyCollection<string> roles, CancellationToken cancellationToken)
     {
-        if (roles.Count == 0)
-        {
-            return "Choose at least one role.";
-        }
-
-        return roles.All(FleetoRoles.All.Contains) ? null : "Choose admin, technician or read-only.";
+        await using var db = _dbFactory.CreateSystem();
+        return await RoleAuthority.GrantProblemAsync(db, caller, roles, cancellationToken);
     }
 
     private static string Describe(IdentityResult result) =>

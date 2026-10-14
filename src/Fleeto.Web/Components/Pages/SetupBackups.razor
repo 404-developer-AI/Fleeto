@@ -1,5 +1,5 @@
 @page "/setup/backups"
-@attribute [Authorize(Policy = FleetoPolicies.Admin)]
+@attribute [RequirePermission(Permissions.BackupsManage)]
 @inherits FleetoPageBase
 
 @* Last, skippable step of the first-admin setup. Skipping leaves the warning tile on the dashboard. *@

@@ -42,7 +42,7 @@ public sealed class AgentUpdateService
 
     public async Task<AgentUpdateOverview> GetAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.AgentUpdatesManage);
         await using var db = _dbFactory.CreateSystem();
         var now = _time.GetUtcNow().UtcDateTime;
         var release = await db.AgentReleases.AsNoTracking().SingleOrDefaultAsync(r => r.IsCurrent, cancellationToken);
@@ -152,7 +152,7 @@ public sealed class AgentUpdateService
     private async Task<ServiceResult> ChangeAsync(Caller caller, string version, string action, Func<AgentRelease, DateTime, string?> change,
         CancellationToken cancellationToken)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.AgentUpdatesManage))
         {
             return ServiceResult.Forbidden();
         }

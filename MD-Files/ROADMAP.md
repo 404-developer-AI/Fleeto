@@ -202,6 +202,15 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   site or endpoint, `fleeto_user_access`, the signer refusing a job or token the groups no longer give, the gateway ending a
   revoked participant. To verify on the test VPS: a technician in a group for one site sees only that site and its endpoints,
   cannot edit the client, and loses an open remote background session when it leaves the group.
+- [done] **Roles with permissions** (asked for by the developer on 2026-10-14; decided the same day: the default roles admin,
+  technician and read-only stay fixed and can be copied, the administration pages are permissions of their own, remote
+  background is one permission, and the catalog is as fine as view and change per endpoint tab). Done: the catalog
+  `Permissions` and `BuiltInRoles`, `RolePermissions` and `AspNetRoles.IsBuiltIn`/`Description` (migration `RolePermissions`),
+  the built-in roles written on every start, `Caller.Has` in every service, `RequirePermission` on every page, Settings, Roles
+  with Default and Custom, the roles of a user chosen from every role, `RoleAuthority` against escalation, the signer asking for
+  the permission of each job, session token, uninstall and approval. To verify on the test VPS: a custom role "Helpdesk" with
+  only viewing, notes and remote control sees just those tabs and menu items and gets a remote control session but no remote
+  background; a user with Users but not Remote control cannot give a role with Remote control.
 - [done] **Save a script larger than 32 KB** (found by the developer testing alpha.17 on 2026-10-14, a script of 40 KB): the
   Blazor Server connection took at most 32 KB from the browser. `CircuitLimits.MaxReceiveMessageBytes` (1 MiB, four times the
   largest script) is set on the hub.

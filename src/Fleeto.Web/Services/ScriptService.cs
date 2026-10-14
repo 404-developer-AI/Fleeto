@@ -99,7 +99,7 @@ public sealed class ScriptService
 
     public async Task<IReadOnlyList<ScriptListItem>> ListAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ScriptsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var rows = await db.Scripts.AsNoTracking()
             .OrderBy(s => s.ClientId != null).ThenBy(s => s.Name)
@@ -124,7 +124,7 @@ public sealed class ScriptService
     public async Task<IReadOnlyList<ScriptOption>> ListForChecksAsync(Caller caller, Guid? clientId, string? osPlatform = null,
         CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.EnsureAny(Permissions.ScriptsView, Permissions.MonitoringTemplatesView, Permissions.ChecksView);
         await using var db = _dbFactory.Create(caller.Scope);
         var rows = await db.Scripts.AsNoTracking()
             .Where(s => s.ClientId == null || s.ClientId == clientId)
@@ -137,7 +137,7 @@ public sealed class ScriptService
 
     public async Task<ScriptDetail?> GetAsync(Caller caller, Guid scriptId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ScriptsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var script = await db.Scripts.AsNoTracking().Include(s => s.Versions).SingleOrDefaultAsync(s => s.Id == scriptId, cancellationToken);
         if (script is null)
@@ -157,7 +157,7 @@ public sealed class ScriptService
     /// <summary>The body of one version, for review before approval and for history.</summary>
     public async Task<(ScriptVersionView Version, string Body)?> GetVersionAsync(Caller caller, Guid versionId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ScriptsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var version = await db.ScriptVersions.AsNoTracking().SingleOrDefaultAsync(v => v.Id == versionId, cancellationToken);
         if (version is null)
@@ -171,7 +171,7 @@ public sealed class ScriptService
 
     public async Task<ServiceResult<Guid>> CreateAsync(Caller caller, ScriptInput input, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ScriptsEdit))
         {
             return ServiceResult<Guid>.Forbidden();
         }
@@ -221,7 +221,7 @@ public sealed class ScriptService
 
     public async Task<ServiceResult> UpdateDetailsAsync(Caller caller, Guid scriptId, string? name, string? description, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ScriptsEdit))
         {
             return ServiceResult.Forbidden();
         }
@@ -267,7 +267,7 @@ public sealed class ScriptService
     /// <summary>Saves a new version when the body or timeout changed. Returns the current version number.</summary>
     public async Task<ServiceResult<int>> SaveVersionAsync(Caller caller, Guid scriptId, string? body, int timeoutSeconds, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ScriptsEdit))
         {
             return ServiceResult<int>.Forbidden();
         }
@@ -318,9 +318,9 @@ public sealed class ScriptService
     /// </summary>
     public async Task<ServiceResult> ApproveAsync(Caller caller, Guid versionId, string? code, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.ScriptsApprove))
         {
-            return ServiceResult.Fail("Only an admin can approve a script. Ask an admin who did not write this version.");
+            return ServiceResult.Fail("Your roles do not allow approving scripts. Ask somebody who may approve scripts and did not write this version.");
         }
 
         await using var db = _dbFactory.Create(caller.Scope);
@@ -332,7 +332,7 @@ public sealed class ScriptService
 
         if (version.AuthorUserId == caller.UserId)
         {
-            return ServiceResult.Fail("You wrote this version. A second admin has to approve it.");
+            return ServiceResult.Fail("You wrote this version. Somebody else who may approve scripts has to approve it.");
         }
 
         if (version.IsApproved)
@@ -406,7 +406,7 @@ public sealed class ScriptService
     /// </summary>
     public async Task<ServiceResult> DeleteAsync(Caller caller, Guid scriptId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ScriptsEdit))
         {
             return ServiceResult.Forbidden();
         }

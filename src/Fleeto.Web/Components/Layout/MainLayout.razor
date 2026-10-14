@@ -28,9 +28,15 @@
 
         <MudNavMenu Class="px-2">
             <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.Dashboard" title="Dashboard">Dashboard</MudNavLink>
-            <MudNavLink Href="/clients" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Business" title="Clients"
-                        Class="@(IsClientsArea ? "active" : "")">Clients</MudNavLink>
-            <MudNavLink Href="/alerts" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.NotificationsActive" title="Alerts">Alerts</MudNavLink>
+            @if (_caller?.Has(Permissions.ClientsView) == true)
+            {
+                <MudNavLink Href="/clients" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Business" title="Clients"
+                            Class="@(IsClientsArea ? "active" : "")">Clients</MudNavLink>
+            }
+            @if (_caller?.Has(Permissions.AlertsView) == true)
+            {
+                <MudNavLink Href="/alerts" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.NotificationsActive" title="Alerts">Alerts</MudNavLink>
+            }
         </MudNavMenu>
 
         <MudSpacer />
@@ -199,13 +205,15 @@
         var tooltip = _navOpen ? Placement.Top : Placement.Right;
         var anchor = _navOpen ? Origin.TopRight : Origin.BottomRight;
         var transform = _navOpen ? Origin.BottomRight : Origin.BottomLeft;
-        <AuthorizeView Policy="@FleetoPolicies.Viewer">
+        @* The settings button opens the first settings page the roles of the user allow (0.6.0). *@
+        @if (SettingsPages.For(_caller).FirstOrDefault() is { } firstSettingsPage)
+        {
             <MudTooltip Text="Settings" Placement="tooltip">
-                <a href="/settings/client-templates" class="sidebar-square @(IsUnder("/settings") ? "active" : "")" aria-label="Settings">
+                <a href="@firstSettingsPage.Href" class="sidebar-square @(IsUnder("/settings") ? "active" : "")" aria-label="Settings">
                     <MudIcon Icon="@Icons.Material.Outlined.Settings" Class="sidebar-square-icon" />
                 </a>
             </MudTooltip>
-        </AuthorizeView>
+        }
         <AuthorizeView>
             <Authorized>
                 <MudMenu AnchorOrigin="anchor" TransformOrigin="transform" aria-label="Profile">
@@ -222,7 +230,7 @@
                             @if (_caller is { } caller)
                             {
                                 <div class="profile-menu-detail">@caller.Email</div>
-                                <div class="profile-menu-role">@RoleText(caller)</div>
+                                <div class="profile-menu-role">@caller.RoleText</div>
                             }
                         </div>
                         <MudDivider />
@@ -231,7 +239,8 @@
                 </MudMenu>
             </Authorized>
         </AuthorizeView>
-        <AuthorizeView Policy="@FleetoPolicies.Technician">
+        @if (CreateItems(_caller).Any())
+        {
             <MudMenu AnchorOrigin="anchor" TransformOrigin="transform" aria-label="Create">
                 <ActivatorContent Context="menuContext">
                     <MudTooltip Text="Create" Placement="tooltip">
@@ -241,25 +250,65 @@
                     </MudTooltip>
                 </ActivatorContent>
                 <ChildContent>
-                    @if (_caller?.Scope.IncludesNewClients != false)
+                    @foreach (var item in CreateItems(_caller))
                     {
-                        <MudMenuItem Icon="@Icons.Material.Outlined.Business" Href="/clients?new=true">New client</MudMenuItem>
+                        @if (item.Divider)
+                        {
+                            <MudDivider />
+                        }
+                        <MudMenuItem Icon="@item.Icon" Href="@item.Href">@item.Label</MudMenuItem>
                     }
-                    <MudMenuItem Icon="@Icons.Material.Outlined.AccountTree" Href="/settings/client-templates?new=true">New client template</MudMenuItem>
-                    <MudMenuItem Icon="@Icons.Material.Outlined.Rule" Href="/settings/monitoring-templates?new=true">New monitoring template</MudMenuItem>
-                    <MudMenuItem Icon="@Icons.Material.Outlined.Tune" Href="/settings/policies?new=true">New policy</MudMenuItem>
-                    <MudMenuItem Icon="@Icons.Material.Outlined.Terminal" Href="/settings/scripts?new=true">New script</MudMenuItem>
-                    <AuthorizeView Policy="@FleetoPolicies.Admin" Context="adminContext">
-                        <MudDivider />
-                        <MudMenuItem Icon="@Icons.Material.Outlined.PersonAdd" Href="/settings/users?new=true">New user</MudMenuItem>
-                    </AuthorizeView>
                 </ChildContent>
             </MudMenu>
-        </AuthorizeView>
+        }
     };
 
-    private static string RoleText(Caller caller) =>
-        caller.IsAdmin ? "Admin" : caller.CanManage ? "Technician" : "Read-only";
+    private sealed record CreateItem(string Icon, string Href, string Label, bool Divider = false);
+
+    /// <summary>What the create button offers: only what the roles of the user allow (0.6.0).</summary>
+    private static IEnumerable<CreateItem> CreateItems(Caller? caller)
+    {
+        if (caller is null)
+        {
+            yield break;
+        }
+
+        var any = false;
+        if (caller.Has(Permissions.ClientsCreate) && caller.Scope.IncludesNewClients)
+        {
+            any = true;
+            yield return new(Icons.Material.Outlined.Business, "/clients?new=true", "New client");
+        }
+
+        if (caller.Has(Permissions.ClientTemplatesEdit))
+        {
+            any = true;
+            yield return new(Icons.Material.Outlined.AccountTree, "/settings/client-templates?new=true", "New client template");
+        }
+
+        if (caller.Has(Permissions.MonitoringTemplatesEdit))
+        {
+            any = true;
+            yield return new(Icons.Material.Outlined.Rule, "/settings/monitoring-templates?new=true", "New monitoring template");
+        }
+
+        if (caller.Has(Permissions.PoliciesEdit))
+        {
+            any = true;
+            yield return new(Icons.Material.Outlined.Tune, "/settings/policies?new=true", "New policy");
+        }
+
+        if (caller.Has(Permissions.ScriptsEdit))
+        {
+            any = true;
+            yield return new(Icons.Material.Outlined.Terminal, "/settings/scripts?new=true", "New script");
+        }
+
+        if (caller.Has(Permissions.UsersManage))
+        {
+            yield return new(Icons.Material.Outlined.PersonAdd, "/settings/users?new=true", "New user", Divider: any);
+        }
+    }
 
     private bool IsUnder(string prefix) =>
         ("/" + Navigation.ToBaseRelativePath(Navigation.Uri)).StartsWith(prefix, StringComparison.OrdinalIgnoreCase);

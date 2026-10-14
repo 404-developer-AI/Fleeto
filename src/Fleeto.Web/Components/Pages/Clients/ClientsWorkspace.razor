@@ -1,7 +1,7 @@
 @page "/clients"
 @page "/clients/{ClientId:guid}"
 @page "/sites/{SiteId:guid}"
-@attribute [Authorize(Policy = FleetoPolicies.Viewer)]
+@attribute [RequirePermission(Permissions.ClientsView)]
 @inherits FleetoPageBase
 @inject ClientService ClientSvc
 @inject TagService TagSvc
@@ -30,7 +30,7 @@
                 <MudIcon Icon="@Icons.Material.Outlined.Home" Size="Size.Small" />
                 <span>All clients</span>
             </a>
-            @if (CanManage && Caller!.Scope.IncludesNewClients)
+            @if (Can(Permissions.ClientsCreate) && Caller!.Scope.IncludesNewClients)
             {
                 <MudTooltip Text="New client">
                     <MudIconButton Icon="@Icons.Material.Outlined.Add" Size="Size.Small" aria-label="New client" OnClick="CreateClientAsync" />
@@ -177,52 +177,87 @@
                     }
                 </div>
                 <div class="workspace-header-actions">
-                    @if (_site is { } site && CanManage && Caller!.HasWholeSite(site.ClientId, site.Id))
+                    @* Every action follows its own permission (0.6.0); what changes a site or client as a whole also needs all of it. *@
+                    @if (_site is { } site)
                     {
-                        <MudMenu Label="Site settings" StartIcon="@Icons.Material.Outlined.Settings" Variant="Variant.Outlined"
-                                 AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
-                            <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="EditSiteAsync">Edit site</MudMenuItem>
-                            @if (IsAdmin)
-                            {
-                                <MudMenuItem Icon="@Icons.Material.Outlined.Groups" OnClick="@(() => ShowAccessAsync(AccessTargetKind.Site, site.Id, $"site {site.Name}"))">Who has access</MudMenuItem>
-                            }
-                            <MudMenuItem Icon="@Icons.Material.Outlined.Key" OnClick="ShowTokensAsync">Enrollment tokens</MudMenuItem>
-                            @MaintenanceMenuItems(MaintenanceTarget.Site, site.Id, $"site {site.Name}", true, site.Maintenance)
-                            <MudDivider />
-                            <MudMenuItem Icon="@Icons.Material.Outlined.Delete" IconColor="Color.Error" OnClick="DeleteSiteAsync">Delete site</MudMenuItem>
-                        </MudMenu>
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add"
-                                   OnClick="@(() => CreateTokenAsync(site.Id, site.Name))">Add endpoint</MudButton>
+                        var wholeSite = Caller!.HasWholeSite(site.ClientId, site.Id);
+                        var canEditSite = wholeSite && (Can(Permissions.SitesEdit) || Can(Permissions.LinksEdit));
+                        @if (wholeSite && (canEditSite || Can(Permissions.AccessView) || Can(Permissions.EndpointsEnroll) ||
+                                           Can(Permissions.MaintenanceManage) || Can(Permissions.SitesDelete)))
+                        {
+                            <MudMenu Label="Site settings" StartIcon="@Icons.Material.Outlined.Settings" Variant="Variant.Outlined"
+                                     AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                                @if (canEditSite)
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="EditSiteAsync">Edit site</MudMenuItem>
+                                }
+                                @if (Can(Permissions.AccessView))
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.Groups" OnClick="@(() => ShowAccessAsync(AccessTargetKind.Site, site.Id, $"site {site.Name}"))">Who has access</MudMenuItem>
+                                }
+                                @if (Can(Permissions.EndpointsEnroll))
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.Key" OnClick="ShowTokensAsync">Enrollment tokens</MudMenuItem>
+                                }
+                                @MaintenanceMenuItems(MaintenanceTarget.Site, site.Id, $"site {site.Name}", true, site.Maintenance)
+                                @if (Can(Permissions.SitesDelete))
+                                {
+                                    <MudDivider />
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.Delete" IconColor="Color.Error" OnClick="DeleteSiteAsync">Delete site</MudMenuItem>
+                                }
+                            </MudMenu>
+                        }
+                        @if (!canEditSite)
+                        {
+                            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Tune" OnClick="EditSiteAsync">Policies</MudButton>
+                        }
+                        @if (wholeSite && Can(Permissions.EndpointsEnroll))
+                        {
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add"
+                                       OnClick="@(() => CreateTokenAsync(site.Id, site.Name))">Add endpoint</MudButton>
+                        }
                     }
-                    else if (_site is not null)
+                    else if (_client is { } client && Caller!.HasWholeClient(client.Id))
                     {
-                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Tune" OnClick="EditSiteAsync">Policies</MudButton>
-                    }
-                    else if (_client is { } client && CanManage && Caller!.HasWholeClient(client.Id))
-                    {
-                        <MudMenu Label="Client settings" StartIcon="@Icons.Material.Outlined.Settings" Variant="Variant.Outlined"
-                                 AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
-                            <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="EditClientAsync">Edit client</MudMenuItem>
-                            @if (IsAdmin)
-                            {
-                                <MudMenuItem Icon="@Icons.Material.Outlined.Groups" OnClick="@(() => ShowAccessAsync(AccessTargetKind.Client, client.Id, $"client {client.Code}"))">Who has access</MudMenuItem>
-                            }
-                            <MudMenuItem Icon="@Icons.Material.Outlined.Sell" OnClick="EditClientTagsAsync">Edit tags</MudMenuItem>
-                            <MudMenuItem Icon="@Icons.Material.Outlined.CreateNewFolder" OnClick="CreateSiteAsync">New site</MudMenuItem>
-                            @if (client.ClientTemplateId is not null)
-                            {
-                                <MudMenuItem Icon="@Icons.Material.Outlined.LinkOff" OnClick="DetachClientAsync">Detach from client template</MudMenuItem>
-                            }
-                            @MaintenanceMenuItems(MaintenanceTarget.Client, client.Id, $"client {client.Code}", true, client.Maintenance)
-                            <MudDivider />
-                            <MudMenuItem Icon="@Icons.Material.Outlined.Delete" IconColor="Color.Error" OnClick="DeleteClientAsync">Delete client</MudMenuItem>
-                        </MudMenu>
-                        @if (client.Sites.Count == 1)
+                        @if (Can(Permissions.ClientsEdit) || Can(Permissions.LinksEdit) || Can(Permissions.AccessView) || Can(Permissions.ClientsTags) ||
+                             Can(Permissions.SitesCreate) || Can(Permissions.MaintenanceManage) || Can(Permissions.ClientsDelete))
+                        {
+                            <MudMenu Label="Client settings" StartIcon="@Icons.Material.Outlined.Settings" Variant="Variant.Outlined"
+                                     AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                                @if (Can(Permissions.ClientsEdit) || Can(Permissions.LinksEdit))
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="EditClientAsync">Edit client</MudMenuItem>
+                                }
+                                @if (Can(Permissions.AccessView))
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.Groups" OnClick="@(() => ShowAccessAsync(AccessTargetKind.Client, client.Id, $"client {client.Code}"))">Who has access</MudMenuItem>
+                                }
+                                @if (Can(Permissions.ClientsTags))
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.Sell" OnClick="EditClientTagsAsync">Edit tags</MudMenuItem>
+                                }
+                                @if (Can(Permissions.SitesCreate))
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.CreateNewFolder" OnClick="CreateSiteAsync">New site</MudMenuItem>
+                                }
+                                @if (client.ClientTemplateId is not null && Can(Permissions.ClientsEdit))
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.LinkOff" OnClick="DetachClientAsync">Detach from client template</MudMenuItem>
+                                }
+                                @MaintenanceMenuItems(MaintenanceTarget.Client, client.Id, $"client {client.Code}", true, client.Maintenance)
+                                @if (Can(Permissions.ClientsDelete))
+                                {
+                                    <MudDivider />
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.Delete" IconColor="Color.Error" OnClick="DeleteClientAsync">Delete client</MudMenuItem>
+                                }
+                            </MudMenu>
+                        }
+                        @if (Can(Permissions.EndpointsEnroll) && client.Sites.Count == 1)
                         {
                             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add"
                                        OnClick="@(() => CreateTokenAsync(client.Sites[0].Id, client.Sites[0].Name))">Add endpoint</MudButton>
                         }
-                        else if (client.Sites.Count > 1)
+                        else if (Can(Permissions.EndpointsEnroll) && client.Sites.Count > 1)
                         {
                             <MudMenu Label="Add endpoint" StartIcon="@Icons.Material.Outlined.Add" EndIcon="@Icons.Material.Outlined.ArrowDropDown"
                                      Variant="Variant.Filled" Color="Color.Primary" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
@@ -234,7 +269,7 @@
                             </MudMenu>
                         }
                     }
-                    else if (_client is { } partialClient && CanManage && partialClient.Sites.Where(s => Caller!.HasWholeSite(partialClient.Id, s.Id)).ToList() is { Count: > 0 } wholeSites)
+                    else if (_client is { } partialClient && Can(Permissions.EndpointsEnroll) && partialClient.Sites.Where(s => Caller!.HasWholeSite(partialClient.Id, s.Id)).ToList() is { Count: > 0 } wholeSites)
                     {
                         @* Part of the client (0.6.0): endpoints can be added to the sites the user sees as a whole. *@
                         <MudMenu Label="Add endpoint" StartIcon="@Icons.Material.Outlined.Add" EndIcon="@Icons.Material.Outlined.ArrowDropDown"
@@ -298,7 +333,7 @@
                         <MudTable T="EndpointRow" Items="_page.Rows" Dense="true" Hover="true" Elevation="0" FixedHeader="true" Class="endpoint-table"
                                   OnRowClick="OnRowClick" RowClassFunc="RowClass">
                             <HeaderContent>
-                                @if (CanManage)
+                                @if (CanSelect)
                                 {
                                     <MudTh Style="width:44px">
                                         <MudCheckBox T="bool" Value="@AllRowsSelected" Dense="true" Size="Size.Small"
@@ -323,7 +358,7 @@
                             </HeaderContent>
                             @* Every cell opens the endpoint menu on right-click (see RowMenu): MudTable has no row-level context menu event. *@
                             <RowTemplate>
-                                @if (CanManage)
+                                @if (CanSelect)
                                 {
                                     @* Selecting must not open the endpoint below the list, so the click stops here. *@
                                     <MudTd @onclick:stopPropagation="true">
@@ -355,53 +390,83 @@
                                 <MudTd @attributes="RowMenu(context)"><TimeText Value="context.LastSeenAt" /></MudTd>
                             </RowTemplate>
                         </MudTable>
-                        @if (CanManage)
+                        @if (HasRowMenu)
                         {
                             <MudMenu @ref="_endpointMenu" PositionAtCursor="true" aria-label="Endpoint actions">
                                 <ActivatorContent></ActivatorContent>
                                 <ChildContent>
                                     @if (_selected.Count > 1)
                                     {
-                                        <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="RunScriptOnSelectionAsync">
-                                            Run script on @Ui.Count(_selected.Count, "endpoint")
-                                        </MudMenuItem>
-                                        <MudMenuItem Icon="@Icons.Material.Outlined.SystemUpdateAlt" OnClick="DeployUpdatesOnSelectionAsync">
-                                            Deploy updates on @Ui.Count(_selected.Count, "endpoint")
-                                        </MudMenuItem>
+                                        @if (Can(Permissions.ScriptsRun))
+                                        {
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="RunScriptOnSelectionAsync">
+                                                Run script on @Ui.Count(_selected.Count, "endpoint")
+                                            </MudMenuItem>
+                                        }
+                                        @if (Can(Permissions.PatchesDeploy))
+                                        {
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.SystemUpdateAlt" OnClick="DeployUpdatesOnSelectionAsync">
+                                                Deploy updates on @Ui.Count(_selected.Count, "endpoint")
+                                            </MudMenuItem>
+                                        }
                                         <MudMenuItem Icon="@Icons.Material.Outlined.Deselect" OnClick="ClearSelection">Clear selection</MudMenuItem>
                                         <MudDivider />
                                     }
                                     @if (_menuRow is { } row)
                                     {
-                                        <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="@(() => EditEndpointAsync(row))">Edit</MudMenuItem>
-                                        <MudMenuItem Icon="@Icons.Material.Outlined.Tune" OnClick="@(() => EditEndpointLinksAsync(row.Id, row.Hostname))">Policies</MudMenuItem>
-                                        @if (row.Tier == EndpointTier.AgentOnly)
+                                        @if (Can(Permissions.EndpointsEdit) || Can(Permissions.EndpointsMove))
+                                        {
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="@(() => EditEndpointAsync(row))">Edit</MudMenuItem>
+                                        }
+                                        @if (Can(Permissions.LinksEdit))
+                                        {
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.Tune" OnClick="@(() => EditEndpointLinksAsync(row.Id, row.Hostname))">Policies</MudMenuItem>
+                                        }
+                                        @if (Can(Permissions.EndpointsTier) && row.Tier == EndpointTier.AgentOnly)
                                         {
                                             <MudMenuItem Icon="@Icons.Material.Outlined.Verified" Disabled="_busy" OnClick="@(() => SetTierAsync(row, EndpointTier.Managed))">Switch to managed</MudMenuItem>
                                         }
-                                        else
+                                        else if (Can(Permissions.EndpointsTier))
                                         {
                                             <MudMenuItem Icon="@Icons.Material.Outlined.RemoveModerator" Disabled="_busy" OnClick="@(() => SetTierAsync(row, EndpointTier.AgentOnly))">Switch to agent-only</MudMenuItem>
                                         }
                                         @if (row.Tier == EndpointTier.Managed)
                                         {
-                                            @if (RemoteSessionRules.SupportsRemoteControl(row.OsPlatform, row.Desktop))
+                                            @if (Can(Permissions.RemoteControl) && RemoteSessionRules.SupportsRemoteControl(row.OsPlatform, row.Desktop))
                                             {
                                                 <MudMenuItem Icon="@Icons.Material.Outlined.ScreenShare" OnClick="@(() => RemoteWindow.OpenControlAsync(row.Id))">Remote control</MudMenuItem>
                                             }
-                                            <MudMenuItem Icon="@Icons.Material.Outlined.Terminal" OnClick="@(() => RemoteWindow.OpenBackgroundAsync(row.Id))">Remote background</MudMenuItem>
-                                            <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="@(() => RunScriptAsync(row))">Run script</MudMenuItem>
-                                            <MudMenuItem Icon="@Icons.Material.Outlined.SystemUpdateAlt" OnClick="@(() => DeployUpdatesAsync([row.Id], row.Hostname))">Deploy updates</MudMenuItem>
+                                            @if (Can(Permissions.RemoteBackground))
+                                            {
+                                                <MudMenuItem Icon="@Icons.Material.Outlined.Terminal" OnClick="@(() => RemoteWindow.OpenBackgroundAsync(row.Id))">Remote background</MudMenuItem>
+                                            }
+                                            @if (Can(Permissions.ScriptsRun))
+                                            {
+                                                <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="@(() => RunScriptAsync(row))">Run script</MudMenuItem>
+                                            }
+                                            @if (Can(Permissions.PatchesDeploy))
+                                            {
+                                                <MudMenuItem Icon="@Icons.Material.Outlined.SystemUpdateAlt" OnClick="@(() => DeployUpdatesAsync([row.Id], row.Hostname))">Deploy updates</MudMenuItem>
+                                            }
                                             @MaintenanceMenuItems(MaintenanceTarget.Endpoint, row.Id, row.Hostname, false, row.OwnMaintenanceActive ? row.OwnMaintenance : null)
                                         }
-                                        @if (IsAdmin)
+                                        @if (Can(Permissions.AccessView))
                                         {
                                             <MudMenuItem Icon="@Icons.Material.Outlined.Groups" OnClick="@(() => ShowAccessAsync(AccessTargetKind.Endpoint, row.Id, row.Hostname))">Who has access</MudMenuItem>
                                         }
-                                        <MudMenuItem Icon="@Icons.Material.Outlined.Replay" OnClick="@(() => EnrollAgainAsync(row))">Enroll again</MudMenuItem>
-                                        <MudMenuItem Icon="@Icons.Material.Outlined.GppBad" OnClick="@(() => RevokeEndpointAsync(row))">Revoke agent</MudMenuItem>
-                                        <MudDivider />
-                                        <MudMenuItem Icon="@Icons.Material.Outlined.Delete" IconColor="Color.Error" OnClick="@(() => DeleteEndpointAsync(row))">Delete endpoint</MudMenuItem>
+                                        @if (Can(Permissions.EndpointsEnroll))
+                                        {
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.Replay" OnClick="@(() => EnrollAgainAsync(row))">Enroll again</MudMenuItem>
+                                        }
+                                        @if (Can(Permissions.EndpointsRevoke))
+                                        {
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.GppBad" OnClick="@(() => RevokeEndpointAsync(row))">Revoke agent</MudMenuItem>
+                                        }
+                                        @if (Can(Permissions.EndpointsDelete))
+                                        {
+                                            <MudDivider />
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.Delete" IconColor="Color.Error" OnClick="@(() => DeleteEndpointAsync(row))">Delete endpoint</MudMenuItem>
+                                        }
                                     }
                                 </ChildContent>
                             </MudMenu>
@@ -566,7 +631,7 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        OpenCreateFromQuery(New, CreateClientAsync);
+        OpenCreateFromQuery(New, Permissions.ClientsCreate, CreateClientAsync);
         var scopeKey = SiteId?.ToString() ?? ClientId?.ToString() ?? "all";
         if (scopeKey == _scopeKey)
         {
@@ -834,14 +899,23 @@
 
     private static readonly IReadOnlyDictionary<string, object> NoRowMenu = new Dictionary<string, object>();
 
-    // MudTd suppresses the browser's context menu only when an oncontextmenu handler is present, so read-only users keep it.
-    private IReadOnlyDictionary<string, object> RowMenu(EndpointRow row) => CanManage
+    /// <summary>Endpoints can be selected for what runs on a selection: a script or a deployment of updates (0.6.0).</summary>
+    private bool CanSelect => Can(Permissions.ScriptsRun) || Can(Permissions.PatchesDeploy);
+
+    /// <summary>The roles of the user allow at least one action of the endpoint menu (0.6.0).</summary>
+    private bool HasRowMenu => CanSelect || Can(Permissions.EndpointsEdit) || Can(Permissions.EndpointsMove) || Can(Permissions.LinksEdit) ||
+                               Can(Permissions.EndpointsTier) || Can(Permissions.RemoteControl) || Can(Permissions.RemoteBackground) ||
+                               Can(Permissions.MaintenanceManage) || Can(Permissions.AccessView) || Can(Permissions.EndpointsEnroll) ||
+                               Can(Permissions.EndpointsRevoke) || Can(Permissions.EndpointsDelete);
+
+    // MudTd suppresses the browser's context menu only when an oncontextmenu handler is present, so a user without actions keeps it.
+    private IReadOnlyDictionary<string, object> RowMenu(EndpointRow row) => HasRowMenu
         ? new Dictionary<string, object> { ["oncontextmenu"] = EventCallback.Factory.Create<MouseEventArgs>(this, e => OpenEndpointMenuAsync(e, row)) }
         : NoRowMenu;
 
     private async Task OpenEndpointMenuAsync(MouseEventArgs args, EndpointRow row)
     {
-        if (!CanManage || _endpointMenu is null)
+        if (!HasRowMenu || _endpointMenu is null)
         {
             return;
         }
@@ -875,6 +949,8 @@
         var parameters = new DialogParameters<EndpointDialog>
         {
             { d => d.Endpoint, endpoint },
+            { d => d.CanChangeClass, Can(Permissions.EndpointsEdit) },
+            { d => d.CanMove, Can(Permissions.EndpointsMove) },
             {
                 d => d.OnSubmit, async (classOverride, classChanged, siteId, siteChanged) =>
                 {
@@ -907,7 +983,7 @@
     {
         // An endpoint that leaves managed keeps its Action1 agent unless it goes too (0.6.0): offered, checked by default.
         var removeAction1Agent = false;
-        if (tier == EndpointTier.AgentOnly && await HasAction1AgentAsync(row.Id))
+        if (tier == EndpointTier.AgentOnly && Can(Permissions.Action1AgentRemove) && await HasAction1AgentAsync(row.Id))
         {
             var parameters = new DialogParameters<ConfirmDialog>
             {
@@ -1174,7 +1250,7 @@
         // Without these, the agents stay on the machine (0.6.0): the Fleeto agent idle, the Action1 agent in the Action1 subscription.
         // Both checked by default.
         List<ConfirmDialog.Option> options = [UninstallFleetoOption];
-        if (await HasAction1AgentAsync(row.Id))
+        if (Can(Permissions.Action1AgentRemove) && await HasAction1AgentAsync(row.Id))
         {
             options.Add(RemoveAction1Option);
         }
@@ -1294,6 +1370,11 @@
     /// <param name="current">The active maintenance of the target itself, or null when it has none.</param>
     private RenderFragment MaintenanceMenuItems(MaintenanceTarget target, Guid id, string label, bool coversEndpoints, MaintenancePeriod? current) => __builder =>
     {
+        if (!Can(Permissions.MaintenanceManage))
+        {
+            return;
+        }
+
         var active = current?.IsActive(Clock.GetUtcNow().UtcDateTime) == true;
         <MudMenuItem Icon="@Icons.Material.Outlined.Construction" OnClick="@(() => StartMaintenanceAsync(target, id, label, coversEndpoints, active ? current : null))">
             @(active ? "Change maintenance" : "Start maintenance")
@@ -1395,7 +1476,8 @@
         {
             { d => d.Title, $"Edit client {client.Code}" },
             { d => d.Links, links },
-            { d => d.CanManage, CanManage },
+            { d => d.CanEditName, Can(Permissions.ClientsEdit) },
+            { d => d.CanEditLinks, Can(Permissions.LinksEdit) },
             { d => d.NameLabel, "Client name" },
             { d => d.InitialName, client.Name },
             {
@@ -1439,7 +1521,7 @@
         {
             { d => d.Title, $"Policies of {hostname}" },
             { d => d.Links, links },
-            { d => d.CanManage, CanManage },
+            { d => d.CanEditLinks, Can(Permissions.LinksEdit) },
             {
                 d => d.OnSubmit, (_, _, input, linksChanged) => linksChanged
                     ? RunAsync(caller => LinkSvc.SetAsync(caller, LinkLevel.Endpoint, endpointId, input),
@@ -1565,12 +1647,15 @@
         }
 
         // Part of a site (0.6.0) is read only: its name and links apply to all of it.
-        var canChange = CanManage && Caller!.HasWholeSite(site.ClientId, site.Id);
+        var wholeSite = Caller!.HasWholeSite(site.ClientId, site.Id);
+        var canEditName = wholeSite && Can(Permissions.SitesEdit);
+        var canEditLinks = wholeSite && Can(Permissions.LinksEdit);
         var parameters = new DialogParameters<LevelLinksDialog>
         {
-            { d => d.Title, canChange ? $"Edit site {site.Name}" : $"Site {site.Name}" },
+            { d => d.Title, canEditName || canEditLinks ? $"Edit site {site.Name}" : $"Site {site.Name}" },
             { d => d.Links, links },
-            { d => d.CanManage, canChange },
+            { d => d.CanEditName, canEditName },
+            { d => d.CanEditLinks, canEditLinks },
             { d => d.NameLabel, "Site name" },
             { d => d.InitialName, site.Name },
             { d => d.ShowDescription, true },
@@ -1628,7 +1713,7 @@
         var parameters = new DialogParameters<EnrollmentTokensDialog>
         {
             { d => d.SiteName, site.Name },
-            { d => d.CanManage, CanManage },
+            { d => d.CanManage, Can(Permissions.EndpointsEnroll) },
             { d => d.Tokens, tokens },
             { d => d.OnRevoke, token => RevokeTokenAsync(site.Id, token) }
         };

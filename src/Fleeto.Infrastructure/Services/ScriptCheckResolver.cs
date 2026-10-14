@@ -12,7 +12,8 @@ public sealed record ScriptCheckScript(Script? Script, ScriptVersion? Version, s
 /// Decides which library script version a script check runs on an endpoint (0.2.0). Used by the configuration builder in the signer,
 /// so the rules hold whatever web stored: the script exists, is global or of the endpoint's client, its language runs on the
 /// endpoint, and its body still has its hash. Without approval required the current version runs. When the endpoint's policy requires
-/// approval the newest version approved by an admin other than its author runs, so a check keeps working with the approved body
+/// approval the newest version approved by somebody other than its author who may still approve scripts runs, so a check keeps working
+/// with the approved body
 /// while a change waits for approval (a job, started by hand, only runs the current version).
 /// </summary>
 public static class ScriptCheckResolver
@@ -21,12 +22,11 @@ public static class ScriptCheckResolver
     public const string ClientReason = "The script of this check belongs to another client. Choose a global script or one of this client.";
     public const string PlatformReason = "The script's language does not run on this endpoint's operating system.";
     public const string NotApprovedReason =
-        "The site's policy requires approval of scripts, and no version of this script is approved by a second admin. Ask an admin to approve it.";
+        "The site's policy requires approval of scripts, and no version of this script is approved by somebody other than its author. Ask somebody who may approve scripts to approve it.";
     public const string TooLargeReason =
         "The scripts of this endpoint's script checks together exceed 1 MiB, the most one configuration carries. Use smaller scripts or fewer script checks.";
 
     public static readonly string AdminRole = FleetoRoles.Admin.ToUpperInvariant();
-    public static readonly string TechnicianRole = FleetoRoles.Technician.ToUpperInvariant();
 
     public static async Task<ScriptCheckScript> ResolveAsync(FleetoDbContext db, string? scriptIdText, Guid endpointClientId, string? osPlatform,
         bool approvalRequired, CancellationToken cancellationToken)
@@ -69,7 +69,7 @@ public static class ScriptCheckResolver
         foreach (var version in approved)
         {
             if (version.IsApproved && Intact(script, version) &&
-                await UserHasRoleAsync(db, version.ApprovedByUserId!.Value, null, cancellationToken, AdminRole))
+                await UserHasPermissionAsync(db, version.ApprovedByUserId!.Value, null, Permissions.ScriptsApprove, cancellationToken))
             {
                 return new ScriptCheckScript(script, version, null);
             }
@@ -79,12 +79,14 @@ public static class ScriptCheckResolver
     }
 
     /// <summary>
-    /// True when the user exists, has two-factor authentication, holds one of the normalized roles and, with <paramref name="lockedOutAt"/>,
-    /// is not locked out at that time. A user linked to Entra ID counts as having two factors: its second factor comes from
-    /// Microsoft, and web lets such a session in only with one (0.5.0). The signer cannot see the session, only the link.
+    /// True when the user exists, has two-factor authentication, holds the permission through one of its roles (0.6.0) and, with
+    /// <paramref name="lockedOutAt"/>, is not locked out at that time. A user linked to Entra ID counts as having two factors: its
+    /// second factor comes from Microsoft, and web lets such a session in only with one (0.5.0). The signer cannot see the session,
+    /// only the link. The permissions of the built-in roles are written to the database on every start, so every role is read the
+    /// same way.
     /// </summary>
-    public static async Task<bool> UserHasRoleAsync(FleetoDbContext db, Guid userId, DateTime? lockedOutAt, CancellationToken cancellationToken,
-        params string[] normalizedRoles)
+    public static async Task<bool> UserHasPermissionAsync(FleetoDbContext db, Guid userId, DateTime? lockedOutAt, string permission,
+        CancellationToken cancellationToken)
     {
         var user = await db.Users.AsNoTracking().Where(u => u.Id == userId)
             .Select(u => new { u.LockoutEnd, u.TwoFactorEnabled, Linked = u.EntraObjectId != null })
@@ -97,8 +99,8 @@ public static class ScriptCheckResolver
 
         return await db.UserRoles.AsNoTracking()
             .Where(ur => ur.UserId == userId)
-            .Join(db.Roles.AsNoTracking(), ur => ur.RoleId, r => r.Id, (_, r) => r.NormalizedName)
-            .AnyAsync(name => normalizedRoles.Contains(name), cancellationToken);
+            .Join(db.RolePermissions.AsNoTracking(), ur => ur.RoleId, p => p.RoleId, (_, p) => p.Permission)
+            .AnyAsync(p => p == permission, cancellationToken);
     }
 
     private static bool Intact(Script script, ScriptVersion version) =>

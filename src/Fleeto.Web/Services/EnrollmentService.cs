@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Infrastructure.Audit;
 using Fleeto.Infrastructure.Data;
@@ -48,7 +49,7 @@ public sealed class EnrollmentService
 
     public async Task<IReadOnlyList<EnrollmentTokenListItem>> ListAsync(Caller caller, Guid siteId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.EndpointsEnroll);
         await using var db = _dbFactory.Create(caller.Scope);
         var now = _time.GetUtcNow().UtcDateTime;
         var tokens = await db.EnrollmentTokens.AsNoTracking()
@@ -73,7 +74,7 @@ public sealed class EnrollmentService
     public async Task<ServiceResult<CreatedEnrollmentToken>> CreateAsync(Caller caller, Guid siteId, string? name, TimeSpan lifetime, int? maxUses,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.EndpointsEnroll))
         {
             return ServiceResult<CreatedEnrollmentToken>.Forbidden();
         }
@@ -117,7 +118,7 @@ public sealed class EnrollmentService
     /// </summary>
     public async Task<ServiceResult<CreatedEnrollmentToken>> CreateForEndpointAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.EndpointsEnroll))
         {
             return ServiceResult<CreatedEnrollmentToken>.Forbidden();
         }
@@ -192,7 +193,7 @@ public sealed class EnrollmentService
 
     public async Task<ServiceResult> RevokeAsync(Caller caller, Guid tokenId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.EndpointsEnroll))
         {
             return ServiceResult.Forbidden();
         }

@@ -62,7 +62,7 @@ public sealed class InstanceHealthService
 
     public async Task<InstanceHealthTile?> GetTileAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.InstanceHealthView))
         {
             return null;
         }
@@ -90,7 +90,7 @@ public sealed class InstanceHealthService
 
     public async Task<InstanceHealthView?> GetAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.InstanceHealthView))
         {
             return null;
         }
@@ -121,7 +121,7 @@ public sealed class InstanceHealthService
     /// <summary>The diagnostics as Markdown, and an audit entry for the export (<paramref name="how"/>: "copied" or "downloaded").</summary>
     public async Task<ServiceResult<string>> ExportDiagnosticsAsync(Caller caller, string how, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.InstanceHealthView))
         {
             return ServiceResult<string>.Forbidden();
         }

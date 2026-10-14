@@ -62,7 +62,7 @@ public sealed class ClientService
 
     public async Task<IReadOnlyList<ClientListItem>> ListAsync(Caller caller, string? search = null, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var now = _time.GetUtcNow().UtcDateTime; // alerts on hold are not counted as open
         var query = db.Clients.AsNoTracking();
@@ -95,7 +95,7 @@ public sealed class ClientService
     public async Task<IReadOnlyList<ClientTreeItem>> ListTreeAsync(Caller caller, string? search = null, IReadOnlyCollection<Guid>? tagIds = null,
         CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var now = _time.GetUtcNow().UtcDateTime; // alerts on hold are not counted as open
         var clients = db.Clients.AsNoTracking();
@@ -187,9 +187,12 @@ public sealed class ClientService
             .ToList();
     }
 
+    /// <summary>
+    /// Code and name of the clients the caller's groups give, to filter on or limit something to. Every user with a role may read
+    /// them (0.6.0): pages such as the scripts, the policies and the audit log need them without the Clients workspace.
+    /// </summary>
     public async Task<IReadOnlyList<ClientOption>> ListOptionsAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
         await using var db = _dbFactory.Create(caller.Scope);
         return await db.Clients.AsNoTracking().OrderBy(c => c.Code)
             .Select(c => new ClientOption(c.Id, c.Code, c.Name))
@@ -198,7 +201,7 @@ public sealed class ClientService
 
     public async Task<ClientDetail?> GetAsync(Caller caller, Guid clientId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var now = _time.GetUtcNow().UtcDateTime; // alerts on hold are not counted as open
         var client = await db.Clients.AsNoTracking()
@@ -251,7 +254,7 @@ public sealed class ClientService
     public async Task<ServiceResult<Guid>> CreateAsync(Caller caller, string? code, string? name, Guid? clientTemplateId,
         IEnumerable<string?>? tags = null, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ClientsCreate))
         {
             return ServiceResult<Guid>.Forbidden();
         }
@@ -367,7 +370,7 @@ public sealed class ClientService
 
     public async Task<ServiceResult> RenameAsync(Caller caller, Guid clientId, string? name, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ClientsEdit))
         {
             return ServiceResult.Forbidden();
         }
@@ -412,7 +415,7 @@ public sealed class ClientService
     /// </summary>
     public async Task<ServiceResult> DetachFromTemplateAsync(Caller caller, Guid clientId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ClientsEdit))
         {
             return ServiceResult.Forbidden();
         }
@@ -458,7 +461,7 @@ public sealed class ClientService
     public async Task<ServiceResult> DeleteAsync(Caller caller, Guid clientId, string? typedCode, bool uninstallAgents = false,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ClientsDelete))
         {
             return ServiceResult.Forbidden();
         }

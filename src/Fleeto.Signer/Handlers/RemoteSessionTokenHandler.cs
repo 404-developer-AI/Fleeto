@@ -28,7 +28,7 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
     public const string MissingReason = "The remote session request no longer exists. Open the session again.";
     public const string TooOldReason = "The remote session request waited too long for the signer. Open the session again.";
     public const string UserReason =
-        "The technician no longer exists, is locked out, has no two-factor authentication or has no admin or technician role. Ask an admin for access.";
+        "The user no longer exists, is locked out, has no two-factor authentication or no longer has the permission for this kind of remote session. Ask an admin for access.";
     public const string NotManagedReason = "The endpoint is not managed. Switch it to managed before opening a remote session.";
     public const string AccessReason = "You no longer have access to this endpoint. Ask an admin to add you to a group that has.";
     public const string BrowserKeyReason = "The browser sent an invalid session key. Close the window and open the session again.";
@@ -115,8 +115,8 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
             return SigningOutcome.Refused(BrowserKeyReason);
         }
 
-        if (!await ScriptCheckResolver.UserHasRoleAsync(db, participant.UserId, now, cancellationToken, FleetoRoleNames.Admin,
-                FleetoRoleNames.Technician))
+        var permission = session.Kind == RemoteSessionKind.RemoteControl ? Permissions.RemoteControl : Permissions.RemoteBackground;
+        if (!await ScriptCheckResolver.UserHasPermissionAsync(db, participant.UserId, now, permission, cancellationToken))
         {
             return SigningOutcome.Refused(UserReason);
         }

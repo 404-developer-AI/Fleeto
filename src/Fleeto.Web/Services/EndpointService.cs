@@ -133,7 +133,7 @@ public sealed class EndpointService
     /// </summary>
     public async Task<EndpointListPage> ListAsync(Caller caller, EndpointListQuery query, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var endpoints = db.Endpoints.AsNoTracking();
         // Open alert counts leave out alerts on hold.
@@ -227,7 +227,7 @@ public sealed class EndpointService
 
     public async Task<EndpointDetail?> GetAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var now = _time.GetUtcNow().UtcDateTime;
         var endpoint = await db.Endpoints.AsNoTracking()
@@ -281,7 +281,7 @@ public sealed class EndpointService
 
     public async Task<InventoryView?> GetInventoryAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var snapshot = await db.InventorySnapshots.AsNoTracking().SingleOrDefaultAsync(i => i.EndpointId == endpointId, cancellationToken);
         if (snapshot is null)
@@ -292,12 +292,14 @@ public sealed class EndpointService
         return new InventoryView(snapshot.ReceivedAt, snapshot.Manufacturer, snapshot.Model, snapshot.SerialNumber, snapshot.CpuModel,
             snapshot.CpuCores, snapshot.CpuLogicalProcessors, snapshot.MemoryTotalBytes, snapshot.BootTime, snapshot.Domain, snapshot.LoggedOnUser,
             ParseList<DiskInfo>(snapshot.DisksJson, endpointId), ParseList<NetworkInterfaceInfo>(snapshot.NetworkInterfacesJson, endpointId),
-            ParseList<SoftwareInfo>(snapshot.SoftwareJson, endpointId), snapshot.Action1AgentId, snapshot.Desktop);
+            // The installed software is the Software tab (0.6.0): only with its permission.
+            caller.Has(Permissions.SoftwareView) ? ParseList<SoftwareInfo>(snapshot.SoftwareJson, endpointId) : [],
+            snapshot.Action1AgentId, snapshot.Desktop);
     }
 
     public async Task<IReadOnlyList<AlertView>> GetAlertsAsync(Caller caller, Guid endpointId, int limit = 100, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.AlertsView);
         await using var db = _dbFactory.Create(caller.Scope);
         return await AlertService.Project(db, db.Alerts.AsNoTracking().Where(a => a.EndpointId == endpointId)
                 .OrderByDescending(a => a.OpenedAt).ThenByDescending(a => a.Id).Take(Math.Clamp(limit, 1, 500)))
@@ -306,7 +308,7 @@ public sealed class EndpointService
 
     public async Task<IReadOnlyList<EndpointEventView>> GetEventsAsync(Caller caller, Guid endpointId, int limit = 100, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.HistoryView);
         await using var db = _dbFactory.Create(caller.Scope);
         return await db.EndpointEvents.AsNoTracking()
             .Where(e => e.EndpointId == endpointId)
@@ -319,7 +321,7 @@ public sealed class EndpointService
     /// <summary>Audit entries about this endpoint. IP addresses are left out; the full audit log is for admins.</summary>
     public async Task<IReadOnlyList<AuditEntryView>> GetAuditAsync(Caller caller, Guid endpointId, int limit = 100, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.HistoryView);
         await using var db = _dbFactory.Create(caller.Scope);
         var id = endpointId.ToString();
         return await db.AuditEntries.AsNoTracking()
@@ -339,7 +341,7 @@ public sealed class EndpointService
     public async Task<ServiceResult<int>> SetTierAsync(Caller caller, IReadOnlyCollection<Guid> endpointIds, EndpointTier tier,
         bool removeAction1Agent = false, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.EndpointsTier) || (removeAction1Agent && !caller.Has(Permissions.Action1AgentRemove)))
         {
             return ServiceResult<int>.Forbidden();
         }
@@ -378,7 +380,7 @@ public sealed class EndpointService
     /// </summary>
     public async Task<bool> HasAction1AgentAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var endpoint = await db.Endpoints.AsNoTracking().SingleOrDefaultAsync(e => e.Id == endpointId, cancellationToken);
         return endpoint is not null && await Action1Removal.OperationAsync(db, endpoint, _time.GetUtcNow().UtcDateTime, cancellationToken) is not null;
@@ -392,7 +394,7 @@ public sealed class EndpointService
     /// </summary>
     public async Task<ServiceResult<bool>> RequestInventoryAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanView)
+        if (!caller.Has(Permissions.ClientsView))
         {
             return ServiceResult<bool>.Forbidden();
         }
@@ -427,7 +429,7 @@ public sealed class EndpointService
     public async Task<ServiceResult> SetClassOverrideAsync(Caller caller, Guid endpointId, EndpointClass? classOverride,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.EndpointsEdit))
         {
             return ServiceResult.Forbidden();
         }
@@ -459,7 +461,7 @@ public sealed class EndpointService
     /// <summary>Moves the endpoint to another site of the same client. Endpoints never move between clients.</summary>
     public async Task<ServiceResult> MoveAsync(Caller caller, Guid endpointId, Guid targetSiteId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.EndpointsMove))
         {
             return ServiceResult.Forbidden();
         }
@@ -501,7 +503,7 @@ public sealed class EndpointService
 
     public async Task<ServiceResult> RevokeAsync(Caller caller, Guid endpointId, string? reason, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.EndpointsRevoke))
         {
             return ServiceResult.Forbidden();
         }
@@ -530,7 +532,7 @@ public sealed class EndpointService
     public async Task<ServiceResult> DeleteAsync(Caller caller, Guid endpointId, bool removeAction1Agent = false, bool uninstallAgent = false,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.EndpointsDelete) || (removeAction1Agent && !caller.Has(Permissions.Action1AgentRemove)))
         {
             return ServiceResult.Forbidden();
         }

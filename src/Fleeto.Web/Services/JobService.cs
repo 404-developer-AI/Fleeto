@@ -70,7 +70,7 @@ public sealed class JobService
     public async Task<IReadOnlyList<RunnableScript>> ListRunnableScriptsAsync(Caller caller, IReadOnlyCollection<Guid> endpointIds,
         CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ScriptsRun);
         await using var db = _dbFactory.Create(caller.Scope);
         var ids = endpointIds.Distinct().ToList();
         var endpoints = await db.Endpoints.AsNoTracking().Where(e => ids.Contains(e.Id)).Select(e => new { e.ClientId, e.OsPlatform }).ToListAsync(cancellationToken);
@@ -105,7 +105,7 @@ public sealed class JobService
     public async Task<ServiceResult<JobRunResult>> RunAsync(Caller caller, Guid scriptId, IReadOnlyCollection<Guid> endpointIds, TimeSpan validity,
         JobRunAs runAs = JobRunAs.Service, string? runAsUserId = null, bool allSignedInUsers = false, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ScriptsRun))
         {
             return ServiceResult<JobRunResult>.Forbidden();
         }
@@ -182,7 +182,7 @@ public sealed class JobService
             var problem = TierRules.EffectiveTier(endpoint.Tier, license) != EndpointTier.Managed ? "Not managed. Switch it to managed to run scripts."
                 : !ScriptLanguages.RunsOn(script.Language, endpoint.OsPlatform) ? $"{ScriptLanguages.Label(script.Language)} does not run on this operating system."
                 : script.ClientId is { } scriptClient && scriptClient != endpoint.ClientId ? "The script belongs to another client."
-                : endpoint.ApprovalRequired && !version.IsApproved ? "The site's policy requires an approved script. Ask a second admin to approve this version."
+                : endpoint.ApprovalRequired && !version.IsApproved ? "The site's policy requires an approved script. Ask somebody else who may approve scripts to approve this version."
                 : chooseUser && !SignedInUserRules.AgentSupportsChosenUser(endpoint.AgentVersion)
                     ? "The agent is too old to run a script as a chosen user. Run it as the signed-in user, or wait until the agent runs Fleeto 0.2.2."
                 : runAsUserId is not null && chosen is null
@@ -267,7 +267,7 @@ public sealed class JobService
     /// </summary>
     public async Task<SignedInUsersView?> GetSignedInUsersAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ScriptsRun))
         {
             return null;
         }
@@ -330,7 +330,7 @@ public sealed class JobService
     /// <summary>The jobs of one run, newest endpoint state first seen by host name, for the run window (0.2.1).</summary>
     public async Task<IReadOnlyList<JobListItem>> ListForBatchAsync(Caller caller, Guid batchId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.JobsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var jobs = await Project(db, db.Jobs.AsNoTracking().Where(j => j.BatchId == batchId).OrderBy(j => j.CreatedAt).Take(ScriptRules.MaxJobsPerRun))
             .ToListAsync(cancellationToken);
@@ -340,7 +340,7 @@ public sealed class JobService
 
     public async Task<IReadOnlyList<JobListItem>> ListForEndpointAsync(Caller caller, Guid endpointId, int limit = 50, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.JobsView);
         await using var db = _dbFactory.Create(caller.Scope);
         return await Project(db, db.Jobs.AsNoTracking().Where(j => j.EndpointId == endpointId).OrderByDescending(j => j.CreatedAt).Take(Math.Clamp(limit, 1, 200)))
             .ToListAsync(cancellationToken);
@@ -349,14 +349,14 @@ public sealed class JobService
     /// <summary>The most recent jobs the caller can see, for the dashboard.</summary>
     public async Task<IReadOnlyList<JobListItem>> ListRecentAsync(Caller caller, int limit = 10, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.JobsView);
         await using var db = _dbFactory.Create(caller.Scope);
         return await Project(db, db.Jobs.AsNoTracking().OrderByDescending(j => j.CreatedAt).Take(Math.Clamp(limit, 1, 50))).ToListAsync(cancellationToken);
     }
 
     public async Task<JobOutputView?> GetOutputAsync(Caller caller, Guid jobId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.JobsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var job = await Project(db, db.Jobs.AsNoTracking().Where(j => j.Id == jobId)).SingleOrDefaultAsync(cancellationToken);
         if (job is null)
@@ -372,7 +372,7 @@ public sealed class JobService
     /// <summary>Cancels a job that has not been delivered to its agent yet.</summary>
     public async Task<ServiceResult> CancelAsync(Caller caller, Guid jobId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.JobsCancel))
         {
             return ServiceResult.Forbidden();
         }

@@ -47,7 +47,7 @@ public sealed class RemoteScriptService
     /// <summary>The scripts the caller can run on the endpoint now; null when the caller may not, or the endpoint is not visible.</summary>
     public async Task<TerminalScriptChoices?> ListAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.RemoteBackground) || !caller.Has(Permissions.ScriptsRun))
         {
             return null;
         }
@@ -76,7 +76,7 @@ public sealed class RemoteScriptService
     public async Task<ServiceResult<TerminalScript>> PrepareAsync(Caller caller, Guid participantId, Guid scriptId, bool runAsUser, string? userId,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.RemoteBackground) || !caller.Has(Permissions.ScriptsRun))
         {
             return ServiceResult<TerminalScript>.Forbidden();
         }
@@ -120,7 +120,7 @@ public sealed class RemoteScriptService
         var problem = TierRules.EffectiveTier(endpoint.Tier, license) != EndpointTier.Managed ? "Scripts run only on managed endpoints. Switch it to managed first."
             : !ScriptLanguages.RunsOn(script.Language, endpoint.OsPlatform) ? $"{ScriptLanguages.Label(script.Language)} does not run on this operating system."
             : script.ClientId is { } scriptClient && scriptClient != endpoint.ClientId ? "The script belongs to another client."
-            : approvalRequired && !version.IsApproved ? "The endpoint's policy requires an approved script. Ask a second admin to approve this version."
+            : approvalRequired && !version.IsApproved ? "The endpoint's policy requires an approved script. Ask somebody else who may approve scripts to approve this version."
             : userId is not null && chosen is null
                 ? "The chosen user is no longer signed in on this endpoint, as far as the agent reported. Open Run script again to see who is signed in."
             : null;

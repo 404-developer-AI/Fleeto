@@ -25,9 +25,8 @@ public abstract class FleetoPageBase : ComponentBase, IDisposable
 
     protected bool Loading { get; set; } = true;
 
-    protected bool CanManage => Caller?.CanManage == true;
-
-    protected bool IsAdmin => Caller?.IsAdmin == true;
+    /// <summary>The caller holds the permission (0.6.0). Hides what the services refuse anyway.</summary>
+    protected bool Can(string permission) => Caller?.Has(permission) == true;
 
     private ILogger Logger => LoggerFactory.CreateLogger(GetType());
 
@@ -115,16 +114,18 @@ public abstract class FleetoPageBase : ComponentBase, IDisposable
     }
 
     private Func<Task>? _pendingCreate;
+    private string? _pendingCreatePermission;
 
     /// <summary>
     /// Remembers that the page was opened with <c>?new=true</c> (the Create menu in the navigation), so its create dialog opens
-    /// once the page has loaded. Call from <c>OnParametersSet</c>.
+    /// once the page has loaded, for a caller with <paramref name="permission"/>. Call from <c>OnParametersSet</c>.
     /// </summary>
-    protected void OpenCreateFromQuery(bool requested, Func<Task> create)
+    protected void OpenCreateFromQuery(bool requested, string permission, Func<Task> create)
     {
         if (requested)
         {
             _pendingCreate = create;
+            _pendingCreatePermission = permission;
         }
     }
 
@@ -141,7 +142,7 @@ public abstract class FleetoPageBase : ComponentBase, IDisposable
         var create = _pendingCreate;
         _pendingCreate = null;
         Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("new", (string?)null), new NavigationOptions { ReplaceHistoryEntry = true });
-        if (CanManage)
+        if (_pendingCreatePermission is { } permission && Can(permission))
         {
             await create();
         }

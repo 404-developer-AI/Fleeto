@@ -1,5 +1,5 @@
 @page "/settings/monitoring-templates"
-@attribute [Authorize(Policy = FleetoPolicies.Viewer)]
+@attribute [RequirePermission(Permissions.MonitoringTemplatesView)]
 @inherits FleetoPageBase
 @inject MonitoringTemplateService TemplateSvc
 @inject ClientService ClientSvc
@@ -14,7 +14,7 @@
             Named sets of checks, linked to sites. A change applies at once to every site that links the template.
         </MudText>
     </div>
-    @if (CanManage)
+    @if (Can(Permissions.MonitoringTemplatesEdit))
     {
         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="CreateAsync">New monitoring template</MudButton>
     }
@@ -35,7 +35,7 @@
                 <MudTh>For</MudTh>
                 <MudTh>Checks</MudTh>
                 <MudTh>Used by</MudTh>
-                @if (CanManage)
+                @if (Can(Permissions.MonitoringTemplatesEdit))
                 {
                     <MudTh Style="width:110px"></MudTh>
                 }
@@ -58,7 +58,7 @@
                 </MudTd>
                 <MudTd>@context.CheckCount</MudTd>
                 <MudTd>@Usage(context)</MudTd>
-                @if (CanManage)
+                @if (Can(Permissions.MonitoringTemplatesEdit))
                 {
                     <MudTd Style="white-space:nowrap">
                         <MudTooltip Text="Make a copy"><MudIconButton Icon="@Icons.Material.Outlined.ContentCopy" Size="Size.Small" OnClick="@(() => CopyAsync(context))" /></MudTooltip>
@@ -80,7 +80,7 @@
     [SupplyParameterFromQuery(Name = "new")]
     public bool New { get; set; }
 
-    protected override void OnParametersSet() => OpenCreateFromQuery(New, CreateAsync);
+    protected override void OnParametersSet() => OpenCreateFromQuery(New, Permissions.MonitoringTemplatesEdit, CreateAsync);
 
     private Task ReloadAsync() => LoadAsync(async caller =>
     {

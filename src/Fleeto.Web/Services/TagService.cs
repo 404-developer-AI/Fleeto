@@ -32,7 +32,7 @@ public sealed class TagService
     /// <summary>Every tag with the number of clients that carry it, for Settings.</summary>
     public async Task<IReadOnlyList<TagListItem>> ListAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.TagsManage);
         if (!caller.Scope.AllClients)
         {
             throw new AccessDeniedException();
@@ -51,7 +51,7 @@ public sealed class TagService
     /// </summary>
     public async Task<IReadOnlyList<TagView>> ListVisibleAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var tags = caller.Scope.AllClients
             ? db.Tags.AsNoTracking()
@@ -66,7 +66,7 @@ public sealed class TagService
     public async Task<ServiceResult> SetClientTagsAsync(Caller caller, Guid clientId, IEnumerable<string?> names,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ClientsTags))
         {
             return ServiceResult.Forbidden();
         }
@@ -197,7 +197,7 @@ public sealed class TagService
     /// <summary>Renames or recolors a tag everywhere it is used.</summary>
     public async Task<ServiceResult> UpdateAsync(Caller caller, Guid tagId, string? name, TagColor color, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin || !caller.Scope.AllClients)
+        if (!caller.Has(Permissions.TagsManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -253,7 +253,7 @@ public sealed class TagService
     /// <summary>Deletes a tag and removes it from every client that carries it.</summary>
     public async Task<ServiceResult> DeleteAsync(Caller caller, Guid tagId, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin || !caller.Scope.AllClients)
+        if (!caller.Has(Permissions.TagsManage))
         {
             return ServiceResult.Forbidden();
         }

@@ -18,9 +18,12 @@ public sealed record CredentialWarning(string Name, DateTime ExpiresAt, bool Exp
 
 public sealed record DashboardData(int EndpointsOnline, int EndpointsOffline, int OpenCritical, int OpenWarning, int AgentsOutOfDate,
     LicenseUsage? License, BackupTile Backups, IReadOnlyList<AlertView> OpenAlerts, IReadOnlyList<AuditEntryView> RecentActivity,
-    IReadOnlyList<CredentialWarning> CredentialWarnings, PatchCompliance Patches, InstanceHealthTile? Health = null);
+    IReadOnlyList<CredentialWarning> CredentialWarnings, PatchCompliance? Patches, InstanceHealthTile? Health = null);
 
-/// <summary>Dashboard tiles, the open alert list and recent activity.</summary>
+/// <summary>
+/// Dashboard tiles, the open alert list and recent activity. Every user with a role opens the dashboard; each part follows the
+/// permission of what it shows (0.6.0), and is empty or null without it.
+/// </summary>
 public sealed class DashboardService
 {
     private readonly IFleetoDbContextFactory _dbFactory;
@@ -45,41 +48,49 @@ public sealed class DashboardService
 
     public async Task<DashboardData> GetAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
         await using var db = _dbFactory.Create(caller.Scope);
-        // Out of date means older than the agent release this instance offers (0.2.1), or than the server when none is loaded.
-        var version = await db.AgentReleases.AsNoTracking().Where(r => r.IsCurrent).Select(r => r.Version).FirstOrDefaultAsync(cancellationToken)
-                      ?? FleetoVersion.Current;
-
-        var online = await db.Endpoints.CountAsync(e => e.IsOnline, cancellationToken);
-        var total = await db.Endpoints.CountAsync(cancellationToken);
-        // Alerts on hold are left out of the tiles and the list until their hold ends.
         var now = _time.GetUtcNow().UtcDateTime;
-        var active = db.Alerts.Where(a => a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now));
-        var critical = await active.CountAsync(a => a.Severity == AlertSeverity.Critical, cancellationToken);
-        var warning = await active.CountAsync(a => a.Severity == AlertSeverity.Warning, cancellationToken);
-        var outOfDate = (await db.Endpoints.AsNoTracking().Where(e => e.Source == EndpointSource.Agent).GroupBy(e => e.AgentVersion)
-                .Select(g => new { Version = g.Key, Count = g.Count() }).ToListAsync(cancellationToken))
-            .Where(v => SemanticVersion.IsOlder(v.Version, version)).Sum(v => v.Count);
+        int online = 0, total = 0, outOfDate = 0;
+        IReadOnlyList<AuditEntryView> activity = [];
+        PatchCompliance? patches = null;
+        if (caller.Has(Permissions.ClientsView))
+        {
+            // Out of date means older than the agent release this instance offers (0.2.1), or than the server when none is loaded.
+            var version = await db.AgentReleases.AsNoTracking().Where(r => r.IsCurrent).Select(r => r.Version).FirstOrDefaultAsync(cancellationToken)
+                          ?? FleetoVersion.Current;
+            online = await db.Endpoints.CountAsync(e => e.IsOnline, cancellationToken);
+            total = await db.Endpoints.CountAsync(cancellationToken);
+            outOfDate = (await db.Endpoints.AsNoTracking().Where(e => e.Source == EndpointSource.Agent).GroupBy(e => e.AgentVersion)
+                    .Select(g => new { Version = g.Key, Count = g.Count() }).ToListAsync(cancellationToken))
+                .Where(v => SemanticVersion.IsOlder(v.Version, version)).Sum(v => v.Count);
+            activity = await db.AuditEntries.AsNoTracking()
+                .OrderByDescending(a => a.Id)
+                .Take(15)
+                .Select(a => new AuditEntryView(a.Id, a.Time, a.ClientId, a.ActorType, a.ActorId, a.ActorName, a.Action, a.TargetType, a.TargetId,
+                    a.DetailsJson, null))
+                .ToListAsync(cancellationToken);
+            patches = await _patches.GetComplianceAsync(caller, cancellationToken: cancellationToken);
+        }
 
-        var openAlerts = await AlertService.Project(db, active.AsNoTracking()
-                .OrderByDescending(a => a.OpenedAt).ThenByDescending(a => a.Id)
-                .Take(20))
-            .ToListAsync(cancellationToken);
+        int critical = 0, warning = 0;
+        IReadOnlyList<AlertView> openAlerts = [];
+        if (caller.Has(Permissions.AlertsView))
+        {
+            // Alerts on hold are left out of the tiles and the list until their hold ends.
+            var active = db.Alerts.Where(a => a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now));
+            critical = await active.CountAsync(a => a.Severity == AlertSeverity.Critical, cancellationToken);
+            warning = await active.CountAsync(a => a.Severity == AlertSeverity.Warning, cancellationToken);
+            openAlerts = await AlertService.Project(db, active.AsNoTracking()
+                    .OrderByDescending(a => a.OpenedAt).ThenByDescending(a => a.Id)
+                    .Take(20))
+                .ToListAsync(cancellationToken);
+        }
 
-        var activity = await db.AuditEntries.AsNoTracking()
-            .OrderByDescending(a => a.Id)
-            .Take(15)
-            .Select(a => new AuditEntryView(a.Id, a.Time, a.ClientId, a.ActorType, a.ActorId, a.ActorName, a.Action, a.TargetType, a.TargetId,
-                a.DetailsJson, null))
-            .ToListAsync(cancellationToken);
-
-        // The license is of the whole instance (0.6.0): admins only.
-        var license = caller.IsAdmin ? await _licenses.GetUsageAsync(cancellationToken) : null;
+        // The license is of the whole instance (0.6.0).
+        var license = caller.Has(Permissions.LicensingManage) ? await _licenses.GetUsageAsync(cancellationToken) : null;
         var backups = await GetBackupTileAsync(db, cancellationToken);
-        var patches = await _patches.GetComplianceAsync(caller, cancellationToken: cancellationToken);
 
-        // Instance health (0.6.0) concerns the infrastructure: admins only.
+        // Instance health (0.6.0) concerns the infrastructure: only with its permission.
         return new DashboardData(online, total - online, critical, warning, outOfDate, license, backups, openAlerts, activity,
             await GetCredentialWarningsAsync(now, cancellationToken), patches, await _health.GetTileAsync(caller, cancellationToken));
     }

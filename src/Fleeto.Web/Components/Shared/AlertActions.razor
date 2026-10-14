@@ -1,30 +1,43 @@
-@* Actions on one unresolved alert: acknowledge, put on hold, end hold, resolve. Render only for callers who can manage. *@
+@* Actions on one unresolved alert: acknowledge, put on hold, end hold, resolve, each with its own permission (0.6.0). Render only
+   where AnyAction is true for the caller. *@
 @inherits FleetoPageBase
 @inject AlertService AlertSvc
 @inject IDialogService DialogService
 @inject TimeProvider Clock
 
-@if (Alert.State != AlertState.Resolved)
+@if (Alert.State != AlertState.Resolved && AnyAction(Caller))
 {
     <MudMenu Icon="@Icons.Material.Outlined.MoreVert" Size="Size.Small" Dense="true" AriaLabel="Alert actions" AnchorOrigin="Origin.BottomRight"
              TransformOrigin="Origin.TopRight">
-        @if (Alert.State == AlertState.Open)
+        @if (Alert.State == AlertState.Open && Can(Permissions.AlertsAcknowledge))
         {
             <MudMenuItem Icon="@Icons.Material.Outlined.Check" OnClick="AcknowledgeAsync">Acknowledge</MudMenuItem>
         }
-        @if (Alert.IsHeld(Clock.GetUtcNow().UtcDateTime))
+        @if (Can(Permissions.AlertsHold))
         {
-            <MudMenuItem Icon="@Icons.Material.Outlined.PlayCircle" OnClick="EndHoldAsync">End hold</MudMenuItem>
+            @if (Alert.IsHeld(Clock.GetUtcNow().UtcDateTime))
+            {
+                <MudMenuItem Icon="@Icons.Material.Outlined.PlayCircle" OnClick="EndHoldAsync">End hold</MudMenuItem>
+            }
+            else
+            {
+                <MudMenuItem Icon="@Icons.Material.Outlined.PauseCircle" OnClick="HoldAsync">Put on hold</MudMenuItem>
+            }
         }
-        else
+        @if (Can(Permissions.AlertsResolve))
         {
-            <MudMenuItem Icon="@Icons.Material.Outlined.PauseCircle" OnClick="HoldAsync">Put on hold</MudMenuItem>
+            <MudMenuItem Icon="@Icons.Material.Outlined.TaskAlt" OnClick="ResolveAsync">Resolve</MudMenuItem>
         }
-        <MudMenuItem Icon="@Icons.Material.Outlined.TaskAlt" OnClick="ResolveAsync">Resolve</MudMenuItem>
     </MudMenu>
 }
 
 @code {
+    /// <summary>The caller may act on alerts at all: the column for these actions is shown.</summary>
+    public static bool AnyAction(Caller? caller) =>
+        caller is not null && (caller.Has(Permissions.AlertsAcknowledge) || caller.Has(Permissions.AlertsHold) || caller.Has(Permissions.AlertsResolve));
+
+    protected override Task OnInitializedAsync() => LoadAsync(_ => Task.CompletedTask);
+
     [Parameter, EditorRequired] public AlertView Alert { get; set; } = default!;
 
     /// <summary>Raised after an action succeeded, so the owner reloads.</summary>

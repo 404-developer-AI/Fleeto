@@ -27,7 +27,8 @@
                 {
                     <span>@credential.Name expires on @Time.Absolute(credential.ExpiresAt). After that date @credential.StopsWorking stops.</span>
                 }
-                @if (IsAdmin)
+                @* The way to renew it only for somebody who may open its settings page (0.6.0). *@
+                @if (CanOpen(credential.SettingsPath))
                 {
                     <span> @credential.NextStep </span><MudLink Href="@credential.SettingsPath">Open settings</MudLink>
                 }
@@ -38,6 +39,9 @@
             </MudAlert>
         }
         <MudGrid Spacing="3" Class="mb-4">
+            @* Every tile follows the permission of what it shows (0.6.0). *@
+            @if (Can(Permissions.ClientsView))
+            {
             <MudItem xs="12" sm="6" md="4" lg="2">
                 <div class="stat-card fl-panel">
                     <div class="stat-label">Endpoints online</div>
@@ -52,6 +56,9 @@
                     <div class="stat-detail">@(data.EndpointsOffline == 0 ? "Every endpoint is connected" : "Not connected to the gateway")</div>
                 </div>
             </MudItem>
+            }
+            @if (Can(Permissions.AlertsView))
+            {
             <MudItem xs="12" sm="6" md="4" lg="2">
                 <div class="stat-card fl-panel @(data.OpenCritical > 0 ? "stat-error" : data.OpenWarning > 0 ? "stat-warning" : "")">
                     <div class="stat-label">Open alerts</div>
@@ -59,6 +66,9 @@
                     <div class="stat-detail">@data.OpenCritical critical · @data.OpenWarning warning</div>
                 </div>
             </MudItem>
+            }
+            @if (Can(Permissions.ClientsView))
+            {
             <MudItem xs="12" sm="6" md="4" lg="2">
                 <div class="stat-card fl-panel @(data.AgentsOutOfDate > 0 ? "stat-warning" : "")">
                     <div class="stat-label">Agents out of date</div>
@@ -66,16 +76,17 @@
                     <div class="stat-detail">Current version @FleetoVersion.Current</div>
                 </div>
             </MudItem>
-            @if (data.Patches.Covered > 0)
+            }
+            @if (data.Patches is { Covered: > 0 } patches)
             {
                 <MudItem xs="12" sm="6" md="4" lg="2">
-                    <div class="stat-card fl-panel @(data.Patches.NotPatched > 0 || data.Patches.MissingCritical > 0 ? "stat-warning" : "")">
+                    <div class="stat-card fl-panel @(patches.NotPatched > 0 || patches.MissingCritical > 0 ? "stat-warning" : "")">
                         <div class="stat-label">Patch compliance</div>
-                        <div class="stat-number">@data.Patches.Percentage%</div>
+                        <div class="stat-number">@patches.Percentage%</div>
                         <div class="stat-detail">
-                            @data.Patches.Compliant of @data.Patches.Covered up to date@(data.Patches.MissingCritical > 0
-                                ? $", {data.Patches.MissingCritical} missing critical" : "")@(data.Patches.NotPatched > 0
-                                ? $", {data.Patches.NotPatched} not patched" : "")
+                            @patches.Compliant of @patches.Covered up to date@(patches.MissingCritical > 0
+                                ? $", {patches.MissingCritical} missing critical" : "")@(patches.NotPatched > 0
+                                ? $", {patches.NotPatched} not patched" : "")
                         </div>
                     </div>
                 </MudItem>
@@ -121,7 +132,7 @@
                     {
                         <div class="stat-detail" style="margin-top:0">
                             No backup destination is configured, so backups exist on this server only.
-                            @if (IsAdmin)
+                            @if (Can(Permissions.BackupsManage))
                             {
                                 <MudLink Href="/settings/backups" Typo="Typo.body2">Configure backups</MudLink>
                             }
@@ -139,6 +150,8 @@
         </MudGrid>
 
         <MudGrid Spacing="3">
+            @if (Can(Permissions.AlertsView))
+            {
             <MudItem xs="12" lg="7">
                 <MudText Typo="Typo.h6" Class="section-title mb-2">Open alerts</MudText>
                 @if (data.OpenAlerts.Count == 0)
@@ -154,7 +167,7 @@
                             <MudTh>Alert</MudTh>
                             <MudTh>Endpoint</MudTh>
                             <MudTh>Opened</MudTh>
-                            @if (CanManage)
+                            @if (AlertActions.AnyAction(Caller))
                             {
                                 <MudTh Style="width:52px"></MudTh>
                             }
@@ -164,7 +177,7 @@
                             <MudTd>@context.Title</MudTd>
                             <MudTd><MudLink Href="@($"/endpoints/{context.EndpointId}")">@context.ClientCode / @context.Hostname</MudLink></MudTd>
                             <MudTd><TimeText Value="context.OpenedAt" /></MudTd>
-                            @if (CanManage)
+                            @if (AlertActions.AnyAction(Caller))
                             {
                                 <MudTd><AlertActions Alert="context" OnChanged="ReloadAsync" /></MudTd>
                             }
@@ -173,7 +186,10 @@
                     <MudLink Href="/alerts" Typo="Typo.body2" Class="mt-2 d-inline-block">All alerts</MudLink>
                 }
             </MudItem>
+            }
             <MudItem xs="12" lg="5">
+                @if (Can(Permissions.ClientsView))
+                {
                 <MudText Typo="Typo.h6" Class="section-title mb-2">Recent activity</MudText>
                 @if (data.RecentActivity.Count == 0)
                 {
@@ -195,6 +211,10 @@
                     </MudTable>
                 }
 
+                }
+
+                @if (Can(Permissions.JobsView))
+                {
                 <MudText Typo="Typo.h6" Class="section-title mb-2 mt-4">Recent jobs</MudText>
                 @if (_jobs.Count == 0)
                 {
@@ -217,6 +237,7 @@
                         </RowTemplate>
                     </MudTable>
                 }
+                }
             </MudItem>
         </MudGrid>
     }
@@ -224,6 +245,9 @@
 
 @code {
     private static string Capitalize(string value) => value.Length == 0 ? value : char.ToUpperInvariant(value[0]) + value[1..];
+
+    private bool CanOpen(string path) =>
+        SettingsPages.All.FirstOrDefault(p => path.StartsWith(p.Href, StringComparison.OrdinalIgnoreCase)) is { } page && Can(page.Permission);
 
     private DashboardData? _data;
     private IReadOnlyList<JobListItem> _jobs = [];
@@ -247,7 +271,7 @@
     private Task ReloadAsync() => LoadAsync(async caller =>
     {
         _data = await DashboardData.GetAsync(caller);
-        _jobs = await JobSvc.ListRecentAsync(caller, 8);
+        _jobs = caller.Has(Permissions.JobsView) ? await JobSvc.ListRecentAsync(caller, 8) : [];
     });
 
     private string LicenseDetail(Fleeto.Infrastructure.Licensing.LicenseUsage usage) => usage.Status.State switch

@@ -113,7 +113,7 @@ public sealed class CheckHistoryService
     public async Task<CheckHistoryView?> GetAsync(Caller caller, Guid endpointId, Guid checkId, string? target, HistoryRange range,
         CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ChecksView);
         await using var db = _dbFactory.Create(caller.Scope);
         var endpoint = await db.Endpoints.AsNoTracking().SingleOrDefaultAsync(e => e.Id == endpointId, cancellationToken);
         if (endpoint is null ||

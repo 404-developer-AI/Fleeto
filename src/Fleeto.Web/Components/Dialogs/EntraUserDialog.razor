@@ -11,12 +11,7 @@
             does not say Microsoft already asked for a second factor.
         </MudText>
         <MudText Typo="Typo.subtitle2" Class="mb-1">Roles</MudText>
-        <MudCheckBox T="bool" Value="@_roles.Contains(FleetoRoles.Admin)" ValueChanged="@(v => Toggle(FleetoRoles.Admin, v))" Color="Color.Primary"
-                     Label="Admin: everything, including Settings" />
-        <MudCheckBox T="bool" Value="@_roles.Contains(FleetoRoles.Technician)" ValueChanged="@(v => Toggle(FleetoRoles.Technician, v))" Color="Color.Primary"
-                     Label="Technician: manage clients, sites, endpoints, templates and alerts" />
-        <MudCheckBox T="bool" Value="@_roles.Contains(FleetoRoles.ReadOnly)" ValueChanged="@(v => Toggle(FleetoRoles.ReadOnly, v))" Color="Color.Primary"
-                     Label="Read-only: view everything outside Settings" />
+        <RolePicker Roles="Roles" Selected="_roles" SelectedChanged="StateHasChanged" />
         @if (_problem is not null)
         {
             <MudText Typo="Typo.body2" Color="Color.Warning" Class="d-block mt-2">@_problem</MudText>
@@ -32,24 +27,15 @@
     [CascadingParameter]
     private IMudDialogInstance MudDialog { get; set; } = default!;
 
+    /// <summary>Every role, to choose from (0.6.0).</summary>
+    [Parameter] public IReadOnlyList<RoleListItem> Roles { get; set; } = [];
+
     [Parameter] public Func<DirectoryUserView, IReadOnlyCollection<string>, Task<bool>> OnSubmit { get; set; } = (_, _) => Task.FromResult(true);
 
     private DirectoryUserView? _selected;
     private HashSet<string> _roles = [FleetoRoles.Technician];
     private string? _problem;
     private bool _busy;
-
-    private void Toggle(string role, bool selected)
-    {
-        if (selected)
-        {
-            _roles.Add(role);
-        }
-        else
-        {
-            _roles.Remove(role);
-        }
-    }
 
     private void Cancel() => MudDialog.Cancel();
 

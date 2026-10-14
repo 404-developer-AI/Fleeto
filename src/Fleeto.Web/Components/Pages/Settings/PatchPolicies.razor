@@ -1,5 +1,5 @@
 @page "/settings/patch-policies"
-@attribute [Authorize(Policy = FleetoPolicies.Viewer)]
+@attribute [RequirePermission(Permissions.PatchPoliciesView)]
 @inherits FleetoPageBase
 @inject PatchPolicyService PatchPolicySvc
 @inject ClientService ClientSvc
@@ -15,7 +15,7 @@
             per patch policy in the Action1 organization of each client that uses it, so a change here reaches Action1 within a minute.
         </MudText>
     </div>
-    @if (CanManage)
+    @if (Can(Permissions.PatchPoliciesEdit))
     {
         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="CreateAsync">New patch policy</MudButton>
     }
@@ -44,7 +44,7 @@
                 <MudTh>Used by</MudTh>
                 <MudTh>Action1</MudTh>
                 <MudTh>Action1 agent</MudTh>
-                @if (CanManage)
+                @if (Can(Permissions.PatchPoliciesEdit))
                 {
                     <MudTh Style="width:140px"></MudTh>
                 }
@@ -105,7 +105,7 @@
                         </div>
                     }
                 </MudTd>
-                @if (CanManage)
+                @if (Can(Permissions.PatchPoliciesEdit))
                 {
                     <MudTd Style="white-space:nowrap">
                         <MudTooltip Text="Edit"><MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="@(() => EditAsync(context))" /></MudTooltip>

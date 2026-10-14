@@ -1,5 +1,5 @@
 @page "/alerts"
-@attribute [Authorize(Policy = FleetoPolicies.Viewer)]
+@attribute [RequirePermission(Permissions.AlertsView)]
 @inherits FleetoPageBase
 @inject AlertService AlertSvc
 @inject ClientService ClientSvc
@@ -52,7 +52,7 @@
                 <MudTh>Alert</MudTh>
                 <MudTh>Endpoint</MudTh>
                 <MudTh>Opened</MudTh>
-                @if (CanManage)
+                @if (AlertActions.AnyAction(Caller))
                 {
                     <MudTh></MudTh>
                 }
@@ -78,7 +78,7 @@
                 </MudTd>
                 <MudTd><MudLink Href="@($"/endpoints/{context.EndpointId}")">@context.ClientCode / @context.Hostname</MudLink></MudTd>
                 <MudTd><TimeText Value="context.OpenedAt" /></MudTd>
-                @if (CanManage)
+                @if (AlertActions.AnyAction(Caller))
                 {
                     <MudTd Style="white-space:nowrap">
                         <AlertActions Alert="context" OnChanged="ReloadAsync" />

@@ -73,7 +73,7 @@ public sealed class SettingsService
 
     public async Task<SmtpView> GetSmtpAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.EmailManage);
         var smtp = await _settings.GetAsync<SmtpSettings>(SettingKeys.Smtp, cancellationToken) ?? new SmtpSettings();
         return new SmtpView(smtp.Host, smtp.Port, smtp.Security, smtp.Username, !string.IsNullOrEmpty(smtp.Password), smtp.FromAddress, smtp.FromName);
     }
@@ -95,7 +95,7 @@ public sealed class SettingsService
     /// <summary>Chooses how email is sent. Microsoft Graph can be chosen once its settings are complete.</summary>
     public async Task<ServiceResult> SaveProviderAsync(Caller caller, EmailProvider provider, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.EmailManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -119,7 +119,7 @@ public sealed class SettingsService
     /// <summary>Saves the Graph app registration. The client secret is write-only: blank keeps the current secret.</summary>
     public async Task<ServiceResult> SaveGraphAsync(Caller caller, GraphInput input, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.EmailManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -210,7 +210,7 @@ public sealed class SettingsService
     /// </summary>
     public async Task<ServiceResult> CreateGraphCertificateAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.EmailManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -234,7 +234,7 @@ public sealed class SettingsService
     /// <summary>Switches to the pending certificate and signs in with certificates from now on.</summary>
     public async Task<ServiceResult> ActivateGraphCertificateAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.EmailManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -264,7 +264,7 @@ public sealed class SettingsService
     /// <summary>The public part (DER) of the pending certificate, or else of the certificate in use; null when there is none.</summary>
     public async Task<ServiceResult<GraphPublicCertificate>> GetGraphPublicCertificateAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.EmailManage))
         {
             return ServiceResult<GraphPublicCertificate>.Forbidden();
         }
@@ -282,7 +282,7 @@ public sealed class SettingsService
 
     public async Task<ServiceResult> SaveSmtpAsync(Caller caller, SmtpInput input, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.EmailManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -333,7 +333,7 @@ public sealed class SettingsService
     /// <summary>Queues a short test message to the signed-in admin; the workers deliver it with the saved settings.</summary>
     public async Task<ServiceResult> SendTestEmailAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.EmailManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -376,7 +376,7 @@ public sealed class SettingsService
 
     public async Task<BackupView> GetBackupAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.BackupsManage);
         return await GetBackupViewAsync(cancellationToken);
     }
 
@@ -395,7 +395,7 @@ public sealed class SettingsService
     /// <summary>Saves the backup destination and public key. The S3 secret is write-only: blank keeps the current one.</summary>
     public async Task<ServiceResult> SaveBackupAsync(Caller caller, BackupInput input, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.BackupsManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -509,7 +509,7 @@ public sealed class SettingsService
 
     public async Task<IReadOnlyList<BackupRunView>> ListBackupRunsAsync(Caller caller, int limit = 20, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.BackupsManage);
         await using var db = _dbFactory.CreateSystem();
         return await db.BackupRuns.AsNoTracking().OrderByDescending(r => r.StartedAt).Take(Math.Clamp(limit, 1, 100))
             .Select(r => new BackupRunView(r.Id, r.Kind, r.Status, r.StartedAt, r.CompletedAt, r.SizeBytes, r.ObjectKey, r.Error))
@@ -519,7 +519,7 @@ public sealed class SettingsService
     /// <summary>Asks the workers for a backup now. Refused while no destination is configured.</summary>
     public async Task<ServiceResult> RequestBackupNowAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.BackupsManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -543,7 +543,7 @@ public sealed class SettingsService
 
     public async Task<InstanceView?> GetInstanceAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.InstanceView);
         await using var db = _dbFactory.CreateSystem();
         var instance = await db.InstanceSettings.AsNoTracking().SingleOrDefaultAsync(cancellationToken);
         if (instance is null)
@@ -567,7 +567,7 @@ public sealed class SettingsService
     /// <summary>Saves the threshold above which a script run notifies every admin.</summary>
     public async Task<ServiceResult> SaveScriptRunNoticeAsync(Caller caller, int above, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.NotificationsManage))
         {
             return ServiceResult.Forbidden();
         }

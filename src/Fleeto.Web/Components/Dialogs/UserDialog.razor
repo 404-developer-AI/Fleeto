@@ -15,12 +15,7 @@
             </MudText>
         }
         <MudText Typo="Typo.subtitle2" Class="mb-1">Roles</MudText>
-        <MudCheckBox T="bool" Value="@_roles.Contains(FleetoRoles.Admin)" ValueChanged="@(v => Toggle(FleetoRoles.Admin, v))" Color="Color.Primary"
-                     Label="Admin: everything on every client, including Settings" />
-        <MudCheckBox T="bool" Value="@_roles.Contains(FleetoRoles.Technician)" ValueChanged="@(v => Toggle(FleetoRoles.Technician, v))" Color="Color.Primary"
-                     Label="Technician: manage the clients, sites and endpoints of their groups, templates and alerts" />
-        <MudCheckBox T="bool" Value="@_roles.Contains(FleetoRoles.ReadOnly)" ValueChanged="@(v => Toggle(FleetoRoles.ReadOnly, v))" Color="Color.Primary"
-                     Label="Read-only: view what their groups give, outside Settings" />
+        <RolePicker Roles="Roles" Selected="_roles" SelectedChanged="StateHasChanged" />
 
         <MudText Typo="Typo.subtitle2" Class="mt-4 mb-1">Groups</MudText>
         @if (_roles.Contains(FleetoRoles.Admin))
@@ -66,6 +61,9 @@
 
     [Parameter] public UserListItem? Existing { get; set; }
 
+    /// <summary>Every role, to choose from (0.6.0).</summary>
+    [Parameter] public IReadOnlyList<RoleListItem> Roles { get; set; } = [];
+
     /// <summary>Every group, to choose from (0.6.0).</summary>
     [Parameter] public IReadOnlyList<UserGroupOption> Groups { get; set; } = [];
 
@@ -97,18 +95,6 @@
 
     private static string GroupLabel(UserGroupOption group) =>
         group.Name + (group.AllClients ? " (every client)" : string.Empty);
-
-    private void Toggle(string role, bool selected)
-    {
-        if (selected)
-        {
-            _roles.Add(role);
-        }
-        else
-        {
-            _roles.Remove(role);
-        }
-    }
 
     private void ToggleGroup(Guid groupId, bool selected)
     {

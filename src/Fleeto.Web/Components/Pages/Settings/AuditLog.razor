@@ -1,5 +1,5 @@
 @page "/settings/audit-log"
-@attribute [Authorize(Policy = FleetoPolicies.Admin)]
+@attribute [RequirePermission(Permissions.AuditView)]
 @inherits FleetoPageBase
 @inject AuditQueryService AuditSvc
 @inject ClientService ClientSvc

@@ -78,7 +78,7 @@ public sealed class PatchPolicyService
 
     public async Task<IReadOnlyList<PatchPolicyListItem>> ListAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.PatchPoliciesView);
         await using var db = _dbFactory.Create(caller.Scope);
         var policies = await db.PatchPolicies.AsNoTracking()
             .OrderBy(p => p.ClientId != null).ThenBy(p => p.Name)
@@ -117,7 +117,7 @@ public sealed class PatchPolicyService
 
     public async Task<PatchPolicyInput?> GetAsync(Caller caller, Guid id, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.PatchPoliciesView);
         await using var db = _dbFactory.Create(caller.Scope);
         var policy = await db.PatchPolicies.AsNoTracking().SingleOrDefaultAsync(p => p.Id == id, cancellationToken);
         return policy is null ? null : PatchPolicyInput.From(policy);
@@ -125,7 +125,7 @@ public sealed class PatchPolicyService
 
     public async Task<ServiceResult<Guid>> CreateAsync(Caller caller, Guid? clientId, PatchPolicyInput input, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.PatchPoliciesEdit))
         {
             return ServiceResult<Guid>.Forbidden();
         }
@@ -171,7 +171,7 @@ public sealed class PatchPolicyService
 
     public async Task<ServiceResult> UpdateAsync(Caller caller, Guid id, PatchPolicyInput input, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.PatchPoliciesEdit))
         {
             return ServiceResult.Forbidden();
         }
@@ -210,7 +210,7 @@ public sealed class PatchPolicyService
     /// <summary>Copies a patch policy, globally or for one client. The copy is independent from then on.</summary>
     public async Task<ServiceResult<Guid>> CopyAsync(Caller caller, Guid id, string? name, Guid? targetClientId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.PatchPoliciesEdit))
         {
             return ServiceResult<Guid>.Forbidden();
         }
@@ -237,7 +237,7 @@ public sealed class PatchPolicyService
     /// </summary>
     public async Task<ServiceResult> DeleteAsync(Caller caller, Guid id, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.PatchPoliciesEdit))
         {
             return ServiceResult.Forbidden();
         }

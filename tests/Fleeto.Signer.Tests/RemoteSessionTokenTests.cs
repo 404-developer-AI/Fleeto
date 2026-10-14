@@ -363,4 +363,21 @@ public sealed class RemoteSessionTokenTests
         var (_, refusedRevoked) = await SignAsync(revoked);
         Assert.Equal(RemoteSessionTokenHandler.AccessReason, refusedRevoked.EndReason);
     }
+
+    [Fact]
+    public async Task A_custom_role_gets_a_token_only_for_the_kind_of_session_it_may_open()
+    {
+        // Remote control and remote background are separate permissions (0.6.0), checked again by the signer.
+        var (endpoint, _) = await ScopeAsync();
+        var controlOnly = await _fixture.Database.CreateUserAsync(await _fixture.Database.CreateRoleAsync(
+            Core.Domain.Permissions.ClientsView, Core.Domain.Permissions.RemoteControl));
+
+        var (_, background) = await SignAsync(await CreateParticipantAsync(endpoint, controlOnly.Id));
+        Assert.Equal(RemoteParticipantState.Refused, background.State);
+        Assert.Equal(RemoteSessionTokenHandler.UserReason, background.EndReason);
+
+        var (_, control) = await SignAsync(await CreateParticipantAsync(endpoint, controlOnly.Id, kind: RemoteSessionKind.RemoteControl,
+            component: AgentComponent.Agent, windowsSessionId: 0));
+        Assert.Equal(RemoteParticipantState.Signed, control.State);
+    }
 }

@@ -57,7 +57,7 @@ public sealed class PublicApiQueries
     public async Task<ApiPage<ApiClient>> ListClientsAsync(Caller caller, string? search, string? tag, string? cursor, int limit,
         CancellationToken cancellationToken)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var clients = db.Clients.AsNoTracking();
         if (ServiceSupport.Clean(search) is { } term)
@@ -85,7 +85,7 @@ public sealed class PublicApiQueries
 
     public async Task<ApiClient?> GetClientAsync(Caller caller, Guid clientId, CancellationToken cancellationToken)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var row = await ProjectClients(db, db.Clients.AsNoTracking().Where(c => c.Id == clientId)).SingleOrDefaultAsync(cancellationToken);
         if (row is null)
@@ -135,7 +135,7 @@ public sealed class PublicApiQueries
     /// <summary>Ordered by name, keyset on (Name, Id).</summary>
     public async Task<ApiPage<ApiSite>> ListSitesAsync(Caller caller, Guid? clientId, string? cursor, int limit, CancellationToken cancellationToken)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var sites = db.Sites.AsNoTracking();
         if (clientId is { } client)
@@ -157,7 +157,7 @@ public sealed class PublicApiQueries
 
     public async Task<ApiSite?> GetSiteAsync(Caller caller, Guid siteId, CancellationToken cancellationToken)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var row = await db.Sites.AsNoTracking().Where(s => s.Id == siteId)
             .Select(s => new { Site = s, Endpoints = db.Endpoints.Count(e => e.SiteId == s.Id) })
@@ -174,7 +174,7 @@ public sealed class PublicApiQueries
     public async Task<ApiPage<ApiEndpoint>> ListEndpointsAsync(Caller caller, ApiEndpointFilter filter, string? cursor, int limit,
         CancellationToken cancellationToken)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var endpoints = db.Endpoints.AsNoTracking();
         if (filter.ClientId is { } clientId)
@@ -218,7 +218,7 @@ public sealed class PublicApiQueries
 
     public async Task<ApiEndpoint?> GetEndpointAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         return (await ToApiEndpointsAsync(db, db.Endpoints.AsNoTracking().Where(e => e.Id == endpointId), cancellationToken)).SingleOrDefault();
     }
@@ -259,7 +259,7 @@ public sealed class PublicApiQueries
     /// <summary>Null when the endpoint does not exist; an endpoint without an inventory yet returns a found endpoint with a null value.</summary>
     public async Task<(bool EndpointFound, ApiInventory? Inventory)> GetInventoryAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         if (!await EndpointExistsAsync(caller, endpointId, cancellationToken))
         {
             return (false, null);
@@ -288,7 +288,7 @@ public sealed class PublicApiQueries
     /// </summary>
     public async Task<ManagedRead<ApiPatchState?>?> GetPatchStateAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.PatchesView);
         var view = await _patches.GetAsync(caller, endpointId, cancellationToken);
         if (view is null)
         {
@@ -319,7 +319,7 @@ public sealed class PublicApiQueries
     public async Task<ManagedRead<IReadOnlyList<ApiDeployment>>?> GetDeploymentsAsync(Caller caller, Guid endpointId, int limit,
         CancellationToken cancellationToken)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.PatchesView);
         var view = await _patches.GetAsync(caller, endpointId, cancellationToken);
         if (view is null)
         {
@@ -367,7 +367,7 @@ public sealed class PublicApiQueries
     public async Task<ManagedRead<ApiPage<ApiNote>>?> ListNotesAsync(Caller caller, Guid endpointId, string? cursor, int limit,
         CancellationToken cancellationToken)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.NotesView);
         await using var db = _dbFactory.Create(caller.Scope);
         var endpoint = await db.Endpoints.AsNoTracking().Where(e => e.Id == endpointId).Select(e => new { e.Tier }).SingleOrDefaultAsync(cancellationToken);
         if (endpoint is null)
@@ -400,7 +400,7 @@ public sealed class PublicApiQueries
     /// <summary>Newest first, keyset on (OpenedAt, Id).</summary>
     public async Task<ApiPage<ApiAlert>> ListAlertsAsync(Caller caller, ApiAlertFilter filter, string? cursor, int limit, CancellationToken cancellationToken)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.AlertsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var now = _time.GetUtcNow().UtcDateTime;
         var alerts = db.Alerts.AsNoTracking();
@@ -440,7 +440,7 @@ public sealed class PublicApiQueries
 
     public async Task<ApiAlert?> GetAlertAsync(Caller caller, Guid alertId, CancellationToken cancellationToken)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.AlertsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var alert = await db.Alerts.AsNoTracking().SingleOrDefaultAsync(a => a.Id == alertId, cancellationToken);
         return alert is null ? null : ToApi(alert, _time.GetUtcNow().UtcDateTime);
@@ -459,7 +459,7 @@ public sealed class PublicApiQueries
     /// <summary>Newest first, keyset on (CreatedAt, Id). Jobs stay readable after the endpoint became agent-only: they are history.</summary>
     public async Task<ApiPage<ApiJob>> ListJobsAsync(Caller caller, ApiJobFilter filter, string? cursor, int limit, CancellationToken cancellationToken)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.JobsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var jobs = db.Jobs.AsNoTracking();
         if (filter.ClientId is { } clientId)
@@ -488,7 +488,7 @@ public sealed class PublicApiQueries
 
     public async Task<ApiJob?> GetJobAsync(Caller caller, Guid jobId, CancellationToken cancellationToken)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.JobsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var row = await ProjectJobs(db.Jobs.AsNoTracking().Where(j => j.Id == jobId)).SingleOrDefaultAsync(cancellationToken);
         return row is null ? null : ToApi(row);

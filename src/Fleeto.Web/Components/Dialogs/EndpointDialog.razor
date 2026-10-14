@@ -5,13 +5,13 @@
     </TitleContent>
     <DialogContent>
         <MudText Typo="Typo.subtitle2" Class="mb-3">Management</MudText>
-        <MudSelect T="string" @bind-Value="_class" Variant="Variant.Outlined" Label="Endpoint class" Margin="Margin.Dense" Class="mb-4"
+        <MudSelect T="string" @bind-Value="_class" Variant="Variant.Outlined" Label="Endpoint class" Margin="Margin.Dense" Class="mb-4" Disabled="@(!CanChangeClass)"
                    HelperText="Detected from the OS edition. Override it when the detection does not fit.">
             <MudSelectItem T="string" Value="@("detected")">Detected (@Ui.ClassLabel(Endpoint.DetectedClass))</MudSelectItem>
             <MudSelectItem T="string" Value="@("workstation")">Workstation</MudSelectItem>
             <MudSelectItem T="string" Value="@("server")">Server</MudSelectItem>
         </MudSelect>
-        <MudSelect T="Guid" @bind-Value="_siteId" Variant="Variant.Outlined" Label="Site" Margin="Margin.Dense"
+        <MudSelect T="Guid" @bind-Value="_siteId" Variant="Variant.Outlined" Label="Site" Margin="Margin.Dense" Disabled="@(!CanMove)"
                    HelperText="An endpoint can move between sites of the same client only.">
             @foreach (var site in Endpoint.ClientSites)
             {
@@ -30,6 +30,12 @@
     private IMudDialogInstance MudDialog { get; set; } = default!;
 
     [Parameter, EditorRequired] public EndpointDetail Endpoint { get; set; } = default!;
+
+    /// <summary>The class may be overridden (0.6.0).</summary>
+    [Parameter] public bool CanChangeClass { get; set; } = true;
+
+    /// <summary>The endpoint may move to another site (0.6.0).</summary>
+    [Parameter] public bool CanMove { get; set; } = true;
 
     /// <summary>Saves the class override (when changed) and the site (when changed). Returns true when everything saved.</summary>
     [Parameter] public Func<EndpointClass?, bool, Guid, bool, Task<bool>> OnSubmit { get; set; } = (_, _, _, _) => Task.FromResult(true);

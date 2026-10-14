@@ -1,3 +1,4 @@
+using Fleeto.Core.Domain;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Audit;
 using Fleeto.Infrastructure.Data;
@@ -43,7 +44,7 @@ public sealed class SignInSettingsService
 
     public async Task<SignInView> GetAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.SignInManage);
         var settings = await _settings.GetAsync<EntraSignInSettings>(SettingKeys.EntraSignIn, cancellationToken) ?? new EntraSignInSettings();
         await using var db = _dbFactory.CreateSystem();
         var instance = await InstanceQueries.GetInstanceAsync(db, cancellationToken);
@@ -66,7 +67,7 @@ public sealed class SignInSettingsService
     /// <summary>Saves the app registration of the sign-in. Turning it on needs a complete configuration.</summary>
     public async Task<ServiceResult> SaveAsync(Caller caller, SignInInput input, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.SignInManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -166,7 +167,7 @@ public sealed class SignInSettingsService
     /// <summary>Turns the sign-in off without touching the configuration, and on again when it is complete.</summary>
     public async Task<ServiceResult> SetEnabledAsync(Caller caller, bool enabled, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.SignInManage))
         {
             return ServiceResult.Forbidden();
         }

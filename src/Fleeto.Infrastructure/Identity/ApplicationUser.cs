@@ -28,6 +28,10 @@ public class ApplicationUser : IdentityUser<Guid>
     public bool IsLinkedToEntra => EntraObjectId is not null;
 }
 
+/// <summary>
+/// A role: what its users may do (0.6.0). The built-in roles admin, technician and read-only cannot be changed; a custom role
+/// holds exactly the permissions stored for it in <see cref="RolePermission"/>.
+/// </summary>
 public class ApplicationRole : IdentityRole<Guid>
 {
     public ApplicationRole()
@@ -37,4 +41,16 @@ public class ApplicationRole : IdentityRole<Guid>
     public ApplicationRole(string name) : base(name)
     {
     }
+
+    /// <summary>Admin, technician or read-only, created by Fleeto and kept in step with the code on every start.</summary>
+    public bool IsBuiltIn { get; set; }
+
+    public string? Description { get; set; }
+}
+
+/// <summary>One permission of a role (0.6.0), a key of <see cref="Core.Domain.Permissions"/>.</summary>
+public class RolePermission
+{
+    public Guid RoleId { get; set; }
+    public string Permission { get; set; } = string.Empty;
 }

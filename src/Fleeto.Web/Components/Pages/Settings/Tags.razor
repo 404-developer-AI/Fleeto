@@ -1,5 +1,5 @@
 @page "/settings/tags"
-@attribute [Authorize(Policy = FleetoPolicies.Admin)]
+@attribute [RequirePermission(Permissions.TagsManage)]
 @inherits FleetoPageBase
 @inject TagService TagSvc
 @inject IDialogService DialogService

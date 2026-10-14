@@ -1,4 +1,5 @@
 using System.Globalization;
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Audit;
@@ -46,7 +47,7 @@ public sealed class AlertService
     /// <summary>Newest first, keyset on (OpenedAt, Id): no OFFSET, so later pages stay fast on a large table.</summary>
     public async Task<AlertPage> ListAsync(Caller caller, AlertQuery query, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.AlertsView);
         var limit = Math.Clamp(query.Limit, 1, 200);
         await using var db = _dbFactory.Create(caller.Scope);
         var alerts = db.Alerts.AsNoTracking();
@@ -98,7 +99,7 @@ public sealed class AlertService
 
     public async Task<ServiceResult> AcknowledgeAsync(Caller caller, Guid alertId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.AlertsAcknowledge))
         {
             return ServiceResult.Forbidden();
         }
@@ -135,7 +136,7 @@ public sealed class AlertService
     /// </summary>
     public async Task<ServiceResult> ResolveAsync(Caller caller, Guid alertId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.AlertsResolve))
         {
             return ServiceResult.Forbidden();
         }
@@ -176,7 +177,7 @@ public sealed class AlertService
     /// </summary>
     public async Task<ServiceResult> HoldAsync(Caller caller, Guid alertId, DateTime untilUtc, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.AlertsHold))
         {
             return ServiceResult.Forbidden();
         }
@@ -219,7 +220,7 @@ public sealed class AlertService
     /// <summary>Ends a hold before its time. No email: the technician is looking at the alert.</summary>
     public async Task<ServiceResult> EndHoldAsync(Caller caller, Guid alertId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.AlertsHold))
         {
             return ServiceResult.Forbidden();
         }

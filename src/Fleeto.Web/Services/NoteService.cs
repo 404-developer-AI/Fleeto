@@ -41,7 +41,7 @@ public sealed class NoteService
     /// <summary>Newest first, keyset on (CreatedAt, Id). Returns null when the endpoint does not exist.</summary>
     public async Task<NotePage?> ListAsync(Caller caller, Guid endpointId, string? cursor = null, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.NotesView);
         await using var db = _dbFactory.Create(caller.Scope);
         var endpoint = await db.Endpoints.AsNoTracking().Where(e => e.Id == endpointId).Select(e => new { e.Tier }).SingleOrDefaultAsync(cancellationToken);
         if (endpoint is null)
@@ -77,7 +77,7 @@ public sealed class NoteService
 
     public async Task<ServiceResult<Guid>> CreateAsync(Caller caller, Guid endpointId, string? body, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.NotesCreate))
         {
             return ServiceResult<Guid>.Forbidden();
         }
@@ -121,7 +121,7 @@ public sealed class NoteService
     /// <summary>Changes the body of a note. Only its author may, and only while the endpoint is managed.</summary>
     public async Task<ServiceResult> UpdateAsync(Caller caller, Guid noteId, string? body, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.NotesCreate))
         {
             return ServiceResult.Forbidden();
         }
@@ -168,7 +168,7 @@ public sealed class NoteService
     /// <summary>Deletes a note. Admins only, and only while the endpoint is managed.</summary>
     public async Task<ServiceResult> DeleteAsync(Caller caller, Guid noteId, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.NotesDelete))
         {
             return ServiceResult.Forbidden();
         }

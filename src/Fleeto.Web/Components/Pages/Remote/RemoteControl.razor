@@ -1,5 +1,5 @@
 @page "/remote/control/{EndpointId:guid}"
-@attribute [Authorize(Policy = FleetoPolicies.Technician)]
+@attribute [RequirePermission(Permissions.RemoteControl)]
 @layout RemoteLayout
 @inherits FleetoPageBase
 @implements IAsyncDisposable

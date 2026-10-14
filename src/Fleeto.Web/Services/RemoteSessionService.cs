@@ -74,7 +74,7 @@ public sealed class RemoteSessionService
     /// <summary>The endpoint for the remote background window; null when the caller may not open one or the endpoint is not visible.</summary>
     public async Task<RemoteTarget?> GetBackgroundTargetAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.RemoteBackground))
         {
             return null;
         }
@@ -109,7 +109,7 @@ public sealed class RemoteSessionService
     /// <summary>The endpoint for the remote control window; null when the caller may not open one or the endpoint is not visible.</summary>
     public async Task<RemoteControlTarget?> GetControlTargetAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.RemoteControl))
         {
             return null;
         }
@@ -172,7 +172,7 @@ public sealed class RemoteSessionService
     public async Task<ServiceResult<RemoteTicket>> OpenBackgroundAsync(Caller caller, Guid endpointId, byte[] browserPublicKey, string? reason,
         CancellationToken cancellationToken = default)
     {
-        var problem = CheckRequest(caller, browserPublicKey, ref reason);
+        var problem = CheckRequest(caller, Permissions.RemoteBackground, browserPublicKey, ref reason);
         if (problem is not null)
         {
             return problem;
@@ -199,7 +199,7 @@ public sealed class RemoteSessionService
     public async Task<ServiceResult<RemoteTicket>> OpenControlAsync(Caller caller, Guid endpointId, byte[] browserPublicKey, string? reason,
         int windowsSessionId, CancellationToken cancellationToken = default)
     {
-        var problem = CheckRequest(caller, browserPublicKey, ref reason);
+        var problem = CheckRequest(caller, Permissions.RemoteControl, browserPublicKey, ref reason);
         if (problem is not null)
         {
             return problem;
@@ -228,9 +228,9 @@ public sealed class RemoteSessionService
             browserPublicKey, reason, cancellationToken, running?.SessionId);
     }
 
-    private static ServiceResult<RemoteTicket>? CheckRequest(Caller caller, byte[] browserPublicKey, ref string? reason)
+    private static ServiceResult<RemoteTicket>? CheckRequest(Caller caller, string permission, byte[] browserPublicKey, ref string? reason)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(permission))
         {
             return ServiceResult<RemoteTicket>.Forbidden();
         }

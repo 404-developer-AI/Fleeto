@@ -163,7 +163,8 @@ AuditEntry (append-only)
 | **PatchDeploymentTarget**, **PatchDeploymentUpdate** | Target: `Id`, `DeploymentId`, `ClientId`, `EndpointId`, `ExternalEndpointId`, `Hostname`, `State` (`Pending`, `Running`, `Succeeded`, `Failed`, `Unknown`), `Message?`, `UpdatedAt`. Update: `Id`, `DeploymentId`, `ClientId`, `ExternalUpdateId`, `Name`, `Version` | One row per endpoint of a deployment (unique per deployment and endpoint, so a re-read updates it), and one per chosen package. The host name is a copy from the moment it started, so the history reads the same after a rename. `StepsReadAt?` (0.6.0): when the workers last read the endpoint's history from the product, cleared by every change of state. |
 | **PatchDeploymentStep** | `Id`, `TargetId`, `ClientId`, `Position`, `Time?`, `Operation`, `Status`, `Details` | The history the product keeps for one endpoint of a deployment (0.6.0): Action1's "Automation History", such as "Deploy Update, Success, Installing 2026-09 .NET Framework Security Update (KB5126052)". Replaced as a whole on every read, deleted with its target (composite foreign key on `TargetId`, `ClientId`). Web reads, the workers write. |
 | **PatchRequest** | `Id`, `ClientId`, `EndpointId`, `Kind` (`Sync`, `RemoveAgent`), `ExternalTenantId`, `ExternalEndpointId`, `RequestedByUserId`, `RequestedByName`, `RequestedAt`, `CompletedAt?`, `Failure?` | A sync or agent removal a technician asked for on one endpoint (0.6.0). Web inserts, the workers carry it out and write the outcome; kept 7 days, gone with its endpoint. |
-| **User**, **Role** | `Id`, `Email`, `PasswordHash` (Argon2id), `TotpSecret` (encrypted), roles | Roles: admin, technician, read-only. The role says what a user may do; what it may do it on comes from its groups (0.6.0). |
+| **User**, **Role** | `Id`, `Email`, `PasswordHash` (Argon2id), `TotpSecret` (encrypted), roles. Role (ASP.NET Core Identity `AspNetRoles`): `Id`, `Name`, `NormalizedName` (unique), `IsBuiltIn`, `Description?` (0.6.0) | The roles say what a user may do, together; what it may do it on comes from its groups (0.6.0). Admin, technician and read-only are built in; any other role is a custom role (see *Roles and permissions* below the table). |
+| **RolePermission** | `RoleId`, `Permission` (key of the catalog, at most 100 characters; primary key on both, index on `Permission`) | One permission of a role (0.6.0), deleted with its role. For a custom role exactly what an admin gave it; for a built-in role written by every start from the code, so the signer reads every role the same way. Web writes, the signer and the workers read (grants). |
 | **UserGroup**, **UserGroupMember**, **UserGroupRule** | UserGroup: `Id`, `Name`, `NormalizedName` (unique), `Description?`, `AllClients`, `IsDefault` (at most one, partial unique index), `CreatedAt`, `UpdatedAt`. Member: `GroupId`, `UserId`, `AddedAt`. Rule: `Id`, `GroupId`, `Kind` (`Include`/`Exclude`), `ClientId?`, `SiteId?`, `EndpointId?` (exactly one, check constraint; unique per group) | Groups of users (0.6.0, see *User groups and the scope* below the table). A group gives every client with exceptions (`AllClients`, exclude rules) or what its include rules name, minus its exclude rules. A rule is deleted with its target (cascade), a member with its user. `IsDefault` marks "All clients", which the update put every user that was not an admin in; a user added to another group leaves it. Admins are never members. Instance-wide data: web writes, the signer reads (grants). |
 | **AuditEntry** | `Time`, `ClientId?`, `ActorId` (user or API key), `Action`, `TargetType`, `TargetId`, `Details` | Append-only; no update or delete path in code or DB grants. `ClientId` null for instance-wide actions. |
 
@@ -214,6 +215,26 @@ it exists. `GroupAccess.Reaches` answers the same question for one endpoint with
 behind every job and remote session token, and a test keeps it equal to the scope. A change to a group or a role reloads the open
 pages of its users (`fleeto_user_access`) and marks their remote session participants on endpoints they lost `RevokedAt`, which
 the gateway ends at once and otherwise within a minute. API keys keep their own client restriction.
+
+**Roles and permissions** (0.6.0). What a user may do is a set of permissions: the union over its roles. The catalog is one
+list in code (`Fleeto.Core.Domain.Permissions`): a stable key such as `remote.control` or `patches.deploy`, a group, a label,
+a description and the permissions it needs (`checks.edit` needs `checks.view`), which the server checks when a role is saved.
+The built-in roles are defined in code (`BuiltInRoles`): admin every permission, technician what admins and technicians could do
+before 0.6.0, read-only every view outside Settings. They cannot be changed or deleted, only copied; `InstanceInitializer`
+makes their `RolePermission` rows equal to the code on every start. A custom role holds exactly its stored rows, so a
+permission a later release adds is off in it until an admin gives it; a key the code no longer knows is ignored. Web resolves
+the permissions with the roles in `CurrentUser` (cached for 5 seconds) and from the database in the authorization handler of
+the pages (`RequirePermission`), never from the cookie; every service method checks `Caller.Has` again. The permissions of
+the group Administration are instance-wide: they count only for a caller whose scope is every client without exception, also
+for an admin (a defence for a forged caller; a real admin always has that scope), so a user limited to clients cannot reach
+further through a group, an API key or a user it creates. Nobody but an admin gives the admin role, changes an admin, or
+creates, changes, gives or removes a role or a user with a permission it does not hold itself (`RoleAuthority`). A change to a
+role reloads the open pages of its users and revokes their remote session participants of a kind the role no longer allows,
+as a change to a group does. fleeto-signer asks the database whether the user holds the permission of what it signs
+(`ScriptCheckResolver.UserHasPermissionAsync`): `scripts.run`, `action1agent.install` or `action1agent.remove` for a job by
+type, `remote.control` or `remote.background` for a session token, `endpoints.delete` or `clients.delete` for an uninstall,
+and `scripts.approve` for the approver of a script version. Admin stays the one role outside groups; the break-glass rules of
+0.5.0 still count admins.
 
 Three kinds of tables:
 
@@ -1225,7 +1246,7 @@ container:
   listening port and no outbound network access; it watches the database (LISTEN/NOTIFY)
   for `SigningRequest` rows. Its database role reads what it needs to decide and writes only
   signatures, request states and audit entries.
-- Before signing it enforces rules independently of web: initiator role, that the groups of the initiator still give
+- Before signing it enforces rules independently of web: the permission of the initiator for the job (0.6.0, before that its role), that the groups of the initiator still give
   it the endpoint (0.6.0; admins always), managed tier of every target (a fourth layer of tier enforcement), script approval, validity window, rate
   limits (3,000 jobs per minute). The UI runs a script on one endpoint at a time; notifying every
   admin about bulk jobs arrives with running a script on a selection of endpoints.
@@ -1370,8 +1391,8 @@ on which endpoint. A compromised gateway that keeps a valid relay open is still 
   the interpreter has to open the file as them. The script is staged so that they can read it and not change it, and the
   run window says so before the run starts. A script that carries a secret must run as the agent's own account.
 - **Remote terminal (0.3.0), accepted risk.** The interactive terminal (§3) is available to
-  admins and technicians on every managed endpoint, also where the policy requires script
-  approval. On those endpoints script approval therefore only governs library scripts run as
+  every user with the permission remote background (0.6.0; admins and technicians by default) on every managed endpoint, also
+  where the policy requires script approval. On those endpoints script approval therefore only governs library scripts run as
   jobs: a technician who may open a terminal can run any command as SYSTEM. This is a deliberate
   product decision; the controls are the per-session signed token, end-to-end encryption and the
   audit entries per session and participant. Terminal transcripts are not recorded (recording is not scheduled).

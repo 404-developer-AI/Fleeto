@@ -118,7 +118,7 @@ public sealed class ScriptAndJobServiceTests
         // An author never approves their own version.
         var own = await Scripts.CreateAsync(As(author, FleetoRoles.Admin), new ScriptInput(name + " own", null, ScriptLanguage.PowerShell, null, "Get-Date", 300));
         var ownVersion = (await Scripts.GetAsync(As(author, FleetoRoles.Admin), own.Value))!.Versions.Single();
-        Assert.Contains("second admin", (await Scripts.ApproveAsync(As(author, FleetoRoles.Admin), ownVersion.Id, await CodeForAsync(author))).Problem);
+        Assert.Contains("Somebody else", (await Scripts.ApproveAsync(As(author, FleetoRoles.Admin), ownVersion.Id, await CodeForAsync(author))).Problem);
 
         await using var db = _fixture.Database.DbFactory.CreateSystem();
         var audit = await db.AuditEntries.AsNoTracking().Where(a => a.Action == AuditActions.ScriptVersionApproved && a.TargetId == current.Id.ToString()).ToListAsync();

@@ -1,3 +1,4 @@
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Audit;
@@ -56,7 +57,7 @@ public sealed class ApiKeyService
 
     public async Task<IReadOnlyList<ApiKeyView>> ListAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.ApiKeysManage);
         await using var db = _dbFactory.CreateSystem();
         var keys = await db.ApiKeys.AsNoTracking().Include(k => k.Clients)
             .OrderBy(k => k.RevokedAt != null).ThenByDescending(k => k.CreatedAt)
@@ -75,7 +76,7 @@ public sealed class ApiKeyService
 
     public async Task<ServiceResult<ApiKeyCreated>> CreateAsync(Caller caller, ApiKeyInput input, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.ApiKeysManage))
         {
             return ServiceResult<ApiKeyCreated>.Forbidden();
         }
@@ -143,7 +144,7 @@ public sealed class ApiKeyService
     /// <summary>Revokes a key. It stops working on the next call; a revoked key cannot be restored.</summary>
     public async Task<ServiceResult> RevokeAsync(Caller caller, Guid keyId, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.ApiKeysManage))
         {
             return ServiceResult.Forbidden();
         }

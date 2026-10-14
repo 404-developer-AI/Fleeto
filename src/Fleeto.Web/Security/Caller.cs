@@ -9,16 +9,35 @@ namespace Fleeto.Web.Security;
 /// The signed-in user performing an operation, resolved from the database (not only from the cookie), so a
 /// deleted, locked or demoted user loses access in an open circuit as well. A public API call runs as a caller too: the API key
 /// id as <see cref="UserId"/>, the read-only role and the key's client scope, with <see cref="ActorType"/> ApiKey.
+/// <para>
+/// What the caller may do are its permissions (0.6.0): the union of those of its roles. <paramref name="Granted"/> is read from
+/// the database; without it the permissions of the built-in roles among <paramref name="Roles"/> count.
+/// </para>
 /// </summary>
 public sealed record Caller(Guid UserId, string Name, string Email, IReadOnlyCollection<string> Roles, IClientScope Scope,
-    string? IpAddress = null, AuditActorType ActorType = AuditActorType.User)
+    string? IpAddress = null, AuditActorType ActorType = AuditActorType.User, IReadOnlySet<string>? Granted = null)
 {
+    private readonly IReadOnlySet<string> _granted = Granted ?? BuiltInPermissions(Roles);
+
+    /// <summary>The built-in admin role: every permission, and outside the groups, so it sees every client.</summary>
     public bool IsAdmin => Roles.Contains(FleetoRoles.Admin);
 
-    /// <summary>Admins and technicians may change clients, sites, endpoints, templates, alerts and tokens.</summary>
-    public bool CanManage => IsAdmin || Roles.Contains(FleetoRoles.Technician);
+    /// <summary>
+    /// The caller holds the permission; an admin holds every one. A permission of the administration of the instance counts only for
+    /// a caller that sees every client without exception, so a caller limited to clients cannot use it to reach further.
+    /// </summary>
+    public bool Has(string permission) =>
+        (IsAdmin || _granted.Contains(permission)) && (Core.Domain.Permissions.Find(permission) is not { InstanceWide: true } || Scope.AllClients);
 
-    public bool CanView => CanManage || Roles.Contains(FleetoRoles.ReadOnly);
+    /// <summary>Every permission the caller can use, for the role editor and the list of users.</summary>
+    public IReadOnlyCollection<string> Effective =>
+        Core.Domain.Permissions.All.Where(p => Has(p.Key)).Select(p => p.Key).ToList();
+
+    /// <summary>The roles as shown in the UI.</summary>
+    public string RoleText => string.Join(", ", Roles.Select(Core.Domain.BuiltInRoles.DisplayName).Order(StringComparer.OrdinalIgnoreCase));
+
+    private static IReadOnlySet<string> BuiltInPermissions(IEnumerable<string> roles) =>
+        roles.SelectMany(r => Core.Domain.BuiltInRoles.PermissionsOf(r) ?? []).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>The caller sees all of the client, so it may change what belongs to the client as a whole (0.6.0).</summary>
     public bool HasWholeClient(Guid clientId) => Scope.HasWholeClient(clientId);
@@ -32,7 +51,7 @@ public sealed record Caller(Guid UserId, string Name, string Email, IReadOnlyCol
         new(action, targetType, targetId, clientId, ActorType, UserId.ToString(), Name, details, IpAddress);
 }
 
-/// <summary>Thrown when a caller without the required role reaches a service method.</summary>
+/// <summary>Thrown when a caller without the required permission reaches a service method.</summary>
 public sealed class AccessDeniedException : UnauthorizedAccessException
 {
     public AccessDeniedException()
@@ -44,7 +63,7 @@ public sealed class AccessDeniedException : UnauthorizedAccessException
 /// <summary>Outcome of a mutating service call. <see cref="Problem"/> is shown to the user verbatim.</summary>
 public record ServiceResult(bool Success, string? Problem)
 {
-    public const string ForbiddenProblem = "Your role does not allow this action. Ask an admin if you need access.";
+    public const string ForbiddenProblem = "Your roles do not allow this action. Ask an admin if you need access.";
 
     /// <summary>A change to a client as a whole by a user whose groups give part of it (0.6.0).</summary>
     public const string WholeClientProblem =
@@ -75,9 +94,19 @@ public sealed record ServiceResult<T>(bool Success, string? Problem, T? Value) :
 
 internal static class CallerGuards
 {
-    public static void EnsureView(this Caller caller)
+    /// <summary>Throws an <see cref="AccessDeniedException"/> unless the caller holds the permission (0.6.0).</summary>
+    public static void Ensure(this Caller caller, string permission)
     {
-        if (!caller.CanView)
+        if (!caller.Has(permission))
+        {
+            throw new AccessDeniedException();
+        }
+    }
+
+    /// <summary>Throws unless the caller holds at least one of the permissions.</summary>
+    public static void EnsureAny(this Caller caller, params string[] permissions)
+    {
+        if (!permissions.Any(caller.Has))
         {
             throw new AccessDeniedException();
         }

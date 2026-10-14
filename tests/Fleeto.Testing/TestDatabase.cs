@@ -227,6 +227,21 @@ public sealed class TestDatabase : IAsyncDisposable
         return user;
     }
 
+    /// <summary>A custom role (0.6.0) with these permissions; returns its name, which <see cref="CreateUserAsync"/> takes as role.</summary>
+    public async Task<string> CreateRoleAsync(params string[] permissions)
+    {
+        await using var db = DbFactory.CreateSystem();
+        var name = "Role " + Guid.NewGuid().ToString("N")[..8];
+        var role = new Infrastructure.Identity.ApplicationRole(name)
+        {
+            Id = Guid.NewGuid(), NormalizedName = name.ToUpperInvariant(), ConcurrencyStamp = Guid.NewGuid().ToString()
+        };
+        db.Roles.Add(role);
+        db.RolePermissions.AddRange(permissions.Select(p => new Infrastructure.Identity.RolePermission { RoleId = role.Id, Permission = p }));
+        await db.SaveChangesAsync();
+        return name;
+    }
+
     /// <summary>A new group (0.6.0) with this user as its only member, including the client, site or endpoint given.</summary>
     public async Task<Guid> CreateGroupAsync(Guid userId, bool allClients = false, Guid? clientId = null, Guid? siteId = null, Guid? endpointId = null)
     {
@@ -253,7 +268,8 @@ public sealed class TestDatabase : IAsyncDisposable
     {
         await using var db = DbFactory.CreateSystem();
         var roleId = await db.Roles.Where(r => r.NormalizedName == role.ToUpperInvariant()).Select(r => r.Id).SingleAsync();
-        var name = role.ToLowerInvariant() + "-" + Guid.NewGuid().ToString("N")[..8];
+        // A custom role name may hold spaces (0.6.0); a user name may not.
+        var name = new string(role.ToLowerInvariant().Where(c => char.IsAsciiLetterOrDigit(c) || c == '-').ToArray()) + "-" + Guid.NewGuid().ToString("N")[..8];
         var user = new Infrastructure.Identity.ApplicationUser
         {
             Id = Guid.NewGuid(),

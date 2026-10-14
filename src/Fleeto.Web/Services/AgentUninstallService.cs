@@ -1,3 +1,4 @@
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Audit;
@@ -40,7 +41,7 @@ public sealed class AgentUninstallService
 
     public async Task<IReadOnlyList<AgentUninstallView>> ListAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.AgentUninstallsManage);
         await using var db = _dbFactory.CreateSystem();
         var now = _time.GetUtcNow().UtcDateTime;
         return await db.AgentUninstalls.AsNoTracking()
@@ -55,7 +56,7 @@ public sealed class AgentUninstallService
     /// <summary>Stops waiting for a deleted endpoint: its agent stays where it is and is refused when it connects.</summary>
     public async Task<ServiceResult> DismissAsync(Caller caller, Guid id, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.AgentUninstallsManage);
         await using var db = _dbFactory.CreateSystem();
         var uninstall = await db.AgentUninstalls.SingleOrDefaultAsync(u => u.Id == id, cancellationToken);
         if (uninstall is null)

@@ -1,5 +1,7 @@
 using System.Reflection;
+using Fleeto.Core.Domain;
 using Fleeto.Web.Components;
+using Fleeto.Web.Components.Layout;
 using Fleeto.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components;
@@ -9,7 +11,7 @@ namespace Fleeto.Web.Tests;
 /// <summary>
 /// There is no fallback authorization policy (it would also cover static assets and the framework endpoints), so an
 /// omitted attribute on a new page would silently make it public. These tests catch that, and prove that every settings
-/// page requires the admin policy, except the template pages listed by name.
+/// page requires the permission the settings panel shows it for (0.6.0).
 /// </summary>
 public class PageAuthorizationTests
 {
@@ -27,50 +29,58 @@ public class PageAuthorizationTests
         Assert.True(undeclared.Count == 0, "Pages without [Authorize] or [AllowAnonymous]:\n" + string.Join("\n", undeclared));
     }
 
-    /// <summary>
-    /// Templates live in the settings workspace but are readable by every signed-in user; the services enforce who may
-    /// change them. Every other settings page is admin-only, so a page that should not be must be added here on purpose.
-    /// </summary>
-    private static readonly string[] TemplateRoutes =
-    [
-        "/settings/client-templates",
-        "/settings/monitoring-templates",
-        "/settings/monitoring-templates/{TemplateId:guid}",
-        "/settings/policies",
-        "/settings/patch-policies",
-        "/settings/scripts",
-        "/settings/scripts/{ScriptId:guid}",
-    ];
-
-    private static bool IsTemplatePage(Type page) =>
-        page.GetCustomAttributes<RouteAttribute>().All(r => TemplateRoutes.Contains(r.Template, StringComparer.OrdinalIgnoreCase));
+    private static IEnumerable<string> Routes(Type page) => page.GetCustomAttributes<RouteAttribute>().Select(r => r.Template);
 
     [Fact]
-    public void Settings_pages_require_the_admin_policy()
+    public void Every_signed_in_page_requires_a_role_or_a_known_permission()
     {
-        var settingsPages = RoutablePages()
-            .Where(t => t.GetCustomAttributes<RouteAttribute>().Any(r =>
-                r.Template.StartsWith("/settings", StringComparison.OrdinalIgnoreCase) ||
-                r.Template.StartsWith("/setup/", StringComparison.OrdinalIgnoreCase)))
-            .Where(t => !IsTemplatePage(t))
+        // Pages declare the viewer policy (any role) or the permission they need (0.6.0); nothing else, so a page cannot lean
+        // on a cookie role again.
+        var wrong = RoutablePages()
+            .Select(t => (Page: t, Authorize: t.GetCustomAttribute<AuthorizeAttribute>()))
+            .Where(p => p.Authorize is not null)
+            .Where(p => p.Authorize is RequirePermissionAttribute required
+                ? !Permissions.IsKnown(required.Permission)
+                : p.Authorize!.Policy is not (null or FleetoPolicies.Viewer))
+            .Select(p => p.Page.FullName!)
             .ToList();
 
-        // Users, licensing, email, notification channels, backups, audit log, instance, and the setup backups step.
-        Assert.True(settingsPages.Count >= 8, "The test found fewer settings pages than exist; it has stopped testing anything.");
-        var notAdmin = settingsPages.Where(t => t.GetCustomAttribute<AuthorizeAttribute>()?.Policy != FleetoPolicies.Admin)
-            .Select(t => t.FullName!).ToList();
-        Assert.True(notAdmin.Count == 0, "Settings pages without the admin policy:\n" + string.Join("\n", notAdmin));
+        Assert.True(wrong.Count == 0, "Pages with an unknown policy or permission:\n" + string.Join("\n", wrong));
     }
 
     [Fact]
-    public void Template_pages_require_the_viewer_policy()
+    public void Settings_pages_require_the_permission_the_settings_panel_shows_them_for()
     {
-        var templatePages = RoutablePages().Where(IsTemplatePage).ToList();
+        // The settings panel and the page agree, so a page is never listed for a user it then refuses, nor reachable without
+        // the permission the panel asks.
+        var settingsPages = RoutablePages()
+            .Where(t => Routes(t).Any(r => r.StartsWith("/settings", StringComparison.OrdinalIgnoreCase)))
+            .ToList();
 
-        Assert.Equal(TemplateRoutes.Length, templatePages.Sum(t => t.GetCustomAttributes<RouteAttribute>().Count()));
-        var notViewer = templatePages.Where(t => t.GetCustomAttribute<AuthorizeAttribute>()?.Policy != FleetoPolicies.Viewer)
-            .Select(t => t.FullName!).ToList();
-        Assert.True(notViewer.Count == 0, "Template pages without the viewer policy:\n" + string.Join("\n", notViewer));
+        Assert.True(settingsPages.Count >= SettingsPages.All.Count, "The test found fewer settings pages than the panel lists.");
+        foreach (var entry in SettingsPages.All)
+        {
+            var page = settingsPages.SingleOrDefault(t => Routes(t).Contains(entry.Href, StringComparer.OrdinalIgnoreCase));
+            Assert.True(page is not null, $"The settings panel lists {entry.Href}, but no page has that route.");
+            Assert.Equal(entry.Permission, (page!.GetCustomAttribute<AuthorizeAttribute>() as RequirePermissionAttribute)?.Permission);
+        }
+
+        var unlisted = settingsPages
+            .Where(t => t.GetCustomAttribute<AuthorizeAttribute>() is not RequirePermissionAttribute)
+            .Select(t => t.FullName!)
+            .ToList();
+        Assert.True(unlisted.Count == 0, "Settings pages without a permission:\n" + string.Join("\n", unlisted));
+    }
+
+    [Fact]
+    public void Administration_pages_require_an_administration_permission()
+    {
+        var wrong = SettingsPages.All
+            .Where(p => p.Administration != Permissions.Find(p.Permission)!.InstanceWide)
+            .Select(p => p.Href)
+            .ToList();
+
+        Assert.True(wrong.Count == 0, "Settings pages in the wrong group of the panel:\n" + string.Join("\n", wrong));
     }
 
     [Fact]

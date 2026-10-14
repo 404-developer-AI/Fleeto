@@ -124,6 +124,9 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<UserGroupMember> UserGroupMembers => Set<UserGroupMember>();
     public DbSet<UserGroupRule> UserGroupRules => Set<UserGroupRule>();
 
+    /// <summary>The permissions of every role (0.6.0).</summary>
+    public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
+
     // Evaluated per query by EF Core (context members become query parameters).
     private bool ScopeAllClients => _scope.AllClients;
     private Guid[] ScopeClientIds => _scope.ClientIds as Guid[] ?? _scope.ClientIds.ToArray();
@@ -153,6 +156,21 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(u => u.EntraAccount).HasMaxLength(320);
             entity.HasIndex(u => u.EntraObjectId).IsUnique();
             entity.Ignore(u => u.IsLinkedToEntra);
+        });
+
+        // Roles with their permissions (0.6.0): instance-wide like the groups.
+        builder.Entity<ApplicationRole>(entity =>
+        {
+            entity.Property(r => r.Description).HasMaxLength(Core.Domain.RoleRules.MaxDescriptionLength);
+        });
+
+        builder.Entity<RolePermission>(entity =>
+        {
+            entity.HasKey(p => new { p.RoleId, p.Permission });
+            entity.Property(p => p.Permission).HasMaxLength(Core.Domain.RoleRules.MaxPermissionLength);
+            entity.HasOne<ApplicationRole>().WithMany().HasForeignKey(p => p.RoleId).OnDelete(DeleteBehavior.Cascade);
+            // The signer asks which users hold a permission.
+            entity.HasIndex(p => p.Permission);
         });
 
         // Groups of users (0.6.0): instance-wide, managed by admins, never filtered by the scope they define.

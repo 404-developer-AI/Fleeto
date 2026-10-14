@@ -1,5 +1,5 @@
 @page "/settings/agent-updates"
-@attribute [Authorize(Policy = FleetoPolicies.Admin)]
+@attribute [RequirePermission(Permissions.AgentUpdatesManage)]
 @inherits FleetoPageBase
 @inject AgentUpdateService UpdateSvc
 @inject IDialogService DialogService

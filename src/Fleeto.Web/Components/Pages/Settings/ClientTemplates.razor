@@ -1,5 +1,5 @@
 @page "/settings/client-templates"
-@attribute [Authorize(Policy = FleetoPolicies.Viewer)]
+@attribute [RequirePermission(Permissions.ClientTemplatesView)]
 @inherits FleetoPageBase
 @inject ClientTemplateService TemplateSvc
 @inject LinkService LinkSvc
@@ -14,7 +14,7 @@
             Blueprints of a client and its sites, with their policy, patch policy and monitoring templates, used when creating a client. Clients keep following their template until they are detached.
         </MudText>
     </div>
-    @if (CanManage)
+    @if (Can(Permissions.ClientTemplatesEdit))
     {
         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="@(() => EditAsync(null))">New client template</MudButton>
     }
@@ -33,7 +33,7 @@
                 <MudTh>Name</MudTh>
                 <MudTh>Sites</MudTh>
                 <MudTh>Clients</MudTh>
-                @if (CanManage)
+                @if (Can(Permissions.ClientTemplatesEdit))
                 {
                     <MudTh Style="width:140px"></MudTh>
                 }
@@ -48,7 +48,7 @@
                 </MudTd>
                 <MudTd>@context.SiteCount</MudTd>
                 <MudTd>@context.ClientCount</MudTd>
-                @if (CanManage)
+                @if (Can(Permissions.ClientTemplatesEdit))
                 {
                     <MudTd Style="white-space:nowrap">
                         <MudTooltip Text="Edit"><MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="@(() => EditAsync(context))" /></MudTooltip>
@@ -70,7 +70,7 @@
     [SupplyParameterFromQuery(Name = "new")]
     public bool New { get; set; }
 
-    protected override void OnParametersSet() => OpenCreateFromQuery(New, () => EditAsync(null));
+    protected override void OnParametersSet() => OpenCreateFromQuery(New, Permissions.ClientTemplatesEdit, () => EditAsync(null));
 
     private Task ReloadAsync() => LoadAsync(async caller => _templates = await TemplateSvc.ListAsync(caller));
 

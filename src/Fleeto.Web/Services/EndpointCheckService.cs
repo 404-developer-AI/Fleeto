@@ -71,7 +71,7 @@ public sealed class EndpointCheckService
 
     public async Task<EndpointChecksView?> GetChecksAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ChecksView);
         await using var db = _dbFactory.Create(caller.Scope);
         var endpoint = await db.Endpoints.AsNoTracking().SingleOrDefaultAsync(e => e.Id == endpointId, cancellationToken);
         if (endpoint is null)
@@ -121,7 +121,7 @@ public sealed class EndpointCheckService
 
     public async Task<CheckOverrideView?> GetOverrideAsync(Caller caller, Guid endpointId, Guid checkId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ChecksView);
         await using var db = _dbFactory.Create(caller.Scope);
         var endpoint = await db.Endpoints.AsNoTracking().SingleOrDefaultAsync(e => e.Id == endpointId, cancellationToken);
         if (endpoint is null)
@@ -146,7 +146,7 @@ public sealed class EndpointCheckService
     public async Task<ServiceResult> SetDisabledAsync(Caller caller, Guid endpointId, Guid checkId, bool disabled,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ChecksEdit))
         {
             return ServiceResult.Forbidden();
         }
@@ -196,7 +196,7 @@ public sealed class EndpointCheckService
     public async Task<ServiceResult> SaveOverrideAsync(Caller caller, Guid endpointId, Guid checkId, CheckOverrideInput input,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ChecksEdit))
         {
             return ServiceResult.Forbidden();
         }
@@ -271,7 +271,7 @@ public sealed class EndpointCheckService
     /// <summary>A check that exists only on this endpoint, for the edit dialog.</summary>
     public async Task<CheckDefinitionView?> GetEndpointCheckAsync(Caller caller, Guid endpointId, Guid checkId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ChecksView);
         await using var db = _dbFactory.Create(caller.Scope);
         var c = await db.CheckDefinitions.AsNoTracking().SingleOrDefaultAsync(d => d.Id == checkId && d.EndpointId == endpointId, cancellationToken);
         return c is null
@@ -284,7 +284,7 @@ public sealed class EndpointCheckService
     public async Task<ServiceResult<Guid>> SaveEndpointCheckAsync(Caller caller, Guid endpointId, Guid? checkId, CheckDefinitionInput input,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ChecksEdit))
         {
             return ServiceResult<Guid>.Forbidden();
         }
@@ -380,7 +380,7 @@ public sealed class EndpointCheckService
 
     public async Task<ServiceResult> DeleteEndpointCheckAsync(Caller caller, Guid endpointId, Guid checkId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ChecksEdit))
         {
             return ServiceResult.Forbidden();
         }
@@ -410,7 +410,7 @@ public sealed class EndpointCheckService
     /// <summary>The services the agent reported in the latest inventory, sorted by display name. Empty when there is no inventory.</summary>
     public async Task<IReadOnlyList<ServiceOption>> GetServicesAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ChecksView);
         await using var db = _dbFactory.Create(caller.Scope);
         var json = await db.InventorySnapshots.AsNoTracking().Where(i => i.EndpointId == endpointId).Select(i => i.ServicesJson)
             .FirstOrDefaultAsync(cancellationToken);
@@ -419,7 +419,7 @@ public sealed class EndpointCheckService
 
     public async Task<EndpointTemplateLinks?> GetTemplateLinksAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ChecksView);
         await using var db = _dbFactory.Create(caller.Scope);
         var endpoint = await db.Endpoints.AsNoTracking().SingleOrDefaultAsync(e => e.Id == endpointId, cancellationToken);
         if (endpoint is null)
@@ -451,7 +451,7 @@ public sealed class EndpointCheckService
     public async Task<ServiceResult> SetEndpointTemplatesAsync(Caller caller, Guid endpointId, IReadOnlyCollection<Guid> monitoringTemplateIds,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ChecksEdit))
         {
             return ServiceResult.Forbidden();
         }
@@ -521,7 +521,7 @@ public sealed class EndpointCheckService
     public async Task<ServiceResult<bool>> RequestRunAsync(Caller caller, Guid endpointId, Guid checkId, bool reset,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ChecksRun))
         {
             return ServiceResult<bool>.Forbidden();
         }

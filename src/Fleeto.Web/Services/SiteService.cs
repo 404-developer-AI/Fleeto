@@ -48,7 +48,7 @@ public sealed class SiteService
 
     public async Task<SiteDetail?> GetAsync(Caller caller, Guid siteId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var site = await db.Sites.AsNoTracking()
             .Where(s => s.Id == siteId)
@@ -74,7 +74,7 @@ public sealed class SiteService
 
     public async Task<SiteSummary?> GetSummaryAsync(Caller caller, Guid siteId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var site = await db.Sites.AsNoTracking()
             .Where(s => s.Id == siteId)
@@ -105,7 +105,7 @@ public sealed class SiteService
 
     public async Task<IReadOnlyList<EndpointListItem>> ListEndpointsAsync(Caller caller, Guid siteId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         return await ListEndpointsQuery(db, siteId, _time.GetUtcNow().UtcDateTime).ToListAsync(cancellationToken);
     }
@@ -120,7 +120,7 @@ public sealed class SiteService
     public async Task<ServiceResult<Guid>> CreateAsync(Caller caller, Guid clientId, string? name, string? description,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.SitesCreate))
         {
             return ServiceResult<Guid>.Forbidden();
         }
@@ -177,7 +177,7 @@ public sealed class SiteService
     public async Task<ServiceResult> UpdateAsync(Caller caller, Guid siteId, string? name, string? description,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.SitesEdit))
         {
             return ServiceResult.Forbidden();
         }
@@ -225,7 +225,7 @@ public sealed class SiteService
 
     public async Task<ServiceResult> DeleteAsync(Caller caller, Guid siteId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.SitesDelete))
         {
             return ServiceResult.Forbidden();
         }

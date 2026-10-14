@@ -1,5 +1,5 @@
 @page "/settings/licensing"
-@attribute [Authorize(Policy = FleetoPolicies.Admin)]
+@attribute [RequirePermission(Permissions.LicensingManage)]
 @inherits FleetoPageBase
 @using Fleeto.Infrastructure.Licensing
 @inject LicenseService Licenses
@@ -119,7 +119,7 @@
             var text = _text ?? string.Empty;
             if (await RunAsync(async caller =>
                 {
-                    if (!caller.IsAdmin)
+                    if (!caller.Has(Permissions.LicensingManage))
                     {
                         return ServiceResult.Forbidden();
                     }

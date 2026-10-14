@@ -1,5 +1,5 @@
 @page "/settings/scripts/{ScriptId:guid}"
-@attribute [Authorize(Policy = FleetoPolicies.Viewer)]
+@attribute [RequirePermission(Permissions.ScriptsView)]
 @inherits FleetoPageBase
 @using Fleeto.Core.Domain
 @inject ScriptService ScriptSvc
@@ -22,7 +22,7 @@
                     }
                 </MudText>
             </div>
-            @if (CanManage)
+            @if (Can(Permissions.ScriptsEdit))
             {
                 <div class="d-flex gap-2">
                     <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Edit" OnClick="EditAsync">Edit</MudButton>
@@ -34,8 +34,8 @@
         <div class="fl-panel pa-4 mb-4">
             <MudText Typo="Typo.h6" Class="section-title mb-2">Current version</MudText>
             <MudTextField @bind-Value="_body" Variant="Variant.Outlined" Lines="18" MaxLength="@ScriptRules.MaxBodyLength" Class="script-editor mb-3"
-                          ReadOnly="@(!CanManage)" />
-            @if (CanManage)
+                          ReadOnly="@(!Can(Permissions.ScriptsEdit))" />
+            @if (Can(Permissions.ScriptsEdit))
             {
                 <div class="d-flex align-center gap-3 flex-wrap">
                     <MudNumericField T="int" @bind-Value="_timeoutMinutes" Label="Timeout (minutes)" Variant="Variant.Outlined" Min="1" Max="1440" Style="max-width:160px" />
@@ -76,7 +76,7 @@
                 </MudTd>
                 <MudTd Style="white-space:nowrap">
                     <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => ShowVersionAsync(context, false))">View</MudButton>
-                    @if (IsAdmin && !context.IsApproved && context.AuthorUserId != Caller?.UserId)
+                    @if (Can(Permissions.ScriptsApprove) && !context.IsApproved && context.AuthorUserId != Caller?.UserId)
                     {
                         <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(() => ShowVersionAsync(context, true))">Approve</MudButton>
                     }

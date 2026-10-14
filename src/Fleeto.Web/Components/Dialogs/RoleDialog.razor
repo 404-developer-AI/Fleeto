@@ -1,0 +1,151 @@
+@* A role (0.6.0): its name, description and permissions, grouped as in the catalog. A built-in role opens read only. Checking a
+   permission also checks what it needs; unchecking one also unchecks what needs it. The server checks the same again. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@Title</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (ReadOnly)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                A built-in role cannot be changed. Copy it to make a role of your own with other permissions.
+            </MudAlert>
+        }
+        else
+        {
+            <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" MaxLength="RoleRules.MaxNameLength" AutoFocus="true" Class="mb-3" />
+            <MudTextField @bind-Value="_description" Label="Description (optional)" Variant="Variant.Outlined" MaxLength="RoleRules.MaxDescriptionLength"
+                          Lines="2" Class="mb-3" />
+        }
+
+        <MudText Typo="Typo.body2" Class="muted mb-2">
+            The groups of a user decide which clients, sites and endpoints it sees; its roles what it may do there. Permissions under
+            Administration count only for a user whose groups give every client.
+        </MudText>
+        @foreach (var group in Permissions.All.GroupBy(p => p.Group))
+        {
+            <div class="mb-3">
+                <MudText Typo="Typo.subtitle2" Class="mb-1">@group.Key</MudText>
+                @foreach (var permission in group)
+                {
+                    <div>
+                        <MudCheckBox T="bool" Value="@_permissions.Contains(permission.Key)" ValueChanged="@(v => Toggle(permission, v))"
+                                     Color="Color.Primary" Dense="true" ReadOnly="@ReadOnly" Disabled="@(!ReadOnly && !Allowed.Contains(permission.Key))"
+                                     Label="@permission.Label" />
+                        <MudText Typo="Typo.caption" Class="muted d-block" Style="margin:-6px 0 2px 42px">@permission.Description</MudText>
+                    </div>
+                }
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">@(ReadOnly ? "Close" : "Cancel")</MudButton>
+        @if (!ReadOnly)
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">@(Existing is null ? "Create role" : "Save")</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    /// <summary>The role to change, or to show for a built-in one; null for a new role.</summary>
+    [Parameter] public RoleListItem? Existing { get; set; }
+
+    /// <summary>A role to start from when copying: its permissions, and its name with "(copy)".</summary>
+    [Parameter] public RoleListItem? CopyOf { get; set; }
+
+    /// <summary>
+    /// The permissions the user may hand out: its own, or every one for an admin. Others show disabled; the server refuses them anyway.
+    /// </summary>
+    [Parameter] public IReadOnlyCollection<string> Allowed { get; set; } = [];
+
+    [Parameter] public Func<RoleInput, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+
+    private string _name = string.Empty;
+    private string? _description;
+    private HashSet<string> _permissions = [];
+    private bool _busy;
+
+    private bool ReadOnly => Existing?.IsBuiltIn == true;
+
+    private string Title => Existing switch
+    {
+        null => "New role",
+        { IsBuiltIn: true } => $"Role {Existing.DisplayName}",
+        _ => $"Edit role {Existing.DisplayName}"
+    };
+
+    protected override void OnInitialized()
+    {
+        if (Existing is not null)
+        {
+            _name = Existing.Name;
+            _description = Existing.Description;
+            _permissions = Existing.Permissions.ToHashSet();
+        }
+        else if (CopyOf is not null)
+        {
+            _name = $"{CopyOf.DisplayName} (copy)";
+            _description = CopyOf.Description;
+            // Only what the user may hand out is copied; the rest stays off.
+            _permissions = CopyOf.Permissions.Where(Allowed.Contains).ToHashSet();
+            Close(_permissions);
+        }
+    }
+
+    private void Toggle(PermissionInfo permission, bool selected)
+    {
+        if (selected)
+        {
+            _permissions.Add(permission.Key);
+            Close(_permissions);
+        }
+        else
+        {
+            _permissions.Remove(permission.Key);
+            // What needs this permission cannot stay on without it.
+            bool removed;
+            do
+            {
+                removed = _permissions.RemoveWhere(k => Permissions.Find(k)?.Requires.Any(r => !_permissions.Contains(r)) == true) > 0;
+            }
+            while (removed);
+        }
+    }
+
+    /// <summary>Adds what the chosen permissions need, as far as the user may hand it out.</summary>
+    private void Close(HashSet<string> permissions)
+    {
+        bool added;
+        do
+        {
+            added = false;
+            foreach (var required in permissions.SelectMany(k => Permissions.Find(k)?.Requires ?? []).Where(Allowed.Contains).ToList())
+            {
+                added |= permissions.Add(required);
+            }
+        }
+        while (added);
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(new RoleInput(_name, _description, _permissions.ToList())))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

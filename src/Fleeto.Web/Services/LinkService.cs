@@ -81,7 +81,7 @@ public sealed class LinkService
 
     public async Task<LevelLinks?> GetAsync(Caller caller, LinkLevel level, Guid id, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
         var target = await TargetAsync(db, level, id, cancellationToken);
         if (target is null)
@@ -115,14 +115,14 @@ public sealed class LinkService
     /// <summary>What a client can link: global policies, patch policies and monitoring templates, and those of the client.</summary>
     public async Task<LinkChoices> GetChoicesAsync(Caller caller, Guid? clientId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.EnsureAny(Permissions.ClientsView, Permissions.ClientTemplatesView);
         await using var db = _dbFactory.Create(caller.Scope);
         return await ChoicesAsync(db, clientId, cancellationToken);
     }
 
     public async Task<ServiceResult> SetAsync(Caller caller, LinkLevel level, Guid id, LinksInput input, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.LinksEdit))
         {
             return ServiceResult.Forbidden();
         }

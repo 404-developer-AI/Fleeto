@@ -1,0 +1,33 @@
+@* The roles of a user (0.6.0): the built-in ones first, then the custom ones. A user may do what its roles give together. *@
+@foreach (var role in Roles)
+{
+    <MudCheckBox T="bool" Value="@Selected.Contains(role.Name)" ValueChanged="@(v => ToggleAsync(role.Name, v))" Color="Color.Primary"
+                 Label="@Label(role)" />
+}
+
+@code {
+    /// <summary>Every role, from <see cref="RoleService.ListAsync"/>.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<RoleListItem> Roles { get; set; } = [];
+
+    /// <summary>The names of the chosen roles; changed in place.</summary>
+    [Parameter, EditorRequired] public HashSet<string> Selected { get; set; } = [];
+
+    [Parameter] public EventCallback SelectedChanged { get; set; }
+
+    private static string Label(RoleListItem role) =>
+        role.DisplayName + (role.IsBuiltIn ? string.Empty : " (custom)") + (string.IsNullOrEmpty(role.Description) ? string.Empty : ": " + role.Description);
+
+    private async Task ToggleAsync(string role, bool selected)
+    {
+        if (selected)
+        {
+            Selected.Add(role);
+        }
+        else
+        {
+            Selected.Remove(role);
+        }
+
+        await SelectedChanged.InvokeAsync();
+    }
+}

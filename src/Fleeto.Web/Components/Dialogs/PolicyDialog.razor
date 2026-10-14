@@ -33,7 +33,9 @@
             <MudSelectItem T="AlertSeverity" Value="AlertSeverity.Critical">Critical</MudSelectItem>
             <MudSelectItem T="AlertSeverity" Value="AlertSeverity.Warning">Warning</MudSelectItem>
         </MudSelect>
-        <MudSwitch T="bool" @bind-Value="_scriptApproval" Color="Color.Primary" Class="mt-3" Label="Require approval of scripts by a second admin" />
+        @* Switching approval off on a policy that has it needs the permission to approve scripts (0.6.0). *@
+        <MudSwitch T="bool" @bind-Value="_scriptApproval" Color="Color.Primary" Class="mt-3" Label="Require approval of scripts by a second person"
+                   Disabled="@(Existing?.ScriptApprovalRequired == true && !CanApproveScripts)" />
         <MudText Typo="Typo.caption" Class="muted d-block">
             Jobs on the endpoints of sites with this policy then run only library scripts whose current version another admin approved.
             Recommended for servers.
@@ -106,6 +108,9 @@
 
     [Parameter] public PolicyListItem? Existing { get; set; }
     [Parameter] public IReadOnlyList<ClientOption> Clients { get; set; } = [];
+
+    /// <summary>The user may approve scripts, and so switch their approval off (0.6.0).</summary>
+    [Parameter] public bool CanApproveScripts { get; set; }
     [Parameter] public Func<Guid?, PolicyInput, Task<bool>> OnSubmit { get; set; } = (_, _) => Task.FromResult(true);
 
     private string _name = string.Empty;

@@ -53,7 +53,7 @@ public sealed class MonitoringTemplateService
 
     public async Task<IReadOnlyList<MonitoringTemplateListItem>> ListAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.MonitoringTemplatesView);
         await using var db = _dbFactory.Create(caller.Scope);
         return await db.MonitoringTemplates.AsNoTracking()
             .OrderBy(t => t.ClientId != null).ThenBy(t => t.Name)
@@ -70,7 +70,7 @@ public sealed class MonitoringTemplateService
 
     public async Task<MonitoringTemplateDetail?> GetAsync(Caller caller, Guid templateId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.MonitoringTemplatesView);
         await using var db = _dbFactory.Create(caller.Scope);
         var template = await db.MonitoringTemplates.AsNoTracking().Include(t => t.Checks)
             .SingleOrDefaultAsync(t => t.Id == templateId, cancellationToken);
@@ -93,7 +93,7 @@ public sealed class MonitoringTemplateService
     public async Task<ServiceResult<Guid>> CreateAsync(Caller caller, string? name, string? description, Guid? clientId,
         CheckAppliesTo appliesTo = CheckAppliesTo.All, TemplateLevels? levels = null, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.MonitoringTemplatesEdit))
         {
             return ServiceResult<Guid>.Forbidden();
         }
@@ -147,7 +147,7 @@ public sealed class MonitoringTemplateService
     public async Task<ServiceResult> UpdateAsync(Caller caller, Guid templateId, string? name, string? description,
         CheckAppliesTo? appliesTo = null, TemplateLevels? levels = null, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.MonitoringTemplatesEdit))
         {
             return ServiceResult.Forbidden();
         }
@@ -278,7 +278,7 @@ public sealed class MonitoringTemplateService
     public async Task<ServiceResult<Guid>> SaveCheckAsync(Caller caller, Guid templateId, Guid? checkId, CheckDefinitionInput input,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.MonitoringTemplatesEdit))
         {
             return ServiceResult<Guid>.Forbidden();
         }
@@ -378,7 +378,7 @@ public sealed class MonitoringTemplateService
     public async Task<ServiceResult> SetCheckEnabledAsync(Caller caller, Guid templateId, Guid checkId, bool enabled,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.MonitoringTemplatesEdit))
         {
             return ServiceResult.Forbidden();
         }
@@ -414,7 +414,7 @@ public sealed class MonitoringTemplateService
 
     public async Task<ServiceResult> DeleteCheckAsync(Caller caller, Guid templateId, Guid checkId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.MonitoringTemplatesEdit))
         {
             return ServiceResult.Forbidden();
         }
@@ -446,7 +446,7 @@ public sealed class MonitoringTemplateService
     public async Task<ServiceResult<Guid>> CopyAsync(Caller caller, Guid templateId, string? name, Guid? targetClientId,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.MonitoringTemplatesEdit))
         {
             return ServiceResult<Guid>.Forbidden();
         }
@@ -541,7 +541,7 @@ public sealed class MonitoringTemplateService
 
     public async Task<ServiceResult> DeleteAsync(Caller caller, Guid templateId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.MonitoringTemplatesEdit))
         {
             return ServiceResult.Forbidden();
         }
@@ -621,7 +621,7 @@ public sealed class MonitoringTemplateService
     /// </summary>
     public async Task<IReadOnlyList<ServiceOption>> GetServicesAsync(Caller caller, Guid templateId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.MonitoringTemplatesView);
         await using var db = _dbFactory.Create(caller.Scope);
         if (!await db.MonitoringTemplates.AnyAsync(t => t.Id == templateId, cancellationToken))
         {

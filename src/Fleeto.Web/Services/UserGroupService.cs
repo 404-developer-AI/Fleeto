@@ -74,7 +74,7 @@ public sealed class UserGroupService
 
     public async Task<IReadOnlyList<UserGroupListItem>> ListAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.GroupsManage);
         await using var db = _dbFactory.CreateSystem();
         return await db.UserGroups.AsNoTracking()
             .OrderByDescending(g => g.IsDefault).ThenBy(g => g.NormalizedName)
@@ -85,7 +85,7 @@ public sealed class UserGroupService
 
     public async Task<IReadOnlyList<UserGroupOption>> ListOptionsAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.EnsureAny(Permissions.GroupsManage, Permissions.UsersManage);
         await using var db = _dbFactory.CreateSystem();
         return await db.UserGroups.AsNoTracking().OrderByDescending(g => g.IsDefault).ThenBy(g => g.NormalizedName)
             .Select(g => new UserGroupOption(g.Id, g.Name, g.AllClients, g.IsDefault)).ToListAsync(cancellationToken);
@@ -93,7 +93,7 @@ public sealed class UserGroupService
 
     public async Task<UserGroupDetail?> GetAsync(Caller caller, Guid groupId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.GroupsManage);
         await using var db = _dbFactory.CreateSystem();
         var group = await db.UserGroups.AsNoTracking().Include(g => g.Rules).Include(g => g.Members)
             .SingleOrDefaultAsync(g => g.Id == groupId, cancellationToken);
@@ -114,7 +114,7 @@ public sealed class UserGroupService
     /// <summary>Clients, sites and endpoints whose code, name or hostname matches, for the rule picker.</summary>
     public async Task<IReadOnlyList<AccessTargetView>> SearchTargetsAsync(Caller caller, string? search, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.GroupsManage);
         if (ServiceSupport.Clean(search) is not { } term)
         {
             return [];
@@ -140,7 +140,7 @@ public sealed class UserGroupService
     /// <summary>Creates a group (<paramref name="groupId"/> null) or changes one: its name, what it gives and who is in it.</summary>
     public async Task<ServiceResult<Guid>> SaveAsync(Caller caller, Guid? groupId, UserGroupInput input, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.GroupsManage))
         {
             return ServiceResult<Guid>.Forbidden();
         }
@@ -266,7 +266,7 @@ public sealed class UserGroupService
 
     public async Task<ServiceResult> DeleteAsync(Caller caller, Guid groupId, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.GroupsManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -291,7 +291,7 @@ public sealed class UserGroupService
     /// <summary>The groups of one user, from the user dialog.</summary>
     public async Task<IReadOnlyList<Guid>> GroupsOfAsync(Caller caller, Guid userId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.EnsureAny(Permissions.GroupsManage, Permissions.UsersManage);
         await using var db = _dbFactory.CreateSystem();
         return await db.UserGroupMembers.AsNoTracking().Where(m => m.UserId == userId).Select(m => m.GroupId).ToListAsync(cancellationToken);
     }
@@ -303,7 +303,7 @@ public sealed class UserGroupService
     public async Task<ServiceResult> SetGroupsOfAsync(Caller caller, Guid userId, IReadOnlyCollection<Guid> groupIds,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.UsersManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -313,6 +313,11 @@ public sealed class UserGroupService
         if (!await db.Users.AnyAsync(u => u.Id == userId, cancellationToken))
         {
             return ServiceResult.NotFound("user");
+        }
+
+        if (await RoleAuthority.ManageProblemAsync(db, caller, userId, cancellationToken) is { } manageProblem)
+        {
+            return ServiceResult.Fail(manageProblem);
         }
 
         // Taking an admin out of every group is fine; putting one in is not.
@@ -356,7 +361,7 @@ public sealed class UserGroupService
     /// <summary>What a user sees, client by client, for Settings, Users.</summary>
     public async Task<UserAccessView?> GetUserAccessAsync(Caller caller, Guid userId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.UsersManage);
         await using var db = _dbFactory.CreateSystem();
         if (!await db.Users.AnyAsync(u => u.Id == userId, cancellationToken))
         {
@@ -398,7 +403,7 @@ public sealed class UserGroupService
     public async Task<IReadOnlyList<AccessHolderView>?> WhoCanReachAsync(Caller caller, AccessTargetKind kind, Guid id,
         CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.AccessView);
         await using var db = _dbFactory.CreateSystem();
         AccessTarget? place = kind switch
         {
@@ -536,8 +541,9 @@ public sealed class UserGroupService
 }
 
 /// <summary>
-/// Makes a change to what users may reach take effect at once (0.6.0): their remote session connections to an endpoint they can
-/// no longer reach are marked revoked, which the gateway ends and the signer refuses, and their open pages are told to reload.
+/// Makes a change to what users may reach or do take effect at once (0.6.0): their remote session connections to an endpoint they
+/// can no longer reach, or of a kind their roles no longer allow, are marked revoked, which the gateway ends and the signer refuses,
+/// and their open pages are told to reload.
 /// </summary>
 internal static class AccessChanges
 {
@@ -548,18 +554,18 @@ internal static class AccessChanges
         foreach (var userId in userIds.Distinct())
         {
             var scope = await UserAccessResolver.ScopeOfAsync(db, userId, cancellationToken);
-            if (!scope.AllClients)
+            var (roles, granted) = await UserPermissions.LoadAsync(db, userId, cancellationToken);
+            var caller = new Caller(userId, string.Empty, string.Empty, roles, scope, Granted: granted);
+            var open = await db.RemoteSessionParticipants.AsNoTracking()
+                .Where(p => p.UserId == userId && p.EndedAt == null && p.RevokedAt == null)
+                .Join(db.RemoteSessions, p => p.SessionId, s => s.Id, (p, s) => new { p.Id, p.ClientId, p.EndpointId, s.Kind })
+                .ToListAsync(cancellationToken);
+            var lost = open.Where(p => !scope.SeesEndpoint(p.ClientId, p.EndpointId) || !caller.Has(RemotePermission(p.Kind)))
+                .Select(p => p.Id).ToArray();
+            if (lost.Length > 0)
             {
-                var open = await db.RemoteSessionParticipants.AsNoTracking()
-                    .Where(p => p.UserId == userId && p.EndedAt == null && p.RevokedAt == null)
-                    .Select(p => new { p.Id, p.ClientId, p.EndpointId })
-                    .ToListAsync(cancellationToken);
-                var lost = open.Where(p => !scope.SeesEndpoint(p.ClientId, p.EndpointId)).Select(p => p.Id).ToArray();
-                if (lost.Length > 0)
-                {
-                    await db.RemoteSessionParticipants.Where(p => lost.Contains(p.Id) && p.RevokedAt == null)
-                        .ExecuteUpdateAsync(s => s.SetProperty(p => p.RevokedAt, now), cancellationToken);
-                }
+                await db.RemoteSessionParticipants.Where(p => lost.Contains(p.Id) && p.RevokedAt == null)
+                    .ExecuteUpdateAsync(s => s.SetProperty(p => p.RevokedAt, now), cancellationToken);
             }
 
             try
@@ -573,4 +579,8 @@ internal static class AccessChanges
             }
         }
     }
+
+    /// <summary>The permission a kind of remote session needs.</summary>
+    public static string RemotePermission(RemoteSessionKind kind) =>
+        kind == RemoteSessionKind.RemoteControl ? Permissions.RemoteControl : Permissions.RemoteBackground;
 }

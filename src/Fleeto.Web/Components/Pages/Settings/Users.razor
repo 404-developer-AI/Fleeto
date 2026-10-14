@@ -1,8 +1,9 @@
 @page "/settings/users"
-@attribute [Authorize(Policy = FleetoPolicies.Admin)]
+@attribute [RequirePermission(Permissions.UsersManage)]
 @inherits FleetoPageBase
 @inject UserAdminService UserSvc
 @inject UserGroupService GroupSvc
+@inject RoleService RoleSvc
 @inject SignInSettingsService SignInSvc
 @inject IDialogService DialogService
 
@@ -48,7 +49,7 @@
                     <StatusChip Text="Locked out" Kind="StatusKind.Warning" />
                 }
             </MudTd>
-            <MudTd>@string.Join(", ", context.Roles)</MudTd>
+            <MudTd>@string.Join(", ", context.Roles.Select(BuiltInRoles.DisplayName))</MudTd>
             <MudTd>
                 @if (context.IsAdmin)
                 {
@@ -119,6 +120,7 @@
 @code {
     private IReadOnlyList<UserListItem> _users = [];
     private IReadOnlyList<UserGroupOption> _groups = [];
+    private IReadOnlyList<RoleListItem> _roles = [];
     private bool _entraConfigured;
 
     protected override Task OnInitializedAsync() => ReloadAsync();
@@ -127,12 +129,13 @@
     [SupplyParameterFromQuery(Name = "new")]
     public bool New { get; set; }
 
-    protected override void OnParametersSet() => OpenCreateFromQuery(New, CreateAsync);
+    protected override void OnParametersSet() => OpenCreateFromQuery(New, Permissions.UsersManage, CreateAsync);
 
     private Task ReloadAsync() => LoadAsync(async caller =>
     {
         _users = await UserSvc.ListAsync(caller);
         _groups = await GroupSvc.ListOptionsAsync(caller);
+        _roles = await RoleSvc.ListAsync(caller);
         _entraConfigured = (await SignInSvc.GetAsync(caller)).IsComplete;
     });
 
@@ -156,6 +159,7 @@
     {
         var parameters = new DialogParameters<EntraUserDialog>
         {
+            { d => d.Roles, _roles },
             { d => d.OnSubmit, (user, roles) => RunAsync(caller => UserSvc.CreateFromEntraAsync(caller, user.ObjectId, user.Email, user.DisplayName,
                 user.Account, roles), $"{user.DisplayName} was added and signs in with Microsoft.") }
         };
@@ -200,6 +204,7 @@
     {
         var parameters = new DialogParameters<UserDialog>
         {
+            { d => d.Roles, _roles },
             { d => d.Groups, _groups },
             { d => d.OnSubmit, (email, name, password, roles, groups) => RunAsync(async caller =>
             {
@@ -219,12 +224,13 @@
         var parameters = new DialogParameters<UserDialog>
         {
             { d => d.Existing, user },
+            { d => d.Roles, _roles },
             { d => d.Groups, _groups },
             { d => d.OnSubmit, (_, _, _, roles, groups) => RunAsync(async caller =>
             {
                 var saved = await UserSvc.SetRolesAsync(caller, user.Id, roles);
                 return saved.Success ? await GroupSvc.SetGroupsOfAsync(caller, user.Id, groups) : saved;
-            }, "The roles and groups were saved. What the user sees changes at once; new roles reach open sessions within five minutes.") }
+            }, "The roles and groups were saved. What the user sees and may do changes at once.") }
         };
         var dialog = await DialogService.ShowAsync<UserDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         if (!(await dialog.Result)!.Canceled)

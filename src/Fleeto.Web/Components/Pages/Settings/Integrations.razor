@@ -1,5 +1,5 @@
 @page "/settings/integrations"
-@attribute [Authorize(Policy = FleetoPolicies.Admin)]
+@attribute [RequirePermission(Permissions.IntegrationsManage)]
 @inherits FleetoPageBase
 @using Fleeto.Core.Entities
 @using Fleeto.Core.Interfaces

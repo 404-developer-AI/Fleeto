@@ -1,5 +1,5 @@
 @page "/settings/scripts"
-@attribute [Authorize(Policy = FleetoPolicies.Viewer)]
+@attribute [RequirePermission(Permissions.ScriptsView)]
 @inherits FleetoPageBase
 @using Fleeto.Core.Domain
 @using Fleeto.Core.Entities
@@ -14,17 +14,17 @@
     <div>
         <MudText Typo="Typo.h4" Class="page-title">Scripts</MudText>
         <MudText Typo="Typo.body2" Class="muted">
-            The script library. Every change creates a new version; sites whose policy requires approval run only a version a second admin approved.
+            The script library. Every change creates a new version; sites whose policy requires approval run only a version approved by somebody other than its author.
         </MudText>
     </div>
-    @if (CanManage)
+    @if (Can(Permissions.ScriptsEdit))
     {
         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="CreateAsync">New script</MudButton>
     }
 </div>
 
 <LoadState Loading="Loading" Failed="LoadFailed">
-    @if (IsAdmin)
+    @if (Can(Permissions.NotificationsManage))
     {
         @* A run on many endpoints at once is worth telling the other admins about (0.2.1). *@
         <div class="fl-panel pa-4 mb-4" style="max-width:820px">
@@ -90,13 +90,13 @@
 
     protected override Task OnInitializedAsync() => ReloadAsync();
 
-    protected override void OnParametersSet() => OpenCreateFromQuery(New, CreateAsync);
+    protected override void OnParametersSet() => OpenCreateFromQuery(New, Permissions.ScriptsEdit, CreateAsync);
 
     private Task ReloadAsync() => LoadAsync(async caller =>
     {
         _scripts = await ScriptSvc.ListAsync(caller);
         _clients = await ClientSvc.ListOptionsAsync(caller);
-        if (caller.IsAdmin)
+        if (caller.Has(Permissions.NotificationsManage))
         {
             _noticeAbove = await SettingsSvc.GetScriptRunNoticeAsync();
         }

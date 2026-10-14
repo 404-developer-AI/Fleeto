@@ -83,14 +83,7 @@ public sealed class InstanceInitializer
             }
         }
 
-        foreach (var roleName in FleetoRoles.All)
-        {
-            var normalized = roleName.ToUpperInvariant();
-            if (!await db.Roles.AnyAsync(r => r.NormalizedName == normalized, cancellationToken))
-            {
-                db.Roles.Add(new ApplicationRole(roleName) { Id = Guid.NewGuid(), NormalizedName = normalized, ConcurrencyStamp = Guid.NewGuid().ToString() });
-            }
-        }
+        await SyncBuiltInRolesAsync(db, cancellationToken);
 
         if (!await db.Policies.AnyAsync(p => p.IsDefault, cancellationToken))
         {
@@ -125,6 +118,36 @@ public sealed class InstanceInitializer
         }
 
         return new InstanceInitResult(instance.InstanceId, setupLink);
+    }
+
+    /// <summary>
+    /// Creates the built-in roles and makes their permissions equal to <see cref="BuiltInRoles"/> (0.6.0), so a permission a
+    /// release gives technician or read-only counts in the signer too. Custom roles are left as they are: a new permission is
+    /// never given to them by itself.
+    /// </summary>
+    public static async Task SyncBuiltInRolesAsync(FleetoDbContext db, CancellationToken cancellationToken)
+    {
+        foreach (var roleName in FleetoRoles.All)
+        {
+            var normalized = roleName.ToUpperInvariant();
+            var role = await db.Roles.SingleOrDefaultAsync(r => r.NormalizedName == normalized, cancellationToken);
+            if (role is null)
+            {
+                role = new ApplicationRole(roleName) { Id = Guid.NewGuid(), NormalizedName = normalized, ConcurrencyStamp = Guid.NewGuid().ToString() };
+                db.Roles.Add(role);
+            }
+
+            role.IsBuiltIn = true;
+            role.Description = Core.Domain.BuiltInRoles.Description(roleName);
+
+            var wanted = Core.Domain.BuiltInRoles.PermissionsOf(roleName)!.ToHashSet(StringComparer.Ordinal);
+            var stored = await db.RolePermissions.Where(p => p.RoleId == role.Id).ToListAsync(cancellationToken);
+            db.RolePermissions.RemoveRange(stored.Where(p => !wanted.Contains(p.Permission)));
+            foreach (var permission in wanted.Except(stored.Select(p => p.Permission)))
+            {
+                db.RolePermissions.Add(new RolePermission { RoleId = role.Id, Permission = permission });
+            }
+        }
     }
 
     /// <summary>Creates the database roles and grants them login. Needs a superuser connection (setup-dev, install.sh).</summary>

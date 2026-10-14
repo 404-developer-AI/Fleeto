@@ -108,6 +108,17 @@ the API and the database follows it.
   template, policy or patch policy only with access to everything it is used on. Enforced in the data layer and again by the
   signer; a change takes effect at once (pages reload, remote session connections to what was lost end). The update put every
   user in the default group "All clients", which a user leaves when added to another group.
+- **Roles with permissions** (decided 2026-10-14, 0.6.0): a role is a set of permissions from one catalog in code
+  (`Permissions`): per area what a user may view and what it may change, such as remote control, remote background, run
+  scripts, edit scripts, approve scripts, each endpoint tab, the tier switch, the Action1 agent, clients, sites, tags and every
+  administration page. Admin, technician and read-only are built in ("Default"): they cannot be changed, only copied into a
+  custom role, and their permissions are defined in code (`BuiltInRoles`), where a new feature decides whether technician or
+  read-only gets its permission. A custom role holds exactly the permissions stored for it, so a permission a later release
+  adds appears in the role editor and is off in every custom role. A user may do what its roles give together; the groups
+  still decide where. Admin keeps every permission and stays outside groups. Permissions of the administration of the instance
+  count only for a user whose groups give every client, and nobody but an admin gives or changes roles or users with
+  permissions it does not hold itself. Enforced by web on every page and service call from the database (never the cookie) and
+  by fleeto-signer for jobs, remote session tokens, uninstalls and script approval; a change takes effect at once.
 - **Endpoint**: a machine with a Fleeto agent. Each endpoint has a **class**: `workstation` or
   `server`, derived from the OS edition and overridable by hand, and a **license tier**
   (see Licensing). Hypervisor hosts and VMs discovered through Proxmox or vCenter appear as
@@ -219,7 +230,7 @@ Screen takeover is built into Fleeto: no external tool, no third-party account. 
 - Two kinds of session, each in its own popup window opened from the right-click menu of the endpoint list (the buttons
   on the endpoint detail were removed in 0.6.0): **Remote control** (the screen, served by the agent) and **Remote background** (terminal, files, services and
   processes without touching the screen, served by the watchdog so it also works when the agent is broken). Managed
-  endpoints only; admins and technicians, never read-only. The reason is optional.
+  endpoints only; users whose roles give remote control or remote background (admins and technicians by default, 0.6.0). The reason is optional.
 - **Transport**: a WebSocket relay through the gateway on port 443 (`wss://<fqdn>/relay/`), no WebRTC. Image: tiles with
   change detection first, then H.264 on Windows with automatic fallback to tiles.
 - **Keyboard** never changes characters on the way, also on the Windows sign-in screen with another layout on the
@@ -340,7 +351,7 @@ Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
   agent) and reports with its inventory. Hostnames are not unique across clients and change; a wrong match would show one
   machine's patch state on another. Verified on a test endpoint 2026-09-20: the `agent.guid` in the registry of the Action1
   agent is the same value as the endpoint id in the Action1 console and API, so the match is that id and nothing else.
-- **Starting a deployment is an ordinary privileged action**: admins and technicians, on managed endpoints, recorded in the
+- **Starting a deployment is an ordinary privileged action**: the permission Deploy updates (admins and technicians by default), on managed endpoints, recorded in the
   audit log like a job. No second-admin approval, because Action1 installs only what is in its own catalog.
 - **A deployment installs what Fleeto showed, whatever its approval in Action1** (found testing 0.6.0 on 2026-09-25):
   "every missing update" is sent with `require_update_approval: "no"`, because Action1 defaults it to "yes" and then
@@ -466,17 +477,17 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
 
 - **Enrollment**: one-time enrollment token (per site, expiring, revocable, stored hashed) exchanged for a unique per-agent certificate (90 days, auto-renewed, TPM-backed key where available). All agent traffic is mTLS. No shared API keys across agents.
 - **Revocation**: the gateway accepts a client certificate only when it is on the allow list in the database (issued, not revoked, not expired) and drops live connections the moment a certificate is revoked. Deleting an endpoint removes its certificates. A certificate connecting twice at once is refused and raises an alert (cloned VM).
-- **Uninstall on deletion** (decided 2026-10-13, 0.6.0): deleting an endpoint or client offers "Also uninstall the Fleeto agent", checked by default. The endpoint leaves every list at once; for 30 days the gateway recognises its certificates for one purpose only, to deliver an uninstall command signed by fleeto-signer (only for an endpoint that no longer exists, deleted by an admin or technician). The agent and watchdog verify it against the pinned instance key and remove themselves, also on an agent-only endpoint. Settings, Agent uninstalls lists them.
+- **Uninstall on deletion** (decided 2026-10-13, 0.6.0): deleting an endpoint or client offers "Also uninstall the Fleeto agent", checked by default. The endpoint leaves every list at once; for 30 days the gateway recognises its certificates for one purpose only, to deliver an uninstall command signed by fleeto-signer (only for an endpoint that no longer exists, deleted by a user who may delete endpoints or clients). The agent and watchdog verify it against the pinned instance key and remove themselves, also on an agent-only endpoint. Settings, Agent uninstalls lists them.
 - **Two signing keys, never mixed** (ed25519):
   - the **Steaan release key** signs agent binaries, `install.sh` and the release manifest. It lives offline on a hardware token, never on a VPS or in CI secrets; its public keys are compiled into the agent and `install.sh`. A compromised instance cannot push an agent update.
-  - the **instance signing key** signs jobs, policies, check definitions and remote control session tokens for one instance. It is held only by **fleeto-signer**, which re-checks role, tier, script approval and validity before signing. Agents pin its public key at enrollment.
+  - the **instance signing key** signs jobs, policies, check definitions and remote control session tokens for one instance. It is held only by **fleeto-signer**, which re-checks the permission of the user (0.6.0), tier, script approval and validity before signing. Agents pin its public key at enrollment.
   The key ceremony is documented in `MD-Files/ARCHITECTURE.md`.
 - **Jobs expire**: every signed job carries `InstanceId`, `EndpointId` and `ValidUntil` (default 24 hours, maximum 7 days). Signer, gateway and agent all refuse expired jobs.
-- **Script approval**: per policy, scripts can require approval by a second admin (fresh TOTP) before they run; each change needs new approval. Off by default, recommended for servers.
+- **Script approval**: per policy, scripts can require approval by a second person with the permission to approve scripts (fresh TOTP) before they run; each change needs new approval. Off by default, recommended for servers. Switching it off in a policy needs the same permission (0.6.0).
 - **Accepted risk**: full control of fleeto-web still lets an attacker get jobs signed within the signer's rules. The signer keeps the key out of web, enforces the rules and rate limits, and is the single audited choke point. Documented in `MD-Files/ARCHITECTURE.md` §5.
 - **Command authorization**: every job records who initiated it, when, on which endpoints, with what payload. Immutable audit log for all privileged actions (script run, script approval, patch, remote control session, credential change, API key change, license change, login, permission change, certificate revocation, client or site deletion).
 - **Remote control** is the highest-risk feature: single-use tokens per participant, end-to-end encryption, visible on workstations by policy, policy-controlled consent on workstations, audited, managed endpoints only.
-- **Remote terminal** (0.3.0): interactive terminal as SYSTEM or root in the remote background session, with the same session token and end-to-end encryption as remote control, audited per session and participant, managed endpoints only. Available to admins and technicians also where script approval is required: accepted risk, documented in `MD-Files/ARCHITECTURE.md` §5.
+- **Remote terminal** (0.3.0): interactive terminal as SYSTEM or root in the remote background session, with the same session token and end-to-end encryption as remote control, audited per session and participant, managed endpoints only. Available to every user with the permission remote background, also where script approval is required: accepted risk, documented in `MD-Files/ARCHITECTURE.md` §5.
 - **Web/API**: 2FA (TOTP) for all local users and MFA through Entra ID for linked users (see Sign-in and two-factor
   authentication), session hardening, per-endpoint rate limiting, strict input validation, parameterized queries only, CSP with a nonce and without unsafe-inline for scripts (styles need `'unsafe-inline'` because MudBlazor renders inline style attributes). API keys hashed at rest, scoped, revocable.
 - **Least privilege**: containers run as non-root, read-only filesystems where possible, no Docker socket exposure to app containers, one database role per container. Instances on the same VPS share nothing but the host proxy: separate networks, volumes and secrets. The host proxy is not secret-free: it holds the TLS keys of every instance FQDN on the VPS, so it is pinned, minimally configured and its admin API is local only.
@@ -574,7 +585,7 @@ check/alert model as agent data (one alert pipeline, not two), credentials encry
 - Patch compliance and deployment through Action1
 - Log and event search
 - **Notes**: markdown notes on managed endpoints, with author + timestamp, searchable, included in the audit trail (without the body); a Servicedesk ticket reference follows later (not yet scheduled, see `MD-Files/ROADMAP.md`)
-- Users, roles (admin / technician / read-only), 2FA
+- Users, roles (built-in admin / technician / read-only and custom roles with permissions, 0.6.0), groups, 2FA
 - Public REST API with scoped API keys and OpenAPI document
 - Integrations: Action1, Sophos, Veeam, Proxmox, vCenter
 
@@ -586,7 +597,7 @@ home-grown patch engine. Note them, do not build them. (File transfer inside rem
 - **Fleeto is the only name**: namespaces, images, env vars, service names, database objects and user-visible text (decided
   2026-09-15; the internal name Fleetify was renamed in 0.2.1). The old name appears only in the migration code listed in
   `deploy/ci/branding-check.sh`. Run that check (`MD-Files/branding-fleeto.md` §7) before every release.
-- UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, patch policy, monitoring template, client template, integration, note, tag, remote control session, API key).
+- UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, patch policy, monitoring template, client template, integration, note, tag, remote control session, API key, role, permission).
 - Follow the Migrify codebase conventions where they exist (project layout, EF Core patterns, MudBlazor usage, email templates).
 - Tests: unit tests for domain logic, integration tests against real PostgreSQL in CI, the cross-client tests from Security, license-tier enforcement tests, signer rule tests (refused roles, tiers, unapproved scripts, expired jobs), certificate revocation tests, and the load-test scenario. New features without tests are not done, and neither are new features
   that are not in `MD-Files/API.md` or on `MD-Files/API-WAITLIST.md` (see Public API).

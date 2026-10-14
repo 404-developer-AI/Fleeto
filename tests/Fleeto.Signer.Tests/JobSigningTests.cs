@@ -262,4 +262,33 @@ public sealed class JobSigningTests
         var (_, byAdmin) = await SignAsync(await CreateJobAsync(scope, version, script, initiatorId: scope.AdminId));
         Assert.Equal(JobState.Queued, byAdmin.State);
     }
+
+    [Fact]
+    public async Task A_custom_role_signs_a_job_only_with_the_permission_for_its_type()
+    {
+        // Custom roles (0.6.0): the signer asks for the permission of the job, not for a role name.
+        var scope = await ScopeAsync(approvalRequired: true);
+        var (script, version) = await _fixture.Database.CreateScriptAsync(scope.Client.Id, scope.TechnicianId, approverId: scope.AdminId);
+        var viewer = await _fixture.Database.CreateUserAsync(await _fixture.Database.CreateRoleAsync(
+            Core.Domain.Permissions.ClientsView, Core.Domain.Permissions.ScriptsView, Core.Domain.Permissions.JobsView));
+        var runner = await _fixture.Database.CreateUserAsync(await _fixture.Database.CreateRoleAsync(
+            Core.Domain.Permissions.ClientsView, Core.Domain.Permissions.ScriptsView, Core.Domain.Permissions.JobsView, Core.Domain.Permissions.ScriptsRun));
+
+        var (_, refused) = await SignAsync(await CreateJobAsync(scope, version, script, initiatorId: viewer.Id));
+        Assert.Equal(JobHandler.InitiatorReason, refused.RefusalReason);
+
+        var (_, signed) = await SignAsync(await CreateJobAsync(scope, version, script, initiatorId: runner.Id));
+        Assert.Equal(JobState.Queued, signed.State);
+
+        // The approval counts only while its approver may still approve scripts: a custom role that may approves as well.
+        var approver = await _fixture.Database.CreateUserAsync(await _fixture.Database.CreateRoleAsync(Core.Domain.Permissions.ScriptsView,
+            Core.Domain.Permissions.ScriptsApprove));
+        var (byApproverScript, byApprover) = await _fixture.Database.CreateScriptAsync(scope.Client.Id, scope.TechnicianId, approverId: approver.Id);
+        var (_, approvedByRole) = await SignAsync(await CreateJobAsync(scope, byApprover, byApproverScript, initiatorId: runner.Id));
+        Assert.Equal(JobState.Queued, approvedByRole.State);
+
+        var (byRunnerScript, byRunner) = await _fixture.Database.CreateScriptAsync(scope.Client.Id, scope.TechnicianId, approverId: runner.Id);
+        var (_, notAnApprover) = await SignAsync(await CreateJobAsync(scope, byRunner, byRunnerScript, initiatorId: runner.Id));
+        Assert.Equal(JobHandler.ApprovalReason, notAnApprover.RefusalReason);
+    }
 }

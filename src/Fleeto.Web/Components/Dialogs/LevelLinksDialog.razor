@@ -7,18 +7,18 @@
     <DialogContent>
         @if (NameLabel is not null)
         {
-            <MudTextField @bind-Value="_name" Label="@NameLabel" Variant="Variant.Outlined" MaxLength="100" AutoFocus="true" Disabled="@(!CanManage)"
+            <MudTextField @bind-Value="_name" Label="@NameLabel" Variant="Variant.Outlined" MaxLength="100" AutoFocus="true" Disabled="@(!CanEditName)"
                           Class="mb-3" />
         }
         @if (ShowDescription)
         {
             <MudTextField @bind-Value="_description" Label="Description (optional)" Variant="Variant.Outlined" Lines="2" MaxLength="1000"
-                          Disabled="@(!CanManage)" Class="mb-3" />
+                          Disabled="@(!CanEditName)" Class="mb-3" />
         }
 
         <MudText Typo="Typo.subtitle2" Class="mt-2">Policies</MudText>
         <MudText Typo="Typo.body2" Class="muted mb-3">@Explanation</MudText>
-        <LinkEditor Selection="_selection" Choices="Links.Choices" Level="Links.Level" Disabled="@(!CanManage)" EndpointClass="Links.EndpointClass"
+        <LinkEditor Selection="_selection" Choices="Links.Choices" Level="Links.Level" Disabled="@(!CanEditLinks)" EndpointClass="Links.EndpointClass"
                     PolicyInherit="@EndpointAware(InheritTexts.From(Links.Policy, "Inherit: default policy"))"
                     PatchInherit="@EndpointAware(InheritTexts.From(Links.PatchPolicy, "No patch policy"))"
                     PolicyLocked="Links.Policy.FromClientTemplate" PatchLocked="Links.PatchPolicy.FromClientTemplate"
@@ -49,7 +49,13 @@
 
     [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
     [Parameter, EditorRequired] public LevelLinks Links { get; set; } = default!;
-    [Parameter] public bool CanManage { get; set; }
+    /// <summary>The name and description may be changed (0.6.0).</summary>
+    [Parameter] public bool CanEditName { get; set; }
+
+    /// <summary>The policy, patch policy and monitoring templates may be changed (0.6.0).</summary>
+    [Parameter] public bool CanEditLinks { get; set; }
+
+    private bool CanManage => CanEditName || CanEditLinks;
 
     /// <summary>The label of the name field; null shows no name (an endpoint keeps its host name).</summary>
     [Parameter] public string? NameLabel { get; set; }

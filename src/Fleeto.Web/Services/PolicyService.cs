@@ -61,7 +61,7 @@ public sealed class PolicyService
 
     public async Task<IReadOnlyList<PolicyListItem>> ListAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.PoliciesView);
         await using var db = _dbFactory.Create(caller.Scope);
         var rows = await db.Policies.AsNoTracking()
             .OrderByDescending(p => p.IsDefault).ThenBy(p => p.ClientId != null).ThenBy(p => p.Name)
@@ -83,9 +83,12 @@ public sealed class PolicyService
         return rows.Select(r => r.Item with { MaintenanceWindows = MaintenanceWindowSchedule.Parse(r.MaintenanceWindowsJson) }).ToList();
     }
 
+    public const string ScriptApprovalProblem =
+        "Only somebody who may approve scripts can switch off the approval of scripts. Ask an admin, or leave approval on.";
+
     public async Task<ServiceResult<Guid>> CreateAsync(Caller caller, Guid? clientId, PolicyInput input, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.PoliciesEdit))
         {
             return ServiceResult<Guid>.Forbidden();
         }
@@ -127,7 +130,7 @@ public sealed class PolicyService
 
     public async Task<ServiceResult> UpdateAsync(Caller caller, Guid policyId, PolicyInput input, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.PoliciesEdit))
         {
             return ServiceResult.Forbidden();
         }
@@ -148,6 +151,12 @@ public sealed class PolicyService
             is { } accessProblem)
         {
             return ServiceResult.Fail(accessProblem);
+        }
+
+        // Switching approval of scripts off lets scripts run that nobody approved (0.6.0): only somebody who may approve scripts.
+        if (policy.ScriptApprovalRequired && input.ScriptApprovalRequired == false && !caller.Has(Permissions.ScriptsApprove))
+        {
+            return ServiceResult.Fail(ScriptApprovalProblem);
         }
 
         var name = input.Name!.Trim();
@@ -181,7 +190,7 @@ public sealed class PolicyService
     /// <summary>Copies a policy, globally or for one client. The copy is independent from then on.</summary>
     public async Task<ServiceResult<Guid>> CopyAsync(Caller caller, Guid policyId, string? name, Guid? targetClientId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.PoliciesEdit))
         {
             return ServiceResult<Guid>.Forbidden();
         }
@@ -209,7 +218,7 @@ public sealed class PolicyService
 
     public async Task<ServiceResult> DeleteAsync(Caller caller, Guid policyId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.PoliciesEdit))
         {
             return ServiceResult.Forbidden();
         }

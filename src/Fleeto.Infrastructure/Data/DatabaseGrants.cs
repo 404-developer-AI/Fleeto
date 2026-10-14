@@ -33,6 +33,9 @@ public static class DatabaseGrants
             ["AspNetUserLogins"] = Grants(web: ReadWrite),
             ["AspNetUserTokens"] = Grants(web: ReadWrite),
             ["AspNetRoleClaims"] = Grants(web: ReadWrite),
+            // Permissions of roles (0.6.0): the signer checks that the user behind a job, a remote session token or an uninstall
+            // still holds the permission it needs.
+            ["RolePermissions"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             // Groups of users (0.6.0): admins manage them in web; the signer reads them to check that the user behind a job or
             // a remote session token may still reach the endpoint.
             ["UserGroups"] = Grants(web: ReadWrite, signer: Read),

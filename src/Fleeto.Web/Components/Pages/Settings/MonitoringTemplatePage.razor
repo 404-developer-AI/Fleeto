@@ -1,5 +1,5 @@
 @page "/settings/monitoring-templates/{TemplateId:guid}"
-@attribute [Authorize(Policy = FleetoPolicies.Viewer)]
+@attribute [RequirePermission(Permissions.MonitoringTemplatesView)]
 @inherits FleetoPageBase
 @inject MonitoringTemplateService TemplateSvc
 @inject ScriptService ScriptSvc
@@ -22,7 +22,7 @@
                     }
                 </MudText>
             </div>
-            @if (CanManage)
+            @if (Can(Permissions.MonitoringTemplatesEdit))
             {
                 <div class="d-flex gap-2">
                     <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Edit" OnClick="EditAsync">Edit</MudButton>
@@ -45,7 +45,7 @@
                     <MudTh>Thresholds</MudTh>
                     <MudTh>Runs on</MudTh>
                     <MudTh>Enabled</MudTh>
-                    @if (CanManage)
+                    @if (Can(Permissions.MonitoringTemplatesEdit))
                     {
                         <MudTh Style="width:110px"></MudTh>
                     }
@@ -66,9 +66,9 @@
                     <MudTd>@Thresholds(context)</MudTd>
                     <MudTd>@Ui.AppliesToLabel(context.AppliesTo)</MudTd>
                     <MudTd>
-                        <MudSwitch T="bool" Value="context.Enabled" ValueChanged="@(v => SetEnabledAsync(context, v))" Color="Color.Primary" Disabled="@(!CanManage)" />
+                        <MudSwitch T="bool" Value="context.Enabled" ValueChanged="@(v => SetEnabledAsync(context, v))" Color="Color.Primary" Disabled="@(!Can(Permissions.MonitoringTemplatesEdit))" />
                     </MudTd>
-                    @if (CanManage)
+                    @if (Can(Permissions.MonitoringTemplatesEdit))
                     {
                         <MudTd Style="white-space:nowrap">
                             <MudTooltip Text="Edit"><MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="@(() => EditCheckAsync(context))" /></MudTooltip>

@@ -1,3 +1,4 @@
+@inject CurrentUser CurrentUser
 @inject Fleeto.Infrastructure.Licensing.LicenseService Licenses
 @inject TimeDisplay TimeDisplay
 @inject ILogger<LicenseBanner> Logger
@@ -7,20 +8,23 @@
     <MudAlert Severity="@(status.State is LicenseState.Expired or LicenseState.Missing ? Severity.Warning : Severity.Info)"
               Square="true" Dense="true" Class="mb-0">
         @message
-        <AuthorizeView Policy="@FleetoPolicies.Admin">
+        @if (_canManage)
+        {
             <MudLink Href="/settings/licensing" Class="ml-2" Typo="Typo.body2">Go to Settings, Licensing</MudLink>
-        </AuthorizeView>
+        }
     </MudAlert>
 }
 
 @code {
     private LicenseStatus? _status;
+    private bool _canManage;
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
             _status = await Licenses.GetStatusAsync();
+            _canManage = (await CurrentUser.TryGetAsync())?.Has(Permissions.LicensingManage) == true;
         }
         catch (Exception ex)
         {

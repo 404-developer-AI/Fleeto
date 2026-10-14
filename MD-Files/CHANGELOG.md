@@ -11,6 +11,14 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
+- Roles with permissions: Settings, Roles. A role is a set of permissions, such as remote control, remote background, run
+  scripts, edit scripts, approve scripts, view or change each endpoint tab, switch the license tier, install or remove the
+  Action1 agent, add or delete endpoints, create or delete clients and sites, tag clients, and each administration page.
+  Admin, Technician and Read-only are the default roles: they cannot be changed, only copied into a custom role. A user may do
+  what its roles give together; its groups still decide where. A permission a later update adds is off in every custom role
+  until you give it. Pages, menus and buttons follow the permissions, and the server refuses what a role does not allow,
+  fleeto-signer included. The update changes nothing for existing users.
+
 - Groups of users: Settings, Groups. A group gives every client with exceptions, also the clients created later, or the
   clients, sites and endpoints it includes; a user who is not an admin sees what its groups give together, and nothing without
   a group. Settings, Users sets the groups of a user next to its roles and shows under Access what the user sees; Who has
@@ -137,6 +145,9 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Changed
 
+- Approving a script needs the permission "Approve scripts" instead of the admin role; the approver still has to be somebody
+  other than the author, with a fresh code. Switching off "Require approval of scripts" in a policy needs the same permission.
+- Settings shows only the pages the roles of the user allow, and the settings button opens the first of them.
 - The tabs of an endpoint all fit in view: each is as wide as its label instead of at least 160 pixels, without capitals, and
   where the detail is narrow the icons give way to the labels instead of tabs hiding behind scroll arrows.
 - "Rename client" is "Edit client", and "Policy and monitoring" of a site is part of "Edit site".

@@ -1,5 +1,5 @@
 @page "/settings/policies"
-@attribute [Authorize(Policy = FleetoPolicies.Viewer)]
+@attribute [RequirePermission(Permissions.PoliciesView)]
 @inherits FleetoPageBase
 @inject PolicyService PolicySvc
 @inject ClientService ClientSvc
@@ -14,7 +14,7 @@
             Agent behaviour for the endpoints of a client, site or single endpoint; the most specific link wins. Policies are linked, not copied: a change applies at once to every endpoint that uses the policy.
         </MudText>
     </div>
-    @if (CanManage)
+    @if (Can(Permissions.PoliciesEdit))
     {
         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="CreateAsync">New policy</MudButton>
     }
@@ -32,7 +32,7 @@
             <MudTh>Agent updates</MudTh>
             <MudTh>Maintenance windows</MudTh>
             <MudTh>Used by</MudTh>
-            @if (CanManage)
+            @if (Can(Permissions.PoliciesEdit))
             {
                 <MudTh Style="width:140px"></MudTh>
             }
@@ -74,7 +74,7 @@
                 }
             </MudTd>
             <MudTd>@Usage(context)</MudTd>
-            @if (CanManage)
+            @if (Can(Permissions.PoliciesEdit))
             {
                 <MudTd Style="white-space:nowrap">
                     <MudTooltip Text="Edit"><MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="@(() => EditAsync(context))" /></MudTooltip>
@@ -99,7 +99,7 @@
     [SupplyParameterFromQuery(Name = "new")]
     public bool New { get; set; }
 
-    protected override void OnParametersSet() => OpenCreateFromQuery(New, CreateAsync);
+    protected override void OnParametersSet() => OpenCreateFromQuery(New, Permissions.PoliciesEdit, CreateAsync);
 
     private Task ReloadAsync() => LoadAsync(async caller =>
     {
@@ -122,6 +122,7 @@
         var parameters = new DialogParameters<PolicyDialog>
         {
             { d => d.Existing, policy },
+            { d => d.CanApproveScripts, Can(Permissions.ScriptsApprove) },
             { d => d.OnSubmit, (_, input) => RunAsync(caller => PolicySvc.UpdateAsync(caller, policy.Id, input), "The policy was saved. Endpoints that use it receive the change shortly.") }
         };
         await ShowAsync(parameters);

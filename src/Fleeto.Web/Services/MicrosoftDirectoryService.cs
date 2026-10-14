@@ -1,3 +1,4 @@
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Data;
@@ -51,7 +52,7 @@ public sealed class MicrosoftDirectoryService
     public async Task<ServiceResult<IReadOnlyList<DirectoryUserView>>> SearchUsersAsync(Caller caller, string? query,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.UsersManage))
         {
             return ServiceResult<IReadOnlyList<DirectoryUserView>>.Forbidden();
         }
@@ -76,7 +77,7 @@ public sealed class MicrosoftDirectoryService
 
     private async Task<ServiceResult<IReadOnlyList<MicrosoftCheck>>> TestAsync(Caller caller, MicrosoftRequestKind kind, CancellationToken cancellationToken)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(kind == MicrosoftRequestKind.TestEmail ? Permissions.EmailManage : Permissions.SignInManage))
         {
             return ServiceResult<IReadOnlyList<MicrosoftCheck>>.Forbidden();
         }

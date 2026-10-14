@@ -1,3 +1,4 @@
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Security;
@@ -25,7 +26,8 @@ public sealed class AgentUninstallHandler : ISigningRequestHandler
     public const string BindingReason =
         "The uninstall request was changed after it was made, so it was not signed. Tell an administrator if it happens again.";
     public const string EndpointExistsReason = "The endpoint still exists. Fleeto only uninstalls the agent of an endpoint that was deleted.";
-    public const string UserReason = "The user who deleted the endpoint no longer exists, is locked out or has no admin or technician role.";
+    public const string UserReason =
+        "The user who deleted the endpoint no longer exists, is locked out or no longer has the permission to delete endpoints or clients.";
     public const string ValidityReason = "The uninstall request has no valid waiting period or no certificates to recognise.";
 
     private readonly SignerKeyRing _keyRing;
@@ -72,8 +74,9 @@ public sealed class AgentUninstallHandler : ISigningRequestHandler
             return SigningOutcome.Refused(EndpointExistsReason);
         }
 
-        if (!await ScriptCheckResolver.UserHasRoleAsync(db, uninstall.RequestedByUserId, now, cancellationToken, FleetoRoleNames.Admin,
-                FleetoRoleNames.Technician))
+        // Deleted with its endpoint or with its whole client (0.6.0): either permission counts.
+        if (!await ScriptCheckResolver.UserHasPermissionAsync(db, uninstall.RequestedByUserId, now, Permissions.EndpointsDelete, cancellationToken) &&
+            !await ScriptCheckResolver.UserHasPermissionAsync(db, uninstall.RequestedByUserId, now, Permissions.ClientsDelete, cancellationToken))
         {
             return SigningOutcome.Refused(UserReason);
         }

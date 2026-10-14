@@ -1,5 +1,5 @@
 @page "/remote/background/{EndpointId:guid}"
-@attribute [Authorize(Policy = FleetoPolicies.Technician)]
+@attribute [RequirePermission(Permissions.RemoteBackground)]
 @layout RemoteLayout
 @inherits FleetoPageBase
 @implements IAsyncDisposable
@@ -27,7 +27,7 @@
     </div>
     <StatusChip Text="@StateLabel" Kind="@StateKind" Dot="true" />
     <MudSpacer />
-    @if (_state == SessionState.Connected && _scriptsSupported)
+    @if (_state == SessionState.Connected && _scriptsSupported && Can(Permissions.ScriptsRun))
     {
         <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.PlayArrow" OnClick="RunScriptAsync" Class="mr-2">Run script</MudButton>
     }

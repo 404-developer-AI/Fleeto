@@ -1,5 +1,5 @@
 @page "/endpoints/{EndpointId:guid}"
-@attribute [Authorize(Policy = FleetoPolicies.Viewer)]
+@attribute [RequirePermission(Permissions.ClientsView)]
 @inherits FleetoPageBase
 @inject EndpointService EndpointSvc
 

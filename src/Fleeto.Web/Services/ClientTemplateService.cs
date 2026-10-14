@@ -51,7 +51,7 @@ public sealed class ClientTemplateService
 
     public async Task<IReadOnlyList<ClientTemplateListItem>> ListAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientTemplatesView);
         await using var db = _dbFactory.Create(caller.Scope);
         return await db.ClientTemplates.AsNoTracking()
             .OrderBy(t => t.Name)
@@ -61,7 +61,7 @@ public sealed class ClientTemplateService
 
     public async Task<ClientTemplateDetail?> GetAsync(Caller caller, Guid templateId, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.ClientTemplatesView);
         await using var db = _dbFactory.Create(caller.Scope);
         var template = await db.ClientTemplates.AsNoTracking()
             .Include(t => t.Sites).ThenInclude(s => s.MonitoringTemplates)
@@ -86,7 +86,7 @@ public sealed class ClientTemplateService
 
     public async Task<ServiceResult<Guid>> SaveAsync(Caller caller, Guid? templateId, ClientTemplateInput input, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ClientTemplatesEdit))
         {
             return ServiceResult<Guid>.Forbidden();
         }
@@ -299,7 +299,7 @@ public sealed class ClientTemplateService
 
     public async Task<ServiceResult<Guid>> CopyAsync(Caller caller, Guid templateId, string? name, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ClientTemplatesEdit))
         {
             return ServiceResult<Guid>.Forbidden();
         }
@@ -325,7 +325,7 @@ public sealed class ClientTemplateService
     /// <summary>Detaches every client that follows the template (sites and links stay, as manual), then deletes it.</summary>
     public async Task<ServiceResult> DeleteAsync(Caller caller, Guid templateId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.ClientTemplatesEdit))
         {
             return ServiceResult.Forbidden();
         }

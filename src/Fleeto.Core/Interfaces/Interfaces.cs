@@ -207,6 +207,11 @@ public static class AuditActions
     public const string UserGroupUpdated = "user_group.updated";
     public const string UserGroupDeleted = "user_group.deleted";
 
+    /// <summary>Roles (0.6.0): a custom role created, changed (name, description or permissions) and deleted.</summary>
+    public const string RoleCreated = "role.created";
+    public const string RoleUpdated = "role.updated";
+    public const string RoleDeleted = "role.deleted";
+
     /// <summary>The groups of one user were set from Settings, Users (0.6.0).</summary>
     public const string UserGroupsChanged = "user.groups_changed";
 

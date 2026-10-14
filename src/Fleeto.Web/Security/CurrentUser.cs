@@ -77,11 +77,8 @@ public sealed class CurrentUser
             return null;
         }
 
-        var roles = await db.UserRoles.AsNoTracking()
-            .Where(ur => ur.UserId == userId)
-            .Join(db.Roles, ur => ur.RoleId, r => r.Id, (_, r) => r.Name!)
-            .ToListAsync(cancellationToken);
-        if (!roles.Any(FleetoRoles.All.Contains))
+        var (roles, granted) = await UserPermissions.LoadAsync(db, user.Id, cancellationToken);
+        if (roles.Count == 0)
         {
             _cached = null;
             return null;
@@ -95,7 +92,7 @@ public sealed class CurrentUser
             ? SystemClientScope.Instance
             : await UserAccessResolver.ResolveAsync(db, user.Id, cancellationToken);
         _cached = new Caller(user.Id, string.IsNullOrWhiteSpace(user.DisplayName) ? user.Email ?? string.Empty : user.DisplayName,
-            user.Email ?? string.Empty, roles, scope, IpAddress);
+            user.Email ?? string.Empty, roles, scope, IpAddress, Granted: granted);
         _cachedAt = now;
         return _cached;
     }

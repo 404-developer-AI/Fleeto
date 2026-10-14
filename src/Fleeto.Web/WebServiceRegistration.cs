@@ -75,6 +75,7 @@ public static class WebServiceRegistration
         services.AddSingleton<ClientTemplateService>();
         services.AddSingleton<UserAdminService>();
         services.AddSingleton<UserGroupService>();
+        services.AddSingleton<RoleService>();
         services.AddSingleton<SettingsService>();
         services.AddSingleton<SignInSettingsService>();
         services.AddSingleton<MicrosoftDirectoryService>();

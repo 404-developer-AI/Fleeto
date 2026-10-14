@@ -27,13 +27,13 @@ public sealed class JobHandler : ISigningRequestHandler
 {
     public const string MissingJobReason = "The job no longer exists.";
     public const string InitiatorReason =
-        "The technician who started the job no longer exists, is locked out or has no admin or technician role. Ask an admin to start it again.";
+        "The user who started the job no longer exists, is locked out or no longer has the permission for this job. Ask an admin to start it again.";
     public const string NotManagedReason = "The endpoint is not managed. Switch it to managed before running scripts.";
     public const string PlatformReason = "The script's language does not run on this endpoint's operating system.";
     public const string ScriptChangedReason = "The script version no longer matches the job. Start the job again.";
     public const string ScriptClientReason = "The script belongs to another client.";
     public const string ApprovalReason =
-        "The site's policy requires approval of scripts, and this version of the script is not the current version approved by a second admin. Ask an admin to approve it.";
+        "The site's policy requires approval of scripts, and this version of the script is not the current version approved by somebody other than its author. Ask somebody who may approve scripts to approve it.";
     public const string ChosenUserReason = "The chosen user is invalid: a user can only be chosen for a script that runs as the signed-in user.";
     public const string ChosenUserAgentReason =
         "The agent of this endpoint is too old to run a script as a chosen user. Wait until it runs Fleeto 0.2.2 or later, or run it as the signed-in user.";
@@ -103,7 +103,7 @@ public sealed class JobHandler : ISigningRequestHandler
             return SigningOutcome.Refused(AutomaticTypeReason);
         }
 
-        if (!automatic && !await HasRoleAsync(db, job.InitiatedByUserId, now, cancellationToken, FleetoRoleNames.Admin, FleetoRoleNames.Technician))
+        if (!automatic && !await ScriptCheckResolver.UserHasPermissionAsync(db, job.InitiatedByUserId, now, PermissionFor(job.Type), cancellationToken))
         {
             return SigningOutcome.Refused(InitiatorReason);
         }
@@ -174,7 +174,7 @@ public sealed class JobHandler : ISigningRequestHandler
         var policy = await EffectivePolicies.LoadAsync(db, endpoint.Id, cancellationToken);
         if (policy?.ScriptApprovalRequired == true &&
             (script.CurrentVersionId != version.Id || !version.IsApproved ||
-             !await HasRoleAsync(db, version.ApprovedByUserId!.Value, null, cancellationToken, FleetoRoleNames.Admin)))
+             !await ScriptCheckResolver.UserHasPermissionAsync(db, version.ApprovedByUserId!.Value, null, Permissions.ScriptsApprove, cancellationToken)))
         {
             return SigningOutcome.Refused(ApprovalReason);
         }
@@ -409,14 +409,11 @@ public sealed class JobHandler : ISigningRequestHandler
         return endpointIds.Select(id => new PendingNotification(NotificationChannels.Jobs, id.ToString())).ToList();
     }
 
-    private static Task<bool> HasRoleAsync(Infrastructure.Data.FleetoDbContext db, Guid userId, DateTime? lockedOutAt,
-        CancellationToken cancellationToken, params string[] normalizedRoles) =>
-        ScriptCheckResolver.UserHasRoleAsync(db, userId, lockedOutAt, cancellationToken, normalizedRoles);
-}
-
-/// <summary>Normalized role names as stored by ASP.NET Core Identity.</summary>
-internal static class FleetoRoleNames
-{
-    public static readonly string Admin = ScriptCheckResolver.AdminRole;
-    public static readonly string Technician = ScriptCheckResolver.TechnicianRole;
+    /// <summary>The permission the initiator of a job of this type must still hold (0.6.0).</summary>
+    internal static string PermissionFor(JobType type) => type switch
+    {
+        JobType.Action1Agent => Permissions.Action1AgentInstall,
+        JobType.Action1AgentRemoval => Permissions.Action1AgentRemove,
+        _ => Permissions.ScriptsRun
+    };
 }

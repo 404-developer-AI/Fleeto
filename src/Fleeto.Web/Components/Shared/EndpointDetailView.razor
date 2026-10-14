@@ -53,31 +53,54 @@
                 </div>
             </div>
 
-            <MudTabs Elevation="0" Class="fl-tabs endpoint-tabs" MinimumTabWidth="0" ActivePanelIndex="_tab" ActivePanelIndexChanged="OnTabChangedAsync">
+            @* A tab shows only with its permission (0.6.0); the services refuse its data without it anyway. *@
+            <MudTabs Elevation="0" Class="fl-tabs endpoint-tabs" MinimumTabWidth="0" ActivePanelIndex="@VisibleTabs.IndexOf(_tab)"
+                     ActivePanelIndexChanged="OnTabChangedAsync">
                 <MudTabPanel Text="Summary" Icon="@Icons.Material.Outlined.Info">
                     @Summary(e)
                 </MudTabPanel>
-                <MudTabPanel Text="Checks" Icon="@Icons.Material.Outlined.Rule">
-                    @Checks(e)
-                </MudTabPanel>
-                <MudTabPanel Text="Software" Icon="@Icons.Material.Outlined.Apps">
-                    @Software()
-                </MudTabPanel>
-                <MudTabPanel Text="Notes" Icon="@Icons.Material.Outlined.StickyNote2">
-                    @Notes(e)
-                </MudTabPanel>
-                <MudTabPanel Text="Jobs" Icon="@Icons.Material.Outlined.Terminal">
-                    @Jobs(e)
-                </MudTabPanel>
-                <MudTabPanel Text="Patches" Icon="@Icons.Material.Outlined.Security">
-                    @Patches()
-                </MudTabPanel>
-                <MudTabPanel Text="Storage" Icon="@Icons.Material.Outlined.Storage">
-                    @Storage()
-                </MudTabPanel>
-                <MudTabPanel Text="History" Icon="@Icons.Material.Outlined.History">
-                    @History()
-                </MudTabPanel>
+                @if (VisibleTabs.Contains(ChecksTab))
+                {
+                    <MudTabPanel Text="Checks" Icon="@Icons.Material.Outlined.Rule">
+                        @Checks(e)
+                    </MudTabPanel>
+                }
+                @if (VisibleTabs.Contains(SoftwareTab))
+                {
+                    <MudTabPanel Text="Software" Icon="@Icons.Material.Outlined.Apps">
+                        @Software()
+                    </MudTabPanel>
+                }
+                @if (VisibleTabs.Contains(NotesTab))
+                {
+                    <MudTabPanel Text="Notes" Icon="@Icons.Material.Outlined.StickyNote2">
+                        @Notes(e)
+                    </MudTabPanel>
+                }
+                @if (VisibleTabs.Contains(JobsTab))
+                {
+                    <MudTabPanel Text="Jobs" Icon="@Icons.Material.Outlined.Terminal">
+                        @Jobs(e)
+                    </MudTabPanel>
+                }
+                @if (VisibleTabs.Contains(PatchesTab))
+                {
+                    <MudTabPanel Text="Patches" Icon="@Icons.Material.Outlined.Security">
+                        @Patches()
+                    </MudTabPanel>
+                }
+                @if (VisibleTabs.Contains(StorageTab))
+                {
+                    <MudTabPanel Text="Storage" Icon="@Icons.Material.Outlined.Storage">
+                        @Storage()
+                    </MudTabPanel>
+                }
+                @if (VisibleTabs.Contains(HistoryTab))
+                {
+                    <MudTabPanel Text="History" Icon="@Icons.Material.Outlined.History">
+                        @History()
+                    </MudTabPanel>
+                }
             </MudTabs>
         </div>
     }
@@ -95,6 +118,34 @@
     private const int PatchesTab = 5;
     private const int StorageTab = 6;
     private const int HistoryTab = 7;
+
+    /// <summary>The tabs the roles of the user allow, in order (0.6.0); the summary always.</summary>
+    private List<int> VisibleTabs
+    {
+        get
+        {
+            List<int> tabs = [SummaryTab];
+            AddIf(ChecksTab, Permissions.ChecksView);
+            AddIf(SoftwareTab, Permissions.SoftwareView);
+            AddIf(NotesTab, Permissions.NotesView);
+            AddIf(JobsTab, Permissions.JobsView);
+            AddIf(PatchesTab, Permissions.PatchesView);
+            AddIf(StorageTab, Permissions.StorageView);
+            AddIf(HistoryTab, Permissions.HistoryView);
+            return tabs;
+
+            void AddIf(int tab, string permission)
+            {
+                if (Can(permission))
+                {
+                    tabs.Add(tab);
+                }
+            }
+        }
+    }
+
+    /// <summary>The roles of the user allow at least one action on a check (0.6.0).</summary>
+    private bool HasCheckMenu => Can(Permissions.ChecksRun) || Can(Permissions.ChecksEdit) || AlertActions.AnyAction(Caller);
 
     [Parameter, EditorRequired]
     public Guid EndpointId { get; set; }
@@ -214,6 +265,11 @@
 
     private async Task LoadTabAsync(Caller caller)
     {
+        if (!VisibleTabs.Contains(_tab))
+        {
+            _tab = SummaryTab;
+        }
+
         switch (_tab)
         {
             case SummaryTab:
@@ -246,16 +302,17 @@
 
                 break;
             case HistoryTab:
-                _alerts = await EndpointSvc.GetAlertsAsync(caller, EndpointId, 50);
+                _alerts = caller.Has(Permissions.AlertsView) ? await EndpointSvc.GetAlertsAsync(caller, EndpointId, 50) : [];
                 _events = await EndpointSvc.GetEventsAsync(caller, EndpointId, 50);
                 _audit = await EndpointSvc.GetAuditAsync(caller, EndpointId, 50);
                 break;
         }
     }
 
-    private async Task OnTabChangedAsync(int tab)
+    private async Task OnTabChangedAsync(int index)
     {
-        _tab = tab;
+        var tabs = VisibleTabs;
+        _tab = index >= 0 && index < tabs.Count ? tabs[index] : SummaryTab;
         await LoadAsync(LoadTabAsync);
     }
 
@@ -532,7 +589,7 @@
                     <span>Checks from the monitoring templates of the client, the site and this endpoint, and checks of this endpoint only.</span>
                 }
             </MudText>
-            @if (CanManage)
+            @if (Can(Permissions.ChecksEdit))
             {
                 <div class="d-flex gap-2">
                     <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.LibraryAddCheck" OnClick="@(() => EditTemplatesAsync(e))">Monitoring templates</MudButton>
@@ -558,7 +615,7 @@
                 <MudTh>Interval</MudTh>
                 <MudTh>Last run</MudTh>
                 <MudTh>Status</MudTh>
-                @if (CanManage)
+                @if (HasCheckMenu)
                 {
                     <MudTh Style="width:52px"></MudTh>
                 }
@@ -602,7 +659,7 @@
                         }
                     </div>
                 </MudTd>
-                @if (CanManage)
+                @if (HasCheckMenu)
                 {
                     <MudTd>
                         <MudMenu Icon="@Icons.Material.Outlined.MoreVert" Size="Size.Small" Dense="true" AriaLabel="Check actions"
@@ -611,33 +668,36 @@
                             {
                                 <MudMenuItem Icon="@Icons.Material.Outlined.ShowChart" OnClick="@(() => ShowHistoryAsync(context))">History</MudMenuItem>
                             }
-                            @if (!context.DisabledOnEndpoint && CheckCatalog.Get(context.Type).RunsOnAgent)
+                            @if (Can(Permissions.ChecksRun) && !context.DisabledOnEndpoint && CheckCatalog.Get(context.Type).RunsOnAgent)
                             {
                                 <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="@(() => RunCheckAsync(context, false))">Run now</MudMenuItem>
                                 <MudMenuItem Icon="@Icons.Material.Outlined.RestartAlt" OnClick="@(() => RunCheckAsync(context, true))">Reset and run</MudMenuItem>
                             }
                             @if (context.OpenAlert is { } rowAlert)
                             {
-                                @if (rowAlert.State == AlertState.Open)
+                                @if (rowAlert.State == AlertState.Open && Can(Permissions.AlertsAcknowledge))
                                 {
                                     <MudMenuItem Icon="@Icons.Material.Outlined.Check" OnClick="@(() => AlertActionAsync(rowAlert, AlertAction.Acknowledge))">Acknowledge alert</MudMenuItem>
                                 }
-                                @if (rowAlert.IsHeld(now))
+                                @if (Can(Permissions.AlertsHold) && rowAlert.IsHeld(now))
                                 {
                                     <MudMenuItem Icon="@Icons.Material.Outlined.PlayCircle" OnClick="@(() => AlertActionAsync(rowAlert, AlertAction.EndHold))">End hold</MudMenuItem>
                                 }
-                                else
+                                else if (Can(Permissions.AlertsHold))
                                 {
                                     <MudMenuItem Icon="@Icons.Material.Outlined.PauseCircle" OnClick="@(() => AlertActionAsync(rowAlert, AlertAction.Hold))">Put alert on hold</MudMenuItem>
                                 }
-                                <MudMenuItem Icon="@Icons.Material.Outlined.TaskAlt" OnClick="@(() => AlertActionAsync(rowAlert, AlertAction.Resolve))">Resolve alert</MudMenuItem>
+                                @if (Can(Permissions.AlertsResolve))
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Outlined.TaskAlt" OnClick="@(() => AlertActionAsync(rowAlert, AlertAction.Resolve))">Resolve alert</MudMenuItem>
+                                }
                             }
-                            @if (context.Source == CheckSource.Endpoint)
+                            @if (Can(Permissions.ChecksEdit) && context.Source == CheckSource.Endpoint)
                             {
                                 <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="@(() => EditEndpointCheckAsync(e, context.DefinitionId))">Edit</MudMenuItem>
                                 <MudMenuItem Icon="@Icons.Material.Outlined.Delete" OnClick="@(() => DeleteEndpointCheckAsync(context))">Delete</MudMenuItem>
                             }
-                            else
+                            else if (Can(Permissions.ChecksEdit))
                             {
                                 <MudMenuItem Icon="@Icons.Material.Outlined.Tune" OnClick="@(() => EditOverrideAsync(context))">Edit for this endpoint</MudMenuItem>
                                 @if (context.DisabledOnEndpoint)
@@ -665,7 +725,7 @@
 
         <div class="d-flex align-center justify-space-between flex-wrap gap-2 mb-2">
             <MudText Typo="Typo.body2" Class="muted">Scripts run on this endpoint, newest first. Click a job for its output.</MudText>
-            @if (CanManage && e.Tier == EndpointTier.Managed)
+            @if (Can(Permissions.ScriptsRun) && e.Tier == EndpointTier.Managed)
             {
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PlayArrow" OnClick="@(() => RunScriptAsync(e))">Run script</MudButton>
             }
@@ -685,7 +745,7 @@
                 <MudTh>Result</MudTh>
                 <MudTh>Output</MudTh>
                 <MudTh Style="width:160px">By</MudTh>
-                @if (CanManage)
+                @if (Can(Permissions.JobsCancel))
                 {
                     <MudTh Style="width:52px"></MudTh>
                 }
@@ -708,7 +768,7 @@
                 </MudTd>
                 <MudTd><span class="muted">@Ui.JobOutputLabel(context.OutputState, context.OutputTruncated)</span></MudTd>
                 <MudTd>@context.InitiatedByName</MudTd>
-                @if (CanManage)
+                @if (Can(Permissions.JobsCancel))
                 {
                     <MudTd @onclick:stopPropagation="true">
                         @if (context.CanCancel)
@@ -778,8 +838,8 @@
         }
 
         <div class="d-flex align-center justify-space-between flex-wrap gap-2 mb-2">
-            <MudText Typo="Typo.body2" Class="muted">Newest first. The author can edit a note; an admin can delete it.</MudText>
-            @if (CanManage)
+            <MudText Typo="Typo.body2" Class="muted">Newest first. The author can edit a note.</MudText>
+            @if (Can(Permissions.NotesCreate))
             {
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="@(() => EditNoteAsync(null))">Add note</MudButton>
             }
@@ -797,7 +857,7 @@
                 <MudTh Style="width:170px">Created</MudTh>
                 <MudTh Style="width:180px">Author</MudTh>
                 <MudTh>Note</MudTh>
-                @if (CanManage)
+                @if (Can(Permissions.NotesCreate) || Can(Permissions.NotesDelete))
                 {
                     <MudTh Style="width:52px"></MudTh>
                 }
@@ -812,18 +872,18 @@
                 </MudTd>
                 <MudTd>@context.AuthorName</MudTd>
                 <MudTd><div class="note-body">@NoteMarkdown.ToHtml(context.Body)</div></MudTd>
-                @if (CanManage)
+                @if (Can(Permissions.NotesCreate) || Can(Permissions.NotesDelete))
                 {
                     <MudTd>
-                        @if (context.AuthorUserId == Caller?.UserId || IsAdmin)
+                        @if ((context.AuthorUserId == Caller?.UserId && Can(Permissions.NotesCreate)) || Can(Permissions.NotesDelete))
                         {
                             <MudMenu Icon="@Icons.Material.Outlined.MoreVert" Size="Size.Small" Dense="true" AriaLabel="Note actions"
                                      AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
-                                @if (context.AuthorUserId == Caller?.UserId)
+                                @if (context.AuthorUserId == Caller?.UserId && Can(Permissions.NotesCreate))
                                 {
                                     <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="@(() => EditNoteAsync(context))">Edit</MudMenuItem>
                                 }
-                                @if (IsAdmin)
+                                @if (Can(Permissions.NotesDelete))
                                 {
                                     <MudMenuItem Icon="@Icons.Material.Outlined.Delete" OnClick="@(() => DeleteNoteAsync(context))">Delete</MudMenuItem>
                                 }
@@ -898,7 +958,7 @@
             {
                 <EmptyState Icon="@Icons.Material.Outlined.Security" Title="Not covered by patch management"
                             Text="An Action1 agent runs on this endpoint, but Action1 does not report it in the organization of this client. Sync to read it again; if it registered elsewhere, remove it and install the agent of this client's organization." />
-                @if (CanManage && patches.CanRemoveAgentByJob)
+                @if (Can(Permissions.Action1AgentRemove) && patches.CanRemoveAgentByJob)
                 {
                     <div class="d-flex justify-center">
                         <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Outlined.RemoveCircleOutline"
@@ -912,7 +972,7 @@
             {
                 <EmptyState Icon="@Icons.Material.Outlined.Security" Title="Not covered by patch management"
                             Text="Action1 does not report this endpoint. It needs the Action1 agent; Fleeto matches the endpoint as soon as its own agent reports that agent." />
-                @if (CanManage && patches.CanInstallAgent)
+                @if (Can(Permissions.Action1AgentInstall) && patches.CanInstallAgent)
                 {
                     var install = patches.AgentInstall;
                     <div class="d-flex justify-center">
@@ -964,10 +1024,10 @@
 
             @Deployments()
 
-            @if (CanManage)
+            @if (Can(Permissions.PatchesDeploy) || Can(Permissions.Action1AgentRemove))
             {
                 <div class="d-flex gap-2 flex-wrap align-center mb-3">
-                    @if (state.Coverage == PatchCoverage.Active && !state.IsCompliant)
+                    @if (Can(Permissions.PatchesDeploy) && state.Coverage == PatchCoverage.Active && !state.IsCompliant)
                     {
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.SystemUpdateAlt"
                                    OnClick="@(() => DeployAsync(null))">
@@ -982,11 +1042,14 @@
                         }
                     }
                     <MudSpacer />
-                    <MudButton Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Outlined.RemoveCircleOutline"
-                               Disabled="@(_removingAgent || patches.LastRequest is { IsPending: true, Kind: PatchRequestKind.RemoveAgent })"
-                               OnClick="@(() => RemoveAction1AgentAsync(true))">
-                        Remove Action1 agent
-                    </MudButton>
+                    @if (Can(Permissions.Action1AgentRemove))
+                    {
+                        <MudButton Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Outlined.RemoveCircleOutline"
+                                   Disabled="@(_removingAgent || patches.LastRequest is { IsPending: true, Kind: PatchRequestKind.RemoveAgent })"
+                                   OnClick="@(() => RemoveAction1AgentAsync(true))">
+                            Remove Action1 agent
+                        </MudButton>
+                    }
                 </div>
             }
 
@@ -1010,7 +1073,7 @@
                     @patches.Missing.Count missing updates, read <TimeText Value="patches.DetailUpdatedAt" />
                 </MudText>
                 <MudTable T="MissingUpdateView" Items="patches.Missing" Dense="true" Elevation="0"
-                          MultiSelection="@(CanManage && state.Coverage == PatchCoverage.Active)" @bind-SelectedItems="_chosenUpdates">
+                          MultiSelection="@(Can(Permissions.PatchesDeploy) && state.Coverage == PatchCoverage.Active)" @bind-SelectedItems="_chosenUpdates">
                     <HeaderContent>
                         <MudTh>Name</MudTh>
                         <MudTh>Installed version</MudTh>
@@ -1073,7 +1136,7 @@
     /// </summary>
     private RenderFragment SyncButton(EndpointPatchView patches) => __builder =>
     {
-        @if (CanManage)
+        @if (Can(Permissions.PatchesSync))
         {
             var syncing = _requestingSync || patches.LastRequest is { IsPending: true, Kind: PatchRequestKind.Sync };
             <MudTooltip Text="Read the patch state, the missing updates and the next deployment of this endpoint from Action1 now">
@@ -1714,7 +1777,7 @@
                     <MudTh>Alert</MudTh>
                     <MudTh>Opened</MudTh>
                     <MudTh>Resolved</MudTh>
-                    @if (CanManage)
+                    @if (AlertActions.AnyAction(Caller))
                     {
                         <MudTh Style="width:52px"></MudTh>
                     }
@@ -1734,7 +1797,7 @@
                     <MudTd>@context.Title<div class="muted" style="font-size:0.75rem">@context.ResolvedReason</div></MudTd>
                     <MudTd><TimeText Value="context.OpenedAt" /></MudTd>
                     <MudTd><TimeText Value="context.ResolvedAt" Never="-" /></MudTd>
-                    @if (CanManage)
+                    @if (AlertActions.AnyAction(Caller))
                     {
                         <MudTd><AlertActions Alert="context" OnChanged="AfterActionAsync" /></MudTd>
                     }

@@ -48,7 +48,7 @@ public sealed class MaintenanceService
     public async Task<ServiceResult> StartAsync(Caller caller, MaintenanceTarget target, Guid id, DateTime? endsAtUtc, string? reason,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.MaintenanceManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -117,7 +117,7 @@ public sealed class MaintenanceService
     /// </summary>
     public async Task<ServiceResult> EndAsync(Caller caller, MaintenanceTarget target, Guid id, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.MaintenanceManage))
         {
             return ServiceResult.Forbidden();
         }

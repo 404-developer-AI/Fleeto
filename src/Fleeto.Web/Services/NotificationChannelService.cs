@@ -1,3 +1,4 @@
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Audit;
@@ -49,7 +50,7 @@ public sealed class NotificationChannelService
 
     public async Task<IReadOnlyList<NotificationChannelView>> ListAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.NotificationsManage);
         await using var db = _dbFactory.CreateSystem();
         var channels = await db.NotificationChannels.AsNoTracking().Include(c => c.Clients).OrderBy(c => c.Name).ToListAsync(cancellationToken);
         var clientIds = channels.SelectMany(c => c.Clients).Select(c => c.ClientId).Distinct().ToList();
@@ -82,7 +83,7 @@ public sealed class NotificationChannelService
     /// <summary>Every client, for the routing choice.</summary>
     public async Task<IReadOnlyList<ChannelClient>> ListClientsAsync(Caller caller, CancellationToken cancellationToken = default)
     {
-        caller.EnsureAdmin();
+        caller.Ensure(Permissions.NotificationsManage);
         await using var db = _dbFactory.CreateSystem();
         return await db.Clients.AsNoTracking().OrderBy(c => c.Code).Select(c => new ChannelClient(c.Id, c.Code, c.Name)).ToListAsync(cancellationToken);
     }
@@ -90,7 +91,7 @@ public sealed class NotificationChannelService
     public async Task<ServiceResult<NotificationChannelSaved>> SaveAsync(Caller caller, Guid? channelId, NotificationChannelInput input,
         CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.NotificationsManage))
         {
             return ServiceResult<NotificationChannelSaved>.Forbidden();
         }
@@ -233,7 +234,7 @@ public sealed class NotificationChannelService
     /// <summary>Replaces the signing secret of a generic webhook channel. The old secret stops working at once.</summary>
     public async Task<ServiceResult<string>> RotateSigningSecretAsync(Caller caller, Guid channelId, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.NotificationsManage))
         {
             return ServiceResult<string>.Forbidden();
         }
@@ -268,7 +269,7 @@ public sealed class NotificationChannelService
     /// <summary>Queues a test message on a webhook channel; the workers deliver it like any notification.</summary>
     public async Task<ServiceResult> SendTestAsync(Caller caller, Guid channelId, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.NotificationsManage))
         {
             return ServiceResult.Forbidden();
         }
@@ -305,7 +306,7 @@ public sealed class NotificationChannelService
 
     public async Task<ServiceResult> DeleteAsync(Caller caller, Guid channelId, CancellationToken cancellationToken = default)
     {
-        if (!caller.IsAdmin)
+        if (!caller.Has(Permissions.NotificationsManage))
         {
             return ServiceResult.Forbidden();
         }

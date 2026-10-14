@@ -1,5 +1,5 @@
 @page "/settings/instance"
-@attribute [Authorize(Policy = FleetoPolicies.Admin)]
+@attribute [RequirePermission(Permissions.InstanceView)]
 @inherits FleetoPageBase
 @inject SettingsService SettingsSvc
 

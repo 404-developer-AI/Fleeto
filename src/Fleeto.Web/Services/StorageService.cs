@@ -56,7 +56,7 @@ public sealed class StorageService
     /// <summary>The storage of an endpoint, with <paramref name="volume"/> (or the first drive) in detail. Null when the endpoint is not visible.</summary>
     public async Task<EndpointStorageView?> GetAsync(Caller caller, Guid endpointId, string? volume = null, CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.StorageView);
         await using var db = _dbFactory.Create(caller.Scope);
         var endpoint = await db.Endpoints.AsNoTracking().SingleOrDefaultAsync(e => e.Id == endpointId, cancellationToken);
         if (endpoint is null)
@@ -91,7 +91,7 @@ public sealed class StorageService
 
         var summary = volumes.FirstOrDefault(v => string.Equals(v.Volume, volume, StringComparison.OrdinalIgnoreCase)) ?? volumes.FirstOrDefault();
         var detail = summary is null ? null : await DetailAsync(db, endpointId, summary, cancellationToken);
-        return new EndpointStorageView(true, supports, caller.CanManage && supports, volumes, detail, requestedAt, interval);
+        return new EndpointStorageView(true, supports, caller.Has(Permissions.StorageScan) && supports, volumes, detail, requestedAt, interval);
     }
 
     private static async Task<StorageVolumeDetail> DetailAsync(FleetoDbContext db, Guid endpointId, StorageVolumeSummary summary,
@@ -184,7 +184,7 @@ public sealed class StorageService
     public async Task<IReadOnlyList<StorageHistoryPoint>> FolderHistoryAsync(Caller caller, Guid endpointId, string volume, string path,
         CancellationToken cancellationToken = default)
     {
-        caller.EnsureView();
+        caller.Ensure(Permissions.StorageView);
         await using var db = _dbFactory.Create(caller.Scope);
         if (!await db.Endpoints.AnyAsync(e => e.Id == endpointId, cancellationToken))
         {
@@ -207,7 +207,7 @@ public sealed class StorageService
     /// </summary>
     public async Task<ServiceResult<bool>> RequestScanAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
     {
-        if (!caller.CanManage)
+        if (!caller.Has(Permissions.StorageScan))
         {
             return ServiceResult<bool>.Forbidden();
         }
