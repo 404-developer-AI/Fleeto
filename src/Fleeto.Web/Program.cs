@@ -128,7 +128,8 @@ builder.Services.AddFleetoPublicApi(builder.Configuration);
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddMudServices();
-builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+builder.Services.AddRazorComponents().AddInteractiveServerComponents()
+    .AddHubOptions(options => options.MaximumReceiveMessageSize = CircuitLimits.MaxReceiveMessageBytes);
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuthenticationStateProvider>();
 builder.Services.AddFleetoWebServices();

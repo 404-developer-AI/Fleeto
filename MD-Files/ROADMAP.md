@@ -192,6 +192,9 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   After testing alpha.16 (2026-10-14): saving the backups notifies `fleeto_instance_health` so the workers measure at once,
   and a removed agent in Settings, Agent uninstalls shows "Listed until" (a week after the removal) instead of the expiry.
   The Linux install command starts with `$(command -v sudo)` instead of `sudo`, so it also runs on Proxmox VE (root, no sudo).
+- [done] **Save a script larger than 32 KB** (found by the developer testing alpha.17 on 2026-10-14, a script of 40 KB): the
+  Blazor Server connection took at most 32 KB from the browser. `CircuitLimits.MaxReceiveMessageBytes` (1 MiB, four times the
+  largest script) is set on the hub.
 - [done] **Reinstall the Action1 agent after Fleeto removed it** (found by the developer testing alpha.16 on 2026-10-14): Action1
   leaves `agent.guid` behind on uninstall. The agent reports it only with an "Action1 Agent" entry in the installed programs,
   `Clear-Action1Id` in both jobs removes a left-over one, and `Action1Exception.IsGone` reads a 400 "not found" as not held.
@@ -209,7 +212,8 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   agent protocol (context `fleeto-uninstall-v1`), `DISCONNECT_CODE_RECONNECT`, the uninstall session of the gateway, the
   agent and watchdog starting `fleeto-agent uninstall` in a process of their own, Settings, Agent uninstalls, retention. To
   verify on the test VPS: a deleted Windows and Linux endpoint, online and offline, removing itself. Verified on alpha.16
-  (2026-10-14): a deleted Windows endpoint and a deleted Linux endpoint removed their agents; an offline one still to see.
+  (2026-10-14): a deleted Windows endpoint and a deleted Linux endpoint removed their agents, and an endpoint deleted while
+  offline removed its agent once it came back (2026-10-14).
 - [done] **Remove the Action1 agent with the endpoint** (asked for by the developer on 2026-10-13, checked by default):
   deleting an endpoint and switching it to agent-only offer it. Done: `IntegrationOperationKind.RemoveEndpoint` written by
   web (inside the deletion's transaction), carried out by `PatchRequestService`, an option on `ConfirmDialog`. Verified on

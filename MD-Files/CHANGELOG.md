@@ -173,6 +173,8 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- A script larger than 32 KB could not be saved: the connection of the browser refused a message of that size and closed.
+  It now takes the largest script the library allows (256 KiB).
 - An endpoint whose Action1 agent was removed could not get it back: Action1 leaves its id in the registry when it is
   uninstalled, so the endpoint still looked like it had the agent, showed only "Remove Action1 agent" and its sync failed with
   "Action1 answered 400 (The endpoint was not found)". The agent now reports the id only while the Action1 agent is installed,
