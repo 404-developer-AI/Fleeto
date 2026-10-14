@@ -207,6 +207,8 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- The processes with the most memory listed with a CPU or memory usage result could be out of order when one of them grew
+  while the agent read the list: the list now shows the memory it was ranked by. Needs agents of this version.
 - A script larger than 32 KB could not be saved: the connection of the browser refused a message of that size and closed.
   It now takes the largest script the library allows (256 KiB).
 - An endpoint whose Action1 agent was removed could not get it back: Action1 leaves its id in the registry when it is

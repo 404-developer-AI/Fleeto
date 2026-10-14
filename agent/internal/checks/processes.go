@@ -146,7 +146,8 @@ func topByMemory(ctx context.Context) []*agentv1.ProcessSample {
 		}
 	}
 	sortShares(ranked)
-	return describe(ctx, ranked, procs, nil)
+	// The memory the ranking used, not a second read: a process that grows meanwhile would break the order of the list.
+	return describe(ctx, ranked, procs, func(sample *agentv1.ProcessSample, value float64) { sample.MemoryBytes = uint64(value) })
 }
 
 // describe turns the first MaxListedProcesses ranked processes that still run into samples with name, user and memory.
