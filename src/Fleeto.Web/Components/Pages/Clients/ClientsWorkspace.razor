@@ -30,7 +30,7 @@
                 <MudIcon Icon="@Icons.Material.Outlined.Home" Size="Size.Small" />
                 <span>All clients</span>
             </a>
-            @if (CanManage)
+            @if (CanManage && Caller!.Scope.IncludesNewClients)
             {
                 <MudTooltip Text="New client">
                     <MudIconButton Icon="@Icons.Material.Outlined.Add" Size="Size.Small" aria-label="New client" OnClick="CreateClientAsync" />
@@ -177,11 +177,15 @@
                     }
                 </div>
                 <div class="workspace-header-actions">
-                    @if (_site is { } site && CanManage)
+                    @if (_site is { } site && CanManage && Caller!.HasWholeSite(site.ClientId, site.Id))
                     {
                         <MudMenu Label="Site settings" StartIcon="@Icons.Material.Outlined.Settings" Variant="Variant.Outlined"
                                  AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
                             <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="EditSiteAsync">Edit site</MudMenuItem>
+                            @if (IsAdmin)
+                            {
+                                <MudMenuItem Icon="@Icons.Material.Outlined.Groups" OnClick="@(() => ShowAccessAsync(AccessTargetKind.Site, site.Id, $"site {site.Name}"))">Who has access</MudMenuItem>
+                            }
                             <MudMenuItem Icon="@Icons.Material.Outlined.Key" OnClick="ShowTokensAsync">Enrollment tokens</MudMenuItem>
                             @MaintenanceMenuItems(MaintenanceTarget.Site, site.Id, $"site {site.Name}", true, site.Maintenance)
                             <MudDivider />
@@ -194,11 +198,15 @@
                     {
                         <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Tune" OnClick="EditSiteAsync">Policies</MudButton>
                     }
-                    else if (_client is { } client && CanManage)
+                    else if (_client is { } client && CanManage && Caller!.HasWholeClient(client.Id))
                     {
                         <MudMenu Label="Client settings" StartIcon="@Icons.Material.Outlined.Settings" Variant="Variant.Outlined"
                                  AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
                             <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="EditClientAsync">Edit client</MudMenuItem>
+                            @if (IsAdmin)
+                            {
+                                <MudMenuItem Icon="@Icons.Material.Outlined.Groups" OnClick="@(() => ShowAccessAsync(AccessTargetKind.Client, client.Id, $"client {client.Code}"))">Who has access</MudMenuItem>
+                            }
                             <MudMenuItem Icon="@Icons.Material.Outlined.Sell" OnClick="EditClientTagsAsync">Edit tags</MudMenuItem>
                             <MudMenuItem Icon="@Icons.Material.Outlined.CreateNewFolder" OnClick="CreateSiteAsync">New site</MudMenuItem>
                             @if (client.ClientTemplateId is not null)
@@ -225,6 +233,18 @@
                                 }
                             </MudMenu>
                         }
+                    }
+                    else if (_client is { } partialClient && CanManage && partialClient.Sites.Where(s => Caller!.HasWholeSite(partialClient.Id, s.Id)).ToList() is { Count: > 0 } wholeSites)
+                    {
+                        @* Part of the client (0.6.0): endpoints can be added to the sites the user sees as a whole. *@
+                        <MudMenu Label="Add endpoint" StartIcon="@Icons.Material.Outlined.Add" EndIcon="@Icons.Material.Outlined.ArrowDropDown"
+                                 Variant="Variant.Filled" Color="Color.Primary" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                            <MudMenuItem Disabled="true">Choose the site for the new endpoint</MudMenuItem>
+                            @foreach (var clientSite in wholeSites)
+                            {
+                                <MudMenuItem Icon="@Icons.Material.Outlined.Folder" OnClick="@(() => CreateTokenAsync(clientSite.Id, clientSite.Name))">@clientSite.Name</MudMenuItem>
+                            }
+                        </MudMenu>
                     }
                 </div>
             </div>
@@ -373,6 +393,10 @@
                                             <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="@(() => RunScriptAsync(row))">Run script</MudMenuItem>
                                             <MudMenuItem Icon="@Icons.Material.Outlined.SystemUpdateAlt" OnClick="@(() => DeployUpdatesAsync([row.Id], row.Hostname))">Deploy updates</MudMenuItem>
                                             @MaintenanceMenuItems(MaintenanceTarget.Endpoint, row.Id, row.Hostname, false, row.OwnMaintenanceActive ? row.OwnMaintenance : null)
+                                        }
+                                        @if (IsAdmin)
+                                        {
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.Groups" OnClick="@(() => ShowAccessAsync(AccessTargetKind.Endpoint, row.Id, row.Hostname))">Who has access</MudMenuItem>
                                         }
                                         <MudMenuItem Icon="@Icons.Material.Outlined.Replay" OnClick="@(() => EnrollAgainAsync(row))">Enroll again</MudMenuItem>
                                         <MudMenuItem Icon="@Icons.Material.Outlined.GppBad" OnClick="@(() => RevokeEndpointAsync(row))">Revoke agent</MudMenuItem>
@@ -1518,6 +1542,18 @@
     }
 
     /// <summary>The name and description of the site and its policy, patch policy and monitoring templates (0.6.0).</summary>
+    /// <summary>Who can reach a client, site or endpoint (0.6.0), for admins.</summary>
+    private async Task ShowAccessAsync(AccessTargetKind kind, Guid id, string label)
+    {
+        var parameters = new DialogParameters<AccessHoldersDialog>
+        {
+            { d => d.Kind, kind },
+            { d => d.TargetId, id },
+            { d => d.Label, label }
+        };
+        await DialogService.ShowAsync<AccessHoldersDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+    }
+
     private async Task EditSiteAsync()
     {
         var site = _site!;
@@ -1528,11 +1564,13 @@
             return;
         }
 
+        // Part of a site (0.6.0) is read only: its name and links apply to all of it.
+        var canChange = CanManage && Caller!.HasWholeSite(site.ClientId, site.Id);
         var parameters = new DialogParameters<LevelLinksDialog>
         {
-            { d => d.Title, CanManage ? $"Edit site {site.Name}" : $"Site {site.Name}" },
+            { d => d.Title, canChange ? $"Edit site {site.Name}" : $"Site {site.Name}" },
             { d => d.Links, links },
-            { d => d.CanManage, CanManage },
+            { d => d.CanManage, canChange },
             { d => d.NameLabel, "Site name" },
             { d => d.InitialName, site.Name },
             { d => d.ShowDescription, true },

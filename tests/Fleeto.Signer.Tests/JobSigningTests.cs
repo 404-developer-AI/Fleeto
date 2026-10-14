@@ -241,4 +241,25 @@ public sealed class JobSigningTests
         var (foreignScript, foreignVersion) = await _fixture.Database.CreateScriptAsync(scope.Client.Id, scope.TechnicianId);
         await Assert.ThrowsAnyAsync<Exception>(() => CreateJobAsync(other, foreignVersion, foreignScript));
     }
+
+    [Fact]
+    public async Task A_job_is_signed_only_while_the_groups_of_the_initiator_give_the_endpoint()
+    {
+        // Web filters on the groups of a user (0.6.0); the signer checks them again for the user behind the job.
+        var scope = await ScopeAsync();
+        var (script, version) = await _fixture.Database.CreateScriptAsync(null, scope.TechnicianId);
+        var outsider = await _fixture.Database.CreateUserAsync(FleetoRoles.Technician, allClients: false);
+
+        var (_, refused) = await SignAsync(await CreateJobAsync(scope, version, script, initiatorId: outsider.Id));
+        Assert.Equal(JobState.Refused, refused.State);
+        Assert.Equal(JobHandler.AccessReason, refused.RefusalReason);
+
+        await _fixture.Database.CreateGroupAsync(outsider.Id, siteId: scope.Site.Id);
+        var (_, signed) = await SignAsync(await CreateJobAsync(scope, version, script, initiatorId: outsider.Id));
+        Assert.Equal(JobState.Queued, signed.State);
+
+        // An admin is outside groups and reaches every endpoint.
+        var (_, byAdmin) = await SignAsync(await CreateJobAsync(scope, version, script, initiatorId: scope.AdminId));
+        Assert.Equal(JobState.Queued, byAdmin.State);
+    }
 }

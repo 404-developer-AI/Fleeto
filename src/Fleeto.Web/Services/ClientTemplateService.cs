@@ -92,6 +92,11 @@ public sealed class ClientTemplateService
         }
 
         await using var db = _dbFactory.Create(caller.Scope);
+        if (templateId is { } followedId && await FollowersProblemAsync(db, caller, followedId, cancellationToken) is { } accessProblem)
+        {
+            return ServiceResult<Guid>.Fail(accessProblem);
+        }
+
         if (await ValidateAsync(db, templateId, input, cancellationToken) is { } problem)
         {
             return ServiceResult<Guid>.Fail(problem);
@@ -235,6 +240,24 @@ public sealed class ClientTemplateService
     }
 
     /// <summary>
+    /// A change to a client template applies to every client that follows it (0.6.0): a caller whose groups give part of the
+    /// instance may make one only with every such client as a whole.
+    /// </summary>
+    private static async Task<string?> FollowersProblemAsync(FleetoDbContext db, Caller caller, Guid templateId, CancellationToken cancellationToken)
+    {
+        if (caller.Scope.AllClients)
+        {
+            return null;
+        }
+
+        var followers = await db.Clients.IgnoreQueryFilters().Where(c => c.ClientTemplateId == templateId).Select(c => c.Id)
+            .ToListAsync(cancellationToken);
+        return followers.All(caller.HasWholeClient)
+            ? null
+            : "Clients your groups give you no access to, or part of only, follow this client template, and a change would apply to them too. Ask an admin to change it.";
+    }
+
+    /// <summary>
     /// Applies the template to every client that follows it, <see cref="SyncBatchSize"/> clients per transaction. A failing
     /// batch is logged and counted; the sync is idempotent, so saving again retries it.
     /// </summary>
@@ -315,6 +338,11 @@ public sealed class ClientTemplateService
             if (template is null)
             {
                 return ServiceResult.NotFound("client template");
+            }
+
+            if (await FollowersProblemAsync(db, caller, templateId, cancellationToken) is { } accessProblem)
+            {
+                return ServiceResult.Fail(accessProblem);
             }
 
             name = template.Name;

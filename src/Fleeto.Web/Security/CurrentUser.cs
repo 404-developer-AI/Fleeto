@@ -1,5 +1,7 @@
 using Fleeto.Core.Entities;
+using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Data;
+using Fleeto.Infrastructure.Services;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.EntityFrameworkCore;
 
@@ -87,9 +89,13 @@ public sealed class CurrentUser
 
         IpAddress ??= _httpContextAccessor.HttpContext?.RemoteIp();
 
-        // Users are not restricted to clients in 0.1.0; the scope type exists so API keys and tests can restrict.
+        // An admin sees everything; anyone else what its groups give (0.6.0), resolved again with every refresh of the cache, so a
+        // new client, site or endpoint and a change to a group count within seconds.
+        IClientScope scope = roles.Contains(FleetoRoles.Admin)
+            ? SystemClientScope.Instance
+            : await UserAccessResolver.ResolveAsync(db, user.Id, cancellationToken);
         _cached = new Caller(user.Id, string.IsNullOrWhiteSpace(user.DisplayName) ? user.Email ?? string.Empty : user.DisplayName,
-            user.Email ?? string.Empty, roles, SystemClientScope.Instance, IpAddress);
+            user.Email ?? string.Empty, roles, scope, IpAddress);
         _cachedAt = now;
         return _cached;
     }

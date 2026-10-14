@@ -405,6 +405,42 @@ public sealed partial class RemoteRelayTests
     }
 
     [Fact]
+    public async Task A_participant_web_revoked_is_never_claimed_and_its_connection_ends()
+    {
+        // The user left a group (0.6.0): web marks its participants revoked and the relay ends them.
+        await using var scope = await ScopeAsync();
+        var participant = await SignedParticipantAsync(scope.Endpoint);
+        var browser = StartBrowser(scope, participant.ParticipantId);
+        await browser.SendHelloAsync(participant);
+        await WaitForOfferAsync(scope, participant);
+        await ConnectEndpointAsync(scope, participant.ParticipantId);
+        Assert.Equal("ready", (await browser.ReadTextAsync()).GetProperty("type").GetString());
+
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.RemoteSessionParticipants.Where(p => p.Id == participant.ParticipantId)
+                .ExecuteUpdateAsync(s => s.SetProperty(p => p.RevokedAt, DateTime.UtcNow));
+        }
+
+        await scope.Relay.CloseRevokedAsync(CancellationToken.None);
+        await browser.Relay.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal("Your access to this endpoint was removed.", (await ReadParticipantAsync(participant.ParticipantId)).EndReason);
+
+        // A token signed before the revocation no longer opens the relay.
+        var later = await SignedParticipantAsync(scope.Endpoint);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.RemoteSessionParticipants.Where(p => p.Id == later.ParticipantId)
+                .ExecuteUpdateAsync(s => s.SetProperty(p => p.RevokedAt, DateTime.UtcNow));
+        }
+
+        var refusedBrowser = StartBrowser(scope, later.ParticipantId);
+        await refusedBrowser.SendHelloAsync(later);
+        var refused = await refusedBrowser.ReadTextAsync();
+        Assert.Contains("your access to the endpoint was removed", refused.GetProperty("message").GetString());
+    }
+
+    [Fact]
     public async Task The_endpoint_reports_background_actions_for_the_audit_log()
     {
         await using var scope = await ScopeAsync();

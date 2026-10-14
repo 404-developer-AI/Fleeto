@@ -30,6 +30,7 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
     public const string UserReason =
         "The technician no longer exists, is locked out, has no two-factor authentication or has no admin or technician role. Ask an admin for access.";
     public const string NotManagedReason = "The endpoint is not managed. Switch it to managed before opening a remote session.";
+    public const string AccessReason = "You no longer have access to this endpoint. Ask an admin to add you to a group that has.";
     public const string BrowserKeyReason = "The browser sent an invalid session key. Close the window and open the session again.";
     public const string KindReason = "This kind of remote session is not available yet.";
     public const string PlatformReason = "Remote control runs on Windows and Linux endpoints only.";
@@ -127,6 +128,13 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
         if (endpoint is null)
         {
             return SigningOutcome.Refused(MissingReason);
+        }
+
+        // The groups of the technician must still give it the endpoint (0.6.0), and web must not have revoked the participant.
+        if (participant.RevokedAt is not null ||
+            !await UserAccessResolver.MayReachAsync(db, participant.UserId, participant.ClientId, endpoint.SiteId, endpoint.Id, cancellationToken))
+        {
+            return SigningOutcome.Refused(AccessReason);
         }
 
         if (session.Kind == RemoteSessionKind.RemoteControl && !RemoteSessionRules.PlatformSupportsRemoteControl(endpoint.OsPlatform))

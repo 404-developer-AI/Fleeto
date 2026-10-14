@@ -96,6 +96,12 @@ public sealed class EnrollmentService
 
         await using var db = _dbFactory.Create(caller.Scope);
         var site = await db.Sites.AsNoTracking().Where(s => s.Id == siteId).Select(s => new { s.Id, s.ClientId, s.Name }).SingleOrDefaultAsync(cancellationToken);
+        // A token adds endpoints to the site, so it needs the whole site (0.6.0).
+        if (site is not null && !caller.HasWholeSite(site.ClientId, site.Id))
+        {
+            return ServiceResult<CreatedEnrollmentToken>.Fail(ServiceResult.WholeSiteProblem);
+        }
+
         if (site is null)
         {
             return ServiceResult<CreatedEnrollmentToken>.NotFound("site");
@@ -196,6 +202,11 @@ public sealed class EnrollmentService
         if (token is null)
         {
             return ServiceResult.NotFound("enrollment token");
+        }
+
+        if (token.EndpointId is null && !caller.HasWholeSite(token.ClientId, token.SiteId))
+        {
+            return ServiceResult.Fail(ServiceResult.WholeSiteProblem);
         }
 
         if (token.RevokedAt is not null)

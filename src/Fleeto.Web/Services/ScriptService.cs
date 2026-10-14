@@ -186,6 +186,11 @@ public sealed class ScriptService
             return ServiceResult<Guid>.Fail("Choose the language of the script.");
         }
 
+        if (TemplateAccess.ScriptProblem(caller, input.ClientId) is { } accessProblem)
+        {
+            return ServiceResult<Guid>.Fail(accessProblem);
+        }
+
         await using var db = _dbFactory.Create(caller.Scope);
         if (input.ClientId is { } clientId && !await db.Clients.AnyAsync(c => c.Id == clientId, cancellationToken))
         {
@@ -233,6 +238,11 @@ public sealed class ScriptService
             return ServiceResult.NotFound("script");
         }
 
+        if (TemplateAccess.ScriptProblem(caller, script.ClientId) is { } accessProblem)
+        {
+            return ServiceResult.Fail(accessProblem);
+        }
+
         var cleanName = name!.Trim();
         if (await NameTakenAsync(db, script.ClientId, cleanName, script.Id, cancellationToken))
         {
@@ -276,6 +286,11 @@ public sealed class ScriptService
         }
 
         var script = scripts[0];
+        if (TemplateAccess.ScriptProblem(caller, script.ClientId) is { } accessProblem)
+        {
+            return ServiceResult<int>.Fail(accessProblem);
+        }
+
         var current = await db.ScriptVersions.AsNoTracking().SingleOrDefaultAsync(v => v.Id == script.CurrentVersionId, cancellationToken);
         var normalized = ScriptLanguages.Normalize(script.Language, body!);
         if (current is not null && current.Sha256 == ScriptLanguages.Sha256(normalized) && current.TimeoutSeconds == timeoutSeconds)
@@ -401,6 +416,11 @@ public sealed class ScriptService
         if (script is null)
         {
             return ServiceResult.NotFound("script");
+        }
+
+        if (TemplateAccess.ScriptProblem(caller, script.ClientId) is { } accessProblem)
+        {
+            return ServiceResult.Fail(accessProblem);
         }
 
         var checks = await ScriptChecks.CountChecksAsync(db, script.Id, cancellationToken);

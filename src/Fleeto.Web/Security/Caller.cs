@@ -1,3 +1,4 @@
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Services;
@@ -19,6 +20,12 @@ public sealed record Caller(Guid UserId, string Name, string Email, IReadOnlyCol
 
     public bool CanView => CanManage || Roles.Contains(FleetoRoles.ReadOnly);
 
+    /// <summary>The caller sees all of the client, so it may change what belongs to the client as a whole (0.6.0).</summary>
+    public bool HasWholeClient(Guid clientId) => Scope.HasWholeClient(clientId);
+
+    /// <summary>The caller sees all of the site, so it may change what belongs to the site as a whole (0.6.0).</summary>
+    public bool HasWholeSite(Guid clientId, Guid siteId) => Scope.HasWholeSite(clientId, siteId);
+
     public Actor ToActor() => new(UserId, Name, Scope, IpAddress);
 
     public AuditRecord Audit(string action, string targetType, string targetId, Guid? clientId, object? details = null) =>
@@ -38,6 +45,18 @@ public sealed class AccessDeniedException : UnauthorizedAccessException
 public record ServiceResult(bool Success, string? Problem)
 {
     public const string ForbiddenProblem = "Your role does not allow this action. Ask an admin if you need access.";
+
+    /// <summary>A change to a client as a whole by a user whose groups give part of it (0.6.0).</summary>
+    public const string WholeClientProblem =
+        "This changes the whole client, and your groups give you part of it only. Ask an admin or somebody with access to the whole client.";
+
+    /// <summary>A change to a site as a whole by a user whose groups give part of it (0.6.0).</summary>
+    public const string WholeSiteProblem =
+        "This changes the whole site, and your groups give you part of it only. Ask an admin or somebody with access to the whole site.";
+
+    /// <summary>A new client by a user whose groups do not grow with new clients (0.6.0).</summary>
+    public const string NewClientProblem =
+        "Your groups do not include clients created later, so you would not see this client. Ask an admin to create it.";
 
     public static ServiceResult Ok() => new(true, null);
     public static ServiceResult Fail(string problem) => new(false, problem);

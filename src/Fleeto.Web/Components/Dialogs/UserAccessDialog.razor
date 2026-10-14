@@ -1,0 +1,101 @@
+@inject UserGroupService GroupSvc
+@inject CurrentUser CurrentUser
+
+@* What a user sees (0.6.0): every client, or client by client what its groups give, the clients it sees part of with their sites. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">What @User.DisplayName sees</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_view is null)
+        {
+            <MudText Typo="Typo.body2" Class="muted">@(_missing ? "This user no longer exists." : "Loading…")</MudText>
+        }
+        else if (_view.IsAdmin)
+        {
+            <MudText Typo="Typo.body2">An admin sees every client, site and endpoint, also the ones created later.</MudText>
+        }
+        else if (_view.Everything)
+        {
+            <MudText Typo="Typo.body2">
+                Every client, site and endpoint, also the ones created later, through @string.Join(", ", _view.Groups).
+            </MudText>
+        }
+        else if (_view.Groups.Count == 0)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true">This user is in no group, so it sees no clients. Add it to a group with Roles and groups.</MudAlert>
+        }
+        else if (_view.Clients.Count == 0)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true">
+                The groups of this user (@string.Join(", ", _view.Groups)) give no client, site or endpoint that exists now.
+            </MudAlert>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="muted mb-2">
+                Through @string.Join(", ", _view.Groups). @(_view.IncludesNewClients
+                    ? "Clients created later are included."
+                    : "Clients created later are not included.")
+            </MudText>
+            <MudSimpleTable Dense="true" Elevation="0">
+                <thead>
+                <tr>
+                    <th>Client</th>
+                    <th>Access</th>
+                </tr>
+                </thead>
+                <tbody>
+                @foreach (var client in _view.Clients)
+                {
+                    <tr>
+                        <td><strong>@client.Code</strong> <span class="muted">@client.Name</span></td>
+                        <td>
+                            @if (client.Level == AccessLevel.Full)
+                            {
+                                <span>The whole client</span>
+                            }
+                            else
+                            {
+                                @foreach (var site in client.Sites)
+                                {
+                                    <div>
+                                        @site.Name:
+                                        <span class="muted">
+                                            @(site.Level == AccessLevel.Full
+                                                ? "the whole site"
+                                                : $"{site.Endpoints} of {site.TotalEndpoints} endpoints")
+                                        </span>
+                                    </div>
+                                }
+                            }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </MudSimpleTable>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public UserListItem User { get; set; } = default!;
+
+    private UserAccessView? _view;
+    private bool _missing;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var caller = await CurrentUser.GetAsync();
+        _view = await GroupSvc.GetUserAccessAsync(caller, User.Id);
+        _missing = _view is null;
+    }
+
+    private void Close() => MudDialog.Close(DialogResult.Ok(true));
+}

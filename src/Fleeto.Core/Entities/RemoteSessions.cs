@@ -102,6 +102,12 @@ public class RemoteSessionParticipant
     public DateTime? ConnectedAt { get; set; }
     public DateTime? EndedAt { get; set; }
     public string? EndReason { get; set; }
+
+    /// <summary>
+    /// When web found that the user may no longer reach the endpoint (0.6.0: it left a group, or a group lost the endpoint).
+    /// The gateway refuses the token from then on and ends the connection.
+    /// </summary>
+    public DateTime? RevokedAt { get; set; }
 }
 
 /// <summary>

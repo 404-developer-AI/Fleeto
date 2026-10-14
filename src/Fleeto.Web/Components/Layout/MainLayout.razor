@@ -6,6 +6,7 @@
 @inject TimeDisplay TimeDisplay
 @inject IJSRuntime JS
 @inject CurrentUser CurrentUser
+@inject LiveUpdates Live
 
 <MudThemeProvider Theme="@FleetoTheme.Theme" />
 <MudPopoverProvider />
@@ -105,6 +106,7 @@
     protected override async Task OnInitializedAsync()
     {
         Navigation.LocationChanged += OnLocationChanged;
+        Live.UserAccessChanged += OnUserAccessChanged;
         var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
         // Layout gate: a session without completed two-factor setup never renders a page body. The middleware already refuses
         // such sessions at the HTTP level; this covers navigation inside a circuit.
@@ -239,7 +241,10 @@
                     </MudTooltip>
                 </ActivatorContent>
                 <ChildContent>
-                    <MudMenuItem Icon="@Icons.Material.Outlined.Business" Href="/clients?new=true">New client</MudMenuItem>
+                    @if (_caller?.Scope.IncludesNewClients != false)
+                    {
+                        <MudMenuItem Icon="@Icons.Material.Outlined.Business" Href="/clients?new=true">New client</MudMenuItem>
+                    }
                     <MudMenuItem Icon="@Icons.Material.Outlined.AccountTree" Href="/settings/client-templates?new=true">New client template</MudMenuItem>
                     <MudMenuItem Icon="@Icons.Material.Outlined.Rule" Href="/settings/monitoring-templates?new=true">New monitoring template</MudMenuItem>
                     <MudMenuItem Icon="@Icons.Material.Outlined.Tune" Href="/settings/policies?new=true">New policy</MudMenuItem>
@@ -261,5 +266,20 @@
 
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);
 
-    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+    /// <summary>
+    /// What this user may reach changed (0.6.0): the page reloads in a new circuit, so nothing it no longer may see stays on screen.
+    /// </summary>
+    private void OnUserAccessChanged(Guid userId)
+    {
+        if (_caller is not null && userId == _caller.UserId)
+        {
+            _ = InvokeAsync(() => Navigation.NavigateTo(Navigation.Uri, forceLoad: true));
+        }
+    }
+
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+        Live.UserAccessChanged -= OnUserAccessChanged;
+    }
 }

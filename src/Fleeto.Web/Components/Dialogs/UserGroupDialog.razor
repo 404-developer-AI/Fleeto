@@ -1,0 +1,119 @@
+@* A group of users (0.6.0): what it gives, every client with exceptions or the clients, sites and endpoints it names, and who is in it. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(Existing is null ? "New group" : $"Group {Existing.Name}")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" MaxLength="UserAccessRules.MaxNameLength" AutoFocus="@(Existing is null)"
+                      Class="mb-3" />
+        <MudTextField @bind-Value="_description" Label="Description (optional)" Variant="Variant.Outlined" MaxLength="UserAccessRules.MaxDescriptionLength"
+                      Lines="2" Class="mb-3" />
+
+        <MudText Typo="Typo.subtitle2" Class="mb-1">Access</MudText>
+        <MudRadioGroup T="bool" @bind-Value="_allClients" Class="mb-2">
+            <MudRadio T="bool" Value="true" Color="Color.Primary">Every client, also the ones created later, except what is excluded</MudRadio>
+            <MudRadio T="bool" Value="false" Color="Color.Primary">Only the clients, sites and endpoints included below</MudRadio>
+        </MudRadioGroup>
+
+        @if (!_allClients)
+        {
+            <AccessTargetPicker Targets="_includes" Label="Include a client, site or endpoint"
+                                Help="A client includes all its sites and endpoints, a site all its endpoints, also the ones added later."
+                                Empty="Nothing is included yet: the group gives no access." />
+        }
+        <AccessTargetPicker Targets="_excludes" Label="Exclude a client, site or endpoint"
+                            Help="Not given by this group, with everything under it. Another group of the same user can still give it."
+                            Empty="Nothing is excluded." />
+
+        <MudText Typo="Typo.subtitle2" Class="mt-2 mb-1">Members</MudText>
+        @if (Users.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted">There are no users other than admins. Admins see every client and are not put in groups.</MudText>
+        }
+        else
+        {
+            <MudText Typo="Typo.caption" Class="muted d-block mb-1">Admins see every client and are not listed.</MudText>
+            @foreach (var user in Users)
+            {
+                <MudCheckBox T="bool" Value="@_members.Contains(user.Id)" ValueChanged="@(v => ToggleMember(user.Id, v))" Color="Color.Primary"
+                             Label="@($"{user.DisplayName} ({user.Email})")" Dense="true" />
+            }
+            @if (Existing is not { IsDefault: true } && Users.Any(u => _members.Contains(u.Id) && u.Groups.Any(g => g.IsDefault)))
+            {
+                <MudText Typo="Typo.caption" Class="muted d-block mt-1">
+                    Members that are in the group @Users.SelectMany(u => u.Groups).First(g => g.IsDefault).Name now leave it.
+                </MudText>
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">@(Existing is null ? "Create group" : "Save")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public UserGroupDetail? Existing { get; set; }
+
+    /// <summary>The users that can be members: everyone but the admins.</summary>
+    [Parameter] public IReadOnlyList<UserListItem> Users { get; set; } = [];
+
+    [Parameter] public Func<UserGroupInput, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+
+    private string _name = string.Empty;
+    private string? _description;
+    private bool _allClients;
+    private List<AccessTargetView> _includes = [];
+    private List<AccessTargetView> _excludes = [];
+    private HashSet<Guid> _members = [];
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        if (Existing is not null)
+        {
+            _name = Existing.Name;
+            _description = Existing.Description;
+            _allClients = Existing.AllClients;
+            _includes = [.. Existing.Includes];
+            _excludes = [.. Existing.Excludes];
+            _members = Existing.Members.Select(m => m.UserId).ToHashSet();
+        }
+    }
+
+    private void ToggleMember(Guid userId, bool selected)
+    {
+        if (selected)
+        {
+            _members.Add(userId);
+        }
+        else
+        {
+            _members.Remove(userId);
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            var input = new UserGroupInput(_name, _description, _allClients,
+                _allClients ? [] : _includes.Select(t => new AccessTargetRef(t.Kind, t.Id)).ToList(),
+                _excludes.Select(t => new AccessTargetRef(t.Kind, t.Id)).ToList(), _members.ToList());
+            if (await OnSubmit(input))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

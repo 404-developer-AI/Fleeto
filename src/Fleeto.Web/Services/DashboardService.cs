@@ -17,7 +17,7 @@ public sealed record CredentialWarning(string Name, DateTime ExpiresAt, bool Exp
     bool FallbackInUse);
 
 public sealed record DashboardData(int EndpointsOnline, int EndpointsOffline, int OpenCritical, int OpenWarning, int AgentsOutOfDate,
-    LicenseUsage License, BackupTile Backups, IReadOnlyList<AlertView> OpenAlerts, IReadOnlyList<AuditEntryView> RecentActivity,
+    LicenseUsage? License, BackupTile Backups, IReadOnlyList<AlertView> OpenAlerts, IReadOnlyList<AuditEntryView> RecentActivity,
     IReadOnlyList<CredentialWarning> CredentialWarnings, PatchCompliance Patches, InstanceHealthTile? Health = null);
 
 /// <summary>Dashboard tiles, the open alert list and recent activity.</summary>
@@ -74,7 +74,8 @@ public sealed class DashboardService
                 a.DetailsJson, null))
             .ToListAsync(cancellationToken);
 
-        var license = await _licenses.GetUsageAsync(cancellationToken);
+        // The license is of the whole instance (0.6.0): admins only.
+        var license = caller.IsAdmin ? await _licenses.GetUsageAsync(cancellationToken) : null;
         var backups = await GetBackupTileAsync(db, cancellationToken);
         var patches = await _patches.GetComplianceAsync(caller, cancellationToken: cancellationToken);
 

@@ -11,6 +11,14 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
+- Groups of users: Settings, Groups. A group gives every client with exceptions, also the clients created later, or the
+  clients, sites and endpoints it includes; a user who is not an admin sees what its groups give together, and nothing without
+  a group. Settings, Users sets the groups of a user next to its roles and shows under Access what the user sees; Who has
+  access on a client, site or endpoint lists who can reach it. A user that sees part of a client manages its endpoints, not
+  the client or site as a whole, and changes a shared policy or template only with access to everything it is used on. The
+  update puts every existing user in the group "All clients", so nobody gains or loses access; a user added to another group
+  leaves it.
+
 - Run a library script in remote background: "Run script" in the session window runs it in the terminal, as SYSTEM, root or the
   signed-in user, with its output live and its prompts answered there. Where the policy requires approval only approved versions
   are offered; every run is in the audit log by name, version and hash. Needs the watchdog of this version.
@@ -203,6 +211,10 @@ When a third released version is added, the oldest entry moves to the top of
   is logged by the workers. It needs the permission to manage endpoints on the Action1 API credentials.
 
 ### Security
+
+- What a user reaches is enforced in the data layer, by fleeto-signer for every job and remote session token, and by the gateway:
+  when a user loses an endpoint, its remote session connections to it end and its open pages reload. The license tile on the
+  dashboard is for admins only.
 
 - System.Security.Cryptography.Pkcs pinned to 10.0.13 in the workers against CVE-2026-84008 and CVE-2026-70162
   (.NET denial of service); MailKit through MimeKit still asks for 10.0.0.

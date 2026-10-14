@@ -3878,6 +3878,9 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("SessionId")
                         .HasColumnType("uuid");
 
@@ -4502,6 +4505,110 @@ namespace Fleeto.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("Tags");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.UserGroup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("AllClients")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsDefault")
+                        .IsUnique()
+                        .HasFilter("\"IsDefault\"");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique();
+
+                    b.ToTable("UserGroups");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.UserGroupMember", b =>
+                {
+                    b.Property<Guid>("GroupId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("AddedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("GroupId", "UserId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("UserGroupMembers");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.UserGroupRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("GroupId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid?>("SiteId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClientId");
+
+                    b.HasIndex("EndpointId");
+
+                    b.HasIndex("SiteId");
+
+                    b.HasIndex("GroupId", "Kind", "ClientId", "SiteId", "EndpointId")
+                        .IsUnique();
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("GroupId", "Kind", "ClientId", "SiteId", "EndpointId"), false);
+
+                    b.ToTable("UserGroupRules", t =>
+                        {
+                            t.HasCheckConstraint("CK_UserGroupRules_Target", "num_nonnulls(\"ClientId\", \"SiteId\", \"EndpointId\") = 1");
+                        });
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.WorkerWatermark", b =>
@@ -5576,6 +5683,45 @@ namespace Fleeto.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.UserGroupMember", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.UserGroup", null)
+                        .WithMany("Members")
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleeto.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.UserGroupRule", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Client", null)
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Fleeto.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Fleeto.Core.Entities.UserGroup", null)
+                        .WithMany("Rules")
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleeto.Core.Entities.Site", null)
+                        .WithMany()
+                        .HasForeignKey("SiteId")
+                        .OnDelete(DeleteBehavior.Cascade);
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
                 {
                     b.HasOne("Fleeto.Infrastructure.Identity.ApplicationRole", null)
@@ -5696,6 +5842,13 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Navigation("PatchPolicies");
 
                     b.Navigation("Policies");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.UserGroup", b =>
+                {
+                    b.Navigation("Members");
+
+                    b.Navigation("Rules");
                 });
 #pragma warning restore 612, 618
         }

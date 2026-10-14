@@ -80,13 +80,16 @@
                     </div>
                 </MudItem>
             }
-            <MudItem xs="12" sm="6" md="4" lg="2">
-                <div class="stat-card fl-panel @(data.License.Status.State is LicenseState.Missing or LicenseState.Expired ? "stat-warning" : "")">
-                    <div class="stat-label">Licenses</div>
-                    <div class="stat-number">@data.License.ManagedInUse</div>
-                    <div class="stat-detail">@LicenseDetail(data.License)</div>
-                </div>
-            </MudItem>
+            @if (data.License is { } license)
+            {
+                <MudItem xs="12" sm="6" md="4" lg="2">
+                    <div class="stat-card fl-panel @(license.Status.State is LicenseState.Missing or LicenseState.Expired ? "stat-warning" : "")">
+                        <div class="stat-label">Licenses</div>
+                        <div class="stat-number">@license.ManagedInUse</div>
+                        <div class="stat-detail">@LicenseDetail(license)</div>
+                    </div>
+                </MudItem>
+            }
             @if (data.Health is { } health)
             {
                 <MudItem xs="12" sm="6" md="4" lg="2">

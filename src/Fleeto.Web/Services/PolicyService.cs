@@ -101,6 +101,11 @@ public sealed class PolicyService
             return ServiceResult<Guid>.NotFound("client");
         }
 
+        if (TemplateAccess.CreateProblem(db, caller, clientId) is { } accessProblem)
+        {
+            return ServiceResult<Guid>.Fail(accessProblem);
+        }
+
         var name = input.Name!.Trim();
         if (await NameTakenAsync(db, clientId, name, null, cancellationToken))
         {
@@ -137,6 +142,12 @@ public sealed class PolicyService
         if (policy is null)
         {
             return ServiceResult.NotFound("policy");
+        }
+
+        if (await TemplateAccess.ProblemAsync(db, caller, TemplateKind.Policy, policy.Id, policy.ClientId, policy.IsDefault, cancellationToken)
+            is { } accessProblem)
+        {
+            return ServiceResult.Fail(accessProblem);
         }
 
         var name = input.Name!.Trim();
@@ -213,6 +224,11 @@ public sealed class PolicyService
         if (policy.IsDefault)
         {
             return ServiceResult.Fail("The default policy applies to every endpoint without a linked policy and cannot be deleted. Edit it instead.");
+        }
+
+        if (await TemplateAccess.ProblemAsync(db, caller, TemplateKind.Policy, policy.Id, policy.ClientId, false, cancellationToken) is { } accessProblem)
+        {
+            return ServiceResult.Fail(accessProblem);
         }
 
         var now = _time.GetUtcNow().UtcDateTime;

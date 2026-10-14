@@ -4,6 +4,7 @@ using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Fleeto.Infrastructure.Data;
@@ -118,9 +119,27 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<IntegrationAutomation> IntegrationAutomations => Set<IntegrationAutomation>();
     public DbSet<IntegrationOperation> IntegrationOperations => Set<IntegrationOperation>();
 
+    /// <summary>Groups of users and what they give access to (0.6.0).</summary>
+    public DbSet<UserGroup> UserGroups => Set<UserGroup>();
+    public DbSet<UserGroupMember> UserGroupMembers => Set<UserGroupMember>();
+    public DbSet<UserGroupRule> UserGroupRules => Set<UserGroupRule>();
+
     // Evaluated per query by EF Core (context members become query parameters).
     private bool ScopeAllClients => _scope.AllClients;
     private Guid[] ScopeClientIds => _scope.ClientIds as Guid[] ?? _scope.ClientIds.ToArray();
+    private Guid[] ScopeFullClientIds => _scope.FullClientIds as Guid[] ?? _scope.FullClientIds.ToArray();
+    private Guid[] ScopeSiteIds => _scope.SiteIds as Guid[] ?? _scope.SiteIds.ToArray();
+    private Guid[] ScopeEndpointIds => _scope.EndpointIds as Guid[] ?? _scope.EndpointIds.ToArray();
+    private string[] ScopeEndpointIdTexts => _scope.EndpointIds.Select(id => id.ToString()).ToArray();
+
+    /// <summary>
+    /// Set by a service that checked that a caller limited by its groups may change an instance-wide template, policy or
+    /// script (0.6.0: it has access to everything it is used on). Without it such a caller cannot change instance-wide rows.
+    /// </summary>
+    private bool _instanceWideWritesAllowed;
+
+    /// <summary>See <see cref="_instanceWideWritesAllowed"/>. Call only after that check.</summary>
+    public void AllowInstanceWideWrites() => _instanceWideWritesAllowed = true;
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -134,6 +153,40 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(u => u.EntraAccount).HasMaxLength(320);
             entity.HasIndex(u => u.EntraObjectId).IsUnique();
             entity.Ignore(u => u.IsLinkedToEntra);
+        });
+
+        // Groups of users (0.6.0): instance-wide, managed by admins, never filtered by the scope they define.
+        builder.Entity<UserGroup>(entity =>
+        {
+            entity.Property(g => g.Name).HasMaxLength(Core.Domain.UserAccessRules.MaxNameLength);
+            entity.Property(g => g.NormalizedName).HasMaxLength(Core.Domain.UserAccessRules.MaxNameLength);
+            entity.Property(g => g.Description).HasMaxLength(Core.Domain.UserAccessRules.MaxDescriptionLength);
+            entity.HasIndex(g => g.NormalizedName).IsUnique();
+            // At most one group is the default one the update put every user in.
+            entity.HasIndex(g => g.IsDefault).IsUnique().HasFilter("\"IsDefault\"");
+            entity.HasMany(g => g.Members).WithOne().HasForeignKey(m => m.GroupId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(g => g.Rules).WithOne().HasForeignKey(r => r.GroupId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<UserGroupMember>(entity =>
+        {
+            entity.HasKey(m => new { m.GroupId, m.UserId });
+            entity.HasOne<ApplicationUser>().WithMany().HasForeignKey(m => m.UserId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(m => m.UserId);
+        });
+
+        builder.Entity<UserGroupRule>(entity =>
+        {
+            entity.Property(r => r.Kind).HasConversion<string>().HasMaxLength(20);
+            // A rule goes with its target: a deleted client, site or endpoint is no longer named anywhere.
+            entity.HasOne<Client>().WithMany().HasForeignKey(r => r.ClientId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Site>().WithMany().HasForeignKey(r => r.SiteId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Endpoint>().WithMany().HasForeignKey(r => r.EndpointId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(r => new { r.GroupId, r.Kind, r.ClientId, r.SiteId, r.EndpointId }).IsUnique().AreNullsDistinct(false);
+            entity.HasIndex(r => r.ClientId);
+            entity.HasIndex(r => r.SiteId);
+            entity.HasIndex(r => r.EndpointId);
+            entity.ToTable(t => t.HasCheckConstraint("CK_UserGroupRules_Target", "num_nonnulls(\"ClientId\", \"SiteId\", \"EndpointId\") = 1"));
         });
 
         builder.Entity<Client>(entity =>
@@ -173,7 +226,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(s => new { s.ClientId, s.Name }).IsUnique();
             MaintenanceColumns(entity);
             entity.HasOne<ClientTemplateSite>().WithMany().HasForeignKey(s => s.ClientTemplateSiteId).OnDelete(DeleteBehavior.SetNull);
-            ClientOwned(entity);
+            SiteOwned(entity, "Id");
         });
 
         builder.Entity<Endpoint>(entity =>
@@ -206,7 +259,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(e => e.Tier);
             entity.HasIndex(e => e.IsOnline);
             entity.HasIndex(e => e.Hostname);
-            ClientOwned(entity);
+            EndpointOwned(entity, "Id");
         });
 
         builder.Entity<AgentCertificate>(entity =>
@@ -219,7 +272,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(c => c.Fingerprint).IsUnique();
             entity.HasIndex(c => c.EndpointId);
             EndpointChild(entity, c => new { c.EndpointId, c.ClientId });
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<EnrollmentToken>(entity =>
@@ -235,7 +288,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 .HasForeignKey(t => new { t.EndpointId, t.ClientId })
                 .HasPrincipalKey(e => new { e.Id, e.ClientId })
                 .OnDelete(DeleteBehavior.Cascade);
-            ClientOwned(entity);
+            SiteOwned(entity);
         });
 
         builder.Entity<InventorySnapshot>(entity =>
@@ -256,7 +309,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(i => i.NetworkInterfacesJson).HasColumnType("jsonb");
             entity.Property(i => i.SoftwareJson).HasColumnType("jsonb");
             entity.Property(i => i.ServicesJson).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<MaintenanceWindowOccurrence>(entity =>
@@ -343,7 +396,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 t.HasCheckConstraint("CK_CheckDefinitions_Owner", "num_nonnulls(\"MonitoringTemplateId\", \"EndpointId\") = 1");
                 t.HasCheckConstraint("CK_CheckDefinitions_EndpointClient", "\"EndpointId\" IS NULL OR \"ClientId\" IS NOT NULL");
             });
-            GlobalOrClientOwned(entity);
+            CheckDefinitionOwned(entity);
         });
 
         builder.Entity<SiteMonitoringTemplate>(entity =>
@@ -356,7 +409,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(l => l.MonitoringTemplate).WithMany().HasForeignKey(l => l.MonitoringTemplateId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(l => l.MonitoringTemplateId);
-            ClientOwned(entity);
+            SiteOwned(entity);
         });
 
         builder.Entity<EndpointMonitoringTemplate>(entity =>
@@ -365,7 +418,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             EndpointChild(entity, l => new { l.EndpointId, l.ClientId });
             entity.HasOne(l => l.MonitoringTemplate).WithMany().HasForeignKey(l => l.MonitoringTemplateId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(l => l.MonitoringTemplateId);
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<EndpointCheckOverride>(entity =>
@@ -382,7 +435,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 t.HasCheckConstraint("CK_EndpointCheckOverrides_Failures",
                     "\"FailuresBeforeAlert\" IS NULL OR \"FailuresBeforeAlert\" BETWEEN 1 AND 100");
             });
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<SitePolicy>(entity =>
@@ -396,7 +449,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(l => l.Policy).WithMany().HasForeignKey(l => l.PolicyId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(l => l.PolicyId);
-            ClientOwned(entity);
+            SiteOwned(entity);
         });
 
         // Links on client and endpoint level (0.6.0): the same client as their parent through the composite key, and a
@@ -418,7 +471,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             EndpointChild(entity, l => new { l.EndpointId, l.ClientId });
             entity.HasOne(l => l.Policy).WithMany().HasForeignKey(l => l.PolicyId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(l => l.PolicyId);
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<ClientMonitoringTemplate>(entity =>
@@ -481,7 +534,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(l => l.PatchPolicy).WithMany().HasForeignKey(l => l.PatchPolicyId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(l => l.PatchPolicyId);
-            ClientOwned(entity);
+            SiteOwned(entity);
         });
 
         builder.Entity<EndpointPatchPolicy>(entity =>
@@ -490,7 +543,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             EndpointChild(entity, l => new { l.EndpointId, l.ClientId });
             entity.HasOne(l => l.PatchPolicy).WithMany().HasForeignKey(l => l.PatchPolicyId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(l => l.PatchPolicyId);
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<ClientTemplate>(entity =>
@@ -552,7 +605,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             // Per-endpoint evaluation cursor in the workers: results with Id > cursor for one endpoint.
             entity.HasIndex(r => new { r.EndpointId, r.Id });
             entity.HasIndex(r => r.Id);
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<IngestBatch>(entity =>
@@ -560,7 +613,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasKey(b => new { b.EndpointId, b.Sequence });
             entity.HasIndex(b => b.ReceivedAt);
             EndpointChild(entity, b => new { b.EndpointId, b.ClientId });
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<CheckState>(entity =>
@@ -573,7 +626,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Ignore(s => s.RerunRequested);
             entity.HasOne<CheckDefinition>().WithMany().HasForeignKey(s => s.CheckDefinitionId).OnDelete(DeleteBehavior.Cascade);
             EndpointChild(entity, s => new { s.EndpointId, s.ClientId });
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<CheckResultHourly>(entity =>
@@ -581,7 +634,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.ToTable("CheckResultsHourly");
             Rollup(entity);
             EndpointChild(entity, r => new { r.EndpointId, r.ClientId });
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<CheckResultDaily>(entity =>
@@ -589,7 +642,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.ToTable("CheckResultsDaily");
             Rollup(entity);
             EndpointChild(entity, r => new { r.EndpointId, r.ClientId });
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<CheckRunRequest>(entity =>
@@ -602,7 +655,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(r => new { r.RequestedByUserId, r.RequestedAt });
             entity.HasIndex(r => r.RequestedAt);
             entity.HasIndex(r => r.ExpiresAt).HasFilter("\"DeliveredAt\" IS NULL AND \"Outcome\" IS NULL").HasDatabaseName("IX_CheckRunRequests_Pending");
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<StorageScan>(entity =>
@@ -619,7 +672,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             // The latest scans of a volume, and the history of a folder.
             entity.HasIndex(s => new { s.EndpointId, s.Volume, s.ReceivedAt });
             entity.HasIndex(s => s.ReceivedAt);
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<StorageScanRequest>(entity =>
@@ -630,7 +683,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(r => new { r.EndpointId, r.RequestedAt });
             entity.HasIndex(r => r.RequestedAt);
             entity.HasIndex(r => r.ExpiresAt).HasFilter("\"DeliveredAt\" IS NULL").HasDatabaseName("IX_StorageScanRequests_Pending");
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<Note>(entity =>
@@ -641,7 +694,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             // Newest first per endpoint, keyset on (CreatedAt, Id).
             entity.HasIndex(n => new { n.EndpointId, n.CreatedAt, n.Id }).IsDescending(false, true, true);
             entity.ToTable(t => t.HasCheckConstraint("CK_Notes_Body", "char_length(\"Body\") BETWEEN 1 AND 20000"));
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<Script>(entity =>
@@ -704,7 +757,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 t.HasCheckConstraint("CK_Jobs_Validity", "\"ValidUntil\" > \"CreatedAt\" AND \"ValidUntil\" <= \"CreatedAt\" + interval '7 days 5 minutes'");
                 t.HasCheckConstraint("CK_Jobs_Signed", "\"State\" IN ('PendingSignature', 'Refused', 'Cancelled', 'Expired') OR \"Signature\" IS NOT NULL");
             });
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<JobOutputChunk>(entity =>
@@ -717,7 +770,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(c => c.ReceivedAt);
             entity.ToTable(t => t.HasCheckConstraint("CK_JobOutputChunks_Size", "octet_length(\"Data\") BETWEEN 1 AND 65536"));
-            ClientOwned(entity);
+            JobOutputOwned(entity);
         });
 
         // Remote sessions (0.3.0): the session, one row per technician's connection, and the actions of a background session.
@@ -735,7 +788,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(r => r.Id).HasFilter("\"EndedAt\" IS NULL").HasDatabaseName("IX_RemoteSessions_Open");
             entity.ToTable(t => t.HasCheckConstraint("CK_RemoteSessions_WindowsSession",
                 "(\"Kind\" = 'RemoteControl' AND \"WindowsSessionId\" >= 0) OR (\"Kind\" <> 'RemoteControl' AND \"WindowsSessionId\" IS NULL)"));
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<RemoteSessionParticipant>(entity =>
@@ -761,7 +814,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 // The relay only opens with a signed token.
                 t.HasCheckConstraint("CK_RemoteSessionParticipants_Signed", "\"ConnectingAt\" IS NULL OR \"TokenSignature\" IS NOT NULL");
             });
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<RemoteSessionAction>(entity =>
@@ -777,7 +830,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasOne<RemoteSessionParticipant>().WithMany().HasForeignKey(a => a.ParticipantId).OnDelete(DeleteBehavior.SetNull);
             entity.HasIndex(a => new { a.SessionId, a.Time });
             entity.HasIndex(a => a.Time);
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<Alert>(entity =>
@@ -804,7 +857,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(a => new { a.ClientId, a.State });
             entity.HasIndex(a => a.OpenedAt);
             entity.HasIndex(a => a.HeldUntil).HasFilter("\"HeldUntil\" IS NOT NULL AND \"State\" <> 'Resolved'").HasDatabaseName("IX_Alerts_Held");
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<EndpointEvent>(entity =>
@@ -815,7 +868,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(e => e.Id).HasFilter("\"ProcessedAt\" IS NULL").HasDatabaseName("IX_EndpointEvents_Unprocessed");
             entity.HasIndex(e => new { e.EndpointId, e.Time });
             EndpointChild(entity, e => new { e.EndpointId, e.ClientId });
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<SigningRequest>(entity =>
@@ -835,7 +888,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(c => c.KeyId).HasMaxLength(16);
             entity.Property(c => c.ContentHash).HasMaxLength(64);
             EndpointChild(entity, c => new { c.EndpointId, c.ClientId });
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<InstanceSigningKey>(entity =>
@@ -917,7 +970,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(c => c.WaitVersion).HasMaxLength(50);
             entity.Property(c => c.WaitReason).HasConversion<string>().HasMaxLength(20);
             EndpointChild(entity, c => new { c.EndpointId, c.ClientId });
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<ApiKey>(entity =>
@@ -953,7 +1006,11 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(a => a.Time);
             entity.HasIndex(a => new { a.ClientId, a.Time });
             entity.HasIndex(a => new { a.TargetType, a.TargetId });
-            GlobalOrClientOwned(entity);
+            // A limited scope sees no instance-wide entries (who changed settings, users or a deleted client), and in a client it
+            // sees part of only the entries about its endpoints (0.6.0).
+            entity.HasQueryFilter(a => ScopeAllClients ||
+                                       (a.ClientId != null && (ScopeFullClientIds.Contains(a.ClientId.Value) ||
+                                                               (a.TargetType == "Endpoint" && ScopeEndpointIdTexts.Contains(a.TargetId)))));
         });
 
         builder.Entity<NotificationChannel>(entity =>
@@ -987,7 +1044,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             // those miss something.
             entity.HasIndex(p => new { p.ClientId, p.MissingCritical });
             EndpointChild(entity, p => new { p.EndpointId, p.ClientId });
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         // Not client-owned on purpose (0.6.0): the row outlives its endpoint and client, and the gateway finds it by fingerprint.
@@ -1012,7 +1069,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(a => new { a.ClientId, a.Status });
             entity.HasIndex(a => a.NextAttemptAt).HasFilter("\"NextAttemptAt\" IS NOT NULL");
             EndpointChild(entity, a => new { a.EndpointId, a.ClientId });
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<EndpointMissingUpdate>(entity =>
@@ -1028,7 +1085,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(u => u.Severity).HasConversion<string>().HasMaxLength(20);
             entity.HasIndex(u => new { u.EndpointId, u.Severity });
             EndpointChild(entity, u => new { u.EndpointId, u.ClientId });
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<PatchDeployment>(entity =>
@@ -1051,7 +1108,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(d => d.State).HasFilter("\"State\" IN ('Requested', 'Running')");
             entity.HasIndex(d => new { d.ClientId, d.RequestedAt }).IsDescending(false, true);
             entity.HasIndex(d => d.BatchId);
-            ClientOwned(entity);
+            PatchDeploymentOwned(entity);
         });
 
         builder.Entity<PatchDeploymentUpdate>(entity =>
@@ -1060,7 +1117,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(u => u.Name).HasMaxLength(300);
             entity.Property(u => u.Version).HasMaxLength(100);
             entity.HasIndex(u => u.DeploymentId);
-            ClientOwned(entity);
+            PatchDeploymentUpdateOwned(entity);
         });
 
         builder.Entity<PatchDeploymentTarget>(entity =>
@@ -1074,7 +1131,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(t => new { t.EndpointId, t.UpdatedAt }).IsDescending(false, true);
             entity.HasAlternateKey(t => new { t.Id, t.ClientId });
             EndpointChild(entity, t => new { t.EndpointId, t.ClientId });
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         // The product's history per endpoint of a deployment (0.6.0): same client as its endpoint, gone with it.
@@ -1088,7 +1145,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 .HasForeignKey(s => new { s.TargetId, s.ClientId })
                 .HasPrincipalKey(t => new { t.Id, t.ClientId })
                 .OnDelete(DeleteBehavior.Cascade);
-            ClientOwned(entity);
+            PatchDeploymentStepOwned(entity);
         });
 
         // What a technician asked about the patch management of an endpoint (0.6.0): gone with the endpoint.
@@ -1103,7 +1160,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(r => r.RequestedAt).HasFilter("\"CompletedAt\" IS NULL").HasDatabaseName("IX_PatchRequests_Pending");
             entity.HasIndex(r => new { r.EndpointId, r.RequestedAt });
             EndpointChild(entity, r => new { r.EndpointId, r.ClientId });
-            ClientOwned(entity);
+            EndpointOwned(entity);
         });
 
         builder.Entity<SignInExchange>(entity =>
@@ -1174,7 +1231,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 .HasForeignKey(g => new { g.SiteId, g.ClientId })
                 .HasPrincipalKey(s => new { s.Id, s.ClientId })
                 .OnDelete(DeleteBehavior.Cascade);
-            ClientOwned(entity);
+            SiteOwned(entity);
         });
 
         // The automation of a patch policy in a tenant (0.6.0). No foreign key to the client or the patch policy: the
@@ -1292,7 +1349,6 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             return;
         }
 
-        var allowed = _scope.ClientIds;
         foreach (var entry in ChangeTracker.Entries())
         {
             if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted))
@@ -1309,20 +1365,53 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             var isGlobalCapable = entry.Metadata.FindProperty("ClientId")?.IsNullable == true;
             if (clientId is null)
             {
-                if (isGlobalCapable)
+                // Global templates and policies are instance-wide; a limited scope changes them only after its service
+                // checked it may (0.6.0). An audit entry without a client is a record, not instance-wide data.
+                if (isGlobalCapable && entry.Entity is not AuditEntry && !_instanceWideWritesAllowed)
                 {
-                    // Global templates and policies are instance-wide; restricted scopes may not change them.
                     throw new UnauthorizedAccessException("A client-restricted caller cannot change instance-wide data.");
                 }
 
                 continue;
             }
 
-            if (!allowed.Contains(clientId.Value))
+            if (!MayWrite(entry, clientId.Value))
             {
                 throw new UnauthorizedAccessException("The change touches a client outside the caller's scope.");
             }
         }
+    }
+
+    /// <summary>
+    /// Whether a limited scope may write this row (0.6.0): a row of an endpoint needs the endpoint, a row of a site the whole
+    /// site, any other row of a client the whole client. A few records an endpoint action writes on client level (the audit
+    /// entry, the signing request, a deployment and its updates, whose targets are checked per endpoint) need the client only.
+    /// </summary>
+    private bool MayWrite(EntityEntry entry, Guid clientId)
+    {
+        Guid? endpointId = entry.Entity switch
+        {
+            Endpoint e => e.Id,
+            _ => entry.Metadata.FindProperty("EndpointId") is { } property ? (Guid?)entry.Property(property.Name).CurrentValue : null
+        };
+        if (endpointId is { } endpoint)
+        {
+            return _scope.SeesEndpoint(clientId, endpoint);
+        }
+
+        Guid? siteId = entry.Entity switch
+        {
+            Site s => s.Id,
+            _ => entry.Metadata.FindProperty("SiteId") is { } property ? (Guid?)entry.Property(property.Name).CurrentValue : null
+        };
+        if (siteId is { } site)
+        {
+            return _scope.HasWholeSite(clientId, site);
+        }
+
+        return entry.Entity is AuditEntry or SigningRequest or PatchDeployment or PatchDeploymentUpdate
+            ? _scope.SeesClient(clientId)
+            : _scope.HasWholeClient(clientId);
     }
 
     /// <summary>Key, lengths, the check foreign key and the retention index of an hourly or daily rollup.</summary>
@@ -1360,6 +1449,54 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     {
         entity.HasQueryFilter(e => ScopeAllClients || EF.Property<Guid?>(e, "ClientId") == null ||
                                    ScopeClientIds.Contains(EF.Property<Guid?>(e, "ClientId")!.Value));
+    }
+
+    /// <summary>A row of a site (0.6.0): visible with the whole client, or with the site, wholly or in part.</summary>
+    private void SiteOwned<T>(EntityTypeBuilder<T> entity, string siteIdProperty = "SiteId") where T : class
+    {
+        entity.HasQueryFilter(e => ScopeAllClients || ScopeFullClientIds.Contains(EF.Property<Guid>(e, "ClientId")) ||
+                                   ScopeSiteIds.Contains(EF.Property<Guid>(e, siteIdProperty)));
+    }
+
+    /// <summary>A row of an endpoint (0.6.0): visible with the whole client, or with the endpoint.</summary>
+    private void EndpointOwned<T>(EntityTypeBuilder<T> entity, string endpointIdProperty = "EndpointId") where T : class
+    {
+        entity.HasQueryFilter(e => ScopeAllClients || ScopeFullClientIds.Contains(EF.Property<Guid>(e, "ClientId")) ||
+                                   ScopeEndpointIds.Contains(EF.Property<Guid>(e, endpointIdProperty)));
+    }
+
+    /// <summary>A check of a template is visible with its client (or everywhere when global); a check of one endpoint with the endpoint.</summary>
+    private void CheckDefinitionOwned(EntityTypeBuilder<CheckDefinition> entity)
+    {
+        entity.HasQueryFilter(c => ScopeAllClients || c.ClientId == null ||
+                                   (c.EndpointId == null
+                                       ? ScopeClientIds.Contains(c.ClientId.Value)
+                                       : ScopeFullClientIds.Contains(c.ClientId.Value) || ScopeEndpointIds.Contains(c.EndpointId.Value)));
+    }
+
+    private void JobOutputOwned(EntityTypeBuilder<JobOutputChunk> entity)
+    {
+        entity.HasQueryFilter(c => ScopeAllClients || ScopeFullClientIds.Contains(c.ClientId) ||
+                                   Set<Job>().Any(j => j.Id == c.JobId && ScopeEndpointIds.Contains(j.EndpointId)));
+    }
+
+    /// <summary>A deployment is visible with its whole client, or with one of the endpoints it targets.</summary>
+    private void PatchDeploymentOwned(EntityTypeBuilder<PatchDeployment> entity)
+    {
+        entity.HasQueryFilter(d => ScopeAllClients || ScopeFullClientIds.Contains(d.ClientId) ||
+                                   Set<PatchDeploymentTarget>().Any(t => t.DeploymentId == d.Id && ScopeEndpointIds.Contains(t.EndpointId)));
+    }
+
+    private void PatchDeploymentUpdateOwned(EntityTypeBuilder<PatchDeploymentUpdate> entity)
+    {
+        entity.HasQueryFilter(u => ScopeAllClients || ScopeFullClientIds.Contains(u.ClientId) ||
+                                   Set<PatchDeploymentTarget>().Any(t => t.DeploymentId == u.DeploymentId && ScopeEndpointIds.Contains(t.EndpointId)));
+    }
+
+    private void PatchDeploymentStepOwned(EntityTypeBuilder<PatchDeploymentStep> entity)
+    {
+        entity.HasQueryFilter(s => ScopeAllClients || ScopeFullClientIds.Contains(s.ClientId) ||
+                                   Set<PatchDeploymentTarget>().Any(t => t.Id == s.TargetId && ScopeEndpointIds.Contains(t.EndpointId)));
     }
 
     private static void EndpointChild<T>(EntityTypeBuilder<T> entity, System.Linq.Expressions.Expression<Func<T, object?>> foreignKey)

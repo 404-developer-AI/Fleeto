@@ -1,0 +1,76 @@
+@inject UserGroupService GroupSvc
+@inject CurrentUser CurrentUser
+
+@* Clients, sites and endpoints a group includes or excludes (0.6.0): search by code, name or hostname, remove with the chip. *@
+<MudAutocomplete T="AccessTargetView" @ref="_search" Value="_pick" ValueChanged="AddAsync" SearchFunc="SearchAsync" DebounceInterval="300"
+                 ToStringFunc="@(t => t?.Label)" Label="@Label" HelperText="@Help" Variant="Variant.Outlined" ShowProgressIndicator="true"
+                 ResetValueOnEmptyText="true" MaxItems="60" Class="mb-1">
+    <ItemTemplate Context="target">
+        <div class="d-flex align-center gap-2">
+            <MudIcon Icon="@IconOf(target.Kind)" Size="Size.Small" />
+            <span>@target.Label</span>
+            <span class="muted" style="font-size:0.75rem">@target.Kind.ToString().ToLowerInvariant()</span>
+        </div>
+    </ItemTemplate>
+</MudAutocomplete>
+<div class="d-flex flex-wrap gap-1 mb-3">
+    @if (Targets.Count == 0)
+    {
+        <span class="muted" style="font-size:0.8125rem">@Empty</span>
+    }
+    @foreach (var target in Targets.OrderBy(t => t.Kind).ThenBy(t => t.Label))
+    {
+        <MudChip T="string" Icon="@IconOf(target.Kind)" OnClose="@(() => Remove(target))" Size="Size.Small">@target.Label</MudChip>
+    }
+</div>
+
+@code {
+    [Parameter] public List<AccessTargetView> Targets { get; set; } = [];
+    [Parameter] public string Label { get; set; } = string.Empty;
+    [Parameter] public string? Help { get; set; }
+    [Parameter] public string Empty { get; set; } = "None.";
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private MudAutocomplete<AccessTargetView>? _search;
+    private AccessTargetView? _pick;
+
+    public static string IconOf(AccessTargetKind kind) => kind switch
+    {
+        AccessTargetKind.Client => Icons.Material.Outlined.Business,
+        AccessTargetKind.Site => Icons.Material.Outlined.LocationOn,
+        _ => Icons.Material.Outlined.Computer
+    };
+
+    private async Task<IEnumerable<AccessTargetView>> SearchAsync(string? text, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return [];
+        }
+
+        var caller = await CurrentUser.GetAsync(cancellationToken);
+        var found = await GroupSvc.SearchTargetsAsync(caller, text, cancellationToken);
+        return found.Where(f => Targets.All(t => t.Kind != f.Kind || t.Id != f.Id));
+    }
+
+    private async Task AddAsync(AccessTargetView? target)
+    {
+        if (target is not null && Targets.All(t => t.Kind != target.Kind || t.Id != target.Id))
+        {
+            Targets.Add(target);
+            await Changed.InvokeAsync();
+        }
+
+        _pick = null;
+        if (_search is not null)
+        {
+            await _search.ClearAsync();
+        }
+    }
+
+    private async Task Remove(AccessTargetView target)
+    {
+        Targets.Remove(target);
+        await Changed.InvokeAsync();
+    }
+}

@@ -1,0 +1,70 @@
+@inject UserGroupService GroupSvc
+@inject CurrentUser CurrentUser
+
+@* Who can reach a client, site or endpoint (0.6.0): every admin, and the users whose groups give it, with those groups. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Who has access to @Label</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_holders is null)
+        {
+            <MudText Typo="Typo.body2" Class="muted">@(_missing ? "This no longer exists." : "Loading…")</MudText>
+        }
+        else
+        {
+            <MudSimpleTable Dense="true" Elevation="0">
+                <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Role</th>
+                    <th>Through</th>
+                </tr>
+                </thead>
+                <tbody>
+                @foreach (var holder in _holders)
+                {
+                    <tr>
+                        <td>
+                            <strong>@holder.Name</strong>
+                            <div class="muted" style="font-size:0.8125rem">@holder.Email</div>
+                        </td>
+                        <td>@string.Join(", ", holder.Roles)</td>
+                        <td>
+                            @string.Join(", ", holder.Through)
+                            @if (holder.Level == AccessLevel.Partial)
+                            {
+                                <div class="muted" style="font-size:0.8125rem">Part of it</div>
+                            }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </MudSimpleTable>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public AccessTargetKind Kind { get; set; }
+    [Parameter] public Guid TargetId { get; set; }
+    [Parameter] public string Label { get; set; } = string.Empty;
+
+    private IReadOnlyList<AccessHolderView>? _holders;
+    private bool _missing;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var caller = await CurrentUser.GetAsync();
+        _holders = await GroupSvc.WhoCanReachAsync(caller, Kind, TargetId);
+        _missing = _holders is null;
+    }
+
+    private void Close() => MudDialog.Close(DialogResult.Ok(true));
+}

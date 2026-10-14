@@ -57,7 +57,7 @@ public sealed partial class GatewayStore
             UPDATE "RemoteSessionParticipants" p
             SET "State" = 'Connecting', "ConnectingAt" = $3, "IpAddress" = $4
             FROM "RemoteSessions" s, "Endpoints" e
-            WHERE p."Id" = $1 AND p."State" = 'Signed' AND p."ValidUntil" > $3 AND p."TokenPayload" = $2
+            WHERE p."Id" = $1 AND p."State" = 'Signed' AND p."ValidUntil" > $3 AND p."TokenPayload" = $2 AND p."RevokedAt" IS NULL
               AND s."Id" = p."SessionId" AND s."ClientId" = p."ClientId" AND s."EndedAt" IS NULL
               AND e."Id" = p."EndpointId" AND e."ClientId" = p."ClientId"
             RETURNING p."SessionId", p."ClientId", p."EndpointId", s."Kind", s."Component", p."UserId", p."UserName", e."Tier"
@@ -75,6 +75,28 @@ public sealed partial class GatewayStore
         return new ClaimedParticipant(participantId, reader.GetGuid(0), reader.GetGuid(1), reader.GetGuid(2),
             Enum.Parse<RemoteSessionKind>(reader.GetString(3)), Enum.Parse<AgentComponent>(reader.GetString(4)), reader.GetGuid(5), reader.GetString(6),
             Enum.Parse<EndpointTier>(reader.GetString(7)));
+    }
+
+    /// <summary>The participants among these whose user may no longer reach the endpoint (0.6.0), as web marked them.</summary>
+    public async Task<HashSet<Guid>> ReadRevokedParticipantsAsync(Guid[] participantIds, CancellationToken cancellationToken)
+    {
+        var revoked = new HashSet<Guid>();
+        if (participantIds.Length == 0)
+        {
+            return revoked;
+        }
+
+        await using var command = _dataSource.CreateCommand("""
+            SELECT "Id" FROM "RemoteSessionParticipants" WHERE "Id" = ANY($1) AND "RevokedAt" IS NOT NULL
+            """);
+        command.Parameters.Add(new NpgsqlParameter<Guid[]> { TypedValue = participantIds });
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            revoked.Add(reader.GetGuid(0));
+        }
+
+        return revoked;
     }
 
     /// <summary>Browser and endpoint are paired: the participant is connected, the session started, and the join is audited.</summary>

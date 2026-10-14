@@ -104,6 +104,7 @@ Script 1──* ScriptVersion       SigningRequest (signer work queue)
 License (one per instance)      ApiKey 1──* ApiKeyClient ──> Client
 AgentRelease (current release offered to agents)
 User *──* Role                  Integration 1──* IntegrationMapping ──> Client
+User *──* UserGroup 1──* UserGroupRule ──> Client | Site | Endpoint
                                 Integration 1──* IntegrationAutomation (per client and patch policy)
 AuditEntry (append-only)
 ```
@@ -138,7 +139,7 @@ AuditEntry (append-only)
 | **AgentRelease** | `Version`, `ManifestSha256`, `InstalledAt`, `IsCurrent`, `PausedAt?`, `PausedByUserId?`, `PausedByName?`, `ReleasedToAllAt?`, `ReleasedToAllByUserId?`, `ReleasedToAllByName?` | One row per release the gateway loaded (0.2.1). `InstalledAt` starts the ring delays; at most one `IsCurrent` (unique filtered index). Paused and released to all by admins in Settings, Agent updates, each audited. |
 | **ApiKey** | `Id`, `Name`, `SecretHash`, `AllClients`, `CreatedByUserId`, `CreatedByName`, `CreatedAt`, `ExpiresAt?`, `LastUsedAt?`, `RevokedAt?`, `RevokedByUserId?`, `RevokedByName?` | Public API key (0.2.1), read-only. The id is part of the token; only the SHA-256 of the secret is stored (check constraint: 64 hex characters) and the token is shown once. Limited to the clients in **ApiKeyClient** (`ApiKeyId`, `ClientId`, deleted with either side) when `AllClients` is false, so a key whose clients are all deleted sees nothing. Never deleted: revoked keys stay for the audit trail. Web only (grants). Format in §6. |
 | **RemoteSession** | `Id`, `ClientId`, `EndpointId`, `Kind` (`RemoteControl`/`RemoteBackground`), `Component` (`agent`/`watchdog`, the serving service), `StartedByUserId`, `StartedByName`, `Reason?`, `CreatedAt`, `StartedAt?`, `EndedAt?`, `EndReason?` | Every session (0.3.0), whether it connected or not. Kept 13 months, then removed with its participants and actions; the audit log keeps its own entries. |
-| **RemoteSessionParticipant** | `Id`, `SessionId`, `ClientId`, `EndpointId`, `UserId`, `UserName`, `Reason?`, `State` (`Requested`, `Signed`, `Connecting`, `Connected`, `Ended`, `Refused`, `Failed`), `BrowserPublicKey` (32 bytes, check constraint), `TokenPayload?`, `TokenSignature?`, `SigningKeyId?`, `SignedAt?`, `ValidUntil?`, `IpAddress?`, `CreatedAt`, `ConnectingAt?`, `ConnectedAt?`, `EndedAt?`, `EndReason?` | One technician's connection to a session, with its own single-use token (§4 Remote session). `ConnectingAt` needs a signature (check constraint). Web writes it, the signer signs it, the gateway claims, connects and ends it, the workers end what never connected. |
+| **RemoteSessionParticipant** | `Id`, `SessionId`, `ClientId`, `EndpointId`, `UserId`, `UserName`, `Reason?`, `State` (`Requested`, `Signed`, `Connecting`, `Connected`, `Ended`, `Refused`, `Failed`), `BrowserPublicKey` (32 bytes, check constraint), `TokenPayload?`, `TokenSignature?`, `SigningKeyId?`, `SignedAt?`, `ValidUntil?`, `IpAddress?`, `CreatedAt`, `ConnectingAt?`, `ConnectedAt?`, `EndedAt?`, `EndReason?`, `RevokedAt?` | One technician's connection to a session, with its own single-use token (§4 Remote session). `ConnectingAt` needs a signature (check constraint). Web writes it, the signer signs it, the gateway claims, connects and ends it, the workers end what never connected. `RevokedAt` (0.6.0): web found that the user may no longer reach the endpoint (a group changed); the signer refuses it, the gateway no longer claims it and ends the connection. |
 | **RemoteSessionAction** | `Id`, `SessionId`, `ParticipantId?`, `ClientId`, `EndpointId`, `Time`, `Action`, `Target`, `Detail?` | An action inside a remote background session as the endpoint reports it (file, service or process action with its target; written from 0.3.0 step 2). Terminal content is never stored. |
 | **CheckResult** | `Time` (ingest), `ClientId`, `EndpointId`, `CheckDefinitionId`, `Status`, `Value`, `Payload`, `ProcessesJson?` | TimescaleDB hypertable, compressed, retention policy. Deduplicated per endpoint and agent batch sequence number. `ProcessesJson` (0.6.0): the process list of a CPU or memory usage result, null for every other result; a partial index covers the rows that have one. Holds user names (personal data), kept as long as the raw results. |
 | **Alert** | `Id`, `ClientId`, `EndpointId`, `CheckDefinitionId`, `Severity`, `State`, `AcknowledgedBy`, `HeldUntil?`, `HeldAt?`, `HeldBy?`, timestamps | Deduplicated per endpoint and check. On hold while `HeldUntil` is in the future (§4, Alert hold). |
@@ -162,7 +163,8 @@ AuditEntry (append-only)
 | **PatchDeploymentTarget**, **PatchDeploymentUpdate** | Target: `Id`, `DeploymentId`, `ClientId`, `EndpointId`, `ExternalEndpointId`, `Hostname`, `State` (`Pending`, `Running`, `Succeeded`, `Failed`, `Unknown`), `Message?`, `UpdatedAt`. Update: `Id`, `DeploymentId`, `ClientId`, `ExternalUpdateId`, `Name`, `Version` | One row per endpoint of a deployment (unique per deployment and endpoint, so a re-read updates it), and one per chosen package. The host name is a copy from the moment it started, so the history reads the same after a rename. `StepsReadAt?` (0.6.0): when the workers last read the endpoint's history from the product, cleared by every change of state. |
 | **PatchDeploymentStep** | `Id`, `TargetId`, `ClientId`, `Position`, `Time?`, `Operation`, `Status`, `Details` | The history the product keeps for one endpoint of a deployment (0.6.0): Action1's "Automation History", such as "Deploy Update, Success, Installing 2026-09 .NET Framework Security Update (KB5126052)". Replaced as a whole on every read, deleted with its target (composite foreign key on `TargetId`, `ClientId`). Web reads, the workers write. |
 | **PatchRequest** | `Id`, `ClientId`, `EndpointId`, `Kind` (`Sync`, `RemoveAgent`), `ExternalTenantId`, `ExternalEndpointId`, `RequestedByUserId`, `RequestedByName`, `RequestedAt`, `CompletedAt?`, `Failure?` | A sync or agent removal a technician asked for on one endpoint (0.6.0). Web inserts, the workers carry it out and write the outcome; kept 7 days, gone with its endpoint. |
-| **User**, **Role** | `Id`, `Email`, `PasswordHash` (Argon2id), `TotpSecret` (encrypted), roles | Roles: admin, technician, read-only. |
+| **User**, **Role** | `Id`, `Email`, `PasswordHash` (Argon2id), `TotpSecret` (encrypted), roles | Roles: admin, technician, read-only. The role says what a user may do; what it may do it on comes from its groups (0.6.0). |
+| **UserGroup**, **UserGroupMember**, **UserGroupRule** | UserGroup: `Id`, `Name`, `NormalizedName` (unique), `Description?`, `AllClients`, `IsDefault` (at most one, partial unique index), `CreatedAt`, `UpdatedAt`. Member: `GroupId`, `UserId`, `AddedAt`. Rule: `Id`, `GroupId`, `Kind` (`Include`/`Exclude`), `ClientId?`, `SiteId?`, `EndpointId?` (exactly one, check constraint; unique per group) | Groups of users (0.6.0, see *User groups and the scope* below the table). A group gives every client with exceptions (`AllClients`, exclude rules) or what its include rules name, minus its exclude rules. A rule is deleted with its target (cascade), a member with its user. `IsDefault` marks "All clients", which the update put every user that was not an admin in; a user added to another group leaves it. Admins are never members. Instance-wide data: web writes, the signer reads (grants). |
 | **AuditEntry** | `Time`, `ClientId?`, `ActorId` (user or API key), `Action`, `TargetType`, `TargetId`, `Details` | Append-only; no update or delete path in code or DB grants. `ClientId` null for instance-wide actions. |
 
 **Links on three levels (0.6.0).** A policy, a patch policy and monitoring templates can be linked to a client, a site and
@@ -188,6 +190,30 @@ key to the parent (for example `Endpoint (SiteId, ClientId)` references
 `Site (Id, ClientId)`, `Job (EndpointId, ClientId)` references `Endpoint (Id, ClientId)`),
 so the database rejects a row whose `ClientId` differs from its parent's. Endpoints never
 move between clients; moving one means enrolling it again.
+
+**User groups and the scope** (0.6.0). An admin sees every client. Any other user sees what its groups give together, and
+nothing without a group; the role still decides what it may do. A group gives every client, also the ones created later, except
+the clients, sites and endpoints it excludes, or only what it includes (a client with all its sites and endpoints, a site with
+all its endpoints, also the ones added later, or one endpoint), minus what it excludes. An exclude counts only inside its own
+group, so the groups of a user add up. `UserAccessRules.Resolve` turns the groups into the `IClientScope` every query is
+filtered on, when `CurrentUser` resolves the caller (cached for 5 seconds, like the roles): nothing is stored per user, so a new
+client, site or endpoint, a move or a deletion is part of it at once and nothing has to be kept in step. The scope holds the
+clients the user sees whole (`FullClientIds`), and for a client it sees part of the sites and endpoints of that part
+(`SiteIds`, `FullSiteIds`, `EndpointIds`); only the clients that rules name below client level are expanded, so the arrays stay
+small. The DbContext filters each table on its own level: a row of a client (its links, tags, mappings) is visible with any part
+of the client, a row of a site with the whole client or the site, a row of an endpoint with the whole client or the endpoint; a
+job output chunk follows its job, a deployment and its updates and steps the endpoints it targets, and an audit entry is visible
+to a limited scope only for a whole client or one of its endpoints (never an instance-wide one). Writes follow the same levels
+stricter: a row of an endpoint needs the endpoint, a row of a site the whole site, any other row of a client the whole client,
+so part of a client never changes the client or a site as a whole (its name, links, tags, maintenance, a new site or enrollment
+token). The audit entry, signing request and deployment an endpoint action writes need only the client. Instance-wide templates
+(policy, patch policy, monitoring template) change only for a caller that sees all of everything they are linked to, checked by
+`TemplateAccess` before it allows the write on that context; the default policy and scripts for every client only for a caller
+that sees every client. A new client needs a group for every client (`IncludesNewClients`), which gives it whole from the moment
+it exists. `GroupAccess.Reaches` answers the same question for one endpoint without the catalog; the signer asks it for the user
+behind every job and remote session token, and a test keeps it equal to the scope. A change to a group or a role reloads the open
+pages of its users (`fleeto_user_access`) and marks their remote session participants on endpoints they lost `RevokedAt`, which
+the gateway ends at once and otherwise within a minute. API keys keep their own client restriction.
 
 Three kinds of tables:
 
@@ -1199,8 +1225,8 @@ container:
   listening port and no outbound network access; it watches the database (LISTEN/NOTIFY)
   for `SigningRequest` rows. Its database role reads what it needs to decide and writes only
   signatures, request states and audit entries.
-- Before signing it enforces rules independently of web: initiator role, managed tier of
-  every target (a fourth layer of tier enforcement), script approval, validity window, rate
+- Before signing it enforces rules independently of web: initiator role, that the groups of the initiator still give
+  it the endpoint (0.6.0; admins always), managed tier of every target (a fourth layer of tier enforcement), script approval, validity window, rate
   limits (3,000 jobs per minute). The UI runs a script on one endpoint at a time; notifying every
   admin about bulk jobs arrives with running a script on a selection of endpoints.
 - Optional four-eyes approval for scripts per policy (see §4, Script approval).
@@ -1516,7 +1542,9 @@ The flow is the authorization code flow with PKCE, split over two containers bec
   MudBlazor renders style attributes), TOTP 2FA for every user, API keys hashed and scoped.
 - Cross-client isolation is enforced in the data layer (global query filters on the
   `ClientId` that every client-owned table carries, composite foreign keys that keep it
-  consistent, see §2) and proven by tests that attempt cross-client reads.
+  consistent, see §2) and proven by tests that attempt cross-client reads. From 0.6.0 the same filters and the write guard
+  also limit a user to the part of a client its groups give (§2, *User groups and the scope*); the signer checks the groups
+  again for every job and remote session token.
 
 ## 6. Public API
 

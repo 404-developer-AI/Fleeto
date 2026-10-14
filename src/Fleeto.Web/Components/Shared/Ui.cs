@@ -395,6 +395,9 @@ public static class Ui
     /// <summary>"1 endpoint" or "12 endpoints": a count with its noun, pluralised the simple way.</summary>
     public static string Count(int value, string noun) => value == 1 ? $"1 {noun}" : $"{value} {noun}s";
 
+    /// <summary>A count with a plural that is not the noun plus s.</summary>
+    public static string Count(int value, string noun, string plural) => value == 1 ? $"1 {noun}" : $"{value} {plural}";
+
     public static string Bytes(long bytes)
     {
         string[] units = ["B", "KB", "MB", "GB", "TB"];

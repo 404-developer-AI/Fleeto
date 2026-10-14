@@ -3,16 +3,37 @@ using Fleeto.Core.Entities;
 namespace Fleeto.Core.Interfaces;
 
 /// <summary>
-/// The set of clients the current caller may see. Every client-owned query is filtered on it by the
+/// The clients, sites and endpoints the current caller may see. Every client-owned query is filtered on it by the
 /// DbContext. System context (background services, the signer) sees every client.
+/// <para>
+/// From 0.6.0 a user sees what the groups it is a member of give it, which can be part of a client: some of its sites, or
+/// some of its endpoints. A client is then <i>partial</i>: it is in <see cref="ClientIds"/> but not in
+/// <see cref="FullClientIds"/>, and only the sites in <see cref="SiteIds"/> and the endpoints in <see cref="EndpointIds"/>
+/// of it are visible. A scope that never sees part of a client (system, API keys) leaves the last three at their default.
+/// </para>
 /// </summary>
 public interface IClientScope
 {
-    /// <summary>True for system context and for users without a client restriction.</summary>
+    /// <summary>True for system context, admins and users that see every client without exception.</summary>
     bool AllClients { get; }
 
-    /// <summary>Allowed clients when <see cref="AllClients"/> is false. Empty means nothing is visible.</summary>
+    /// <summary>Clients the caller sees, wholly or in part, when <see cref="AllClients"/> is false. Empty means nothing is visible.</summary>
     IReadOnlyCollection<Guid> ClientIds { get; }
+
+    /// <summary>Clients the caller sees with every site and endpoint, the ones created later included.</summary>
+    IReadOnlyCollection<Guid> FullClientIds => ClientIds;
+
+    /// <summary>Sites of partial clients the caller sees with every endpoint, the ones enrolled later included.</summary>
+    IReadOnlyCollection<Guid> FullSiteIds => [];
+
+    /// <summary>Sites of partial clients the caller sees, wholly or in part (<see cref="FullSiteIds"/> included).</summary>
+    IReadOnlyCollection<Guid> SiteIds => [];
+
+    /// <summary>Endpoints of partial clients the caller sees, those of <see cref="FullSiteIds"/> included.</summary>
+    IReadOnlyCollection<Guid> EndpointIds => [];
+
+    /// <summary>A client created later is visible to the caller: it sees every client, or is in a group for all clients.</summary>
+    bool IncludesNewClients => AllClients;
 }
 
 /// <summary>
@@ -104,6 +125,12 @@ public static class NotificationChannels
     /// <summary>Payload: empty. A setting that instance health reads changed (the backups, 0.6.0); the workers measure again.</summary>
     public const string InstanceHealth = "fleeto_instance_health";
 
+    /// <summary>
+    /// Payload: user id. What a user may reach changed (0.6.0): its groups, the rules of one of them, or its role. Web closes
+    /// the open pages of that user; the gateway ends the remote session connections web marked as revoked.
+    /// </summary>
+    public const string UserAccess = "fleeto_user_access";
+
     /// <summary>Payload: endpoint id. The gateway stored a storage scan of the endpoint; the workers evaluate folder growth (0.6.0).</summary>
     public const string StorageScans = "fleeto_storage_scans";
 
@@ -174,6 +201,14 @@ public static class AuditActions
     public const string RolesChanged = "user.roles_changed";
     public const string PasswordChanged = "user.password_changed";
     public const string FirstAdminCreated = "instance.first_admin_created";
+
+    /// <summary>Groups of users (0.6.0): created, changed (name, rules or members) and deleted.</summary>
+    public const string UserGroupCreated = "user_group.created";
+    public const string UserGroupUpdated = "user_group.updated";
+    public const string UserGroupDeleted = "user_group.deleted";
+
+    /// <summary>The groups of one user were set from Settings, Users (0.6.0).</summary>
+    public const string UserGroupsChanged = "user.groups_changed";
 
     public const string ClientCreated = "client.created";
     public const string ClientUpdated = "client.updated";

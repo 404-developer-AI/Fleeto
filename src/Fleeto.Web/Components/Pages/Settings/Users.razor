@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = FleetoPolicies.Admin)]
 @inherits FleetoPageBase
 @inject UserAdminService UserSvc
+@inject UserGroupService GroupSvc
 @inject SignInSettingsService SignInSvc
 @inject IDialogService DialogService
 
@@ -10,7 +11,10 @@
 <div class="page-header">
     <div>
         <MudText Typo="Typo.h4" Class="page-title">Users</MudText>
-        <MudText Typo="Typo.body2" Class="muted">People who can sign in to this instance. Every user signs in with two-factor authentication.</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            People who can sign in to this instance. Every user signs in with two-factor authentication. An admin sees every client;
+            anyone else what their groups give.
+        </MudText>
     </div>
     <div class="d-flex gap-2">
         @if (_entraConfigured)
@@ -26,6 +30,7 @@
         <HeaderContent>
             <MudTh>User</MudTh>
             <MudTh>Roles</MudTh>
+            <MudTh>Groups</MudTh>
             <MudTh>Two-factor</MudTh>
             @if (_entraConfigured)
             {
@@ -44,6 +49,21 @@
                 }
             </MudTd>
             <MudTd>@string.Join(", ", context.Roles)</MudTd>
+            <MudTd>
+                @if (context.IsAdmin)
+                {
+                    <span class="muted">Every client</span>
+                }
+                else if (context.Groups.Count == 0)
+                {
+                    <StatusChip Text="No group" Kind="StatusKind.Warning" />
+                    <div class="muted" style="font-size:0.8125rem">Sees no clients</div>
+                }
+                else
+                {
+                    @string.Join(", ", context.Groups.Select(g => g.Name))
+                }
+            </MudTd>
             <MudTd><StatusChip Text="@(context.TwoFactorEnabled ? "On" : "Not set up")" Kind="@(context.TwoFactorEnabled ? StatusKind.Ok : StatusKind.Neutral)" /></MudTd>
             @if (_entraConfigured)
             {
@@ -66,7 +86,8 @@
             }
             <MudTd><TimeText Value="context.LastLoginAt" /></MudTd>
             <MudTd Style="white-space:nowrap">
-                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => RolesAsync(context))">Roles</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => RolesAsync(context))">Roles and groups</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => AccessAsync(context))">Access</MudButton>
                 @if (context.TwoFactorEnabled)
                 {
                     <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => ResetTwoFactorAsync(context))">Reset 2FA</MudButton>
@@ -97,6 +118,7 @@
 
 @code {
     private IReadOnlyList<UserListItem> _users = [];
+    private IReadOnlyList<UserGroupOption> _groups = [];
     private bool _entraConfigured;
 
     protected override Task OnInitializedAsync() => ReloadAsync();
@@ -110,6 +132,7 @@
     private Task ReloadAsync() => LoadAsync(async caller =>
     {
         _users = await UserSvc.ListAsync(caller);
+        _groups = await GroupSvc.ListOptionsAsync(caller);
         _entraConfigured = (await SignInSvc.GetAsync(caller)).IsComplete;
     });
 
@@ -177,7 +200,12 @@
     {
         var parameters = new DialogParameters<UserDialog>
         {
-            { d => d.OnSubmit, (email, name, password, roles) => RunAsync(caller => UserSvc.CreateAsync(caller, email, name, password, roles), "The user was created.") }
+            { d => d.Groups, _groups },
+            { d => d.OnSubmit, (email, name, password, roles, groups) => RunAsync(async caller =>
+            {
+                var created = await UserSvc.CreateAsync(caller, email, name, password, roles);
+                return created.Success && groups.Count > 0 ? await GroupSvc.SetGroupsOfAsync(caller, created.Value, groups) : created;
+            }, "The user was created.") }
         };
         var dialog = await DialogService.ShowAsync<UserDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         if (!(await dialog.Result)!.Canceled)
@@ -191,13 +219,24 @@
         var parameters = new DialogParameters<UserDialog>
         {
             { d => d.Existing, user },
-            { d => d.OnSubmit, (_, _, _, roles) => RunAsync(caller => UserSvc.SetRolesAsync(caller, user.Id, roles), "The roles were saved. Open sessions pick them up within five minutes.") }
+            { d => d.Groups, _groups },
+            { d => d.OnSubmit, (_, _, _, roles, groups) => RunAsync(async caller =>
+            {
+                var saved = await UserSvc.SetRolesAsync(caller, user.Id, roles);
+                return saved.Success ? await GroupSvc.SetGroupsOfAsync(caller, user.Id, groups) : saved;
+            }, "The roles and groups were saved. What the user sees changes at once; new roles reach open sessions within five minutes.") }
         };
         var dialog = await DialogService.ShowAsync<UserDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         if (!(await dialog.Result)!.Canceled)
         {
             await ReloadAsync();
         }
+    }
+
+    private async Task AccessAsync(UserListItem user)
+    {
+        var parameters = new DialogParameters<UserAccessDialog> { { d => d.User, user } };
+        await DialogService.ShowAsync<UserAccessDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
     }
 
     private async Task ResetTwoFactorAsync(UserListItem user)

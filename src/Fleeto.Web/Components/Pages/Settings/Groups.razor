@@ -1,0 +1,131 @@
+@page "/settings/groups"
+@attribute [Authorize(Policy = FleetoPolicies.Admin)]
+@inherits FleetoPageBase
+@inject UserGroupService GroupSvc
+@inject UserAdminService UserSvc
+@inject IDialogService DialogService
+
+<PageTitle>Groups - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Groups</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            A user who is not an admin sees what its groups give together: clients, sites and endpoints, or every client with exceptions.
+            Without a group a user sees nothing. The role of a user decides what it may do there.
+        </MudText>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.GroupAdd" OnClick="CreateAsync">New group</MudButton>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_groups.Count == 0)
+    {
+        <EmptyState Icon="@Icons.Material.Outlined.Groups" Title="No groups yet"
+                    Text="Create a group, choose what it gives and add the users that need it." />
+    }
+    else
+    {
+        <MudTable Items="_groups" Hover="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>Group</MudTh>
+                <MudTh>Gives</MudTh>
+                <MudTh>Members</MudTh>
+                <MudTh Style="width:110px"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>
+                    <strong>@context.Name</strong>
+                    @if (context.IsDefault)
+                    {
+                        <StatusChip Text="Default" Kind="StatusKind.Neutral" />
+                    }
+                    @if (!string.IsNullOrEmpty(context.Description))
+                    {
+                        <div class="muted" style="font-size:0.8125rem">@context.Description</div>
+                    }
+                </MudTd>
+                <MudTd>@Gives(context)</MudTd>
+                <MudTd>@Ui.Count(context.MemberCount, "user")</MudTd>
+                <MudTd Style="white-space:nowrap">
+                    <MudTooltip Text="Edit"><MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" aria-label="@($"Edit group {context.Name}")" OnClick="@(() => EditAsync(context))" /></MudTooltip>
+                    <MudTooltip Text="Delete"><MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" aria-label="@($"Delete group {context.Name}")" OnClick="@(() => DeleteAsync(context))" /></MudTooltip>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</LoadState>
+
+@code {
+    private IReadOnlyList<UserGroupListItem> _groups = [];
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private Task ReloadAsync() => LoadAsync(async caller => _groups = await GroupSvc.ListAsync(caller));
+
+    private static string Gives(UserGroupListItem group)
+    {
+        var except = group.ExcludeCount > 0 ? $", except {Ui.Count(group.ExcludeCount, "client, site or endpoint", "clients, sites or endpoints")}" : string.Empty;
+        return group.AllClients
+            ? "Every client" + except
+            : group.IncludeCount == 0
+                ? "Nothing yet"
+                : Ui.Count(group.IncludeCount, "client, site or endpoint", "clients, sites or endpoints") + except;
+    }
+
+    private async Task<IReadOnlyList<UserListItem>> MemberChoicesAsync() =>
+        Caller is null ? [] : (await UserSvc.ListAsync(Caller)).Where(u => !u.IsAdmin).ToList();
+
+    private async Task CreateAsync() => await ShowAsync(null);
+
+    private async Task EditAsync(UserGroupListItem group)
+    {
+        if (Caller is null)
+        {
+            return;
+        }
+
+        var detail = await GroupSvc.GetAsync(Caller, group.Id);
+        if (detail is null)
+        {
+            Snackbar.Add("This group no longer exists.", Severity.Warning);
+            await ReloadAsync();
+            return;
+        }
+
+        await ShowAsync(detail);
+    }
+
+    private async Task ShowAsync(UserGroupDetail? existing)
+    {
+        var parameters = new DialogParameters<UserGroupDialog>
+        {
+            { d => d.Existing, existing },
+            { d => d.Users, await MemberChoicesAsync() },
+            { d => d.OnSubmit, input => RunAsync(caller => GroupSvc.SaveAsync(caller, existing?.Id, input),
+                existing is null ? "The group was created." : "The group was saved. What its members see changes at once.") }
+        };
+        var dialog = await DialogService.ShowAsync<UserGroupDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(UserGroupListItem group)
+    {
+        var members = group.MemberCount > 0
+            ? $"Its {Ui.Count(group.MemberCount, "member")} no longer see what it gives; a user in no other group sees nothing. "
+            : string.Empty;
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Delete group {group.Name}" },
+            { d => d.Message, members + "This cannot be undone." }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => GroupSvc.DeleteAsync(caller, group.Id), "The group was deleted."))
+        {
+            await ReloadAsync();
+        }
+    }
+}

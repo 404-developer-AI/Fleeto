@@ -46,6 +46,7 @@ public sealed class JobHandler : ISigningRequestHandler
     public const string AgentRemovalPlatformReason = "Fleeto removes the Action1 agent from Windows endpoints only. Remove it on a Linux endpoint from the Action1 console.";
     public const string AgentRemovalChangedReason = "The job does not match the removal Fleeto composes. Start the removal again.";
     public const string AutomaticTypeReason = "Fleeto starts only the installation of the Action1 agent by itself. This job has no initiator.";
+    public const string AccessReason = "The user who started the job no longer has access to this endpoint. Ask an admin to add it to a group that has.";
     public const string AutomaticPolicyReason =
         "The patch policy of this endpoint no longer installs the Action1 agent automatically, so Fleeto did not start the installation.";
     public const string AutomaticRemovedReason =
@@ -114,6 +115,12 @@ public sealed class JobHandler : ISigningRequestHandler
         if (endpoint is null)
         {
             return SigningOutcome.Refused(MissingJobReason);
+        }
+
+        // The groups of the initiator must still give it the endpoint (0.6.0): web filters on them, the signer checks again.
+        if (!automatic && !await UserAccessResolver.MayReachAsync(db, job.InitiatedByUserId, job.ClientId, endpoint.SiteId, endpoint.Id, cancellationToken))
+        {
+            return SigningOutcome.Refused(AccessReason);
         }
 
         // Tier enforcement, layer 2 (the signer): the stored tier and the license must both allow managed behaviour.

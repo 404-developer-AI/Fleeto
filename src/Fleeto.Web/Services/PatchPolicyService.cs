@@ -144,6 +144,11 @@ public sealed class PatchPolicyService
             return ServiceResult<Guid>.NotFound("client");
         }
 
+        if (TemplateAccess.CreateProblem(db, caller, clientId) is { } accessProblem)
+        {
+            return ServiceResult<Guid>.Fail(accessProblem);
+        }
+
         if (await NameTakenAsync(db, clientId, policy.Name, null, cancellationToken))
         {
             return ServiceResult<Guid>.Fail($"A patch policy named {policy.Name} already exists here. Choose another name.");
@@ -176,6 +181,11 @@ public sealed class PatchPolicyService
         if (policy is null)
         {
             return ServiceResult.NotFound("patch policy");
+        }
+
+        if (await TemplateAccess.ProblemAsync(db, caller, TemplateKind.PatchPolicy, policy.Id, policy.ClientId, false, cancellationToken) is { } accessProblem)
+        {
+            return ServiceResult.Fail(accessProblem);
         }
 
         var now = _time.GetUtcNow().UtcDateTime;
@@ -237,6 +247,11 @@ public sealed class PatchPolicyService
         if (policy is null)
         {
             return ServiceResult.NotFound("patch policy");
+        }
+
+        if (await TemplateAccess.ProblemAsync(db, caller, TemplateKind.PatchPolicy, policy.Id, policy.ClientId, false, cancellationToken) is { } accessProblem)
+        {
+            return ServiceResult.Fail(accessProblem);
         }
 
         var now = _time.GetUtcNow().UtcDateTime;

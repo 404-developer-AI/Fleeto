@@ -338,4 +338,29 @@ public sealed class RemoteSessionTokenTests
         Assert.Equal(RemoteSessionTokenHandler.AgentVersionReason, refused.EndReason);
         Assert.Null(refused.TokenSignature);
     }
+
+    [Fact]
+    public async Task Refused_when_the_groups_of_the_user_do_not_give_the_endpoint_or_web_revoked_the_participant()
+    {
+        var (endpoint, technicianId) = await ScopeAsync();
+        var outsider = await _fixture.Database.CreateUserAsync(FleetoRoles.Technician, allClients: false);
+
+        var (_, refused) = await SignAsync(await CreateParticipantAsync(endpoint, outsider.Id));
+        Assert.Equal(RemoteParticipantState.Refused, refused.State);
+        Assert.Equal(RemoteSessionTokenHandler.AccessReason, refused.EndReason);
+
+        await _fixture.Database.CreateGroupAsync(outsider.Id, endpointId: endpoint.Id);
+        var (_, signed) = await SignAsync(await CreateParticipantAsync(endpoint, outsider.Id));
+        Assert.Equal(RemoteParticipantState.Signed, signed.State);
+
+        // A participant web marked as revoked (the user left a group meanwhile) is never signed.
+        var revoked = await CreateParticipantAsync(endpoint, technicianId);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.RemoteSessionParticipants.Where(p => p.Id == revoked.Id).ExecuteUpdateAsync(s => s.SetProperty(p => p.RevokedAt, _fixture.Now));
+        }
+
+        var (_, refusedRevoked) = await SignAsync(revoked);
+        Assert.Equal(RemoteSessionTokenHandler.AccessReason, refusedRevoked.EndReason);
+    }
 }

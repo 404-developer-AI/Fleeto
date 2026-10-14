@@ -14,7 +14,13 @@ namespace Fleeto.Web.Services;
 /// <param name="EntraAccount">The account name of the link, for display.</param>
 /// <param name="HasPassword">False for a linked user, and for an unlinked one that has not been given a password yet.</param>
 public sealed record UserListItem(Guid Id, string Email, string DisplayName, IReadOnlyList<string> Roles, bool TwoFactorEnabled, bool LockedOut,
-    DateTime CreatedAt, DateTime? LastLoginAt, Guid? EntraObjectId = null, string? EntraAccount = null, bool HasPassword = true);
+    DateTime CreatedAt, DateTime? LastLoginAt, Guid? EntraObjectId = null, string? EntraAccount = null, bool HasPassword = true)
+{
+    /// <summary>The groups the user is in (0.6.0), by name; they decide what a user that is not an admin sees.</summary>
+    public IReadOnlyList<UserGroupOption> Groups { get; init; } = [];
+
+    public bool IsAdmin => Roles.Contains(FleetoRoles.Admin);
+}
 
 /// <summary>
 /// User administration (admins only). Every operation runs in its own service scope, so the Identity context is never
@@ -34,13 +40,18 @@ public sealed class UserAdminService
     private readonly IFleetoDbContextFactory _dbFactory;
     private readonly SettingsStore _settings;
     private readonly TimeProvider _time;
+    private readonly INotificationBus _bus;
+    private readonly ILogger<UserAdminService> _logger;
 
-    public UserAdminService(IServiceScopeFactory scopeFactory, IFleetoDbContextFactory dbFactory, SettingsStore settings, TimeProvider time)
+    public UserAdminService(IServiceScopeFactory scopeFactory, IFleetoDbContextFactory dbFactory, SettingsStore settings, TimeProvider time,
+        INotificationBus bus, ILogger<UserAdminService> logger)
     {
         _scopeFactory = scopeFactory;
         _dbFactory = dbFactory;
         _settings = settings;
         _time = time;
+        _bus = bus;
+        _logger = logger;
     }
 
     public async Task<IReadOnlyList<UserListItem>> ListAsync(Caller caller, CancellationToken cancellationToken = default)
@@ -52,9 +63,15 @@ public sealed class UserAdminService
         var roles = await db.UserRoles.AsNoTracking()
             .Join(db.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => new { ur.UserId, r.Name })
             .ToListAsync(cancellationToken);
+        var groups = await db.UserGroupMembers.AsNoTracking()
+            .Join(db.UserGroups, m => m.GroupId, g => g.Id, (m, g) => new { m.UserId, Group = new UserGroupOption(g.Id, g.Name, g.AllClients, g.IsDefault) })
+            .ToListAsync(cancellationToken);
         return users.Select(u => new UserListItem(u.Id, u.Email ?? string.Empty, u.DisplayName,
             roles.Where(r => r.UserId == u.Id).Select(r => r.Name!).OrderBy(r => r).ToList(),
-            u.TwoFactorEnabled, u.LockoutEnd > now, u.CreatedAt, u.LastLoginAt, u.EntraObjectId, u.EntraAccount, u.PasswordHash != null)).ToList();
+            u.TwoFactorEnabled, u.LockoutEnd > now, u.CreatedAt, u.LastLoginAt, u.EntraObjectId, u.EntraAccount, u.PasswordHash != null)
+        {
+            Groups = groups.Where(g => g.UserId == u.Id).Select(g => g.Group).OrderBy(g => g.Name).ToList()
+        }).ToList();
     }
 
     public async Task<ServiceResult<Guid>> CreateAsync(Caller caller, string? email, string? displayName, string? temporaryPassword,
@@ -180,6 +197,8 @@ public sealed class UserAdminService
             new { user.Email, From = current, To = wanted }), now));
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        // An admin sees everything and anyone else what its groups give (0.6.0): a new role can change what the user reaches.
+        await AccessChanges.ApplyAsync(_dbFactory, _bus, _logger, [user.Id], now, cancellationToken);
         return ServiceResult.Ok();
     }
 

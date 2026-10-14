@@ -57,6 +57,7 @@ public sealed class RemoteRelay : BackgroundService
     private int _slotsTotal;
     private readonly PartitionedRateLimiter<string> _connectLimiter;
     private readonly IDisposable _statusSubscription;
+    private readonly IDisposable _accessSubscription;
     private volatile RelayTrust? _trust;
     private volatile bool _ready;
 
@@ -76,6 +77,7 @@ public sealed class RemoteRelay : BackgroundService
         _allowList.Reloaded += OnAllowListReloaded;
         _sessions.RemoteSessionRefused += OnRefused;
         _statusSubscription = _bus.Subscribe(NotificationChannels.EndpointStatus, OnEndpointStatusAsync);
+        _accessSubscription = _bus.Subscribe(NotificationChannels.UserAccess, OnUserAccessAsync);
     }
 
     public int Count => _pairings.Count;
@@ -207,7 +209,7 @@ public sealed class RemoteRelay : BackgroundService
 
         if (participant is null)
         {
-            await FailAsync(browser, "This session token was used before or has expired. Open the session again.");
+            await FailAsync(browser, "This session token was used before, has expired, or your access to the endpoint was removed. Open the session again.");
             return;
         }
 
@@ -735,6 +737,43 @@ public sealed class RemoteRelay : BackgroundService
         }
     }
 
+    private Task OnUserAccessAsync(string payload, CancellationToken cancellationToken) =>
+        payload == NotificationBusEvents.Resync || (Guid.TryParse(payload, out var userId) && _pairings.Values.Any(p => p.Participant.UserId == userId))
+            ? CloseRevokedAsync(cancellationToken)
+            : Task.CompletedTask;
+
+    /// <summary>
+    /// Ends the connections web marked as revoked (0.6.0): the user may no longer reach the endpoint. Also run every minute,
+    /// so a lost notification only delays it.
+    /// </summary>
+    internal async Task CloseRevokedAsync(CancellationToken cancellationToken)
+    {
+        var participantIds = _pairings.Keys.ToArray();
+        if (participantIds.Length == 0)
+        {
+            return;
+        }
+
+        HashSet<Guid> revoked;
+        try
+        {
+            revoked = await _store.ReadRevokedParticipantsAsync(participantIds, cancellationToken);
+        }
+        catch (Exception ex) when (ex is NpgsqlException or TimeoutException)
+        {
+            _logger.LogWarning(ex, "Could not check remote session connections for revoked access");
+            return;
+        }
+
+        foreach (var participantId in revoked)
+        {
+            if (_pairings.TryGetValue(participantId, out var pairing))
+            {
+                pairing.Close("Your access to this endpoint was removed.");
+            }
+        }
+    }
+
     /// <summary>Ends the relays of endpoints whose stored tier is no longer managed, or that were deleted.</summary>
     internal async Task CloseUnmanagedAsync(Guid[] endpointIds, CancellationToken cancellationToken)
     {
@@ -800,6 +839,7 @@ public sealed class RemoteRelay : BackgroundService
             }
 
             await CloseUnmanagedAsync(_pairings.Values.Select(p => p.Participant.EndpointId).Distinct().ToArray(), stoppingToken);
+            await CloseRevokedAsync(stoppingToken);
             if (_time.GetUtcNow() - lastTrust >= TrustReload)
             {
                 try
@@ -830,6 +870,7 @@ public sealed class RemoteRelay : BackgroundService
         _allowList.Reloaded -= OnAllowListReloaded;
         _sessions.RemoteSessionRefused -= OnRefused;
         _statusSubscription.Dispose();
+        _accessSubscription.Dispose();
         _connectLimiter.Dispose();
         base.Dispose();
     }

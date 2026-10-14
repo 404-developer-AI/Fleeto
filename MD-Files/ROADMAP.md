@@ -192,6 +192,16 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   After testing alpha.16 (2026-10-14): saving the backups notifies `fleeto_instance_health` so the workers measure at once,
   and a removed agent in Settings, Agent uninstalls shows "Listed until" (a week after the removal) instead of the expiry.
   The Linux install command starts with `$(command -v sudo)` instead of `sudo`, so it also runs on Proxmox VE (root, no sudo).
+- [done] **Groups of users** (asked for by the developer on 2026-10-14; decided the same day: the role stays on the user, admins
+  are outside groups, an exclude counts only inside its own group, part of a client changes nothing of the client or site as a
+  whole, a shared template only with access to all it is used on, the license tile for admins, the signer checks again, a change
+  takes effect at once, and the update puts every user in "All clients", which a user leaves when added to another group).
+  Done: `UserGroup`, `UserGroupMember`, `UserGroupRule` and `RemoteSessionParticipants.RevokedAt` (migration `UserGroups`),
+  `UserAccessRules` and `UserAccessResolver`, the scope on three levels in the DbContext with the write guard, `TemplateAccess`,
+  `UserGroupService` with Settings, Groups, the groups in Settings, Users with Access per user and Who has access on a client,
+  site or endpoint, `fleeto_user_access`, the signer refusing a job or token the groups no longer give, the gateway ending a
+  revoked participant. To verify on the test VPS: a technician in a group for one site sees only that site and its endpoints,
+  cannot edit the client, and loses an open remote background session when it leaves the group.
 - [done] **Save a script larger than 32 KB** (found by the developer testing alpha.17 on 2026-10-14, a script of 40 KB): the
   Blazor Server connection took at most 32 KB from the browser. `CircuitLimits.MaxReceiveMessageBytes` (1 MiB, four times the
   largest script) is set on the hub.

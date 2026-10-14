@@ -1,7 +1,7 @@
-@* Create a user with a temporary password, or change the roles of a user. *@
+@* Create a user with a temporary password, or change the roles and groups of a user. *@
 <MudDialog>
     <TitleContent>
-        <MudText Typo="Typo.h6">@(Existing is null ? "New user" : $"Roles of {Existing.Email}")</MudText>
+        <MudText Typo="Typo.h6">@(Existing is null ? "New user" : $"Roles and groups of {Existing.Email}")</MudText>
     </TitleContent>
     <DialogContent>
         @if (Existing is null)
@@ -16,15 +16,47 @@
         }
         <MudText Typo="Typo.subtitle2" Class="mb-1">Roles</MudText>
         <MudCheckBox T="bool" Value="@_roles.Contains(FleetoRoles.Admin)" ValueChanged="@(v => Toggle(FleetoRoles.Admin, v))" Color="Color.Primary"
-                     Label="Admin: everything, including Settings" />
+                     Label="Admin: everything on every client, including Settings" />
         <MudCheckBox T="bool" Value="@_roles.Contains(FleetoRoles.Technician)" ValueChanged="@(v => Toggle(FleetoRoles.Technician, v))" Color="Color.Primary"
-                     Label="Technician: manage clients, sites, endpoints, templates and alerts" />
+                     Label="Technician: manage the clients, sites and endpoints of their groups, templates and alerts" />
         <MudCheckBox T="bool" Value="@_roles.Contains(FleetoRoles.ReadOnly)" ValueChanged="@(v => Toggle(FleetoRoles.ReadOnly, v))" Color="Color.Primary"
-                     Label="Read-only: view everything outside Settings" />
+                     Label="Read-only: view what their groups give, outside Settings" />
+
+        <MudText Typo="Typo.subtitle2" Class="mt-4 mb-1">Groups</MudText>
+        @if (_roles.Contains(FleetoRoles.Admin))
+        {
+            <MudText Typo="Typo.body2" Class="muted">An admin sees every client. Groups do not apply.</MudText>
+        }
+        else if (Groups.Count == 0)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true">
+                There are no groups yet, so this user would see no clients. Create a group in Settings, Groups.
+            </MudAlert>
+        }
+        else
+        {
+            @foreach (var group in Groups)
+            {
+                <MudCheckBox T="bool" Value="@_groups.Contains(group.Id)" ValueChanged="@(v => ToggleGroup(group.Id, v))" Color="Color.Primary"
+                             Label="@GroupLabel(group)" />
+            }
+            @if (_groups.Count == 0)
+            {
+                <MudText Typo="Typo.caption" Class="d-block mt-1" Style="color:var(--mud-palette-warning-darken)">
+                    Without a group this user sees no clients.
+                </MudText>
+            }
+            else if (DefaultDropped)
+            {
+                <MudText Typo="Typo.caption" Class="muted d-block mt-1">
+                    The user leaves the group @Groups.First(g => g.IsDefault).Name, because it is put in another group.
+                </MudText>
+            }
+        }
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">@(Existing is null ? "Create user" : "Save roles")</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">@(Existing is null ? "Create user" : "Save")</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -34,22 +66,37 @@
 
     [Parameter] public UserListItem? Existing { get; set; }
 
-    /// <summary>Email, name, password (unused when editing) and roles.</summary>
-    [Parameter] public Func<string, string, string, IReadOnlyCollection<string>, Task<bool>> OnSubmit { get; set; } = (_, _, _, _) => Task.FromResult(true);
+    /// <summary>Every group, to choose from (0.6.0).</summary>
+    [Parameter] public IReadOnlyList<UserGroupOption> Groups { get; set; } = [];
+
+    /// <summary>Email, name, password (unused when editing), roles and groups (empty for an admin).</summary>
+    [Parameter] public Func<string, string, string, IReadOnlyCollection<string>, IReadOnlyCollection<Guid>, Task<bool>> OnSubmit { get; set; } =
+        (_, _, _, _, _) => Task.FromResult(true);
 
     private string _displayName = string.Empty;
     private string _email = string.Empty;
     private string _password = string.Empty;
     private HashSet<string> _roles = [FleetoRoles.Technician];
+    private HashSet<Guid> _groups = [];
+    private HashSet<Guid> _initialGroups = [];
     private bool _busy;
+
+    /// <summary>The default group is chosen, and so is a group the user was not in yet: the service drops the default one.</summary>
+    private bool DefaultDropped => Groups.FirstOrDefault(g => g.IsDefault) is { } fallback && _groups.Contains(fallback.Id) &&
+                                   Groups.Any(g => !g.IsDefault && _groups.Contains(g.Id) && !_initialGroups.Contains(g.Id));
 
     protected override void OnInitialized()
     {
         if (Existing is not null)
         {
             _roles = Existing.Roles.ToHashSet();
+            _groups = Existing.Groups.Select(g => g.Id).ToHashSet();
+            _initialGroups = [.. _groups];
         }
     }
+
+    private static string GroupLabel(UserGroupOption group) =>
+        group.Name + (group.AllClients ? " (every client)" : string.Empty);
 
     private void Toggle(string role, bool selected)
     {
@@ -63,6 +110,18 @@
         }
     }
 
+    private void ToggleGroup(Guid groupId, bool selected)
+    {
+        if (selected)
+        {
+            _groups.Add(groupId);
+        }
+        else
+        {
+            _groups.Remove(groupId);
+        }
+    }
+
     private void Cancel() => MudDialog.Cancel();
 
     private async Task SubmitAsync()
@@ -70,7 +129,8 @@
         _busy = true;
         try
         {
-            if (await OnSubmit(_email, _displayName, _password, _roles.ToList()))
+            var groups = _roles.Contains(FleetoRoles.Admin) ? [] : _groups.ToList();
+            if (await OnSubmit(_email, _displayName, _password, _roles.ToList(), groups))
             {
                 _password = string.Empty;
                 MudDialog.Close(DialogResult.Ok(true));

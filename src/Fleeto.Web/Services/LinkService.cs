@@ -134,6 +134,17 @@ public sealed class LinkService
             return ServiceResult.NotFound(level.ToString().ToLowerInvariant());
         }
 
+        // The links of a client or site apply to all of it, so they need all of it (0.6.0).
+        if (level == LinkLevel.Client && !caller.HasWholeClient(target.ClientId))
+        {
+            return ServiceResult.Fail(ServiceResult.WholeClientProblem);
+        }
+
+        if (level == LinkLevel.Site && !caller.HasWholeSite(target.ClientId, id))
+        {
+            return ServiceResult.Fail(ServiceResult.WholeSiteProblem);
+        }
+
         var chain = await ChainAsync(db, target, cancellationToken);
         var own = chain.Of(level);
         var clientId = target.ClientId;

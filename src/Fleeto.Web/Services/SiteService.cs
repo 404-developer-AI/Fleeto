@@ -130,6 +130,12 @@ public sealed class SiteService
             return ServiceResult<Guid>.Fail(problem);
         }
 
+        // A new site belongs to the client as a whole (0.6.0).
+        if (caller.Scope.SeesClient(clientId) && !caller.HasWholeClient(clientId))
+        {
+            return ServiceResult<Guid>.Fail(ServiceResult.WholeClientProblem);
+        }
+
         await using var db = _dbFactory.Create(caller.Scope);
         if (!await db.Clients.AnyAsync(c => c.Id == clientId, cancellationToken))
         {
@@ -188,9 +194,15 @@ public sealed class SiteService
             return ServiceResult.NotFound("site");
         }
 
-        // A site from a client template can be renamed: the template follows it by id, not by name.
+        if (!caller.HasWholeSite(site.ClientId, site.Id))
+        {
+            return ServiceResult.Fail(ServiceResult.WholeSiteProblem);
+        }
+
+        // A site from a client template can be renamed: the template follows it by id, not by name. The names of sites the
+        // caller does not see count too (0.6.0).
         var cleanName = name!.Trim();
-        if (await db.Sites.AnyAsync(s => s.ClientId == site.ClientId && s.Id != siteId && s.Name.ToLower() == cleanName.ToLower(), cancellationToken))
+        if (await db.Sites.IgnoreQueryFilters().AnyAsync(s => s.ClientId == site.ClientId && s.Id != siteId && s.Name.ToLower() == cleanName.ToLower(), cancellationToken))
         {
             return ServiceResult.Fail($"This client already has a site named {cleanName}. Choose another name.");
         }
@@ -225,6 +237,11 @@ public sealed class SiteService
             return ServiceResult.NotFound("site");
         }
 
+        if (!caller.HasWholeSite(site.ClientId, site.Id))
+        {
+            return ServiceResult.Fail(ServiceResult.WholeSiteProblem);
+        }
+
         if (await db.Endpoints.AnyAsync(e => e.SiteId == siteId, cancellationToken))
         {
             return ServiceResult.Fail("Move or delete the endpoints of this site first.");
@@ -236,7 +253,7 @@ public sealed class SiteService
             return ServiceResult.Fail("This site comes from the client template and would be created again. Remove it from the client template, or detach the client first.");
         }
 
-        if (await db.Sites.CountAsync(s => s.ClientId == site.ClientId, cancellationToken) <= 1)
+        if (await db.Sites.IgnoreQueryFilters().CountAsync(s => s.ClientId == site.ClientId, cancellationToken) <= 1)
         {
             return ServiceResult.Fail("A client needs at least one site. Create another site before deleting this one.");
         }

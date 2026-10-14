@@ -23,6 +23,7 @@ public sealed class LiveUpdates : IDisposable
         _subscriptions.Add(bus.Subscribe(NotificationChannels.PatchDeployments, (payload, _) => Raise(PatchDeploymentsChanged, payload)));
         _subscriptions.Add(bus.Subscribe(NotificationChannels.StorageScans, (payload, _) => Raise(StorageScansChanged, payload)));
         _subscriptions.Add(bus.Subscribe(NotificationChannels.PatchRequests, (payload, _) => Raise(PatchRequestsChanged, payload)));
+        _subscriptions.Add(bus.Subscribe(NotificationChannels.UserAccess, (payload, _) => Raise(UserAccessChanged, payload)));
     }
 
     /// <summary>Payload: endpoint id, or <see cref="Guid.Empty"/> after a resync.</summary>
@@ -51,6 +52,12 @@ public sealed class LiveUpdates : IDisposable
     /// resync. Not an endpoint id, so a page reloads its own patch state rather than matching on it.
     /// </summary>
     public event Action<Guid>? PatchRequestsChanged;
+
+    /// <summary>
+    /// Payload: the id of a user whose groups or role changed (0.6.0), or <see cref="Guid.Empty"/> after a resync. The layout
+    /// reloads the open pages of that user, so they show only what it may still reach.
+    /// </summary>
+    public event Action<Guid>? UserAccessChanged;
 
     private Task Raise(Action<Guid>? handlers, string payload)
     {

@@ -77,6 +77,12 @@ public sealed class TagService
             return ServiceResult.Fail(problem);
         }
 
+        // The tags are of the client as a whole (0.6.0).
+        if (caller.Scope.SeesClient(clientId) && !caller.HasWholeClient(clientId))
+        {
+            return ServiceResult.Fail(ServiceResult.WholeClientProblem);
+        }
+
         // Two technicians can create the same new tag at the same moment: the second one finds it on the next attempt.
         for (var attempt = 1; ; attempt++)
         {

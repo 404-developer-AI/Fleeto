@@ -33,6 +33,11 @@ public static class DatabaseGrants
             ["AspNetUserLogins"] = Grants(web: ReadWrite),
             ["AspNetUserTokens"] = Grants(web: ReadWrite),
             ["AspNetRoleClaims"] = Grants(web: ReadWrite),
+            // Groups of users (0.6.0): admins manage them in web; the signer reads them to check that the user behind a job or
+            // a remote session token may still reach the endpoint.
+            ["UserGroups"] = Grants(web: ReadWrite, signer: Read),
+            ["UserGroupMembers"] = Grants(web: ReadWrite, signer: Read),
+            ["UserGroupRules"] = Grants(web: ReadWrite, signer: Read),
 
             ["Clients"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             // Tags on clients (0.6.0): only the UI and the public API read them.

@@ -100,6 +100,14 @@ the API and the database follows it.
   workstation, wherever it is linked, and the other way round; the default policy is for every endpoint. A client or site
   holds one policy and one patch policy for every endpoint, or, with "Different for servers and workstations", one for
   servers and one for workstations; within a level the one for the class wins. An endpoint has one, for its own class.
+- **Groups of users** (decided 2026-10-14, 0.6.0): a group gives access to every client, also the ones created later, except
+  the clients, sites and endpoints it excludes, or to the clients, sites and endpoints it includes (with everything under them,
+  also what is added later) minus what it excludes. A user that is not an admin sees what its groups give together and nothing
+  without a group; an exclude counts only inside its own group. The role stays on the user; admins are outside groups and see
+  everything. Part of a client lets a user manage those endpoints, never the client or a site as a whole, and a shared
+  template, policy or patch policy only with access to everything it is used on. Enforced in the data layer and again by the
+  signer; a change takes effect at once (pages reload, remote session connections to what was lost end). The update put every
+  user in the default group "All clients", which a user leaves when added to another group.
 - **Endpoint**: a machine with a Fleeto agent. Each endpoint has a **class**: `workstation` or
   `server`, derived from the OS edition and overridable by hand, and a **license tier**
   (see Licensing). Hypervisor hosts and VMs discovered through Proxmox or vCenter appear as
@@ -171,7 +179,7 @@ UI structure:
 - **Settings**: opened from the settings button in the sidebar footer. One workspace like
   Clients: left, a settings panel; right, the selected page. Group **Templates** (client
   templates, monitoring templates, policies, patch policies) for every user, and the administration pages for
-  admins: users and roles, tags, licensing, API keys, integrations, notification channels, retention,
+  admins: users and roles, groups, tags, licensing, API keys, integrations, notification channels, retention,
   audit log, instance health.
 
 ## Licensing: per endpoint, two tiers
@@ -472,7 +480,7 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
 - **Web/API**: 2FA (TOTP) for all local users and MFA through Entra ID for linked users (see Sign-in and two-factor
   authentication), session hardening, per-endpoint rate limiting, strict input validation, parameterized queries only, CSP with a nonce and without unsafe-inline for scripts (styles need `'unsafe-inline'` because MudBlazor renders inline style attributes). API keys hashed at rest, scoped, revocable.
 - **Least privilege**: containers run as non-root, read-only filesystems where possible, no Docker socket exposure to app containers, one database role per container. Instances on the same VPS share nothing but the host proxy: separate networks, volumes and secrets. The host proxy is not secret-free: it holds the TLS keys of every instance FQDN on the VPS, so it is pinned, minimally configured and its admin API is local only.
-- **Multi-tenancy discipline**: every query is scoped by client; every client-owned table carries its own `ClientId` (denormalized on purpose, kept consistent by composite foreign keys to the parent); write tests that prove cross-client reads fail. Instances are separate stacks, so cross-instance access is impossible by construction, not by a filter.
+- **Multi-tenancy discipline**: every query is scoped by client; every client-owned table carries its own `ClientId` (denormalized on purpose, kept consistent by composite foreign keys to the parent); write tests that prove cross-client reads fail. Inside a client the same filters limit a user to the sites and endpoints its groups give (0.6.0). Instances are separate stacks, so cross-instance access is impossible by construction, not by a filter.
 - Dependency policy: minimal, well-maintained packages; `dotnet list package --vulnerable` and `govulncheck` in CI; fail the build on known CVEs.
 
 ## Secrets, keys and personal data

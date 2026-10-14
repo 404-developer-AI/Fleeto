@@ -110,6 +110,11 @@ public sealed class MonitoringTemplateService
             return ServiceResult<Guid>.NotFound("client");
         }
 
+        if (TemplateAccess.CreateProblem(db, caller, clientId) is { } accessProblem)
+        {
+            return ServiceResult<Guid>.Fail(accessProblem);
+        }
+
         var cleanName = name!.Trim();
         if (await NameTakenAsync(db, clientId, cleanName, null, cancellationToken))
         {
@@ -157,6 +162,12 @@ public sealed class MonitoringTemplateService
         if (template is null)
         {
             return ServiceResult.NotFound("monitoring template");
+        }
+
+        if (await TemplateAccess.ProblemAsync(db, caller, TemplateKind.MonitoringTemplate, template.Id, template.ClientId, false, cancellationToken)
+            is { } accessProblem)
+        {
+            return ServiceResult.Fail(accessProblem);
         }
 
         var cleanName = name!.Trim();
@@ -279,6 +290,12 @@ public sealed class MonitoringTemplateService
             return ServiceResult<Guid>.NotFound("monitoring template");
         }
 
+        if (await TemplateAccess.ProblemAsync(db, caller, TemplateKind.MonitoringTemplate, template.Id, template.ClientId, false, cancellationToken)
+            is { } accessProblem)
+        {
+            return ServiceResult<Guid>.Fail(accessProblem);
+        }
+
         var now = _time.GetUtcNow().UtcDateTime;
         CheckDefinition check;
         if (checkId is { } id)
@@ -374,6 +391,12 @@ public sealed class MonitoringTemplateService
             return ServiceResult.NotFound("check");
         }
 
+        if (await TemplateAccess.ProblemAsync(db, caller, TemplateKind.MonitoringTemplate, templateId, check.ClientId, false, cancellationToken)
+            is { } accessProblem)
+        {
+            return ServiceResult.Fail(accessProblem);
+        }
+
         if (check.Enabled == enabled)
         {
             return ServiceResult.Ok();
@@ -402,6 +425,12 @@ public sealed class MonitoringTemplateService
         if (check is null)
         {
             return ServiceResult.NotFound("check");
+        }
+
+        if (await TemplateAccess.ProblemAsync(db, caller, TemplateKind.MonitoringTemplate, templateId, check.ClientId, false, cancellationToken)
+            is { } accessProblem)
+        {
+            return ServiceResult.Fail(accessProblem);
         }
 
         var now = _time.GetUtcNow().UtcDateTime;
@@ -437,6 +466,11 @@ public sealed class MonitoringTemplateService
         if (targetClientId is { } clientId && !await db.Clients.AnyAsync(c => c.Id == clientId, cancellationToken))
         {
             return ServiceResult<Guid>.NotFound("client");
+        }
+
+        if (TemplateAccess.CreateProblem(db, caller, targetClientId) is { } accessProblem)
+        {
+            return ServiceResult<Guid>.Fail(accessProblem);
         }
 
         var cleanName = name!.Trim();
@@ -517,6 +551,12 @@ public sealed class MonitoringTemplateService
         if (template is null)
         {
             return ServiceResult.NotFound("monitoring template");
+        }
+
+        if (await TemplateAccess.ProblemAsync(db, caller, TemplateKind.MonitoringTemplate, template.Id, template.ClientId, false, cancellationToken)
+            is { } accessProblem)
+        {
+            return ServiceResult.Fail(accessProblem);
         }
 
         var now = _time.GetUtcNow().UtcDateTime;

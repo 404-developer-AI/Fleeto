@@ -196,9 +196,60 @@ public sealed class TestDatabase : IAsyncDisposable
         return license;
     }
 
-    /// <summary>A user with one role, two-factor on unless stated otherwise.</summary>
+    /// <summary>
+    /// A user with one role, two-factor on unless stated otherwise. A user that is not an admin is put in the default group
+    /// "All clients" (0.6.0), as the update put every existing user, unless <paramref name="allClients"/> is false: then it is
+    /// in no group and sees nothing.
+    /// </summary>
     public async Task<Infrastructure.Identity.ApplicationUser> CreateUserAsync(string role, bool twoFactor = true, DateTimeOffset? lockoutEnd = null,
-        string? displayName = null)
+        string? displayName = null, bool allClients = true)
+    {
+        var user = await CreateUserWithoutGroupAsync(role, twoFactor, lockoutEnd, displayName);
+        if (allClients && role != FleetoRoles.Admin)
+        {
+            await using var db = DbFactory.CreateSystem();
+            var groupId = await db.UserGroups.Where(g => g.IsDefault).Select(g => (Guid?)g.Id).SingleOrDefaultAsync();
+            if (groupId is null)
+            {
+                var now = Time.GetUtcNow().UtcDateTime;
+                var group = new UserGroup
+                {
+                    Id = Guid.NewGuid(), Name = "All clients", NormalizedName = "ALL CLIENTS", AllClients = true, IsDefault = true, CreatedAt = now, UpdatedAt = now
+                };
+                db.UserGroups.Add(group);
+                groupId = group.Id;
+            }
+
+            db.UserGroupMembers.Add(new UserGroupMember { GroupId = groupId.Value, UserId = user.Id, AddedAt = Time.GetUtcNow().UtcDateTime });
+            await db.SaveChangesAsync();
+        }
+
+        return user;
+    }
+
+    /// <summary>A new group (0.6.0) with this user as its only member, including the client, site or endpoint given.</summary>
+    public async Task<Guid> CreateGroupAsync(Guid userId, bool allClients = false, Guid? clientId = null, Guid? siteId = null, Guid? endpointId = null)
+    {
+        await using var db = DbFactory.CreateSystem();
+        var now = Time.GetUtcNow().UtcDateTime;
+        var name = "Group " + Guid.NewGuid().ToString("N")[..8];
+        var group = new UserGroup { Id = Guid.NewGuid(), Name = name, NormalizedName = name.ToUpperInvariant(), AllClients = allClients, CreatedAt = now, UpdatedAt = now };
+        db.UserGroups.Add(group);
+        db.UserGroupMembers.Add(new UserGroupMember { GroupId = group.Id, UserId = userId, AddedAt = now });
+        if (clientId is not null || siteId is not null || endpointId is not null)
+        {
+            db.UserGroupRules.Add(new UserGroupRule
+            {
+                Id = Guid.NewGuid(), GroupId = group.Id, Kind = UserGroupRuleKind.Include, ClientId = clientId, SiteId = siteId, EndpointId = endpointId
+            });
+        }
+
+        await db.SaveChangesAsync();
+        return group.Id;
+    }
+
+    private async Task<Infrastructure.Identity.ApplicationUser> CreateUserWithoutGroupAsync(string role, bool twoFactor, DateTimeOffset? lockoutEnd,
+        string? displayName)
     {
         await using var db = DbFactory.CreateSystem();
         var roleId = await db.Roles.Where(r => r.NormalizedName == role.ToUpperInvariant()).Select(r => r.Id).SingleAsync();

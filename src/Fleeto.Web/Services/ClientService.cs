@@ -256,6 +256,12 @@ public sealed class ClientService
             return ServiceResult<Guid>.Forbidden();
         }
 
+        // A user whose groups do not grow with new clients would not see the client it made (0.6.0).
+        if (!caller.Scope.IncludesNewClients)
+        {
+            return ServiceResult<Guid>.Fail(ServiceResult.NewClientProblem);
+        }
+
         var normalizedCode = ClientCode.Normalize(code);
         if (ClientCode.Validate(normalizedCode) is { } codeProblem)
         {
@@ -295,7 +301,9 @@ public sealed class ClientService
     private async Task<ServiceResult<Guid>> CreateOnceAsync(Caller caller, string normalizedCode, string cleanName, Guid? clientTemplateId,
         List<string> tagNames, CancellationToken cancellationToken)
     {
-        await using var db = _dbFactory.Create(caller.Scope);
+        var clientId = Guid.NewGuid();
+        // A group for all clients gives the new client as a whole, from the moment it exists (0.6.0).
+        await using var db = _dbFactory.Create(caller.Scope is AccessScope scope ? scope.WithNewClient(clientId) : caller.Scope);
         if (await db.Clients.IgnoreQueryFilters().AnyAsync(c => c.Code == normalizedCode, cancellationToken))
         {
             return ServiceResult<Guid>.Fail($"A client with code {normalizedCode} already exists. Choose another code.");
@@ -314,7 +322,7 @@ public sealed class ClientService
         var now = _time.GetUtcNow().UtcDateTime;
         var client = new Client
         {
-            Id = Guid.NewGuid(),
+            Id = clientId,
             Code = normalizedCode,
             Name = cleanName,
             ClientTemplateId = clientTemplateId,
@@ -370,6 +378,11 @@ public sealed class ClientService
             return ServiceResult.Fail("Enter a client name of at most 200 characters.");
         }
 
+        if (caller.Scope.SeesClient(clientId) && !caller.HasWholeClient(clientId))
+        {
+            return ServiceResult.Fail(ServiceResult.WholeClientProblem);
+        }
+
         await using var db = _dbFactory.Create(caller.Scope);
         var client = await db.Clients.SingleOrDefaultAsync(c => c.Id == clientId, cancellationToken);
         if (client is null)
@@ -402,6 +415,11 @@ public sealed class ClientService
         if (!caller.CanManage)
         {
             return ServiceResult.Forbidden();
+        }
+
+        if (caller.Scope.SeesClient(clientId) && !caller.HasWholeClient(clientId))
+        {
+            return ServiceResult.Fail(ServiceResult.WholeClientProblem);
         }
 
         await using var db = _dbFactory.Create(caller.Scope);
@@ -443,6 +461,11 @@ public sealed class ClientService
         if (!caller.CanManage)
         {
             return ServiceResult.Forbidden();
+        }
+
+        if (caller.Scope.SeesClient(clientId) && !caller.HasWholeClient(clientId))
+        {
+            return ServiceResult.Fail(ServiceResult.WholeClientProblem);
         }
 
         await using var db = _dbFactory.Create(caller.Scope);

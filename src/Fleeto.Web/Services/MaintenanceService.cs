@@ -73,6 +73,11 @@ public sealed class MaintenanceService
             return ServiceResult.NotFound(TargetName(target));
         }
 
+        if (WholeProblem(caller, row) is { } wholeProblem)
+        {
+            return ServiceResult.Fail(wholeProblem);
+        }
+
         if (row.Entity is Endpoint endpoint)
         {
             var license = await _licenses.GetStatusAsync(db, cancellationToken);
@@ -122,6 +127,11 @@ public sealed class MaintenanceService
         if (row is null)
         {
             return ServiceResult.NotFound(TargetName(target));
+        }
+
+        if (WholeProblem(caller, row) is { } wholeProblem)
+        {
+            return ServiceResult.Fail(wholeProblem);
         }
 
         var now = _time.GetUtcNow().UtcDateTime;
@@ -179,6 +189,14 @@ public sealed class MaintenanceService
                 return endpoint is null ? null : new Loaded(endpoint, endpoint.ClientId, endpoint.Hostname, endpoint.Maintenance);
         }
     }
+
+    /// <summary>Maintenance of a client or site applies to all of it, so it needs all of it (0.6.0).</summary>
+    private static string? WholeProblem(Caller caller, Loaded row) => row.Entity switch
+    {
+        Client client when !caller.HasWholeClient(client.Id) => ServiceResult.WholeClientProblem,
+        Site site when !caller.HasWholeSite(site.ClientId, site.Id) => ServiceResult.WholeSiteProblem,
+        _ => null
+    };
 
     private static string TargetName(MaintenanceTarget target) => target.ToString().ToLowerInvariant();
 
