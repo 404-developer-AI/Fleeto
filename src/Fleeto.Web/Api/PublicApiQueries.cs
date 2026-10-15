@@ -521,6 +521,7 @@ public sealed class PublicApiQueries
                 JobType.Script => "script",
                 JobType.Action1Agent => "action1_agent_install",
                 JobType.Action1AgentRemoval => "action1_agent_removal",
+                JobType.Restart => "restart",
                 _ => throw Unmapped(j.Type)
             },
             new ApiJobScript(j.ScriptId, j.ScriptVersionId, j.ScriptName, j.ScriptVersionNumber, Map(j.Language), j.ScriptSha256), Map(j.RunAs),

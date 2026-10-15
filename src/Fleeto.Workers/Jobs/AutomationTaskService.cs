@@ -18,13 +18,15 @@ namespace Fleeto.Workers.Jobs;
 /// <item><b>Starts runs</b>: for every enabled task the occurrences of its schedule that passed, the alerts of its chosen checks
 /// that opened and the endpoints switched to managed, each as a run per client with one target per endpoint the task applies to.
 /// A task the workers see for the first time starts counting from now, so nothing from before it existed starts it.</item>
-/// <item><b>Starts jobs</b>: a target whose turn came (the run plus its share of the random delay) gets a job without a user
-/// and a signing request, unless the previous job of the task still runs there (skipped, or waiting until it ended), the
-/// endpoint can no longer run it, or the run expired. fleeto-signer decides again before it signs.</item>
-/// <item><b>Follows the outcome</b>: a job that failed opens an alert of kind Task on its endpoint when the task asks for it,
-/// and a successful one resolves it.</item>
+/// <item><b>Starts the first step</b>: a target whose turn came (the run plus its share of the random delay) gets the job of
+/// the task's first step, without a user, and a signing request, unless a previous run of the task is still busy there (skipped,
+/// or waiting until it ended), the endpoint can no longer run every step, or the run expired. fleeto-signer decides again.</item>
+/// <item><b>Moves on</b> (0.6.0, steps): when the job of a step ended and the step passed (or may fail), the job of the next step
+/// is written at once; otherwise, or after the last step, the run ends on the endpoint. A failed run opens an alert of kind Task
+/// on its endpoint when the task asks for it, naming the step, and a successful one resolves it.</item>
 /// </list>
-/// Runs started by hand are written by web with the user as initiator; this service only follows their outcome.
+/// Runs started by hand are written by web (the run names the user); this service runs their steps like any other run, and
+/// fleeto-signer checks that user's permissions again for every step.
 /// </summary>
 public sealed class AutomationTaskService : WorkerLoop
 {
@@ -46,6 +48,9 @@ public sealed class AutomationTaskService : WorkerLoop
     public const string NoVersionReason = "The script has no version to run.";
     public const string ResolvedReason = "The task ran successfully on this endpoint.";
     public const string ResolvedTaskGoneReason = "The task was deleted or no longer opens an alert when a run fails.";
+    public const string JobGoneReason = "The job of this run was deleted before it ended.";
+    public const string StepsChangedReason = "The steps of the task changed during this run, so it stopped. The next run uses the task as it is now.";
+    public const string SwitchedOffReason = "The task was switched off during this run, so the next step did not start.";
 
     private readonly IFleetoDbContextFactory _dbFactory;
     private readonly INotificationBus _bus;
@@ -89,8 +94,9 @@ public sealed class AutomationTaskService : WorkerLoop
     protected override async Task<bool> RunOnceAsync(CancellationToken cancellationToken)
     {
         await StartRunsAsync(cancellationToken);
-        var started = await StartJobsAsync(cancellationToken);
+        // Runs that ended first: an endpoint where the previous run just ended is free for the next one in the same pass.
         var followed = await FollowOutcomesAsync(cancellationToken);
+        var started = await StartJobsAsync(cancellationToken);
         return started >= BatchSize || followed >= BatchSize;
     }
 
@@ -111,8 +117,7 @@ public sealed class AutomationTaskService : WorkerLoop
 
         var license = await _licenses.GetStatusAsync(db, cancellationToken);
         var states = await db.AutomationTaskStates.ToDictionaryAsync(s => s.AutomationTaskId, cancellationToken);
-        var scriptIds = tasks.Select(t => t.ScriptId).Distinct().ToList();
-        var scripts = await db.Scripts.AsNoTracking().Where(s => scriptIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, cancellationToken);
+        var plans = await TaskPlan.LoadManyAsync(db, tasks, cancellationToken);
         var written = 0;
         var touched = new HashSet<Guid>();
 
@@ -143,14 +148,10 @@ public sealed class AutomationTaskService : WorkerLoop
                 touched.Add(task.Id);
             }
 
-            if (!scripts.TryGetValue(task.ScriptId, out var script))
-            {
-                continue;
-            }
-
-            written += await StartScheduledAsync(db, task, script, state, license, now, cancellationToken);
-            written += await StartForAlertsAsync(db, task, script, state, license, now, cancellationToken);
-            written += await StartForManagedAsync(db, task, script, state, license, now, cancellationToken);
+            var plan = plans[task.Id];
+            written += await StartScheduledAsync(db, task, plan, state, license, now, cancellationToken);
+            written += await StartForAlertsAsync(db, task, plan, state, license, now, cancellationToken);
+            written += await StartForManagedAsync(db, task, plan, state, license, now, cancellationToken);
             if (db.ChangeTracker.HasChanges())
             {
                 touched.Add(task.Id);
@@ -168,7 +169,7 @@ public sealed class AutomationTaskService : WorkerLoop
         return written;
     }
 
-    private static async Task<int> StartScheduledAsync(FleetoDbContext db, AutomationTask task, Script script, AutomationTaskState state,
+    private static async Task<int> StartScheduledAsync(FleetoDbContext db, AutomationTask task, TaskPlan plan, AutomationTaskState state,
         LicenseStatus license, DateTime now, CancellationToken cancellationToken)
     {
         if (task.ScheduleKind == TaskScheduleKind.None)
@@ -199,11 +200,11 @@ public sealed class AutomationTaskService : WorkerLoop
             return 0;
         }
 
-        var endpoints = await AutomationTaskTargets.LoadAsync(db, task, script, license, null, cancellationToken);
+        var endpoints = await AutomationTaskTargets.LoadAsync(db, task, plan, license, null, cancellationToken);
         return await AddRunsAsync(db, task, TaskTrigger.Schedule, occurrence, null, endpoints, state.NextOccurrenceAt, now, cancellationToken);
     }
 
-    private static async Task<int> StartForAlertsAsync(FleetoDbContext db, AutomationTask task, Script script, AutomationTaskState state,
+    private static async Task<int> StartForAlertsAsync(FleetoDbContext db, AutomationTask task, TaskPlan plan, AutomationTaskState state,
         LicenseStatus license, DateTime now, CancellationToken cancellationToken)
     {
         if (task.TriggerCheckIds.Count == 0)
@@ -245,7 +246,7 @@ public sealed class AutomationTaskService : WorkerLoop
                 continue;
             }
 
-            var endpoints = await AutomationTaskTargets.LoadAsync(db, task, script, license, [alert.EndpointId], cancellationToken);
+            var endpoints = await AutomationTaskTargets.LoadAsync(db, task, plan, license, [alert.EndpointId], cancellationToken);
             written += await AddRunsAsync(db, task, TaskTrigger.CheckAlert, alert.OpenedAt, names.GetValueOrDefault(alert.CheckDefinitionId!.Value),
                 endpoints, null, now, cancellationToken);
         }
@@ -253,7 +254,7 @@ public sealed class AutomationTaskService : WorkerLoop
         return written;
     }
 
-    private static async Task<int> StartForManagedAsync(FleetoDbContext db, AutomationTask task, Script script, AutomationTaskState state,
+    private static async Task<int> StartForManagedAsync(FleetoDbContext db, AutomationTask task, TaskPlan plan, AutomationTaskState state,
         LicenseStatus license, DateTime now, CancellationToken cancellationToken)
     {
         if (!task.OnManaged)
@@ -290,7 +291,7 @@ public sealed class AutomationTaskService : WorkerLoop
                 continue;
             }
 
-            var endpoints = await AutomationTaskTargets.LoadAsync(db, task, script, license, [endpoint.Id], cancellationToken);
+            var endpoints = await AutomationTaskTargets.LoadAsync(db, task, plan, license, [endpoint.Id], cancellationToken);
             written += await AddRunsAsync(db, task, TaskTrigger.Managed, endpoint.ManagedSince, null, endpoints, null, now, cancellationToken);
         }
 
@@ -343,7 +344,7 @@ public sealed class AutomationTaskService : WorkerLoop
     // 2. Jobs
     // -----------------------------------------------------------------------------------------------------------------
 
-    /// <summary>Writes the jobs of targets whose turn came. Returns the number of targets handled.</summary>
+    /// <summary>Writes the job of the first step of targets whose turn came. Returns the number of targets handled.</summary>
     public async Task<int> StartJobsAsync(CancellationToken cancellationToken)
     {
         await using var db = _dbFactory.CreateSystem();
@@ -361,8 +362,7 @@ public sealed class AutomationTaskService : WorkerLoop
         var license = await _licenses.GetStatusAsync(db, cancellationToken);
         var taskIds = targets.Select(t => t.AutomationTaskId).Distinct().ToList();
         var tasks = await db.AutomationTasks.AsNoTracking().Where(t => taskIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, cancellationToken);
-        var scriptIds = tasks.Values.Select(t => t.ScriptId).Distinct().ToList();
-        var scripts = await db.Scripts.AsNoTracking().Where(s => scriptIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, cancellationToken);
+        var plans = await TaskPlan.LoadManyAsync(db, tasks.Values.ToList(), cancellationToken);
         var runIds = targets.Select(t => t.RunId).Distinct().ToList();
         var runs = await db.AutomationTaskRuns.AsNoTracking().Where(r => runIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id, cancellationToken);
         var started = new List<Job>();
@@ -370,16 +370,21 @@ public sealed class AutomationTaskService : WorkerLoop
         foreach (var target in targets)
         {
             target.UpdatedAt = now;
-            if (!tasks.TryGetValue(target.AutomationTaskId, out var task) || !task.Enabled || !scripts.TryGetValue(task.ScriptId, out var script) ||
-                !runs.TryGetValue(target.RunId, out var run))
+            if (!tasks.TryGetValue(target.AutomationTaskId, out var task) || !task.Enabled || !runs.TryGetValue(target.RunId, out var run))
             {
                 Skip(target, TaskOffReason);
                 continue;
             }
 
-            var active = await db.Jobs.AsNoTracking()
-                .AnyAsync(j => j.TaskId == task.Id && j.EndpointId == target.EndpointId &&
-                               (j.State == JobState.PendingSignature || j.State == JobState.Queued || j.State == JobState.Running), cancellationToken);
+            var plan = plans[task.Id];
+            // Another run of the task is still busy on the endpoint: one of its steps runs, or the next one is about to start.
+            var runId = target.RunId;
+            var active = await db.AutomationTaskRunTargets.AsNoTracking()
+                             .AnyAsync(t => t.AutomationTaskId == task.Id && t.EndpointId == target.EndpointId && t.RunId != runId &&
+                                            t.State == TaskTargetState.Started && t.FinishedAt == null && t.JobId != null, cancellationToken) ||
+                         await db.Jobs.AsNoTracking()
+                             .AnyAsync(j => j.TaskId == task.Id && j.EndpointId == target.EndpointId && j.TaskRunId != runId &&
+                                            (j.State == JobState.PendingSignature || j.State == JobState.Queued || j.State == JobState.Running), cancellationToken);
             if (now >= target.ValidUntil - TimeSpan.FromMinutes(1))
             {
                 Skip(target, active ? WaitedTooLongReason : ExpiredReason);
@@ -397,7 +402,7 @@ public sealed class AutomationTaskService : WorkerLoop
                 continue;
             }
 
-            var endpoints = await AutomationTaskTargets.LoadAsync(db, task, script, license, [target.EndpointId], cancellationToken);
+            var endpoints = await AutomationTaskTargets.LoadAsync(db, task, plan, license, [target.EndpointId], cancellationToken);
             if (endpoints.Count == 0)
             {
                 Skip(target, NoLongerAppliesReason);
@@ -410,54 +415,22 @@ public sealed class AutomationTaskService : WorkerLoop
                 continue;
             }
 
+            // A run started by hand is the user's own decision; fleeto-signer checks that user again for every step.
             var since = now - AutomationTasks.AutomaticSigningInterval;
-            if (await db.Jobs.AsNoTracking().AnyAsync(j => j.TaskId == task.Id && j.EndpointId == target.EndpointId &&
+            if (run.Trigger != TaskTrigger.Manual &&
+                await db.Jobs.AsNoTracking().AnyAsync(j => j.TaskId == task.Id && j.EndpointId == target.EndpointId && j.TaskRunId != runId &&
                                                            j.InitiatedByUserId == AutomationTasks.AutomaticInitiator && j.CreatedAt > since, cancellationToken))
             {
                 Skip(target, RecentReason);
                 continue;
             }
 
-            var version = script.CurrentVersionId is { } versionId
-                ? await db.ScriptVersions.AsNoTracking().SingleOrDefaultAsync(v => v.Id == versionId, cancellationToken)
-                : null;
-            if (version is null)
+            var (job, reason) = await WriteStepJobAsync(db, task, plan, plan.First, run, target, Min(target.ValidUntil, now + ScriptRules.MaxValidity), now,
+                cancellationToken);
+            if (job is null)
             {
-                Skip(target, NoVersionReason);
+                Skip(target, reason!);
                 continue;
-            }
-
-            var job = new Job
-            {
-                Id = Guid.NewGuid(), ClientId = target.ClientId, EndpointId = target.EndpointId, BatchId = run.Id, Type = JobType.Script,
-                ScriptId = script.Id, ScriptVersionId = version.Id, ScriptName = script.Name, ScriptVersionNumber = version.Number,
-                Language = script.Language, ScriptSha256 = version.Sha256, TimeoutSeconds = version.TimeoutSeconds,
-                // The signer sets the cap of the endpoint's policy; this is the value the job starts with.
-                MaxOutputBytes = ScriptRules.DefaultMaxOutputBytes, RunAs = task.RunAs, TaskId = task.Id, TaskRunId = run.Id,
-                CreatedAt = now, ValidUntil = Min(target.ValidUntil, now + ScriptRules.MaxValidity),
-                InitiatedByUserId = AutomationTasks.AutomaticInitiator, InitiatedByName = run.InitiatedByName
-            };
-
-            // The job first: the database lets the workers ask for a signature only for a job of theirs that already exists.
-            await using (var transaction = await db.Database.BeginTransactionAsync(cancellationToken))
-            {
-                db.Jobs.Add(job);
-                await db.SaveChangesAsync(cancellationToken);
-                target.State = TaskTargetState.Started;
-                target.JobId = job.Id;
-                db.SigningRequests.Add(new SigningRequest
-                {
-                    Id = Guid.NewGuid(), ClientId = job.ClientId, Kind = SigningRequestKind.Job, SubjectId = job.Id, Payload = [],
-                    RequestedBy = "workers:tasks", CreatedAt = now
-                });
-                db.AuditEntries.Add(AuditLog.ToEntry(new AuditRecord(AuditActions.JobCreated, "Job", job.Id.ToString(), job.ClientId,
-                    AuditActorType.System, "fleeto-workers", "fleeto-workers", new
-                    {
-                        EndpointId = job.EndpointId, Task = task.Name, TaskId = task.Id, RunId = run.Id, Trigger = run.Trigger.ToString(),
-                        job.ScriptName, job.ScriptVersionNumber, job.ScriptSha256, job.ValidUntil, RunAs = job.RunAs.ToString()
-                    }), now));
-                await db.SaveChangesAsync(cancellationToken);
-                await transaction.CommitAsync(cancellationToken);
             }
 
             started.Add(job);
@@ -477,6 +450,77 @@ public sealed class AutomationTaskService : WorkerLoop
         return targets.Count;
     }
 
+    /// <summary>
+    /// Writes the job of one step of a run on one endpoint without a user, with its signing request and audit entry, in one
+    /// transaction, and points the target at it. Returns the job, or why it could not be written (a script without a version).
+    /// </summary>
+    private static async Task<(Job? Job, string? Reason)> WriteStepJobAsync(FleetoDbContext db, AutomationTask task, TaskPlan plan, AutomationTaskStep step,
+        AutomationTaskRun run, AutomationTaskRunTarget target, DateTime validUntil, DateTime now, CancellationToken cancellationToken)
+    {
+        var job = new Job
+        {
+            Id = Guid.NewGuid(), ClientId = target.ClientId, EndpointId = target.EndpointId, BatchId = run.Id, TaskId = task.Id, TaskRunId = run.Id,
+            // A step a build before steps knows only as the task itself has no row, and its job no step.
+            TaskStepId = step.Id == Guid.Empty ? null : step.Id,
+            CreatedAt = now, ValidUntil = validUntil, InitiatedByUserId = AutomationTasks.AutomaticInitiator, InitiatedByName = run.InitiatedByName
+        };
+        if (step.Kind == TaskStepKind.Restart)
+        {
+            // Nothing to run: fleeto-signer composes the restart and sets its wait from the step.
+            job.Type = JobType.Restart;
+            job.ScriptName = RestartRules.JobName;
+            job.TimeoutSeconds = RestartRules.TimeoutSeconds(step.RestartWaitMinutes);
+            job.MaxOutputBytes = RestartRules.MaxOutputBytes;
+            job.RunAs = JobRunAs.Service;
+        }
+        else
+        {
+            var script = plan.ScriptOf(step);
+            var version = script?.CurrentVersionId is { } versionId
+                ? await db.ScriptVersions.AsNoTracking().SingleOrDefaultAsync(v => v.Id == versionId, cancellationToken)
+                : null;
+            if (script is null || version is null)
+            {
+                return (null, script is null ? AutomationTaskTargets.ScriptGoneProblem : NoVersionReason);
+            }
+
+            job.Type = JobType.Script;
+            job.ScriptId = script.Id;
+            job.ScriptVersionId = version.Id;
+            job.ScriptName = script.Name;
+            job.ScriptVersionNumber = version.Number;
+            job.Language = script.Language;
+            job.ScriptSha256 = version.Sha256;
+            job.TimeoutSeconds = version.TimeoutSeconds;
+            // The signer sets the cap of the endpoint's policy; this is the value the job starts with.
+            job.MaxOutputBytes = ScriptRules.DefaultMaxOutputBytes;
+            job.RunAs = step.RunAs;
+        }
+
+        // The job first: the database lets the workers ask for a signature only for a job of theirs that already exists.
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        db.Jobs.Add(job);
+        await db.SaveChangesAsync(cancellationToken);
+        target.State = TaskTargetState.Started;
+        target.JobId = job.Id;
+        target.OutcomeHandledAt = null;
+        target.UpdatedAt = now;
+        db.SigningRequests.Add(new SigningRequest
+        {
+            Id = Guid.NewGuid(), ClientId = job.ClientId, Kind = SigningRequestKind.Job, SubjectId = job.Id, Payload = [],
+            RequestedBy = "workers:tasks", CreatedAt = now
+        });
+        db.AuditEntries.Add(AuditLog.ToEntry(new AuditRecord(AuditActions.JobCreated, "Job", job.Id.ToString(), job.ClientId,
+            AuditActorType.System, "fleeto-workers", "fleeto-workers", new
+            {
+                EndpointId = job.EndpointId, Task = task.Name, TaskId = task.Id, RunId = run.Id, Trigger = run.Trigger.ToString(), Step = step.Position,
+                Type = job.Type.ToString(), job.ScriptName, job.ScriptVersionNumber, job.ScriptSha256, job.ValidUntil, RunAs = job.RunAs.ToString()
+            }), now));
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return (job, null);
+    }
+
     private static void Skip(AutomationTaskRunTarget target, string reason)
     {
         target.State = TaskTargetState.Skipped;
@@ -487,26 +531,46 @@ public sealed class AutomationTaskService : WorkerLoop
     // 3. Outcomes
     // -----------------------------------------------------------------------------------------------------------------
 
-    /// <summary>Opens or resolves the alert of a task on an endpoint for every job of a run that ended. Returns the number handled.</summary>
+    /// <summary>
+    /// For every job of a run that ended: starts the next step when the step passed (or may fail), or ends the run on the endpoint
+    /// and opens or resolves its alert. Returns the number handled.
+    /// </summary>
     public async Task<int> FollowOutcomesAsync(CancellationToken cancellationToken)
     {
         await using var db = _dbFactory.CreateSystem();
         var now = Time.GetUtcNow().UtcDateTime;
-        var ended = await (
-                from t in db.AutomationTaskRunTargets
-                join j in db.Jobs on t.JobId equals j.Id
-                where t.JobId != null && t.OutcomeHandledAt == null &&
-                      j.State != JobState.PendingSignature && j.State != JobState.Queued && j.State != JobState.Running
-                orderby j.CompletedAt
-                select new { Target = t, j.State, j.ExitCode, Reason = j.RefusalReason ?? j.Error, j.CompletedAt })
+        // An anonymous projection, so the targets in it are tracked and the changes below are saved.
+        var ended = (await (
+                    from t in db.AutomationTaskRunTargets
+                    join j in db.Jobs on t.JobId equals j.Id
+                    where t.JobId != null && t.OutcomeHandledAt == null &&
+                          j.State != JobState.PendingSignature && j.State != JobState.Queued && j.State != JobState.Running
+                    orderby j.CompletedAt
+                    select new { Target = t, j.TaskStepId, j.State, j.Result, j.ExitCode })
+                .Take(BatchSize)
+                .ToListAsync(cancellationToken))
+            .Select(e => new EndedStep(e.Target, e.TaskStepId, e.State, e.Result, e.ExitCode))
+            .ToList();
+
+        // A run whose job was deleted (retention, a deleted endpoint's jobs) can never move on: it ends.
+        var orphans = await db.AutomationTaskRunTargets
+            .Where(t => t.State == TaskTargetState.Started && t.JobId == null && t.FinishedAt == null)
             .Take(BatchSize)
             .ToListAsync(cancellationToken);
+        foreach (var orphan in orphans)
+        {
+            Finish(orphan, TaskTargetOutcome.Failed, JobGoneReason, now);
+        }
 
         var transitions = new List<AlertTransition>();
+        var started = new List<Job>();
         if (ended.Count > 0)
         {
             var taskIds = ended.Select(e => e.Target.AutomationTaskId).Distinct().ToList();
             var tasks = await db.AutomationTasks.AsNoTracking().Where(t => taskIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, cancellationToken);
+            var plans = await TaskPlan.LoadManyAsync(db, tasks.Values.ToList(), cancellationToken);
+            var runIds = ended.Select(e => e.Target.RunId).Distinct().ToList();
+            var runs = await db.AutomationTaskRuns.AsNoTracking().Where(r => runIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id, cancellationToken);
             var endpointIds = ended.Select(e => e.Target.EndpointId).Distinct().ToList();
             var endpoints = await db.Endpoints.AsNoTracking().Where(e => endpointIds.Contains(e.Id))
                 .ToDictionaryAsync(e => e.Id, e => e.Hostname, cancellationToken);
@@ -516,49 +580,48 @@ public sealed class AutomationTaskService : WorkerLoop
                     .Select(e => e.Id)
                     .ToListAsync(cancellationToken))
                 .ToHashSet();
+            var license = await _licenses.GetStatusAsync(db, cancellationToken);
 
-            // The newest outcome per task and endpoint decides; older ones in the same pass only get marked.
-            foreach (var outcome in ended.OrderBy(e => e.CompletedAt))
+            foreach (var outcome in ended)
             {
-                outcome.Target.OutcomeHandledAt = now;
-                outcome.Target.UpdatedAt = now;
-                if (!tasks.TryGetValue(outcome.Target.AutomationTaskId, out var task) || outcome.State is JobState.Expired or JobState.Cancelled)
+                var target = outcome.Target;
+                target.OutcomeHandledAt = now;
+                target.UpdatedAt = now;
+                if (!tasks.TryGetValue(target.AutomationTaskId, out var task) || !runs.TryGetValue(target.RunId, out var run))
                 {
+                    Finish(target, TaskTargetOutcome.Cancelled, TaskOffReason, now);
                     continue;
                 }
 
-                var target = task.Id.ToString();
-                var open = await db.Alerts.FirstOrDefaultAsync(a => a.EndpointId == outcome.Target.EndpointId && a.Kind == AlertKind.Task &&
-                                                                    a.Target == target && a.State != AlertState.Resolved, cancellationToken)
-                           ?? db.Alerts.Local.FirstOrDefault(a => a.EndpointId == outcome.Target.EndpointId && a.Kind == AlertKind.Task &&
-                                                                  a.Target == target && a.State != AlertState.Resolved);
-                if (outcome.State == JobState.Succeeded)
+                var plan = plans[task.Id];
+                if (plan.Find(outcome.StepId) is not { } step)
                 {
-                    if (open is not null)
+                    Finish(target, TaskTargetOutcome.Failed, StepsChangedReason, now);
+                    continue;
+                }
+
+                if (AutomationTasks.MayContinue(step, outcome.State, outcome.Result, outcome.ExitCode) && plan.After(step) is { } next)
+                {
+                    var reason = !task.Enabled ? SwitchedOffReason : await StartNextAsync(db, task, plan, next, run, target, license, started, now, cancellationToken);
+                    if (reason is null)
                     {
-                        Resolve(open, ResolvedReason, transitions, now);
+                        continue;
                     }
 
+                    // The next step could not start: the run ends here, as failed.
+                    Finish(target, TaskTargetOutcome.Failed, Cut(reason, 500), now);
+                    await AlertAsync(db, task, plan, target, run, endpoints, inMaintenance, transitions, now, cancellationToken, reason);
                     continue;
                 }
 
-                if (!AutomationTasks.IsFailure(outcome.State) || !task.AlertOnFailure || open is not null ||
-                    inMaintenance.Contains(outcome.Target.EndpointId))
+                var result = await ResultOfRunAsync(db, plan, target, cancellationToken);
+                Finish(target, result.Outcome, null, now);
+                if (outcome.State is JobState.Cancelled)
                 {
                     continue;
                 }
 
-                var hostname = endpoints.GetValueOrDefault(outcome.Target.EndpointId, "the endpoint");
-                var alert = new Alert
-                {
-                    Id = Guid.NewGuid(), ClientId = outcome.Target.ClientId, EndpointId = outcome.Target.EndpointId, Kind = AlertKind.Task,
-                    Target = target, Severity = task.AlertSeverity, State = AlertState.Open,
-                    Title = AutomationTasks.FailureTitle(task.Name, hostname, outcome.State, outcome.ExitCode, outcome.Reason),
-                    Detail = Cut($"Task {task.Name}, run {outcome.Target.RunId}. {outcome.Reason}".Trim(), 2000),
-                    OpenedAt = now, UpdatedAt = now
-                };
-                db.Alerts.Add(alert);
-                transitions.Add(new AlertTransition(alert.Id, NotificationEvent.Opened));
+                await AlertAsync(db, task, plan, target, run, endpoints, inMaintenance, transitions, now, cancellationToken, null);
             }
         }
 
@@ -571,14 +634,144 @@ public sealed class AutomationTaskService : WorkerLoop
             Resolve(alert, ResolvedTaskGoneReason, transitions, now);
         }
 
-        var license = await _licenses.GetStatusAsync(db, cancellationToken);
-        var released = await AlertCleanup.ResolveNotManagedAsync(db, AlertKind.Task, license, now, cancellationToken);
+        var licenseNow = await _licenses.GetStatusAsync(db, cancellationToken);
+        var released = await AlertCleanup.ResolveNotManagedAsync(db, AlertKind.Task, licenseNow, now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await _notifier.AddNotificationsAsync(db, transitions, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await AlertCleanup.PublishAsync(_bus, transitions.Select(t => t.AlertId).Concat(released), cancellationToken);
-        return ended.Count;
+        foreach (var endpointId in started.Select(j => j.EndpointId).Distinct())
+        {
+            await _bus.PublishAsync(NotificationChannels.Jobs, endpointId.ToString(), cancellationToken);
+        }
+
+        foreach (var taskId in ended.Select(e => e.Target.AutomationTaskId).Concat(orphans.Select(o => o.AutomationTaskId)).Distinct())
+        {
+            await _bus.PublishAsync(NotificationChannels.Tasks, taskId.ToString(), cancellationToken);
+        }
+
+        return ended.Count + orphans.Count;
     }
+
+    private sealed record EndedStep(AutomationTaskRunTarget Target, Guid? StepId, JobState State, JobResult? Result, int? ExitCode);
+
+    /// <summary>
+    /// Writes the job of the next step, or returns why it cannot start: the endpoint no longer applies or can no longer run every
+    /// step. The endpoint is online (its last job just ended), so the job waits as long as a run by an event may.
+    /// </summary>
+    private static async Task<string?> StartNextAsync(FleetoDbContext db, AutomationTask task, TaskPlan plan, AutomationTaskStep next, AutomationTaskRun run,
+        AutomationTaskRunTarget target, LicenseStatus license, List<Job> started, DateTime now, CancellationToken cancellationToken)
+    {
+        var label = AutomationTasks.StepLabel(next.Position, next.Kind, plan.ScriptOf(next)?.Name);
+        var endpoints = await AutomationTaskTargets.LoadAsync(db, task, plan, license, [target.EndpointId], cancellationToken);
+        if (endpoints.Count == 0)
+        {
+            return $"{Capitalize(label)} did not start: {NoLongerAppliesReason}";
+        }
+
+        if (endpoints[0].Problem is { } problem)
+        {
+            return $"{Capitalize(label)} did not start: {problem}";
+        }
+
+        var (job, reason) = await WriteStepJobAsync(db, task, plan, next, run, target, now + AutomationTasks.NextStepValidity(task), now, cancellationToken);
+        if (job is null)
+        {
+            return $"{Capitalize(label)} did not start: {reason}";
+        }
+
+        started.Add(job);
+        return null;
+    }
+
+    /// <summary>The jobs of a run on one endpoint, each judged by its step: the run succeeded when every step passed.</summary>
+    private static async Task<(TaskTargetOutcome Outcome, IReadOnlyList<(AutomationTaskStep Step, Job Job)> Failed)> ResultOfRunAsync(FleetoDbContext db,
+        TaskPlan plan, AutomationTaskRunTarget target, CancellationToken cancellationToken)
+    {
+        var jobs = await db.Jobs.AsNoTracking().Where(j => j.TaskRunId == target.RunId && j.EndpointId == target.EndpointId)
+            .OrderBy(j => j.CreatedAt).ToListAsync(cancellationToken);
+        var failed = new List<(AutomationTaskStep, Job)>();
+        foreach (var job in jobs)
+        {
+            if (plan.Find(job.TaskStepId) is not { } step)
+            {
+                continue;
+            }
+
+            if (!AutomationTasks.Passed(step, job.State, job.Result, job.ExitCode))
+            {
+                failed.Add((step, job));
+            }
+        }
+
+        var outcome = jobs.Any(j => j.State == JobState.Cancelled) ? TaskTargetOutcome.Cancelled
+            : failed.Count == 0 ? TaskTargetOutcome.Succeeded
+            : TaskTargetOutcome.Failed;
+        return (outcome, failed);
+    }
+
+    /// <summary>
+    /// Opens or resolves the alert of the task on the endpoint for a run that ended. A run that succeeded resolves it. A run that
+    /// failed opens one when the task asks for it, outside maintenance: for a failed, lost or refused job, for an expired job of a
+    /// later step (the endpoint was there for the step before), or when <paramref name="stopReason"/> says the next step did not
+    /// start. An expired first step is a missed run, not a failure.
+    /// </summary>
+    private static async Task AlertAsync(FleetoDbContext db, AutomationTask task, TaskPlan plan, AutomationTaskRunTarget target, AutomationTaskRun run,
+        IReadOnlyDictionary<Guid, string> endpoints, HashSet<Guid> inMaintenance, List<AlertTransition> transitions, DateTime now,
+        CancellationToken cancellationToken, string? stopReason)
+    {
+        var alertTarget = task.Id.ToString();
+        var open = await db.Alerts.FirstOrDefaultAsync(a => a.EndpointId == target.EndpointId && a.Kind == AlertKind.Task &&
+                                                            a.Target == alertTarget && a.State != AlertState.Resolved, cancellationToken)
+                   ?? db.Alerts.Local.FirstOrDefault(a => a.EndpointId == target.EndpointId && a.Kind == AlertKind.Task &&
+                                                          a.Target == alertTarget && a.State != AlertState.Resolved);
+        var (outcome, failed) = await ResultOfRunAsync(db, plan, target, cancellationToken);
+        if (stopReason is null && outcome == TaskTargetOutcome.Succeeded)
+        {
+            if (open is not null)
+            {
+                Resolve(open, ResolvedReason, transitions, now);
+            }
+
+            return;
+        }
+
+        var alertable = failed.LastOrDefault(f => AutomationTasks.IsFailure(f.Job.State) || (f.Job.State == JobState.Expired && f.Step.Position > 1));
+        if ((stopReason is null && alertable.Job is null) || !task.AlertOnFailure || open is not null || inMaintenance.Contains(target.EndpointId))
+        {
+            return;
+        }
+
+        var hostname = endpoints.GetValueOrDefault(target.EndpointId, "the endpoint");
+        var title = alertable.Job is { } job && stopReason is null
+            ? AutomationTasks.FailureTitle(task.Name, hostname, job.State, job.ExitCode, job.RefusalReason ?? job.Error, plan.Label(alertable.Step),
+                alertable.Step.Kind == TaskStepKind.Restart)
+            : Cut($"Task {task.Name} stopped on {hostname}: {stopReason} Open the run on the task to see its output.", 500);
+        var detail = alertable.Job is { } failedJob ? failedJob.RefusalReason ?? failedJob.Error : stopReason;
+        var alert = new Alert
+        {
+            Id = Guid.NewGuid(), ClientId = target.ClientId, EndpointId = target.EndpointId, Kind = AlertKind.Task,
+            Target = alertTarget, Severity = task.AlertSeverity, State = AlertState.Open, Title = title,
+            Detail = Cut($"Task {task.Name}, run {run.Id}. {detail}".Trim(), 2000),
+            OpenedAt = now, UpdatedAt = now
+        };
+        db.Alerts.Add(alert);
+        transitions.Add(new AlertTransition(alert.Id, NotificationEvent.Opened));
+    }
+
+    private static void Finish(AutomationTaskRunTarget target, TaskTargetOutcome outcome, string? reason, DateTime now)
+    {
+        target.FinishedAt = now;
+        target.Outcome = outcome;
+        target.OutcomeHandledAt ??= now;
+        target.UpdatedAt = now;
+        if (reason is not null)
+        {
+            target.Reason = reason;
+        }
+    }
+
+    private static string Capitalize(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
 
     private static void Resolve(Alert alert, string reason, List<AlertTransition> transitions, DateTime now)
     {

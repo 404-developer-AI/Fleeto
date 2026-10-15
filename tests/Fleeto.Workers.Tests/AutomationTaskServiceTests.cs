@@ -94,8 +94,8 @@ public sealed class AutomationTaskServiceTests : IAsyncLifetime
     private async Task PassAsync(AutomationTaskService service)
     {
         await service.StartRunsAsync(CancellationToken.None);
-        await service.StartJobsAsync(CancellationToken.None);
         await service.FollowOutcomesAsync(CancellationToken.None);
+        await service.StartJobsAsync(CancellationToken.None);
     }
 
     private async Task EndJobAsync(Guid jobId, JobState state, int? exitCode)

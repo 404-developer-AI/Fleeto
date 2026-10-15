@@ -265,6 +265,52 @@ public sealed class TestDatabase : IAsyncDisposable
         return (task, script, version);
     }
 
+    /// <summary>
+    /// Gives a task these steps in order (0.6.0, steps), after any it has. A script step without a script gets a new PowerShell
+    /// script of the task's client with one version. Returns the steps.
+    /// </summary>
+    public async Task<IReadOnlyList<AutomationTaskStep>> AddTaskStepsAsync(AutomationTask task, params AutomationTaskStep[] steps)
+    {
+        await using var db = DbFactory.CreateSystem();
+        var position = await db.AutomationTaskSteps.Where(s => s.AutomationTaskId == task.Id).CountAsync();
+        var now = Time.GetUtcNow().UtcDateTime;
+        foreach (var step in steps)
+        {
+            if (step.Kind == TaskStepKind.Script && step.ScriptId is null)
+            {
+                var body = "Write-Output 'step'";
+                var script = new Script
+                {
+                    Id = Guid.NewGuid(), ClientId = task.ClientId, Name = "Step " + Convert.ToHexString(RandomNumberGenerator.GetBytes(3)),
+                    Language = ScriptLanguage.PowerShell, CreatedAt = now, UpdatedAt = now
+                };
+                var version = new ScriptVersion
+                {
+                    Id = Guid.NewGuid(), ScriptId = script.Id, ClientId = task.ClientId, Number = 1, Body = body, Sha256 = Core.Domain.ScriptLanguages.Sha256(body),
+                    TimeoutSeconds = 600, AuthorUserId = Guid.NewGuid(), AuthorName = "Author", CreatedAt = now
+                };
+                script.CurrentVersionId = version.Id;
+                db.Scripts.Add(script);
+                db.ScriptVersions.Add(version);
+                step.ScriptId = script.Id;
+            }
+
+            step.Id = step.Id == Guid.Empty ? Guid.NewGuid() : step.Id;
+            step.AutomationTaskId = task.Id;
+            step.ClientId = task.ClientId;
+            step.Position = ++position;
+            if (step.Kind == TaskStepKind.Restart)
+            {
+                step.RestartWaitMinutes ??= Core.Domain.RestartRules.DefaultWaitMinutes;
+            }
+
+            db.AutomationTaskSteps.Add(step);
+        }
+
+        await db.SaveChangesAsync();
+        return steps;
+    }
+
     /// <summary>A monitoring template for the client or global, linked to <paramref name="linkSite"/> when given.</summary>
     public async Task<MonitoringTemplate> CreateMonitoringTemplateAsync(Guid? clientId = null, Site? linkSite = null,
         CheckAppliesTo appliesTo = CheckAppliesTo.All)

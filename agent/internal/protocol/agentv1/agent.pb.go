@@ -448,6 +448,7 @@ type JobType int32
 const (
 	JobType_JOB_TYPE_UNSPECIFIED JobType = 0
 	JobType_JOB_TYPE_SCRIPT      JobType = 1
+	JobType_JOB_TYPE_RESTART     JobType = 2
 )
 
 // Enum value maps for JobType.
@@ -455,10 +456,12 @@ var (
 	JobType_name = map[int32]string{
 		0: "JOB_TYPE_UNSPECIFIED",
 		1: "JOB_TYPE_SCRIPT",
+		2: "JOB_TYPE_RESTART",
 	}
 	JobType_value = map[string]int32{
 		"JOB_TYPE_UNSPECIFIED": 0,
 		"JOB_TYPE_SCRIPT":      1,
+		"JOB_TYPE_RESTART":     2,
 	}
 )
 
@@ -4234,7 +4237,10 @@ type JobPayload struct {
 	// With JOB_RUN_AS_LOGGED_ON_USER (0.2.2): the user the technician chose, as SignedInUser.id. The script runs in a session of this
 	// user only, the console session first; when the user has no active session the job fails. Empty: the console session first,
 	// else the first active session.
-	RunAsUserId   string `protobuf:"bytes,11,opt,name=run_as_user_id,json=runAsUserId,proto3" json:"run_as_user_id,omitempty"`
+	RunAsUserId string `protobuf:"bytes,11,opt,name=run_as_user_id,json=runAsUserId,proto3" json:"run_as_user_id,omitempty"`
+	// With JOB_TYPE_RESTART (0.6.0): restart the endpoint for a step of a task. The agent runs a fixed command and completes the job
+	// only after the endpoint came back with a newer boot time, or when timeout_seconds passed without a restart.
+	Restart       *RestartJob `protobuf:"bytes,12,opt,name=restart,proto3" json:"restart,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4346,6 +4352,50 @@ func (x *JobPayload) GetRunAsUserId() string {
 	return ""
 }
 
+func (x *JobPayload) GetRestart() *RestartJob {
+	if x != nil {
+		return x.Restart
+	}
+	return nil
+}
+
+// A restart has no input: everything the agent does is fixed in the agent.
+type RestartJob struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RestartJob) Reset() {
+	*x = RestartJob{}
+	mi := &file_agent_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RestartJob) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RestartJob) ProtoMessage() {}
+
+func (x *RestartJob) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RestartJob.ProtoReflect.Descriptor instead.
+func (*RestartJob) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{41}
+}
+
 type ScriptJob struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Language ScriptLanguage         `protobuf:"varint,1,opt,name=language,proto3,enum=fleeto.agent.v1.ScriptLanguage" json:"language,omitempty"`
@@ -4361,7 +4411,7 @@ type ScriptJob struct {
 
 func (x *ScriptJob) Reset() {
 	*x = ScriptJob{}
-	mi := &file_agent_proto_msgTypes[41]
+	mi := &file_agent_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4373,7 +4423,7 @@ func (x *ScriptJob) String() string {
 func (*ScriptJob) ProtoMessage() {}
 
 func (x *ScriptJob) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[41]
+	mi := &file_agent_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4386,7 +4436,7 @@ func (x *ScriptJob) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScriptJob.ProtoReflect.Descriptor instead.
 func (*ScriptJob) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{41}
+	return file_agent_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *ScriptJob) GetLanguage() ScriptLanguage {
@@ -4438,7 +4488,7 @@ type JobStarted struct {
 
 func (x *JobStarted) Reset() {
 	*x = JobStarted{}
-	mi := &file_agent_proto_msgTypes[42]
+	mi := &file_agent_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4450,7 +4500,7 @@ func (x *JobStarted) String() string {
 func (*JobStarted) ProtoMessage() {}
 
 func (x *JobStarted) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[42]
+	mi := &file_agent_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4463,7 +4513,7 @@ func (x *JobStarted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobStarted.ProtoReflect.Descriptor instead.
 func (*JobStarted) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{42}
+	return file_agent_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *JobStarted) GetJobId() string {
@@ -4501,7 +4551,7 @@ type JobOutput struct {
 
 func (x *JobOutput) Reset() {
 	*x = JobOutput{}
-	mi := &file_agent_proto_msgTypes[43]
+	mi := &file_agent_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4513,7 +4563,7 @@ func (x *JobOutput) String() string {
 func (*JobOutput) ProtoMessage() {}
 
 func (x *JobOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[43]
+	mi := &file_agent_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4526,7 +4576,7 @@ func (x *JobOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobOutput.ProtoReflect.Descriptor instead.
 func (*JobOutput) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{43}
+	return file_agent_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *JobOutput) GetJobId() string {
@@ -4570,7 +4620,7 @@ type JobStreamSummary struct {
 
 func (x *JobStreamSummary) Reset() {
 	*x = JobStreamSummary{}
-	mi := &file_agent_proto_msgTypes[44]
+	mi := &file_agent_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4582,7 +4632,7 @@ func (x *JobStreamSummary) String() string {
 func (*JobStreamSummary) ProtoMessage() {}
 
 func (x *JobStreamSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[44]
+	mi := &file_agent_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4595,7 +4645,7 @@ func (x *JobStreamSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobStreamSummary.ProtoReflect.Descriptor instead.
 func (*JobStreamSummary) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{44}
+	return file_agent_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *JobStreamSummary) GetChunks() uint64 {
@@ -4636,7 +4686,7 @@ type JobCompletion struct {
 
 func (x *JobCompletion) Reset() {
 	*x = JobCompletion{}
-	mi := &file_agent_proto_msgTypes[45]
+	mi := &file_agent_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4648,7 +4698,7 @@ func (x *JobCompletion) String() string {
 func (*JobCompletion) ProtoMessage() {}
 
 func (x *JobCompletion) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[45]
+	mi := &file_agent_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4661,7 +4711,7 @@ func (x *JobCompletion) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobCompletion.ProtoReflect.Descriptor instead.
 func (*JobCompletion) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{45}
+	return file_agent_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *JobCompletion) GetJobId() string {
@@ -4733,7 +4783,7 @@ type JobAck struct {
 
 func (x *JobAck) Reset() {
 	*x = JobAck{}
-	mi := &file_agent_proto_msgTypes[46]
+	mi := &file_agent_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4745,7 +4795,7 @@ func (x *JobAck) String() string {
 func (*JobAck) ProtoMessage() {}
 
 func (x *JobAck) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[46]
+	mi := &file_agent_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4758,7 +4808,7 @@ func (x *JobAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobAck.ProtoReflect.Descriptor instead.
 func (*JobAck) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{46}
+	return file_agent_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *JobAck) GetJobId() string {
@@ -4808,7 +4858,7 @@ type WatchdogCertificateRequest struct {
 
 func (x *WatchdogCertificateRequest) Reset() {
 	*x = WatchdogCertificateRequest{}
-	mi := &file_agent_proto_msgTypes[47]
+	mi := &file_agent_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4820,7 +4870,7 @@ func (x *WatchdogCertificateRequest) String() string {
 func (*WatchdogCertificateRequest) ProtoMessage() {}
 
 func (x *WatchdogCertificateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[47]
+	mi := &file_agent_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4833,7 +4883,7 @@ func (x *WatchdogCertificateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchdogCertificateRequest.ProtoReflect.Descriptor instead.
 func (*WatchdogCertificateRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{47}
+	return file_agent_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *WatchdogCertificateRequest) GetCsrDer() []byte {
@@ -4871,7 +4921,7 @@ type WatchdogCertificateResponse struct {
 
 func (x *WatchdogCertificateResponse) Reset() {
 	*x = WatchdogCertificateResponse{}
-	mi := &file_agent_proto_msgTypes[48]
+	mi := &file_agent_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4883,7 +4933,7 @@ func (x *WatchdogCertificateResponse) String() string {
 func (*WatchdogCertificateResponse) ProtoMessage() {}
 
 func (x *WatchdogCertificateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[48]
+	mi := &file_agent_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4896,7 +4946,7 @@ func (x *WatchdogCertificateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchdogCertificateResponse.ProtoReflect.Descriptor instead.
 func (*WatchdogCertificateResponse) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{48}
+	return file_agent_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *WatchdogCertificateResponse) GetCertificateDer() []byte {
@@ -4936,7 +4986,7 @@ type UpdateOffer struct {
 
 func (x *UpdateOffer) Reset() {
 	*x = UpdateOffer{}
-	mi := &file_agent_proto_msgTypes[49]
+	mi := &file_agent_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4948,7 +4998,7 @@ func (x *UpdateOffer) String() string {
 func (*UpdateOffer) ProtoMessage() {}
 
 func (x *UpdateOffer) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[49]
+	mi := &file_agent_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4961,7 +5011,7 @@ func (x *UpdateOffer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateOffer.ProtoReflect.Descriptor instead.
 func (*UpdateOffer) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{49}
+	return file_agent_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *UpdateOffer) GetManifest() []byte {
@@ -5005,7 +5055,7 @@ type UpdateStatus struct {
 
 func (x *UpdateStatus) Reset() {
 	*x = UpdateStatus{}
-	mi := &file_agent_proto_msgTypes[50]
+	mi := &file_agent_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5017,7 +5067,7 @@ func (x *UpdateStatus) String() string {
 func (*UpdateStatus) ProtoMessage() {}
 
 func (x *UpdateStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[50]
+	mi := &file_agent_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5030,7 +5080,7 @@ func (x *UpdateStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateStatus.ProtoReflect.Descriptor instead.
 func (*UpdateStatus) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{50}
+	return file_agent_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *UpdateStatus) GetComponent() Component {
@@ -5089,7 +5139,7 @@ type SignedRemoteSession struct {
 
 func (x *SignedRemoteSession) Reset() {
 	*x = SignedRemoteSession{}
-	mi := &file_agent_proto_msgTypes[51]
+	mi := &file_agent_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5101,7 +5151,7 @@ func (x *SignedRemoteSession) String() string {
 func (*SignedRemoteSession) ProtoMessage() {}
 
 func (x *SignedRemoteSession) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[51]
+	mi := &file_agent_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5114,7 +5164,7 @@ func (x *SignedRemoteSession) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedRemoteSession.ProtoReflect.Descriptor instead.
 func (*SignedRemoteSession) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{51}
+	return file_agent_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *SignedRemoteSession) GetPayload() []byte {
@@ -5180,7 +5230,7 @@ type RemoteSessionToken struct {
 
 func (x *RemoteSessionToken) Reset() {
 	*x = RemoteSessionToken{}
-	mi := &file_agent_proto_msgTypes[52]
+	mi := &file_agent_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5192,7 +5242,7 @@ func (x *RemoteSessionToken) String() string {
 func (*RemoteSessionToken) ProtoMessage() {}
 
 func (x *RemoteSessionToken) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[52]
+	mi := &file_agent_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5205,7 +5255,7 @@ func (x *RemoteSessionToken) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteSessionToken.ProtoReflect.Descriptor instead.
 func (*RemoteSessionToken) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{52}
+	return file_agent_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *RemoteSessionToken) GetParticipantId() string {
@@ -5344,7 +5394,7 @@ type RemoteSessionOffer struct {
 
 func (x *RemoteSessionOffer) Reset() {
 	*x = RemoteSessionOffer{}
-	mi := &file_agent_proto_msgTypes[53]
+	mi := &file_agent_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5356,7 +5406,7 @@ func (x *RemoteSessionOffer) String() string {
 func (*RemoteSessionOffer) ProtoMessage() {}
 
 func (x *RemoteSessionOffer) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[53]
+	mi := &file_agent_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5369,7 +5419,7 @@ func (x *RemoteSessionOffer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteSessionOffer.ProtoReflect.Descriptor instead.
 func (*RemoteSessionOffer) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{53}
+	return file_agent_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *RemoteSessionOffer) GetSession() *SignedRemoteSession {
@@ -5391,7 +5441,7 @@ type RemoteSessionRefused struct {
 
 func (x *RemoteSessionRefused) Reset() {
 	*x = RemoteSessionRefused{}
-	mi := &file_agent_proto_msgTypes[54]
+	mi := &file_agent_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5403,7 +5453,7 @@ func (x *RemoteSessionRefused) String() string {
 func (*RemoteSessionRefused) ProtoMessage() {}
 
 func (x *RemoteSessionRefused) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[54]
+	mi := &file_agent_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5416,7 +5466,7 @@ func (x *RemoteSessionRefused) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteSessionRefused.ProtoReflect.Descriptor instead.
 func (*RemoteSessionRefused) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{54}
+	return file_agent_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *RemoteSessionRefused) GetParticipantId() string {
@@ -5453,7 +5503,7 @@ type RemoteSessionActionReport struct {
 
 func (x *RemoteSessionActionReport) Reset() {
 	*x = RemoteSessionActionReport{}
-	mi := &file_agent_proto_msgTypes[55]
+	mi := &file_agent_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5465,7 +5515,7 @@ func (x *RemoteSessionActionReport) String() string {
 func (*RemoteSessionActionReport) ProtoMessage() {}
 
 func (x *RemoteSessionActionReport) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[55]
+	mi := &file_agent_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5478,7 +5528,7 @@ func (x *RemoteSessionActionReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteSessionActionReport.ProtoReflect.Descriptor instead.
 func (*RemoteSessionActionReport) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{55}
+	return file_agent_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *RemoteSessionActionReport) GetParticipantId() string {
@@ -5534,7 +5584,7 @@ type RelayEndpointHello struct {
 
 func (x *RelayEndpointHello) Reset() {
 	*x = RelayEndpointHello{}
-	mi := &file_agent_proto_msgTypes[56]
+	mi := &file_agent_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5546,7 +5596,7 @@ func (x *RelayEndpointHello) String() string {
 func (*RelayEndpointHello) ProtoMessage() {}
 
 func (x *RelayEndpointHello) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[56]
+	mi := &file_agent_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5559,7 +5609,7 @@ func (x *RelayEndpointHello) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayEndpointHello.ProtoReflect.Descriptor instead.
 func (*RelayEndpointHello) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{56}
+	return file_agent_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *RelayEndpointHello) GetParticipantId() string {
@@ -5604,7 +5654,7 @@ type SignedUninstall struct {
 
 func (x *SignedUninstall) Reset() {
 	*x = SignedUninstall{}
-	mi := &file_agent_proto_msgTypes[57]
+	mi := &file_agent_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5616,7 +5666,7 @@ func (x *SignedUninstall) String() string {
 func (*SignedUninstall) ProtoMessage() {}
 
 func (x *SignedUninstall) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[57]
+	mi := &file_agent_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5629,7 +5679,7 @@ func (x *SignedUninstall) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedUninstall.ProtoReflect.Descriptor instead.
 func (*SignedUninstall) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{57}
+	return file_agent_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *SignedUninstall) GetPayload() []byte {
@@ -5669,7 +5719,7 @@ type UninstallCommand struct {
 
 func (x *UninstallCommand) Reset() {
 	*x = UninstallCommand{}
-	mi := &file_agent_proto_msgTypes[58]
+	mi := &file_agent_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5681,7 +5731,7 @@ func (x *UninstallCommand) String() string {
 func (*UninstallCommand) ProtoMessage() {}
 
 func (x *UninstallCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[58]
+	mi := &file_agent_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5694,7 +5744,7 @@ func (x *UninstallCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UninstallCommand.ProtoReflect.Descriptor instead.
 func (*UninstallCommand) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{58}
+	return file_agent_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *UninstallCommand) GetUninstallId() string {
@@ -5742,7 +5792,7 @@ type UninstallAccepted struct {
 
 func (x *UninstallAccepted) Reset() {
 	*x = UninstallAccepted{}
-	mi := &file_agent_proto_msgTypes[59]
+	mi := &file_agent_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5754,7 +5804,7 @@ func (x *UninstallAccepted) String() string {
 func (*UninstallAccepted) ProtoMessage() {}
 
 func (x *UninstallAccepted) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[59]
+	mi := &file_agent_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5767,7 +5817,7 @@ func (x *UninstallAccepted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UninstallAccepted.ProtoReflect.Descriptor instead.
 func (*UninstallAccepted) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{59}
+	return file_agent_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *UninstallAccepted) GetUninstallId() string {
@@ -5787,7 +5837,7 @@ type Disconnect struct {
 
 func (x *Disconnect) Reset() {
 	*x = Disconnect{}
-	mi := &file_agent_proto_msgTypes[60]
+	mi := &file_agent_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5799,7 +5849,7 @@ func (x *Disconnect) String() string {
 func (*Disconnect) ProtoMessage() {}
 
 func (x *Disconnect) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[60]
+	mi := &file_agent_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5812,7 +5862,7 @@ func (x *Disconnect) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Disconnect.ProtoReflect.Descriptor instead.
 func (*Disconnect) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{60}
+	return file_agent_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *Disconnect) GetCode() DisconnectCode {
@@ -6094,7 +6144,7 @@ const file_agent_proto_rawDesc = "" +
 	"\tSignedJob\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\fR\tsignature\x12\x15\n" +
-	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\xd1\x03\n" +
+	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\x88\x04\n" +
 	"\n" +
 	"JobPayload\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x1f\n" +
@@ -6111,7 +6161,10 @@ const file_agent_proto_rawDesc = "" +
 	"\x06script\x18\t \x01(\v2\x1a.fleeto.agent.v1.ScriptJobR\x06script\x120\n" +
 	"\x06run_as\x18\n" +
 	" \x01(\x0e2\x19.fleeto.agent.v1.JobRunAsR\x05runAs\x12#\n" +
-	"\x0erun_as_user_id\x18\v \x01(\tR\vrunAsUserId\"\xa2\x01\n" +
+	"\x0erun_as_user_id\x18\v \x01(\tR\vrunAsUserId\x125\n" +
+	"\arestart\x18\f \x01(\v2\x1b.fleeto.agent.v1.RestartJobR\arestart\"\f\n" +
+	"\n" +
+	"RestartJob\"\xa2\x01\n" +
 	"\tScriptJob\x12;\n" +
 	"\blanguage\x18\x01 \x01(\x0e2\x1f.fleeto.agent.v1.ScriptLanguageR\blanguage\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
@@ -6272,10 +6325,11 @@ const file_agent_proto_rawDesc = "" +
 	"\bJobRunAs\x12\x1a\n" +
 	"\x16JOB_RUN_AS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_RUN_AS_SERVICE\x10\x01\x12\x1d\n" +
-	"\x19JOB_RUN_AS_LOGGED_ON_USER\x10\x02*8\n" +
+	"\x19JOB_RUN_AS_LOGGED_ON_USER\x10\x02*N\n" +
 	"\aJobType\x12\x18\n" +
 	"\x14JOB_TYPE_UNSPECIFIED\x10\x00\x12\x13\n" +
-	"\x0fJOB_TYPE_SCRIPT\x10\x01*\xa1\x01\n" +
+	"\x0fJOB_TYPE_SCRIPT\x10\x01\x12\x14\n" +
+	"\x10JOB_TYPE_RESTART\x10\x02*\xa1\x01\n" +
 	"\x0eScriptLanguage\x12\x1f\n" +
 	"\x1bSCRIPT_LANGUAGE_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aSCRIPT_LANGUAGE_POWERSHELL\x10\x01\x12\x19\n" +
@@ -6339,7 +6393,7 @@ func file_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 15)
-var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 62)
+var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 63)
 var file_agent_proto_goTypes = []any{
 	(Component)(0),                      // 0: fleeto.agent.v1.Component
 	(ServiceState)(0),                   // 1: fleeto.agent.v1.ServiceState
@@ -6397,28 +6451,29 @@ var file_agent_proto_goTypes = []any{
 	(*ConfigApplied)(nil),               // 53: fleeto.agent.v1.ConfigApplied
 	(*SignedJob)(nil),                   // 54: fleeto.agent.v1.SignedJob
 	(*JobPayload)(nil),                  // 55: fleeto.agent.v1.JobPayload
-	(*ScriptJob)(nil),                   // 56: fleeto.agent.v1.ScriptJob
-	(*JobStarted)(nil),                  // 57: fleeto.agent.v1.JobStarted
-	(*JobOutput)(nil),                   // 58: fleeto.agent.v1.JobOutput
-	(*JobStreamSummary)(nil),            // 59: fleeto.agent.v1.JobStreamSummary
-	(*JobCompletion)(nil),               // 60: fleeto.agent.v1.JobCompletion
-	(*JobAck)(nil),                      // 61: fleeto.agent.v1.JobAck
-	(*WatchdogCertificateRequest)(nil),  // 62: fleeto.agent.v1.WatchdogCertificateRequest
-	(*WatchdogCertificateResponse)(nil), // 63: fleeto.agent.v1.WatchdogCertificateResponse
-	(*UpdateOffer)(nil),                 // 64: fleeto.agent.v1.UpdateOffer
-	(*UpdateStatus)(nil),                // 65: fleeto.agent.v1.UpdateStatus
-	(*SignedRemoteSession)(nil),         // 66: fleeto.agent.v1.SignedRemoteSession
-	(*RemoteSessionToken)(nil),          // 67: fleeto.agent.v1.RemoteSessionToken
-	(*RemoteSessionOffer)(nil),          // 68: fleeto.agent.v1.RemoteSessionOffer
-	(*RemoteSessionRefused)(nil),        // 69: fleeto.agent.v1.RemoteSessionRefused
-	(*RemoteSessionActionReport)(nil),   // 70: fleeto.agent.v1.RemoteSessionActionReport
-	(*RelayEndpointHello)(nil),          // 71: fleeto.agent.v1.RelayEndpointHello
-	(*SignedUninstall)(nil),             // 72: fleeto.agent.v1.SignedUninstall
-	(*UninstallCommand)(nil),            // 73: fleeto.agent.v1.UninstallCommand
-	(*UninstallAccepted)(nil),           // 74: fleeto.agent.v1.UninstallAccepted
-	(*Disconnect)(nil),                  // 75: fleeto.agent.v1.Disconnect
-	nil,                                 // 76: fleeto.agent.v1.CheckSpec.ParametersEntry
-	(*timestamppb.Timestamp)(nil),       // 77: google.protobuf.Timestamp
+	(*RestartJob)(nil),                  // 56: fleeto.agent.v1.RestartJob
+	(*ScriptJob)(nil),                   // 57: fleeto.agent.v1.ScriptJob
+	(*JobStarted)(nil),                  // 58: fleeto.agent.v1.JobStarted
+	(*JobOutput)(nil),                   // 59: fleeto.agent.v1.JobOutput
+	(*JobStreamSummary)(nil),            // 60: fleeto.agent.v1.JobStreamSummary
+	(*JobCompletion)(nil),               // 61: fleeto.agent.v1.JobCompletion
+	(*JobAck)(nil),                      // 62: fleeto.agent.v1.JobAck
+	(*WatchdogCertificateRequest)(nil),  // 63: fleeto.agent.v1.WatchdogCertificateRequest
+	(*WatchdogCertificateResponse)(nil), // 64: fleeto.agent.v1.WatchdogCertificateResponse
+	(*UpdateOffer)(nil),                 // 65: fleeto.agent.v1.UpdateOffer
+	(*UpdateStatus)(nil),                // 66: fleeto.agent.v1.UpdateStatus
+	(*SignedRemoteSession)(nil),         // 67: fleeto.agent.v1.SignedRemoteSession
+	(*RemoteSessionToken)(nil),          // 68: fleeto.agent.v1.RemoteSessionToken
+	(*RemoteSessionOffer)(nil),          // 69: fleeto.agent.v1.RemoteSessionOffer
+	(*RemoteSessionRefused)(nil),        // 70: fleeto.agent.v1.RemoteSessionRefused
+	(*RemoteSessionActionReport)(nil),   // 71: fleeto.agent.v1.RemoteSessionActionReport
+	(*RelayEndpointHello)(nil),          // 72: fleeto.agent.v1.RelayEndpointHello
+	(*SignedUninstall)(nil),             // 73: fleeto.agent.v1.SignedUninstall
+	(*UninstallCommand)(nil),            // 74: fleeto.agent.v1.UninstallCommand
+	(*UninstallAccepted)(nil),           // 75: fleeto.agent.v1.UninstallAccepted
+	(*Disconnect)(nil),                  // 76: fleeto.agent.v1.Disconnect
+	nil,                                 // 77: fleeto.agent.v1.CheckSpec.ParametersEntry
+	(*timestamppb.Timestamp)(nil),       // 78: google.protobuf.Timestamp
 }
 var file_agent_proto_depIdxs = []int32{
 	19, // 0: fleeto.agent.v1.EnrollRequest.os:type_name -> fleeto.agent.v1.OsInfo
@@ -6429,35 +6484,35 @@ var file_agent_proto_depIdxs = []int32{
 	43, // 5: fleeto.agent.v1.AgentMessage.renew_certificate:type_name -> fleeto.agent.v1.RenewCertificateRequest
 	53, // 6: fleeto.agent.v1.AgentMessage.config_applied:type_name -> fleeto.agent.v1.ConfigApplied
 	30, // 7: fleeto.agent.v1.AgentMessage.pong:type_name -> fleeto.agent.v1.Pong
-	57, // 8: fleeto.agent.v1.AgentMessage.job_started:type_name -> fleeto.agent.v1.JobStarted
-	58, // 9: fleeto.agent.v1.AgentMessage.job_output:type_name -> fleeto.agent.v1.JobOutput
-	60, // 10: fleeto.agent.v1.AgentMessage.job_completion:type_name -> fleeto.agent.v1.JobCompletion
-	62, // 11: fleeto.agent.v1.AgentMessage.watchdog_certificate:type_name -> fleeto.agent.v1.WatchdogCertificateRequest
-	65, // 12: fleeto.agent.v1.AgentMessage.update_status:type_name -> fleeto.agent.v1.UpdateStatus
-	69, // 13: fleeto.agent.v1.AgentMessage.remote_session_refused:type_name -> fleeto.agent.v1.RemoteSessionRefused
-	70, // 14: fleeto.agent.v1.AgentMessage.remote_session_action:type_name -> fleeto.agent.v1.RemoteSessionActionReport
+	58, // 8: fleeto.agent.v1.AgentMessage.job_started:type_name -> fleeto.agent.v1.JobStarted
+	59, // 9: fleeto.agent.v1.AgentMessage.job_output:type_name -> fleeto.agent.v1.JobOutput
+	61, // 10: fleeto.agent.v1.AgentMessage.job_completion:type_name -> fleeto.agent.v1.JobCompletion
+	63, // 11: fleeto.agent.v1.AgentMessage.watchdog_certificate:type_name -> fleeto.agent.v1.WatchdogCertificateRequest
+	66, // 12: fleeto.agent.v1.AgentMessage.update_status:type_name -> fleeto.agent.v1.UpdateStatus
+	70, // 13: fleeto.agent.v1.AgentMessage.remote_session_refused:type_name -> fleeto.agent.v1.RemoteSessionRefused
+	71, // 14: fleeto.agent.v1.AgentMessage.remote_session_action:type_name -> fleeto.agent.v1.RemoteSessionActionReport
 	46, // 15: fleeto.agent.v1.AgentMessage.storage_scan:type_name -> fleeto.agent.v1.StorageScanReport
-	74, // 16: fleeto.agent.v1.AgentMessage.uninstall_accepted:type_name -> fleeto.agent.v1.UninstallAccepted
+	75, // 16: fleeto.agent.v1.AgentMessage.uninstall_accepted:type_name -> fleeto.agent.v1.UninstallAccepted
 	23, // 17: fleeto.agent.v1.ServerMessage.hello_ack:type_name -> fleeto.agent.v1.HelloAck
 	42, // 18: fleeto.agent.v1.ServerMessage.batch_ack:type_name -> fleeto.agent.v1.BatchAck
 	50, // 19: fleeto.agent.v1.ServerMessage.config:type_name -> fleeto.agent.v1.SignedConfig
 	44, // 20: fleeto.agent.v1.ServerMessage.renew_certificate:type_name -> fleeto.agent.v1.RenewCertificateResponse
 	29, // 21: fleeto.agent.v1.ServerMessage.ping:type_name -> fleeto.agent.v1.Ping
-	75, // 22: fleeto.agent.v1.ServerMessage.disconnect:type_name -> fleeto.agent.v1.Disconnect
+	76, // 22: fleeto.agent.v1.ServerMessage.disconnect:type_name -> fleeto.agent.v1.Disconnect
 	31, // 23: fleeto.agent.v1.ServerMessage.inventory_request:type_name -> fleeto.agent.v1.InventoryRequest
 	32, // 24: fleeto.agent.v1.ServerMessage.run_checks_now:type_name -> fleeto.agent.v1.RunChecksNow
 	54, // 25: fleeto.agent.v1.ServerMessage.job:type_name -> fleeto.agent.v1.SignedJob
-	61, // 26: fleeto.agent.v1.ServerMessage.job_ack:type_name -> fleeto.agent.v1.JobAck
-	64, // 27: fleeto.agent.v1.ServerMessage.update_offer:type_name -> fleeto.agent.v1.UpdateOffer
-	63, // 28: fleeto.agent.v1.ServerMessage.watchdog_certificate:type_name -> fleeto.agent.v1.WatchdogCertificateResponse
-	68, // 29: fleeto.agent.v1.ServerMessage.remote_session_offer:type_name -> fleeto.agent.v1.RemoteSessionOffer
+	62, // 26: fleeto.agent.v1.ServerMessage.job_ack:type_name -> fleeto.agent.v1.JobAck
+	65, // 27: fleeto.agent.v1.ServerMessage.update_offer:type_name -> fleeto.agent.v1.UpdateOffer
+	64, // 28: fleeto.agent.v1.ServerMessage.watchdog_certificate:type_name -> fleeto.agent.v1.WatchdogCertificateResponse
+	69, // 29: fleeto.agent.v1.ServerMessage.remote_session_offer:type_name -> fleeto.agent.v1.RemoteSessionOffer
 	45, // 30: fleeto.agent.v1.ServerMessage.storage_scan_request:type_name -> fleeto.agent.v1.StorageScanRequest
 	49, // 31: fleeto.agent.v1.ServerMessage.storage_scan_ack:type_name -> fleeto.agent.v1.StorageScanAck
-	72, // 32: fleeto.agent.v1.ServerMessage.uninstall:type_name -> fleeto.agent.v1.SignedUninstall
+	73, // 32: fleeto.agent.v1.ServerMessage.uninstall:type_name -> fleeto.agent.v1.SignedUninstall
 	19, // 33: fleeto.agent.v1.Hello.os:type_name -> fleeto.agent.v1.OsInfo
 	0,  // 34: fleeto.agent.v1.Hello.component:type_name -> fleeto.agent.v1.Component
-	77, // 35: fleeto.agent.v1.HelloAck.server_time:type_name -> google.protobuf.Timestamp
-	77, // 36: fleeto.agent.v1.Heartbeat.agent_time:type_name -> google.protobuf.Timestamp
+	78, // 35: fleeto.agent.v1.HelloAck.server_time:type_name -> google.protobuf.Timestamp
+	78, // 36: fleeto.agent.v1.Heartbeat.agent_time:type_name -> google.protobuf.Timestamp
 	28, // 37: fleeto.agent.v1.Heartbeat.peer:type_name -> fleeto.agent.v1.PeerStatus
 	25, // 38: fleeto.agent.v1.Heartbeat.signed_in_users:type_name -> fleeto.agent.v1.SignedInUsers
 	26, // 39: fleeto.agent.v1.SignedInUsers.users:type_name -> fleeto.agent.v1.SignedInUser
@@ -6468,51 +6523,52 @@ var file_agent_proto_depIdxs = []int32{
 	36, // 44: fleeto.agent.v1.Inventory.disks:type_name -> fleeto.agent.v1.Disk
 	37, // 45: fleeto.agent.v1.Inventory.network_interfaces:type_name -> fleeto.agent.v1.NetworkInterface
 	38, // 46: fleeto.agent.v1.Inventory.software:type_name -> fleeto.agent.v1.SoftwareItem
-	77, // 47: fleeto.agent.v1.Inventory.boot_time:type_name -> google.protobuf.Timestamp
+	78, // 47: fleeto.agent.v1.Inventory.boot_time:type_name -> google.protobuf.Timestamp
 	35, // 48: fleeto.agent.v1.Inventory.services:type_name -> fleeto.agent.v1.ServiceItem
 	40, // 49: fleeto.agent.v1.CheckResultBatch.results:type_name -> fleeto.agent.v1.CheckResult
-	77, // 50: fleeto.agent.v1.CheckResult.collected_at:type_name -> google.protobuf.Timestamp
+	78, // 50: fleeto.agent.v1.CheckResult.collected_at:type_name -> google.protobuf.Timestamp
 	41, // 51: fleeto.agent.v1.CheckResult.processes:type_name -> fleeto.agent.v1.ProcessSample
-	77, // 52: fleeto.agent.v1.StorageScanReport.started_at:type_name -> google.protobuf.Timestamp
+	78, // 52: fleeto.agent.v1.StorageScanReport.started_at:type_name -> google.protobuf.Timestamp
 	2,  // 53: fleeto.agent.v1.StorageScanReport.method:type_name -> fleeto.agent.v1.StorageScanMethod
 	47, // 54: fleeto.agent.v1.StorageScanReport.folders:type_name -> fleeto.agent.v1.StorageFolder
 	48, // 55: fleeto.agent.v1.StorageScanReport.files:type_name -> fleeto.agent.v1.StorageFile
-	77, // 56: fleeto.agent.v1.StorageFile.modified_at:type_name -> google.protobuf.Timestamp
-	77, // 57: fleeto.agent.v1.AgentConfig.issued_at:type_name -> google.protobuf.Timestamp
+	78, // 56: fleeto.agent.v1.StorageFile.modified_at:type_name -> google.protobuf.Timestamp
+	78, // 57: fleeto.agent.v1.AgentConfig.issued_at:type_name -> google.protobuf.Timestamp
 	3,  // 58: fleeto.agent.v1.AgentConfig.tier:type_name -> fleeto.agent.v1.Tier
 	52, // 59: fleeto.agent.v1.AgentConfig.checks:type_name -> fleeto.agent.v1.CheckSpec
 	4,  // 60: fleeto.agent.v1.CheckSpec.type:type_name -> fleeto.agent.v1.CheckType
-	76, // 61: fleeto.agent.v1.CheckSpec.parameters:type_name -> fleeto.agent.v1.CheckSpec.ParametersEntry
-	56, // 62: fleeto.agent.v1.CheckSpec.script:type_name -> fleeto.agent.v1.ScriptJob
+	77, // 61: fleeto.agent.v1.CheckSpec.parameters:type_name -> fleeto.agent.v1.CheckSpec.ParametersEntry
+	57, // 62: fleeto.agent.v1.CheckSpec.script:type_name -> fleeto.agent.v1.ScriptJob
 	6,  // 63: fleeto.agent.v1.JobPayload.type:type_name -> fleeto.agent.v1.JobType
-	77, // 64: fleeto.agent.v1.JobPayload.valid_until:type_name -> google.protobuf.Timestamp
-	56, // 65: fleeto.agent.v1.JobPayload.script:type_name -> fleeto.agent.v1.ScriptJob
+	78, // 64: fleeto.agent.v1.JobPayload.valid_until:type_name -> google.protobuf.Timestamp
+	57, // 65: fleeto.agent.v1.JobPayload.script:type_name -> fleeto.agent.v1.ScriptJob
 	5,  // 66: fleeto.agent.v1.JobPayload.run_as:type_name -> fleeto.agent.v1.JobRunAs
-	7,  // 67: fleeto.agent.v1.ScriptJob.language:type_name -> fleeto.agent.v1.ScriptLanguage
-	77, // 68: fleeto.agent.v1.JobStarted.started_at:type_name -> google.protobuf.Timestamp
-	8,  // 69: fleeto.agent.v1.JobOutput.stream:type_name -> fleeto.agent.v1.JobStream
-	9,  // 70: fleeto.agent.v1.JobCompletion.result:type_name -> fleeto.agent.v1.JobResult
-	59, // 71: fleeto.agent.v1.JobCompletion.stdout:type_name -> fleeto.agent.v1.JobStreamSummary
-	59, // 72: fleeto.agent.v1.JobCompletion.stderr:type_name -> fleeto.agent.v1.JobStreamSummary
-	77, // 73: fleeto.agent.v1.JobCompletion.finished_at:type_name -> google.protobuf.Timestamp
-	10, // 74: fleeto.agent.v1.JobAck.kind:type_name -> fleeto.agent.v1.JobAckKind
-	8,  // 75: fleeto.agent.v1.JobAck.stream:type_name -> fleeto.agent.v1.JobStream
-	0,  // 76: fleeto.agent.v1.UpdateStatus.component:type_name -> fleeto.agent.v1.Component
-	11, // 77: fleeto.agent.v1.UpdateStatus.state:type_name -> fleeto.agent.v1.UpdateState
-	12, // 78: fleeto.agent.v1.UpdateStatus.wait_reason:type_name -> fleeto.agent.v1.UpdateWaitReason
-	13, // 79: fleeto.agent.v1.RemoteSessionToken.kind:type_name -> fleeto.agent.v1.RemoteSessionKind
-	0,  // 80: fleeto.agent.v1.RemoteSessionToken.component:type_name -> fleeto.agent.v1.Component
-	77, // 81: fleeto.agent.v1.RemoteSessionToken.issued_at:type_name -> google.protobuf.Timestamp
-	77, // 82: fleeto.agent.v1.RemoteSessionToken.valid_until:type_name -> google.protobuf.Timestamp
-	66, // 83: fleeto.agent.v1.RemoteSessionOffer.session:type_name -> fleeto.agent.v1.SignedRemoteSession
-	77, // 84: fleeto.agent.v1.RemoteSessionActionReport.time:type_name -> google.protobuf.Timestamp
-	77, // 85: fleeto.agent.v1.UninstallCommand.valid_until:type_name -> google.protobuf.Timestamp
-	14, // 86: fleeto.agent.v1.Disconnect.code:type_name -> fleeto.agent.v1.DisconnectCode
-	87, // [87:87] is the sub-list for method output_type
-	87, // [87:87] is the sub-list for method input_type
-	87, // [87:87] is the sub-list for extension type_name
-	87, // [87:87] is the sub-list for extension extendee
-	0,  // [0:87] is the sub-list for field type_name
+	56, // 67: fleeto.agent.v1.JobPayload.restart:type_name -> fleeto.agent.v1.RestartJob
+	7,  // 68: fleeto.agent.v1.ScriptJob.language:type_name -> fleeto.agent.v1.ScriptLanguage
+	78, // 69: fleeto.agent.v1.JobStarted.started_at:type_name -> google.protobuf.Timestamp
+	8,  // 70: fleeto.agent.v1.JobOutput.stream:type_name -> fleeto.agent.v1.JobStream
+	9,  // 71: fleeto.agent.v1.JobCompletion.result:type_name -> fleeto.agent.v1.JobResult
+	60, // 72: fleeto.agent.v1.JobCompletion.stdout:type_name -> fleeto.agent.v1.JobStreamSummary
+	60, // 73: fleeto.agent.v1.JobCompletion.stderr:type_name -> fleeto.agent.v1.JobStreamSummary
+	78, // 74: fleeto.agent.v1.JobCompletion.finished_at:type_name -> google.protobuf.Timestamp
+	10, // 75: fleeto.agent.v1.JobAck.kind:type_name -> fleeto.agent.v1.JobAckKind
+	8,  // 76: fleeto.agent.v1.JobAck.stream:type_name -> fleeto.agent.v1.JobStream
+	0,  // 77: fleeto.agent.v1.UpdateStatus.component:type_name -> fleeto.agent.v1.Component
+	11, // 78: fleeto.agent.v1.UpdateStatus.state:type_name -> fleeto.agent.v1.UpdateState
+	12, // 79: fleeto.agent.v1.UpdateStatus.wait_reason:type_name -> fleeto.agent.v1.UpdateWaitReason
+	13, // 80: fleeto.agent.v1.RemoteSessionToken.kind:type_name -> fleeto.agent.v1.RemoteSessionKind
+	0,  // 81: fleeto.agent.v1.RemoteSessionToken.component:type_name -> fleeto.agent.v1.Component
+	78, // 82: fleeto.agent.v1.RemoteSessionToken.issued_at:type_name -> google.protobuf.Timestamp
+	78, // 83: fleeto.agent.v1.RemoteSessionToken.valid_until:type_name -> google.protobuf.Timestamp
+	67, // 84: fleeto.agent.v1.RemoteSessionOffer.session:type_name -> fleeto.agent.v1.SignedRemoteSession
+	78, // 85: fleeto.agent.v1.RemoteSessionActionReport.time:type_name -> google.protobuf.Timestamp
+	78, // 86: fleeto.agent.v1.UninstallCommand.valid_until:type_name -> google.protobuf.Timestamp
+	14, // 87: fleeto.agent.v1.Disconnect.code:type_name -> fleeto.agent.v1.DisconnectCode
+	88, // [88:88] is the sub-list for method output_type
+	88, // [88:88] is the sub-list for method input_type
+	88, // [88:88] is the sub-list for extension type_name
+	88, // [88:88] is the sub-list for extension extendee
+	0,  // [0:88] is the sub-list for field type_name
 }
 
 func init() { file_agent_proto_init() }
@@ -6562,7 +6618,7 @@ func file_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
 			NumEnums:      15,
-			NumMessages:   62,
+			NumMessages:   63,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

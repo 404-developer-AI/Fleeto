@@ -847,7 +847,7 @@
                         {
                             <span class="ml-1"><StatusChip Text="Off" Kind="StatusKind.Neutral" /></span>
                         }
-                        <div class="muted" style="font-size:0.75rem">@context.ScriptName · linked to @LinkedText(context)</div>
+                        <div class="muted" style="font-size:0.75rem">@context.StepSummary · linked to @LinkedText(context)</div>
                     </MudTd>
                     <MudTd>
                         @context.Schedule
@@ -934,7 +934,15 @@
                 <MudTd><TimeText Value="context.At" /></MudTd>
                 <MudTd>@context.TaskName</MudTd>
                 <MudTd>@Ui.TaskTriggerText(context.Trigger, context.CheckName, context.InitiatedByName)</MudTd>
-                <MudTd>@TaskResult(context)</MudTd>
+                <MudTd>
+                    @TaskResult(context)
+                    @if (context.Target.StepCount > 1 && context.Target.Steps.Count > 0)
+                    {
+                        <div class="mt-1" @onclick:stopPropagation="true">
+                            <TaskRunSteps Steps="context.Target.Steps" OnOutput="@(Can(Permissions.JobsView) ? ShowStepOutputAsync : default(EventCallback<Guid>))" />
+                        </div>
+                    }
+                </MudTd>
             </RowTemplate>
             <PagerContent>
                 <MudTablePager PageSizeOptions="new[] { 25, 50 }" />
@@ -999,6 +1007,7 @@
         {
             { d => d.Clients, new[] { new ClientOption(e.ClientId, e.ClientCode, e.ClientName) } },
             { d => d.DefaultClientId, e.ClientId },
+            { d => d.CanRestart, Can(Permissions.EndpointsRestart) },
             { d => d.DefaultTimeZone, TimeZoneOptions.IanaId(Time.Zone) },
             { d => d.LoadScripts, clientId => TaskSvc.GetScriptChoicesAsync(Caller!, clientId) },
             { d => d.LoadChecks, clientId => TaskSvc.GetCheckChoicesAsync(Caller!, clientId) },
@@ -1042,6 +1051,13 @@
             await LoadAsync(LoadTabAsync);
         }
     }
+
+    private EventCallback<Guid> ShowStepOutputAsync => EventCallback.Factory.Create<Guid>(this, async jobId =>
+    {
+        var parameters = new DialogParameters<JobOutputDialog> { { d => d.JobId, jobId }, { d => d.EndpointId, EndpointId } };
+        var dialog = await DialogService.ShowAsync<JobOutputDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
+        await dialog.Result;
+    });
 
     private bool CanOpenOutput(EndpointTaskRunItem run) => run.Target.JobId is not null && Can(Permissions.JobsView);
 

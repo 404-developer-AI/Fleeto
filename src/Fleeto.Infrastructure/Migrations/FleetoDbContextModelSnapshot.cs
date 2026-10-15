@@ -651,6 +651,9 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<Guid?>("InitiatedByUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime>("OccurrenceAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -691,8 +694,15 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<DateTime>("DueAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid?>("JobId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("Outcome")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<DateTime?>("OutcomeHandledAt")
                         .HasColumnType("timestamp with time zone");
@@ -728,6 +738,10 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.HasIndex("RunId", "ClientId");
 
+                    b.HasIndex("EndpointId", "AutomationTaskId", "State")
+                        .HasDatabaseName("IX_AutomationTaskRunTargets_Busy")
+                        .HasFilter("\"State\" = 'Started' AND \"FinishedAt\" IS NULL");
+
                     b.ToTable("AutomationTaskRunTargets");
                 });
 
@@ -759,6 +773,63 @@ namespace Fleeto.Infrastructure.Migrations
                     b.HasKey("AutomationTaskId");
 
                     b.ToTable("AutomationTaskStates");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.AutomationTaskStep", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AutomationTaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("ContinueOnFailure")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("RestartWaitMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RunAs")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid?>("ScriptId")
+                        .HasColumnType("uuid");
+
+                    b.PrimitiveCollection<List<int>>("SuccessExitCodes")
+                        .IsRequired()
+                        .HasColumnType("integer[]");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClientId");
+
+                    b.HasIndex("ScriptId");
+
+                    b.HasIndex("AutomationTaskId", "Position")
+                        .IsUnique();
+
+                    b.ToTable("AutomationTaskSteps", t =>
+                        {
+                            t.HasCheckConstraint("CK_AutomationTaskSteps_ExitCodes", "cardinality(\"SuccessExitCodes\") <= 10 AND NOT (0 = ANY (\"SuccessExitCodes\"))");
+
+                            t.HasCheckConstraint("CK_AutomationTaskSteps_Kind", "(\"Kind\" = 'Script' AND \"ScriptId\" IS NOT NULL AND \"RestartWaitMinutes\" IS NULL) OR (\"Kind\" = 'Restart' AND \"ScriptId\" IS NULL AND \"RestartWaitMinutes\" BETWEEN 5 AND 240 AND cardinality(\"SuccessExitCodes\") = 0)");
+
+                            t.HasCheckConstraint("CK_AutomationTaskSteps_Position", "\"Position\" >= 1");
+                        });
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.BackupRun", b =>
@@ -2989,6 +3060,9 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<Guid?>("TaskRunId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("TaskStepId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("TimeoutSeconds")
                         .HasColumnType("integer");
 
@@ -3024,6 +3098,11 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.HasIndex("TaskId", "EndpointId", "CreatedAt")
                         .HasFilter("\"TaskId\" IS NOT NULL");
+
+                    b.HasIndex("TaskRunId", "EndpointId", "TaskStepId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Jobs_TaskStep")
+                        .HasFilter("\"TaskStepId\" IS NOT NULL");
 
                     b.ToTable("Jobs", t =>
                         {
@@ -5361,6 +5440,25 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasForeignKey("AutomationTaskId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.AutomationTaskStep", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.AutomationTask", null)
+                        .WithMany()
+                        .HasForeignKey("AutomationTaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleeto.Core.Entities.Client", null)
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Fleeto.Core.Entities.Script", null)
+                        .WithMany()
+                        .HasForeignKey("ScriptId")
+                        .OnDelete(DeleteBehavior.NoAction);
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.CheckDefinition", b =>

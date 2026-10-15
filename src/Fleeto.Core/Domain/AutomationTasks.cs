@@ -23,6 +23,8 @@ public static class AutomationTasks
     public const int MaxRepeatMinutes = 720;
     public const int MaxRandomDelayMinutes = 720;
     public const int MaxTriggerChecks = 20;
+    public const int MaxSteps = 20;
+    public const int MaxSuccessExitCodes = 10;
 
     /// <summary>An endpoint starts a task for an alert of its checks at most once in this time.</summary>
     public static readonly TimeSpan CheckAlertCooldown = TimeSpan.FromHours(1);
@@ -51,6 +53,91 @@ public static class AutomationTasks
         TaskTrigger.Managed => $"Fleeto (task {taskName}, endpoint managed)",
         _ => $"Fleeto (task {taskName}, schedule)"
     };
+
+    /// <summary>
+    /// Returns the problems of the steps of a task (cause and next step), empty when they can be saved: 1 to 20 steps, at least
+    /// one that runs a script, every script step with its script, exit codes besides 0 that count as success (at most 10), and the
+    /// wait of a restart within its bounds.
+    /// </summary>
+    public static IReadOnlyList<string> ValidateSteps(IReadOnlyList<AutomationTaskStep> steps)
+    {
+        var problems = new List<string>();
+        if (steps.Count == 0)
+        {
+            problems.Add("Add at least one step that runs a script.");
+            return problems;
+        }
+
+        if (steps.Count > MaxSteps)
+        {
+            problems.Add($"A task can have at most {MaxSteps} steps.");
+        }
+
+        if (steps.All(s => s.Kind != TaskStepKind.Script))
+        {
+            problems.Add("Add at least one step that runs a script. A restart alone is not a task.");
+        }
+
+        for (var i = 0; i < steps.Count; i++)
+        {
+            var step = steps[i];
+            var label = $"Step {i + 1}";
+            if (!Enum.IsDefined(step.Kind))
+            {
+                problems.Add($"{label}: choose a script or a restart.");
+                continue;
+            }
+
+            if (step.Kind == TaskStepKind.Script)
+            {
+                if (step.ScriptId is null || step.ScriptId == Guid.Empty)
+                {
+                    problems.Add($"{label}: choose the script it runs.");
+                }
+
+                if (!Enum.IsDefined(step.RunAs))
+                {
+                    problems.Add($"{label}: choose the account the script runs as.");
+                }
+
+                if (step.SuccessExitCodes.Count > MaxSuccessExitCodes)
+                {
+                    problems.Add($"{label}: at most {MaxSuccessExitCodes} exit codes can count as success.");
+                }
+
+                if (step.SuccessExitCodes.Contains(0))
+                {
+                    problems.Add($"{label}: exit code 0 always counts as success. Remove it from the list.");
+                }
+            }
+            else if (step.RestartWaitMinutes is not { } wait || wait < RestartRules.MinWaitMinutes || wait > RestartRules.MaxWaitMinutes)
+            {
+                problems.Add($"{label}: wait between {RestartRules.MinWaitMinutes} and {RestartRules.MaxWaitMinutes} minutes for the endpoint to come back.");
+            }
+        }
+
+        return problems;
+    }
+
+    /// <summary>
+    /// True when a step passed: its job succeeded, or a script ended with an exit code the step counts as success. A restart passes
+    /// only when the agent reported the endpoint back.
+    /// </summary>
+    public static bool Passed(AutomationTaskStep step, JobState state, JobResult? result, int? exitCode) =>
+        state == JobState.Succeeded ||
+        (step.Kind == TaskStepKind.Script && state == JobState.Failed && result == JobResult.Exited && exitCode is { } code &&
+         step.SuccessExitCodes.Contains(code));
+
+    /// <summary>True when the run may start the step after this one: it passed, or it may fail; never after a cancelled job.</summary>
+    public static bool MayContinue(AutomationTaskStep step, JobState state, JobResult? result, int? exitCode) =>
+        state != JobState.Cancelled && (Passed(step, state, result, exitCode) || step.ContinueOnFailure);
+
+    /// <summary>"step 2 (Stop containers)" or "step 4 (restart)", for texts about a run.</summary>
+    public static string StepLabel(int position, TaskStepKind kind, string? scriptName) =>
+        $"step {position} ({(kind == TaskStepKind.Restart ? "restart" : scriptName ?? "script")})";
+
+    /// <summary>The validity of the job of a step after the first: the endpoint is online, so it waits as long as a run by an event may.</summary>
+    public static TimeSpan NextStepValidity(AutomationTask task) => task.CatchUp ? EventValidity : ShortValidity;
 
     /// <summary>Returns the problems of a task (cause and next step), empty when it can be saved.</summary>
     public static IReadOnlyList<string> Validate(AutomationTask task)
@@ -372,17 +459,24 @@ public static class AutomationTasks
         };
     }
 
-    /// <summary>The title of the alert of a failed run, cause and next step (branding §8).</summary>
-    public static string FailureTitle(string taskName, string hostname, JobState state, int? exitCode, string? reason)
+    /// <summary>
+    /// The title of the alert of a failed run, cause and next step (branding §8). <paramref name="step"/> names the step that failed
+    /// when the task has more than one (see <see cref="StepLabel"/>).
+    /// </summary>
+    public static string FailureTitle(string taskName, string hostname, JobState state, int? exitCode, string? reason, string? step = null,
+        bool restart = false)
     {
         var cause = state switch
         {
             JobState.Refused => $"was refused: {reason}",
+            JobState.Lost when restart => "restarted the endpoint, but it did not come back within the wait of the step",
             JobState.Lost => "started but did not report back within its timeout",
+            JobState.Expired => "could not start before its validity ended (the endpoint was offline)",
             _ when exitCode is { } code => $"ended with exit code {code}",
             _ => $"failed{(string.IsNullOrWhiteSpace(reason) ? string.Empty : $": {reason}")}"
         };
-        var text = $"Task {taskName} {cause} on {hostname}. Open the run on the task to see its output.";
+        var where = step is null ? string.Empty : $" at {step}";
+        var text = $"Task {taskName} {cause}{where} on {hostname}. Open the run on the task to see its output.";
         return text.Length <= 500 ? text : text[..500];
     }
 

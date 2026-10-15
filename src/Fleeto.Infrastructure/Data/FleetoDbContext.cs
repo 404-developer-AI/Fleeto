@@ -64,6 +64,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<Job> Jobs => Set<Job>();
     public DbSet<JobOutputChunk> JobOutputChunks => Set<JobOutputChunk>();
     public DbSet<AutomationTask> AutomationTasks => Set<AutomationTask>();
+    public DbSet<AutomationTaskStep> AutomationTaskSteps => Set<AutomationTaskStep>();
     public DbSet<ClientAutomationTask> ClientAutomationTasks => Set<ClientAutomationTask>();
     public DbSet<SiteAutomationTask> SiteAutomationTasks => Set<SiteAutomationTask>();
     public DbSet<EndpointAutomationTask> EndpointAutomationTasks => Set<EndpointAutomationTask>();
@@ -782,6 +783,9 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasOne<AutomationTask>().WithMany().HasForeignKey(j => j.TaskId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne<AutomationTaskRun>().WithMany().HasForeignKey(j => j.TaskRunId).OnDelete(DeleteBehavior.SetNull);
             entity.HasIndex(j => j.TaskRunId).HasFilter("\"TaskRunId\" IS NOT NULL");
+            // A step of a task runs at most once per run and endpoint (0.6.0, steps), whatever the workers retry.
+            entity.HasIndex(j => new { j.TaskRunId, j.EndpointId, j.TaskStepId }).IsUnique()
+                .HasFilter("\"TaskStepId\" IS NOT NULL").HasDatabaseName("IX_Jobs_TaskStep");
             entity.HasIndex(j => new { j.TaskId, j.EndpointId, j.CreatedAt }).HasFilter("\"TaskId\" IS NOT NULL");
             // Public API: the job list across endpoints, newest first, with keyset pagination (0.2.1).
             entity.HasIndex(j => new { j.CreatedAt, j.Id }).IsDescending(true, true);
@@ -821,6 +825,28 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 t.HasCheckConstraint("CK_AutomationTasks_Delay", "\"RandomDelayMinutes\" BETWEEN 0 AND 720");
                 t.HasCheckConstraint("CK_AutomationTasks_Dates", "\"EndDate\" IS NULL OR \"EndDate\" >= \"StartDate\"");
                 t.HasCheckConstraint("CK_AutomationTasks_TriggerChecks", "cardinality(\"TriggerCheckIds\") <= 20");
+            });
+            GlobalOrClientOwned(entity);
+        });
+
+        builder.Entity<AutomationTaskStep>(entity =>
+        {
+            entity.Property(s => s.Kind).HasConversion<string>().HasMaxLength(20);
+            entity.Property(s => s.RunAs).HasConversion<string>().HasMaxLength(20);
+            entity.HasIndex(s => new { s.AutomationTaskId, s.Position }).IsUnique();
+            entity.HasIndex(s => s.ScriptId);
+            entity.HasOne<AutomationTask>().WithMany().HasForeignKey(s => s.AutomationTaskId).OnDelete(DeleteBehavior.Cascade);
+            // As for the task: a script a step runs cannot be deleted, checked at the end of the statement.
+            entity.HasOne<Script>().WithMany().HasForeignKey(s => s.ScriptId).OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne<Client>().WithMany().HasForeignKey(s => s.ClientId).OnDelete(DeleteBehavior.Cascade);
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_AutomationTaskSteps_Position", "\"Position\" >= 1");
+                t.HasCheckConstraint("CK_AutomationTaskSteps_Kind",
+                    "(\"Kind\" = 'Script' AND \"ScriptId\" IS NOT NULL AND \"RestartWaitMinutes\" IS NULL) OR " +
+                    "(\"Kind\" = 'Restart' AND \"ScriptId\" IS NULL AND \"RestartWaitMinutes\" BETWEEN 5 AND 240 AND cardinality(\"SuccessExitCodes\") = 0)");
+                t.HasCheckConstraint("CK_AutomationTaskSteps_ExitCodes",
+                    "cardinality(\"SuccessExitCodes\") <= 10 AND NOT (0 = ANY (\"SuccessExitCodes\"))");
             });
             GlobalOrClientOwned(entity);
         });
@@ -902,6 +928,10 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(t => t.JobId).HasFilter("\"JobId\" IS NOT NULL AND \"OutcomeHandledAt\" IS NULL")
                 .HasDatabaseName("IX_AutomationTaskRunTargets_Outcome");
             entity.HasIndex(t => new { t.AutomationTaskId, t.EndpointId });
+            entity.Property(t => t.Outcome).HasConversion<string>().HasMaxLength(20);
+            // The runs still busy on an endpoint, for the overlap of a task with steps (0.6.0).
+            entity.HasIndex(t => new { t.EndpointId, t.AutomationTaskId, t.State }).HasFilter("\"State\" = 'Started' AND \"FinishedAt\" IS NULL")
+                .HasDatabaseName("IX_AutomationTaskRunTargets_Busy");
             EndpointOwned(entity);
         });
 

@@ -102,7 +102,21 @@ func Verify(sj *agentv1.SignedJob, trust signedconfig.Trust, managed bool, now t
 	if !managed {
 		return nil, errors.New("the endpoint is agent-only: jobs do not run")
 	}
-	if payload.GetType() != agentv1.JobType_JOB_TYPE_SCRIPT || payload.GetScript() == nil {
+	switch payload.GetType() {
+	case agentv1.JobType_JOB_TYPE_RESTART:
+		// A restart carries nothing to run: the agent's own fixed command restarts the endpoint.
+		if payload.GetRestart() == nil || payload.GetScript() != nil {
+			return nil, errors.New("the restart job is malformed")
+		}
+		if !RestartSupported() {
+			return nil, fmt.Errorf("Fleeto does not restart %s endpoints", runtime.GOOS)
+		}
+		return &payload, nil
+	case agentv1.JobType_JOB_TYPE_SCRIPT:
+		if payload.GetScript() == nil || payload.GetRestart() != nil {
+			return nil, errors.New("this agent does not know the job type; update the agent")
+		}
+	default:
 		return nil, errors.New("this agent does not know the job type; update the agent")
 	}
 	script := payload.GetScript()

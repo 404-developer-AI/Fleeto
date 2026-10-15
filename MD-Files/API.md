@@ -916,7 +916,7 @@ not read them.
 | `batchId` | UUID | Jobs started together share it. |
 | `clientId` | UUID | |
 | `endpointId` | UUID | |
-| `type` | string | `script`, `action1_agent_install` (installs the Action1 agent, from 0.4.0) or `action1_agent_removal` (uninstalls an Action1 agent that Action1 does not report, from 0.6.0). For the two Action1 jobs fleeto-signer composes the script itself: `script.id` and `script.versionId` are null. More types may be added. |
+| `type` | string | `script`, `action1_agent_install` (installs the Action1 agent, from 0.4.0), `action1_agent_removal` (uninstalls an Action1 agent that Action1 does not report, from 0.6.0) or `restart` (restarts the endpoint for a restart step of a task, from 0.6.0; the job succeeds once the endpoint is back, and `exitCode` is 0). For the two Action1 jobs fleeto-signer composes the script itself: `script.id` and `script.versionId` are null. A `restart` runs no script: `script.id` and `script.versionId` are null, `script.name` is `Restart` and `script.sha256` is empty. More types may be added. |
 | `script` | object | The script as it was when the job was created: `id` (UUID, nullable: `null` after the script was deleted), `versionId` (UUID, nullable), `name`, `versionNumber` (integer), `language` ([script language](#script-language)), `sha256` (hex SHA-256 of the script body). |
 | `runAs` | [job run as](#job-run-as) | The account the script ran under on the endpoint. |
 | `runAsAccount` | string, nullable | For `logged_on_user`: the account the agent ran the script under, as `DOMAIN\name` on Windows and the user name on Linux, once the job started. `null` for `service` and before the start. |

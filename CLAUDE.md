@@ -139,7 +139,10 @@ the API and the database follows it.
   client, site or endpoint, applied to all of their endpoints (class-specific checks apply to matching endpoints only, and a
   check limited to Windows or Linux (0.6.0) only to endpoints of that operating system). It says where it can be linked:
   clients, sites, endpoints or more of them (decided 2026-09-28, 0.6.0).
-- **Task** (0.6.0, decided 2026-10-14): a library script that runs by itself, linked to clients, sites and endpoints like a
+- **Task** (0.6.0, decided 2026-10-14): library scripts that run by themselves as steps, one after the other per endpoint (decided
+  2026-10-15: a step starts only when the step before it ended; a step can also restart the endpoint, after which Fleeto waits for
+  a newer boot time; a failed step stops the run unless it may fail or its exit code counts as success; restart steps need the
+  permission Restart endpoints), linked to clients, sites and endpoints like a
   monitoring template (adding up), or to monitoring templates (decided 2026-10-15: it then runs on every endpoint that gets the
   template; linking needs Edit tasks, Edit monitoring templates and access to everywhere the template is used), on a schedule, when an alert of a chosen check opens, when an endpoint becomes managed, or
   by hand. Only library scripts, never a command of its own. A run Fleeto starts has a system initiator: the workers write it

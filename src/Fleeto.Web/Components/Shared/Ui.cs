@@ -310,6 +310,9 @@ public static class Ui
     {
         TaskTargetState.Pending => StatusKind.Neutral,
         TaskTargetState.Skipped => StatusKind.Warning,
+        _ when item.Outcome == TaskTargetOutcome.Succeeded => StatusKind.Ok,
+        _ when item.Outcome == TaskTargetOutcome.Failed => StatusKind.Error,
+        _ when item.Outcome == TaskTargetOutcome.Cancelled => StatusKind.Neutral,
         _ => item.JobState switch
         {
             JobState.Succeeded => StatusKind.Ok,

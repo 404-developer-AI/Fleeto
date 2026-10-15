@@ -431,8 +431,11 @@ public sealed class ScriptService
                 : $"{checks} checks use this script. Remove them or choose another script for them, then delete the script.");
         }
 
-        // A task needs its script (0.6.0), also a task of a client the caller does not see.
-        var tasks = await db.AutomationTasks.IgnoreQueryFilters().CountAsync(t => t.ScriptId == script.Id, cancellationToken);
+        // A task needs the scripts of its steps (0.6.0), also a task of a client the caller does not see.
+        var usedId = script.Id;
+        var tasks = await db.AutomationTasks.IgnoreQueryFilters()
+            .CountAsync(t => t.ScriptId == usedId || db.AutomationTaskSteps.IgnoreQueryFilters().Any(s => s.AutomationTaskId == t.Id && s.ScriptId == usedId),
+                cancellationToken);
         if (tasks > 0)
         {
             return ServiceResult.Fail(tasks == 1

@@ -13,7 +13,7 @@
             <MudSelect T="Guid?" @bind-Value="_taskId" Label="Task" Variant="Variant.Outlined" AutoFocus="true" HelperText="@HelperText">
                 @foreach (var task in Tasks)
                 {
-                    <MudSelectItem T="Guid?" Value="@((Guid?)task.Id)">@task.Name (@task.ScriptName@(task.ClientCode is null ? "" : $", {task.ClientCode}"))</MudSelectItem>
+                    <MudSelectItem T="Guid?" Value="@((Guid?)task.Id)">@task.Name (@task.StepSummary@(task.ClientCode is null ? "" : $", {task.ClientCode}"))</MudSelectItem>
                 }
             </MudSelect>
         }

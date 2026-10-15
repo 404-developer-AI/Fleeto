@@ -109,6 +109,7 @@ public static class DatabaseGrants
             // Tasks (0.6.0): web writes them and their links; the workers only read them to start runs, and the signer reads them
             // again before it signs a job of a run Fleeto started. Runs are written by the workers, and by web for Run now.
             ["AutomationTasks"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+            ["AutomationTaskSteps"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["ClientAutomationTasks"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["SiteAutomationTasks"] = Grants(web: ReadWrite, signer: Read, workers: Read),
             ["EndpointAutomationTasks"] = Grants(web: ReadWrite, signer: Read, workers: Read),

@@ -52,6 +52,9 @@ public sealed class JobHandler : ISigningRequestHandler
     public const string TaskTriggerReason = "The task no longer starts for what started this run, so Fleeto did not start it.";
     public const string TaskTargetReason = "The task no longer applies to this endpoint, so Fleeto did not start it.";
     public const string TaskIntervalReason = "This task already ran on this endpoint less than 15 minutes ago, so Fleeto did not start it again.";
+    public const string TaskOrderReason =
+        "The step before this one has not ended, or ended in a way that stops the run, so Fleeto did not start this step.";
+    public const string RestartUserReason = "Fleeto restarts an endpoint only for a restart step of a task.";
     public const string AccessReason = "The user who started the job no longer has access to this endpoint. Ask an admin to add it to a group that has.";
     public const string AutomaticPolicyReason =
         "The patch policy of this endpoint no longer installs the Action1 agent automatically, so Fleeto did not start the installation.";
@@ -93,7 +96,7 @@ public sealed class JobHandler : ISigningRequestHandler
             return SigningOutcome.Completed(null);
         }
 
-        if (job.Type is not (JobType.Script or JobType.Action1Agent or JobType.Action1AgentRemoval) || job.ValidUntil <= now ||
+        if (job.Type is not (JobType.Script or JobType.Action1Agent or JobType.Action1AgentRemoval or JobType.Restart) || job.ValidUntil <= now ||
             job.ValidUntil > job.CreatedAt + ScriptRules.MaxValidity + TimeSpan.FromMinutes(5) ||
             job.ValidUntil > now + ScriptRules.MaxValidity + TimeSpan.FromMinutes(5))
         {
@@ -104,10 +107,16 @@ public sealed class JobHandler : ISigningRequestHandler
         // initiator's role, the patch policy of the endpoint has to ask for it, checked further down. No other job runs
         // without a user.
         var automatic = job.InitiatedByUserId == Action1AgentInstall.AutomaticInitiator;
-        // A run of a task Fleeto started (0.6.0) has no user either: the task itself has to ask for it, checked further down.
-        if (automatic && !(job.Type == JobType.Action1Agent || (job.Type == JobType.Script && job.TaskId is not null)))
+        // A run of a task Fleeto started (0.6.0) has no user either: the task itself has to ask for it, checked further down. Its
+        // steps (0.6.0) are scripts and restarts; a restart exists only as a step of a task.
+        if (automatic && !(job.Type == JobType.Action1Agent || (job.Type is JobType.Script or JobType.Restart && job.TaskId is not null)))
         {
             return SigningOutcome.Refused(AutomaticTypeReason);
+        }
+
+        if (!automatic && job.Type == JobType.Restart)
+        {
+            return SigningOutcome.Refused(RestartUserReason);
         }
 
         if (!automatic && !await ScriptCheckResolver.UserHasPermissionAsync(db, job.InitiatedByUserId, now, PermissionFor(job.Type), cancellationToken))
@@ -155,9 +164,21 @@ public sealed class JobHandler : ISigningRequestHandler
             return await SignAgentRemovalAsync(db, job, endpoint.Id, endpoint.Hostname, endpoint.OsPlatform, now, cancellationToken);
         }
 
-        if (automatic && await AutomaticTaskRefusalAsync(db, job, now, cancellationToken) is { } taskRefusal)
+        AutomationTaskStep? step = null;
+        if (automatic)
         {
-            return SigningOutcome.Refused(taskRefusal);
+            var (taskRefusal, taskStep) = await AutomaticTaskRefusalAsync(db, job, endpoint.SiteId, now, cancellationToken);
+            if (taskRefusal is not null)
+            {
+                return SigningOutcome.Refused(taskRefusal);
+            }
+
+            step = taskStep;
+        }
+
+        if (job.Type == JobType.Restart)
+        {
+            return await SignRestartAsync(db, job, endpoint.Id, endpoint.Hostname, endpoint.OsPlatform, endpoint.AgentVersion, step!, now, cancellationToken);
         }
 
         var version = job.ScriptVersionId is { } versionId
@@ -252,7 +273,8 @@ public sealed class JobHandler : ISigningRequestHandler
                 InitiatedBy = job.InitiatedByName,
                 ApprovalRequired = policy?.ScriptApprovalRequired == true,
                 RunAs = job.RunAs.ToString(),
-                job.TaskId
+                job.TaskId,
+                Step = step?.Position
             }), now, cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
@@ -322,26 +344,41 @@ public sealed class JobHandler : ISigningRequestHandler
     }
 
     /// <summary>
-    /// Why a job of a run of a task Fleeto started may not be signed (0.6.0), or null. The workers wrote it; the signer decides
-    /// again from the database: the task exists, is enabled and still runs this script as this account; the run and its endpoint
-    /// belong to the job; what started the run is still something the task starts on (an occurrence of its schedule, an alert of
-    /// one of its checks on this endpoint, the moment the endpoint became managed); the task still applies to the endpoint; and no
-    /// other job of the task Fleeto started was signed for the endpoint in the last 15 minutes. Script approval follows after this,
-    /// as for every job. Full control of the workers can so start the linked tasks at other moments, never another script.
+    /// Why the job of a step of a task run may not be signed (0.6.0), or null with the step. The workers wrote it; the signer decides
+    /// again from the database:
+    /// <list type="bullet">
+    /// <item>the task exists and is enabled, and the step is one of its steps that matches the job (its script and account, or a
+    /// restart);</item>
+    /// <item>the run and its endpoint belong to the job;</item>
+    /// <item>a run Fleeto started still starts on what started it (an occurrence of its schedule, an alert of one of its checks on
+    /// this endpoint, the moment the endpoint became managed), checked for the first step; a run started by hand still has a user
+    /// with the permissions and the access to start it, checked for every step;</item>
+    /// <item>the task still applies to the endpoint;</item>
+    /// <item>the first step is the first job of the run on the endpoint, and no job of the task was signed there for another run in
+    /// the last 15 minutes (not for a run by hand); a later step follows a job of the step before it that ended and passed, or may
+    /// fail. That is read from the jobs the gateway completed, never from what the workers wrote about the run.</item>
+    /// </list>
+    /// Script approval follows after this, as for every job. Full control of the workers can so start the linked tasks at other
+    /// moments, never another script, and each step at most once per run, in order.
     /// </summary>
-    private static async Task<string?> AutomaticTaskRefusalAsync(Infrastructure.Data.FleetoDbContext db, Job job, DateTime now,
-        CancellationToken cancellationToken)
+    private static async Task<(string? Refusal, AutomationTaskStep? Step)> AutomaticTaskRefusalAsync(Infrastructure.Data.FleetoDbContext db, Job job,
+        Guid siteId, DateTime now, CancellationToken cancellationToken)
     {
         var task = await db.AutomationTasks.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(t => t.Id == job.TaskId, cancellationToken);
         if (task is null || !task.Enabled)
         {
-            return TaskGoneReason;
+            return (TaskGoneReason, null);
         }
 
-        if (task.ScriptId != job.ScriptId || task.RunAs != job.RunAs || job.RunAsUserId is not null ||
-            (task.ClientId is { } taskClient && taskClient != job.ClientId))
+        var plan = await TaskPlan.LoadAsync(db, task, cancellationToken);
+        var step = plan.Find(job.TaskStepId);
+        var matches = step is not null && job.RunAsUserId is null && (task.ClientId is not { } taskClient || taskClient == job.ClientId) &&
+                      (step.Kind == TaskStepKind.Script
+                          ? job.Type == JobType.Script && step.ScriptId == job.ScriptId && step.RunAs == job.RunAs
+                          : job.Type == JobType.Restart && job.ScriptId is null);
+        if (!matches)
         {
-            return TaskChangedReason;
+            return (TaskChangedReason, null);
         }
 
         var run = await db.AutomationTaskRuns.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(r => r.Id == job.TaskRunId, cancellationToken);
@@ -351,35 +388,148 @@ public sealed class JobHandler : ISigningRequestHandler
                 .SingleOrDefaultAsync(t => t.RunId == run.Id && t.EndpointId == job.EndpointId, cancellationToken);
         if (run is null || run.AutomationTaskId != task.Id || run.ClientId != job.ClientId || target?.JobId != job.Id)
         {
-            return TaskChangedReason;
+            return (TaskChangedReason, null);
         }
 
-        var checkIds = task.TriggerCheckIds;
-        var occurrence = run.OccurrenceAt;
-        var started = run.Trigger switch
+        var first = step!.Position == plan.First.Position;
+        if (run.Trigger == TaskTrigger.Manual)
         {
-            TaskTrigger.Schedule => AutomationTasks.IsOccurrence(task, occurrence),
-            TaskTrigger.CheckAlert => checkIds.Count > 0 && await db.Alerts.IgnoreQueryFilters().AnyAsync(a =>
-                a.EndpointId == job.EndpointId && a.Kind == AlertKind.Check && a.CheckDefinitionId != null &&
-                checkIds.Contains(a.CheckDefinitionId.Value) && a.OpenedAt == occurrence, cancellationToken),
-            TaskTrigger.Managed => task.OnManaged && await db.Endpoints.IgnoreQueryFilters().AnyAsync(e =>
-                e.Id == job.EndpointId && e.ManagedSince == occurrence, cancellationToken),
-            _ => false
-        };
-        if (!started)
+            // The user who pressed Run now must still be allowed to, for every step.
+            if (run.InitiatedByUserId is not { } userId || run.CreatedAt < now - AutomationTasks.EventValidity)
+            {
+                return (TaskTriggerReason, null);
+            }
+
+            foreach (var permission in RunNowPermissions(job.Type))
+            {
+                if (!await ScriptCheckResolver.UserHasPermissionAsync(db, userId, now, permission, cancellationToken))
+                {
+                    return (InitiatorReason, null);
+                }
+            }
+
+            if (!await UserAccessResolver.MayReachAsync(db, userId, job.ClientId, siteId, job.EndpointId, cancellationToken))
+            {
+                return (AccessReason, null);
+            }
+        }
+        else if (first)
         {
-            return TaskTriggerReason;
+            var checkIds = task.TriggerCheckIds;
+            var occurrence = run.OccurrenceAt;
+            var started = run.Trigger switch
+            {
+                TaskTrigger.Schedule => AutomationTasks.IsOccurrence(task, occurrence),
+                TaskTrigger.CheckAlert => checkIds.Count > 0 && await db.Alerts.IgnoreQueryFilters().AnyAsync(a =>
+                    a.EndpointId == job.EndpointId && a.Kind == AlertKind.Check && a.CheckDefinitionId != null &&
+                    checkIds.Contains(a.CheckDefinitionId.Value) && a.OpenedAt == occurrence, cancellationToken),
+                TaskTrigger.Managed => task.OnManaged && await db.Endpoints.IgnoreQueryFilters().AnyAsync(e =>
+                    e.Id == job.EndpointId && e.ManagedSince == occurrence, cancellationToken),
+                _ => false
+            };
+            if (!started)
+            {
+                return (TaskTriggerReason, null);
+            }
         }
 
         if (!await AutomationTaskTargets.Linked(db, task).IgnoreQueryFilters().AnyAsync(e => e.Id == job.EndpointId, cancellationToken))
         {
-            return TaskTargetReason;
+            return (TaskTargetReason, null);
         }
 
-        var since = now - AutomationTasks.AutomaticSigningInterval;
-        var recent = await db.Jobs.IgnoreQueryFilters().AnyAsync(j => j.TaskId == task.Id && j.EndpointId == job.EndpointId && j.Id != job.Id &&
-            j.InitiatedByUserId == AutomationTasks.AutomaticInitiator && j.SignedAt != null && j.SignedAt > since, cancellationToken);
-        return recent ? TaskIntervalReason : null;
+        var others = await db.Jobs.IgnoreQueryFilters().AsNoTracking()
+            .Where(j => j.TaskRunId == run.Id && j.EndpointId == job.EndpointId && j.Id != job.Id)
+            .Select(j => new { j.TaskStepId, j.State, j.Result, j.ExitCode })
+            .ToListAsync(cancellationToken);
+        if (first)
+        {
+            if (others.Count > 0)
+            {
+                return (TaskOrderReason, null);
+            }
+
+            var since = now - AutomationTasks.AutomaticSigningInterval;
+            if (run.Trigger != TaskTrigger.Manual && await db.Jobs.IgnoreQueryFilters().AnyAsync(j =>
+                    j.TaskId == task.Id && j.EndpointId == job.EndpointId && j.Id != job.Id && j.TaskRunId != run.Id &&
+                    j.InitiatedByUserId == AutomationTasks.AutomaticInitiator && j.SignedAt != null && j.SignedAt > since, cancellationToken))
+            {
+                return (TaskIntervalReason, null);
+            }
+
+            return (null, step);
+        }
+
+        var previous = plan.Steps.Last(s => s.Position < step.Position);
+        var before = others.Where(j => plan.Find(j.TaskStepId)?.Id == previous.Id).ToList();
+        var ended = before.Count == 1 && before[0].State is not (JobState.PendingSignature or JobState.Queued or JobState.Running);
+        if (!ended || !AutomationTasks.MayContinue(previous, before[0].State, before[0].Result, before[0].ExitCode) ||
+            others.Any(j => plan.Find(j.TaskStepId) is not { } other || other.Position >= step.Position))
+        {
+            return (TaskOrderReason, null);
+        }
+
+        return (null, step);
+    }
+
+    /// <summary>What the user of a run started by hand must still hold for a job of this type.</summary>
+    private static IEnumerable<string> RunNowPermissions(JobType type) => type == JobType.Restart
+        ? [Permissions.TasksRun, Permissions.EndpointsRestart]
+        : [Permissions.TasksRun, Permissions.ScriptsRun];
+
+    /// <summary>
+    /// Signs the restart of a step of a task (0.6.0). Nothing in it comes from web or the workers: the agent runs a fixed command,
+    /// and the wait is the step's, held inside its bounds. Windows and Linux only, and an agent that knows the job type.
+    /// </summary>
+    private async Task<SigningOutcome> SignRestartAsync(Infrastructure.Data.FleetoDbContext db, Job job, Guid endpointId, string hostname,
+        string osPlatform, string? agentVersion, AutomationTaskStep step, DateTime now, CancellationToken cancellationToken)
+    {
+        if (RestartRules.Problem(osPlatform, agentVersion) is { } problem)
+        {
+            return SigningOutcome.Refused(problem);
+        }
+
+        var timeout = RestartRules.TimeoutSeconds(step.RestartWaitMinutes);
+        var payload = new JobPayload
+        {
+            JobId = job.Id.ToString("D"),
+            InstanceId = _keyRing.InstanceId.ToString("D"),
+            EndpointId = endpointId.ToString("D"),
+            Type = Protocol.Agent.V1.JobType.Restart,
+            ValidUntil = Timestamp.FromDateTime(DateTime.SpecifyKind(job.ValidUntil, DateTimeKind.Utc)),
+            InitiatedBy = job.InitiatedByName,
+            TimeoutSeconds = (uint)timeout,
+            MaxOutputBytes = (ulong)RestartRules.MaxOutputBytes,
+            RunAs = Protocol.Agent.V1.JobRunAs.Service,
+            Restart = new RestartJob()
+        }.ToByteArray();
+
+        job.Payload = payload;
+        job.Signature = _keyRing.Sign(SignatureContexts.Job, payload);
+        job.SigningKeyId = _keyRing.SigningKeyId;
+        job.SignedAt = now;
+        job.ScriptName = RestartRules.JobName;
+        job.TimeoutSeconds = timeout;
+        job.MaxOutputBytes = RestartRules.MaxOutputBytes;
+        job.State = JobState.Queued;
+
+        await SignerAudit.WriteAsync(db, new AuditRecord(AuditActions.JobSigned, "Job", job.Id.ToString(), job.ClientId, AuditActorType.System,
+            "fleeto-signer", "fleeto-signer",
+            new
+            {
+                Hostname = hostname,
+                EndpointId = endpointId,
+                Type = JobType.Restart.ToString(),
+                WaitSeconds = timeout,
+                job.ValidUntil,
+                InitiatedBy = job.InitiatedByName,
+                job.TaskId,
+                Step = step.Position
+            }), now, cancellationToken);
+
+        await db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Signed the restart {JobId} for endpoint {EndpointId}", job.Id, endpointId);
+        return SigningOutcome.Completed(null, new PendingNotification(NotificationChannels.Jobs, endpointId.ToString()));
     }
 
     /// <summary>
@@ -488,6 +638,7 @@ public sealed class JobHandler : ISigningRequestHandler
     {
         JobType.Action1Agent => Permissions.Action1AgentInstall,
         JobType.Action1AgentRemoval => Permissions.Action1AgentRemove,
+        JobType.Restart => Permissions.EndpointsRestart,
         _ => Permissions.ScriptsRun
     };
 }

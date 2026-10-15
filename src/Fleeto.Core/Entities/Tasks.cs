@@ -36,6 +36,29 @@ public enum TaskTrigger
     Manual
 }
 
+/// <summary>What a step of a task does (0.6.0).</summary>
+public enum TaskStepKind
+{
+    /// <summary>Runs a library script.</summary>
+    Script,
+
+    /// <summary>Restarts the endpoint and waits until its agent is back with a newer boot time.</summary>
+    Restart
+}
+
+/// <summary>How the steps of a run ended on one endpoint (0.6.0).</summary>
+public enum TaskTargetOutcome
+{
+    /// <summary>Every step passed.</summary>
+    Succeeded,
+
+    /// <summary>A step failed: the run stopped there, or went on past a step that may fail and ended with that failure.</summary>
+    Failed,
+
+    /// <summary>A job of the run was cancelled, so the run stopped there.</summary>
+    Cancelled
+}
+
 /// <summary>Where one endpoint of a run stands (0.6.0).</summary>
 public enum TaskTargetState
 {
@@ -62,9 +85,13 @@ public class AutomationTask
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
 
-    /// <summary>The library script; every run takes its current version (approval of the policy applies as to every job).</summary>
+    /// <summary>
+    /// The script of the first script step, kept equal to it by web so a release before steps (0.6.0-alpha.22) still runs on
+    /// this schema; the steps (<see cref="AutomationTaskStep"/>) decide what runs.
+    /// </summary>
     public Guid ScriptId { get; set; }
 
+    /// <summary>The account of the first script step, kept as <see cref="ScriptId"/>.</summary>
     public JobRunAs RunAs { get; set; } = JobRunAs.Service;
 
     /// <summary>The class of the endpoints it runs on; it never runs on the other class, wherever it is linked.</summary>
@@ -121,6 +148,37 @@ public class AutomationTask
     public string UpdatedByName { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+}
+
+/// <summary>
+/// One step of a task (0.6.0, decided 2026-10-15): a library script or a restart of the endpoint. On an endpoint a step starts
+/// only when the step before it ended, and a step that fails stops the run there unless it says the run may go on, or its exit
+/// code counts as success. Written by web only; ClientId is the task's (trigger).
+/// </summary>
+public class AutomationTaskStep
+{
+    public Guid Id { get; set; }
+    public Guid AutomationTaskId { get; set; }
+    public Guid? ClientId { get; set; }
+
+    /// <summary>1 for the first step, without gaps.</summary>
+    public int Position { get; set; }
+
+    public TaskStepKind Kind { get; set; }
+
+    /// <summary>The library script of a script step; null for a restart.</summary>
+    public Guid? ScriptId { get; set; }
+
+    public JobRunAs RunAs { get; set; } = JobRunAs.Service;
+
+    /// <summary>The next step starts also when this one fails (not when its job was cancelled).</summary>
+    public bool ContinueOnFailure { get; set; }
+
+    /// <summary>Exit codes besides 0 that count as success of a script step, such as 3 for a warning.</summary>
+    public List<int> SuccessExitCodes { get; set; } = [];
+
+    /// <summary>For a restart: how long Fleeto waits for the endpoint to come back before the step fails.</summary>
+    public int? RestartWaitMinutes { get; set; }
 }
 
 /// <summary>A task linked to a client: it runs on every endpoint of the client (0.6.0).</summary>
@@ -215,10 +273,19 @@ public class AutomationTaskRun
     /// <summary>The check whose alert started it, for a run of <see cref="TaskTrigger.CheckAlert"/>.</summary>
     public string? CheckName { get; set; }
 
+    /// <summary>
+    /// The user who pressed Run now, for a run of <see cref="TaskTrigger.Manual"/> (0.6.0, steps): fleeto-signer checks the
+    /// permissions and access of this user again before it signs each step. Only web writes it (trigger).
+    /// </summary>
+    public Guid? InitiatedByUserId { get; set; }
+
     public DateTime CreatedAt { get; set; }
 }
 
-/// <summary>One endpoint of a run (0.6.0): when its job is due, until when it may start, and the job once written.</summary>
+/// <summary>
+/// One endpoint of a run (0.6.0): when its first step is due, until when it may start, and the job of its current step once
+/// written (<see cref="JobId"/> moves on with every step; the jobs of a run keep their step in <c>Job.TaskStepId</c>).
+/// </summary>
 public class AutomationTaskRunTarget
 {
     public Guid RunId { get; set; }
@@ -236,8 +303,13 @@ public class AutomationTaskRunTarget
     public Guid? JobId { get; set; }
     public string? Reason { get; set; }
 
-    /// <summary>For an alert on failure: when the workers handled the end of the job.</summary>
+    /// <summary>When the workers handled the end of the last job of the run on this endpoint.</summary>
     public DateTime? OutcomeHandledAt { get; set; }
+
+    /// <summary>When the run ended on this endpoint (0.6.0, steps): the last step ended, or a step stopped the run.</summary>
+    public DateTime? FinishedAt { get; set; }
+
+    public TaskTargetOutcome? Outcome { get; set; }
 
     public DateTime UpdatedAt { get; set; }
 }

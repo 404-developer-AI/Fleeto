@@ -272,12 +272,19 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   kind `Task` (public API `task`), `TaskService` with Settings, Tasks and the task page (links, Run now, runs, output, CSV), the
   Tasks tab of an endpoint (the tasks that apply with next run and last result, and the history of runs with their output; link,
   unlink or create a task for the endpoint), tasks linked to monitoring templates (migration `TemplateTasks`, asked for by the
-  developer on 2026-10-15), the permissions View tasks, Edit tasks and Run tasks now. Linking happens on the task page; the link editor of clients, sites and
+  developer on 2026-10-15), steps (migration `TaskSteps`, decided 2026-10-15 after five tasks at fixed times on the developer's other
+  RMM ran into each other and a reboot in between broke one big script: a task is an ordered list of library scripts and restarts,
+  a step starts only when the one before ended, a failed step stops the run unless it may fail or its exit code counts as success,
+  and a restart is a new signed job type the agent runs with a fixed command and reports after the endpoint is back with a newer
+  boot time; Run now writes the run and the workers run its steps; the permission Restart endpoints), the permissions View tasks, Edit tasks and Run tasks now. Linking happens on the task page; the link editor of clients, sites and
   endpoints does not show tasks yet. To verify on the test VPS: a daily inventory task with a random delay on a site of Windows
   endpoints, its CSV export; a task on the alert of a service check restarting the service; a task when an endpoint becomes
   managed; a failing script opening an alert and the next good run resolving it; an endpoint offline during a run catching up;
   the Tasks tab of an endpoint showing these runs with their output; a task linked to a monitoring template running on the
-  endpoints of a site the template is linked to, and on an endpoint that gets the template later.
+  endpoints of a site the template is linked to, and on an endpoint that gets the template later; the AlmaLinux round as one task
+  (OS update, stop containers, upgrade containers, restart, start containers) where the last step starts only after the endpoint
+  is back, a Windows endpoint restarting with the notice of one minute, a step whose exit code 3 counts as success, and an agent
+  of an older release skipped before the first step.
 
 ## 0.7.0 — Performance monitor
 

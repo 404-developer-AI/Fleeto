@@ -132,12 +132,13 @@ AuditEntry (append-only)
 | **CheckRunRequest** | `Id`, `ClientId`, `EndpointId`, `CheckDefinitionId`, `Reset`, `RequestedBy`, `RequestedAt`, `ExpiresAt`, `ResetAppliedAt?`, `DeliveredAt?`, `Outcome?` (`expired`, `not_applicable`, `not_managed`) | A technician's "Run now" or "Reset and run" (§4). Kept 7 days. |
 | **ClientTemplate** | `Id`, `Name`, `PolicyId?`, `ServerPolicyId?`, `WorkstationPolicyId?`, `PatchPolicyId?`, `ServerPatchPolicyId?`, `WorkstationPatchPolicyId?`, monitoring templates of the client (**ClientTemplateMonitoringTemplate**), sites (**ClientTemplateSite**) each with the same six and monitoring templates | Blueprint used at client creation. Linked, not copied: later changes apply to every client using it; a technician can make an independent copy. Global policies, patch policies and monitoring templates only (constraint triggers). Its links on the client and its sites carry `Source = ClientTemplate`: a technician can replace them (the link becomes their own), not remove them, and detaching the client makes them all manual. |
 | **Script**, **ScriptVersion** | `Id`, `ClientId?`, `Name`, `Description`, `Language` (`PowerShell`, `Batch`, `Shell`, `Bash`), `CurrentVersionId`; version: `ClientId?`, `Number`, `Body`, `Sha256`, `TimeoutSeconds`, `AuthorUserId`, `ApprovedByUserId?`, `ApprovedAt?`, `ApprovedSha256?` | `ClientId` null = global, immutable (trigger); a version carries the client of its script (constraint trigger). Saving a changed body or timeout creates a new version; the language is fixed. A version is approved only when approver and author differ and `ApprovedSha256` equals `Sha256` (check constraint). |
-| **AutomationTask** (0.6.0) | `Id`, `ClientId?`, `Name`, `Description?`, `ScriptId`, `RunAs`, `AppliesTo`, `Enabled`, `ScheduleKind` (`None`, `Once`, `Daily`, `Weekly`, `Monthly`), `TimeZone`, `StartDate`, `StartMinute`, `EndDate?`, `Every` (1-365), `WeekDays`, `MonthDay` (1-31), `RepeatMinutes?` (15-720), `TriggerCheckIds[]` (at most 20), `OnManaged`, `RandomDelayMinutes` (0-720), `CatchUp`, `Overlap` (`Skip`, `Wait`), `AlertOnFailure`, `AlertSeverity`, `UpdatedByName` | A library script that runs by itself (§4, Tasks). `ClientId` null = global; a task of a client runs a global script or one of its client (constraint trigger) and is linked within its client. Its script cannot be deleted while it runs it (foreign key, checked at the end of the statement). Written by web only. |
+| **AutomationTask** (0.6.0) | `Id`, `ClientId?`, `Name`, `Description?`, `ScriptId`, `RunAs`, `AppliesTo`, `Enabled`, `ScheduleKind` (`None`, `Once`, `Daily`, `Weekly`, `Monthly`), `TimeZone`, `StartDate`, `StartMinute`, `EndDate?`, `Every` (1-365), `WeekDays`, `MonthDay` (1-31), `RepeatMinutes?` (15-720), `TriggerCheckIds[]` (at most 20), `OnManaged`, `RandomDelayMinutes` (0-720), `CatchUp`, `Overlap` (`Skip`, `Wait`), `AlertOnFailure`, `AlertSeverity`, `UpdatedByName` | Library scripts that run by themselves as steps (§4, Tasks). `ClientId` null = global; a task of a client runs global scripts or ones of its client (constraint trigger) and is linked within its client. `ScriptId` and `RunAs` are kept equal to the first script step, so the build before steps still runs on the schema (expand; dropped in a later release). A script a task or a step runs cannot be deleted (foreign keys, checked at the end of the statement). Written by web only. |
+| **AutomationTaskStep** (0.6.0, steps) | `Id`, `AutomationTaskId`, `ClientId?` (the task's, trigger), `Position` (1-20, unique per task), `Kind` (`Script`, `Restart`), `ScriptId?`, `RunAs`, `ContinueOnFailure`, `SuccessExitCodes[]` (at most 10, never 0), `RestartWaitMinutes?` (5-240) | The steps of a task in order. A script step has a script and no wait; a restart step a wait and no script (check constraint). Written by web only; the ids stay when steps are reordered, so a run in progress follows them. |
 | **ClientAutomationTask**, **SiteAutomationTask**, **EndpointAutomationTask** (0.6.0) | `ClientId` / `SiteId`, `ClientId` / `EndpointId`, `ClientId`, `AutomationTaskId` | Where a task runs; the links add up. Never a task of another client (constraint triggers). |
 | **MonitoringTemplateAutomationTask** (0.6.0) | `MonitoringTemplateId`, `AutomationTaskId`, `ClientId?`, `CreatedAt` | A task that runs on every endpoint that gets the template. `ClientId` is the client of the template or the task (null when both are global); a template and a task of two clients are never linked (constraint trigger `TR_MonitoringTemplateAutomationTasks_Client`). |
 | **AutomationTaskState** (0.6.0) | `AutomationTaskId`, `LastOccurrenceAt?`, `NextOccurrenceAt?`, `AlertsSeenUntil`, `ManagedSeenUntil`, `ScheduleHash` | The workers' position per task. Written by the workers only. |
-| **AutomationTaskRun**, **AutomationTaskRunTarget** (0.6.0) | run: `Id`, `AutomationTaskId`, `ClientId`, `Trigger` (`Schedule`, `CheckAlert`, `Managed`, `Manual`), `OccurrenceAt`, `InitiatedByName`, `CheckName?`; target: `RunId`, `EndpointId`, `ClientId`, `DueAt`, `ValidUntil`, `State` (`Pending`, `Started`, `Skipped`), `JobId?`, `Reason?`, `OutcomeHandledAt?` | One run per client and start, one target per endpoint. A scheduled occurrence runs once per client (unique index). Deleted with the task, and after the job retention. |
-| **Job** | `Id`, `ClientId`, `EndpointId`, `BatchId`, `Type` (`Script`), snapshot of the script (`ScriptId?`, `ScriptVersionId?`, name, version number, `Language`, `ScriptSha256`, `TimeoutSeconds`, `MaxOutputBytes`), `RunAs` (`service`/`logged_on_user`, 0.2.1), `RunAsAccount?` (the user the agent reported, 0.2.1), `RunAsUserId?` and `RunAsChosenAccount?` (the user the technician chose, 0.2.2), `ValidUntil`, `InitiatedByUserId`, `State` (`pending_signature`, `queued`, `running`, `succeeded`, `failed`, `expired`, `refused`, `lost`, `cancelled`), `RefusalReason?`, `Payload`, `Signature`, `SigningKeyId`, `DeliveredAt?`, `StartedAt?`, `CompletedAt?`, `Result?` (`exited`, `timed_out`, `refused`, `failed_to_start`, `interrupted`), `ExitCode?`, `OutputState` (`none`, `receiving`, `complete`, `incomplete`), `OutputTruncated`, per stream announced chunks, bytes and SHA-256 | One row per endpoint. Idempotent by `Id`. Never delivered or executed after `ValidUntil` (at most 7 days after creation, check constraint). `State` describes execution, `OutputState` describes the output; they move independently. The snapshot keeps the history readable after the script changes or is deleted. `TaskId?` and `TaskRunId?` (0.6.0) name the task and run of a job of a task; they only become empty when those are deleted (trigger). |
+| **AutomationTaskRun**, **AutomationTaskRunTarget** (0.6.0) | run: `Id`, `AutomationTaskId`, `ClientId`, `Trigger` (`Schedule`, `CheckAlert`, `Managed`, `Manual`), `OccurrenceAt`, `InitiatedByName`, `CheckName?`, `InitiatedByUserId?` (a run by hand, steps); target: `RunId`, `EndpointId`, `ClientId`, `DueAt`, `ValidUntil`, `State` (`Pending`, `Started`, `Skipped`), `JobId?` (the job of the current step), `Reason?`, `OutcomeHandledAt?`, `FinishedAt?`, `Outcome?` (`Succeeded`, `Failed`, `Cancelled`) | One run per client and start, one target per endpoint. A scheduled occurrence runs once per client (unique index). Only web writes a run by hand and only such a run names a user; what started a run never changes (trigger `TR_AutomationTaskRuns_Origin`). Deleted with the task, and after the job retention. |
+| **Job** | `Id`, `ClientId`, `EndpointId`, `BatchId`, `Type` (`Script`, `Action1Agent`, `Action1AgentRemoval`, `Restart`), snapshot of the script (`ScriptId?`, `ScriptVersionId?`, name, version number, `Language`, `ScriptSha256`, `TimeoutSeconds`, `MaxOutputBytes`), `RunAs` (`service`/`logged_on_user`, 0.2.1), `RunAsAccount?` (the user the agent reported, 0.2.1), `RunAsUserId?` and `RunAsChosenAccount?` (the user the technician chose, 0.2.2), `ValidUntil`, `InitiatedByUserId`, `State` (`pending_signature`, `queued`, `running`, `succeeded`, `failed`, `expired`, `refused`, `lost`, `cancelled`), `RefusalReason?`, `Payload`, `Signature`, `SigningKeyId`, `DeliveredAt?`, `StartedAt?`, `CompletedAt?`, `Result?` (`exited`, `timed_out`, `refused`, `failed_to_start`, `interrupted`), `ExitCode?`, `OutputState` (`none`, `receiving`, `complete`, `incomplete`), `OutputTruncated`, per stream announced chunks, bytes and SHA-256 | One row per endpoint. Idempotent by `Id`. Never delivered or executed after `ValidUntil` (at most 7 days after creation, check constraint). `State` describes execution, `OutputState` describes the output; they move independently. The snapshot keeps the history readable after the script changes or is deleted. `TaskId?`, `TaskRunId?` and `TaskStepId?` (0.6.0) name the task, run and step of a job of a task; they only become empty when those are deleted (trigger), and a step runs at most once per run and endpoint (unique index; `TaskStepId` has no foreign key, so a deleted step stays named). |
 | **JobOutputChunk** | `ClientId`, `JobId`, `Stream` (`stdout`/`stderr`), `Sequence`, `Data`, `ReceivedAt` | Unique on `JobId`, `Stream`, `Sequence`. Protocol in §4, Job output. |
 | **SigningRequest** | `Id`, `ClientId?`, `Kind` (`Job`, `RemoteSessionToken`, `AgentEnrollment`, `AgentRenewal`, `AgentRecovery`, `GatewayCertificate`, `AgentConfig`, `WatchdogCertificate`), `SubjectId`, `RequestedBy`, `State`, `RefusalReason?` | Written by web, gateway or workers (who may create which kind is a database trigger), processed by the signer. |
 | **License** | `Id`, `CustomerName`, `Fqdn`, `ManagedEndpointCount`, `ExpiresAt`, `SignedDocument` (encrypted) | One per instance. Verified offline with the Steaan license public key baked into the build. Grace period of 14 days after `ExpiresAt`. |
@@ -939,8 +940,8 @@ scripts, so there are no ad-hoc scripts to refuse. The setting is off by default
 for server sites. Scripts live under Settings, Templates, Scripts: every user can read them,
 admins and technicians write them, admins approve.
 
-**Tasks (0.6.0, decided 2026-10-14).** A task names one library script, the account it runs as and the class it is for, and is
-linked to clients, sites and endpoints (`ClientAutomationTasks`, `SiteAutomationTasks`, `EndpointAutomationTasks`) and to monitoring
+**Tasks (0.6.0, decided 2026-10-14).** A task has one or more steps (decided 2026-10-15), each a library script with the account it
+runs as, or a restart of the endpoint with how long Fleeto waits for it to come back; it is for a class, and is linked to clients, sites and endpoints (`ClientAutomationTasks`, `SiteAutomationTasks`, `EndpointAutomationTasks`) and to monitoring
 templates (`MonitoringTemplateAutomationTasks`, 2026-10-15); the links add up like those of monitoring templates, and
 `AutomationTaskTargets.Linked` is the one rule for which endpoints it reaches (only endpoints with an agent, of its client and class).
 Through a monitoring template it reaches every endpoint that gets the template: linked to its client, site or itself and for its
@@ -957,8 +958,8 @@ starts in four ways:
   `AutomationTasks.Occurrences` computes them with the daylight saving rules of maintenance windows.
 - *Check alert*: an alert of one of its chosen template checks opens on an endpoint (at most once an hour per endpoint).
 - *Managed*: an endpoint is switched to managed (`Endpoint.ManagedSince`, set by the tier change).
-- *Run now*: a user with Run tasks now and Run scripts starts it; web writes the run and the jobs with that user as initiator,
-  signed as every job a user starts.
+- *Run now*: a user with Run tasks now and Run scripts (and Restart endpoints for a task with a restart) starts it; web writes the
+  run, which names that user, and a waiting target per endpoint; the workers run its steps like those of any run.
 
 The workers (`AutomationTaskService`, every 30 seconds and on `fleeto_tasks`, `fleeto_alerts` and `fleeto_jobs`) keep per task an
 `AutomationTaskState`: the occurrences handled and how far they read alerts and managed switches. A task they see for the first
@@ -966,26 +967,53 @@ time, or whose schedule changed, counts from that moment, so nothing from before
 per client with an `AutomationTaskRunTarget` per endpoint: due at the run plus the endpoint's share of the random delay
 (`AutomationTasks.DelayFor`, the same for a run and endpoint), valid until the next occurrence when the task catches up (between
 an hour and 7 days, a day for a run that is not scheduled) or an hour when it does not. Agent-only endpoints are left out; one
-whose platform does not run the script's language is listed as skipped with the reason. When a target is due the workers write a
-job without a user (`AutomationTasks.AutomaticInitiator`) and its signing request, unless the previous job of the task still runs
-there (skipped, or waiting until it ended, as the task says), the endpoint can no longer run it, or the run expired. A scheduled
-occurrence runs once per client (unique index), whatever the workers retry.
+that cannot run every step (a script's language does not run on its platform, a script of another client, or a restart step on an
+agent before 0.6.0 or another platform than Windows and Linux) is listed as skipped with the reason before the first step starts.
+When a target is due the workers write the job of the first step without a user (`AutomationTasks.AutomaticInitiator`) and its
+signing request, unless a previous run of the task is still busy there, between steps included (skipped, or waiting until it
+ended, as the task says), the endpoint can no longer run it, or the run expired. A scheduled occurrence runs once per client
+(unique index), whatever the workers retry. `TaskPlan` loads the steps of a task in order; a task without step rows (written by
+the build before steps) runs its own script as its one step, whose job carries no step.
 
-The workers follow every ended job of a run: a failed, lost or refused one opens an alert of kind `Task` on the endpoint (target:
-the task id) when the task asks for it and the endpoint is not in maintenance; the next successful run resolves it, and so does
-deleting the task or switching its alert off. An expired job is a missed run, not a failure. Settings, Tasks shows per run every
-endpoint with its state, exit code and the start of its output, and exports the run as CSV (the first 64 KB of the output and 16 KB
-of the errors per endpoint; a value a spreadsheet would read as a formula is kept as text). The Tasks tab of an endpoint
+The workers follow every ended job of a run (before they start new runs in the same pass, so an endpoint that just finished is free
+for the next run). The step passed when its job succeeded, or for a script when it exited with an exit code the step counts as
+success; a restart passes only when the agent reported the endpoint back. When the step passed, or may fail and its job was not
+cancelled, and a next step exists, they write the job of that step at once (woken by `fleeto_jobs`), valid for a day when the task
+catches up and an hour when not; a next step that cannot start ends the run with the reason. Otherwise the run ends on the
+endpoint (`FinishedAt`, `Outcome`): succeeded when every step passed, failed otherwise. A failed run opens an alert of kind `Task`
+on the endpoint (target: the task id) when the task asks for it and the endpoint is not in maintenance, naming the step for a task
+of several steps; a run that succeeded resolves it, and so does deleting the task or switching its alert off. An expired first step
+is a missed run, not a failure; an expired later step is a failure. Settings, Tasks shows per run every endpoint with how far it got
+(`Running step 2 of 5`, `Failed at step 3`) and every step with its state, exit code and the start of its output, and exports the
+run as CSV, a row per endpoint and step (the first 64 KB of the output and 16 KB of the errors per step; a value a spreadsheet would
+read as a formula is kept as text).
+
+*Restart (steps).* A job of type `Restart` has no script; fleeto-signer composes it with `RestartJob {}` and the wait of the step as
+its timeout, for a Windows or Linux endpoint whose agent knows it (`RestartRules`). The agent records the boot time and the
+deadline in the job's directory, reports the start, and runs a fixed command (`shutdown.exe /r /t 60` on Windows, `shutdown -r +1`
+on Linux) with a notice to a signed-in user. When the agent stops for the restart it leaves the job open; after the start it
+reports success with one line of output once the boot time is newer than recorded, or keeps waiting until the deadline when the
+agent restarted without the endpoint. Without a restart before the deadline it cancels the planned restart and reports a timeout.
+The server marks the job lost as for every job when nothing comes back, and the step fails. The Tasks tab of an endpoint
 (`TaskService.GetForEndpointAsync`) lists the tasks that apply to it by the same targeting rule, with the levels they are linked
 on, the next run (a run already waiting there, else the next occurrence) and the last run, and the newest 50 runs on the
 endpoint; the output opens with the permission View jobs.
 
-Only the workers write a job without a user (§5): a trigger lets them write one only for a run of an enabled task with that task's
-script and account (`TR_Jobs_Origin`) and ask for its signature only for such a job; web writes tasks and the workers only read
-them. Before it signs, fleeto-signer checks again that the task exists and is on, runs this script as this account, applies to the
-endpoint, starts on what started the run (an occurrence of its schedule, an alert of one of its checks on that endpoint at that
-moment, the endpoint becoming managed at that moment) and was not signed for the endpoint in the last 15 minutes; script approval
-of the policy follows as for every job. A script a task runs cannot be deleted.
+Only the workers write a job without a user (§5): a trigger lets them write one only for a step of an enabled task as the step says
+(its script and account, or a restart for a restart step) in a run of that task that Fleeto started or that names the user who
+started it by hand (`TR_Jobs_Origin`), and ask for its signature only for such a job; nobody else writes a restart. Web writes
+tasks and their steps and the workers only read them. Before it signs, fleeto-signer checks again that the task exists and is on,
+that the step is one of its steps and matches the job, that the task applies to the endpoint, and:
+
+- for the first step of a run Fleeto started, that it starts on what started the run (an occurrence of its schedule, an alert of
+  one of its checks on that endpoint at that moment, the endpoint becoming managed at that moment), that no other job of the run is
+  there, and that no job of the task was signed for the endpoint for another run in the last 15 minutes;
+- for a later step, that the job of the step before it in the same run ended and passed, or may fail and was not cancelled, judged
+  from the jobs the gateway completed and the steps as they are now, never from what the workers wrote about the run;
+- for every step of a run started by hand, that its user still holds Run tasks now and Run scripts (Restart endpoints for a
+  restart) and still reaches the endpoint, within a day of the start.
+
+Script approval of the policy follows for a script step as for every job. A script a task or a step runs cannot be deleted.
 
 **Remote session (0.3.0).** Two kinds, each in its own popup window opened from the endpoint list or detail: **remote
 control** (the screen, served by the agent; from step 3) and **remote background** (terminal, files, services and
@@ -1471,12 +1499,17 @@ on which endpoint. A compromised gateway that keeps a valid relay open is still 
   audited change in web.
 - **A run of a task without a user (0.6.0), accepted risk.** The developer chose a system initiator for the runs Fleeto starts by
   itself, over the user who last changed the task: a task keeps running when that user leaves. Full control of the workers can
-  therefore get a job signed for an enabled task on an endpoint it applies to, at a moment its own trigger names (an occurrence of
-  its schedule, an alert of one of its checks, the endpoint becoming managed), at most once in 15 minutes per task and endpoint,
-  and only with the current version of the task's own script under the script approval of the policy. It cannot choose another
-  script, account or endpoint: the workers cannot write tasks or their links (grants), the database lets them write no other job
-  without a user, and the signer checks the task, the run and its trigger again. Creating, changing and linking a task are audited
-  changes in web.
+  therefore get the first step of an enabled task signed on an endpoint it applies to, at a moment its own trigger names (an
+  occurrence of its schedule, an alert of one of its checks, the endpoint becoming managed), at most once in 15 minutes per task
+  and endpoint, and each later step once per run in order, after the gateway reported the step before it as ended in a way that
+  lets the run go on; only with the current version of the task's own scripts under the script approval of the policy, and a
+  restart only where the task has a restart step. It can also pretend a run started by hand, but only for a user who may still
+  run the task, within a day. It cannot choose another script, account or endpoint: the workers cannot write tasks, their steps or
+  their links (grants), the database lets them write no other job without a user, and the signer checks the task, the step, the
+  run and its trigger again. Creating, changing and linking a task are audited changes in web.
+- **Restarts from a task (0.6.0, steps).** A restart step ends the work of a signed-in user after the notice of one minute;
+  consent and banners of remote control do not apply. Who may add or run it is the permission Restart endpoints, which the
+  technician role has by default.
 
 ### Backups
 

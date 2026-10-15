@@ -288,11 +288,16 @@ public sealed class JobService
     /// Queues an email to every admin when a run is above the threshold of Settings, Scripts. The rows are added to the caller's
     /// context, not saved: they are committed with the jobs themselves.
     /// </summary>
-    internal async Task<int> AddAdminNoticeAsync(FleetoDbContext db, Caller caller, IReadOnlyList<Job> created, int skippedCount, DateTime now,
-        CancellationToken cancellationToken)
-    {
+    internal Task<int> AddAdminNoticeAsync(FleetoDbContext db, Caller caller, IReadOnlyList<Job> created, int skippedCount, DateTime now,
+        CancellationToken cancellationToken) =>
         // The threshold counts endpoints: a run for all signed-in users has several jobs per endpoint.
-        var endpointIds = created.Select(j => j.EndpointId).Distinct().ToList();
+        AddAdminNoticeAsync(db, caller, created.Select(j => j.EndpointId).Distinct().ToList(), created[0].ScriptName, created[0].ScriptVersionNumber,
+            skippedCount, now, cancellationToken);
+
+    /// <summary>The notice for a run of <paramref name="what"/> on these endpoints (a script, or a task run by hand, 0.6.0).</summary>
+    internal async Task<int> AddAdminNoticeAsync(FleetoDbContext db, Caller caller, IReadOnlyList<Guid> endpointIds, string what, int versionNumber,
+        int skippedCount, DateTime now, CancellationToken cancellationToken)
+    {
         var threshold = await GetAdminNoticeAboveAsync(cancellationToken);
         if (threshold <= 0 || endpointIds.Count <= threshold)
         {
@@ -310,9 +315,8 @@ public sealed class JobService
             .Where(e => endpointIds.Contains(e.Id))
             .OrderBy(e => e.Hostname).Select(e => e.Hostname).Take(NamedHostsInNotice)
             .ToListAsync(cancellationToken);
-        var first = created[0];
         var content = EmailTemplates.ScriptRunOnManyEndpoints(instance.Fqdn, new ScriptRunEmailModel(
-            caller.Name, first.ScriptName, first.ScriptVersionNumber, endpointIds.Count, skippedCount, hostnames, now, threshold), instance.AuditLogUrl);
+            caller.Name, what, versionNumber, endpointIds.Count, skippedCount, hostnames, now, threshold), instance.AuditLogUrl);
         foreach (var admin in admins)
         {
             db.OutboxEmails.Add(OutboxEmails.Create(admin, content, OutboxEmails.CategoryJob, now));

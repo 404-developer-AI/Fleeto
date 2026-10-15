@@ -604,7 +604,13 @@ message JobPayload {
   // user only, the console session first; when the user has no active session the job fails. Empty: the console session first,
   // else the first active session.
   string run_as_user_id = 11;
+  // With JOB_TYPE_RESTART (0.6.0): restart the endpoint for a step of a task. The agent runs a fixed command and completes the job
+  // only after the endpoint came back with a newer boot time, or when timeout_seconds passed without a restart.
+  RestartJob restart = 12;
 }
+
+// A restart has no input: everything the agent does is fixed in the agent.
+message RestartJob {}
 
 enum JobRunAs {
   // SYSTEM on Windows, root on Linux: the account the agent service itself runs as.
@@ -617,6 +623,7 @@ enum JobRunAs {
 enum JobType {
   JOB_TYPE_UNSPECIFIED = 0;
   JOB_TYPE_SCRIPT = 1;
+  JOB_TYPE_RESTART = 2;
 }
 
 message ScriptJob {

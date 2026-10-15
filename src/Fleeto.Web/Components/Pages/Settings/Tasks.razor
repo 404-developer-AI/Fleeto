@@ -33,7 +33,7 @@
             <HeaderContent>
                 <MudTh>Name</MudTh>
                 <MudTh>Available for</MudTh>
-                <MudTh>Script</MudTh>
+                <MudTh>Steps</MudTh>
                 <MudTh>Runs</MudTh>
                 <MudTh>Next run</MudTh>
                 <MudTh>Last run</MudTh>
@@ -49,7 +49,7 @@
                     <div class="muted" style="font-size:0.8125rem">@(context.Links == 0 ? "Not linked yet" : Ui.Count(context.Links, "link"))</div>
                 </MudTd>
                 <MudTd>@(context.ClientCode ?? "All clients")</MudTd>
-                <MudTd>@context.ScriptName</MudTd>
+                <MudTd>@context.StepSummary</MudTd>
                 <MudTd>
                     @context.Schedule
                     <div class="muted" style="font-size:0.8125rem">@context.Triggers</div>
@@ -89,6 +89,7 @@
         var parameters = new DialogParameters<TaskDialog>
         {
             { d => d.Clients, _clients },
+            { d => d.CanRestart, Can(Permissions.EndpointsRestart) },
             { d => d.DefaultTimeZone, TimeZoneOptions.IanaId(Time.Zone) },
             { d => d.LoadScripts, clientId => TaskSvc.GetScriptChoicesAsync(Caller!, clientId) },
             { d => d.LoadChecks, clientId => TaskSvc.GetCheckChoicesAsync(Caller!, clientId) },

@@ -54,6 +54,7 @@ public static class Permissions
     public const string EndpointsTier = "endpoints.tier";
     public const string EndpointsRevoke = "endpoints.revoke";
     public const string EndpointsDelete = "endpoints.delete";
+    public const string EndpointsRestart = "endpoints.restart";
 
     public const string ChecksView = "checks.view";
     public const string ChecksEdit = "checks.edit";
@@ -138,6 +139,8 @@ public static class Permissions
         new(EndpointsTier, EndpointsGroup, "Switch the license tier", "Switch an endpoint to managed or agent-only.", [ClientsView]),
         new(EndpointsRevoke, EndpointsGroup, "Revoke agents", "Revoke the certificate of an agent.", [ClientsView]),
         new(EndpointsDelete, EndpointsGroup, "Delete endpoints", "Delete an endpoint, optionally uninstalling its agent.", [ClientsView]),
+        new(EndpointsRestart, EndpointsGroup, "Restart endpoints",
+            "Save a task with a restart step, and run such a task now. The endpoint restarts when the step's turn comes.", [ClientsView]),
 
         new(ChecksView, EndpointTabsGroup, "View checks", "The Checks tab and the history of a check.", [ClientsView]),
         new(ChecksEdit, EndpointTabsGroup, "Edit checks of an endpoint",
@@ -255,7 +258,7 @@ public static class BuiltInRoles
         Permissions.ClientsCreate, Permissions.ClientsEdit, Permissions.ClientsDelete, Permissions.ClientsTags,
         Permissions.SitesCreate, Permissions.SitesEdit, Permissions.SitesDelete, Permissions.LinksEdit, Permissions.MaintenanceManage,
         Permissions.EndpointsEnroll, Permissions.EndpointsEdit, Permissions.EndpointsMove, Permissions.EndpointsTier,
-        Permissions.EndpointsRevoke, Permissions.EndpointsDelete,
+        Permissions.EndpointsRevoke, Permissions.EndpointsDelete, Permissions.EndpointsRestart,
         Permissions.ChecksEdit, Permissions.ChecksRun, Permissions.NotesCreate, Permissions.JobsCancel,
         Permissions.PatchesSync, Permissions.PatchesDeploy, Permissions.Action1AgentInstall, Permissions.Action1AgentRemove,
         Permissions.StorageScan, Permissions.RemoteControl, Permissions.RemoteBackground,

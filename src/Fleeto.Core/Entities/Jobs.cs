@@ -75,7 +75,13 @@ public enum JobType
     /// Uninstalls an Action1 agent that Action1 does not report from a Windows endpoint (0.6.0). The body is fixed and
     /// composed by fleeto-signer (see <c>Action1AgentRemoval</c>).
     /// </summary>
-    Action1AgentRemoval
+    Action1AgentRemoval,
+
+    /// <summary>
+    /// Restarts the endpoint for a step of a task (0.6.0). There is no script: the agent runs a fixed command and reports success
+    /// once the endpoint came back with a newer boot time. Only the workers write it, for a restart step of a task.
+    /// </summary>
+    Restart
 }
 
 public enum JobState
@@ -167,6 +173,9 @@ public class Job
 
     /// <summary>The run of the task this job belongs to (0.6.0).</summary>
     public Guid? TaskRunId { get; set; }
+
+    /// <summary>The step of the task this job runs (0.6.0, steps); null for a job written before steps existed. No foreign key: a deleted step stays named.</summary>
+    public Guid? TaskStepId { get; set; }
 
     public DateTime CreatedAt { get; set; }
     public DateTime ValidUntil { get; set; }

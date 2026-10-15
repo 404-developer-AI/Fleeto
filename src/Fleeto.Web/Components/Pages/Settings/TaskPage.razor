@@ -41,7 +41,21 @@
         <div class="fl-panel pa-4 mb-4">
             <MudSimpleTable Dense="true" Elevation="0">
                 <tbody>
-                    <tr><td class="muted" style="width:200px">Script</td><td>@task.ScriptName (@ScriptLanguages.Label(task.Language)), as @(task.Input.RunAs == JobRunAs.Service ? "SYSTEM or root" : "the signed-in user")</td></tr>
+                    <tr>
+                        <td class="muted" style="width:200px">@(task.Steps.Count == 1 ? "Script" : "Steps")</td>
+                        <td>
+                            @foreach (var step in task.Steps)
+                            {
+                                <div>
+                                    @if (task.Steps.Count > 1)
+                                    {
+                                        <span class="muted">@step.Position. </span>
+                                    }
+                                    @StepText(step)
+                                </div>
+                            }
+                        </td>
+                    </tr>
                     <tr><td class="muted">Schedule</td><td>@AutomationTasks.Describe(Entity(task))@(task.NextRunAt is { } next ? $" · next run {Time.Absolute(next)}" : "")</td></tr>
                     <tr>
                         <td class="muted">Also starts</td>
@@ -217,7 +231,7 @@
                 <HeaderContent>
                     <MudTh>Endpoint</MudTh>
                     <MudTh>State</MudTh>
-                    <MudTh>Exit code</MudTh>
+                    <MudTh>@(_task.Steps.Count > 1 ? "Steps" : "Exit code")</MudTh>
                     <MudTh>Output</MudTh>
                     <MudTh Style="width:60px"></MudTh>
                 </HeaderContent>
@@ -234,12 +248,21 @@
                             <div class="muted" style="font-size:0.75rem">Due @Time.Absolute(context.DueAt)</div>
                         }
                     </MudTd>
-                    <MudTd>@context.ExitCode</MudTd>
+                    <MudTd>
+                        @if (_task.Steps.Count > 1)
+                        {
+                            <TaskRunSteps Steps="context.Steps" OnOutput="@(jobId => ShowOutputAsync(jobId, context.EndpointId))" />
+                        }
+                        else
+                        {
+                            @context.ExitCode
+                        }
+                    </MudTd>
                     <MudTd><span class="mono" style="font-size:0.75rem;white-space:pre-wrap">@context.OutputPreview</span></MudTd>
                     <MudTd>
                         @if (context.JobId is { } jobId)
                         {
-                            <MudTooltip Text="Output"><MudIconButton Icon="@Icons.Material.Outlined.Article" Size="Size.Small" OnClick="@(() => ShowOutputAsync(jobId, context.EndpointId))" /></MudTooltip>
+                            <MudTooltip Text="@(_task.Steps.Count > 1 ? "Output of the last step" : "Output")"><MudIconButton Icon="@Icons.Material.Outlined.Article" Size="Size.Small" OnClick="@(() => ShowOutputAsync(jobId, context.EndpointId))" /></MudTooltip>
                         }
                     </MudTd>
                 </RowTemplate>
@@ -332,6 +355,24 @@
         _ => Icons.Material.Outlined.Computer
     };
 
+    private static string StepText(TaskStepView step)
+    {
+        if (step.Kind == TaskStepKind.Restart)
+        {
+            return $"Restart the endpoint, waiting at most {step.RestartWaitMinutes} minutes for it to come back{(step.ContinueOnFailure ? "; may fail" : "")}";
+        }
+
+        var text = $"{step.Label}{(step.Language is { } language ? $" ({ScriptLanguages.Label(language)})" : "")}, as {(step.RunAs == JobRunAs.Service ? "SYSTEM or root" : "the signed-in user")}";
+        if (step.SuccessExitCodes.Count > 0)
+        {
+            text += $"; exit code {string.Join(", ", step.SuccessExitCodes)} also counts as success";
+        }
+
+        return step.ContinueOnFailure ? text + "; may fail" : text;
+    }
+
+    private static string StepsText(TaskDetail task) => task.Steps.Count == 1 ? task.Steps[0].Label : $"its {task.Steps.Count} steps, one after the other,";
+
     private static string Why(TaskRunItem run) => Ui.TaskTriggerText(run.Trigger, run.CheckName, run.InitiatedByName);
 
     private async Task LinkClientChangedAsync(Guid? clientId)
@@ -404,6 +445,7 @@
         {
             { d => d.Existing, task.Input },
             { d => d.Clients, _clients },
+            { d => d.CanRestart, Can(Permissions.EndpointsRestart) },
             { d => d.LoadScripts, clientId => TaskSvc.GetScriptChoicesAsync(Caller!, clientId) },
             { d => d.LoadChecks, clientId => TaskSvc.GetCheckChoicesAsync(Caller!, clientId) },
             { d => d.OnSubmit, input => RunAsync(caller => TaskSvc.SaveAsync(caller, TaskId, input), "The task was saved.") }
@@ -420,7 +462,7 @@
         var parameters = new DialogParameters<ConfirmDialog>
         {
             { d => d.Title, $"Run task {_task!.Input.Name} now" },
-            { d => d.Message, $"Runs {_task.ScriptName} on every managed endpoint the task is linked to that you have access to, as you. Endpoints where the previous run still runs are skipped." },
+            { d => d.Message, $"Runs {StepsText(_task)} on every managed endpoint the task is linked to that you have access to, as you. Endpoints where the previous run still runs are skipped." },
             { d => d.ConfirmText, "Run now" }
         };
         var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);

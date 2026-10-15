@@ -1,0 +1,45 @@
+@* The steps of a run of a task on one endpoint (0.6.0): per step its name, how it ended and a link to its output. Used on the task
+   page and on the Tasks tab of an endpoint. *@
+@if (Steps.Count == 0)
+{
+    <span class="muted">No step started</span>
+}
+else
+{
+    <div class="d-flex flex-column gap-1">
+        @foreach (var step in Steps)
+        {
+            <div class="d-flex align-center gap-1 flex-wrap" style="font-size:0.8rem">
+                <span class="muted">@step.Position.</span>
+                <span>@step.Name</span>
+                <StatusChip Text="@TaskService.StepStateText(step)" Kind="@Kind(step)" />
+                @if (step.ExitCode is { } exitCode && !(step.Passed && step.State != JobState.Succeeded))
+                {
+                    <span class="muted">exit @exitCode</span>
+                }
+                @if (OnOutput.HasDelegate)
+                {
+                    <span @onclick:stopPropagation="true"><MudLink Typo="Typo.caption" OnClick="@(() => OnOutput.InvokeAsync(step.JobId))">output</MudLink></span>
+                }
+                @if (!step.Passed && !string.IsNullOrEmpty(step.Problem))
+                {
+                    <div class="muted" style="font-size:0.75rem;flex-basis:100%">@step.Problem</div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<TaskRunStepItem> Steps { get; set; } = [];
+
+    /// <summary>Opens the output of the job of a step; without it the steps show no link.</summary>
+    [Parameter] public EventCallback<Guid> OnOutput { get; set; }
+
+    private static StatusKind Kind(TaskRunStepItem step) => step.Passed ? StatusKind.Ok : step.State switch
+    {
+        JobState.PendingSignature or JobState.Queued or JobState.Running => StatusKind.Active,
+        JobState.Cancelled => StatusKind.Neutral,
+        _ => StatusKind.Error
+    };
+}

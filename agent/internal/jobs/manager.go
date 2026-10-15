@@ -158,8 +158,8 @@ func (m *Manager) Accept(sj *agentv1.SignedJob) {
 		return
 	}
 	m.remember(id, payload.GetValidUntil().AsTime().Add(ClockTolerance))
-	m.opts.Logger.Info("accepted a job", "jobId", id, "script", payload.GetScript().GetName(), "version", payload.GetScript().GetVersion(),
-		"initiatedBy", payload.GetInitiatedBy())
+	m.opts.Logger.Info("accepted a job", "jobId", id, "type", payload.GetType().String(), "script", payload.GetScript().GetName(),
+		"version", payload.GetScript().GetVersion(), "initiatedBy", payload.GetInitiatedBy())
 	m.start(id, payload)
 }
 
@@ -193,6 +193,10 @@ func (m *Manager) start(id string, payload *agentv1.JobPayload) {
 		if m.opts.Now().After(payload.GetValidUntil().AsTime().Add(ClockTolerance)) {
 			m.complete(id, &agentv1.JobCompletion{JobId: id, Result: agentv1.JobResult_JOB_RESULT_REFUSED,
 				Error: "the job expired while it waited for other jobs to finish"})
+			return
+		}
+		if payload.GetType() == agentv1.JobType_JOB_TYPE_RESTART {
+			m.runRestart(id, payload)
 			return
 		}
 		m.run(id, payload)
@@ -253,6 +257,10 @@ func (m *Manager) recover() {
 		}
 		if exists(filepath.Join(dir, completionFile)) {
 			m.cleanupIfDone(id)
+			continue
+		}
+		// A restart that was asked for is answered by the boot time, not as an interrupted job.
+		if m.recoverRestart(id) {
 			continue
 		}
 		if exists(filepath.Join(dir, startedFile)) {

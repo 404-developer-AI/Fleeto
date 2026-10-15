@@ -1,5 +1,6 @@
-@* Create or edit a task (0.6.0): the library script and how it runs, when it starts, and what happens around a run. The scope
-   (global or one client) is chosen at creation and cannot change. Validation messages come from AutomationTasks.Validate. *@
+@* Create or edit a task (0.6.0): its steps (library scripts and restarts, one after the other on each endpoint), when it starts,
+   and what happens around a run. The scope (global or one client) is chosen at creation and cannot change. Validation messages
+   come from AutomationTasks.Validate and ValidateSteps. *@
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">@(IsEdit ? $"Edit task {_m.Name}" : "New task")</MudText>
@@ -20,30 +21,82 @@
             </MudSelect>
         }
 
-        <MudText Typo="Typo.subtitle2" Class="mt-2 mb-2">Script</MudText>
-        <MudSelect T="Guid" @bind-Value="_m.ScriptId" Label="Script from the library" Variant="Variant.Outlined" Class="mb-3"
-                   HelperText="Every run takes the current version of the script. Where the policy requires approval, only an approved version runs.">
-            @foreach (var script in _scripts)
-            {
-                <MudSelectItem T="Guid" Value="script.Id">@script.Name (@ScriptLanguages.Label(script.Language)@(script.ClientCode is null ? "" : $", {script.ClientCode}"))</MudSelectItem>
-            }
-            @if (_m.ScriptId != Guid.Empty && _scripts.All(s => s.Id != _m.ScriptId))
-            {
-                <MudSelectItem T="Guid" Value="_m.ScriptId">Script not available</MudSelectItem>
-            }
-        </MudSelect>
-        <div class="d-flex gap-2 mb-1">
-            <MudSelect T="JobRunAs" @bind-Value="_m.RunAs" Label="Runs as" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:260px">
-                <MudSelectItem T="JobRunAs" Value="JobRunAs.Service">SYSTEM or root</MudSelectItem>
-                <MudSelectItem T="JobRunAs" Value="JobRunAs.LoggedOnUser">The signed-in user</MudSelectItem>
-            </MudSelect>
-            <AppliesToSelect @bind-Value="_m.AppliesTo"
-                             HelperText="A task for servers or workstations never runs on the other class, wherever it is linked." />
-        </div>
-        @if (_m.RunAs == JobRunAs.LoggedOnUser)
+        <MudText Typo="Typo.subtitle2" Class="mt-2 mb-1">Steps</MudText>
+        <MudText Typo="Typo.caption" Class="muted d-block mb-2">
+            On each endpoint a step starts only when the step before it ended. A step that fails stops the run there, unless it may fail.
+            Every run takes the current version of a script; where the policy requires approval, only an approved version runs.
+        </MudText>
+        @for (var i = 0; i < _m.Steps.Count; i++)
         {
-            <MudText Typo="Typo.caption" Class="muted d-block mb-2">The run fails on an endpoint where nobody is signed in.</MudText>
+            var step = _m.Steps[i];
+            var index = i;
+            <div class="fl-panel pa-3 mb-2">
+                <div class="d-flex align-center gap-1 mb-2">
+                    <strong>Step @(index + 1)</strong>
+                    <span class="muted ml-1">@(step.Kind == TaskStepKind.Restart ? "Restart the endpoint" : "Run a script")</span>
+                    <MudSpacer />
+                    <MudTooltip Text="Move up">
+                        <MudIconButton Icon="@Icons.Material.Outlined.ArrowUpward" Size="Size.Small" Disabled="@(index == 0)" aria-label="Move up"
+                                       OnClick="@(() => Move(index, -1))" />
+                    </MudTooltip>
+                    <MudTooltip Text="Move down">
+                        <MudIconButton Icon="@Icons.Material.Outlined.ArrowDownward" Size="Size.Small" Disabled="@(index == _m.Steps.Count - 1)"
+                                       aria-label="Move down" OnClick="@(() => Move(index, 1))" />
+                    </MudTooltip>
+                    <MudTooltip Text="Remove the step">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Disabled="@(_m.Steps.Count == 1)" aria-label="Remove the step"
+                                       OnClick="@(() => _m.Steps.RemoveAt(index))" />
+                    </MudTooltip>
+                </div>
+                @if (step.Kind == TaskStepKind.Script)
+                {
+                    <MudSelect T="Guid" @bind-Value="step.ScriptId" Label="Script from the library" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2">
+                        @foreach (var script in _scripts)
+                        {
+                            <MudSelectItem T="Guid" Value="script.Id">@script.Name (@ScriptLanguages.Label(script.Language)@(script.ClientCode is null ? "" : $", {script.ClientCode}"))</MudSelectItem>
+                        }
+                        @if (step.ScriptId != Guid.Empty && _scripts.All(s => s.Id != step.ScriptId))
+                        {
+                            <MudSelectItem T="Guid" Value="step.ScriptId">Script not available</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <div class="d-flex flex-wrap gap-2 mb-1">
+                        <MudSelect T="JobRunAs" @bind-Value="step.RunAs" Label="Runs as" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:240px">
+                            <MudSelectItem T="JobRunAs" Value="JobRunAs.Service">SYSTEM or root</MudSelectItem>
+                            <MudSelectItem T="JobRunAs" Value="JobRunAs.LoggedOnUser">The signed-in user</MudSelectItem>
+                        </MudSelect>
+                        <MudTextField T="string" @bind-Value="step.ExitCodes" Label="Exit codes that also count as success" Variant="Variant.Outlined"
+                                      Margin="Margin.Dense" Style="max-width:280px" Placeholder="For example 3" Immediate="true"
+                                      Error="@(step.ExitCodesProblem is not null)" ErrorText="@step.ExitCodesProblem"
+                                      HelperText="Besides 0, separated by commas" />
+                    </div>
+                    @if (step.RunAs == JobRunAs.LoggedOnUser)
+                    {
+                        <MudText Typo="Typo.caption" Class="muted d-block mb-1">The step fails on an endpoint where nobody is signed in.</MudText>
+                    }
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2" Class="mb-2">
+                        Fleeto restarts the endpoint after a minute's notice and goes on once its agent is back with a newer boot time.
+                    </MudText>
+                    <MudNumericField T="int" @bind-Value="step.WaitMinutes" Label="Wait at most (minutes) for the endpoint to come back" Variant="Variant.Outlined"
+                                     Margin="Margin.Dense" Min="@RestartRules.MinWaitMinutes" Max="@RestartRules.MaxWaitMinutes" Style="max-width:320px" Class="mb-1" />
+                }
+                <MudCheckBox T="bool" @bind-Value="step.ContinueOnFailure" Color="Color.Primary" Dense="true"
+                             Label="@(index == _m.Steps.Count - 1 ? "This step may fail (the run does not count as failed for it alone)" : "Continue with the next step when this step fails")" />
+            </div>
         }
+        <div class="d-flex flex-wrap gap-2 mb-3">
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Outlined.Add" Disabled="@(_m.Steps.Count >= AutomationTasks.MaxSteps)"
+                       OnClick="AddScriptStep">Add a script</MudButton>
+            @if (CanRestart)
+            {
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Outlined.RestartAlt"
+                           Disabled="@(_m.Steps.Count >= AutomationTasks.MaxSteps)" OnClick="AddRestartStep">Add a restart</MudButton>
+            }
+        </div>
+        <AppliesToSelect @bind-Value="_m.AppliesTo" HelperText="A task for servers or workstations never runs on the other class, wherever it is linked." />
 
         <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Schedule</MudText>
         <MudSelect T="TaskScheduleKind" @bind-Value="_m.ScheduleKind" Label="Runs" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2">
@@ -148,7 +201,7 @@
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">@(IsEdit ? "Save" : "Create")</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="@(_busy || _m.Steps.Any(s => s.ExitCodesProblem is not null))">@(IsEdit ? "Save" : "Create")</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -162,8 +215,7 @@
         public string? Name { get; set; }
         public string? Description { get; set; }
         public Guid? ClientId { get; set; }
-        public Guid ScriptId { get; set; }
-        public JobRunAs RunAs { get; set; } = JobRunAs.Service;
+        public List<StepModel> Steps { get; set; } = [new StepModel()];
         public CheckAppliesTo AppliesTo { get; set; } = CheckAppliesTo.All;
         public bool Enabled { get; set; } = true;
         public TaskScheduleKind ScheduleKind { get; set; } = TaskScheduleKind.Daily;
@@ -184,20 +236,49 @@
         public bool AlertOnFailure { get; set; } = true;
         public AlertSeverity AlertSeverity { get; set; } = AlertSeverity.Warning;
 
-        public TaskInput ToInput() => new(Name, Description, ClientId, ScriptId, RunAs, AppliesTo, Enabled, ScheduleKind, TimeZone,
+        public TaskInput ToInput() => new(Name, Description, ClientId, Steps.Select(s => s.ToInput()).ToList(), AppliesTo, Enabled, ScheduleKind, TimeZone,
             DateOnly.FromDateTime(StartDate ?? DateTime.Today), (int)(Start ?? TimeSpan.Zero).TotalMinutes,
             EndDate is { } end ? DateOnly.FromDateTime(end) : null, Every, WeekDays, MonthDay, Repeat ? RepeatMinutes : null,
             TriggerChecks.ToList(), OnManaged, RandomDelayMinutes, CatchUp, Overlap, AlertOnFailure, AlertSeverity);
 
         public static Model From(TaskInput t) => new()
         {
-            Name = t.Name, Description = t.Description, ClientId = t.ClientId, ScriptId = t.ScriptId, RunAs = t.RunAs, AppliesTo = t.AppliesTo,
+            Name = t.Name, Description = t.Description, ClientId = t.ClientId, Steps = t.Steps.Select(StepModel.From).ToList(), AppliesTo = t.AppliesTo,
             Enabled = t.Enabled, ScheduleKind = t.ScheduleKind, TimeZone = t.TimeZone, StartDate = t.StartDate.ToDateTime(TimeOnly.MinValue),
             Start = TimeSpan.FromMinutes(t.StartMinute), EndDate = t.EndDate?.ToDateTime(TimeOnly.MinValue), Every = Math.Max(1, t.Every),
             WeekDays = t.WeekDays == WeekDays.None ? WeekDays.Monday : t.WeekDays, MonthDay = t.MonthDay, Repeat = t.RepeatMinutes is not null,
             RepeatMinutes = t.RepeatMinutes ?? 60, TriggerChecks = t.TriggerCheckIds.ToHashSet(), OnManaged = t.OnManaged,
             RandomDelayMinutes = t.RandomDelayMinutes, CatchUp = t.CatchUp, Overlap = t.Overlap, AlertOnFailure = t.AlertOnFailure,
             AlertSeverity = t.AlertSeverity
+        };
+    }
+
+    /// <summary>One step in the form; the exit codes are typed as text.</summary>
+    private sealed class StepModel
+    {
+        public Guid? Id { get; set; }
+        public TaskStepKind Kind { get; set; } = TaskStepKind.Script;
+        public Guid ScriptId { get; set; }
+        public JobRunAs RunAs { get; set; } = JobRunAs.Service;
+        public bool ContinueOnFailure { get; set; }
+        public string? ExitCodes { get; set; }
+        public int WaitMinutes { get; set; } = RestartRules.DefaultWaitMinutes;
+
+        /// <summary>What is wrong with the typed exit codes, or null.</summary>
+        public string? ExitCodesProblem => Codes().Any(c => c is null) ? "Type whole numbers separated by commas." : null;
+
+        private IEnumerable<int?> Codes() => (ExitCodes ?? string.Empty).Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries)
+            .Select(text => int.TryParse(text, System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out var code)
+                ? (int?)code
+                : null);
+
+        public TaskStepInput ToInput() => new(Id, Kind, Kind == TaskStepKind.Script ? ScriptId : null, RunAs, ContinueOnFailure,
+            Kind == TaskStepKind.Script ? Codes().OfType<int>().Distinct().ToList() : [], Kind == TaskStepKind.Restart ? WaitMinutes : null);
+
+        public static StepModel From(TaskStepInput s) => new()
+        {
+            Id = s.Id, Kind = s.Kind, ScriptId = s.ScriptId ?? Guid.Empty, RunAs = s.RunAs, ContinueOnFailure = s.ContinueOnFailure,
+            ExitCodes = string.Join(", ", s.SuccessExitCodes), WaitMinutes = s.RestartWaitMinutes ?? RestartRules.DefaultWaitMinutes
         };
     }
 
@@ -214,6 +295,9 @@
 
     /// <summary>The time zone a new task starts with: the one the user sees times in.</summary>
     [Parameter] public string DefaultTimeZone { get; set; } = "UTC";
+
+    /// <summary>The user may restart endpoints: only then a restart step can be added.</summary>
+    [Parameter] public bool CanRestart { get; set; }
 
     [Parameter] public Func<Guid?, Task<IReadOnlyList<TaskScriptOption>>> LoadScripts { get; set; } = _ => Task.FromResult<IReadOnlyList<TaskScriptOption>>([]);
     [Parameter] public Func<Guid?, Task<IReadOnlyList<TaskCheckOption>>> LoadChecks { get; set; } = _ => Task.FromResult<IReadOnlyList<TaskCheckOption>>([]);
@@ -248,10 +332,25 @@
     {
         _scripts = await LoadScripts(_m.ClientId);
         _checks = await LoadChecks(_m.ClientId);
-        if (_m.ScriptId == Guid.Empty && _scripts.Count > 0)
+        foreach (var step in _m.Steps.Where(s => s.Kind == TaskStepKind.Script && s.ScriptId == Guid.Empty && _scripts.Count > 0))
         {
-            _m.ScriptId = _scripts[0].Id;
+            step.ScriptId = _scripts[0].Id;
         }
+    }
+
+    private void AddScriptStep() => _m.Steps.Add(new StepModel { ScriptId = _scripts.Count > 0 ? _scripts[0].Id : Guid.Empty });
+
+    private void AddRestartStep() => _m.Steps.Add(new StepModel { Kind = TaskStepKind.Restart });
+
+    private void Move(int index, int by)
+    {
+        var other = index + by;
+        if (other < 0 || other >= _m.Steps.Count)
+        {
+            return;
+        }
+
+        (_m.Steps[index], _m.Steps[other]) = (_m.Steps[other], _m.Steps[index]);
     }
 
     private string CheckLabel(Guid id) => _checks.FirstOrDefault(c => c.Id == id) is { } check ? check.Name : string.Empty;

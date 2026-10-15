@@ -11,16 +11,21 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
-- Tasks: Settings, Tasks. A task runs a script from the library by itself on the clients, sites and endpoints it is linked to
-  (the links add up): on a schedule (once, every few days, weeks on chosen days or months on a day, optionally repeated during
+- Tasks: Settings, Tasks. A task runs scripts from the library by itself on the clients, sites and endpoints it is linked to
+  (the links add up), as steps one after the other: on each endpoint a step starts only when the step before it ended, so a long
+  step never overlaps the next. A step can also restart the endpoint: Fleeto then waits until it is back with a newer boot time
+  (at most the wait of the step) before the next step starts, which needs an agent of this release and the new permission
+  Restart endpoints. A failed step stops the run there, unless the step may fail or its exit code counts as success (for example
+  3 for a warning). A task starts on a schedule (once, every few days, weeks on chosen days or months on a day, optionally repeated during
   the day, between a start and an end date, in a time zone of your choice), when an alert of a chosen check opens on an
   endpoint, when an endpoint is switched to managed, or with Run now. Options: a random delay per endpoint, catching up a run an
   offline endpoint missed, skipping or waiting for an endpoint where the previous run still runs, and an alert on the endpoint
-  when a run fails, resolved by the next successful run. Every run shows per endpoint its state, exit code and output, and
-  exports as CSV for collecting inventory. A task can also be linked to a monitoring template: it then runs on every endpoint
+  when a run fails (naming the step), resolved by the next successful run. Every run shows per endpoint how far it got and every
+  step with its state, exit code and output, and exports as CSV with a row per endpoint and step for collecting inventory. A task can also be linked to a monitoring template: it then runs on every endpoint
   that gets the template, wherever the template is linked; the page of a monitoring template lists, links and unlinks its tasks. The Tasks tab of an endpoint lists the tasks that apply to it, with
   where they are linked, their next run and the result of their last run, and the history of task runs on it; a run opens the
-  output of its script. From the tab a task is linked to or unlinked from the endpoint, or created already linked to it. A run Fleeto starts has no user behind it; fleeto-signer signs it only while the task
+  output of each step. From the tab a task is linked to or unlinked from the endpoint, or created already linked to it. The jobs
+  of a run have no user behind them, also for Run now (the run names the user); fleeto-signer signs each step only while the task
   still asks for it, and script approval of the policy applies as to every job. New permissions View tasks, Edit tasks and Run
   tasks now (technicians have them; read-only users can view).
 
@@ -245,6 +250,12 @@ When a third released version is added, the oldest entry moves to the top of
   filters. A navigation within the same page now keeps it while it is checked again; a refusal still replaces it.
 
 ### Security
+
+- The steps of a task: fleeto-signer signs a step only after the job of the step before it ended and passed (or may fail),
+  judged from the jobs the gateway completed, never a step twice in a run (also a unique index); for a run started by hand it
+  checks the user's permissions and access again for every step. A restart is a job type of its own that only the workers write,
+  only for a restart step of an enabled task, with nothing in it but the wait the signer takes from the step; the agent runs a
+  fixed command and reports success only after the endpoint started again with a newer boot time.
 
 - What a user reaches is enforced in the data layer, by fleeto-signer for every job and remote session token, and by the gateway:
   when a user loses an endpoint, its remote session connections to it end and its open pages reload. The license tile on the

@@ -25,12 +25,35 @@ public sealed class TaskServiceTests
     private TaskService Tasks => _fixture.Services.GetRequiredService<TaskService>();
 
     private TaskInput Input(Guid scriptId, Guid? clientId = null, string? name = null) => new(
-        name ?? "Inventory " + Guid.NewGuid().ToString("N")[..6], null, clientId, scriptId, JobRunAs.Service, CheckAppliesTo.All, true,
+        name ?? "Inventory " + Guid.NewGuid().ToString("N")[..6], null, clientId, [TaskStepInput.Script(scriptId)], CheckAppliesTo.All, true,
         TaskScheduleKind.Daily, "Europe/Brussels", DateOnly.FromDateTime(_fixture.Database.Time.GetUtcNow().UtcDateTime), 120, null, 1,
         WeekDays.None, 1, null, [], false, 10, true, TaskOverlap.Skip, true, AlertSeverity.Warning);
 
+    /// <summary>What the workers do with a waiting target of a run: write the job of the task's first step and point the target at it.</summary>
+    private async Task<Job> StartFirstStepAsync(Guid taskId, Guid endpointId)
+    {
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        var target = await db.AutomationTaskRunTargets.SingleAsync(t => t.AutomationTaskId == taskId && t.EndpointId == endpointId);
+        var step = await db.AutomationTaskSteps.OrderBy(s => s.Position).FirstAsync(s => s.AutomationTaskId == taskId);
+        var version = await db.ScriptVersions.SingleAsync(v => v.ScriptId == step.ScriptId);
+        var now = _fixture.Database.Time.GetUtcNow().UtcDateTime;
+        var job = new Job
+        {
+            Id = Guid.NewGuid(), ClientId = target.ClientId, EndpointId = endpointId, BatchId = target.RunId, Type = JobType.Script, ScriptId = step.ScriptId,
+            ScriptVersionId = version.Id, ScriptName = "Inventory", ScriptVersionNumber = 1, Language = ScriptLanguage.PowerShell, ScriptSha256 = version.Sha256,
+            TimeoutSeconds = 600, MaxOutputBytes = 1024 * 1024, TaskId = taskId, TaskRunId = target.RunId, TaskStepId = step.Id, CreatedAt = now,
+            ValidUntil = now.AddHours(1), InitiatedByUserId = AutomationTasks.AutomaticInitiator, InitiatedByName = "Test user"
+        };
+        db.Jobs.Add(job);
+        await db.SaveChangesAsync();
+        target.State = TaskTargetState.Started;
+        target.JobId = job.Id;
+        await db.SaveChangesAsync();
+        return job;
+    }
+
     [Fact]
-    public async Task Run_now_starts_a_job_per_managed_endpoint_as_the_user_and_skips_one_that_cannot_run_the_script()
+    public async Task Run_now_writes_a_run_by_the_user_with_a_waiting_endpoint_per_managed_endpoint_and_skips_one_that_cannot_run_the_task()
     {
         await _fixture.Database.LoadTestLicenseAsync(1000);
         var client = await _fixture.Database.CreateClientAsync();
@@ -55,16 +78,17 @@ public sealed class TaskServiceTests
         Assert.Equal(1, result.Value!.Created);
         Assert.Equal("LNX-RUNNOW", Assert.Single(result.Value.Skipped).Hostname);
         await using var check = _fixture.Database.DbFactory.CreateSystem();
-        var job = await check.Jobs.SingleAsync(j => j.TaskId == created.Value);
-        Assert.Equal((windows.Id, technician.UserId, JobState.PendingSignature), (job.EndpointId, job.InitiatedByUserId, job.State));
-        Assert.True(await check.SigningRequests.AnyAsync(r => r.SubjectId == job.Id));
-        var run = await check.AutomationTaskRuns.SingleAsync(r => r.Id == job.TaskRunId);
-        Assert.Equal(TaskTrigger.Manual, run.Trigger);
+        // The workers write the job of every step; the run names the user, whom fleeto-signer checks for every step.
+        Assert.False(await check.Jobs.AnyAsync(j => j.TaskId == created.Value));
+        var run = await check.AutomationTaskRuns.SingleAsync(r => r.AutomationTaskId == created.Value);
+        Assert.Equal((TaskTrigger.Manual, (Guid?)technician.UserId), (run.Trigger, run.InitiatedByUserId));
+        var waiting = await check.AutomationTaskRunTargets.SingleAsync(t => t.RunId == run.Id && t.EndpointId == windows.Id);
+        Assert.Equal(TaskTargetState.Pending, waiting.State);
         Assert.False(await check.AutomationTaskRunTargets.AnyAsync(t => t.RunId == run.Id && t.EndpointId == free.Id));
 
         var targets = await Tasks.GetRunAsync(technician, run.Id);
         Assert.Equal(["LNX-RUNNOW", "WS-RUNNOW"], targets.Select(t => t.Hostname).ToArray());
-        Assert.Equal("Could not start", TaskService.StateText(targets[0]));
+        Assert.Equal(("Could not start", "Waiting"), (TaskService.StateText(targets[0]), TaskService.StateText(targets[1])));
     }
 
     [Fact]
@@ -87,6 +111,7 @@ public sealed class TaskServiceTests
         await Tasks.LinkAsync(admin, elsewhere.Value, LinkLevel.Site, otherSite.Id);
         var run = await Tasks.RunNowAsync(admin, inventory.Value);
         Assert.True(run.Success, run.Problem);
+        await StartFirstStepAsync(inventory.Value, endpoint.Id);
         await using (var db = _fixture.Database.DbFactory.CreateSystem())
         {
             await db.Jobs.Where(j => j.TaskId == inventory.Value)
@@ -167,17 +192,17 @@ public sealed class TaskServiceTests
         await _fixture.Database.LoadTestLicenseAsync(1000);
         var client = await _fixture.Database.CreateClientAsync();
         var site = await _fixture.Database.CreateSiteAsync(client.Id);
-        await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "WS-EXPORT");
+        var endpoint = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "WS-EXPORT");
         var (_, script, _) = await _fixture.Database.CreateTaskAsync();
         var admin = WebFixture.Admin();
         var task = await Tasks.SaveAsync(admin, null, Input(script.Id));
         await Tasks.LinkAsync(admin, task.Value, LinkLevel.Site, site.Id);
         var run = await Tasks.RunNowAsync(admin, task.Value);
         Assert.True(run.Success, run.Problem);
+        var job = await StartFirstStepAsync(task.Value, endpoint.Id);
 
         await using (var db = _fixture.Database.DbFactory.CreateSystem())
         {
-            var job = await db.Jobs.SingleAsync(j => j.TaskId == task.Value);
             db.JobOutputChunks.Add(new JobOutputChunk
             {
                 JobId = job.Id, ClientId = client.Id, Stream = JobStream.Stdout, Sequence = 0, Data = Encoding.UTF8.GetBytes("=HYPERLINK(\"x\")\nserial \"ABC\""),
@@ -276,6 +301,94 @@ public sealed class TaskServiceTests
         Assert.DoesNotContain(foreign.Value, choices);
         var item = Assert.Single((await Tasks.GetForEndpointAsync(admin, endpoint.Id))!.Tasks);
         Assert.True(item.LinkedToEndpoint);
+    }
+
+    [Fact]
+    public async Task Saving_steps_keeps_their_ids_in_a_new_order_and_the_task_keeps_its_first_script()
+    {
+        var (_, first, _) = await _fixture.Database.CreateTaskAsync();
+        var (_, second, _) = await _fixture.Database.CreateTaskAsync();
+        var admin = WebFixture.Admin();
+        var input = Input(first.Id) with { Steps = [TaskStepInput.Script(first.Id), TaskStepInput.Restart(20), TaskStepInput.Script(second.Id) with { SuccessExitCodes = [3, 3] }] };
+
+        var created = await Tasks.SaveAsync(admin, null, input);
+
+        Assert.True(created.Success, created.Problem);
+        var detail = (await Tasks.GetAsync(admin, created.Value))!;
+        Assert.Equal([TaskStepKind.Script, TaskStepKind.Restart, TaskStepKind.Script], detail.Steps.Select(s => s.Kind));
+        Assert.Equal([3], detail.Steps[2].SuccessExitCodes);
+        Assert.Equal(20, detail.Steps[1].RestartWaitMinutes);
+
+        // The second script first, the restart removed: the steps keep their ids, so a run in progress follows them.
+        var steps = detail.Input.Steps;
+        var changed = await Tasks.SaveAsync(admin, created.Value, detail.Input with { Steps = [steps[2], steps[0]] });
+
+        Assert.True(changed.Success, changed.Problem);
+        var after = (await Tasks.GetAsync(admin, created.Value))!;
+        Assert.Equal([steps[2].Id, steps[0].Id], after.Steps.Select(s => (Guid?)s.Id));
+        Assert.Equal([1, 2], after.Steps.Select(s => s.Position));
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        Assert.Equal(second.Id, (await db.AutomationTasks.SingleAsync(t => t.Id == created.Value)).ScriptId);
+    }
+
+    [Fact]
+    public async Task A_restart_step_needs_the_permission_to_restart_endpoints_and_a_task_needs_a_script()
+    {
+        var (_, script, _) = await _fixture.Database.CreateTaskAsync();
+        var technician = WebFixture.Technician();
+        var withoutRestart = new Caller(Guid.NewGuid(), "Test user", "test@example.com", [FleetoRoles.Technician], SystemClientScope.Instance, "127.0.0.1",
+            Granted: BuiltInRoles.TechnicianPermissions.Where(p => p != Permissions.EndpointsRestart).ToHashSet());
+        var input = Input(script.Id) with { Steps = [TaskStepInput.Script(script.Id), TaskStepInput.Restart()] };
+
+        var refused = await Tasks.SaveAsync(withoutRestart, null, input);
+        Assert.False(refused.Success);
+        Assert.Contains("Restart endpoints", refused.Problem);
+
+        Assert.True((await Tasks.SaveAsync(technician, null, input)).Success);
+
+        var restartOnly = await Tasks.SaveAsync(technician, null, Input(script.Id) with { Steps = [TaskStepInput.Restart()] });
+        Assert.False(restartOnly.Success);
+        Assert.Contains("A restart alone is not a task", restartOnly.Problem);
+    }
+
+    [Fact]
+    public async Task The_export_of_a_run_has_a_row_per_endpoint_and_step()
+    {
+        await _fixture.Database.LoadTestLicenseAsync(1000);
+        var client = await _fixture.Database.CreateClientAsync();
+        var site = await _fixture.Database.CreateSiteAsync(client.Id);
+        var endpoint = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "WS-STEPEXPORT");
+        var (_, first, _) = await _fixture.Database.CreateTaskAsync();
+        var (_, second, secondVersion) = await _fixture.Database.CreateTaskAsync();
+        var admin = WebFixture.Admin();
+        var task = await Tasks.SaveAsync(admin, null, Input(first.Id) with { Steps = [TaskStepInput.Script(first.Id), TaskStepInput.Script(second.Id)] });
+        await Tasks.LinkAsync(admin, task.Value, LinkLevel.Site, site.Id);
+        var run = await Tasks.RunNowAsync(admin, task.Value);
+        var firstJob = await StartFirstStepAsync(task.Value, endpoint.Id);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.Jobs.Where(j => j.Id == firstJob.Id)
+                .ExecuteUpdateAsync(s => s.SetProperty(j => j.State, JobState.Succeeded).SetProperty(j => j.Signature, new byte[64]));
+            var step = await db.AutomationTaskSteps.SingleAsync(s => s.AutomationTaskId == task.Value && s.Position == 2);
+            var now = _fixture.Database.Time.GetUtcNow().UtcDateTime;
+            db.Jobs.Add(new Job
+            {
+                Id = Guid.NewGuid(), ClientId = client.Id, EndpointId = endpoint.Id, BatchId = firstJob.BatchId, Type = JobType.Script, ScriptId = second.Id,
+                ScriptVersionId = secondVersion.Id, ScriptName = second.Name, ScriptVersionNumber = 1, Language = ScriptLanguage.PowerShell,
+                ScriptSha256 = secondVersion.Sha256, TimeoutSeconds = 600, MaxOutputBytes = 1024, TaskId = task.Value, TaskRunId = firstJob.TaskRunId,
+                TaskStepId = step.Id, CreatedAt = now.AddSeconds(1), ValidUntil = now.AddHours(1), InitiatedByUserId = AutomationTasks.AutomaticInitiator,
+                InitiatedByName = "Test user"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var export = await Tasks.ExportRunAsync(admin, run.Value!.BatchId);
+        var lines = export!.Value.Csv.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
+
+        Assert.Equal(3, lines.Length);
+        Assert.Contains("\"Queued step 2 of 2\"", lines[1]);
+        Assert.Contains("\"1\"", lines[1]);
+        Assert.Contains($"\"{second.Name}\"", lines[2]);
     }
 
     [Fact]
