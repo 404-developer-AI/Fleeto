@@ -2,6 +2,7 @@ using System.Text;
 using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Infrastructure.Data;
+using Fleeto.Web.Components.Shared;
 using Fleeto.Web.Security;
 using Fleeto.Web.Services;
 using Microsoft.EntityFrameworkCore;
@@ -309,14 +310,14 @@ public sealed class TaskServiceTests
         var (_, first, _) = await _fixture.Database.CreateTaskAsync();
         var (_, second, _) = await _fixture.Database.CreateTaskAsync();
         var admin = WebFixture.Admin();
-        var input = Input(first.Id) with { Steps = [TaskStepInput.Script(first.Id), TaskStepInput.Restart(20), TaskStepInput.Script(second.Id) with { SuccessExitCodes = [3, 3] }] };
+        var input = Input(first.Id) with { Steps = [TaskStepInput.Script(first.Id), TaskStepInput.Restart(20), TaskStepInput.Script(second.Id) with { ContinueOnFailure = true }] };
 
         var created = await Tasks.SaveAsync(admin, null, input);
 
         Assert.True(created.Success, created.Problem);
         var detail = (await Tasks.GetAsync(admin, created.Value))!;
         Assert.Equal([TaskStepKind.Script, TaskStepKind.Restart, TaskStepKind.Script], detail.Steps.Select(s => s.Kind));
-        Assert.Equal([3], detail.Steps[2].SuccessExitCodes);
+        Assert.True(detail.Steps[2].ContinueOnFailure);
         Assert.Equal(20, detail.Steps[1].RestartWaitMinutes);
 
         // The second script first, the restart removed: the steps keep their ids, so a run in progress follows them.
@@ -400,5 +401,33 @@ public sealed class TaskServiceTests
 
         Assert.False(result.Success);
         Assert.Contains("A task runs this script", result.Problem);
+    }
+
+    [Fact]
+    public void A_run_and_its_steps_say_what_the_exit_codes_of_their_scripts_meant()
+    {
+        TaskRunStepItem Step(int position, JobState state, int? code, ExitStatus? status, bool passed) =>
+            new(Guid.NewGuid(), position, "Script", TaskStepKind.Script, state, JobResult.Exited, code, passed, null, null, null, string.Empty, 0, status);
+
+        Assert.Equal("Warning (exit code 1)", TaskService.StepStateText(Step(1, JobState.Succeeded, 1, ExitStatus.Warning, true)));
+        Assert.Equal("Info (exit code 4)", TaskService.StepStateText(Step(1, JobState.Succeeded, 4, ExitStatus.Info, true)));
+        Assert.Equal("Succeeded", TaskService.StepStateText(Step(1, JobState.Succeeded, 0, ExitStatus.Success, true)));
+        Assert.Equal("Succeeded (exit code 7)", TaskService.StepStateText(Step(1, JobState.Succeeded, 7, ExitStatus.Success, true)));
+        Assert.Equal("Failed (exit code 3)", TaskService.StepStateText(Step(1, JobState.Failed, 3, ExitStatus.Error, false)));
+        // A job that ended before exit code rules, with a code its step counted as success (alpha.23).
+        Assert.Equal("Succeeded (exit code 3)", TaskService.StepStateText(Step(1, JobState.Failed, 3, null, true)));
+
+        var target = new TaskRunTargetItem(Guid.NewGuid(), "SRV-01", TaskTargetState.Started, DateTime.UtcNow, null, null, JobState.Succeeded, 0, null, null,
+            null, string.Empty, 0, JobResult.Exited, TaskTargetOutcome.Succeeded, DateTime.UtcNow, HasWarning: true)
+        {
+            Steps = [Step(1, JobState.Succeeded, 1, ExitStatus.Warning, true), Step(2, JobState.Succeeded, 0, ExitStatus.Success, true)], StepCount = 2
+        };
+        Assert.Equal("Succeeded with warnings", TaskService.StateText(target));
+        Assert.Equal(StatusKind.Warning, Ui.TaskStateKind(target));
+        Assert.Equal("Succeeded", TaskService.StateText(target with { HasWarning = false }));
+        Assert.Equal((StatusKind.Info, "Info"), (Ui.JobStateKind(JobState.Succeeded, ExitStatus.Info), Ui.JobStateLabel(JobState.Succeeded, JobResult.Exited, ExitStatus.Info)));
+        Assert.Equal((StatusKind.Warning, "Warning"),
+            (Ui.JobStateKind(JobState.Succeeded, ExitStatus.Warning), Ui.JobStateLabel(JobState.Succeeded, JobResult.Exited, ExitStatus.Warning)));
+        Assert.Equal((StatusKind.Error, "Failed"), (Ui.JobStateKind(JobState.Failed, ExitStatus.Error), Ui.JobStateLabel(JobState.Failed, JobResult.Exited, ExitStatus.Error)));
     }
 }

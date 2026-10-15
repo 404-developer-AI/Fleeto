@@ -15,7 +15,7 @@ public enum ThresholdKind
     LowerIsWorse,
     /// <summary>-1 means no response (critical); otherwise a time in milliseconds, higher is worse.</summary>
     Reachability,
-    /// <summary>The exit code of a script: 0 OK, 1 warning, any other code critical. No thresholds.</summary>
+    /// <summary>The exit code of a script, read by the rules of the script (0.6.0); unlisted: 0 OK, 1 warning, any other code critical. No thresholds.</summary>
     ExitCode
 }
 
@@ -276,9 +276,9 @@ public static partial class CheckCatalog
         new CheckTypeInfo(CheckType.Script, "Script", "Runs a script from the script library as SYSTEM or root; its exit code sets the status.",
             CheckPlatforms.All,
             [new(ScriptParameter, "Script", ParameterKind.Script, Required: true, MaxLength: 36,
-                Help: "Exit code 0 is OK, 1 a warning and any other code critical. The first line of output is shown as the detail.", Validate: ScriptId)],
+                Help: "What its exit codes mean is set on the script. The first line of output is shown as the detail.", Validate: ScriptId)],
             900, null, null, _ => ThresholdKind.ExitCode, _ => string.Empty,
-            "Exit code 0 is OK, 1 is a warning and any other exit code is critical. A script that times out could not run.",
+            "The script says what its exit codes mean: success and info are OK, a warning is a warning and an error is critical. A code it does not list: 0 is OK, 1 is a warning and any other code is critical. A script that times out could not run.",
             PlatformsFor: ScriptPlatforms),
         new CheckTypeInfo(CheckType.MissingUpdates, "Missing updates",
             "Days since the release of the oldest update Action1 reports as missing. Fleeto evaluates it after every patch sync, " +

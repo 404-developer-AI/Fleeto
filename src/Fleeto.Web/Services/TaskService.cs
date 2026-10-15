@@ -14,15 +14,14 @@ namespace Fleeto.Web.Services;
 
 /// <summary>
 /// One step as a user sets it (0.6.0, steps): a library script with its account and options, or a restart with its wait.
-/// <see cref="Id"/> is that of an existing step, or null for a new one.
+/// <see cref="Id"/> is that of an existing step, or null for a new one. What the exit codes of a script mean is set on the script.
 /// </summary>
-public sealed record TaskStepInput(Guid? Id, TaskStepKind Kind, Guid? ScriptId, JobRunAs RunAs, bool ContinueOnFailure,
-    IReadOnlyList<int> SuccessExitCodes, int? RestartWaitMinutes)
+public sealed record TaskStepInput(Guid? Id, TaskStepKind Kind, Guid? ScriptId, JobRunAs RunAs, bool ContinueOnFailure, int? RestartWaitMinutes)
 {
-    public static TaskStepInput Script(Guid scriptId, JobRunAs runAs = JobRunAs.Service) => new(null, TaskStepKind.Script, scriptId, runAs, false, [], null);
+    public static TaskStepInput Script(Guid scriptId, JobRunAs runAs = JobRunAs.Service) => new(null, TaskStepKind.Script, scriptId, runAs, false, null);
 
     public static TaskStepInput Restart(int waitMinutes = RestartRules.DefaultWaitMinutes) =>
-        new(null, TaskStepKind.Restart, null, JobRunAs.Service, false, [], waitMinutes);
+        new(null, TaskStepKind.Restart, null, JobRunAs.Service, false, waitMinutes);
 }
 
 /// <summary>What a user sets on a task (0.6.0). <see cref="ClientId"/> counts only when the task is created.</summary>
@@ -65,7 +64,7 @@ public sealed record TaskScriptOption(Guid Id, string Name, ScriptLanguage Langu
 
 /// <summary>A step of a task as the task page shows it.</summary>
 public sealed record TaskStepView(Guid Id, int Position, TaskStepKind Kind, Guid? ScriptId, string? ScriptName, ScriptLanguage? Language, JobRunAs RunAs,
-    bool ContinueOnFailure, IReadOnlyList<int> SuccessExitCodes, int? RestartWaitMinutes)
+    bool ContinueOnFailure, int? RestartWaitMinutes)
 {
     public string Label => Kind == TaskStepKind.Restart ? "Restart the endpoint" : ScriptName ?? "Script not available";
 }
@@ -82,11 +81,11 @@ public sealed record TaskRunItem(Guid Id, Guid ClientId, string? ClientCode, Tas
 
 /// <summary>
 /// One endpoint of a run: the target and the job of its current (or last) step, with the start of its output, how the run ended
-/// there, and every step that ran (0.6.0, steps).
+/// there, and every step that ran (0.6.0, steps). <see cref="HasWarning"/>: a step ended with an exit code its script lists as a warning.
 /// </summary>
 public sealed record TaskRunTargetItem(Guid EndpointId, string Hostname, TaskTargetState State, DateTime DueAt, string? Reason, Guid? JobId,
     JobState? JobState, int? ExitCode, string? Problem, DateTime? StartedAt, DateTime? CompletedAt, string OutputPreview, long OutputBytes,
-    JobResult? JobResult, TaskTargetOutcome? Outcome = null, DateTime? FinishedAt = null)
+    JobResult? JobResult, TaskTargetOutcome? Outcome = null, DateTime? FinishedAt = null, bool HasWarning = false)
 {
     /// <summary>The steps of the run on this endpoint that have a job, in order.</summary>
     public IReadOnlyList<TaskRunStepItem> Steps { get; init; } = [];
@@ -95,9 +94,11 @@ public sealed record TaskRunTargetItem(Guid EndpointId, string Hostname, TaskTar
     public int StepCount { get; init; } = 1;
 }
 
-/// <summary>One step of a run on one endpoint: its job and whether the step passed (the exit codes it counts as success included).</summary>
+/// <summary>
+/// One step of a run on one endpoint: its job, what its exit code meant by the rules of its script, and whether the step passed.
+/// </summary>
 public sealed record TaskRunStepItem(Guid JobId, int Position, string Name, TaskStepKind Kind, JobState State, JobResult? Result, int? ExitCode,
-    bool Passed, string? Problem, DateTime? StartedAt, DateTime? CompletedAt, string OutputPreview, long OutputBytes);
+    bool Passed, string? Problem, DateTime? StartedAt, DateTime? CompletedAt, string OutputPreview, long OutputBytes, ExitStatus? ExitStatus = null);
 
 /// <summary>
 /// A task that applies to one endpoint (0.6.0, the Tasks tab): where it is linked, when it runs next and how its last run on the
@@ -349,7 +350,12 @@ public sealed class TaskService
             step.ScriptId = stepInput.Kind == TaskStepKind.Script ? stepInput.ScriptId : null;
             step.RunAs = stepInput.Kind == TaskStepKind.Script ? stepInput.RunAs : JobRunAs.Service;
             step.ContinueOnFailure = stepInput.ContinueOnFailure;
-            step.SuccessExitCodes = stepInput.Kind == TaskStepKind.Script ? stepInput.SuccessExitCodes.Distinct().Order().ToList() : [];
+            // The exit codes a step counted as success moved to its script (0.6.0); a restart never had any.
+            if (stepInput.Kind == TaskStepKind.Restart)
+            {
+                step.SuccessExitCodes = [];
+            }
+
             step.RestartWaitMinutes = stepInput.Kind == TaskStepKind.Restart ? stepInput.RestartWaitMinutes : null;
             steps.Add(step);
         }
@@ -968,7 +974,7 @@ public sealed class TaskService
             .OrderBy(j => j.CreatedAt)
             .Select(j => new
             {
-                j.Id, j.TaskRunId, j.EndpointId, j.TaskStepId, j.Type, j.ScriptName, j.State, j.Result, j.ExitCode, Problem = j.RefusalReason ?? j.Error,
+                j.Id, j.TaskRunId, j.EndpointId, j.TaskStepId, j.Type, j.ScriptName, j.State, j.Result, j.ExitCode, j.ExitStatus, Problem = j.RefusalReason ?? j.Error,
                 j.StartedAt, j.CompletedAt, j.ReceivedOutputBytes
             })
             .ToListAsync(cancellationToken);
@@ -988,10 +994,10 @@ public sealed class TaskService
             {
                 var step = plan?.Find(j.TaskStepId);
                 var kind = j.Type == JobType.Restart ? TaskStepKind.Restart : TaskStepKind.Script;
-                var passed = step is not null ? AutomationTasks.Passed(step, j.State, j.Result, j.ExitCode) : j.State == JobState.Succeeded;
+                var passed = step is not null ? AutomationTasks.Passed(step, j.State, j.Result, j.ExitCode, j.ExitStatus) : j.State == JobState.Succeeded;
                 return new TaskRunStepItem(j.Id, step?.Position ?? index + 1, kind == TaskStepKind.Restart ? "Restart" : j.ScriptName, kind, j.State, j.Result,
                     j.ExitCode, passed, j.Problem, j.StartedAt, j.CompletedAt,
-                    firstChunks.TryGetValue(j.Id, out var data) ? Preview(data) : string.Empty, j.ReceivedOutputBytes);
+                    firstChunks.TryGetValue(j.Id, out var data) ? Preview(data) : string.Empty, j.ReceivedOutputBytes, j.ExitStatus);
             }).ToList();
             var current = steps.LastOrDefault();
             return row.Target with
@@ -1149,7 +1155,8 @@ public sealed class TaskService
         orderby t.DueAt descending
         select new EndpointTaskRunItem(r.Id, task.Id, task.Name, r.Trigger, r.InitiatedByName, r.CheckName, r.CreatedAt,
             new TaskRunTargetItem(t.EndpointId, hostname, t.State, t.DueAt, t.Reason, t.JobId, (JobState?)j.State, j.ExitCode,
-                j.RefusalReason ?? j.Error, j.StartedAt, j.CompletedAt, string.Empty, (long?)j.ReceivedOutputBytes ?? 0, j.Result, t.Outcome, t.FinishedAt));
+                j.RefusalReason ?? j.Error, j.StartedAt, j.CompletedAt, string.Empty, (long?)j.ReceivedOutputBytes ?? 0, j.Result, t.Outcome, t.FinishedAt,
+                t.HasWarning));
 
     /// <summary>The tasks that can be linked to an endpoint from its Tasks tab: global ones and those of its client, not linked to it yet.</summary>
     public async Task<IReadOnlyList<TaskOption>> GetEndpointTaskChoicesAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
@@ -1169,7 +1176,8 @@ public sealed class TaskService
 
     /// <summary>
     /// The state of an endpoint of a run in a few words, for lists and the export: waiting, could not start, the step it is at
-    /// ("Running step 2 of 5"), and how it ended ("Succeeded", "Failed at step 3", or the job's own words for a task of one step).
+    /// ("Running step 2 of 5"), and how it ended ("Succeeded", "Succeeded with warnings", "Failed at step 3", or the job's own words
+    /// for a task of one step).
     /// </summary>
     public static string StateText(TaskRunTargetItem item)
     {
@@ -1188,7 +1196,7 @@ public sealed class TaskService
         switch (item.Outcome)
         {
             case TaskTargetOutcome.Succeeded:
-                return "Succeeded";
+                return item.HasWarning ? "Succeeded with warnings" : "Succeeded";
             case TaskTargetOutcome.Cancelled:
                 return "Cancelled";
             case TaskTargetOutcome.Failed when multi && item.Steps.LastOrDefault(s => !s.Passed) is { } failed:
@@ -1205,9 +1213,18 @@ public sealed class TaskService
         return JobText(item.JobState, item.JobResult);
     }
 
-    /// <summary>The state of one step of a run, in the words of its job.</summary>
-    public static string StepStateText(TaskRunStepItem step) =>
-        step.Passed && step.State != JobState.Succeeded ? $"Succeeded (exit code {step.ExitCode})" : JobText(step.State, step.Result);
+    /// <summary>
+    /// The state of one step of a run, in the words of its job; a script that ended with an exit code its script lists (0.6.0) names
+    /// what the code meant ("Warning (exit code 1)").
+    /// </summary>
+    public static string StepStateText(TaskRunStepItem step) => step switch
+    {
+        { State: JobState.Succeeded, ExitStatus: ExitStatus.Info } => $"Info (exit code {step.ExitCode})",
+        { State: JobState.Succeeded, ExitStatus: ExitStatus.Warning } => $"Warning (exit code {step.ExitCode})",
+        { Passed: true, ExitCode: { } code } when code != 0 => $"Succeeded (exit code {code})",
+        { State: JobState.Failed, Result: JobResult.Exited, ExitCode: { } code } => $"Failed (exit code {code})",
+        _ => JobText(step.State, step.Result)
+    };
 
     private static string JobText(JobState? state, JobResult? result) => state switch
     {
@@ -1230,7 +1247,8 @@ public sealed class TaskService
                 join j in db.Jobs on t.JobId equals j.Id into jobs
                 from j in jobs.DefaultIfEmpty()
                 select new TaskRunTargetItem(t.EndpointId, e.Hostname, t.State, t.DueAt, t.Reason, t.JobId, (JobState?)j.State, j.ExitCode,
-                    j.RefusalReason ?? j.Error, j.StartedAt, j.CompletedAt, string.Empty, (long?)j.ReceivedOutputBytes ?? 0, j.Result, t.Outcome, t.FinishedAt))
+                    j.RefusalReason ?? j.Error, j.StartedAt, j.CompletedAt, string.Empty, (long?)j.ReceivedOutputBytes ?? 0, j.Result, t.Outcome, t.FinishedAt,
+                    t.HasWarning))
             .ToListAsync(cancellationToken))
         .OrderBy(t => t.Hostname, StringComparer.OrdinalIgnoreCase).ToList();
 
@@ -1279,7 +1297,7 @@ public sealed class TaskService
     }
 
     public static TaskInput ToInput(AutomationTask t, TaskPlan plan) => new(t.Name, t.Description, t.ClientId,
-        plan.Steps.Select(s => new TaskStepInput(s.Id == Guid.Empty ? null : s.Id, s.Kind, s.ScriptId, s.RunAs, s.ContinueOnFailure, s.SuccessExitCodes,
+        plan.Steps.Select(s => new TaskStepInput(s.Id == Guid.Empty ? null : s.Id, s.Kind, s.ScriptId, s.RunAs, s.ContinueOnFailure,
             s.RestartWaitMinutes)).ToList(), t.AppliesTo, t.Enabled,
         t.ScheduleKind, t.TimeZone, t.StartDate, t.StartMinute, t.EndDate, t.Every, t.WeekDays, t.MonthDay, t.RepeatMinutes, t.TriggerCheckIds,
         t.OnManaged, t.RandomDelayMinutes, t.CatchUp, t.Overlap, t.AlertOnFailure, t.AlertSeverity);
@@ -1343,7 +1361,7 @@ public sealed class TaskService
     private static IReadOnlyList<TaskStepView> StepViews(TaskPlan plan) => plan.Steps.Select(s =>
     {
         var script = plan.ScriptOf(s);
-        return new TaskStepView(s.Id, s.Position, s.Kind, s.ScriptId, script?.Name, script?.Language, s.RunAs, s.ContinueOnFailure, s.SuccessExitCodes,
+        return new TaskStepView(s.Id, s.Position, s.Kind, s.ScriptId, script?.Name, script?.Language, s.RunAs, s.ContinueOnFailure,
             s.RestartWaitMinutes);
     }).ToList();
 }

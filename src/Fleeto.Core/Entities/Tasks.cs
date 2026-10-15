@@ -174,7 +174,11 @@ public class AutomationTaskStep
     /// <summary>The next step starts also when this one fails (not when its job was cancelled).</summary>
     public bool ContinueOnFailure { get; set; }
 
-    /// <summary>Exit codes besides 0 that count as success of a script step, such as 3 for a warning.</summary>
+    /// <summary>
+    /// Exit codes besides 0 that counted as success of a script step (alpha.23). No longer written: the script says what its exit codes
+    /// mean (0.6.0, <see cref="Script.SuccessExitCodes"/>); read only for a job that ended without an exit status. Dropped in a later
+    /// release (expand/contract).
+    /// </summary>
     public List<int> SuccessExitCodes { get; set; } = [];
 
     /// <summary>For a restart: how long Fleeto waits for the endpoint to come back before the step fails.</summary>
@@ -310,6 +314,12 @@ public class AutomationTaskRunTarget
     public DateTime? FinishedAt { get; set; }
 
     public TaskTargetOutcome? Outcome { get; set; }
+
+    /// <summary>
+    /// A step ended with an exit code its script lists as a warning (0.6.0): with <see cref="TaskTargetOutcome.Succeeded"/> the run
+    /// succeeded with warnings. A column of its own, so a build that does not know it still reads the outcome.
+    /// </summary>
+    public bool HasWarning { get; set; }
 
     public DateTime UpdatedAt { get; set; }
 }

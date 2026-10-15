@@ -113,13 +113,14 @@ public sealed class AutomationTaskStepJobTests
         return await db.Jobs.AsNoTracking().SingleAsync(j => j.Id == job.Id);
     }
 
-    private async Task EndAsync(Job job, JobState state, int? exitCode = null)
+    private async Task EndAsync(Job job, JobState state, int? exitCode = null, ExitStatus? exitStatus = null)
     {
         await using var db = _fixture.Database.DbFactory.CreateSystem();
         await db.Jobs.Where(j => j.Id == job.Id).ExecuteUpdateAsync(s => s
             .SetProperty(j => j.State, state)
             .SetProperty(j => j.Result, state == JobState.Cancelled ? null : Core.Entities.JobResult.Exited)
             .SetProperty(j => j.ExitCode, exitCode)
+            .SetProperty(j => j.ExitStatus, exitStatus)
             .SetProperty(j => j.CompletedAt, _fixture.Now));
     }
 
@@ -158,12 +159,17 @@ public sealed class AutomationTaskStepJobTests
     }
 
     [Theory]
-    [InlineData(JobState.Failed, 1, "", false, false)]
-    [InlineData(JobState.Failed, 3, "3", false, true)]
-    [InlineData(JobState.Failed, 1, "", true, true)]
-    [InlineData(JobState.Cancelled, null, "", true, false)]
+    [InlineData(JobState.Failed, 1, "", false, false, null)]
+    [InlineData(JobState.Failed, 3, "3", false, true, null)]
+    [InlineData(JobState.Failed, 1, "", true, true, null)]
+    [InlineData(JobState.Cancelled, null, "", true, false, null)]
+    // Exit code rules of the script (0.6.0): the gateway ended a warning as succeeded; an error fails also with a code the step once
+    // counted as success, because the script decides now.
+    [InlineData(JobState.Succeeded, 1, "", false, true, ExitStatus.Warning)]
+    [InlineData(JobState.Succeeded, 4, "", false, true, ExitStatus.Info)]
+    [InlineData(JobState.Failed, 3, "3", false, false, ExitStatus.Error)]
     public async Task A_step_after_a_failed_one_is_signed_only_when_its_exit_code_counts_as_success_or_it_may_fail(JobState state, int? exitCode,
-        string successCodes, bool continueOnFailure, bool signed)
+        string successCodes, bool continueOnFailure, bool signed, ExitStatus? exitStatus)
     {
         var scope = await ScopeAsync(firstStep: s =>
         {
@@ -172,7 +178,7 @@ public sealed class AutomationTaskStepJobTests
         });
         var runId = await CreateRunAsync(scope, TaskTrigger.Schedule, LastOccurrence(scope.Task));
         var first = await SignAsync(await StepJobAsync(scope, runId, scope.Steps[0]));
-        await EndAsync(first, state, exitCode);
+        await EndAsync(first, state, exitCode, exitStatus);
 
         var next = await SignAsync(await StepJobAsync(scope, runId, scope.Steps[1]));
 

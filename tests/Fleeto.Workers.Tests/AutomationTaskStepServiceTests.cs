@@ -92,7 +92,7 @@ public sealed class AutomationTaskStepServiceTests : IAsyncLifetime
 
     /// <summary>The job of a step (the test clock stands still, so jobs cannot be told apart by when they were written).</summary>
     private async Task<Job> JobOfAsync(Guid endpointId, AutomationTaskStep step, Guid? runId = null) =>
-        Assert.Single((await JobsAsync(endpointId)).Where(j => j.TaskStepId == step.Id && (runId is null || j.TaskRunId == runId)));
+        Assert.Single(await JobsAsync(endpointId), j => j.TaskStepId == step.Id && (runId is null || j.TaskRunId == runId));
 
     private async Task<AutomationTaskRunTarget> TargetAsync(Guid taskId)
     {
@@ -115,7 +115,8 @@ public sealed class AutomationTaskStepServiceTests : IAsyncLifetime
         await PassAsync(service);
     }
 
-    private async Task EndAsync(Guid jobId, JobState state, int? exitCode = 0)
+    /// <summary>Ends a job as the gateway would; without <paramref name="exitStatus"/> as a gateway before exit code rules (alpha.23).</summary>
+    private async Task EndAsync(Guid jobId, JobState state, int? exitCode = 0, ExitStatus? exitStatus = null)
     {
         await using var db = _fixture.Db.DbFactory.CreateSystem();
         var job = await db.Jobs.SingleAsync(j => j.Id == jobId);
@@ -123,6 +124,7 @@ public sealed class AutomationTaskStepServiceTests : IAsyncLifetime
         job.State = state;
         job.Result = JobResult.Exited;
         job.ExitCode = exitCode;
+        job.ExitStatus = exitStatus;
         job.CompletedAt = Now;
         await db.SaveChangesAsync();
     }
@@ -181,7 +183,65 @@ public sealed class AutomationTaskStepServiceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task An_exit_code_that_counts_as_success_and_a_step_that_may_fail_let_the_run_go_on_and_the_failure_still_counts()
+    public async Task A_warning_lets_the_run_go_on_opens_a_warning_a_later_failure_raises_it_and_a_clean_run_resolves_it()
+    {
+        var (endpoint, task, steps) = await SeedAsync("WARN", "0.6.0", null, new AutomationTaskStep { Kind = TaskStepKind.Script });
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            await db.AutomationTasks.Where(t => t.Id == task.Id).ExecuteUpdateAsync(s => s.SetProperty(t => t.AlertSeverity, AlertSeverity.Critical));
+        }
+
+        var service = Service();
+        await StartRunAsync(service);
+
+        // Exit code 1 that the script lists as a warning: the gateway ended the job as succeeded, so the next step starts.
+        await EndAsync((await JobOfAsync(endpoint.Id, steps[0])).Id, JobState.Succeeded, 1, ExitStatus.Warning);
+        await PassAsync(service);
+        var firstRun = (await JobOfAsync(endpoint.Id, steps[0])).TaskRunId;
+        await EndAsync((await JobOfAsync(endpoint.Id, steps[1], firstRun)).Id, JobState.Succeeded, 0, ExitStatus.Success);
+        await PassAsync(service);
+
+        var target = await TargetAsync(task.Id);
+        Assert.Equal((TaskTargetOutcome.Succeeded, true), (target.Outcome, target.HasWarning));
+        Alert alert;
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            alert = await db.Alerts.AsNoTracking().SingleAsync(a => a.EndpointId == endpoint.Id && a.Kind == AlertKind.Task && a.State != AlertState.Resolved);
+        }
+
+        Assert.Equal(AlertSeverity.Warning, alert.Severity);
+        Assert.Contains("ended with a warning (exit code 1) at step 1", alert.Title);
+
+        // The next run fails: the same alert goes up to the severity of the task.
+        _fixture.Db.Time.Advance(TimeSpan.FromMinutes(16));
+        await PassAsync(service);
+        var secondFirst = Assert.Single(await JobsAsync(endpoint.Id), j => j.TaskStepId == steps[0].Id && j.TaskRunId != firstRun);
+        await EndAsync(secondFirst.Id, JobState.Failed, 3, ExitStatus.Error);
+        await PassAsync(service);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var raised = await db.Alerts.AsNoTracking().SingleAsync(a => a.EndpointId == endpoint.Id && a.Kind == AlertKind.Task && a.State != AlertState.Resolved);
+            Assert.Equal((alert.Id, AlertSeverity.Critical), (raised.Id, raised.Severity));
+            Assert.Contains("exit code 3 at step 1", raised.Title);
+        }
+
+        // A run without a warning resolves it.
+        _fixture.Db.Time.Advance(TimeSpan.FromMinutes(16));
+        await PassAsync(service);
+        var runs = (await JobsAsync(endpoint.Id)).Select(j => j.TaskRunId).Distinct().ToList();
+        var third = runs.Last();
+        await EndAsync((await JobOfAsync(endpoint.Id, steps[0], third)).Id, JobState.Succeeded, 4, ExitStatus.Info);
+        await PassAsync(service);
+        await EndAsync((await JobOfAsync(endpoint.Id, steps[1], third)).Id, JobState.Succeeded, 0, ExitStatus.Success);
+        await PassAsync(service);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            Assert.False(await db.Alerts.AnyAsync(a => a.EndpointId == endpoint.Id && a.Kind == AlertKind.Task && a.State != AlertState.Resolved));
+        }
+    }
+
+    [Fact]
+    public async Task A_job_that_ended_before_exit_code_rules_still_passes_with_a_code_its_step_counted_and_a_step_that_may_fail_lets_the_run_go_on()
     {
         var (endpoint, task, steps) = await SeedAsync("GOON", "0.6.0", s => s.SuccessExitCodes = [3],
             new AutomationTaskStep { Kind = TaskStepKind.Script, ContinueOnFailure = true }, new AutomationTaskStep { Kind = TaskStepKind.Script });

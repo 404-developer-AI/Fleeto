@@ -233,7 +233,7 @@
                             <MudTd><TimeText Value="context.StartedAt ?? context.CreatedAt" /></MudTd>
                             <MudTd>@context.ScriptName</MudTd>
                             <MudTd><MudLink Href="@($"/endpoints/{context.EndpointId}")">@context.ClientCode / @context.Hostname</MudLink></MudTd>
-                            <MudTd><StatusChip Text="@Ui.JobStateLabel(context.State, context.Result)" Kind="@Ui.JobStateKind(context.State)" /></MudTd>
+                            <MudTd><StatusChip Text="@Ui.JobStateLabel(context.State, context.Result, context.ExitStatus)" Kind="@Ui.JobStateKind(context.State, context.ExitStatus)" /></MudTd>
                         </RowTemplate>
                     </MudTable>
                 }

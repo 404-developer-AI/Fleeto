@@ -24,6 +24,18 @@ public class Script
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
+    /// <summary>
+    /// What the exit codes of the script mean (0.6.0), for every job, task step and script check that runs it. A code in none of the
+    /// lists keeps the default (<see cref="Domain.ScriptExitCodes"/>). Not part of a version or its approval: it changes how a result
+    /// is read, never what runs.
+    /// </summary>
+    public List<int> SuccessExitCodes { get; set; } = [];
+    public List<int> InfoExitCodes { get; set; } = [];
+    public List<int> WarningExitCodes { get; set; } = [];
+    public List<int> ErrorExitCodes { get; set; } = [];
+
+    public Domain.ExitCodeRules ExitCodes => new(SuccessExitCodes, InfoExitCodes, WarningExitCodes, ErrorExitCodes);
+
     public List<ScriptVersion> Versions { get; set; } = [];
 }
 
@@ -101,6 +113,18 @@ public enum JobState
     Lost,
     /// <summary>Cancelled by a technician before it was delivered.</summary>
     Cancelled
+}
+
+/// <summary>
+/// What the exit code of a script meant by the rules of its script (0.6.0). Success, info and warning end the job as succeeded,
+/// error as failed.
+/// </summary>
+public enum ExitStatus
+{
+    Success,
+    Info,
+    Warning,
+    Error
 }
 
 /// <summary>What the agent reported when the job ended.</summary>
@@ -197,6 +221,12 @@ public class Job
     public DateTime? CompletedAt { get; set; }
     public JobResult? Result { get; set; }
     public int? ExitCode { get; set; }
+
+    /// <summary>
+    /// What <see cref="ExitCode"/> meant by the rules of the script when the job ended (0.6.0); set by the gateway with the result,
+    /// only for a script that exited. Null for a job that ended before these rules existed.
+    /// </summary>
+    public ExitStatus? ExitStatus { get; set; }
 
     /// <summary>Agent message when the job could not run or was refused on the endpoint.</summary>
     public string? Error { get; set; }

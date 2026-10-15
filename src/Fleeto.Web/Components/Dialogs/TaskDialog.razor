@@ -65,11 +65,10 @@
                             <MudSelectItem T="JobRunAs" Value="JobRunAs.Service">SYSTEM or root</MudSelectItem>
                             <MudSelectItem T="JobRunAs" Value="JobRunAs.LoggedOnUser">The signed-in user</MudSelectItem>
                         </MudSelect>
-                        <MudTextField T="string" @bind-Value="step.ExitCodes" Label="Exit codes that also count as success" Variant="Variant.Outlined"
-                                      Margin="Margin.Dense" Style="max-width:280px" Placeholder="For example 3" Immediate="true"
-                                      Error="@(step.ExitCodesProblem is not null)" ErrorText="@step.ExitCodesProblem"
-                                      HelperText="Besides 0, separated by commas" />
                     </div>
+                    <MudText Typo="Typo.caption" Class="muted d-block mb-1">
+                        What an exit code means (success, info, warning or error) is set on the script. A warning lets the run go on.
+                    </MudText>
                     @if (step.RunAs == JobRunAs.LoggedOnUser)
                     {
                         <MudText Typo="Typo.caption" Class="muted d-block mb-1">The step fails on an endpoint where nobody is signed in.</MudText>
@@ -185,7 +184,7 @@
                 : "An endpoint that is offline for more than an hour misses the run.")
         </MudText>
         <div class="d-flex gap-2 align-center mb-2">
-            <MudSwitch T="bool" @bind-Value="_m.AlertOnFailure" Color="Color.Primary" Label="Open an alert when a run fails" />
+            <MudSwitch T="bool" @bind-Value="_m.AlertOnFailure" Color="Color.Primary" Label="Open an alert when a run fails or ends with a warning" />
             @if (_m.AlertOnFailure)
             {
                 <MudSelect T="AlertSeverity" @bind-Value="_m.AlertSeverity" Label="Severity" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:150px">
@@ -201,7 +200,7 @@
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="@(_busy || _m.Steps.Any(s => s.ExitCodesProblem is not null))">@(IsEdit ? "Save" : "Create")</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">@(IsEdit ? "Save" : "Create")</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -253,7 +252,7 @@
         };
     }
 
-    /// <summary>One step in the form; the exit codes are typed as text.</summary>
+    /// <summary>One step in the form.</summary>
     private sealed class StepModel
     {
         public Guid? Id { get; set; }
@@ -261,24 +260,15 @@
         public Guid ScriptId { get; set; }
         public JobRunAs RunAs { get; set; } = JobRunAs.Service;
         public bool ContinueOnFailure { get; set; }
-        public string? ExitCodes { get; set; }
         public int WaitMinutes { get; set; } = RestartRules.DefaultWaitMinutes;
 
-        /// <summary>What is wrong with the typed exit codes, or null.</summary>
-        public string? ExitCodesProblem => Codes().Any(c => c is null) ? "Type whole numbers separated by commas." : null;
-
-        private IEnumerable<int?> Codes() => (ExitCodes ?? string.Empty).Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries)
-            .Select(text => int.TryParse(text, System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out var code)
-                ? (int?)code
-                : null);
-
         public TaskStepInput ToInput() => new(Id, Kind, Kind == TaskStepKind.Script ? ScriptId : null, RunAs, ContinueOnFailure,
-            Kind == TaskStepKind.Script ? Codes().OfType<int>().Distinct().ToList() : [], Kind == TaskStepKind.Restart ? WaitMinutes : null);
+            Kind == TaskStepKind.Restart ? WaitMinutes : null);
 
         public static StepModel From(TaskStepInput s) => new()
         {
             Id = s.Id, Kind = s.Kind, ScriptId = s.ScriptId ?? Guid.Empty, RunAs = s.RunAs, ContinueOnFailure = s.ContinueOnFailure,
-            ExitCodes = string.Join(", ", s.SuccessExitCodes), WaitMinutes = s.RestartWaitMinutes ?? RestartRules.DefaultWaitMinutes
+            WaitMinutes = s.RestartWaitMinutes ?? RestartRules.DefaultWaitMinutes
         };
     }
 

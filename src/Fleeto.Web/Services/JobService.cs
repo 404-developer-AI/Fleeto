@@ -24,7 +24,7 @@ public sealed record JobRunResult(Guid BatchId, int Created, IReadOnlyList<JobRu
 public sealed record JobListItem(Guid Id, Guid BatchId, Guid EndpointId, string Hostname, string? ClientCode, string ScriptName, int ScriptVersionNumber,
     ScriptLanguage Language, JobState State, JobResult? Result, int? ExitCode, string? Problem, JobOutputState OutputState, bool OutputTruncated,
     long OutputBytes, DateTime CreatedAt, DateTime ValidUntil, DateTime? StartedAt, DateTime? CompletedAt, string InitiatedByName, bool CanCancel,
-    JobRunAs RunAs = JobRunAs.Service, string? RunAsAccount = null, string? RunAsChosenAccount = null);
+    JobRunAs RunAs = JobRunAs.Service, string? RunAsAccount = null, string? RunAsChosenAccount = null, ExitStatus? ExitStatus = null);
 
 /// <summary>The users signed in on one endpoint as its agent last reported them (0.2.2), for choosing the user a script runs as.</summary>
 public sealed record SignedInUsersView(IReadOnlyList<SignedInUserInfo> Users, DateTime? ReportedAt, bool EndpointOnline);
@@ -410,7 +410,7 @@ public sealed class JobService
             db.Clients.Where(c => c.Id == j.ClientId).Select(c => c.Code).FirstOrDefault(),
             j.ScriptName, j.ScriptVersionNumber, j.Language, j.State, j.Result, j.ExitCode, j.RefusalReason ?? j.Error, j.OutputState, j.OutputTruncated,
             j.ReceivedOutputBytes, j.CreatedAt, j.ValidUntil, j.StartedAt, j.CompletedAt, j.InitiatedByName,
-            (j.State == JobState.PendingSignature || j.State == JobState.Queued) && j.DeliveredAt == null, j.RunAs, j.RunAsAccount, j.RunAsChosenAccount));
+            (j.State == JobState.PendingSignature || j.State == JobState.Queued) && j.DeliveredAt == null, j.RunAs, j.RunAsAccount, j.RunAsChosenAccount, j.ExitStatus));
 
     internal static async Task<(string Text, long Bytes, bool Shortened)> ReadStreamAsync(FleetoDbContext db, Guid jobId, JobStream stream,
         CancellationToken cancellationToken, int maxBytes = MaxViewBytes)

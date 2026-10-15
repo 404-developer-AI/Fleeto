@@ -15,7 +15,7 @@
         {
             var job = view.Job;
             <div class="d-flex flex-wrap align-center gap-2 mb-2">
-                <StatusChip Text="@Ui.JobStateLabel(job.State, job.Result)" Kind="@Ui.JobStateKind(job.State)" />
+                <StatusChip Text="@Ui.JobStateLabel(job.State, job.Result, job.ExitStatus)" Kind="@Ui.JobStateKind(job.State, job.ExitStatus)" />
                 @if (job.ExitCode is { } exitCode)
                 {
                     <span>Exit code <strong>@exitCode</strong></span>

@@ -57,6 +57,7 @@ Fleeto-specific status colors (endpoint and check states):
 | Warning | Amber (MudBlazor default) | Threshold breached, degraded |
 | Offline / Error | `#DC2626` | Failed checks, unreachable endpoints |
 | Unknown / Paused | Neutral gray chip | Maintenance mode, never seen |
+| Info | `#DBEAFE` bg, `#1E40AF` text | A script that succeeded with an exit code its script lists as info (0.6.0) |
 
 Icons of endpoints, sites and clients in the clients workspace carry their state in their color (0.6.0): gray
 (`--fl-text-muted`) when nothing is open, amber `#D97706` for a warning, `#DC2626` for a critical alert, and for an

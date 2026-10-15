@@ -20,7 +20,9 @@ public enum StatusKind
     /// <summary>Offline, error, failure: red. Reserved for genuine failure states.</summary>
     Error,
     /// <summary>Unknown, paused, never seen: neutral gray.</summary>
-    Neutral
+    Neutral,
+    /// <summary>Succeeded with something to note: a script that ended with an exit code its script lists as info (0.6.0). Blue.</summary>
+    Info
 }
 
 /// <summary>Display helpers shared by pages: labels in the fixed vocabulary (branding §6) and status kinds.</summary>
@@ -284,11 +286,17 @@ public static class Ui
         return $"{spec.Label}: {shown}";
     }
 
-    public static string JobStateLabel(JobState state, JobResult? result) => state switch
+    /// <summary>
+    /// The words of the state of a job. A script that succeeded with an exit code its script lists as info or warning (0.6.0) says so
+    /// instead of "Succeeded".
+    /// </summary>
+    public static string JobStateLabel(JobState state, JobResult? result, ExitStatus? exitStatus = null) => state switch
     {
         JobState.PendingSignature => "Waiting for signature",
         JobState.Queued => "Queued",
         JobState.Running => "Running",
+        JobState.Succeeded when exitStatus == ExitStatus.Info => "Info",
+        JobState.Succeeded when exitStatus == ExitStatus.Warning => "Warning",
         JobState.Succeeded => "Succeeded",
         JobState.Failed => result == JobResult.TimedOut ? "Timed out" : result == JobResult.FailedToStart ? "Could not start" : "Failed",
         JobState.Expired => "Expired",
@@ -297,8 +305,10 @@ public static class Ui
         _ => "Cancelled"
     };
 
-    public static StatusKind JobStateKind(JobState state) => state switch
+    public static StatusKind JobStateKind(JobState state, ExitStatus? exitStatus = null) => state switch
     {
+        JobState.Succeeded when exitStatus == ExitStatus.Info => StatusKind.Info,
+        JobState.Succeeded when exitStatus == ExitStatus.Warning => StatusKind.Warning,
         JobState.Succeeded => StatusKind.Ok,
         JobState.Running or JobState.Queued or JobState.PendingSignature => StatusKind.Active,
         JobState.Failed or JobState.Refused or JobState.Lost => StatusKind.Error,
@@ -310,7 +320,7 @@ public static class Ui
     {
         TaskTargetState.Pending => StatusKind.Neutral,
         TaskTargetState.Skipped => StatusKind.Warning,
-        _ when item.Outcome == TaskTargetOutcome.Succeeded => StatusKind.Ok,
+        _ when item.Outcome == TaskTargetOutcome.Succeeded => item.HasWarning ? StatusKind.Warning : StatusKind.Ok,
         _ when item.Outcome == TaskTargetOutcome.Failed => StatusKind.Error,
         _ when item.Outcome == TaskTargetOutcome.Cancelled => StatusKind.Neutral,
         _ => item.JobState switch
@@ -473,6 +483,7 @@ public static class Ui
         StatusKind.Active => "status-active",
         StatusKind.Warning => "status-warning",
         StatusKind.Error => "status-error",
+        StatusKind.Info => "status-info",
         _ => "status-neutral"
     };
 }

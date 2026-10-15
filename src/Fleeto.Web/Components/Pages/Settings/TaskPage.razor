@@ -80,7 +80,7 @@
                             @(task.Input.RandomDelayMinutes == 0 ? "No random delay" : $"Random delay up to {task.Input.RandomDelayMinutes} minutes") ·
                             @(task.Input.CatchUp ? "catches up a missed run" : "an offline endpoint misses the run") ·
                             @(task.Input.Overlap == TaskOverlap.Skip ? "skips an endpoint where the previous run still runs" : "waits for the previous run") ·
-                            @(task.Input.AlertOnFailure ? $"a failed run opens a {task.Input.AlertSeverity.ToString().ToLowerInvariant()} alert" : "no alert on a failed run")
+                            @(task.Input.AlertOnFailure ? $"a failed run opens a {task.Input.AlertSeverity.ToString().ToLowerInvariant()} alert and a run that ends with a warning a warning alert" : "no alert on a failed run")
                         </td>
                     </tr>
                 </tbody>
@@ -363,11 +363,6 @@
         }
 
         var text = $"{step.Label}{(step.Language is { } language ? $" ({ScriptLanguages.Label(language)})" : "")}, as {(step.RunAs == JobRunAs.Service ? "SYSTEM or root" : "the signed-in user")}";
-        if (step.SuccessExitCodes.Count > 0)
-        {
-            text += $"; exit code {string.Join(", ", step.SuccessExitCodes)} also counts as success";
-        }
-
         return step.ContinueOnFailure ? text + "; may fail" : text;
     }
 

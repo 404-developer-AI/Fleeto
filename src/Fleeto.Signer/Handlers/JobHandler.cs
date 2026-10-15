@@ -440,7 +440,7 @@ public sealed class JobHandler : ISigningRequestHandler
 
         var others = await db.Jobs.IgnoreQueryFilters().AsNoTracking()
             .Where(j => j.TaskRunId == run.Id && j.EndpointId == job.EndpointId && j.Id != job.Id)
-            .Select(j => new { j.TaskStepId, j.State, j.Result, j.ExitCode })
+            .Select(j => new { j.TaskStepId, j.State, j.Result, j.ExitCode, j.ExitStatus })
             .ToListAsync(cancellationToken);
         if (first)
         {
@@ -463,7 +463,7 @@ public sealed class JobHandler : ISigningRequestHandler
         var previous = plan.Steps.Last(s => s.Position < step.Position);
         var before = others.Where(j => plan.Find(j.TaskStepId)?.Id == previous.Id).ToList();
         var ended = before.Count == 1 && before[0].State is not (JobState.PendingSignature or JobState.Queued or JobState.Running);
-        if (!ended || !AutomationTasks.MayContinue(previous, before[0].State, before[0].Result, before[0].ExitCode) ||
+        if (!ended || !AutomationTasks.MayContinue(previous, before[0].State, before[0].Result, before[0].ExitCode, before[0].ExitStatus) ||
             others.Any(j => plan.Find(j.TaskStepId) is not { } other || other.Position >= step.Position))
         {
             return (TaskOrderReason, null);

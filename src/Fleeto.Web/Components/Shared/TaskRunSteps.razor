@@ -13,10 +13,6 @@ else
                 <span class="muted">@step.Position.</span>
                 <span>@step.Name</span>
                 <StatusChip Text="@TaskService.StepStateText(step)" Kind="@Kind(step)" />
-                @if (step.ExitCode is { } exitCode && !(step.Passed && step.State != JobState.Succeeded))
-                {
-                    <span class="muted">exit @exitCode</span>
-                }
                 @if (OnOutput.HasDelegate)
                 {
                     <span @onclick:stopPropagation="true"><MudLink Typo="Typo.caption" OnClick="@(() => OnOutput.InvokeAsync(step.JobId))">output</MudLink></span>
@@ -36,7 +32,12 @@ else
     /// <summary>Opens the output of the job of a step; without it the steps show no link.</summary>
     [Parameter] public EventCallback<Guid> OnOutput { get; set; }
 
-    private static StatusKind Kind(TaskRunStepItem step) => step.Passed ? StatusKind.Ok : step.State switch
+    private static StatusKind Kind(TaskRunStepItem step) => step.Passed ? step.ExitStatus switch
+    {
+        ExitStatus.Info => StatusKind.Info,
+        ExitStatus.Warning => StatusKind.Warning,
+        _ => StatusKind.Ok
+    } : step.State switch
     {
         JobState.PendingSignature or JobState.Queued or JobState.Running => StatusKind.Active,
         JobState.Cancelled => StatusKind.Neutral,

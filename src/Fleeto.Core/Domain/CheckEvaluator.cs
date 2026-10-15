@@ -16,9 +16,12 @@ public static class CheckEvaluator
     public static CheckStatus Evaluate(CheckType type, double value, string? error, double? warning, double? critical) =>
         Evaluate(type, string.Empty, value, error, warning, critical, new Dictionary<string, string>());
 
-    /// <summary>Evaluates one result of one target against the thresholds and parameters of its (effective) definition.</summary>
+    /// <summary>
+    /// Evaluates one result of one target against the thresholds and parameters of its (effective) definition. <paramref name="exitCodes"/>
+    /// are the exit code rules of the script of a script check (0.6.0); without them the default applies.
+    /// </summary>
     public static CheckStatus Evaluate(CheckType type, string target, double value, string? error, double? warning, double? critical,
-        IReadOnlyDictionary<string, string> parameters)
+        IReadOnlyDictionary<string, string> parameters, ExitCodeRules? exitCodes = null)
     {
         if (!string.IsNullOrEmpty(error) || double.IsNaN(value) || double.IsInfinity(value))
         {
@@ -49,7 +52,9 @@ public static class CheckEvaluator
             ThresholdKind.Reachability => value < 0 ? CheckStatus.Critical : HigherIsWorse(value, warning, critical),
             ThresholdKind.HigherIsWorse => HigherIsWorse(value, warning, critical),
             ThresholdKind.LowerIsWorse => LowerIsWorse(value, warning, critical),
-            ThresholdKind.ExitCode => value == 0 ? CheckStatus.Ok : value == 1 ? CheckStatus.Warning : CheckStatus.Critical,
+            ThresholdKind.ExitCode => value is >= int.MinValue and <= int.MaxValue && value == Math.Floor(value)
+                ? ScriptExitCodes.StatusForCheck(exitCodes ?? ExitCodeRules.None, (int)value)
+                : CheckStatus.Critical,
             _ => CheckStatus.Unknown
         };
     }
@@ -111,8 +116,8 @@ public static class CheckEvaluator
                 : $"Certificate {DisplayCertificate(target)} on {hostname} expires in {v} days. Renew it before it expires.",
             CheckType.EventLog => $"{hostname} logged {v} matching events in the {P("log")} log within {P("window_minutes")} minutes. Review the events on the endpoint.",
             // Never the script's output: alert titles go out by email and webhook.
-            CheckType.Script => value == 1
-                ? $"Script check \"{definition.Name}\" reports a warning on {hostname} (exit code 1). Review the detail on the endpoint page."
+            CheckType.Script => status == CheckStatus.Warning
+                ? $"Script check \"{definition.Name}\" reports a warning on {hostname} (exit code {value.ToString("0", CultureInfo.InvariantCulture)}). Review the detail on the endpoint page."
                 : $"Script check \"{definition.Name}\" reports a problem on {hostname} (exit code {value.ToString("0", CultureInfo.InvariantCulture)}). Review the detail on the endpoint page.",
             CheckType.MissingUpdates =>
                 $"{hostname} misses an update released {v} days ago, above the {t}-day threshold. Deploy the missing updates.",

@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Data;
@@ -76,6 +77,46 @@ public sealed class ScriptAndJobServiceTests
         }
 
         return [.. output];
+    }
+
+    [Fact]
+    public async Task What_the_exit_codes_mean_is_saved_on_the_script_without_a_new_version_and_audited()
+    {
+        var admin = await _fixture.Database.CreateUserAsync(FleetoRoles.Admin);
+        var reader = await _fixture.Database.CreateUserAsync(FleetoRoles.ReadOnly);
+        var name = "Exit codes " + Guid.NewGuid().ToString("N")[..6];
+
+        var overlapping = await Scripts.CreateAsync(As(admin, FleetoRoles.Admin),
+            new ScriptInput(name, null, ScriptLanguage.Shell, null, "exit 1", 300, new ExitCodeRules([], [], [1], [1, 3])));
+        Assert.False(overlapping.Success);
+        Assert.Contains("Exit code 1 is listed as Warning and as Error", overlapping.Problem);
+
+        var created = await Scripts.CreateAsync(As(admin, FleetoRoles.Admin),
+            new ScriptInput(name, null, ScriptLanguage.Shell, null, "exit 1", 300, new ExitCodeRules([0], [4], [2, 1, 2], [3])));
+        Assert.True(created.Success, created.Problem);
+        var detail = (await Scripts.GetAsync(As(admin, FleetoRoles.Admin), created.Value))!;
+        Assert.Equal([0], detail.ExitCodes.Success);
+        Assert.Equal([4], detail.ExitCodes.Info);
+        Assert.Equal([1, 2], detail.ExitCodes.Warning);
+        Assert.Equal([3], detail.ExitCodes.Error);
+
+        Assert.False((await Scripts.UpdateDetailsAsync(As(reader, FleetoRoles.ReadOnly), created.Value, name, null, ExitCodeRules.None)).Success);
+        var changed = await Scripts.UpdateDetailsAsync(As(admin, FleetoRoles.Admin), created.Value, name, null, new ExitCodeRules([], [], [1], []));
+        Assert.True(changed.Success, changed.Problem);
+        detail = (await Scripts.GetAsync(As(admin, FleetoRoles.Admin), created.Value))!;
+        Assert.Equal([1], detail.ExitCodes.Warning);
+        Assert.Empty(detail.ExitCodes.Error);
+        Assert.Single(detail.Versions);
+
+        // Without exit codes the name and description change and the codes stay.
+        Assert.True((await Scripts.UpdateDetailsAsync(As(admin, FleetoRoles.Admin), created.Value, name, "Described")).Success);
+        Assert.Equal([1], (await Scripts.GetAsync(As(admin, FleetoRoles.Admin), created.Value))!.ExitCodes.Warning);
+
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        var audit = await db.AuditEntries.AsNoTracking()
+            .Where(a => a.Action == AuditActions.ScriptChanged && a.TargetId == created.Value.ToString()).ToListAsync();
+        Assert.Equal(2, audit.Count);
+        Assert.All(audit, a => Assert.Contains("\"warning\": \"1\"", a.DetailsJson));
     }
 
     [Fact]

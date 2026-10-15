@@ -645,6 +645,7 @@ Response `200`: a page of [Job](#job). Errors: 400, 401, 429.
       "state": "succeeded",
       "result": "exited",
       "exitCode": 0,
+      "exitStatus": "success",
       "problem": null,
       "initiatedBy": "Jane Technician",
       "createdAt": "2026-09-15T14:00:00Z",
@@ -924,6 +925,7 @@ not read them.
 | `state` | [job state](#job-state) | |
 | `result` | [job result](#job-result), nullable | What the agent reported when the job ended; `null` before. |
 | `exitCode` | integer, nullable | Exit code of the script. |
+| `exitStatus` | [exit status](#exit-status), nullable | What `exitCode` meant by the exit codes of the script when the job ended (from Fleeto 0.6.0). Set only when `result` is `exited`; `null` before, for any other result and for a job that ended before 0.6.0. |
 | `problem` | string, nullable | Why a job was refused or could not run. |
 | `initiatedBy` | string | Name of the user who started the job. |
 | `createdAt` | timestamp | |
@@ -1015,7 +1017,7 @@ check.
 | `certificate_expiry` | Days until expiry; one item per certificate | `location` (`store` or `path`), `store`, `path`, `subject` | all |
 | `event_log` | Matching events within the window | `log`, `source`, `event_ids`, `level`, `window_minutes` | Windows |
 | `security_center` | 1 protection on, 0 off | `component` (`antivirus` or `firewall`) | Windows |
-| `script` | Exit code of a library script: 0 ok, 1 warning, other critical | `script` (script id), `language` | per script language |
+| `script` | Exit code of a library script, read by the exit codes of the script (from Fleeto 0.6.0: success and info ok, warning, error critical); a code the script does not list: 0 ok, 1 warning, other critical | `script` (script id), `language` | per script language |
 | `missing_updates` | Days since the release of the oldest update Action1 reports as missing, 0 when none counts; evaluated by Fleeto after every patch sync, not by the agent (from Fleeto 0.6.0) | `severity` (`any`, `moderate`, `important` or `critical`: the lowest security severity that counts) | Windows |
 | `scheduled_patching` | Days since a scheduled deployment of the endpoint's patch policy last succeeded on it; until one did, since the automation of the policy first targeted the endpoint. Evaluated by Fleeto after every patch sync and scheduled deployment, not by the agent; an endpoint without a patch policy gets no result (from Fleeto 0.6.0) | none | Windows |
 | `action1_agent` | 1 when Action1 reports the endpoint, 0 when its Action1 agent is missing or an installation failed; `detail` gives the reason. Evaluated by Fleeto while it installs the agent and every 4 hours, not by the agent; an endpoint whose client has no Action1 organization, or whose agent was removed through Fleeto, gets no result (from Fleeto 0.6.0) | none | Windows |
@@ -1079,8 +1081,8 @@ field `onHold`.
 | `pending_signature` | Created; waiting to be signed by the instance's signing service. |
 | `queued` | Signed; delivered as soon as the endpoint is online. |
 | `running` | The endpoint started it. |
-| `succeeded` | Finished with exit code 0. |
-| `failed` | Finished with another exit code, timed out, or could not start. |
+| `succeeded` | Finished with an exit code the script counts as success, info or warning (0 unless the script lists others; see `exitStatus`). |
+| `failed` | Finished with an exit code the script counts as an error, timed out, or could not start. |
 | `expired` | Not started before `validUntil`. |
 | `refused` | Refused by the signing service or the agent; see `problem`. |
 | `lost` | Started, but no result arrived within its timeout: the outcome is unknown. |
@@ -1089,6 +1091,18 @@ field `onHold`.
 ### Job result
 
 `exited`, `timed_out`, `refused`, `failed_to_start`, `interrupted` (the agent stopped while the job ran).
+
+### Exit status
+
+What the exit code of a script meant (from Fleeto 0.6.0). A library script lists which exit codes mean success, info, warning or
+error; a code it does not list is `success` for 0 and `error` for any other code.
+
+| Value | Meaning |
+|---|---|
+| `success` | The script succeeded. `state` is `succeeded`. |
+| `info` | The script succeeded with something to note. `state` is `succeeded`. |
+| `warning` | The script succeeded with a warning. `state` is `succeeded`. |
+| `error` | The script failed. `state` is `failed`. |
 
 ### Job run as
 

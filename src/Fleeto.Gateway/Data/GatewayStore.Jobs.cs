@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Protocol.Agent.V1;
 using Npgsql;
@@ -149,12 +150,18 @@ public sealed partial class GatewayStore
         return completed && await TryCompleteOutputAsync(jobId, cancellationToken) ? JobUpdate.Changed : JobUpdate.None;
     }
 
-    /// <summary>Records the job's result once. A result for a job marked lost meanwhile is the real outcome and replaces it.</summary>
+    /// <summary>
+    /// Records the job's result once. A result for a job marked lost meanwhile is the real outcome and replaces it. For a script that
+    /// exited, the exit code rules of its script as they are now decide whether it succeeded (0.6.0), and the job keeps what they said.
+    /// </summary>
     public async Task<JobUpdate> CompleteJobAsync(Guid jobId, Guid endpointId, JobCompletion completion, DateTime now, CancellationToken cancellationToken)
     {
+        ExitStatus? exitStatus = completion.Result == JobResult.Exited
+            ? ScriptExitCodes.StatusForJob(await ExitCodeRulesAsync(jobId, endpointId, cancellationToken), completion.ExitCode)
+            : null;
         var (state, result) = completion.Result switch
         {
-            JobResult.Exited => (completion.ExitCode == 0 ? JobState.Succeeded : JobState.Failed, Core.Entities.JobResult.Exited),
+            JobResult.Exited => (ScriptExitCodes.Succeeds(exitStatus!.Value) ? JobState.Succeeded : JobState.Failed, Core.Entities.JobResult.Exited),
             JobResult.TimedOut => (JobState.Failed, Core.Entities.JobResult.TimedOut),
             JobResult.Refused => (JobState.Refused, Core.Entities.JobResult.Refused),
             JobResult.Interrupted => (JobState.Lost, Core.Entities.JobResult.Interrupted),
@@ -163,6 +170,7 @@ public sealed partial class GatewayStore
 
         await using var command = _dataSource.CreateCommand("""
             UPDATE "Jobs" SET "State" = $3, "Result" = $4, "ExitCode" = $5, "Error" = $6, "CompletedAt" = $7, "StartedAt" = COALESCE("StartedAt", $7),
+                "ExitStatus" = $15,
                 "OutputTruncated" = $8,
                 "StdoutChunks" = $9, "StdoutBytes" = $10, "StdoutSha256" = $11, "StderrChunks" = $12, "StderrBytes" = $13, "StderrSha256" = $14,
                 "RefusalReason" = CASE WHEN $3 = 'Refused' THEN $6 ELSE "RefusalReason" END,
@@ -181,6 +189,7 @@ public sealed partial class GatewayStore
         command.Parameters.Add(new NpgsqlParameter<bool> { TypedValue = completion.OutputTruncated });
         AddSummary(command, completion.Stdout);
         AddSummary(command, completion.Stderr);
+        command.Parameters.Add(new NpgsqlParameter { Value = exitStatus?.ToString() ?? (object)DBNull.Value, NpgsqlDbType = NpgsqlDbType.Varchar });
         if (await command.ExecuteNonQueryAsync(cancellationToken) == 0)
         {
             return JobUpdate.None;
@@ -188,6 +197,29 @@ public sealed partial class GatewayStore
 
         await TryCompleteOutputAsync(jobId, cancellationToken);
         return JobUpdate.Changed;
+    }
+
+    /// <summary>
+    /// The exit code rules of the script of a script job of this endpoint; none (the default) for another job type or a script that
+    /// was deleted.
+    /// </summary>
+    private async Task<ExitCodeRules> ExitCodeRulesAsync(Guid jobId, Guid endpointId, CancellationToken cancellationToken)
+    {
+        await using var command = _dataSource.CreateCommand("""
+            SELECT s."SuccessExitCodes", s."InfoExitCodes", s."WarningExitCodes", s."ErrorExitCodes"
+            FROM "Jobs" j JOIN "Scripts" s ON s."Id" = j."ScriptId"
+            WHERE j."Id" = $1 AND j."EndpointId" = $2 AND j."Type" = 'Script'
+            """);
+        command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = jobId });
+        command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = endpointId });
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return ExitCodeRules.None;
+        }
+
+        return new ExitCodeRules(reader.GetFieldValue<int[]>(0), reader.GetFieldValue<int[]>(1), reader.GetFieldValue<int[]>(2),
+            reader.GetFieldValue<int[]>(3));
     }
 
     private static void AddSummary(NpgsqlCommand command, JobStreamSummary? summary)

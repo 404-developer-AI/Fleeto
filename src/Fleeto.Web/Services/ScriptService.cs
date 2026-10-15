@@ -20,12 +20,14 @@ public sealed record ScriptVersionView(Guid Id, int Number, string Sha256, int T
     string? ApprovedByName, DateTime? ApprovedAt, bool IsApproved, bool IsCurrent);
 
 public sealed record ScriptDetail(Guid Id, string Name, string? Description, ScriptLanguage Language, Guid? ClientId, string? ClientCode,
-    Guid? CurrentVersionId, string Body, int TimeoutSeconds, IReadOnlyList<ScriptVersionView> Versions);
+    Guid? CurrentVersionId, string Body, int TimeoutSeconds, IReadOnlyList<ScriptVersionView> Versions, ExitCodeRules ExitCodes);
 
 /// <summary>A script a check can use: global or of the check's client.</summary>
 public sealed record ScriptOption(Guid Id, string Name, ScriptLanguage Language, string? ClientCode);
 
-public sealed record ScriptInput(string? Name, string? Description, ScriptLanguage Language, Guid? ClientId, string? Body, int TimeoutSeconds);
+/// <summary>The details of a script; <paramref name="ExitCodes"/> says what its exit codes mean (0.6.0), null to keep them.</summary>
+public sealed record ScriptInput(string? Name, string? Description, ScriptLanguage Language, Guid? ClientId, string? Body, int TimeoutSeconds,
+    ExitCodeRules? ExitCodes = null);
 
 /// <summary>Script checks (0.2.0): which script a check may use, and the configuration changes a script change causes.</summary>
 public static class ScriptChecks
@@ -151,7 +153,7 @@ public sealed class ScriptService
         var current = script.Versions.SingleOrDefault(v => v.Id == script.CurrentVersionId);
         return new ScriptDetail(script.Id, script.Name, script.Description, script.Language, script.ClientId, clientCode, script.CurrentVersionId,
             current?.Body ?? string.Empty, current?.TimeoutSeconds ?? ScriptRules.DefaultTimeoutSeconds,
-            script.Versions.OrderByDescending(v => v.Number).Select(v => View(v, script.CurrentVersionId)).ToList());
+            script.Versions.OrderByDescending(v => v.Number).Select(v => View(v, script.CurrentVersionId)).ToList(), script.ExitCodes);
     }
 
     /// <summary>The body of one version, for review before approval and for history.</summary>
@@ -176,7 +178,8 @@ public sealed class ScriptService
             return ServiceResult<Guid>.Forbidden();
         }
 
-        if ((ValidateDetails(input.Name, input.Description) ?? ValidateVersion(input.Body, input.TimeoutSeconds)) is { } problem)
+        if ((ValidateDetails(input.Name, input.Description) ?? ValidateVersion(input.Body, input.TimeoutSeconds) ??
+             ValidateExitCodes(input.ExitCodes)) is { } problem)
         {
             return ServiceResult<Guid>.Fail(problem);
         }
@@ -209,24 +212,30 @@ public sealed class ScriptService
             Id = Guid.NewGuid(), ClientId = input.ClientId, Name = name, Description = ServiceSupport.Clean(input.Description), Language = input.Language,
             CreatedAt = now, UpdatedAt = now
         };
+        SetExitCodes(script, input.ExitCodes ?? ExitCodeRules.None);
         var version = NewVersion(caller, script, 1, input.Body!, input.TimeoutSeconds, now);
         script.CurrentVersionId = version.Id;
         db.Scripts.Add(script);
         db.ScriptVersions.Add(version);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.ScriptCreated, "Script", script.Id.ToString(), script.ClientId,
-            new { script.Name, Language = script.Language.ToString(), Version = 1, version.Sha256, version.TimeoutSeconds }), now));
+            new { script.Name, Language = script.Language.ToString(), Version = 1, version.Sha256, version.TimeoutSeconds, ExitCodes = AuditExitCodes(script) }), now));
         await db.SaveChangesAsync(cancellationToken);
         return ServiceResult<Guid>.Ok(script.Id);
     }
 
-    public async Task<ServiceResult> UpdateDetailsAsync(Caller caller, Guid scriptId, string? name, string? description, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Changes the name and description, and with <paramref name="exitCodes"/> what the exit codes mean (0.6.0). Neither makes a new
+    /// version or needs approval: they change how a result is read, never what runs.
+    /// </summary>
+    public async Task<ServiceResult> UpdateDetailsAsync(Caller caller, Guid scriptId, string? name, string? description, ExitCodeRules? exitCodes = null,
+        CancellationToken cancellationToken = default)
     {
         if (!caller.Has(Permissions.ScriptsEdit))
         {
             return ServiceResult.Forbidden();
         }
 
-        if (ValidateDetails(name, description) is { } problem)
+        if ((ValidateDetails(name, description) ?? ValidateExitCodes(exitCodes)) is { } problem)
         {
             return ServiceResult.Fail(problem);
         }
@@ -258,8 +267,14 @@ public sealed class ScriptService
 
         script.Name = cleanName;
         script.Description = ServiceSupport.Clean(description);
+        if (exitCodes is not null)
+        {
+            SetExitCodes(script, exitCodes);
+        }
+
         script.UpdatedAt = now;
-        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.ScriptChanged, "Script", script.Id.ToString(), script.ClientId, new { script.Name }), now));
+        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.ScriptChanged, "Script", script.Id.ToString(), script.ClientId,
+            new { script.Name, ExitCodes = AuditExitCodes(script) }), now));
         await db.SaveChangesAsync(cancellationToken);
         return ServiceResult.Ok();
     }
@@ -476,6 +491,25 @@ public sealed class ScriptService
 
         return description is { Length: > 1000 } ? "The description can be at most 1000 characters." : null;
     }
+
+    internal static string? ValidateExitCodes(ExitCodeRules? rules) =>
+        rules is null ? null : ScriptExitCodes.Validate(rules).FirstOrDefault();
+
+    private static void SetExitCodes(Script script, ExitCodeRules rules)
+    {
+        script.SuccessExitCodes = rules.Success.Distinct().Order().ToList();
+        script.InfoExitCodes = rules.Info.Distinct().Order().ToList();
+        script.WarningExitCodes = rules.Warning.Distinct().Order().ToList();
+        script.ErrorExitCodes = rules.Error.Distinct().Order().ToList();
+    }
+
+    private static object AuditExitCodes(Script script) => new
+    {
+        Success = ScriptExitCodes.Format(script.SuccessExitCodes),
+        Info = ScriptExitCodes.Format(script.InfoExitCodes),
+        Warning = ScriptExitCodes.Format(script.WarningExitCodes),
+        Error = ScriptExitCodes.Format(script.ErrorExitCodes)
+    };
 
     internal static string? ValidateVersion(string? body, int timeoutSeconds)
     {

@@ -171,6 +171,78 @@ public sealed class JobSessionTests
         Assert.Equal(JobOutputState.Incomplete, incomplete.OutputState);
     }
 
+    [Theory]
+    [InlineData(0, JobState.Succeeded, Core.Entities.ExitStatus.Success)]
+    [InlineData(1, JobState.Succeeded, Core.Entities.ExitStatus.Warning)]
+    [InlineData(2, JobState.Succeeded, Core.Entities.ExitStatus.Warning)]
+    [InlineData(3, JobState.Failed, Core.Entities.ExitStatus.Error)]
+    [InlineData(4, JobState.Succeeded, Core.Entities.ExitStatus.Info)]
+    [InlineData(5, JobState.Failed, Core.Entities.ExitStatus.Error)]
+    [InlineData(-1, JobState.Succeeded, Core.Entities.ExitStatus.Success)]
+    public async Task The_exit_code_rules_of_the_script_decide_whether_a_job_succeeded(int exitCode, JobState state, Core.Entities.ExitStatus status)
+    {
+        await _fixture.Database.LoadTestLicenseAsync(1000);
+        using var harness = _fixture.CreateHarness();
+        var endpoint = await _fixture.CreateEndpointAsync(EndpointTier.Managed);
+        var job = await CreateJobAsync(endpoint, delivered: true);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            // 0 = success and 1, 2 = warning, 3 = error, 4 = info as the developer described; -1 is listed as success, 5 is not listed.
+            await db.Scripts.Where(s => s.Id == job.ScriptId).ExecuteUpdateAsync(s => s
+                .SetProperty(x => x.SuccessExitCodes, new List<int> { -1 })
+                .SetProperty(x => x.WarningExitCodes, new List<int> { 1, 2 })
+                .SetProperty(x => x.ErrorExitCodes, new List<int> { 3 })
+                .SetProperty(x => x.InfoExitCodes, new List<int> { 4 }));
+        }
+
+        var session = await harness.OpenAsync(endpoint);
+        await harness.Manager.HandleAsync(session, new AgentMessage
+        {
+            JobCompletion = new JobCompletion
+            {
+                JobId = job.Id.ToString("D"), Result = JobResult.Exited, ExitCode = exitCode, Stdout = new JobStreamSummary(), Stderr = new JobStreamSummary()
+            }
+        }, CancellationToken.None);
+
+        var done = await ReadAsync(job.Id);
+        Assert.Equal((state, status, exitCode), (done.State, done.ExitStatus!.Value, done.ExitCode!.Value));
+    }
+
+    [Fact]
+    public async Task A_script_without_rules_succeeds_only_on_0_and_a_job_that_did_not_exit_has_no_exit_status()
+    {
+        await _fixture.Database.LoadTestLicenseAsync(1000);
+        using var harness = _fixture.CreateHarness();
+        var endpoint = await _fixture.CreateEndpointAsync(EndpointTier.Managed);
+        var plain = await CreateJobAsync(endpoint, delivered: true);
+        var timedOut = await CreateJobAsync(endpoint, delivered: true);
+        var deleted = await CreateJobAsync(endpoint, delivered: true);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            // A job keeps running when its script is deleted; its exit code then gets the default.
+            await db.Scripts.Where(s => s.Id == deleted.ScriptId).ExecuteDeleteAsync();
+        }
+
+        var session = await harness.OpenAsync(endpoint);
+        foreach (var (job, result, code) in new[] { (plain, JobResult.Exited, 1), (timedOut, JobResult.TimedOut, 0), (deleted, JobResult.Exited, 0) })
+        {
+            await harness.Manager.HandleAsync(session, new AgentMessage
+            {
+                JobCompletion = new JobCompletion
+                {
+                    JobId = job.Id.ToString("D"), Result = result, ExitCode = code, Stdout = new JobStreamSummary(), Stderr = new JobStreamSummary()
+                }
+            }, CancellationToken.None);
+        }
+
+        var plainDone = await ReadAsync(plain.Id);
+        Assert.Equal((JobState.Failed, Core.Entities.ExitStatus.Error), (plainDone.State, plainDone.ExitStatus!.Value));
+        var timedOutDone = await ReadAsync(timedOut.Id);
+        Assert.Equal((JobState.Failed, (Core.Entities.ExitStatus?)null), (timedOutDone.State, timedOutDone.ExitStatus));
+        var deletedDone = await ReadAsync(deleted.Id);
+        Assert.Equal((JobState.Succeeded, Core.Entities.ExitStatus.Success), (deletedDone.State, deletedDone.ExitStatus!.Value));
+    }
+
     [Fact]
     public async Task Another_endpoints_job_and_output_beyond_the_limit_are_not_stored()
     {

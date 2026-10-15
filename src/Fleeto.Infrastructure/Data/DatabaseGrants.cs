@@ -208,6 +208,8 @@ public static class DatabaseGrants
         // Tasks (0.6.0): the signer checks that an alert of one of a task's checks opened on the endpoint at the moment its run names;
         // titles and details, which name hosts and paths, stay unreadable to it.
         ("Alerts", DatabaseRoles.Signer, ["Id", "EndpointId", "Kind", "CheckDefinitionId", "OpenedAt"]),
+        // The gateway reads what the exit codes of a script mean when a job ends (0.6.0); never the script's name or body.
+        ("Scripts", DatabaseRoles.Gateway, ["Id", "SuccessExitCodes", "InfoExitCodes", "WarningExitCodes", "ErrorExitCodes"]),
         // INSERT ... RETURNING "Id" (EF Core) needs SELECT on the returned column; the rest of the audit trail stays unreadable.
         ("AuditEntries", DatabaseRoles.Gateway, ["Id"]),
         ("AuditEntries", DatabaseRoles.Signer, ["Id"]),

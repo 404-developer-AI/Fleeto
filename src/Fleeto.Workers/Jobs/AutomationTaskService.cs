@@ -546,10 +546,10 @@ public sealed class AutomationTaskService : WorkerLoop
                     where t.JobId != null && t.OutcomeHandledAt == null &&
                           j.State != JobState.PendingSignature && j.State != JobState.Queued && j.State != JobState.Running
                     orderby j.CompletedAt
-                    select new { Target = t, j.TaskStepId, j.State, j.Result, j.ExitCode })
+                    select new { Target = t, j.TaskStepId, j.State, j.Result, j.ExitCode, j.ExitStatus })
                 .Take(BatchSize)
                 .ToListAsync(cancellationToken))
-            .Select(e => new EndedStep(e.Target, e.TaskStepId, e.State, e.Result, e.ExitCode))
+            .Select(e => new EndedStep(e.Target, e.TaskStepId, e.State, e.Result, e.ExitCode, e.ExitStatus))
             .ToList();
 
         // A run whose job was deleted (retention, a deleted endpoint's jobs) can never move on: it ends.
@@ -600,7 +600,7 @@ public sealed class AutomationTaskService : WorkerLoop
                     continue;
                 }
 
-                if (AutomationTasks.MayContinue(step, outcome.State, outcome.Result, outcome.ExitCode) && plan.After(step) is { } next)
+                if (AutomationTasks.MayContinue(step, outcome.State, outcome.Result, outcome.ExitCode, outcome.ExitStatus) && plan.After(step) is { } next)
                 {
                     var reason = !task.Enabled ? SwitchedOffReason : await StartNextAsync(db, task, plan, next, run, target, license, started, now, cancellationToken);
                     if (reason is null)
@@ -616,6 +616,7 @@ public sealed class AutomationTaskService : WorkerLoop
 
                 var result = await ResultOfRunAsync(db, plan, target, cancellationToken);
                 Finish(target, result.Outcome, null, now);
+                target.HasWarning = result.Warning.Job is not null;
                 if (outcome.State is JobState.Cancelled)
                 {
                     continue;
@@ -653,7 +654,8 @@ public sealed class AutomationTaskService : WorkerLoop
         return ended.Count + orphans.Count;
     }
 
-    private sealed record EndedStep(AutomationTaskRunTarget Target, Guid? StepId, JobState State, JobResult? Result, int? ExitCode);
+    private sealed record EndedStep(AutomationTaskRunTarget Target, Guid? StepId, JobState State, JobResult? Result, int? ExitCode,
+        ExitStatus? ExitStatus);
 
     /// <summary>
     /// Writes the job of the next step, or returns why it cannot start: the endpoint no longer applies or can no longer run every
@@ -684,13 +686,17 @@ public sealed class AutomationTaskService : WorkerLoop
         return null;
     }
 
-    /// <summary>The jobs of a run on one endpoint, each judged by its step: the run succeeded when every step passed.</summary>
-    private static async Task<(TaskTargetOutcome Outcome, IReadOnlyList<(AutomationTaskStep Step, Job Job)> Failed)> ResultOfRunAsync(FleetoDbContext db,
-        TaskPlan plan, AutomationTaskRunTarget target, CancellationToken cancellationToken)
+    /// <summary>
+    /// The jobs of a run on one endpoint, each judged by its step: the run succeeded when every step passed. <c>Warning</c> is the last
+    /// step that ended with an exit code its script lists as a warning (0.6.0).
+    /// </summary>
+    private static async Task<(TaskTargetOutcome Outcome, IReadOnlyList<(AutomationTaskStep Step, Job Job)> Failed, (AutomationTaskStep Step, Job Job) Warning)>
+        ResultOfRunAsync(FleetoDbContext db, TaskPlan plan, AutomationTaskRunTarget target, CancellationToken cancellationToken)
     {
         var jobs = await db.Jobs.AsNoTracking().Where(j => j.TaskRunId == target.RunId && j.EndpointId == target.EndpointId)
             .OrderBy(j => j.CreatedAt).ToListAsync(cancellationToken);
         var failed = new List<(AutomationTaskStep, Job)>();
+        (AutomationTaskStep Step, Job Job) warning = default;
         foreach (var job in jobs)
         {
             if (plan.Find(job.TaskStepId) is not { } step)
@@ -698,23 +704,28 @@ public sealed class AutomationTaskService : WorkerLoop
                 continue;
             }
 
-            if (!AutomationTasks.Passed(step, job.State, job.Result, job.ExitCode))
+            if (!AutomationTasks.Passed(step, job.State, job.Result, job.ExitCode, job.ExitStatus))
             {
                 failed.Add((step, job));
+            }
+            else if (job.ExitStatus == ExitStatus.Warning)
+            {
+                warning = (step, job);
             }
         }
 
         var outcome = jobs.Any(j => j.State == JobState.Cancelled) ? TaskTargetOutcome.Cancelled
             : failed.Count == 0 ? TaskTargetOutcome.Succeeded
             : TaskTargetOutcome.Failed;
-        return (outcome, failed);
+        return (outcome, failed, warning);
     }
 
     /// <summary>
-    /// Opens or resolves the alert of the task on the endpoint for a run that ended. A run that succeeded resolves it. A run that
-    /// failed opens one when the task asks for it, outside maintenance: for a failed, lost or refused job, for an expired job of a
-    /// later step (the endpoint was there for the step before), or when <paramref name="stopReason"/> says the next step did not
-    /// start. An expired first step is a missed run, not a failure.
+    /// Opens or resolves the alert of the task on the endpoint for a run that ended. A run that succeeded without a warning resolves
+    /// it. A run that failed opens one when the task asks for it, outside maintenance: for a failed, lost or refused job, for an
+    /// expired job of a later step (the endpoint was there for the step before), or when <paramref name="stopReason"/> says the next
+    /// step did not start; an open alert of a warning goes up to the severity of the task. A run that succeeded with a warning
+    /// (0.6.0) opens a warning when no alert is open. An expired first step is a missed run, not a failure.
     /// </summary>
     private static async Task AlertAsync(FleetoDbContext db, AutomationTask task, TaskPlan plan, AutomationTaskRunTarget target, AutomationTaskRun run,
         IReadOnlyDictionary<Guid, string> endpoints, HashSet<Guid> inMaintenance, List<AlertTransition> transitions, DateTime now,
@@ -725,33 +736,66 @@ public sealed class AutomationTaskService : WorkerLoop
                                                             a.Target == alertTarget && a.State != AlertState.Resolved, cancellationToken)
                    ?? db.Alerts.Local.FirstOrDefault(a => a.EndpointId == target.EndpointId && a.Kind == AlertKind.Task &&
                                                           a.Target == alertTarget && a.State != AlertState.Resolved);
-        var (outcome, failed) = await ResultOfRunAsync(db, plan, target, cancellationToken);
+        var (outcome, failed, warning) = await ResultOfRunAsync(db, plan, target, cancellationToken);
+        var hostname = endpoints.GetValueOrDefault(target.EndpointId, "the endpoint");
         if (stopReason is null && outcome == TaskTargetOutcome.Succeeded)
         {
-            if (open is not null)
+            if (warning.Job is null)
             {
-                Resolve(open, ResolvedReason, transitions, now);
+                if (open is not null)
+                {
+                    Resolve(open, ResolvedReason, transitions, now);
+                }
+
+                return;
             }
 
+            if (!task.AlertOnFailure || open is not null || inMaintenance.Contains(target.EndpointId))
+            {
+                return;
+            }
+
+            var warningTitle = AutomationTasks.WarningTitle(task.Name, hostname, warning.Job.ExitCode, plan.Label(warning.Step));
+            Open(db, task, target, run, AlertSeverity.Warning, warningTitle, null, transitions, now);
             return;
         }
 
         var alertable = failed.LastOrDefault(f => AutomationTasks.IsFailure(f.Job.State) || (f.Job.State == JobState.Expired && f.Step.Position > 1));
-        if ((stopReason is null && alertable.Job is null) || !task.AlertOnFailure || open is not null || inMaintenance.Contains(target.EndpointId))
+        if ((stopReason is null && alertable.Job is null) || !task.AlertOnFailure || inMaintenance.Contains(target.EndpointId))
         {
             return;
         }
 
-        var hostname = endpoints.GetValueOrDefault(target.EndpointId, "the endpoint");
         var title = alertable.Job is { } job && stopReason is null
             ? AutomationTasks.FailureTitle(task.Name, hostname, job.State, job.ExitCode, job.RefusalReason ?? job.Error, plan.Label(alertable.Step),
                 alertable.Step.Kind == TaskStepKind.Restart)
             : Cut($"Task {task.Name} stopped on {hostname}: {stopReason} Open the run on the task to see its output.", 500);
         var detail = alertable.Job is { } failedJob ? failedJob.RefusalReason ?? failedJob.Error : stopReason;
+        if (open is not null)
+        {
+            // An alert of a warning goes up when a later run fails; one that already says as much stays as it is.
+            if (open.Severity < task.AlertSeverity)
+            {
+                open.Severity = task.AlertSeverity;
+                open.Title = title;
+                open.Detail = Cut($"Task {task.Name}, run {run.Id}. {detail}".Trim(), 2000);
+                open.UpdatedAt = now;
+                transitions.Add(new AlertTransition(open.Id, NotificationEvent.Escalated));
+            }
+
+            return;
+        }
+
+        Open(db, task, target, run, task.AlertSeverity, title, detail, transitions, now);
+    }
+
+    private static void Open(FleetoDbContext db, AutomationTask task, AutomationTaskRunTarget target, AutomationTaskRun run, AlertSeverity severity,
+        string title, string? detail, List<AlertTransition> transitions, DateTime now)
+    {
         var alert = new Alert
         {
             Id = Guid.NewGuid(), ClientId = target.ClientId, EndpointId = target.EndpointId, Kind = AlertKind.Task,
-            Target = alertTarget, Severity = task.AlertSeverity, State = AlertState.Open, Title = title,
+            Target = task.Id.ToString(), Severity = severity, State = AlertState.Open, Title = title,
             Detail = Cut($"Task {task.Name}, run {run.Id}. {detail}".Trim(), 2000),
             OpenedAt = now, UpdatedAt = now
         };

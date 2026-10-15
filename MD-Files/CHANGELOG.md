@@ -11,12 +11,20 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
+- Exit codes per script: Edit on a script in Settings, Scripts lists which exit codes mean success, info, warning or error (for
+  example 0 success, 1 and 2 a warning, 3 an error, 4 info; ranges such as 5-8 work). Every job, task step and script check that
+  runs the script reads them. A job with info or a warning succeeds and shows a blue Info or an amber Warning label with its exit
+  code; a task goes on after such a step, and a run with a warning ends as "Succeeded with warnings" and opens an alert of
+  severity warning (raised to the severity of the task when a later run fails); a script check is OK on info, a warning on a
+  warning and critical on an error. A code the script does not list keeps what it meant before: for a job 0 succeeds and every
+  other code fails, for a script check 0 is OK, 1 a warning and every other code critical. The exit codes are not part of a
+  version and need no approval: they change how a result is read, never what runs. Jobs in the API have `exitStatus`.
 - Tasks: Settings, Tasks. A task runs scripts from the library by itself on the clients, sites and endpoints it is linked to
   (the links add up), as steps one after the other: on each endpoint a step starts only when the step before it ended, so a long
   step never overlaps the next. A step can also restart the endpoint: Fleeto then waits until it is back with a newer boot time
   (at most the wait of the step) before the next step starts, which needs an agent of this release and the new permission
-  Restart endpoints. A failed step stops the run there, unless the step may fail or its exit code counts as success (for example
-  3 for a warning). A task starts on a schedule (once, every few days, weeks on chosen days or months on a day, optionally repeated during
+  Restart endpoints. A failed step stops the run there, unless the step may fail or its script counts its exit code as success,
+  info or warning. A task starts on a schedule (once, every few days, weeks on chosen days or months on a day, optionally repeated during
   the day, between a start and an end date, in a time zone of your choice), when an alert of a chosen check opens on an
   endpoint, when an endpoint is switched to managed, or with Run now. Options: a random delay per endpoint, catching up a run an
   offline endpoint missed, skipping or waiting for an endpoint where the previous run still runs, and an alert on the endpoint
@@ -167,6 +175,8 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Changed
 
+- The exit codes a task step counted as success (alpha.23) moved to the script: the update lists them as success on the script
+  of the step, and the step editor no longer has the field.
 - Approving a script needs the permission "Approve scripts" instead of the admin role; the approver still has to be somebody
   other than the author, with a fresh code. Switching off "Require approval of scripts" in a policy needs the same permission.
 - Settings shows only the pages the roles of the user allow, and the settings button opens the first of them.
@@ -215,6 +225,8 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- A script that had run as a job could not be deleted: the database refused to clear the script on its jobs. The jobs now keep
+  their snapshot (name, version and hash) and lose only the link to the deleted script, as the API already described.
 - The processes with the most memory listed with a CPU or memory usage result could be out of order when one of them grew
   while the agent read the list: the list now shows the memory it was ranked by. Needs agents of this version.
 - A script larger than 32 KB could not be saved: the connection of the browser refused a message of that size and closed.

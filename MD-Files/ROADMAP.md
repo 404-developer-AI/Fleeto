@@ -276,7 +276,11 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   RMM ran into each other and a reboot in between broke one big script: a task is an ordered list of library scripts and restarts,
   a step starts only when the one before ended, a failed step stops the run unless it may fail or its exit code counts as success,
   and a restart is a new signed job type the agent runs with a fixed command and reports after the endpoint is back with a newer
-  boot time; Run now writes the run and the workers run its steps; the permission Restart endpoints), the permissions View tasks, Edit tasks and Run tasks now. Linking happens on the task page; the link editor of clients, sites and
+  boot time; Run now writes the run and the workers run its steps; the permission Restart endpoints), exit codes per script
+  (migration `ScriptExitCodes`, asked for by the developer on 2026-10-15: a script lists which exit codes mean success, info,
+  warning or error, read by the gateway for every job, by the workers for script checks and by tasks; info and warning succeed,
+  a task goes on after them and a run with a warning ends as succeeded with warnings and opens a warning; codes a script does
+  not list keep their old meaning, also 1 = warning in a script check; the codes of a step moved onto its script), the permissions View tasks, Edit tasks and Run tasks now. Linking happens on the task page; the link editor of clients, sites and
   endpoints does not show tasks yet. To verify on the test VPS: a daily inventory task with a random delay on a site of Windows
   endpoints, its CSV export; a task on the alert of a service check restarting the service; a task when an endpoint becomes
   managed; a failing script opening an alert and the next good run resolving it; an endpoint offline during a run catching up;
@@ -284,7 +288,9 @@ why it matters. Logs, search and retention were 0.6.0 until 2026-09-23 and are n
   endpoints of a site the template is linked to, and on an endpoint that gets the template later; the AlmaLinux round as one task
   (OS update, stop containers, upgrade containers, restart, start containers) where the last step starts only after the endpoint
   is back, a Windows endpoint restarting with the notice of one minute, a step whose exit code 3 counts as success, and an agent
-  of an older release skipped before the first step.
+  of an older release skipped before the first step; a script with 1, 2 = warning, 3 = error and 4 = info run by hand showing
+  Warning, Failed and Info, the same script as a task step going on after a warning with "Succeeded with warnings" and a warning
+  alert, as a script check 4 OK and 2 a warning, and a check script without exit codes still a warning on 1.
 
 ## 0.7.0 — Performance monitor
 

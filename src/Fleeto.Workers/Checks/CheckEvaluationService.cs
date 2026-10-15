@@ -417,6 +417,19 @@ public sealed class CheckEvaluationService : WorkerLoop
                 .ToListAsync(cancellationToken))
             .ToDictionary(a => (a.CheckDefinitionId!.Value, a.Target));
 
+        // What the exit codes of the scripts of script checks mean (0.6.0), read once for this batch.
+        var scriptIds = checks.Values
+            .Where(c => c.Definition.Type == CheckType.Script && definitionIds.Contains(c.Id))
+            .Select(c => CheckParameters.Parse(c.Definition.ParametersJson).GetValueOrDefault(CheckCatalog.ScriptParameter))
+            .Select(id => Guid.TryParse(id, out var scriptId) ? scriptId : Guid.Empty)
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .ToList();
+        var exitCodes = scriptIds.Count == 0
+            ? new Dictionary<Guid, ExitCodeRules>()
+            : (await db.Scripts.AsNoTracking().Where(s => scriptIds.Contains(s.Id)).ToListAsync(cancellationToken))
+                .ToDictionary(s => s.Id, s => s.ExitCodes);
+
         var statusChanged = false;
         var hourly = new Dictionary<(Guid, string, DateTime), RollupAccumulator>();
         var daily = new Dictionary<(Guid, string, DateTime), RollupAccumulator>();
@@ -448,8 +461,12 @@ public sealed class CheckEvaluationService : WorkerLoop
                 continue;
             }
 
+            var rules = definition.Type == CheckType.Script &&
+                        Guid.TryParse(parameters.GetValueOrDefault(CheckCatalog.ScriptParameter), out var checkScriptId)
+                ? exitCodes.GetValueOrDefault(checkScriptId)
+                : null;
             var status = CheckEvaluator.Evaluate(definition.Type, result.Target, result.Value, result.Error, check.WarningThreshold,
-                check.CriticalThreshold, parameters);
+                check.CriticalThreshold, parameters, rules);
 
             if (existing is not { } state)
             {

@@ -24,7 +24,6 @@ public static class AutomationTasks
     public const int MaxRandomDelayMinutes = 720;
     public const int MaxTriggerChecks = 20;
     public const int MaxSteps = 20;
-    public const int MaxSuccessExitCodes = 10;
 
     /// <summary>An endpoint starts a task for an alert of its checks at most once in this time.</summary>
     public static readonly TimeSpan CheckAlertCooldown = TimeSpan.FromHours(1);
@@ -100,15 +99,6 @@ public static class AutomationTasks
                     problems.Add($"{label}: choose the account the script runs as.");
                 }
 
-                if (step.SuccessExitCodes.Count > MaxSuccessExitCodes)
-                {
-                    problems.Add($"{label}: at most {MaxSuccessExitCodes} exit codes can count as success.");
-                }
-
-                if (step.SuccessExitCodes.Contains(0))
-                {
-                    problems.Add($"{label}: exit code 0 always counts as success. Remove it from the list.");
-                }
             }
             else if (step.RestartWaitMinutes is not { } wait || wait < RestartRules.MinWaitMinutes || wait > RestartRules.MaxWaitMinutes)
             {
@@ -120,17 +110,18 @@ public static class AutomationTasks
     }
 
     /// <summary>
-    /// True when a step passed: its job succeeded, or a script ended with an exit code the step counts as success. A restart passes
-    /// only when the agent reported the endpoint back.
+    /// True when a step passed: its job succeeded, which for a script the exit code rules of the script decide when the job ends
+    /// (success, info and warning). A restart passes only when the agent reported the endpoint back. A job that ended before those
+    /// rules existed (no <paramref name="exitStatus"/>) also passes with an exit code the step itself counted as success (alpha.23).
     /// </summary>
-    public static bool Passed(AutomationTaskStep step, JobState state, JobResult? result, int? exitCode) =>
+    public static bool Passed(AutomationTaskStep step, JobState state, JobResult? result, int? exitCode, ExitStatus? exitStatus) =>
         state == JobState.Succeeded ||
-        (step.Kind == TaskStepKind.Script && state == JobState.Failed && result == JobResult.Exited && exitCode is { } code &&
-         step.SuccessExitCodes.Contains(code));
+        (exitStatus is null && step.Kind == TaskStepKind.Script && state == JobState.Failed && result == JobResult.Exited &&
+         exitCode is { } code && step.SuccessExitCodes.Contains(code));
 
     /// <summary>True when the run may start the step after this one: it passed, or it may fail; never after a cancelled job.</summary>
-    public static bool MayContinue(AutomationTaskStep step, JobState state, JobResult? result, int? exitCode) =>
-        state != JobState.Cancelled && (Passed(step, state, result, exitCode) || step.ContinueOnFailure);
+    public static bool MayContinue(AutomationTaskStep step, JobState state, JobResult? result, int? exitCode, ExitStatus? exitStatus) =>
+        state != JobState.Cancelled && (Passed(step, state, result, exitCode, exitStatus) || step.ContinueOnFailure);
 
     /// <summary>"step 2 (Stop containers)" or "step 4 (restart)", for texts about a run.</summary>
     public static string StepLabel(int position, TaskStepKind kind, string? scriptName) =>
@@ -477,6 +468,18 @@ public static class AutomationTasks
         };
         var where = step is null ? string.Empty : $" at {step}";
         var text = $"Task {taskName} {cause}{where} on {hostname}. Open the run on the task to see its output.";
+        return text.Length <= 500 ? text : text[..500];
+    }
+
+    /// <summary>
+    /// The title of the alert of a run that succeeded with a warning (0.6.0): a script ended with an exit code its script lists as a
+    /// warning. <paramref name="step"/> names the step when the task has more than one.
+    /// </summary>
+    public static string WarningTitle(string taskName, string hostname, int? exitCode, string? step = null)
+    {
+        var code = exitCode is { } c ? $" (exit code {c})" : string.Empty;
+        var where = step is null ? string.Empty : $" at {step}";
+        var text = $"Task {taskName} ended with a warning{code}{where} on {hostname}. Open the run on the task to see its output.";
         return text.Length <= 500 ? text : text[..500];
     }
 

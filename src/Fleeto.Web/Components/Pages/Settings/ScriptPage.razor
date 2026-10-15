@@ -32,6 +32,20 @@
         </div>
 
         <div class="fl-panel pa-4 mb-4">
+            <MudText Typo="Typo.h6" Class="section-title mb-2">Exit codes</MudText>
+            <div class="d-flex gap-4 flex-wrap mb-1">
+                @foreach (var (label, codes, kind) in ExitLists(script.ExitCodes))
+                {
+                    <span><StatusChip Text="@label" Kind="kind" /> <span class="ml-1">@(codes.Count == 0 ? "-" : ScriptExitCodes.Format(codes))</span></span>
+                }
+            </div>
+            <MudText Typo="Typo.caption" Class="muted">
+                A code that is not listed: 0 succeeds and any other code is an error; a script check reads 1 as a warning.
+                @(Can(Permissions.ScriptsEdit) ? "Change them with Edit." : "")
+            </MudText>
+        </div>
+
+        <div class="fl-panel pa-4 mb-4">
             <MudText Typo="Typo.h6" Class="section-title mb-2">Current version</MudText>
             <MudTextField @bind-Value="_body" Variant="Variant.Outlined" Lines="18" MaxLength="@ScriptRules.MaxBodyLength" Class="script-editor mb-3"
                           ReadOnly="@(!Can(Permissions.ScriptsEdit))" />
@@ -98,6 +112,12 @@
 
     protected override Task OnParametersSetAsync() => ReloadAsync();
 
+    private static IEnumerable<(string Label, IReadOnlyCollection<int> Codes, StatusKind Kind)> ExitLists(ExitCodeRules rules) =>
+    [
+        ("Success", rules.Success, StatusKind.Ok), ("Info", rules.Info, StatusKind.Info), ("Warning", rules.Warning, StatusKind.Warning),
+        ("Error", rules.Error, StatusKind.Error)
+    ];
+
     private Task ReloadAsync() => LoadAsync(async caller =>
     {
         _script = await ScriptSvc.GetAsync(caller, ScriptId);
@@ -132,7 +152,9 @@
             { d => d.IsEdit, true },
             { d => d.InitialName, _script!.Name },
             { d => d.InitialDescription, _script.Description },
-            { d => d.OnSubmit, input => RunAsync(caller => ScriptSvc.UpdateDetailsAsync(caller, ScriptId, input.Name, input.Description), "The script was saved.") }
+            { d => d.InitialExitCodes, _script.ExitCodes },
+            { d => d.OnSubmit, input => RunAsync(caller => ScriptSvc.UpdateDetailsAsync(caller, ScriptId, input.Name, input.Description, input.ExitCodes),
+                "The script was saved.") }
         };
         var dialog = await DialogService.ShowAsync<ScriptDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         if (!(await dialog.Result)!.Canceled)

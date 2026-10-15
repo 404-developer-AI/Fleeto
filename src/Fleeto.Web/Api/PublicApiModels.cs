@@ -184,6 +184,15 @@ public enum ApiJobResult
     [JsonStringEnumMemberName("interrupted")] Interrupted
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<ApiExitStatus>))]
+public enum ApiExitStatus
+{
+    [JsonStringEnumMemberName("success")] Success,
+    [JsonStringEnumMemberName("info")] Info,
+    [JsonStringEnumMemberName("warning")] Warning,
+    [JsonStringEnumMemberName("error")] Error
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter<ApiJobRunAs>))]
 public enum ApiJobRunAs
 {
@@ -347,6 +356,7 @@ public sealed record ApiJob(
     ApiJobState State,
     ApiJobResult? Result,
     int? ExitCode,
+    ApiExitStatus? ExitStatus,
     string? Problem,
     string InitiatedBy,
     DateTime CreatedAt,

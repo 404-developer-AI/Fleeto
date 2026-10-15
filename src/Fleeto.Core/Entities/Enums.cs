@@ -55,7 +55,7 @@ public enum CheckType
     EventLog,
     /// <summary>Windows: 1 when antivirus or firewall protection is on, 0 otherwise (0.2.0).</summary>
     SecurityCenter,
-    /// <summary>The exit code of a library script: 0 OK, 1 warning, any other code critical (0.2.0).</summary>
+    /// <summary>The exit code of a library script, read by the rules of the script (0.6.0); unlisted: 0 OK, 1 warning, any other code critical (0.2.0).</summary>
     Script,
     /// <summary>
     /// Days since the release of the oldest update the endpoint misses, as Action1 reports it; 0 when none counts (0.6.0).

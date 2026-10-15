@@ -697,6 +697,9 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<DateTime?>("FinishedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("HasWarning")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid?>("JobId")
                         .HasColumnType("uuid");
 
@@ -2940,6 +2943,10 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<int?>("ExitCode")
                         .HasColumnType("integer");
 
+                    b.Property<string>("ExitStatus")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<string>("InitiatedByName")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -3106,6 +3113,8 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.ToTable("Jobs", t =>
                         {
+                            t.HasCheckConstraint("CK_Jobs_ExitStatus", "\"ExitStatus\" IS NULL OR (\"CompletedAt\" IS NOT NULL AND \"Result\" = 'Exited')");
+
                             t.HasCheckConstraint("CK_Jobs_Signed", "\"State\" IN ('PendingSignature', 'Refused', 'Cancelled', 'Expired') OR \"Signature\" IS NOT NULL");
 
                             t.HasCheckConstraint("CK_Jobs_Validity", "\"ValidUntil\" > \"CreatedAt\" AND \"ValidUntil\" <= \"CreatedAt\" + interval '7 days 5 minutes'");
@@ -4385,6 +4394,18 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
+                    b.PrimitiveCollection<List<int>>("ErrorExitCodes")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer[]")
+                        .HasDefaultValueSql("'{}'");
+
+                    b.PrimitiveCollection<List<int>>("InfoExitCodes")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer[]")
+                        .HasDefaultValueSql("'{}'");
+
                     b.Property<string>("Language")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -4395,8 +4416,20 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.PrimitiveCollection<List<int>>("SuccessExitCodes")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer[]")
+                        .HasDefaultValueSql("'{}'");
+
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.PrimitiveCollection<List<int>>("WarningExitCodes")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer[]")
+                        .HasDefaultValueSql("'{}'");
 
                     b.HasKey("Id");
 
@@ -4405,7 +4438,10 @@ namespace Fleeto.Infrastructure.Migrations
 
                     NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("ClientId", "Name"), false);
 
-                    b.ToTable("Scripts");
+                    b.ToTable("Scripts", t =>
+                        {
+                            t.HasCheckConstraint("CK_Scripts_ExitCodes", "NOT (\"SuccessExitCodes\" && \"InfoExitCodes\") AND NOT (\"SuccessExitCodes\" && \"WarningExitCodes\") AND NOT (\"SuccessExitCodes\" && \"ErrorExitCodes\") AND NOT (\"InfoExitCodes\" && \"WarningExitCodes\") AND NOT (\"InfoExitCodes\" && \"ErrorExitCodes\") AND NOT (\"WarningExitCodes\" && \"ErrorExitCodes\") AND cardinality(\"SuccessExitCodes\") + cardinality(\"InfoExitCodes\") + cardinality(\"WarningExitCodes\") + cardinality(\"ErrorExitCodes\") <= 100");
+                        });
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.ScriptVersion", b =>

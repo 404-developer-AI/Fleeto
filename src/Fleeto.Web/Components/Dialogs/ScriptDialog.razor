@@ -1,5 +1,6 @@
 @using Fleeto.Core.Domain
-@* Create a script (name, description, language, global or one client, first version) or edit its name and description. *@
+@* Create a script (name, description, language, global or one client, first version, what its exit codes mean) or edit its name,
+   description and exit codes. *@
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">@(IsEdit ? "Edit script" : "New script")</MudText>
@@ -25,13 +26,29 @@
                 </MudSelect>
                 <MudNumericField T="int" @bind-Value="_timeoutMinutes" Label="Timeout (minutes)" Variant="Variant.Outlined" Min="1" Max="1440" Style="max-width:160px" />
             </div>
-            <MudTextField @bind-Value="_body" Label="Script" Variant="Variant.Outlined" Lines="16" MaxLength="@ScriptRules.MaxBodyLength" Class="script-editor"
-                          HelperText="Runs as SYSTEM or root, or as the signed-in user; that is chosen per run. The exit code decides whether the job succeeded (0) or failed." />
+            <MudTextField @bind-Value="_body" Label="Script" Variant="Variant.Outlined" Lines="16" MaxLength="@ScriptRules.MaxBodyLength" Class="script-editor mb-3"
+                          HelperText="Runs as SYSTEM or root, or as the signed-in user; that is chosen per run. The exit code decides how it ended (below)." />
+        }
+        <MudText Typo="Typo.subtitle2" Class="mb-1">Exit codes</MudText>
+        <MudText Typo="Typo.caption" Class="muted d-block mb-2">
+            A code that is not listed: 0 succeeds and any other code is an error; a script check reads 1 as a warning. Info and warning
+            count as success: a task goes on, a check stays OK on info. Type codes and ranges, such as 1, 2, 5-8.
+        </MudText>
+        <div class="d-flex gap-2 flex-wrap">
+            @foreach (var field in _exitFields)
+            {
+                <MudTextField T="string" @bind-Value="field.Text" Label="@field.Label" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true"
+                              Style="max-width:200px" Placeholder="@field.Placeholder" Error="@(field.Problem is not null)" ErrorText="@field.Problem" />
+            }
+        </div>
+        @if (OverlapProblem is not null)
+        {
+            <MudText Typo="Typo.caption" Color="Color.Error" Class="d-block mt-1">@OverlapProblem</MudText>
         }
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">@(IsEdit ? "Save" : "Create")</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="@(_busy || _exitFields.Any(f => f.Problem is not null) || OverlapProblem is not null)">@(IsEdit ? "Save" : "Create")</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -42,6 +59,7 @@
     [Parameter] public bool IsEdit { get; set; }
     [Parameter] public string InitialName { get; set; } = string.Empty;
     [Parameter] public string? InitialDescription { get; set; }
+    [Parameter] public ExitCodeRules InitialExitCodes { get; set; } = ExitCodeRules.None;
     [Parameter] public IReadOnlyList<ClientOption> Clients { get; set; } = [];
     [Parameter] public Func<ScriptInput, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
 
@@ -52,11 +70,33 @@
     private int _timeoutMinutes = ScriptRules.DefaultTimeoutSeconds / 60;
     private string? _body;
     private bool _busy;
+    private readonly ExitField[] _exitFields =
+    [
+        new("Success", "For example 0"), new("Info", "For example 4"), new("Warning", "For example 1, 2"), new("Error", "For example 3")
+    ];
+
+    /// <summary>One list of exit codes, typed as text.</summary>
+    private sealed class ExitField(string label, string placeholder)
+    {
+        public string Label { get; } = label;
+        public string Placeholder { get; } = placeholder;
+        public string? Text { get; set; }
+        public IReadOnlyList<int> Codes => ScriptExitCodes.Parse(Text).Codes;
+        public string? Problem => ScriptExitCodes.Parse(Text).Error;
+    }
+
+    private ExitCodeRules Rules => new(_exitFields[0].Codes, _exitFields[1].Codes, _exitFields[2].Codes, _exitFields[3].Codes);
+
+    private string? OverlapProblem => _exitFields.Any(f => f.Problem is not null) ? null : ScriptExitCodes.Validate(Rules).FirstOrDefault();
 
     protected override void OnInitialized()
     {
         _name = InitialName;
         _description = InitialDescription;
+        _exitFields[0].Text = ScriptExitCodes.Format(InitialExitCodes.Success);
+        _exitFields[1].Text = ScriptExitCodes.Format(InitialExitCodes.Info);
+        _exitFields[2].Text = ScriptExitCodes.Format(InitialExitCodes.Warning);
+        _exitFields[3].Text = ScriptExitCodes.Format(InitialExitCodes.Error);
     }
 
     private void Cancel() => MudDialog.Cancel();
@@ -66,7 +106,7 @@
         _busy = true;
         try
         {
-            if (await OnSubmit(new ScriptInput(_name, _description, _language, _clientId, _body, _timeoutMinutes * 60)))
+            if (await OnSubmit(new ScriptInput(_name, _description, _language, _clientId, _body, _timeoutMinutes * 60, Rules)))
             {
                 MudDialog.Close(DialogResult.Ok(true));
             }

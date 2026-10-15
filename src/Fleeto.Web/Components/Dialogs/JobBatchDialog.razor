@@ -39,7 +39,7 @@
         <div class="d-flex flex-wrap align-center gap-2 mb-2">
             @foreach (var (label, count) in _summary)
             {
-                <StatusChip Text="@($"{count} {label}")" Kind="@Ui.JobStateKind(_summaryKind[label])" />
+                <StatusChip Text="@($"{count} {label}")" Kind="@_summaryKind[label]" />
             }
         </div>
 
@@ -68,7 +68,7 @@
                     {
                         <MudTd>@(context.RunAsAccount ?? context.RunAsChosenAccount ?? "-")</MudTd>
                     }
-                    <MudTd><StatusChip Text="@Ui.JobStateLabel(context.State, context.Result)" Kind="@Ui.JobStateKind(context.State)" /></MudTd>
+                    <MudTd><StatusChip Text="@Ui.JobStateLabel(context.State, context.Result, context.ExitStatus)" Kind="@Ui.JobStateKind(context.State, context.ExitStatus)" /></MudTd>
                     <MudTd>@(context.ExitCode?.ToString() ?? "-")</MudTd>
                     <MudTd class="muted">@Ui.JobOutputLabel(context.OutputState, context.OutputTruncated)</MudTd>
                     <MudTd><TimeText Value="context.CompletedAt" Never="-" /></MudTd>
@@ -95,7 +95,7 @@
 
     private IReadOnlyList<JobListItem> _jobs = [];
     private readonly List<(string Label, int Count)> _summary = [];
-    private readonly Dictionary<string, JobState> _summaryKind = [];
+    private readonly Dictionary<string, StatusKind> _summaryKind = [];
     private HashSet<Guid> _endpointIds = [];
 
     // A job per signed-in user: the table names the user of each job.
@@ -123,11 +123,12 @@
     {
         _summary.Clear();
         _summaryKind.Clear();
-        foreach (var group in _jobs.GroupBy(j => j.State).OrderBy(g => g.Key))
+        // A script that succeeded with an info or warning exit code counts apart (0.6.0).
+        foreach (var group in _jobs.GroupBy(j => (j.State, ExitStatus: j.State == JobState.Succeeded && j.ExitStatus is ExitStatus.Info or ExitStatus.Warning ? j.ExitStatus : null)).OrderBy(g => g.Key))
         {
-            var label = Ui.JobStateLabel(group.Key, null);
+            var label = Ui.JobStateLabel(group.Key.State, null, group.Key.ExitStatus);
             _summary.Add((label, group.Count()));
-            _summaryKind[label] = group.Key;
+            _summaryKind[label] = Ui.JobStateKind(group.Key.State, group.Key.ExitStatus);
         }
     }
 

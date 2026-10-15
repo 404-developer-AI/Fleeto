@@ -731,6 +731,19 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(s => s.Name).HasMaxLength(100);
             entity.Property(s => s.Description).HasMaxLength(1000);
             entity.Property(s => s.Language).HasConversion<string>().HasMaxLength(20);
+            entity.Ignore(s => s.ExitCodes);
+            // A default in the database, so the build before exit code rules still inserts scripts (expand/contract).
+            entity.Property(s => s.SuccessExitCodes).HasDefaultValueSql("'{}'");
+            entity.Property(s => s.InfoExitCodes).HasDefaultValueSql("'{}'");
+            entity.Property(s => s.WarningExitCodes).HasDefaultValueSql("'{}'");
+            entity.Property(s => s.ErrorExitCodes).HasDefaultValueSql("'{}'");
+            // What the exit codes mean (0.6.0): a code in at most one list, at most 100 codes together.
+            entity.ToTable(t => t.HasCheckConstraint("CK_Scripts_ExitCodes",
+                "NOT (\"SuccessExitCodes\" && \"InfoExitCodes\") AND NOT (\"SuccessExitCodes\" && \"WarningExitCodes\") AND " +
+                "NOT (\"SuccessExitCodes\" && \"ErrorExitCodes\") AND NOT (\"InfoExitCodes\" && \"WarningExitCodes\") AND " +
+                "NOT (\"InfoExitCodes\" && \"ErrorExitCodes\") AND NOT (\"WarningExitCodes\" && \"ErrorExitCodes\") AND " +
+                "cardinality(\"SuccessExitCodes\") + cardinality(\"InfoExitCodes\") + cardinality(\"WarningExitCodes\") + " +
+                "cardinality(\"ErrorExitCodes\") <= " + ScriptExitCodes.MaxCodes));
             entity.HasIndex(s => new { s.ClientId, s.Name }).IsUnique().AreNullsDistinct(false);
             entity.HasMany(s => s.Versions).WithOne().HasForeignKey(v => v.ScriptId).OnDelete(DeleteBehavior.Cascade);
             // A client-specific script is deleted with its client.
@@ -767,6 +780,9 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(j => j.RefusalReason).HasMaxLength(500);
             entity.Property(j => j.SigningKeyId).HasMaxLength(64);
             entity.Property(j => j.Result).HasConversion<string>().HasMaxLength(20);
+            entity.Property(j => j.ExitStatus).HasConversion<string>().HasMaxLength(20);
+            entity.ToTable(t => t.HasCheckConstraint("CK_Jobs_ExitStatus",
+                "\"ExitStatus\" IS NULL OR (\"CompletedAt\" IS NOT NULL AND \"Result\" = 'Exited')"));
             entity.Property(j => j.Error).HasMaxLength(1000);
             entity.Property(j => j.OutputState).HasConversion<string>().HasMaxLength(20);
             entity.Property(j => j.StdoutSha256).HasMaxLength(64);

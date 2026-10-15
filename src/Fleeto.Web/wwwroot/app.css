@@ -154,6 +154,7 @@ html, body {
 .status-warning { background: #FEF3C7; color: #92400E; }
 .status-error { background: #FEE2E2; color: var(--fl-error); }
 .status-neutral { background: #F5F5F4; color: #57534E; }
+.status-info { background: #DBEAFE; color: #1E40AF; }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 
 /* Typography helpers */

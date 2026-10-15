@@ -783,7 +783,7 @@
                     }
                 </MudTd>
                 <MudTd>
-                    <StatusChip Text="@Ui.JobStateLabel(context.State, context.Result)" Kind="@Ui.JobStateKind(context.State)" />
+                    <StatusChip Text="@Ui.JobStateLabel(context.State, context.Result, context.ExitStatus)" Kind="@Ui.JobStateKind(context.State, context.ExitStatus)" />
                     @if (context.ExitCode is { } exitCode)
                     {
                         <span class="muted ml-1">exit @exitCode</span>
