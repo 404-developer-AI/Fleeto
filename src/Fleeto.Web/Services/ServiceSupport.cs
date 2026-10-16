@@ -26,6 +26,9 @@ internal static class ServiceSupport
         return MailAddress.TryCreate(value.Trim(), out var address) && address.Address == value.Trim() && value.Contains('.');
     }
 
+    /// <summary>The escape character of <see cref="LikePattern"/>, to pass to <c>EF.Functions.ILike</c>: without it Npgsql escapes nothing.</summary>
+    public const string LikeEscape = @"\";
+
     /// <summary>Escapes LIKE wildcards in user input; the value is still passed as a parameter.</summary>
     public static string LikePattern(string input) =>
         "%" + input.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("%", "\\%", StringComparison.Ordinal)

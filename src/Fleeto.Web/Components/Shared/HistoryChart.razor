@@ -77,7 +77,7 @@
     private HistoryChartLayout _layout = default!;
 
     protected override void OnParametersSet() =>
-        _layout = new HistoryChartLayout(View.Points, View.From, View.To, View.Unit, View.WarningThreshold, View.CriticalThreshold);
+        _layout = new HistoryChartLayout(View.Points, View.From, View.To, View.Unit, View.WarningThreshold, View.CriticalThreshold, View.Interval);
 
     /// <summary>An SVG text element. Razor reserves the text tag, so it is written as markup; the label is always encoded.</summary>
     private static MarkupString SvgText(double x, double y, string anchor, string label) =>

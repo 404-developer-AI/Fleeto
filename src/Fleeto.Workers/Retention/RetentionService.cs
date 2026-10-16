@@ -130,6 +130,12 @@ public sealed class RetentionService : WorkerLoop
           SELECT "Id" FROM "EndpointEvents" WHERE "ProcessedAt" IS NOT NULL AND "Time" < @cutoff LIMIT 5000)
         """;
 
+    /// <summary>Maintenance periods that ended (by hand, or at their end time) before the cutoff; open-ended ones stay.</summary>
+    private const string DeleteMaintenanceRecordsSql = """
+        DELETE FROM "MaintenanceRecords" WHERE "Id" IN (
+          SELECT "Id" FROM "MaintenanceRecords" WHERE COALESCE("EndedAt", "EndsAt") < @cutoff LIMIT 5000)
+        """;
+
     private const string DeleteHealthSamplesSql = """
         DELETE FROM "InstanceHealthSamples" WHERE "Id" IN (
           SELECT "Id" FROM "InstanceHealthSamples" WHERE "Time" < @cutoff LIMIT 5000)
@@ -255,6 +261,8 @@ public sealed class RetentionService : WorkerLoop
             cancellationToken);
         deleted["StorageScanRequests"] = await DeleteInBatchesAsync(DeleteStorageScanRequestsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-7))], cancellationToken);
         deleted["EndpointEvents"] = await DeleteInBatchesAsync(DeleteEndpointEventsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))], cancellationToken);
+        deleted["MaintenanceRecords"] = await DeleteInBatchesAsync(DeleteMaintenanceRecordsSql,
+            () => [new NpgsqlParameter("cutoff", now - MaintenanceRules.RecordRetention)], cancellationToken);
         deleted["OutboxEmails (sent)"] = await DeleteInBatchesAsync(DeleteSentEmailsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))], cancellationToken);
         deleted["OutboxEmails (failed)"] = await DeleteInBatchesAsync(DeleteFailedEmailsSql,
             () => [new NpgsqlParameter("cutoff", now.AddDays(-90)), new NpgsqlParameter("maxAttempts", OutboxEmailService.MaxAttempts)], cancellationToken);

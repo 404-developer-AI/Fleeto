@@ -1,13 +1,16 @@
 using System.Globalization;
 using System.Text;
+using Fleeto.Core.Domain;
 using Fleeto.Web.Services;
 
 namespace Fleeto.Web.Components.Shared;
 
 /// <summary>
 /// Geometry of the check history line chart, drawn as inline SVG (no chart library). Kept apart from the markup so it can be tested:
-/// the average as line segments, the range between minimum and maximum as a band, threshold lines, and axis ticks. A bucket without
-/// measurements breaks the line: a gap in the chart is a real gap.
+/// the average as line segments, the range between minimum and maximum as a band, threshold lines, and axis ticks. A gap in the chart is
+/// a real gap: a bucket where the check could not run or got no response breaks the line, and so do empty buckets longer than the
+/// check's interval (<see cref="CheckHistoryRules.MaximumBridge"/>). Shorter empty stretches only mean the check runs less often than
+/// the buckets are wide, and the line goes straight across them.
 /// </summary>
 public sealed class HistoryChartLayout
 {
@@ -18,9 +21,13 @@ public sealed class HistoryChartLayout
     public const double Top = 12;
     public const double Bottom = 28;
 
-    public HistoryChartLayout(IReadOnlyList<HistoryPoint> points, DateTime from, DateTime to, string unit, double? warning, double? critical)
+    public HistoryChartLayout(IReadOnlyList<HistoryPoint> points, DateTime from, DateTime to, string unit, double? warning, double? critical,
+        TimeSpan? interval = null)
     {
         Points = points;
+        _maximumBridge = interval is { } i && i > TimeSpan.Zero && points.Count > 0
+            ? CheckHistoryRules.MaximumBridge(i, (to - from) / points.Count)
+            : TimeSpan.Zero;
         From = from;
         To = to;
         var values = points.Where(p => p.Min is not null).SelectMany(p => new[] { p.Min!.Value, p.Max!.Value }).ToList();
@@ -29,6 +36,8 @@ public sealed class HistoryChartLayout
         Warning = warning;
         Critical = critical;
     }
+
+    private readonly TimeSpan _maximumBridge;
 
     public IReadOnlyList<HistoryPoint> Points { get; }
     public DateTime From { get; }
@@ -113,23 +122,46 @@ public sealed class HistoryChartLayout
         var run = new List<int>();
         for (var i = 0; i < Points.Count; i++)
         {
-            if (Points[i].Avg is not null)
+            if (Points[i].Avg is null)
             {
-                run.Add(i);
                 continue;
             }
 
-            if (run.Count > 0)
+            if (run.Count > 0 && !Connected(run[^1], i))
             {
                 yield return run;
                 run = [];
             }
+
+            run.Add(i);
         }
 
         if (run.Count > 0)
         {
             yield return run;
         }
+    }
+
+    /// <summary>
+    /// Whether the line runs from bucket <paramref name="previous"/> to bucket <paramref name="next"/>: neighbours always, across empty
+    /// buckets only when none of them holds an error or a missing response and the stretch is no longer than about one interval.
+    /// </summary>
+    private bool Connected(int previous, int next)
+    {
+        if (next == previous + 1)
+        {
+            return true;
+        }
+
+        for (var k = previous + 1; k < next; k++)
+        {
+            if (Points[k].HasData)
+            {
+                return false;
+            }
+        }
+
+        return Points[next].Time - Points[previous].Time <= _maximumBridge;
     }
 
     /// <summary>A y range with some room; percentages stay within 0 and 100, and counts, sizes and times start at 0.</summary>

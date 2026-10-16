@@ -23,6 +23,9 @@ public sealed record AlertQuery(AlertStateFilter State, AlertSeverity? Severity,
 
 public sealed record AlertPage(IReadOnlyList<AlertView> Items, string? NextCursor);
 
+/// <summary>What a user did with an alert (0.6.0), with the comment.</summary>
+public sealed record AlertActivityView(long Id, AlertActivityKind Kind, string Comment, string UserName, DateTime Time, DateTime? HeldUntil);
+
 /// <summary>Alert list with keyset pagination, and manual acknowledge, hold and resolve.</summary>
 public sealed class AlertService
 {
@@ -97,11 +100,20 @@ public sealed class AlertService
             a.Kind, a.Severity, a.State, a.Title, a.Detail, a.OpenedAt, a.UpdatedAt, a.AcknowledgedAt, a.ResolvedAt, a.ResolvedReason,
             a.State != AlertState.Resolved ? a.HeldUntil : null, a.CheckDefinitionId, a.Target));
 
-    public async Task<ServiceResult> AcknowledgeAsync(Caller caller, Guid alertId, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Acknowledges an open alert. Like holding and resolving it needs a comment (0.6.0): why, kept with the alert, so whoever looks
+    /// at the alert later knows what was done.
+    /// </summary>
+    public async Task<ServiceResult> AcknowledgeAsync(Caller caller, Guid alertId, string? comment, CancellationToken cancellationToken = default)
     {
         if (!caller.Has(Permissions.AlertsAcknowledge))
         {
             return ServiceResult.Forbidden();
+        }
+
+        if (CommentProblem(comment, required: true) is { } problem)
+        {
+            return ServiceResult.Fail(problem);
         }
 
         await using var db = _dbFactory.Create(caller.Scope);
@@ -123,22 +135,28 @@ public sealed class AlertService
         alert.AcknowledgedAt = now;
         alert.AcknowledgedByUserId = caller.UserId;
         alert.UpdatedAt = now;
+        var activity = AddActivity(db, caller, alert, AlertActivityKind.Acknowledged, comment, now);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.AlertAcknowledged, "Alert", alert.Id.ToString(), alert.ClientId,
-            new { alert.EndpointId, alert.Endpoint?.Hostname, alert.Title }), now));
+            new { alert.EndpointId, alert.Endpoint?.Hostname, alert.Title, CommentLength = activity.Comment.Length }), now));
         await db.SaveChangesAsync(cancellationToken);
         await PublishAsync(alert.Id, cancellationToken);
         return ServiceResult.Ok();
     }
 
     /// <summary>
-    /// Resolves an alert by hand. If the cause is still there, the workers open a new alert on the next result, so a manual
-    /// resolve never hides a real problem for long.
+    /// Resolves an alert by hand, with a comment. If the cause is still there, the workers open a new alert on the next result, so a
+    /// manual resolve never hides a real problem for long.
     /// </summary>
-    public async Task<ServiceResult> ResolveAsync(Caller caller, Guid alertId, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult> ResolveAsync(Caller caller, Guid alertId, string? comment, CancellationToken cancellationToken = default)
     {
         if (!caller.Has(Permissions.AlertsResolve))
         {
             return ServiceResult.Forbidden();
+        }
+
+        if (CommentProblem(comment, required: true) is { } problem)
+        {
+            return ServiceResult.Fail(problem);
         }
 
         await using var db = _dbFactory.Create(caller.Scope);
@@ -163,23 +181,30 @@ public sealed class AlertService
         }
 
         alert.UpdatedAt = now;
+        var activity = AddActivity(db, caller, alert, AlertActivityKind.Resolved, comment, now);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.AlertResolvedManually, "Alert", alert.Id.ToString(), alert.ClientId,
-            new { alert.EndpointId, alert.Endpoint?.Hostname, alert.Title }), now));
+            new { alert.EndpointId, alert.Endpoint?.Hostname, alert.Title, CommentLength = activity.Comment.Length }), now));
         await db.SaveChangesAsync(cancellationToken);
         await PublishAsync(alert.Id, cancellationToken);
         return ServiceResult.Ok();
     }
 
     /// <summary>
-    /// Puts an unresolved alert on hold until <paramref name="untilUtc"/>: no escalation or resolve emails, and left out of the
-    /// open alert lists and counts. The alert still resolves when its cause recovers, and it returns (with one email) when the
-    /// hold ends while it is still unresolved.
+    /// Puts an unresolved alert on hold until <paramref name="untilUtc"/>, with a comment: no escalation or resolve emails, and left
+    /// out of the open alert lists and counts. The alert still resolves when its cause recovers, and it returns (with one email) when
+    /// the hold ends while it is still unresolved.
     /// </summary>
-    public async Task<ServiceResult> HoldAsync(Caller caller, Guid alertId, DateTime untilUtc, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult> HoldAsync(Caller caller, Guid alertId, DateTime untilUtc, string? comment,
+        CancellationToken cancellationToken = default)
     {
         if (!caller.Has(Permissions.AlertsHold))
         {
             return ServiceResult.Forbidden();
+        }
+
+        if (CommentProblem(comment, required: true) is { } problem)
+        {
+            return ServiceResult.Fail(problem);
         }
 
         var now = _time.GetUtcNow().UtcDateTime;
@@ -210,19 +235,25 @@ public sealed class AlertService
         alert.HeldAt = now;
         alert.HeldByUserId = caller.UserId;
         alert.UpdatedAt = now;
+        var activity = AddActivity(db, caller, alert, AlertActivityKind.Held, comment, now, untilUtc);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.AlertHeld, "Alert", alert.Id.ToString(), alert.ClientId,
-            new { alert.EndpointId, alert.Endpoint?.Hostname, alert.Title, HeldUntil = untilUtc }), now));
+            new { alert.EndpointId, alert.Endpoint?.Hostname, alert.Title, HeldUntil = untilUtc, CommentLength = activity.Comment.Length }), now));
         await db.SaveChangesAsync(cancellationToken);
         await PublishAsync(alert.Id, cancellationToken);
         return ServiceResult.Ok();
     }
 
-    /// <summary>Ends a hold before its time. No email: the technician is looking at the alert.</summary>
-    public async Task<ServiceResult> EndHoldAsync(Caller caller, Guid alertId, CancellationToken cancellationToken = default)
+    /// <summary>Ends a hold early; the alert is counted and listed as open again. A comment is optional here.</summary>
+    public async Task<ServiceResult> EndHoldAsync(Caller caller, Guid alertId, string? comment = null, CancellationToken cancellationToken = default)
     {
         if (!caller.Has(Permissions.AlertsHold))
         {
             return ServiceResult.Forbidden();
+        }
+
+        if (CommentProblem(comment, required: false) is { } problem)
+        {
+            return ServiceResult.Fail(problem);
         }
 
         await using var db = _dbFactory.Create(caller.Scope);
@@ -242,11 +273,62 @@ public sealed class AlertService
         alert.HeldAt = null;
         alert.HeldByUserId = null;
         alert.UpdatedAt = now;
+        var activity = AddActivity(db, caller, alert, AlertActivityKind.HoldEnded, comment, now);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.AlertHoldEnded, "Alert", alert.Id.ToString(), alert.ClientId,
-            new { alert.EndpointId, alert.Endpoint?.Hostname, alert.Title, Early = true }), now));
+            new { alert.EndpointId, alert.Endpoint?.Hostname, alert.Title, Early = true, CommentLength = activity.Comment.Length }), now));
         await db.SaveChangesAsync(cancellationToken);
         await PublishAsync(alert.Id, cancellationToken);
         return ServiceResult.Ok();
+    }
+
+    /// <summary>
+    /// What users did with these alerts, oldest first per alert, for the alerts the caller can see. Read apart from the alerts, so
+    /// the lists that only count or show alerts do not load them.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<AlertActivityView>>> GetActivitiesAsync(Caller caller,
+        IReadOnlyCollection<Guid> alertIds, CancellationToken cancellationToken = default)
+    {
+        caller.Ensure(Permissions.AlertsView);
+        if (alertIds.Count == 0)
+        {
+            return new Dictionary<Guid, IReadOnlyList<AlertActivityView>>();
+        }
+
+        var ids = alertIds.Distinct().ToArray();
+        await using var db = _dbFactory.Create(caller.Scope);
+        var rows = await db.AlertActivities.AsNoTracking()
+            .Where(a => ids.Contains(a.AlertId))
+            .OrderBy(a => a.AlertId).ThenBy(a => a.Id)
+            .Select(a => new { a.AlertId, View = new AlertActivityView(a.Id, a.Kind, a.Comment, a.UserName, a.Time, a.HeldUntil) })
+            .ToListAsync(cancellationToken);
+        return rows.GroupBy(r => r.AlertId).ToDictionary(g => g.Key, g => (IReadOnlyList<AlertActivityView>)g.Select(r => r.View).ToList());
+    }
+
+    /// <summary>The problem with a comment, or null when it is fine.</summary>
+    public static string? CommentProblem(string? comment, bool required)
+    {
+        var clean = ServiceSupport.Clean(comment);
+        if (clean is null)
+        {
+            return required ? "Add a comment: say why, so others can follow what was done with this alert." : null;
+        }
+
+        return clean.Length > AlertActivity.MaxCommentLength
+            ? $"The comment can be at most {AlertActivity.MaxCommentLength} characters."
+            : null;
+    }
+
+    private static AlertActivity AddActivity(FleetoDbContext db, Caller caller, Alert alert, AlertActivityKind kind, string? comment, DateTime now,
+        DateTime? heldUntil = null)
+    {
+        var activity = new AlertActivity
+        {
+            ClientId = alert.ClientId, EndpointId = alert.EndpointId, AlertId = alert.Id, Kind = kind,
+            Comment = ServiceSupport.Clean(comment) ?? string.Empty, UserId = caller.UserId,
+            UserName = caller.Name.Length <= 200 ? caller.Name : caller.Name[..200], Time = now, HeldUntil = heldUntil
+        };
+        db.AlertActivities.Add(activity);
+        return activity;
     }
 
     private async Task PublishAsync(Guid alertId, CancellationToken cancellationToken)

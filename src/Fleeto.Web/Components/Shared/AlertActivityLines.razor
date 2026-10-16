@@ -1,0 +1,33 @@
+@* What users did with an alert (0.6.0), oldest first, each with who, when and the comment. Shown under the alert title. *@
+
+@if (Activities is { Count: > 0 })
+{
+    <div class="alert-activities">
+        @foreach (var activity in Activities)
+        {
+            <div class="alert-activity">
+                <span class="muted">
+                    @Label(activity) by @activity.UserName · <TimeText Value="activity.Time" />
+                </span>
+                @if (!string.IsNullOrEmpty(activity.Comment))
+                {
+                    <div class="alert-activity-comment">@activity.Comment</div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public IReadOnlyList<AlertActivityView>? Activities { get; set; }
+
+    [Inject] private TimeDisplay Time { get; set; } = default!;
+
+    private string Label(AlertActivityView activity) => activity.Kind switch
+    {
+        AlertActivityKind.Acknowledged => "Acknowledged",
+        AlertActivityKind.Held => $"Put on hold until {Time.Absolute(activity.HeldUntil)}",
+        AlertActivityKind.HoldEnded => "Hold ended",
+        _ => "Resolved"
+    };
+}

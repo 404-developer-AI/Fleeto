@@ -79,19 +79,19 @@ public sealed class MaintenanceServiceTests
         var (client, site, managed, agentOnly) = await ScopeAsync();
         var technician = WebFixture.Technician();
 
-        Assert.False((await Maintenance.StartAsync(technician, MaintenanceTarget.Site, site.Id, Now.AddMinutes(-10), null)).Success);
-        Assert.False((await Maintenance.StartAsync(technician, MaintenanceTarget.Site, site.Id, Now.AddDays(400), null)).Success);
+        Assert.False((await Maintenance.StartAsync(technician, MaintenanceTarget.Site, site.Id, Now.AddMinutes(-10), "Planned work")).Success);
+        Assert.False((await Maintenance.StartAsync(technician, MaintenanceTarget.Site, site.Id, Now.AddDays(400), "Planned work")).Success);
         Assert.False((await Maintenance.StartAsync(technician, MaintenanceTarget.Site, site.Id, null, new string('x', 501))).Success);
-        Assert.False((await Maintenance.StartAsync(technician, MaintenanceTarget.Endpoint, agentOnly.Id, null, null)).Success);
+        Assert.False((await Maintenance.StartAsync(technician, MaintenanceTarget.Endpoint, agentOnly.Id, null, "Planned work")).Success);
 
         var readOnly = WebFixture.CallerWith(SystemClientScope.Instance, FleetoRoles.ReadOnly);
-        Assert.False((await Maintenance.StartAsync(readOnly, MaintenanceTarget.Client, client.Id, null, null)).Success);
+        Assert.False((await Maintenance.StartAsync(readOnly, MaintenanceTarget.Client, client.Id, null, "Planned work")).Success);
 
         var other = await _fixture.Database.CreateClientAsync();
         var otherCaller = WebFixture.CallerWith(new RestrictedClientScope([other.Id]), FleetoRoles.Technician);
-        Assert.False((await Maintenance.StartAsync(otherCaller, MaintenanceTarget.Client, client.Id, null, null)).Success);
-        Assert.False((await Maintenance.StartAsync(otherCaller, MaintenanceTarget.Site, site.Id, null, null)).Success);
-        Assert.False((await Maintenance.StartAsync(otherCaller, MaintenanceTarget.Endpoint, managed.Id, null, null)).Success);
+        Assert.False((await Maintenance.StartAsync(otherCaller, MaintenanceTarget.Client, client.Id, null, "Planned work")).Success);
+        Assert.False((await Maintenance.StartAsync(otherCaller, MaintenanceTarget.Site, site.Id, null, "Planned work")).Success);
+        Assert.False((await Maintenance.StartAsync(otherCaller, MaintenanceTarget.Endpoint, managed.Id, null, "Planned work")).Success);
 
         await using var db = _fixture.Database.DbFactory.CreateSystem();
         Assert.Null((await db.Clients.AsNoTracking().SingleAsync(c => c.Id == client.Id)).MaintenanceStartedAt);
@@ -104,8 +104,8 @@ public sealed class MaintenanceServiceTests
     {
         var (_, site, endpoint, _) = await ScopeAsync();
         var technician = WebFixture.Technician();
-        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Endpoint, endpoint.Id, Now.AddHours(1), null)).Success);
-        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Site, site.Id, null, null)).Success);
+        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Endpoint, endpoint.Id, Now.AddHours(1), "Planned work")).Success);
+        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Site, site.Id, null, "Planned work")).Success);
 
         var refused = await Maintenance.EndAsync(technician, MaintenanceTarget.Endpoint, endpoint.Id);
         Assert.False(refused.Success);
@@ -126,7 +126,7 @@ public sealed class MaintenanceServiceTests
         var clients = _fixture.Services.GetRequiredService<ClientService>();
         var endpoints = _fixture.Services.GetRequiredService<EndpointService>();
 
-        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Endpoint, branchEndpoint.Id, Now.AddHours(2), null)).Success);
+        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Endpoint, branchEndpoint.Id, Now.AddHours(2), "Planned work")).Success);
         var tree = Assert.Single(await clients.ListTreeAsync(caller));
         Assert.False(tree.MaintenanceActive);
         Assert.Equal(1, tree.InMaintenanceCount);
@@ -176,14 +176,14 @@ public sealed class MaintenanceServiceTests
         Assert.Equal(1, tree.Sites.Single(s => s.Id == otherSite.Id).OpenAlertCount);
 
         // An endpoint in maintenance never colors or counts for its site or client, whatever its alerts.
-        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Endpoint, branchEndpoint.Id, null, null)).Success);
+        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Endpoint, branchEndpoint.Id, null, "Planned work")).Success);
         tree = Assert.Single(await clients.ListTreeAsync(caller));
         Assert.Equal(AlertSeverity.Warning, tree.WorstAlert);
         Assert.Null(tree.Sites.Single(s => s.Id == otherSite.Id).WorstAlert);
         Assert.Equal(1, tree.OpenAlertCount);
         Assert.Equal(0, tree.Sites.Single(s => s.Id == otherSite.Id).OpenAlertCount);
 
-        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Site, site.Id, null, null)).Success);
+        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Site, site.Id, null, "Planned work")).Success);
         tree = Assert.Single(await clients.ListTreeAsync(caller));
         Assert.Null(tree.WorstAlert);
         Assert.Null(tree.Sites.Single(s => s.Id == site.Id).WorstAlert);
@@ -199,5 +199,67 @@ public sealed class MaintenanceServiceTests
             Severity = severity, Title = "Offline", OpenedAt = Now, UpdatedAt = Now
         });
         await db.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task Maintenance_needs_a_reason()
+    {
+        var (_, site, managed, _) = await ScopeAsync();
+        var technician = WebFixture.Technician();
+        Assert.False((await Maintenance.StartAsync(technician, MaintenanceTarget.Endpoint, managed.Id, null, null)).Success);
+        Assert.False((await Maintenance.StartAsync(technician, MaintenanceTarget.Site, site.Id, null, "  ")).Success);
+        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Site, site.Id, null, "Rack move")).Success);
+        Assert.False((await Maintenance.StartAsync(technician, MaintenanceTarget.Site, site.Id, Now.AddHours(1), "")).Success);
+    }
+
+    [Fact]
+    public async Task Every_maintenance_period_of_the_endpoint_its_site_and_its_client_stays_in_its_history()
+    {
+        var (client, site, endpoint, _) = await ScopeAsync();
+        var otherSite = await _fixture.Database.CreateSiteAsync(client.Id, "Branch");
+        var technician = WebFixture.Technician();
+
+        // 1. The endpoint, for an hour that runs out; 2. started again after it ran out, changed, then ended by hand.
+        var first = Now;
+        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Endpoint, endpoint.Id, Now.AddHours(1), "Disk swap")).Success);
+        _fixture.Database.Time.Advance(TimeSpan.FromHours(2));
+        var second = Now;
+        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Endpoint, endpoint.Id, Now.AddHours(4), "Firmware")).Success);
+        _fixture.Database.Time.Advance(TimeSpan.FromMinutes(10));
+        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Endpoint, endpoint.Id, Now.AddHours(8), "Firmware and BIOS")).Success);
+        _fixture.Database.Time.Advance(TimeSpan.FromMinutes(10));
+        var endedByHand = Now;
+        Assert.True((await Maintenance.EndAsync(technician, MaintenanceTarget.Endpoint, endpoint.Id)).Success);
+
+        // 3. Its site, still running; another site and another client are not part of its history.
+        _fixture.Database.Time.Advance(TimeSpan.FromMinutes(1));
+        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Site, site.Id, null, "Rack move")).Success);
+        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Site, otherSite.Id, null, "Elsewhere")).Success);
+        var (otherClient, _, otherEndpoint, _) = await ScopeAsync();
+        Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Client, otherClient.Id, null, "Other client")).Success);
+
+        var history = await Maintenance.GetEndpointHistoryAsync(technician, endpoint.Id);
+        Assert.Equal(["Rack move", "Firmware and BIOS", "Disk swap"], history!.Select(h => h.Reason).ToArray());
+
+        var siteRecord = history[0];
+        Assert.Equal(MaintenanceSource.Site, siteRecord.Source);
+        Assert.Null(siteRecord.EndedAt);
+        Assert.Null(siteRecord.EndsAt);
+
+        var changed = history[1];
+        Assert.Equal(MaintenanceSource.Endpoint, changed.Source);
+        Assert.Equal(second, changed.StartedAt, TimeSpan.FromMilliseconds(1));
+        Assert.Equal(endedByHand, changed.EndedAt!.Value, TimeSpan.FromMilliseconds(1));
+        Assert.True(changed.EndedEarly);
+
+        var ranOut = history[2];
+        Assert.Equal(first, ranOut.StartedAt, TimeSpan.FromMilliseconds(1));
+        Assert.Equal(first.AddHours(1), ranOut.EndedAt!.Value, TimeSpan.FromMilliseconds(1));
+        Assert.False(ranOut.EndedEarly);
+
+        // Out of reach for another client.
+        var otherCaller = WebFixture.CallerWith(new RestrictedClientScope([otherClient.Id]), FleetoRoles.Technician);
+        Assert.Null(await Maintenance.GetEndpointHistoryAsync(otherCaller, endpoint.Id));
+        Assert.Equal(["Other client"], (await Maintenance.GetEndpointHistoryAsync(otherCaller, otherEndpoint.Id))!.Select(h => h.Reason).ToArray());
     }
 }

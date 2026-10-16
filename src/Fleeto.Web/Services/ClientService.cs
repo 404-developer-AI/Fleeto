@@ -69,7 +69,8 @@ public sealed class ClientService
         if (ServiceSupport.Clean(search) is { } term)
         {
             var pattern = ServiceSupport.LikePattern(term);
-            query = query.Where(c => EF.Functions.ILike(c.Code, pattern) || EF.Functions.ILike(c.Name, pattern));
+            query = query.Where(c => EF.Functions.ILike(c.Code, pattern, ServiceSupport.LikeEscape) ||
+                                     EF.Functions.ILike(c.Name, pattern, ServiceSupport.LikeEscape));
         }
 
         return await query
@@ -102,9 +103,10 @@ public sealed class ClientService
         if (ServiceSupport.Clean(search) is { } term)
         {
             var pattern = ServiceSupport.LikePattern(term);
-            clients = clients.Where(c => EF.Functions.ILike(c.Code, pattern) || EF.Functions.ILike(c.Name, pattern) ||
-                                         db.Sites.Any(s => s.ClientId == c.Id && EF.Functions.ILike(s.Name, pattern)) ||
-                                         db.ClientTags.Any(l => l.ClientId == c.Id && EF.Functions.ILike(l.Tag!.Name, pattern)));
+            clients = clients.Where(c => EF.Functions.ILike(c.Code, pattern, ServiceSupport.LikeEscape) ||
+                                         EF.Functions.ILike(c.Name, pattern, ServiceSupport.LikeEscape) ||
+                                         db.Sites.Any(s => s.ClientId == c.Id && EF.Functions.ILike(s.Name, pattern, ServiceSupport.LikeEscape)) ||
+                                         db.ClientTags.Any(l => l.ClientId == c.Id && EF.Functions.ILike(l.Tag!.Name, pattern, ServiceSupport.LikeEscape)));
         }
 
         if (tagIds is { Count: > 0 })

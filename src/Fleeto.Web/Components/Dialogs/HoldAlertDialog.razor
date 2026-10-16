@@ -23,10 +23,14 @@
             <DateTimeField @bind-Value="_until" Label="On hold until" Min="@LocalNow" Max="@LocalNow.AddDays(7)" Class="mt-2" />
             <MudText Typo="Typo.caption" Class="muted d-block mt-1">In your time zone. A hold lasts at most 7 days.</MudText>
         }
+        <MudTextField @bind-Value="_comment" Label="Comment" Required="true" Placeholder="For example: waiting for a replacement disk"
+                      Variant="Variant.Outlined" Lines="3" MaxLength="@AlertActivity.MaxCommentLength" Counter="@AlertActivity.MaxCommentLength"
+                      Immediate="true" Class="mt-3" />
+        <MudText Typo="Typo.caption" Class="muted d-block mt-1">Shown with the alert in the history of the endpoint.</MudText>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="@(_busy || (_choice == 0 && _until is null))">Put on hold</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="@(_busy || (_choice == 0 && _until is null) || string.IsNullOrWhiteSpace(_comment))">Put on hold</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -36,11 +40,12 @@
 
     [Parameter, EditorRequired] public AlertView Alert { get; set; } = default!;
 
-    /// <summary>Receives the end of the hold in UTC; returns true when the hold was saved.</summary>
-    [Parameter] public Func<DateTime, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+    /// <summary>Receives the end of the hold in UTC and the comment; returns true when the hold was saved.</summary>
+    [Parameter] public Func<DateTime, string?, Task<bool>> OnSubmit { get; set; } = (_, _) => Task.FromResult(true);
 
     private int _choice = 1;
     private DateTime? _until;
+    private string? _comment;
     private bool _busy;
 
     private DateTime LocalNow => TimeZoneInfo.ConvertTimeFromUtc(Clock.GetUtcNow().UtcDateTime, Time.Zone);
@@ -74,7 +79,7 @@
         _busy = true;
         try
         {
-            if (await OnSubmit(untilUtc))
+            if (await OnSubmit(untilUtc, _comment))
             {
                 MudDialog.Close(DialogResult.Ok(true));
             }

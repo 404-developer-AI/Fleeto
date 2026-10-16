@@ -29,13 +29,13 @@ public sealed class AuditQueryService
 
         if (ServiceSupport.Clean(query.Action) is { } action)
         {
-            entries = entries.Where(a => EF.Functions.ILike(a.Action, ServiceSupport.LikePattern(action)));
+            entries = entries.Where(a => EF.Functions.ILike(a.Action, ServiceSupport.LikePattern(action), ServiceSupport.LikeEscape));
         }
 
         if (ServiceSupport.Clean(query.Actor) is { } actor)
         {
             var pattern = ServiceSupport.LikePattern(actor);
-            entries = entries.Where(a => EF.Functions.ILike(a.ActorName, pattern) || a.ActorId == actor);
+            entries = entries.Where(a => EF.Functions.ILike(a.ActorName, pattern, ServiceSupport.LikeEscape) || a.ActorId == actor);
         }
 
         if (ServiceSupport.Clean(query.TargetType) is { } targetType)

@@ -43,42 +43,17 @@
     /// <summary>Raised after an action succeeded, so the owner reloads.</summary>
     [Parameter] public EventCallback OnChanged { get; set; }
 
-    private async Task AcknowledgeAsync()
-    {
-        if (await RunAsync(caller => AlertSvc.AcknowledgeAsync(caller, Alert.Id), "The alert was acknowledged."))
-        {
-            await OnChanged.InvokeAsync();
-        }
-    }
+    private Task AcknowledgeAsync() => AfterAsync(AlertActionPrompts.AcknowledgeAsync(DialogService, AlertSvc, Alert, RunAsync));
 
-    private async Task ResolveAsync()
-    {
-        if (await RunAsync(caller => AlertSvc.ResolveAsync(caller, Alert.Id), "The alert was resolved. If the cause is still there, a new alert opens."))
-        {
-            await OnChanged.InvokeAsync();
-        }
-    }
+    private Task ResolveAsync() => AfterAsync(AlertActionPrompts.ResolveAsync(DialogService, AlertSvc, Alert, RunAsync));
 
-    private async Task EndHoldAsync()
-    {
-        if (await RunAsync(caller => AlertSvc.EndHoldAsync(caller, Alert.Id), "The hold was ended. The alert is open again."))
-        {
-            await OnChanged.InvokeAsync();
-        }
-    }
+    private Task EndHoldAsync() => AfterAsync(AlertActionPrompts.EndHoldAsync(DialogService, AlertSvc, Alert, RunAsync));
 
-    private async Task HoldAsync()
+    private Task HoldAsync() => AfterAsync(AlertActionPrompts.HoldAsync(DialogService, AlertSvc, Time, Alert, RunAsync));
+
+    private async Task AfterAsync(Task<bool> action)
     {
-        var parameters = new DialogParameters<HoldAlertDialog>
-        {
-            { d => d.Alert, Alert },
-            {
-                d => d.OnSubmit, until => RunAsync(caller => AlertSvc.HoldAsync(caller, Alert.Id, until),
-                    $"The alert is on hold until {Time.Absolute(until)}.")
-            }
-        };
-        var dialog = await DialogService.ShowAsync<HoldAlertDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
-        if (!(await dialog.Result)!.Canceled)
+        if (await action)
         {
             await OnChanged.InvokeAsync();
         }

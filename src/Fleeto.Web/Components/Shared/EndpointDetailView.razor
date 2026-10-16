@@ -9,6 +9,7 @@
 @inject ScriptService ScriptSvc
 @inject StorageService StorageSvc
 @inject TaskService TaskSvc
+@inject MaintenanceService MaintenanceSvc
 @using System.Globalization
 @inject IDialogService DialogService
 @inject TimeProvider Clock
@@ -29,7 +30,7 @@
                         <StatusChip Text="@Ui.TierLabel(e.Tier)" Kind="@Ui.TierKind(e.Tier)" />
                         @if (e.OpenAlertCount > 0)
                         {
-                            <StatusChip Text="@AlertCountText(e.OpenAlertCount)" Kind="StatusKind.Warning" />
+                            <StatusChip Text="@AlertCountText(e.OpenAlertCount)" Kind="StatusKind.Active" />
                         }
                         @if (e.HeldAlertCount > 0)
                         {
@@ -186,7 +187,13 @@
     private IReadOnlyList<AlertView> _alerts = [];
     private IReadOnlyList<EndpointEventView> _events = [];
     private IReadOnlyList<AuditEntryView> _audit = [];
+    private IReadOnlyDictionary<Guid, IReadOnlyList<AlertActivityView>> _alertActivities = new Dictionary<Guid, IReadOnlyList<AlertActivityView>>();
+    private IReadOnlyList<MaintenanceRecordView> _maintenance = [];
     private string? _softwareSearch;
+    private string? _alertSearch;
+    private string? _eventSearch;
+    private string? _auditSearch;
+    private string? _maintenanceSearch;
     private EndpointStorageView? _storage;
     private string? _storageVolume;
     private readonly HashSet<string> _storageExpanded = new(StringComparer.OrdinalIgnoreCase);
@@ -217,6 +224,10 @@
 
         _loadedId = EndpointId;
         _softwareSearch = null;
+        _alertSearch = null;
+        _eventSearch = null;
+        _auditSearch = null;
+        _maintenanceSearch = null;
         _inventory = null;
         _storage = null;
         _storageVolume = null;
@@ -316,9 +327,7 @@
 
                 break;
             case HistoryTab:
-                _alerts = caller.Has(Permissions.AlertsView) ? await EndpointSvc.GetAlertsAsync(caller, EndpointId, 50) : [];
-                _events = await EndpointSvc.GetEventsAsync(caller, EndpointId, 50);
-                _audit = await EndpointSvc.GetAuditAsync(caller, EndpointId, 50);
+                await LoadHistoryAsync(caller, HistorySection.All);
                 break;
         }
     }
@@ -1283,7 +1292,7 @@
                             Kind="@(state.Coverage == PatchCoverage.Inactive ? StatusKind.Error : state.IsCompliant ? StatusKind.Ok : StatusKind.Warning)" />
                 @if (state.RebootRequired)
                 {
-                    <StatusChip Text="Restart pending" Kind="StatusKind.Warning" />
+                    <StatusChip Text="Restart pending" Kind="StatusKind.Active" />
                 }
                 <MudText Typo="Typo.body2" Class="muted">
                     Read <TimeText Value="state.UpdatedAt" />, Action1 last saw this endpoint <TimeText Value="state.ProductLastSeenAt" />
@@ -2052,17 +2061,119 @@
         await DialogService.ShowAsync<StorageFolderHistoryDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
     }
 
+    // The History tab (0.6.0): each list scrolls within a fixed height and is searched in the database, over everything the endpoint
+    // has had, not only the newest rows that are shown.
+    private const int HistoryLimit = 200;
+
+    [Flags]
+    private enum HistorySection
+    {
+        Alerts = 1,
+        Connections = 2,
+        Audit = 4,
+        Maintenance = 8,
+        All = Alerts | Connections | Audit | Maintenance
+    }
+
+    private async Task LoadHistoryAsync(Caller caller, HistorySection sections)
+    {
+        if (sections.HasFlag(HistorySection.Alerts))
+        {
+            _alerts = caller.Has(Permissions.AlertsView) ? await EndpointSvc.GetAlertsAsync(caller, EndpointId, HistoryLimit, _alertSearch) : [];
+            _alertActivities = _alerts.Count > 0
+                ? await AlertSvc.GetActivitiesAsync(caller, _alerts.Select(a => a.Id).ToList())
+                : new Dictionary<Guid, IReadOnlyList<AlertActivityView>>();
+        }
+
+        if (sections.HasFlag(HistorySection.Maintenance))
+        {
+            _maintenance = await MaintenanceSvc.GetEndpointHistoryAsync(caller, EndpointId, HistoryLimit) ?? [];
+        }
+
+        if (sections.HasFlag(HistorySection.Connections))
+        {
+            _events = await EndpointSvc.GetEventsAsync(caller, EndpointId, HistoryLimit, _eventSearch);
+        }
+
+        if (sections.HasFlag(HistorySection.Audit))
+        {
+            _audit = await EndpointSvc.GetAuditAsync(caller, EndpointId, HistoryLimit, _auditSearch);
+        }
+    }
+
+    private async Task SearchAlertsAsync(string? search)
+    {
+        _alertSearch = search;
+        await LoadAsync(caller => LoadHistoryAsync(caller, HistorySection.Alerts));
+    }
+
+    private async Task SearchEventsAsync(string? search)
+    {
+        _eventSearch = search;
+        await LoadAsync(caller => LoadHistoryAsync(caller, HistorySection.Connections));
+    }
+
+    private async Task SearchAuditAsync(string? search)
+    {
+        _auditSearch = search;
+        await LoadAsync(caller => LoadHistoryAsync(caller, HistorySection.Audit));
+    }
+
+    // Maintenance periods are few: the search filters what was loaded.
+    private Task SearchMaintenanceAsync(string? search)
+    {
+        _maintenanceSearch = search;
+        return Task.CompletedTask;
+    }
+
+    private IReadOnlyList<MaintenanceRecordView> FilteredMaintenance => string.IsNullOrWhiteSpace(_maintenanceSearch)
+        ? _maintenance
+        : _maintenance.Where(m => Matches(m.Reason) || Matches(m.StartedByName) || Matches(m.SourceName) || Matches(MaintenanceSourceText(m))).ToList();
+
+    private bool Matches(string? text) => text?.Contains(_maintenanceSearch!.Trim(), StringComparison.OrdinalIgnoreCase) == true;
+
+    private static string MaintenanceSourceText(MaintenanceRecordView record) => record.Source switch
+    {
+        MaintenanceSource.Client => $"Client {record.SourceName}",
+        MaintenanceSource.Site => $"Site {record.SourceName}",
+        _ => "This endpoint"
+    };
+
+    private RenderFragment HistoryHeader(string title, string placeholder, string? search, Func<string?, Task> onSearch) => __builder =>
+    {
+        <div class="d-flex align-center justify-space-between flex-wrap gap-2 mb-2">
+            <MudText Typo="Typo.h6" Class="section-title">@title</MudText>
+            <MudTextField T="string" Value="search" ValueChanged="@(value => onSearch(value))" Placeholder="@placeholder" Immediate="true"
+                          DebounceInterval="300" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Outlined.Search" Style="max-width:320px" Clearable="true" />
+        </div>
+    };
+
+    private RenderFragment HistoryFooter(int count, string? search, string noun) => __builder =>
+    {
+        @if (count >= HistoryLimit)
+        {
+            <MudText Typo="Typo.caption" Class="muted d-block mt-1">
+                @(string.IsNullOrWhiteSpace(search)
+                    ? $"Showing the newest {HistoryLimit} {noun}. Search to find older ones."
+                    : $"Showing the newest {HistoryLimit} {noun} that match. Search more precisely to find older ones.")
+            </MudText>
+        }
+    };
+
     private RenderFragment History() => __builder =>
     {
-        <MudText Typo="Typo.h6" Class="section-title mb-2">Alerts</MudText>
+        @HistoryHeader("Alerts", "Search alerts", _alertSearch, SearchAlertsAsync)
         @if (_alerts.Count == 0)
         {
-            <MudText Typo="Typo.body2" Class="muted mb-5">This endpoint has had no alerts.</MudText>
+            <MudText Typo="Typo.body2" Class="muted mb-5">
+                @(string.IsNullOrWhiteSpace(_alertSearch) ? "This endpoint has had no alerts." : "No alerts match this search.")
+            </MudText>
         }
         else
         {
             var now = Clock.GetUtcNow().UtcDateTime;
-            <MudTable Items="_alerts" Dense="true" Elevation="0" Class="mb-5">
+            <MudTable Items="_alerts" Dense="true" Elevation="0" FixedHeader="true" Height="320px">
                 <HeaderContent>
                     <MudTh>Severity</MudTh>
                     <MudTh>State</MudTh>
@@ -2086,7 +2197,10 @@
                             <StatusChip Text="@context.State.ToString()" Kind="@Ui.AlertStateKind(context.State)" />
                         }
                     </MudTd>
-                    <MudTd>@context.Title<div class="muted" style="font-size:0.75rem">@context.ResolvedReason</div></MudTd>
+                    <MudTd>
+                        @context.Title<div class="muted" style="font-size:0.75rem">@context.ResolvedReason</div>
+                        <AlertActivityLines Activities="@_alertActivities.GetValueOrDefault(context.Id)" />
+                    </MudTd>
                     <MudTd><TimeText Value="context.OpenedAt" /></MudTd>
                     <MudTd><TimeText Value="context.ResolvedAt" Never="-" /></MudTd>
                     @if (AlertActions.AnyAction(Caller))
@@ -2095,16 +2209,64 @@
                     }
                 </RowTemplate>
             </MudTable>
+            @HistoryFooter(_alerts.Count, _alertSearch, "alerts")
+            <div class="mb-5"></div>
         }
 
-        <MudText Typo="Typo.h6" Class="section-title mb-2">Connections</MudText>
-        @if (_events.Count == 0)
+        @HistoryHeader("Maintenance", "Search maintenance", _maintenanceSearch, SearchMaintenanceAsync)
+        @if (FilteredMaintenance.Count == 0)
         {
-            <MudText Typo="Typo.body2" Class="muted mb-5">Connects and disconnects of the agent appear here.</MudText>
+            <MudText Typo="Typo.body2" Class="muted mb-5">
+                @(string.IsNullOrWhiteSpace(_maintenanceSearch)
+                    ? "Maintenance of this endpoint, its site and its client appears here."
+                    : "No maintenance matches this search.")
+            </MudText>
         }
         else
         {
-            <MudTable Items="_events" Dense="true" Elevation="0" Class="mb-5">
+            <MudTable Items="FilteredMaintenance" Dense="true" Elevation="0" FixedHeader="true" Height="320px">
+                <HeaderContent>
+                    <MudTh>Started</MudTh>
+                    <MudTh>Ended</MudTh>
+                    <MudTh>On</MudTh>
+                    <MudTh>Started by</MudTh>
+                    <MudTh>Reason</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd><TimeText Value="context.StartedAt" /></MudTd>
+                    <MudTd>
+                        @if (context.EndedAt is { } ended)
+                        {
+                            <TimeText Value="ended" />
+                            @if (context.EndedEarly)
+                            {
+                                <div class="muted" style="font-size:0.75rem">Ended before its planned end</div>
+                            }
+                        }
+                        else
+                        {
+                            <StatusChip Text="@(context.EndsAt is null ? "Until turned off" : $"Until {Time.Absolute(context.EndsAt)}")" Kind="StatusKind.Active" />
+                        }
+                    </MudTd>
+                    <MudTd>@MaintenanceSourceText(context)</MudTd>
+                    <MudTd>@(context.StartedByName ?? "-")</MudTd>
+                    <MudTd><span style="white-space:pre-wrap">@(context.Reason ?? "-")</span></MudTd>
+                </RowTemplate>
+            </MudTable>
+            @HistoryFooter(_maintenance.Count, _maintenanceSearch, "maintenance periods")
+            <div class="mb-5"></div>
+        }
+
+        @HistoryHeader("Connections", "Search connections", _eventSearch, SearchEventsAsync)
+        @if (_events.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted mb-5">
+                @(string.IsNullOrWhiteSpace(_eventSearch) ? "Connects and disconnects of the agent appear here." : "No connections match this search.")
+            </MudText>
+        }
+        else
+        {
+            <MudTable Items="_events" Dense="true" Elevation="0" FixedHeader="true" Height="320px">
                 <HeaderContent>
                     <MudTh>When</MudTh>
                     <MudTh>Event</MudTh>
@@ -2119,16 +2281,20 @@
                     <MudTd>@context.Detail</MudTd>
                 </RowTemplate>
             </MudTable>
+            @HistoryFooter(_events.Count, _eventSearch, "connections")
+            <div class="mb-5"></div>
         }
 
-        <MudText Typo="Typo.h6" Class="section-title mb-2">Audit</MudText>
+        @HistoryHeader("Audit", "Search audit", _auditSearch, SearchAuditAsync)
         @if (_audit.Count == 0)
         {
-            <MudText Typo="Typo.body2" Class="muted">Changes to this endpoint appear here.</MudText>
+            <MudText Typo="Typo.body2" Class="muted">
+                @(string.IsNullOrWhiteSpace(_auditSearch) ? "Changes to this endpoint appear here." : "No audit entries match this search.")
+            </MudText>
         }
         else
         {
-            <MudTable Items="_audit" Dense="true" Elevation="0">
+            <MudTable Items="_audit" Dense="true" Elevation="0" FixedHeader="true" Height="420px">
                 <HeaderContent>
                     <MudTh>When</MudTh>
                     <MudTh>Who</MudTh>
@@ -2142,6 +2308,7 @@
                     <MudTd><pre class="json-box">@Ui.PrettyJson(context.DetailsJson)</pre></MudTd>
                 </RowTemplate>
             </MudTable>
+            @HistoryFooter(_audit.Count, _auditSearch, "audit entries")
         }
     };
 
@@ -2202,27 +2369,15 @@
     {
         var done = action switch
         {
-            AlertAction.Acknowledge => await RunAsync(caller => AlertSvc.AcknowledgeAsync(caller, alert.Id), "The alert was acknowledged."),
-            AlertAction.EndHold => await RunAsync(caller => AlertSvc.EndHoldAsync(caller, alert.Id), "The hold was ended. The alert is open again."),
-            AlertAction.Resolve => await RunAsync(caller => AlertSvc.ResolveAsync(caller, alert.Id),
-                "The alert was resolved. If the cause is still there, a new alert opens."),
-            _ => await HoldAsync(alert)
+            AlertAction.Acknowledge => await AlertActionPrompts.AcknowledgeAsync(DialogService, AlertSvc, alert, RunAsync),
+            AlertAction.EndHold => await AlertActionPrompts.EndHoldAsync(DialogService, AlertSvc, alert, RunAsync),
+            AlertAction.Resolve => await AlertActionPrompts.ResolveAsync(DialogService, AlertSvc, alert, RunAsync),
+            _ => await AlertActionPrompts.HoldAsync(DialogService, AlertSvc, Time, alert, RunAsync)
         };
         if (done)
         {
             await AfterActionAsync();
         }
-    }
-
-    private async Task<bool> HoldAsync(AlertView alert)
-    {
-        var parameters = new DialogParameters<HoldAlertDialog>
-        {
-            { d => d.Alert, alert },
-            { d => d.OnSubmit, until => RunAsync(caller => AlertSvc.HoldAsync(caller, alert.Id, until), $"The alert is on hold until {Time.Absolute(until)}.") }
-        };
-        var dialog = await DialogService.ShowAsync<HoldAlertDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
-        return !(await dialog.Result)!.Canceled;
     }
 
     private async Task ShowHistoryAsync(EndpointCheckRow row)

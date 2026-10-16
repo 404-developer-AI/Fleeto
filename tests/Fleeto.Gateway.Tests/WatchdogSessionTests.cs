@@ -172,6 +172,38 @@ public sealed class WatchdogSessionTests
     }
 
     [Fact]
+    public async Task A_tier_switch_reaches_the_watchdog_session_at_once_also_without_the_agent()
+    {
+        await _fixture.Database.LoadTestLicenseAsync(1000);
+        using var harness = _fixture.CreateHarness();
+        var endpoint = await _fixture.CreateEndpointAsync(EndpointTier.AgentOnly);
+        var agentSession = await harness.OpenAsync(endpoint);
+        var watchdog = harness.NewSession(new AgentIdentity(endpoint.Id, Guid.NewGuid().ToString("N"), "watchdog-key", DateTime.UtcNow.AddDays(30),
+            AgentComponent.Watchdog));
+        Assert.True(await harness.Manager.OpenAsync(watchdog, WatchdogHello(), CancellationToken.None));
+        Assert.Equal(EndpointTier.AgentOnly, watchdog.Tier);
+
+        // Switched to managed right after enrollment: remote background must not wait for the periodic catch-up or a watchdog restart.
+        await SetTierAsync(endpoint.Id, EndpointTier.Managed);
+        await _fixture.Database.Bus.PublishAsync(Core.Interfaces.NotificationChannels.EndpointStatus, endpoint.Id.ToString());
+        Assert.Equal(EndpointTier.Managed, agentSession.Tier);
+        Assert.Equal(EndpointTier.Managed, watchdog.Tier);
+
+        // With the agent gone the watchdog session still follows a switch back to agent-only.
+        agentSession.Abort("test");
+        await harness.Manager.CloseAsync(agentSession);
+        await SetTierAsync(endpoint.Id, EndpointTier.AgentOnly);
+        await _fixture.Database.Bus.PublishAsync(Core.Interfaces.NotificationChannels.EndpointStatus, endpoint.Id.ToString());
+        Assert.Equal(EndpointTier.AgentOnly, watchdog.Tier);
+    }
+
+    private async Task SetTierAsync(Guid endpointId, EndpointTier tier)
+    {
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        await db.Endpoints.Where(e => e.Id == endpointId).ExecuteUpdateAsync(s => s.SetProperty(e => e.Tier, tier));
+    }
+
+    [Fact]
     public async Task A_certificate_opens_only_the_session_of_its_own_role()
     {
         using var harness = _fixture.CreateHarness();

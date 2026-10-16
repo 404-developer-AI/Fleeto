@@ -85,6 +85,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<CheckResultHourly> CheckResultsHourly => Set<CheckResultHourly>();
     public DbSet<CheckResultDaily> CheckResultsDaily => Set<CheckResultDaily>();
     public DbSet<Alert> Alerts => Set<Alert>();
+    public DbSet<AlertActivity> AlertActivities => Set<AlertActivity>();
+    public DbSet<MaintenanceRecord> MaintenanceRecords => Set<MaintenanceRecord>();
     public DbSet<EndpointEvent> EndpointEvents => Set<EndpointEvent>();
     public DbSet<SigningRequest> SigningRequests => Set<SigningRequest>();
     public DbSet<EndpointConfig> EndpointConfigs => Set<EndpointConfig>();
@@ -1049,6 +1051,45 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(a => a.OpenedAt);
             entity.HasIndex(a => a.HeldUntil).HasFilter("\"HeldUntil\" IS NOT NULL AND \"State\" <> 'Resolved'").HasDatabaseName("IX_Alerts_Held");
             EndpointOwned(entity);
+        });
+
+        // What users did with an alert, with their comment (0.6.0).
+        builder.Entity<AlertActivity>(entity =>
+        {
+            entity.Property(a => a.Id).UseIdentityAlwaysColumn();
+            entity.Property(a => a.Kind).HasConversion<string>().HasMaxLength(20);
+            entity.Property(a => a.Comment).HasMaxLength(AlertActivity.MaxCommentLength);
+            entity.Property(a => a.UserName).HasMaxLength(200);
+            entity.HasOne<Alert>().WithMany().HasForeignKey(a => a.AlertId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(a => new { a.AlertId, a.Id });
+            EndpointChild(entity, a => new { a.EndpointId, a.ClientId });
+            EndpointOwned(entity);
+        });
+
+        // Periods of maintenance mode (0.6.0), written by TR_*_MaintenanceRecord.
+        builder.Entity<MaintenanceRecord>(entity =>
+        {
+            entity.Property(m => m.Id).UseIdentityAlwaysColumn();
+            entity.Property(m => m.StartedByName).HasMaxLength(200);
+            entity.Property(m => m.Reason).HasMaxLength(MaintenanceRules.MaxReasonLength);
+            entity.HasOne<Client>().WithMany().HasForeignKey(m => m.ClientId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Site>().WithMany()
+                .HasForeignKey(m => new { m.SiteId, m.ClientId })
+                .HasPrincipalKey(s => new { s.Id, s.ClientId })
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Endpoint>().WithMany()
+                .HasForeignKey(m => new { m.EndpointId, m.ClientId })
+                .HasPrincipalKey(e => new { e.Id, e.ClientId })
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(m => new { m.ClientId, m.StartedAt });
+            entity.HasIndex(m => new { m.SiteId, m.StartedAt }).HasFilter("\"SiteId\" IS NOT NULL");
+            entity.HasIndex(m => new { m.EndpointId, m.StartedAt }).HasFilter("\"EndpointId\" IS NOT NULL");
+            // A user with part of a client sees the maintenance of the client, of the sites it reaches and of its endpoints: the
+            // same maintenance that keeps those endpoints from raising alerts.
+            entity.HasQueryFilter(m => ScopeAllClients || ScopeFullClientIds.Contains(m.ClientId) ||
+                                       (m.SiteId == null && m.EndpointId == null && ScopeClientIds.Contains(m.ClientId)) ||
+                                       (m.EndpointId == null && m.SiteId != null && ScopeSiteIds.Contains(m.SiteId.Value)) ||
+                                       (m.EndpointId != null && ScopeEndpointIds.Contains(m.EndpointId.Value)));
         });
 
         builder.Entity<EndpointEvent>(entity =>

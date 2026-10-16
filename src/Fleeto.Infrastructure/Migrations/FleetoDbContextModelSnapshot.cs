@@ -358,6 +358,56 @@ namespace Fleeto.Infrastructure.Migrations
                     b.ToTable("Alerts");
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.AlertActivity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("AlertId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Comment")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("HeldUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("Time")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AlertId", "Id");
+
+                    b.HasIndex("EndpointId", "ClientId");
+
+                    b.ToTable("AlertActivities");
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.ApiKey", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3213,6 +3263,57 @@ namespace Fleeto.Infrastructure.Migrations
                     b.ToTable("Licenses");
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.MaintenanceRecord", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("EndsAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("SiteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("StartedByName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClientId", "StartedAt");
+
+                    b.HasIndex("EndpointId", "ClientId");
+
+                    b.HasIndex("EndpointId", "StartedAt")
+                        .HasFilter("\"EndpointId\" IS NOT NULL");
+
+                    b.HasIndex("SiteId", "ClientId");
+
+                    b.HasIndex("SiteId", "StartedAt")
+                        .HasFilter("\"SiteId\" IS NOT NULL");
+
+                    b.ToTable("MaintenanceRecords");
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.MaintenanceWindowOccurrence", b =>
                 {
                     b.Property<Guid>("PolicyId")
@@ -5403,6 +5504,22 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Navigation("Endpoint");
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.AlertActivity", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Alert", null)
+                        .WithMany()
+                        .HasForeignKey("AlertId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleeto.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.ApiKeyClient", b =>
                 {
                     b.HasOne("Fleeto.Core.Entities.ApiKey", null)
@@ -6050,6 +6167,27 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasPrincipalKey("Id", "ClientId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.MaintenanceRecord", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Client", null)
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleeto.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Fleeto.Core.Entities.Site", null)
+                        .WithMany()
+                        .HasForeignKey("SiteId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade);
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.MaintenanceWindowOccurrence", b =>

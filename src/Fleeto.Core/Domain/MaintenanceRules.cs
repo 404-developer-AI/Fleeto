@@ -42,6 +42,9 @@ public static class MaintenanceRules
 {
     public const int MaxReasonLength = 500;
 
+    /// <summary>How long a maintenance period stays in the history after it ended (0.6.0): 13 months, like check history.</summary>
+    public static readonly TimeSpan RecordRetention = TimeSpan.FromDays(400);
+
     /// <summary>A chosen end time may lie at most this far ahead; longer means "until turned off".</summary>
     public static readonly TimeSpan MaximumDuration = TimeSpan.FromDays(366);
 

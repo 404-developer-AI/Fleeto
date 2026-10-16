@@ -63,7 +63,8 @@ public sealed class PublicApiQueries
         if (ServiceSupport.Clean(search) is { } term)
         {
             var pattern = ServiceSupport.LikePattern(term);
-            clients = clients.Where(c => EF.Functions.ILike(c.Code, pattern) || EF.Functions.ILike(c.Name, pattern));
+            clients = clients.Where(c => EF.Functions.ILike(c.Code, pattern, ServiceSupport.LikeEscape) ||
+                                         EF.Functions.ILike(c.Name, pattern, ServiceSupport.LikeEscape));
         }
 
         if (ServiceSupport.Clean(tag) is { } tagName)
@@ -204,7 +205,7 @@ public sealed class PublicApiQueries
 
         if (ServiceSupport.Clean(filter.Search) is { } term)
         {
-            endpoints = endpoints.Where(e => EF.Functions.ILike(e.Hostname, ServiceSupport.LikePattern(term)));
+            endpoints = endpoints.Where(e => EF.Functions.ILike(e.Hostname, ServiceSupport.LikePattern(term), ServiceSupport.LikeEscape));
         }
 
         if (cursor is not null && ApiCursor.Require(cursor, out string hostname, out var id))

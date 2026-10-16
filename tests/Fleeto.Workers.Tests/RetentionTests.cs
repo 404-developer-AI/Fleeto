@@ -81,6 +81,17 @@ public sealed class RetentionTests
 
             db.AgentCertificates.AddRange(Certificate("expired-old", now.AddDays(-31)), Certificate("expired-recent", now.AddDays(-1)));
 
+            MaintenanceRecord Maintenance(string reason, DateTime started, DateTime? endsAt, DateTime? endedAt) => new()
+            {
+                ClientId = client.Id, EndpointId = endpoint.Id, StartedAt = started, EndsAt = endsAt, EndedAt = endedAt, Reason = reason
+            };
+
+            db.MaintenanceRecords.AddRange(
+                Maintenance("ran out long ago", now.AddDays(-402), now.AddDays(-401), null),
+                Maintenance("ended by hand long ago", now.AddDays(-500), null, now.AddDays(-401)),
+                Maintenance("ended within the year", now.AddDays(-402), null, now.AddDays(-399)),
+                Maintenance("still running", now.AddDays(-500), null, null));
+
             EnrollmentToken Token(string tag, DateTime expires, int? maxUses, int useCount, DateTime created) => new()
             {
                 Id = Guid.NewGuid(), ClientId = client.Id, SiteId = site.Id, Name = tag, TokenHash = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N")[..32],
@@ -132,6 +143,9 @@ public sealed class RetentionTests
 
         var emails = await check.OutboxEmails.Where(e => e.ToAddress.EndsWith($"-{endpoint.Id:N}@test.example")).Select(e => e.Subject).ToListAsync();
         Assert.Equal(["failed-recent", "pending-old", "sent-recent"], emails.Order().ToArray());
+
+        Assert.Equal(["ended within the year", "still running"],
+            (await check.MaintenanceRecords.Where(m => m.EndpointId == endpoint.Id).Select(m => m.Reason!).ToListAsync()).Order().ToArray());
 
         Assert.Equal(["expired-recent"], await check.AgentCertificates.Where(c => c.EndpointId == endpoint.Id).Select(c => c.SerialNumber).ToListAsync());
         Assert.Equal(["used-recent", "valid"], (await check.EnrollmentTokens.Where(t => t.SiteId == site.Id).Select(t => t.Name).ToListAsync()).Order().ToArray());

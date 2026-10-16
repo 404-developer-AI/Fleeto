@@ -78,6 +78,35 @@ public class ClientsWorkspaceQueryTests
     }
 
     [Fact]
+    public async Task A_search_takes_like_wildcards_and_a_backslash_literally()
+    {
+        var db = _fixture.Database;
+        var client = await db.CreateClientAsync();
+        var site = await db.CreateSiteAsync(client.Id);
+        var underscore = await db.CreateEndpointAsync(site, EndpointTier.AgentOnly, "WSL_01");
+        await db.CreateEndpointAsync(site, EndpointTier.AgentOnly, "WSLX01");
+        var percent = await db.CreateEndpointAsync(site, EndpointTier.AgentOnly, "WSL%02");
+        await using (var context = db.DbFactory.CreateSystem())
+        {
+            context.InventorySnapshots.Add(new InventorySnapshot
+            {
+                EndpointId = underscore.Id, ClientId = client.Id, ReceivedAt = DateTime.UtcNow, Hash = "h", LoggedOnUser = @"CONTOSO\wsl"
+            });
+            await context.SaveChangesAsync();
+        }
+
+        var caller = WebFixtureBase.CallerWith(new RestrictedClientScope([client.Id]), FleetoRoles.ReadOnly);
+        var endpoints = _fixture.Services.GetRequiredService<EndpointService>();
+        async Task<Guid> Single(string search) =>
+            Assert.Single((await endpoints.ListAsync(caller, new EndpointListQuery(client.Id, null, null, search, EndpointStatusFilter.All, null))).Rows).Id;
+
+        // Npgsql escapes nothing unless told: "_" and "%" would match any character and "\" would escape the next.
+        Assert.Equal(underscore.Id, await Single("wsl_"));
+        Assert.Equal(percent.Id, await Single("l%0"));
+        Assert.Equal(underscore.Id, await Single(@"contoso\w"));
+    }
+
+    [Fact]
     public async Task All_clients_list_and_clients_panel_only_contain_clients_in_scope()
     {
         var db = _fixture.Database;

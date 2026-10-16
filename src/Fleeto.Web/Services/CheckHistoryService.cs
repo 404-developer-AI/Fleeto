@@ -38,6 +38,12 @@ public sealed record CheckHistoryView(
     /// Only results of the last 30 days (raw results) have lists, and only those at or above the lowest threshold or run by hand.
     /// </summary>
     public IReadOnlyDictionary<DateTime, ProcessSnapshot> ProcessLists { get; init; } = new Dictionary<DateTime, ProcessSnapshot>();
+
+    /// <summary>
+    /// How often the check gets a result. The chart draws the line across empty buckets up to about one interval, so a check that
+    /// runs less often than the buckets are wide is a line rather than loose strokes. Null: every empty bucket breaks the line.
+    /// </summary>
+    public TimeSpan? Interval { get; init; }
 }
 
 /// <summary>The process list of one result: when it was measured, its value, and the processes using the most, highest first.</summary>
@@ -203,7 +209,8 @@ public sealed class CheckHistoryService
             showThresholds ? check.WarningThreshold : null, showThresholds ? check.CriticalThreshold : null,
             range, from, to, bucket, points)
         {
-            ProcessLists = processLists
+            ProcessLists = processLists,
+            Interval = CheckHistoryRules.ExpectedInterval(check.Type, check.IntervalSeconds)
         };
     }
 

@@ -147,7 +147,7 @@
         </nav>
     </aside>
 
-    <section class="workspace-main">
+    <section class="workspace-main @(SelectedEndpointId is null ? "fill-list" : null)">
         <LoadState Loading="Loading" Failed="LoadFailed" NotFound="_notFound" What="@(SiteId is null ? "client" : "site")">
             <MudBreadcrumbs Items="Breadcrumb" Class="px-0 pt-0 pb-2 fl-breadcrumbs" />
 

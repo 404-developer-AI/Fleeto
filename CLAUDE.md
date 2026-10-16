@@ -132,8 +132,9 @@ the API and the database follows it.
   Fleeto keeps one Action1 automation per client and patch policy, aimed at the endpoints it applies to (see Patch
   management).
 - **Maintenance mode** (0.2.0): a client, a site or one endpoint is put in maintenance by hand,
-  with an optional end time. While it lasts, its endpoints open and escalate no alerts (open
-  alerts stay open and still resolve). The clients panel shows per client and site whether all
+  with an optional end time and a required reason (0.6.0, decided 2026-10-16). While it lasts, its endpoints open and escalate
+  no alerts (open alerts stay open and still resolve). Every period is kept, and the History tab of an endpoint lists those of
+  the endpoint, its site and its client. The clients panel shows per client and site whether all
   or some endpoints are in maintenance.
 - **Monitoring template**: a named set of checks with thresholds and alert rules. Linked to a
   client, site or endpoint, applied to all of their endpoints (class-specific checks apply to matching endpoints only, and a
@@ -172,6 +173,9 @@ the API and the database follows it.
   keep the template linked: every value that is not overridden follows the template.
 - **Alert hold**: an unresolved alert can be put on hold until a time (at most 7 days): no emails
   and out of the open alert counts, while the alert itself stays real. Never called snooze or mute.
+- **A comment with every hand-made alert action** (decided 2026-10-16, 0.6.0): acknowledging, putting on hold and resolving an
+  alert need a comment, ending a hold takes an optional one. It is kept with the alert and shown under it in the alert list and
+  the History tab; the audit log holds its length, never its text.
 - **Notifications during a flood** (0.6.0, decided 2026-09-24): per email address, and per Slack or Teams channel, the first
   5 alert notifications within 10 minutes go out on their own and the rest as one digest per 10 minutes, resolves included.
   Generic webhooks always get every notification on its own.

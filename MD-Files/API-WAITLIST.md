@@ -50,6 +50,8 @@ One row per feature, in the table of its area. Keep it concrete enough to build 
 | Feature | Since | API shape | Notes |
 |---|---|---|---|
 | Who acknowledged or put an alert on hold, and when the hold was set | 0.1.0 | `acknowledgedBy`, `heldAt`, `heldBy` on Alert | User names are personal data; already visible to read-only users in the UI. |
+| What users did with an alert and their comment: acknowledged, put on hold (until when), hold ended, resolved | 0.6.0 | `activities: [{kind, comment, userName, time, heldUntil}]` on Alert, oldest first | The comment is free text a technician typed and may hold personal data; same client and endpoint scope as the alert. |
+| Maintenance history: every period of maintenance mode on a client, site or endpoint, with start, planned end, actual end, who started it and the reason | 0.6.0 | `GET /api/v1/endpoints/{endpointId}/maintenance-history` (its own, its site's and its client's, newest first, paged); `GET /api/v1/clients/{clientId}/maintenance-history` | Kept 13 months after a period ended. |
 | Alerts changed since a moment, for efficient synchronisation | 0.2.1 | `updatedSince=<timestamp>` on `GET /api/v1/alerts`, ordered by `updatedAt` | Needs an index on `(UpdatedAt, Id)`. |
 | Maintenance windows of a policy (days, start time, duration, time zone, applies to) and upcoming occurrences | 0.2.0 | Part of "Policies" below; `GET /api/v1/sites/{siteId}/maintenance-windows` for the next occurrences | |
 

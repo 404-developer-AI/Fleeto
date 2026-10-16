@@ -19,6 +19,14 @@ public enum MaintenanceTarget
 }
 
 /// <summary>
+/// One maintenance period that covered an endpoint (0.6.0). <paramref name="SourceName"/> is the site name or client code for maintenance
+/// of a site or client. <paramref name="EndedAt"/> is null while it lasts; <paramref name="EndedEarly"/> when it was ended by hand
+/// or replaced before its planned end.
+/// </summary>
+public sealed record MaintenanceRecordView(long Id, MaintenanceSource Source, string? SourceName, DateTime StartedAt, DateTime? EndsAt,
+    DateTime? EndedAt, bool EndedEarly, string? StartedByName, string? Reason);
+
+/// <summary>
 /// Maintenance mode for a client, a site or one managed endpoint (ARCHITECTURE.md §4, Maintenance mode): started by hand with an
 /// optional end time, changed, or ended. While it lasts no alert opens or escalates for the endpoints below it; the rule itself is
 /// <see cref="MaintenanceRules"/>. Starting, changing and ending are audit entries; the workers audit an end time that passes.
@@ -42,8 +50,9 @@ public sealed class MaintenanceService
     }
 
     /// <summary>
-    /// Starts maintenance, or changes the end time and reason of maintenance that is already active (its start stays).
-    /// <paramref name="endsAtUtc"/> null means until turned off.
+    /// Starts maintenance, or changes the end time and reason of maintenance that is already active (its start stays), with a
+    /// required reason. <paramref name="endsAtUtc"/> null means until turned off. The trigger on the maintenance columns keeps the
+    /// period in <see cref="MaintenanceRecord"/>.
     /// </summary>
     public async Task<ServiceResult> StartAsync(Caller caller, MaintenanceTarget target, Guid id, DateTime? endsAtUtc, string? reason,
         CancellationToken cancellationToken = default)
@@ -60,8 +69,14 @@ public sealed class MaintenanceService
             return ServiceResult.Fail(endProblem);
         }
 
+        // A reason is required (0.6.0, decided 2026-10-16): it is what the history of the endpoint shows for the period.
         var cleanReason = ServiceSupport.Clean(reason);
-        if (cleanReason?.Length > MaintenanceRules.MaxReasonLength)
+        if (cleanReason is null)
+        {
+            return ServiceResult.Fail("Add a reason: say why, so others can see what the maintenance is for.");
+        }
+
+        if (cleanReason.Length > MaintenanceRules.MaxReasonLength)
         {
             return ServiceResult.Fail($"The reason can be at most {MaintenanceRules.MaxReasonLength} characters.");
         }
@@ -105,7 +120,7 @@ public sealed class MaintenanceService
         // The reason is free text a technician typed: only its length goes into the audit log.
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(wasActive ? AuditActions.MaintenanceChanged : AuditActions.MaintenanceStarted,
             target.ToString(), id.ToString(), row.ClientId,
-            new { row.Name, EndsAt = endsAtUtc, UntilTurnedOff = endsAtUtc is null, ReasonLength = cleanReason?.Length ?? 0 }), now));
+            new { row.Name, EndsAt = endsAtUtc, UntilTurnedOff = endsAtUtc is null, ReasonLength = cleanReason.Length }), now));
         await db.SaveChangesAsync(cancellationToken);
         await PublishAsync(target, id, cancellationToken);
         return ServiceResult.Ok();
@@ -170,6 +185,39 @@ public sealed class MaintenanceService
         await db.SaveChangesAsync(cancellationToken);
         await PublishAsync(target, id, cancellationToken);
         return ServiceResult.Ok();
+    }
+
+    /// <summary>
+    /// The maintenance periods that covered an endpoint, newest first (0.6.0): its own, those of its site and those of its client,
+    /// as far back as they are kept. Null when the endpoint does not exist or is out of reach.
+    /// </summary>
+    public async Task<IReadOnlyList<MaintenanceRecordView>?> GetEndpointHistoryAsync(Caller caller, Guid endpointId, int limit = 200,
+        CancellationToken cancellationToken = default)
+    {
+        caller.Ensure(Permissions.HistoryView);
+        await using var db = _dbFactory.Create(caller.Scope);
+        var endpoint = await db.Endpoints.AsNoTracking().Where(e => e.Id == endpointId)
+            .Select(e => new { e.ClientId, e.SiteId, SiteName = e.Site!.Name, ClientCode = e.Site.Client!.Code })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (endpoint is null)
+        {
+            return null;
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        var rows = await db.MaintenanceRecords.AsNoTracking()
+            .Where(m => m.EndpointId == endpointId ||
+                        (m.EndpointId == null && m.SiteId == endpoint.SiteId) ||
+                        (m.EndpointId == null && m.SiteId == null && m.ClientId == endpoint.ClientId))
+            .OrderByDescending(m => m.StartedAt).ThenByDescending(m => m.Id)
+            .Take(Math.Clamp(limit, 1, 500))
+            .ToListAsync(cancellationToken);
+        return rows.Select(m => new MaintenanceRecordView(m.Id,
+                m.EndpointId is not null ? MaintenanceSource.Endpoint : m.SiteId is not null ? MaintenanceSource.Site : MaintenanceSource.Client,
+                m.EndpointId is not null ? null : m.SiteId is not null ? endpoint.SiteName : endpoint.ClientCode,
+                m.StartedAt, m.EndsAt, MaintenanceRecord.EndOf(m.EndedAt, m.EndsAt, now), m.EndedAt is { } endedAt && m.EndsAt is { } plannedEnd && endedAt < plannedEnd,
+                m.StartedByName, m.Reason))
+            .ToList();
     }
 
     private sealed record Loaded(object Entity, Guid ClientId, string Name, MaintenancePeriod Period);

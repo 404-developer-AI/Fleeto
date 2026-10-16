@@ -145,7 +145,7 @@ public class UserGroupServiceTests
         Assert.Equal(ServiceResult.WholeClientProblem, (await clients.RenameAsync(caller, client.Id, "Renamed")).Problem);
         Assert.Equal(ServiceResult.WholeClientProblem, (await sites.CreateAsync(caller, client.Id, "Extra", null)).Problem);
         Assert.Equal(ServiceResult.WholeClientProblem,
-            (await maintenance.StartAsync(caller, MaintenanceTarget.Client, client.Id, null, null)).Problem);
+            (await maintenance.StartAsync(caller, MaintenanceTarget.Client, client.Id, null, "Planned work")).Problem);
         Assert.True((await sites.UpdateAsync(caller, site.Id, "Part renamed", null)).Success);
         Assert.Equal(ServiceResult.NewClientProblem, (await clients.CreateAsync(caller, "N" + Guid.NewGuid().ToString("N")[..6], "New", null)).Problem);
 

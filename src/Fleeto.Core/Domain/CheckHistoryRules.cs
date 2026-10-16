@@ -47,6 +47,23 @@ public static class CheckHistoryRules
         value < 0 && Enum.IsDefined(type) && !(type == CheckType.Http && target == CheckEvaluator.CertificateTarget) &&
         CheckCatalog.ThresholdKindOf(type, parameters) == ThresholdKind.Reachability;
 
+    /// <summary>
+    /// How often a check is expected to get a result, so the chart can tell an empty bucket between two results from a real gap.
+    /// A check Fleeto evaluates itself has no interval of its own: a folder growth check follows the daily storage scan, the others
+    /// the patch sync every 4 hours.
+    /// </summary>
+    public static TimeSpan ExpectedInterval(CheckType type, int intervalSeconds) =>
+        !Enum.IsDefined(type) || !CheckCatalog.Get(type).EvaluatedByFleeto ? TimeSpan.FromSeconds(Math.Max(intervalSeconds, 0))
+        : type == CheckType.FolderGrowth ? TimeSpan.FromDays(1)
+        : TimeSpan.FromSeconds(CheckCatalog.FleetoEvaluatedIntervalSeconds);
+
+    /// <summary>
+    /// The longest time between two buckets with results that the chart still draws as one line: one interval with room for a
+    /// result that came a little late, plus one bucket for where in its bucket a result falls. A longer stretch means at least
+    /// one result is missing, a real gap.
+    /// </summary>
+    public static TimeSpan MaximumBridge(TimeSpan interval, TimeSpan bucket) => interval * 1.5 + bucket;
+
     /// <summary>The length of a range, its bucket size, and whether it reads raw results (hour, day) or rollups.</summary>
     public static (TimeSpan Length, TimeSpan Bucket, bool FromRaw, bool FromDaily) Resolution(HistoryRange range) => range switch
     {

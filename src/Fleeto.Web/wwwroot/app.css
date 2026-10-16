@@ -167,6 +167,9 @@ html, body {
 .job-output { background: #1C1917; color: #F5F5F4; border-radius: var(--fl-radius); padding: 12px 14px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.8125rem; white-space: pre-wrap; word-break: break-word; margin: 0; max-height: 420px; overflow: auto; }
 .job-output.stderr { color: #FCA5A5; }
 .json-box { background: #F5F5F4; border-radius: var(--fl-radius); padding: 10px 12px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.75rem; white-space: pre-wrap; word-break: break-all; margin: 0; }
+/* What users did with an alert (AlertActivityLines): small lines under the alert title */
+.alert-activities { margin-top: 4px; display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; }
+.alert-activity-comment { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Rendered note markdown (NoteMarkdown): compact, readable inside a table cell */
 .note-body { font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
 .note-body > :first-child { margin-top: 0; }
@@ -271,6 +274,11 @@ button.tag-chip:focus-visible { outline: 2px solid var(--fl-primary); outline-of
 .endpoint-list-search { display: flex; align-items: center; gap: 8px; padding: 8px 0; min-width: 280px; }
 .endpoint-list-search .mud-input-control { margin: 0 !important; }
 .endpoint-table-scroll { max-height: 42vh; overflow: auto; }
+/* Without an endpoint open the list fills the page down to its bottom edge and scrolls inside (0.6.0); the height dragged with the
+   splitter (an inline max-height) only applies while the detail is open below it. */
+.workspace-main.fill-list { display: flex; flex-direction: column; height: 100vh; }
+.workspace-main.fill-list > .endpoint-list { flex: 1; min-height: 240px; display: flex; flex-direction: column; }
+.workspace-main.fill-list .endpoint-table-scroll { flex: 1; min-height: 0; max-height: none !important; }
 .endpoint-table-scroll .mud-table { border: none; border-radius: 0 !important; box-shadow: none; }
 .endpoint-table .mud-table-row { cursor: pointer; }
 .endpoint-table .mud-table-row.row-selected { background: var(--fl-primary-tint) !important; }

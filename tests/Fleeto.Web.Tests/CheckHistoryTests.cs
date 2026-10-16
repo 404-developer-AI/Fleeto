@@ -176,4 +176,31 @@ public sealed class CheckHistoryTests
         Assert.Equal((0d, 100d), (new HistoryChartLayout(points, from, from.AddMinutes(4), "%", null, null).YMin,
             new HistoryChartLayout(points, from, from.AddMinutes(4), "%", null, null).YMax));
     }
+
+    [Fact]
+    public void The_chart_draws_one_line_across_empty_buckets_of_a_check_that_runs_less_often_and_breaks_at_a_real_gap()
+    {
+        // A check every 5 minutes on 1-minute buckets: results at 0, 5, 10, then nothing until 30 (results missing), then 35.
+        var from = new DateTime(2026, 9, 15, 10, 0, 0, DateTimeKind.Utc);
+        var points = Enumerable.Range(0, 40)
+            .Select(m => m is 0 or 5 or 10 or 30 or 35 ? new HistoryPoint(from.AddMinutes(m), 10, 10, 10, 1, 0, 0)
+                : new HistoryPoint(from.AddMinutes(m), null, null, null, 0, 0, 0))
+            .ToList();
+        var interval = CheckHistoryRules.ExpectedInterval(CheckType.CpuUsage, 300);
+
+        var layout = new HistoryChartLayout(points, from, from.AddMinutes(40), "%", null, null, interval);
+        Assert.Equal(2, layout.AveragePath().Count(c => c == 'M'));
+        Assert.Equal(2, layout.BandPath().Count(c => c == 'Z'));
+
+        // Without the interval every empty bucket is a gap: five lone strokes.
+        Assert.Equal(10, new HistoryChartLayout(points, from, from.AddMinutes(40), "%", null, null).AveragePath().Count(c => c == 'M'));
+
+        // A bucket where the check could not run breaks the line, also within the interval (the lone bucket at 10 adds its stroke).
+        points[7] = new HistoryPoint(from.AddMinutes(7), null, null, null, 0, 1, 0);
+        Assert.Equal(4, new HistoryChartLayout(points, from, from.AddMinutes(40), "%", null, null, interval).AveragePath().Count(c => c == 'M'));
+
+        // A check Fleeto evaluates itself follows the data it is evaluated from.
+        Assert.Equal(TimeSpan.FromHours(4), CheckHistoryRules.ExpectedInterval(CheckType.MissingUpdates, 60));
+        Assert.Equal(TimeSpan.FromDays(1), CheckHistoryRules.ExpectedInterval(CheckType.FolderGrowth, 60));
+    }
 }

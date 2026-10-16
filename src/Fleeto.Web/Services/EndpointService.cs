@@ -5,6 +5,7 @@ using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Audit;
 using Fleeto.Infrastructure.Data;
 using Fleeto.Infrastructure.Services;
+using Fleeto.Web.Components.Shared;
 using Fleeto.Web.Security;
 using Microsoft.EntityFrameworkCore;
 
@@ -151,8 +152,9 @@ public sealed class EndpointService
         if (ServiceSupport.Clean(query.Search) is { } term)
         {
             var pattern = ServiceSupport.LikePattern(term);
-            endpoints = endpoints.Where(e => EF.Functions.ILike(e.Hostname, pattern) || EF.Functions.ILike(e.OsName, pattern) ||
-                                             (e.Inventory != null && EF.Functions.ILike(e.Inventory.LoggedOnUser, pattern)));
+            endpoints = endpoints.Where(e => EF.Functions.ILike(e.Hostname, pattern, ServiceSupport.LikeEscape) ||
+                                             EF.Functions.ILike(e.OsName, pattern, ServiceSupport.LikeEscape) ||
+                                             (e.Inventory != null && EF.Functions.ILike(e.Inventory.LoggedOnUser, pattern, ServiceSupport.LikeEscape)));
         }
 
         endpoints = query.Status switch
@@ -297,41 +299,80 @@ public sealed class EndpointService
             snapshot.Action1AgentId, snapshot.Desktop);
     }
 
-    public async Task<IReadOnlyList<AlertView>> GetAlertsAsync(Caller caller, Guid endpointId, int limit = 100, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Alerts of this endpoint, newest first. <paramref name="search"/> matches the title, detail and resolve reason, over every
+    /// alert the endpoint has had, not only the newest.
+    /// </summary>
+    public async Task<IReadOnlyList<AlertView>> GetAlertsAsync(Caller caller, Guid endpointId, int limit = 100, string? search = null,
+        CancellationToken cancellationToken = default)
     {
         caller.Ensure(Permissions.AlertsView);
         await using var db = _dbFactory.Create(caller.Scope);
-        return await AlertService.Project(db, db.Alerts.AsNoTracking().Where(a => a.EndpointId == endpointId)
-                .OrderByDescending(a => a.OpenedAt).ThenByDescending(a => a.Id).Take(Math.Clamp(limit, 1, 500)))
+        var alerts = db.Alerts.AsNoTracking().Where(a => a.EndpointId == endpointId);
+        if (SearchTerm(search) is { } term)
+        {
+            var pattern = ServiceSupport.LikePattern(term);
+            alerts = alerts.Where(a => EF.Functions.ILike(a.Title, pattern, ServiceSupport.LikeEscape) ||
+                                       EF.Functions.ILike(a.Detail, pattern, ServiceSupport.LikeEscape) ||
+                                       (a.ResolvedReason != null && EF.Functions.ILike(a.ResolvedReason, pattern, ServiceSupport.LikeEscape)));
+        }
+
+        return await AlertService.Project(db, alerts.OrderByDescending(a => a.OpenedAt).ThenByDescending(a => a.Id).Take(Math.Clamp(limit, 1, 500)))
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<EndpointEventView>> GetEventsAsync(Caller caller, Guid endpointId, int limit = 100, CancellationToken cancellationToken = default)
+    /// <summary>Connection events of this endpoint, newest first. <paramref name="search"/> matches the event and its detail.</summary>
+    public async Task<IReadOnlyList<EndpointEventView>> GetEventsAsync(Caller caller, Guid endpointId, int limit = 100, string? search = null,
+        CancellationToken cancellationToken = default)
     {
         caller.Ensure(Permissions.HistoryView);
         await using var db = _dbFactory.Create(caller.Scope);
-        return await db.EndpointEvents.AsNoTracking()
-            .Where(e => e.EndpointId == endpointId)
+        var events = db.EndpointEvents.AsNoTracking().Where(e => e.EndpointId == endpointId);
+        if (SearchTerm(search) is { } term)
+        {
+            var pattern = ServiceSupport.LikePattern(term);
+            var kinds = Enum.GetValues<EndpointEventKind>().Where(k => Ui.EventLabel(k).Contains(term, StringComparison.OrdinalIgnoreCase)).ToArray();
+            events = events.Where(e => EF.Functions.ILike(e.Detail, pattern, ServiceSupport.LikeEscape) || kinds.Contains(e.Kind));
+        }
+
+        return await events
             .OrderByDescending(e => e.Time).ThenByDescending(e => e.Id)
             .Take(Math.Clamp(limit, 1, 500))
             .Select(e => new EndpointEventView(e.Id, e.Kind, e.Detail, e.Time))
             .ToListAsync(cancellationToken);
     }
 
-    /// <summary>Audit entries about this endpoint. IP addresses are left out; the full audit log is for admins.</summary>
-    public async Task<IReadOnlyList<AuditEntryView>> GetAuditAsync(Caller caller, Guid endpointId, int limit = 100, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Audit entries about this endpoint, newest first. IP addresses are left out; the full audit log is for admins.
+    /// <paramref name="search"/> matches who, the action and the details.
+    /// </summary>
+    public async Task<IReadOnlyList<AuditEntryView>> GetAuditAsync(Caller caller, Guid endpointId, int limit = 100, string? search = null,
+        CancellationToken cancellationToken = default)
     {
         caller.Ensure(Permissions.HistoryView);
         await using var db = _dbFactory.Create(caller.Scope);
         var id = endpointId.ToString();
-        return await db.AuditEntries.AsNoTracking()
-            .Where(a => a.TargetType == "Endpoint" && a.TargetId == id)
+        var entries = db.AuditEntries.AsNoTracking().Where(a => a.TargetType == "Endpoint" && a.TargetId == id);
+        if (SearchTerm(search) is { } term)
+        {
+            var pattern = ServiceSupport.LikePattern(term);
+            // The details are jsonb: searched as their text.
+            entries = entries.Where(a => EF.Functions.ILike(a.ActorName, pattern, ServiceSupport.LikeEscape) ||
+                                         EF.Functions.ILike(a.Action, pattern, ServiceSupport.LikeEscape) ||
+                                         EF.Functions.ILike(Convert.ToString(a.DetailsJson)!, pattern, ServiceSupport.LikeEscape));
+        }
+
+        return await entries
             .OrderByDescending(a => a.Id)
             .Take(Math.Clamp(limit, 1, 500))
             .Select(a => new AuditEntryView(a.Id, a.Time, a.ClientId, a.ActorType, a.ActorId, a.ActorName, a.Action, a.TargetType, a.TargetId,
                 a.DetailsJson, null))
             .ToListAsync(cancellationToken);
     }
+
+    /// <summary>The trimmed search term, or null when there is nothing to search for. At most 200 characters are used.</summary>
+    private static string? SearchTerm(string? search) =>
+        string.IsNullOrWhiteSpace(search) ? null : search.Trim() is var term && term.Length > 200 ? term[..200] : search.Trim();
 
     /// <summary>
     /// Switches endpoints between agent-only and managed. The license problem text is returned verbatim. With

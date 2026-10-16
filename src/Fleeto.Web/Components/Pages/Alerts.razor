@@ -75,6 +75,7 @@
                     {
                         <div class="muted" style="font-size:0.75rem">@context.ResolvedReason</div>
                     }
+                    <AlertActivityLines Activities="@_activities.GetValueOrDefault(context.Id)" />
                 </MudTd>
                 <MudTd><MudLink Href="@($"/endpoints/{context.EndpointId}")">@context.ClientCode / @context.Hostname</MudLink></MudTd>
                 <MudTd><TimeText Value="context.OpenedAt" /></MudTd>
@@ -99,6 +100,7 @@
     private Guid? _clientId;
     private IReadOnlyList<ClientOption> _clients = [];
     private List<AlertView> _items = [];
+    private Dictionary<Guid, IReadOnlyList<AlertActivityView>> _activities = [];
     private string? _nextCursor;
     private DebouncedRefresh? _refresh;
 
@@ -117,6 +119,7 @@
         var page = await AlertSvc.ListAsync(caller, new AlertQuery(_state, _severity, _clientId));
         _items = page.Items.ToList();
         _nextCursor = page.NextCursor;
+        _activities = new Dictionary<Guid, IReadOnlyList<AlertActivityView>>(await AlertSvc.GetActivitiesAsync(caller, page.Items.Select(a => a.Id).ToList()));
     });
 
     private async Task FilterAsync(Action apply)
@@ -130,6 +133,10 @@
         var page = await AlertSvc.ListAsync(caller, new AlertQuery(_state, _severity, _clientId, _nextCursor));
         _items.AddRange(page.Items);
         _nextCursor = page.NextCursor;
+        foreach (var (alertId, activities) in await AlertSvc.GetActivitiesAsync(caller, page.Items.Select(a => a.Id).ToList()))
+        {
+            _activities[alertId] = activities;
+        }
     });
 
     public override void Dispose()

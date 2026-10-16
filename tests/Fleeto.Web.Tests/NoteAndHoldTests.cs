@@ -146,10 +146,10 @@ public sealed class NoteAndHoldTests
         var endpoints = _fixture.Services.GetRequiredService<EndpointService>();
         Assert.Equal(1, (await endpoints.GetAsync(tech, endpoint.Id))!.OpenAlertCount);
 
-        Assert.False((await Alerts.HoldAsync(tech, alertId, Now.AddSeconds(10))).Success);
-        Assert.False((await Alerts.HoldAsync(tech, alertId, Now.AddDays(8))).Success);
-        Assert.False((await Alerts.HoldAsync(WebFixture.CallerWith(SystemClientScope.Instance, FleetoRoles.ReadOnly), alertId, Now.AddHours(1))).Success);
-        Assert.True((await Alerts.HoldAsync(tech, alertId, Now.AddHours(4))).Success);
+        Assert.False((await Alerts.HoldAsync(tech, alertId, Now.AddSeconds(10), "Waiting for parts")).Success);
+        Assert.False((await Alerts.HoldAsync(tech, alertId, Now.AddDays(8), "Waiting for parts")).Success);
+        Assert.False((await Alerts.HoldAsync(WebFixture.CallerWith(SystemClientScope.Instance, FleetoRoles.ReadOnly), alertId, Now.AddHours(1), "Waiting for parts")).Success);
+        Assert.True((await Alerts.HoldAsync(tech, alertId, Now.AddHours(4), "Waiting for parts")).Success);
 
         var detail = await endpoints.GetAsync(tech, endpoint.Id);
         Assert.Equal(0, detail!.OpenAlertCount);
@@ -164,7 +164,7 @@ public sealed class NoteAndHoldTests
         _fixture.Database.Time.Advance(TimeSpan.FromHours(5));
         Assert.Equal(1, (await endpoints.GetAsync(tech, endpoint.Id))!.OpenAlertCount);
 
-        Assert.True((await Alerts.HoldAsync(tech, alertId, Now.AddHours(1))).Success);
+        Assert.True((await Alerts.HoldAsync(tech, alertId, Now.AddHours(1), "Waiting for parts")).Success);
         Assert.True((await Alerts.EndHoldAsync(tech, alertId)).Success);
         Assert.False((await Alerts.EndHoldAsync(tech, alertId)).Success);
         Assert.Equal(1, (await endpoints.GetAsync(tech, endpoint.Id))!.OpenAlertCount);
@@ -173,5 +173,57 @@ public sealed class NoteAndHoldTests
         var id = alertId.ToString();
         Assert.Equal(2, await check.AuditEntries.CountAsync(a => a.TargetId == id && a.Action == AuditActions.AlertHeld));
         Assert.Equal(1, await check.AuditEntries.CountAsync(a => a.TargetId == id && a.Action == AuditActions.AlertHoldEnded));
+    }
+
+    [Fact]
+    public async Task Acknowledge_hold_and_resolve_need_a_comment_kept_with_the_alert_and_out_of_the_audit_log()
+    {
+        var (_, endpoint) = await EndpointAsync();
+        var alertId = Guid.NewGuid();
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            db.Alerts.Add(new Alert
+            {
+                Id = alertId, ClientId = endpoint.ClientId, EndpointId = endpoint.Id, Kind = AlertKind.Offline, Severity = AlertSeverity.Critical,
+                Title = "WS-NOTES has been offline", OpenedAt = Now, UpdatedAt = Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var tech = WebFixture.Technician();
+        Assert.False((await Alerts.AcknowledgeAsync(tech, alertId, null)).Success);
+        Assert.False((await Alerts.AcknowledgeAsync(tech, alertId, "   ")).Success);
+        Assert.False((await Alerts.AcknowledgeAsync(tech, alertId, new string('x', AlertActivity.MaxCommentLength + 1))).Success);
+        Assert.False((await Alerts.HoldAsync(tech, alertId, Now.AddHours(1), null)).Success);
+        Assert.False((await Alerts.ResolveAsync(tech, alertId, "")).Success);
+
+        Assert.True((await Alerts.AcknowledgeAsync(tech, alertId, "  Looking into it, customer contact Jan  ")).Success);
+        _fixture.Database.Time.Advance(TimeSpan.FromMinutes(1));
+        Assert.True((await Alerts.HoldAsync(tech, alertId, Now.AddHours(2), "Waiting for a replacement switch")).Success);
+        _fixture.Database.Time.Advance(TimeSpan.FromMinutes(1));
+        Assert.True((await Alerts.EndHoldAsync(tech, alertId)).Success);
+        _fixture.Database.Time.Advance(TimeSpan.FromMinutes(1));
+        Assert.True((await Alerts.ResolveAsync(tech, alertId, "Switch replaced")).Success);
+
+        var activities = (await Alerts.GetActivitiesAsync(tech, [alertId]))[alertId];
+        Assert.Equal([AlertActivityKind.Acknowledged, AlertActivityKind.Held, AlertActivityKind.HoldEnded, AlertActivityKind.Resolved],
+            activities.Select(a => a.Kind).ToArray());
+        Assert.Equal("Looking into it, customer contact Jan", activities[0].Comment);
+        Assert.Equal("Waiting for a replacement switch", activities[1].Comment);
+        Assert.NotNull(activities[1].HeldUntil);
+        Assert.Equal(string.Empty, activities[2].Comment);
+        Assert.All(activities, a => Assert.Equal(tech.Name, a.UserName));
+
+        // Another client sees none of it.
+        var other = await _fixture.Database.CreateClientAsync();
+        var otherCaller = WebFixture.CallerWith(new RestrictedClientScope([other.Id]), FleetoRoles.Technician);
+        Assert.Empty(await Alerts.GetActivitiesAsync(otherCaller, [alertId]));
+
+        // The audit log has the actions with the length of the comment, never its text.
+        await using var check = _fixture.Database.DbFactory.CreateSystem();
+        var audit = await check.AuditEntries.AsNoTracking().Where(a => a.TargetId == alertId.ToString()).ToListAsync();
+        Assert.Equal(4, audit.Count);
+        Assert.DoesNotContain(audit, a => a.DetailsJson.Contains("Jan", StringComparison.Ordinal) || a.DetailsJson.Contains("switch", StringComparison.Ordinal));
+        Assert.All(audit, a => Assert.Contains("commentLength", a.DetailsJson, StringComparison.OrdinalIgnoreCase));
     }
 }

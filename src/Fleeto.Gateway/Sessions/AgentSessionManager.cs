@@ -641,12 +641,29 @@ public sealed partial class AgentSessionManager : BackgroundService
         {
             await RefreshTiersAsync(cancellationToken);
         }
-        else if (Guid.TryParse(payload, out var endpointId) && _sessions.TryGetValue(endpointId, out var session))
+        else if (Guid.TryParse(payload, out var endpointId))
         {
+            // The watchdog session holds the tier too: remote background is refused while it still reads agent-only, so a switch to
+            // managed reaches it at once, also when the agent itself is not connected.
+            _sessions.TryGetValue(endpointId, out var session);
+            _watchdogs.TryGetValue(endpointId, out var watchdog);
+            if (session is null && watchdog is null)
+            {
+                return;
+            }
+
             var tiers = await _store.ReadTiersAsync([endpointId], cancellationToken);
             if (tiers.TryGetValue(endpointId, out var tier))
             {
-                session.Tier = tier;
+                if (session is not null)
+                {
+                    session.Tier = tier;
+                }
+
+                if (watchdog is not null)
+                {
+                    watchdog.Tier = tier;
+                }
             }
         }
     }

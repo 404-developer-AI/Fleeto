@@ -11,6 +11,14 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Added
 
+- A comment with every alert action: acknowledging, putting on hold and resolving an alert ask why, and the comment is required
+  (ending a hold takes an optional one). What was done, by whom, when and the comment are shown under the alert on the Alerts
+  page and in the History tab of the endpoint. The audit log records the action with the length of the comment, never its text.
+- Maintenance history: every period of maintenance mode on a client, site or endpoint is kept, also after it ends, and the
+  History tab of an endpoint has a Maintenance section with those of the endpoint, its site and its client: when it started and
+  ended (and whether it ended before its planned end), who started it and why. Kept 13 months after a period ended; maintenance
+  that runs when this version is installed is included from its start.
+
 - Exit codes per script: Edit on a script in Settings, Scripts lists which exit codes mean success, info, warning or error (for
   example 0 success, 1 and 2 a warning, 3 an error, 4 info; ranges such as 5-8 work). Every job, task step and script check that
   runs the script reads them. A job with info or a warning succeeds and shows a blue Info or an amber Warning label with its exit
@@ -175,6 +183,13 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Changed
 
+- Maintenance mode needs a reason: starting or changing maintenance on a client, site or endpoint refuses an empty one.
+- The endpoint list of the Clients workspace fills the page down to its bottom edge and scrolls inside while no endpoint is open
+  below it, instead of keeping the height of the list with an endpoint open (which could be only a few rows).
+- The History tab of an endpoint: Alerts, Connections and Audit each scroll within a fixed height with their headers in view,
+  and each has a search that looks through everything the endpoint has had, not only the newest rows shown (the newest 200,
+  where it was 50). Alerts match their title, detail and resolve reason; connections their event and detail; audit entries who,
+  the action and the details.
 - The exit codes a task step counted as success (alpha.23) moved to the script: the update lists them as success on the script
   of the step, and the step editor no longer has the field.
 - Approving a script needs the permission "Approve scripts" instead of the admin role; the approver still has to be somebody
@@ -225,6 +240,15 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- A search with `%`, `_` or `\` in it found nothing, for example `WS_01` in the endpoint list: the database read them as
+  wildcards and escape characters despite Fleeto escaping them. This affected the endpoint list, the clients panel, the
+  audit log, the access picker of groups and the public API (`search` on clients and endpoints).
+- The check history drew loose dots and short strokes instead of a line for a check that runs less often than the chart's
+  buckets are wide (for example every 5 minutes in the last hour, or every hour in the last day). The line now goes across
+  empty buckets up to about one interval of the check; it still breaks where results are missing or the check could not run.
+- Remote background on an endpoint switched to managed shortly after it enrolled said the watchdog was not connected until
+  the watchdog restarted or up to 5 minutes passed: the gateway updated the tier of the agent's connection, not of the
+  watchdog's. Both follow the switch at once now, also when only the watchdog is connected.
 - A script that had run as a job could not be deleted: the database refused to clear the script on its jobs. The jobs now keep
   their snapshot (name, version and hash) and lose only the link to the deleted script, as the API already described.
 - The processes with the most memory listed with a CPU or memory usage result could be out of order when one of them grew

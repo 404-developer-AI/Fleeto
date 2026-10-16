@@ -88,6 +88,11 @@ public static class DatabaseGrants
             ["CheckResultsHourly"] = Grants(web: Read, workers: ReadWrite),
             ["CheckResultsDaily"] = Grants(web: Read, workers: ReadWrite),
             ["Alerts"] = Grants(web: "SELECT, UPDATE", workers: ReadWrite),
+            // What users did with an alert and their comment (0.6.0): written by web, never changed; deleted with the alert.
+            ["AlertActivities"] = Grants(web: "SELECT, INSERT"),
+            // Periods of maintenance mode (0.6.0): written by the trigger on the maintenance columns, which runs as web (the only
+            // one that changes them); the workers apply retention.
+            ["MaintenanceRecords"] = Grants(web: "SELECT, INSERT, UPDATE", workers: "SELECT, DELETE"),
             ["EndpointEvents"] = Grants(web: Read, gateway: "INSERT", workers: "SELECT, UPDATE, DELETE"),
             // Web asks, the workers apply a reset, the gateway delivers; nobody else can change a request.
             ["CheckRunRequests"] = Grants(web: "SELECT, INSERT", gateway: "SELECT, UPDATE", workers: "SELECT, UPDATE, DELETE"),

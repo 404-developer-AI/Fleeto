@@ -123,15 +123,17 @@ public sealed class UserGroupService
         await using var db = _dbFactory.CreateSystem();
         var pattern = ServiceSupport.LikePattern(term);
         var clients = await db.Clients.AsNoTracking()
-            .Where(c => EF.Functions.ILike(c.Code, pattern) || EF.Functions.ILike(c.Name, pattern))
+            .Where(c => EF.Functions.ILike(c.Code, pattern, ServiceSupport.LikeEscape) ||
+                        EF.Functions.ILike(c.Name, pattern, ServiceSupport.LikeEscape))
             .OrderBy(c => c.Code).Take(20)
             .Select(c => new AccessTargetView(AccessTargetKind.Client, c.Id, c.Code + " · " + c.Name)).ToListAsync(cancellationToken);
         var sites = await db.Sites.AsNoTracking()
-            .Where(s => EF.Functions.ILike(s.Name, pattern) || EF.Functions.ILike(s.Client!.Code, pattern))
+            .Where(s => EF.Functions.ILike(s.Name, pattern, ServiceSupport.LikeEscape) ||
+                        EF.Functions.ILike(s.Client!.Code, pattern, ServiceSupport.LikeEscape))
             .OrderBy(s => s.Client!.Code).ThenBy(s => s.Name).Take(20)
             .Select(s => new AccessTargetView(AccessTargetKind.Site, s.Id, s.Client!.Code + " / " + s.Name)).ToListAsync(cancellationToken);
         var endpoints = await db.Endpoints.AsNoTracking()
-            .Where(e => EF.Functions.ILike(e.Hostname, pattern))
+            .Where(e => EF.Functions.ILike(e.Hostname, pattern, ServiceSupport.LikeEscape))
             .OrderBy(e => e.Hostname).Take(20)
             .Select(e => new AccessTargetView(AccessTargetKind.Endpoint, e.Id, e.Site!.Client!.Code + " / " + e.Hostname)).ToListAsync(cancellationToken);
         return [.. clients, .. sites, .. endpoints];
