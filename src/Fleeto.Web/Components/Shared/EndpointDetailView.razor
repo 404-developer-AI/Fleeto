@@ -2173,7 +2173,7 @@
         else
         {
             var now = Clock.GetUtcNow().UtcDateTime;
-            <MudTable Items="_alerts" Dense="true" Elevation="0" FixedHeader="true" Height="320px">
+            <MudTable Items="_alerts" Dense="true" Elevation="0" FixedHeader="true" Class="history-table">
                 <HeaderContent>
                     <MudTh>Severity</MudTh>
                     <MudTh>State</MudTh>
@@ -2224,7 +2224,7 @@
         }
         else
         {
-            <MudTable Items="FilteredMaintenance" Dense="true" Elevation="0" FixedHeader="true" Height="320px">
+            <MudTable Items="FilteredMaintenance" Dense="true" Elevation="0" FixedHeader="true" Class="history-table">
                 <HeaderContent>
                     <MudTh>Started</MudTh>
                     <MudTh>Ended</MudTh>
@@ -2266,7 +2266,7 @@
         }
         else
         {
-            <MudTable Items="_events" Dense="true" Elevation="0" FixedHeader="true" Height="320px">
+            <MudTable Items="_events" Dense="true" Elevation="0" FixedHeader="true" Class="history-table">
                 <HeaderContent>
                     <MudTh>When</MudTh>
                     <MudTh>Event</MudTh>
@@ -2294,7 +2294,7 @@
         }
         else
         {
-            <MudTable Items="_audit" Dense="true" Elevation="0" FixedHeader="true" Height="420px">
+            <MudTable Items="_audit" Dense="true" Elevation="0" FixedHeader="true" Class="history-table history-table-tall">
                 <HeaderContent>
                     <MudTh>When</MudTh>
                     <MudTh>Who</MudTh>

@@ -357,6 +357,10 @@ button.tag-chip:focus-visible { outline: 2px solid var(--fl-primary); outline-of
 .blazor-error-boundary { background: var(--fl-error); padding: 1rem; color: white; border-radius: var(--fl-radius-lg); }
 .blazor-error-boundary::after { content: "Something went wrong on this page. Reload it, and check the web log if it keeps happening."; }
 
+/* History tab of an endpoint: each list is as high as its rows, up to a maximum, and scrolls beyond it */
+.history-table .mud-table-container { max-height: 320px; overflow-y: auto; }
+.history-table-tall .mud-table-container { max-height: 420px; }
+
 /* Check history: inline SVG chart and status timeline (HistoryChart, StatusTimeline) */
 .history-chart { width: 100%; height: auto; display: block; }
 .history-grid { stroke: var(--fl-border); stroke-width: 1; vector-effect: non-scaling-stroke; }

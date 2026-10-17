@@ -186,9 +186,9 @@ When a third released version is added, the oldest entry moves to the top of
 - Maintenance mode needs a reason: starting or changing maintenance on a client, site or endpoint refuses an empty one.
 - The endpoint list of the Clients workspace fills the page down to its bottom edge and scrolls inside while no endpoint is open
   below it, instead of keeping the height of the list with an endpoint open (which could be only a few rows).
-- The History tab of an endpoint: Alerts, Connections and Audit each scroll within a fixed height with their headers in view,
-  and each has a search that looks through everything the endpoint has had, not only the newest rows shown (the newest 200,
-  where it was 50). Alerts match their title, detail and resolve reason; connections their event and detail; audit entries who,
+- The History tab of an endpoint: Alerts, Connections and Audit each grow with their rows up to a maximum height and then
+  scroll with their headers in view, and each has a search that looks through everything the endpoint has had, not only the
+  newest rows shown (the newest 200, where it was 50). Alerts match their title, detail and resolve reason; connections their event and detail; audit entries who,
   the action and the details.
 - The exit codes a task step counted as success (alpha.23) moved to the script: the update lists them as success on the script
   of the step, and the step editor no longer has the field.
