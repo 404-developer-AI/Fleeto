@@ -9,6 +9,41 @@ When a third released version is added, the oldest entry moves to the top of
 
 ## [Unreleased]
 
+Version 0.7.0, the performance monitor (`ROADMAP.md`, `PERFORMANCE.md`), step 1: the core.
+
+### Added
+
+- Settings, Performance: where Fleeto itself is slow and why, for admins. It measures Fleeto, never the endpoints it manages.
+  For a period of 15 minutes to 7 days it shows a score per category (hosting, backend code, database queries, database
+  maintenance, background and realtime, agent channel), the top bottlenecks ranked by the extra waiting they caused, each with
+  its evidence, likely cause, what to change and where to look in the code, a timeline of page interactions and requests, the
+  busiest pages, routes, loops, agent messages, database sources and external hosts, the runtime of every component and the VPS.
+  Network and frontend follow with step 3.
+- The report for Claude Code: copy or download it as Markdown, at most 100 KB, with instructions for this repository first and
+  what was not measured last. Everything in it is redacted: SQL without values, and no ids, addresses, tokens, host names or
+  client codes. Every export is audited.
+- Collection in every component, written once a minute in one batch: page loads and events per route template (the time a
+  dialog stays open left out), API and sign-in requests, database commands per page, loop, message and signing request, every
+  run of every worker loop, outbound calls per host, agent messages with their size and time to acknowledge, connections, job
+  delivery and the remote session relay, signing requests, live updates and notifications, exceptions by type, the runtime
+  (CPU, memory, garbage collection, thread pool, database pool) every 10 seconds, the VPS every minute (CPU with steal and
+  iowait, load, memory, disk latency, throttling), and statement, database and table statistics from PostgreSQL. Level Basic
+  is on by default and costs below 1%; the monitor shows its own cost.
+- The Settings tab: the level (Off or Basic), each collector on or off, the slow event threshold, the snapshot intervals,
+  retention and the thresholds of every finding, with their defaults. Changing them needs the new permission Manage
+  performance monitoring and is audited with the old and new values; viewing needs Performance. Both are administration of
+  the instance, held by admins only.
+- A deploy marker on the timeline when Fleeto starts on a new version.
+
+### Changed
+
+- `install.sh` grants `pg_monitor` to the workers instead of `pg_read_all_stats`: monitoring rights only, which also cover the
+  table statistics and settings the performance monitor reads.
+- Instance health reads its statement statistics through the same reader as the performance monitor, so both name the same
+  statements.
+- The nightly backup dumps the tables of the performance monitor without their rows, so a restore does not bring old
+  measurements; its settings are kept.
+
 ## [0.6.0] — 2026-10-18
 
 Refactors, fixes and everything the developer wanted before the next round of testing, features included: policies, patch

@@ -196,6 +196,21 @@ public static class DatabaseGrants
             ["InstanceHealthIssues"] = Grants(web: Read, workers: ReadWrite),
             ["WorkerWatermarks"] = Grants(workers: ReadWrite),
 
+            // The performance monitor (0.7.0): every component writes its own minute rows (TR_PerfMinutes_Component and
+            // TR_PerfRuntimeMinutes_Component refuse another component's), web reads them for the page, the workers roll them up
+            // into hours, read the VPS and the database statistics, and apply retention. Everyone reads the settings; web
+            // changes them.
+            ["PerfMinutes"] = Grants(web: "SELECT, INSERT", gateway: "INSERT", signer: "INSERT", workers: "SELECT, INSERT, DELETE"),
+            ["PerfRuntimeMinutes"] = Grants(web: "SELECT, INSERT", gateway: "INSERT", signer: "INSERT", workers: "SELECT, INSERT, DELETE"),
+            ["PerfEvents"] = Grants(web: "SELECT, INSERT", gateway: "INSERT", signer: "INSERT", workers: "SELECT, INSERT, DELETE"),
+            ["PerfHours"] = Grants(web: Read, workers: ReadWrite),
+            ["PerfHostMinutes"] = Grants(web: Read, workers: "SELECT, INSERT, DELETE"),
+            ["PerfStatementSnapshots"] = Grants(web: Read, workers: "SELECT, INSERT, DELETE"),
+            ["PerfDatabaseSnapshots"] = Grants(web: Read, workers: "SELECT, INSERT, DELETE"),
+            ["PerfTableSnapshots"] = Grants(web: Read, workers: "SELECT, INSERT, DELETE"),
+            ["PerfMarkers"] = Grants(web: "SELECT, INSERT", workers: "SELECT, INSERT, DELETE"),
+            ["PerformanceSettings"] = Grants(web: "SELECT, INSERT, UPDATE", gateway: Read, signer: Read, workers: Read),
+
             // Key material: full access for the signer only; everyone else reads the public columns.
             ["InstanceSigningKeys"] = Grants(signer: "SELECT, INSERT, UPDATE"),
             ["CertificateAuthorities"] = Grants(signer: "SELECT, INSERT, UPDATE"),

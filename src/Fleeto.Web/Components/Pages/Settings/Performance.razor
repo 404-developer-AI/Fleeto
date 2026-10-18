@@ -1,0 +1,588 @@
+@page "/settings/performance"
+@attribute [RequirePermission(Permissions.PerformanceView)]
+@inherits FleetoPageBase
+@using Fleeto.Core.Performance
+@using Fleeto.Infrastructure.Performance
+@using System.Globalization
+@inject PerformanceService PerformanceSvc
+@inject IJSRuntime JS
+
+<PageTitle>Performance - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Performance</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            Where Fleeto itself is slow and why: the VPS, the database, our own code, the workers and the agent channel. It measures Fleeto,
+            never the endpoints it manages. Export the report and give it to Claude Code in the Fleeto repository.
+        </MudText>
+    </div>
+    <div class="d-flex gap-2 flex-wrap align-center">
+        <MudSelect T="PerfPeriod" Value="_period" ValueChanged="OnPeriodChangedAsync" Dense="true" Variant="Variant.Outlined" Label="Period"
+                   Style="min-width:140px" Margin="Margin.Dense">
+            @foreach (var period in Enum.GetValues<PerfPeriod>())
+            {
+                <MudSelectItem Value="period">@PerformanceService.Label(period)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.ContentCopy" OnClick="CopyAsync" Disabled="_busy">Copy report</MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Download" OnClick="DownloadAsync" Disabled="_busy">Download report</MudButton>
+        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Refresh" OnClick="ReloadAsync">Refresh</MudButton>
+    </div>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_view is { } view)
+    {
+        <div class="d-flex align-center gap-3 flex-wrap mb-3">
+            <StatusChip Text="@($"Level {view.Settings.Level}")" Kind="@(view.Settings.IsOn ? StatusKind.Active : StatusKind.Neutral)" />
+            <MudText Typo="Typo.caption" Class="muted">
+                @Utc(view.From) to @Utc(view.To) · monitor overhead @PerformanceRules.Pct(Overhead(view.Data)) of the CPU
+            </MudText>
+            <MudTooltip Text="The time the monitor itself spent measuring and writing, as a share of the CPU of the components. On level Basic it stays below 1%.">
+                <MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" Class="muted" />
+            </MudTooltip>
+        </div>
+
+        <MudTabs Elevation="0" Class="fl-tabs" MinimumTabWidth="0" ActivePanelIndex="_tab" ActivePanelIndexChanged="OnTabChangedAsync">
+            <MudTabPanel Text="Overview" Icon="@Icons.Material.Outlined.Insights">
+                @Overview(view)
+            </MudTabPanel>
+            <MudTabPanel Text="Settings" Icon="@Icons.Material.Outlined.Tune">
+                @SettingsTab(view)
+            </MudTabPanel>
+        </MudTabs>
+    }
+    else
+    {
+        <EmptyState Icon="@Icons.Material.Outlined.Speed" Title="Performance is for admins" Text="Ask an admin to look at it." />
+    }
+</LoadState>
+
+@code {
+    private const string PeriodPreference = "fleeto.performance.period";
+    private const string TabPreference = "fleeto.performance.tab";
+
+    private PerformanceView? _view;
+    private PerfPeriod _period = PerfPeriod.Hour1;
+    private int _tab;
+    private bool _busy;
+    private SettingsForm? _form;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        // The chosen period and tab are remembered per browser.
+        var period = await JS.InvokeAsync<string?>("fleeto.getPreference", PeriodPreference);
+        var tab = await JS.InvokeAsync<string?>("fleeto.getPreference", TabPreference);
+        var changed = false;
+        if (Enum.TryParse<PerfPeriod>(period, out var stored) && stored != _period)
+        {
+            _period = stored;
+            changed = true;
+        }
+
+        if (int.TryParse(tab, NumberStyles.None, CultureInfo.InvariantCulture, out var storedTab) && storedTab is 0 or 1 && storedTab != _tab)
+        {
+            _tab = storedTab;
+            changed = true;
+        }
+
+        if (changed)
+        {
+            await ReloadAsync();
+            StateHasChanged();
+        }
+    }
+
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        _view = await PerformanceSvc.GetAsync(caller, _period);
+        _form = _view is null ? null : SettingsForm.From(_view.Settings);
+    });
+
+    private async Task OnPeriodChangedAsync(PerfPeriod period)
+    {
+        _period = period;
+        await JS.InvokeVoidAsync("fleeto.setPreference", PeriodPreference, period.ToString());
+        await ReloadAsync();
+    }
+
+    private async Task OnTabChangedAsync(int tab)
+    {
+        _tab = tab;
+        await JS.InvokeVoidAsync("fleeto.setPreference", TabPreference, tab.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private async Task CopyAsync()
+    {
+        if (await ExportAsync("copied") is { } report)
+        {
+            await JS.InvokeVoidAsync("fleeto.copyText", report);
+            Snackbar.Add("The report was copied. It holds no ids, client codes, host names or values.", Severity.Success);
+        }
+    }
+
+    private async Task DownloadAsync()
+    {
+        if (await ExportAsync("downloaded") is { } report)
+        {
+            var name = $"fleeto-performance-{DateTime.UtcNow:yyyyMMdd-HHmm}.md";
+            await JS.InvokeVoidAsync("fleeto.saveFile", name, "text/markdown", Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(report)));
+        }
+    }
+
+    private async Task<string?> ExportAsync(string how)
+    {
+        _busy = true;
+        try
+        {
+            var result = await RunForValueAsync(caller => PerformanceSvc.ExportMarkdownAsync(caller, _period, how), null);
+            return result?.Value;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_form is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            if (await RunAsync(caller => PerformanceSvc.SaveSettingsAsync(caller, _form.ToSettings()),
+                    "The settings were saved. Every component uses them within 30 seconds."))
+            {
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static double Overhead(PerformanceDataset data)
+    {
+        var minutes = data.Runtime.Sum(r => (double)r.Minutes * Math.Max(1, r.Cores));
+        return minutes <= 0 ? 0 : data.Runtime.Sum(r => r.OverheadMs) / (minutes * 60_000) * 100;
+    }
+
+    private static string Utc(DateTime time) => time.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
+
+    private static StatusKind ScoreKind(int? score) => score switch
+    {
+        null => StatusKind.Neutral,
+        >= 85 => StatusKind.Ok,
+        >= 60 => StatusKind.Warning,
+        _ => StatusKind.Error
+    };
+
+    private static StatusKind SeverityKind(PerfSeverity severity) => severity switch
+    {
+        PerfSeverity.Critical => StatusKind.Error,
+        PerfSeverity.Warning => StatusKind.Warning,
+        _ => StatusKind.Neutral
+    };
+
+    private RenderFragment Info(string text) => @<MudTooltip Text="@text"><MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" Class="muted ml-1" /></MudTooltip>;
+
+    private RenderFragment Overview(PerformanceView view) => @<div>
+        @if (!view.Settings.IsOn)
+        {
+            <MudAlert Severity="Severity.Info" Class="mb-3">
+                The performance monitor is off, so nothing new is measured. @(view.CanManage ? "Set the level to Basic in the Settings tab." : "Ask an admin to switch it on.")
+            </MudAlert>
+        }
+
+        <div class="health-grid mb-4">
+            @foreach (var score in view.Scores.Where(s => s.Info.Measured))
+            {
+                <div class="health-card fl-panel">
+                    <div class="health-card-head">
+                        <span>@score.Info.Label</span>
+                        <span style="margin-left:auto">
+                            <StatusChip Text="@(score.Score is { } value ? value.ToString(CultureInfo.InvariantCulture) : "No data")" Kind="@ScoreKind(score.Score)" />
+                        </span>
+                    </div>
+                    <div style="font-size:0.875rem">@score.Conclusion</div>
+                    <div class="muted" style="font-size:0.75rem">@score.Info.Question</div>
+                </div>
+            }
+        </div>
+
+        <MudText Typo="Typo.h6" Class="section-title mb-2">
+            Top bottlenecks
+            @Info("Findings ranked by the extra waiting they caused in the period, so a small delay that happens very often comes before a long one that happened twice.")
+        </MudText>
+        @if (view.Findings.Count == 0)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.CheckCircle" Title="No bottleneck found"
+                        Text="No rule found a problem in this period. A short period with little traffic may have too few samples; choose a longer one." />
+        }
+        else
+        {
+            <MudExpansionPanels Elevation="0" Class="mb-4" MultiExpansion="true">
+                @foreach (var finding in view.Findings.Take(PerformanceRules.MaxFindings))
+                {
+                    <MudExpansionPanel>
+                        <TitleContent>
+                            <div class="d-flex align-center gap-2 flex-wrap">
+                                <StatusChip Text="@finding.Severity.ToString()" Kind="@SeverityKind(finding.Severity)" />
+                                <span class="muted" style="font-size:0.75rem">@PerfCategories.Of(finding.Category).Label</span>
+                                <strong>@finding.Title</strong>
+                                @if (finding.ImpactMs is { } impact)
+                                {
+                                    <span class="muted" style="font-size:0.75rem">· @PerformanceRules.Ms(impact) extra waiting</span>
+                                }
+                            </div>
+                        </TitleContent>
+                        <ChildContent>
+                            <MudText Typo="Typo.body2" Class="mb-2">@finding.Explanation</MudText>
+                            <MudSimpleTable Dense="true" Elevation="0" Class="mb-2">
+                                <tbody>
+                                    @foreach (var evidence in finding.Evidence)
+                                    {
+                                        <tr><td class="muted" style="width:40%">@evidence.Label</td><td>@evidence.Value</td></tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+                            <MudText Typo="Typo.body2"><strong>Likely cause:</strong> @finding.Cause</MudText>
+                            <MudText Typo="Typo.body2"><strong>What to change:</strong> @finding.Action</MudText>
+                            @foreach (var reference in finding.CodeRefs)
+                            {
+                                <MudText Typo="Typo.body2" Class="mt-1"><strong>Where to look:</strong> @reference.Kind <span class="mono">@reference.Value</span></MudText>
+                                @if (reference.Detail is { Length: > 0 } detail)
+                                {
+                                    <pre class="mono perf-sql">@PerfRedactor.Default.Sql(detail)</pre>
+                                }
+                            }
+                        </ChildContent>
+                    </MudExpansionPanel>
+                }
+            </MudExpansionPanels>
+        }
+
+        <MudText Typo="Typo.h6" Class="section-title mb-2">
+            Timeline
+            @Info("Page interactions and API requests per interval: the line is the 95th percentile, the band runs from the median to the 99th percentile. A red mark is an interval with errors.")
+        </MudText>
+        <div class="health-trends mb-4">
+            <div class="fl-panel pa-3">
+                <MudText Typo="Typo.subtitle2" Class="mb-1">Page interactions</MudText>
+                @Chart(view, view.Timeline.Select(p => (p.Time, p.Interactions)).ToList(), "Page interactions", view.Settings.Threshold(PerfThresholds.SlowInteraction))
+            </div>
+            <div class="fl-panel pa-3">
+                <MudText Typo="Typo.subtitle2" Class="mb-1">API and sign-in requests</MudText>
+                @Chart(view, view.Timeline.Select(p => (p.Time, p.Requests)).ToList(), "Requests", view.Settings.Threshold(PerfThresholds.SlowRequest))
+            </div>
+        </div>
+
+        <MudGrid Spacing="3">
+            <MudItem xs="12" lg="6">
+                @Flows("Page interactions", "The pages that cost users the most time, by route template. Load is the page loading its data; event a click or other event on it.",
+                    view.Data.Of(PerfKind.Interaction).ToList(), "Page")
+            </MudItem>
+            <MudItem xs="12" lg="6">
+                @Flows("Worker loops", "The loops of the workers by the time they spent, with the share of it in the database.",
+                    view.Data.Of(PerfKind.WorkerRun).ToList(), "Loop")
+            </MudItem>
+            <MudItem xs="12" lg="6">
+                @Flows("API and sign-in requests", "Requests outside the pages: the public API, sign-in and downloads, by route template.",
+                    view.Data.Of(PerfKind.Http).ToList(), "Route")
+            </MudItem>
+            <MudItem xs="12" lg="6">
+                @Flows("Agent messages", "Messages from agents and watchdogs: the time from receiving one to storing and acknowledging it.",
+                    view.Data.Of(PerfKind.AgentMessage).ToList(), "Message")
+            </MudItem>
+            <MudItem xs="12" lg="6">
+                @Flows("Database time by source", "Database commands as the components measured them, by the page, loop or message that sent them.",
+                    view.Data.Of(PerfKind.Db).ToList(), "Source")
+            </MudItem>
+            <MudItem xs="12" lg="6">
+                @Flows("External calls", "Outbound HTTP calls of the workers per host: Action1, Microsoft, webhooks and backup storage.",
+                    view.Data.Of(PerfKind.External).ToList(), "Host")
+            </MudItem>
+        </MudGrid>
+
+        <MudText Typo="Typo.h6" Class="section-title mt-4 mb-2">
+            Runtime per component
+            @Info("CPU is a share of the whole VPS. GC pause is the time the process stood still for garbage collection. The queue is work waiting for a thread at the peak of a minute.")
+        </MudText>
+        @if (view.Data.Runtime.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted">No runtime figures in this period.</MudText>
+        }
+        else
+        {
+            <div class="fl-panel pa-2 mb-4" style="overflow-x:auto">
+                <MudSimpleTable Dense="true" Elevation="0">
+                    <thead>
+                        <tr><th>Component</th><th>Version</th><th style="text-align:right">CPU avg</th><th style="text-align:right">CPU max</th>
+                            <th style="text-align:right">Memory</th><th style="text-align:right">GC pause</th><th style="text-align:right">Queue</th>
+                            <th style="text-align:right">Pool busy</th><th style="text-align:right">Connections</th><th style="text-align:right">Exceptions</th>
+                            <th style="text-align:right">Monitor</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in view.Data.Runtime)
+                        {
+                            <tr>
+                                <td>@r.Component</td>
+                                <td class="mono">@r.Version</td>
+                                <td style="text-align:right">@PerformanceRules.Pct(r.CpuPercentAverage)</td>
+                                <td style="text-align:right">@PerformanceRules.Pct(r.CpuPercentMax)</td>
+                                <td style="text-align:right">@PerformanceRules.Bytes(r.WorkingSetMaxBytes)</td>
+                                <td style="text-align:right">@PerformanceRules.Pct(r.GcPausePercent)</td>
+                                <td style="text-align:right">@r.ThreadPoolQueueMax</td>
+                                <td style="text-align:right">@r.DbPoolBusyMax@(r.DbPoolMax > 0 ? $" of {r.DbPoolMax}" : "")</td>
+                                <td style="text-align:right">@r.ConnectionsMax</td>
+                                <td style="text-align:right">@PerformanceRules.Count(r.Exceptions)</td>
+                                <td style="text-align:right">@PerformanceRules.Ms(r.OverheadMs)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+
+        @if (view.Data.Host is { } host)
+        {
+            <MudText Typo="Typo.h6" Class="section-title mb-2">
+                VPS
+                @Info("Measured by the workers every minute. Every instance on this VPS sees the same host. Steal is CPU the hypervisor gave to other guests on its host.")
+            </MudText>
+            <div class="health-grid mb-4">
+                @HostCard("CPU", $"{PerformanceRules.Pct(host.CpuAverage)} average · {PerformanceRules.Pct(host.CpuP95)} p95 · {host.Cores} cores")
+                @HostCard("Steal and iowait", $"{PerformanceRules.Pct(host.StealAverage)} steal · {PerformanceRules.Pct(host.IowaitAverage)} iowait")
+                @HostCard("Memory", host.MemoryTotalBytes is { } total ? $"lowest {PerformanceRules.Bytes(host.MemoryAvailableMinBytes ?? 0)} available of {PerformanceRules.Bytes(total)}" : "–")
+                @HostCard("Disk", $"{PerformanceRules.Ms(host.DiskLatencyAverageMs)} per operation · {PerformanceRules.Pct(host.DiskUtilizationMaxPercent)} busy at peak")
+            </div>
+        }
+
+        @if (view.Data.Markers.Count > 0)
+        {
+            <MudText Typo="Typo.h6" Class="section-title mb-2">Markers</MudText>
+            <div class="fl-panel pa-2 mb-4">
+                <MudSimpleTable Dense="true" Elevation="0">
+                    <tbody>
+                        @foreach (var marker in view.Data.Markers)
+                        {
+                            <tr><td style="white-space:nowrap">@Utc(marker.Time)</td><td>@marker.Kind</td><td>@marker.Label</td></tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+
+        <MudText Typo="Typo.h6" Class="section-title mb-2">Not measured in this period</MudText>
+        <ul class="muted" style="font-size:0.8125rem;padding-left:18px">
+            @foreach (var line in view.Data.Missing)
+            {
+                <li>@line</li>
+            }
+        </ul>
+    </div>;
+
+    private static RenderFragment HostCard(string name, string value) => @<div class="health-card fl-panel">
+        <div class="health-card-head"><span>@name</span></div>
+        <div class="muted" style="font-size:0.8125rem">@value</div>
+    </div>;
+
+    private RenderFragment Flows(string title, string info, IReadOnlyList<PerfSeries> flows, string keyLabel) => @<div>
+        <MudText Typo="Typo.h6" Class="section-title mb-2">@title @Info(info)</MudText>
+        @if (flows.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted">None in this period.</MudText>
+        }
+        else
+        {
+            <div class="fl-panel pa-2" style="overflow-x:auto">
+                <MudSimpleTable Dense="true" Elevation="0">
+                    <thead>
+                        <tr><th>@keyLabel</th><th style="text-align:right">Count</th><th style="text-align:right">p50</th><th style="text-align:right">p95</th>
+                            <th style="text-align:right">Total</th><th style="text-align:right">DB</th><th style="text-align:right">Errors</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var flow in flows.OrderByDescending(f => f.Sum).Take(10))
+                        {
+                            <tr>
+                                <td class="mono" style="max-width:320px;overflow-wrap:anywhere">@flow.Key@(flow.SubKey.Length > 0 ? $" · {flow.SubKey}" : "")</td>
+                                <td style="text-align:right">@PerformanceRules.Count(flow.Count)</td>
+                                <td style="text-align:right">@PerformanceRules.Ms(flow.P50)</td>
+                                <td style="text-align:right">@PerformanceRules.Ms(flow.P95)</td>
+                                <td style="text-align:right">@PerformanceRules.Ms(flow.Sum)</td>
+                                <td style="text-align:right">@(flow.Kind == PerfKind.Db ? "–" : PerformanceRules.Pct(flow.DbShare * 100))</td>
+                                <td style="text-align:right">@PerformanceRules.Count(flow.Errors)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+    </div>;
+
+    private RenderFragment Chart(PerformanceView view, IReadOnlyList<(DateTime Time, PerfTimelineFlow Flow)> points, string name, double threshold)
+    {
+        var history = new CheckHistoryView(Guid.Empty, name, CheckType.CpuUsage, string.Empty, [], new Dictionary<string, string>(), ThresholdKind.HigherIsWorse,
+            "ms", threshold, null, HistoryRange.Day, view.From, view.To, view.Bucket,
+            points.Select(p => p.Flow.Count == 0
+                    ? new HistoryPoint(p.Time, null, null, null, 0, 0, 0)
+                    : new HistoryPoint(p.Time, p.Flow.P50, p.Flow.P95, p.Flow.P99, (int)Math.Min(int.MaxValue, p.Flow.Count),
+                        (int)Math.Min(int.MaxValue, p.Flow.Errors), 0))
+                .ToList());
+        return points.Any(p => p.Flow.Count > 0)
+            ? @<HistoryChart View="history" />
+            : @<MudText Typo="Typo.body2" Class="muted">None in this period.</MudText>;
+    }
+
+    private RenderFragment SettingsTab(PerformanceView view) => @<div>
+        @if (_form is { } form)
+        {
+            @if (!view.CanManage)
+            {
+                <MudAlert Severity="Severity.Info" Class="mb-3">You can see these settings; changing them needs the permission Manage performance monitoring.</MudAlert>
+            }
+
+            <MudGrid Spacing="3">
+                <MudItem xs="12" md="6">
+                    <div class="fl-panel pa-4">
+                        <MudText Typo="Typo.h6" Class="section-title mb-2">Level</MudText>
+                        <MudRadioGroup T="PerfLevel" @bind-Value="form.Level" Disabled="!view.CanManage">
+                            <MudRadio Value="PerfLevel.Basic" Color="Color.Primary">Basic: aggregates per minute of every layer, below 1% overhead</MudRadio>
+                            <MudRadio Value="PerfLevel.Off" Color="Color.Primary">Off: nothing is measured</MudRadio>
+                        </MudRadioGroup>
+
+                        <MudText Typo="Typo.h6" Class="section-title mt-4 mb-2">Collectors</MudText>
+                        @foreach (var collector in PerfCollectors.All)
+                        {
+                            <div class="mb-1">
+                                <MudSwitch T="bool" Value="@(!form.Disabled.Contains(collector.Collector))" ValueChanged="@(on => form.Toggle(collector.Collector, on))"
+                                           Color="Color.Primary" Disabled="!view.CanManage" Label="@collector.Label" />
+                                <div class="muted" style="font-size:0.75rem;margin-left:52px;margin-top:-6px">@collector.Description</div>
+                            </div>
+                        }
+                    </div>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <div class="fl-panel pa-4">
+                        <MudText Typo="Typo.h6" Class="section-title mb-2">Collection and retention</MudText>
+                        <MudNumericField T="int" @bind-Value="form.SlowEventMs" Label="Slow event (ms)" Min="100" Max="600000" Disabled="!view.CanManage" Class="mb-2"
+                                         HelperText="An interaction, request or worker run slower than this is kept on its own, with its split." />
+                        <MudNumericField T="int" @bind-Value="form.StatementSnapshotMinutes" Label="Statement statistics every (minutes)" Min="5" Max="60"
+                                         Disabled="!view.CanManage" Class="mb-2" />
+                        <MudNumericField T="int" @bind-Value="form.TableSnapshotMinutes" Label="Table statistics every (minutes)" Min="15" Max="1440"
+                                         Disabled="!view.CanManage" Class="mb-2" />
+                        <MudNumericField T="int" @bind-Value="form.MinuteRetentionDays" Label="Keep minute data (days)" Min="1" Max="@PerfRetention.MaxMinuteDays"
+                                         Disabled="!view.CanManage" Class="mb-2" />
+                        <MudNumericField T="int" @bind-Value="form.HourRetentionDays" Label="Keep hour data (days)" Min="1" Max="400" Disabled="!view.CanManage" Class="mb-2" />
+                        <MudNumericField T="int" @bind-Value="form.EventRetentionDays" Label="Keep slow events (days)" Min="1" Max="90" Disabled="!view.CanManage" Class="mb-2" />
+                        <MudNumericField T="int" @bind-Value="form.SnapshotRetentionDays" Label="Keep database snapshots (days)" Min="1" Max="90"
+                                         Disabled="!view.CanManage" Class="mb-2" />
+                    </div>
+                </MudItem>
+                <MudItem xs="12">
+                    <div class="fl-panel pa-4">
+                        <MudText Typo="Typo.h6" Class="section-title mb-2">Thresholds of the findings</MudText>
+                        @foreach (var group in PerfThresholds.All.GroupBy(t => t.Category))
+                        {
+                            <MudText Typo="Typo.subtitle2" Class="mt-3 mb-1">@PerfCategories.Of(group.Key).Label</MudText>
+                            <div class="perf-thresholds">
+                                @foreach (var threshold in group)
+                                {
+                                    <MudNumericField T="double" Value="@form.Thresholds[threshold.Key]" ValueChanged="@(value => form.Thresholds[threshold.Key] = value)"
+                                                     Label="@($"{threshold.Label} ({threshold.Unit})")" Min="threshold.Min" Max="threshold.Max" Disabled="!view.CanManage"
+                                                     HelperText="@($"{threshold.Description} Default {threshold.Default.ToString("0.##", CultureInfo.InvariantCulture)}.")" />
+                                }
+                            </div>
+                        }
+                    </div>
+                </MudItem>
+            </MudGrid>
+
+            @if (view.CanManage)
+            {
+                <div class="d-flex justify-end mt-3">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="_busy">Save settings</MudButton>
+                </div>
+            }
+        }
+    </div>;
+
+    /// <summary>The settings as the form edits them; every threshold has a value, its default when none is stored.</summary>
+    private sealed class SettingsForm
+    {
+        public PerfLevel Level { get; set; }
+        public HashSet<PerfCollector> Disabled { get; } = [];
+        public int SlowEventMs { get; set; }
+        public int StatementSnapshotMinutes { get; set; }
+        public int TableSnapshotMinutes { get; set; }
+        public int MinuteRetentionDays { get; set; }
+        public int HourRetentionDays { get; set; }
+        public int EventRetentionDays { get; set; }
+        public int SnapshotRetentionDays { get; set; }
+        public Dictionary<string, double> Thresholds { get; } = new(StringComparer.Ordinal);
+
+        public void Toggle(PerfCollector collector, bool on)
+        {
+            if (on)
+            {
+                Disabled.Remove(collector);
+            }
+            else
+            {
+                Disabled.Add(collector);
+            }
+        }
+
+        public static SettingsForm From(PerformanceSettings settings)
+        {
+            var form = new SettingsForm
+            {
+                Level = settings.Level,
+                SlowEventMs = settings.SlowEventMs,
+                StatementSnapshotMinutes = settings.StatementSnapshotMinutes,
+                TableSnapshotMinutes = settings.TableSnapshotMinutes,
+                MinuteRetentionDays = settings.MinuteRetentionDays,
+                HourRetentionDays = settings.HourRetentionDays,
+                EventRetentionDays = settings.EventRetentionDays,
+                SnapshotRetentionDays = settings.SnapshotRetentionDays
+            };
+            form.Disabled.UnionWith(settings.DisabledCollectors);
+            foreach (var threshold in PerfThresholds.All)
+            {
+                form.Thresholds[threshold.Key] = settings.Threshold(threshold.Key);
+            }
+
+            return form;
+        }
+
+        public PerformanceSettings ToSettings() => new()
+        {
+            Level = Level,
+            DisabledCollectors = Disabled.ToList(),
+            SlowEventMs = SlowEventMs,
+            StatementSnapshotMinutes = StatementSnapshotMinutes,
+            TableSnapshotMinutes = TableSnapshotMinutes,
+            MinuteRetentionDays = MinuteRetentionDays,
+            HourRetentionDays = HourRetentionDays,
+            EventRetentionDays = EventRetentionDays,
+            SnapshotRetentionDays = SnapshotRetentionDays,
+            Thresholds = new Dictionary<string, double>(Thresholds, StringComparer.Ordinal)
+        };
+    }
+}

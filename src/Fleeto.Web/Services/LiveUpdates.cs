@@ -1,4 +1,6 @@
 using Fleeto.Core.Interfaces;
+using Fleeto.Core.Performance;
+using Fleeto.Infrastructure.Performance;
 
 namespace Fleeto.Web.Services;
 
@@ -16,15 +18,24 @@ public sealed class LiveUpdates : IDisposable
     public LiveUpdates(INotificationBus bus, ILogger<LiveUpdates> logger)
     {
         _logger = logger;
-        _subscriptions.Add(bus.Subscribe(NotificationChannels.EndpointStatus, (payload, _) => Raise(EndpointStatusChanged, payload)));
-        _subscriptions.Add(bus.Subscribe(NotificationChannels.Alerts, (payload, _) => Raise(AlertChanged, payload)));
-        _subscriptions.Add(bus.Subscribe(NotificationChannels.CheckResults, (payload, _) => Raise(CheckResultsChanged, payload)));
-        _subscriptions.Add(bus.Subscribe(NotificationChannels.Jobs, (payload, _) => Raise(JobsChanged, payload)));
-        _subscriptions.Add(bus.Subscribe(NotificationChannels.PatchDeployments, (payload, _) => Raise(PatchDeploymentsChanged, payload)));
-        _subscriptions.Add(bus.Subscribe(NotificationChannels.StorageScans, (payload, _) => Raise(StorageScansChanged, payload)));
-        _subscriptions.Add(bus.Subscribe(NotificationChannels.PatchRequests, (payload, _) => Raise(PatchRequestsChanged, payload)));
-        _subscriptions.Add(bus.Subscribe(NotificationChannels.UserAccess, (payload, _) => Raise(UserAccessChanged, payload)));
-        _subscriptions.Add(bus.Subscribe(NotificationChannels.Tasks, (payload, _) => Raise(TasksChanged, payload)));
+        _subscriptions.Add(bus.Subscribe(NotificationChannels.EndpointStatus,
+            (payload, _) => Raise(EndpointStatusChanged, nameof(EndpointStatusChanged), payload)));
+        _subscriptions.Add(bus.Subscribe(NotificationChannels.Alerts,
+            (payload, _) => Raise(AlertChanged, nameof(AlertChanged), payload)));
+        _subscriptions.Add(bus.Subscribe(NotificationChannels.CheckResults,
+            (payload, _) => Raise(CheckResultsChanged, nameof(CheckResultsChanged), payload)));
+        _subscriptions.Add(bus.Subscribe(NotificationChannels.Jobs,
+            (payload, _) => Raise(JobsChanged, nameof(JobsChanged), payload)));
+        _subscriptions.Add(bus.Subscribe(NotificationChannels.PatchDeployments,
+            (payload, _) => Raise(PatchDeploymentsChanged, nameof(PatchDeploymentsChanged), payload)));
+        _subscriptions.Add(bus.Subscribe(NotificationChannels.StorageScans,
+            (payload, _) => Raise(StorageScansChanged, nameof(StorageScansChanged), payload)));
+        _subscriptions.Add(bus.Subscribe(NotificationChannels.PatchRequests,
+            (payload, _) => Raise(PatchRequestsChanged, nameof(PatchRequestsChanged), payload)));
+        _subscriptions.Add(bus.Subscribe(NotificationChannels.UserAccess,
+            (payload, _) => Raise(UserAccessChanged, nameof(UserAccessChanged), payload)));
+        _subscriptions.Add(bus.Subscribe(NotificationChannels.Tasks,
+            (payload, _) => Raise(TasksChanged, nameof(TasksChanged), payload)));
     }
 
     /// <summary>Payload: endpoint id, or <see cref="Guid.Empty"/> after a resync.</summary>
@@ -63,15 +74,19 @@ public sealed class LiveUpdates : IDisposable
     /// <summary>Payload: the id of a task that changed or got a run (0.6.0), or <see cref="Guid.Empty"/> after a resync.</summary>
     public event Action<Guid>? TasksChanged;
 
-    private Task Raise(Action<Guid>? handlers, string payload)
+    private Task Raise(Action<Guid>? handlers, string kind, string payload)
     {
         if (handlers is null)
         {
             return Task.CompletedTask;
         }
 
+        // The performance monitor (0.7.0): every live update and how many open pages it reaches, by kind.
+        var subscribers = handlers.GetInvocationList();
+        Perf.Recorder.Record(PerfCollector.LiveUpdates, PerfKind.Broadcast, kind, string.Empty, subscribers.Length);
+
         var id = payload == NotificationBusEvents.Resync ? Guid.Empty : Guid.TryParse(payload, out var parsed) ? parsed : Guid.Empty;
-        foreach (var handler in handlers.GetInvocationList().Cast<Action<Guid>>())
+        foreach (var handler in subscribers.Cast<Action<Guid>>())
         {
             try
             {

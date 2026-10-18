@@ -1355,14 +1355,16 @@ run_migrator() {
     return 0
 }
 
-# ensure_query_statistics <instance>: creates pg_stat_statements for the diagnostics of instance health (0.6.0) and lets the
-# workers read the statements of every role. The compose command loads the library; both statements need the superuser, which
-# only exists over the local socket. Idempotent. A failure is a warning: instance health then says the statistics are missing.
+# ensure_query_statistics <instance>: creates pg_stat_statements for the diagnostics of instance health (0.6.0) and the
+# performance monitor (0.7.0), and gives the workers pg_monitor: the statements of every role, the statistics of every table and
+# the settings that matter for performance. Monitoring rights only, no data. The compose command loads the library; both
+# statements need the superuser, which only exists over the local socket. Idempotent. A failure is a warning: instance health
+# and the performance monitor then say the statistics are missing.
 ensure_query_statistics() {
     local instance="$1"
     if dc_instance "$instance" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username=postgres --dbname="$DB_NAME" >/dev/null 2>&1 <<'SQL'
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
-GRANT pg_read_all_stats TO fleeto_workers;
+GRANT pg_monitor TO fleeto_workers;
 SQL
     then
         ok "query statistics enabled"

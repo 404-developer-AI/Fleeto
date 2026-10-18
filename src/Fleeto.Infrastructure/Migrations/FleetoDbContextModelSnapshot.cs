@@ -4134,6 +4134,531 @@ namespace Fleeto.Infrastructure.Migrations
                     b.ToTable("PatchRequests");
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.PerfDatabaseSnapshot", b =>
+                {
+                    b.Property<DateTime>("Time")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("BlocksHit")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("BlocksRead")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("Commits")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Connections")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("DatabaseBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("Deadlocks")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("MaxConnections")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("Rollbacks")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("StatementsProblem")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("StatisticsResetAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("TempBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("TempFiles")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("WraparoundAge")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Time");
+
+                    b.ToTable("PerfDatabaseSnapshots");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.PerfEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Component")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("DbCount")
+                        .HasColumnType("integer");
+
+                    b.Property<double>("DbMs")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("DurationMs")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("ExternalMs")
+                        .HasColumnType("double precision");
+
+                    b.Property<bool>("Failed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("SubKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("Time")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Time");
+
+                    b.ToTable("PerfEvents");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.PerfHostMinute", b =>
+                {
+                    b.Property<DateTime>("Minute")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("Cores")
+                        .HasColumnType("integer");
+
+                    b.Property<double?>("CpuPercent")
+                        .HasColumnType("double precision");
+
+                    b.Property<long?>("DiskFreeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<double?>("DiskLatencyMs")
+                        .HasColumnType("double precision");
+
+                    b.Property<long?>("DiskTotalBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<double?>("DiskUtilizationPercent")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("IowaitPercent")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("Load1")
+                        .HasColumnType("double precision");
+
+                    b.Property<long?>("MemoryAvailableBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("MemoryTotalBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<double?>("StealPercent")
+                        .HasColumnType("double precision");
+
+                    b.Property<long?>("SwapFreeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("SwapTotalBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<double?>("ThrottledPercent")
+                        .HasColumnType("double precision");
+
+                    b.HasKey("Minute");
+
+                    b.ToTable("PerfHostMinutes");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.PerfHour", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("Bytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Component")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<long>("Count")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("DbCount")
+                        .HasColumnType("bigint");
+
+                    b.Property<double>("DbMs")
+                        .HasColumnType("double precision");
+
+                    b.Property<long>("Errors")
+                        .HasColumnType("bigint");
+
+                    b.Property<double>("ExternalMs")
+                        .HasColumnType("double precision");
+
+                    b.PrimitiveCollection<int[]>("Histogram")
+                        .IsRequired()
+                        .HasColumnType("integer[]");
+
+                    b.Property<DateTime>("Hour")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<double>("Max")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("Min")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("PeakCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SubKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<double>("Sum")
+                        .HasColumnType("double precision");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Hour", "Kind");
+
+                    b.ToTable("PerfHours");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.PerfMarker", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("Time")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Time");
+
+                    b.ToTable("PerfMarkers");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.PerfMinute", b =>
+                {
+                    b.Property<DateTime>("Minute")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("Bytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Component")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("Count")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("DbCount")
+                        .HasColumnType("integer");
+
+                    b.Property<double>("DbMs")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("Errors")
+                        .HasColumnType("integer");
+
+                    b.Property<double>("ExternalMs")
+                        .HasColumnType("double precision");
+
+                    b.PrimitiveCollection<int[]>("Histogram")
+                        .IsRequired()
+                        .HasColumnType("integer[]");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<double>("Max")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("Min")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("SubKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<double>("Sum")
+                        .HasColumnType("double precision");
+
+                    b.HasKey("Minute", "Id");
+
+                    b.HasIndex("Kind", "Minute");
+
+                    b.ToTable("PerfMinutes");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.PerfRuntimeMinute", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("AllocatedBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Component")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("Connections")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Cores")
+                        .HasColumnType("integer");
+
+                    b.Property<double>("CpuPercent")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("CpuPercentMax")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("DbPoolBusy")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("DbPoolIdle")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("DbPoolMax")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("DbPoolTimeouts")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Exceptions")
+                        .HasColumnType("integer");
+
+                    b.Property<double>("GcPauseMs")
+                        .HasColumnType("double precision");
+
+                    b.Property<long>("HeapBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Level")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<long>("LockContentions")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("Minute")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double>("OverheadMs")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("ThreadPoolQueue")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ThreadPoolThreads")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Version")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<long>("WorkingSetBytes")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Minute", "Component");
+
+                    b.ToTable("PerfRuntimeMinutes");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.PerfStatementSnapshot", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("Calls")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Query")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<long>("QueryId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("Rows")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("SharedBlocksHit")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("SharedBlocksRead")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("TempBlocksWritten")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("Time")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double>("TotalMs")
+                        .HasColumnType("double precision");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Time", "QueryId");
+
+                    b.ToTable("PerfStatementSnapshots");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.PerfTableSnapshot", b =>
+                {
+                    b.Property<DateTime>("Time")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Table")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<long>("Bytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Chunks")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Compressed")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("DeadRows")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("IndexScans")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("IsHypertable")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastAnalyze")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastVacuum")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("LiveRows")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("RetentionPolicy")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("Rows")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("SequentialRowsRead")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("SequentialScans")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Time", "Table");
+
+                    b.ToTable("PerfTableSnapshots");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.PerformanceSettingsRow", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Json")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PerformanceSettings", (string)null);
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.Policy", b =>
                 {
                     b.Property<Guid>("Id")

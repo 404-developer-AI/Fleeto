@@ -1,11 +1,13 @@
 using System.Collections.Concurrent;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
+using Fleeto.Core.Performance;
 using Fleeto.Gateway.Data;
 using Fleeto.Gateway.Diagnostics;
 using Fleeto.Gateway.Releases;
 using Fleeto.Gateway.Signing;
 using Fleeto.Gateway.Tls;
+using Fleeto.Infrastructure.Performance;
 using Fleeto.Infrastructure.Security;
 using Fleeto.Protocol;
 using Fleeto.Protocol.Agent.V1;
@@ -795,6 +797,12 @@ public sealed partial class AgentSessionManager : BackgroundService
                 }))
             {
                 _logger.LogInformation("Endpoint {EndpointId}: delivered job {JobId}", job.EndpointId, job.Id);
+                // The performance monitor (0.7.0): from the moment the job could be delivered, signed and the agent online, to now.
+                if (job.ReadyAt is { } ready)
+                {
+                    var from = ready > session.ConnectedAt ? ready : session.ConnectedAt;
+                    Perf.Recorder.Record(PerfCollector.AgentChannel, PerfKind.JobDispatch, job.Type, "delivered", Math.Max(0, (now - from).TotalMilliseconds));
+                }
             }
         }
     }

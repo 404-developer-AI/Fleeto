@@ -1,10 +1,12 @@
 using System.Buffers;
 using System.Net.WebSockets;
 using Fleeto.Core.Entities;
+using Fleeto.Core.Performance;
 using Fleeto.Gateway.Data;
 using Fleeto.Gateway.Diagnostics;
 using Fleeto.Gateway.Http;
 using Fleeto.Gateway.Tls;
+using Fleeto.Infrastructure.Performance;
 using Fleeto.Protocol;
 using Fleeto.Protocol.Agent.V1;
 using Google.Protobuf;
@@ -168,7 +170,7 @@ public sealed class AgentConnectionHandler
                     break;
                 }
 
-                await _manager.HandleAsync(session, message, session.Closed);
+                await HandleMeasuredAsync(session, message, buffer.LastMessageBytes);
             }
         }
         catch (InvalidProtocolBufferException)
@@ -190,6 +192,11 @@ public sealed class AgentConnectionHandler
         finally
         {
             buffer.Dispose();
+            if (accepted)
+            {
+                Perf.Recorder.Count(PerfCollector.AgentChannel, PerfKind.Connection, "closed");
+            }
+
             if (!session.IsClosing)
             {
                 session.Abort("The connection was closed.");
@@ -292,6 +299,37 @@ public sealed class AgentConnectionHandler
         }
     }
 
+    /// <summary>
+    /// Handles one message as the performance monitor measures it (0.7.0, PERFORMANCE.md §4.4): its type, its size and the time from
+    /// receiving it to its durable write and acknowledgement, with the database work in between. Keyed by message type, never by endpoint.
+    /// </summary>
+    private async Task HandleMeasuredAsync(AgentSession session, AgentMessage message, int bytes)
+    {
+        var recorder = Perf.Recorder;
+        if (!recorder.Collects(PerfCollector.AgentChannel))
+        {
+            await _manager.HandleAsync(session, message, session.Closed);
+            return;
+        }
+
+        var type = message.BodyCase.ToString();
+        var scope = PerfContext.Begin(PerfKeys.GatewaySource(type));
+        var failed = false;
+        try
+        {
+            await _manager.HandleAsync(session, message, session.Closed);
+        }
+        catch
+        {
+            failed = true;
+            throw;
+        }
+        finally
+        {
+            recorder.Complete(PerfCollector.AgentChannel, PerfKind.AgentMessage, type, session.IsWatchdog ? "watchdog" : "agent", scope, failed, bytes);
+        }
+    }
+
     private static async Task SendAsync(WebSocket webSocket, ServerMessage message, CancellationToken cancellationToken) =>
         await webSocket.SendAsync(message.ToByteArray(), WebSocketMessageType.Binary, true, cancellationToken);
 
@@ -335,6 +373,7 @@ public sealed class AgentConnectionHandler
         }
 
         var message = AgentMessage.Parser.ParseFrom(buffer.Array.AsSpan(0, count));
+        buffer.LastMessageBytes = count;
         if (buffer.Array.Length > InitialBufferBytes * 16)
         {
             buffer.Reset(InitialBufferBytes);
@@ -442,6 +481,9 @@ public sealed class AgentConnectionHandler
         }
 
         public byte[] Array { get; private set; }
+
+        /// <summary>The size of the last complete message, for the performance monitor.</summary>
+        public int LastMessageBytes { get; set; }
 
         public void Grow(int keep, int size)
         {

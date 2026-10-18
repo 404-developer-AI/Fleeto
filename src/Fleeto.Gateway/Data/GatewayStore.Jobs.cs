@@ -10,7 +10,9 @@ using JobStream = Fleeto.Protocol.Agent.V1.JobStream;
 namespace Fleeto.Gateway.Data;
 
 /// <summary>A signed job that may be delivered to its agent now.</summary>
-public sealed record DeliverableJob(Guid Id, Guid EndpointId, byte[] Payload, byte[] Signature, string KeyId);
+/// <param name="Type">The job type, for the performance monitor (0.7.0).</param>
+/// <param name="ReadyAt">When the job was signed, so it could be delivered from then on.</param>
+public sealed record DeliverableJob(Guid Id, Guid EndpointId, byte[] Payload, byte[] Signature, string KeyId, string Type = "", DateTime? ReadyAt = null);
 
 /// <summary>What storing a job message changed, for notifications.</summary>
 public enum JobUpdate
@@ -40,7 +42,7 @@ public sealed partial class GatewayStore
         }
 
         await using var command = _dataSource.CreateCommand("""
-            SELECT "Id", "EndpointId", "Payload", "Signature", "SigningKeyId" FROM "Jobs"
+            SELECT "Id", "EndpointId", "Payload", "Signature", "SigningKeyId", "Type", COALESCE("SignedAt", "CreatedAt") FROM "Jobs"
             WHERE "EndpointId" = ANY($1) AND "State" = 'Queued' AND "ValidUntil" > $2 AND "Payload" IS NOT NULL AND "Signature" IS NOT NULL
             ORDER BY "CreatedAt"
             LIMIT 500
@@ -51,7 +53,7 @@ public sealed partial class GatewayStore
         while (await reader.ReadAsync(cancellationToken))
         {
             jobs.Add(new DeliverableJob(reader.GetGuid(0), reader.GetGuid(1), reader.GetFieldValue<byte[]>(2), reader.GetFieldValue<byte[]>(3),
-                reader.IsDBNull(4) ? string.Empty : reader.GetString(4)));
+                reader.IsDBNull(4) ? string.Empty : reader.GetString(4), reader.GetString(5), reader.GetFieldValue<DateTime>(6)));
         }
 
         return jobs;

@@ -109,6 +109,8 @@ public static class Permissions
     public const string BackupsManage = "backups.manage";
     public const string AuditView = "audit.view";
     public const string InstanceHealthView = "instancehealth.view";
+    public const string PerformanceView = "performance.view";
+    public const string PerformanceManage = "performance.manage";
     public const string InstanceView = "instance.view";
 
     /// <summary>Every permission, in the order the role editor shows them.</summary>
@@ -202,6 +204,9 @@ public static class Permissions
         new(BackupsManage, AdministrationGroup, "Backups", "Configure backups and start one.", []),
         new(AuditView, AdministrationGroup, "Audit log", "Search the audit log of the instance.", []),
         new(InstanceHealthView, AdministrationGroup, "Instance health", "Instance health and its diagnostics report.", []),
+        new(PerformanceView, AdministrationGroup, "Performance", "The performance monitor of Fleeto itself and its export for Claude Code.", []),
+        new(PerformanceManage, AdministrationGroup, "Manage performance monitoring",
+            "Change the level, collectors, thresholds and retention of the performance monitor.", [PerformanceView]),
         new(InstanceView, AdministrationGroup, "Instance", "The instance identity: FQDN, CA and signing key.", []),
     ];
 

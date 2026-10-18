@@ -1,6 +1,12 @@
+using Fleeto.Core.Performance;
+using Fleeto.Infrastructure.Performance;
+
 namespace Fleeto.Gateway.Diagnostics;
 
-/// <summary>Lock-free counters for the periodic summary line. Cumulative; the summary logger computes deltas.</summary>
+/// <summary>
+/// Lock-free counters for the periodic summary line. Cumulative; the summary logger computes deltas. Connections are also counted
+/// by the performance monitor (0.7.0) per minute, for the reconnect storm rule.
+/// </summary>
 public sealed class GatewayMetrics
 {
     private long _batchesStored;
@@ -39,7 +45,21 @@ public sealed class GatewayMetrics
     public void EnrollmentCompleted() => Interlocked.Increment(ref _enrollmentsCompleted);
     public void EnrollmentRefused() => Interlocked.Increment(ref _enrollmentsRefused);
     public void EnrollmentFailed() => Interlocked.Increment(ref _enrollmentsFailed);
-    public void ConnectionAccepted() => Interlocked.Increment(ref _connectionsAccepted);
-    public void ConnectionRefused() => Interlocked.Increment(ref _connectionsRefused);
-    public void DuplicateIdentity() => Interlocked.Increment(ref _duplicateIdentities);
+    public void ConnectionAccepted()
+    {
+        Interlocked.Increment(ref _connectionsAccepted);
+        Perf.Recorder.Count(PerfCollector.AgentChannel, PerfKind.Connection, "accepted");
+    }
+
+    public void ConnectionRefused()
+    {
+        Interlocked.Increment(ref _connectionsRefused);
+        Perf.Recorder.Count(PerfCollector.AgentChannel, PerfKind.Connection, "refused");
+    }
+
+    public void DuplicateIdentity()
+    {
+        Interlocked.Increment(ref _duplicateIdentities);
+        Perf.Recorder.Count(PerfCollector.AgentChannel, PerfKind.Connection, "duplicate");
+    }
 }

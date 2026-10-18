@@ -4,6 +4,7 @@ using Fleeto.Infrastructure.Data;
 using Fleeto.Infrastructure.Hosting;
 using Fleeto.Infrastructure.Licensing;
 using Fleeto.Infrastructure.Notifications;
+using Fleeto.Infrastructure.Performance;
 using Fleeto.Infrastructure.Security;
 using Fleeto.Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
@@ -18,7 +19,7 @@ public static class DependencyInjection
 {
     /// <summary>
     /// Registers what every component shares: secrets, the database (as the component's own role), the
-    /// notification bus, audit, licensing and the domain services. Keys are registered only for the components
+    /// notification bus, audit, the performance monitor, licensing and the domain services. Keys are registered only for the components
     /// that may hold them: the root key for web, workers and the tool; the signer key for the signer and the tool.
     /// </summary>
     public static IServiceCollection AddFleetoInfrastructure(this IServiceCollection services, IConfiguration configuration,
@@ -46,6 +47,9 @@ public static class DependencyInjection
         services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<PostgresNotificationBus>());
 
         services.AddSingleton<IAuditLog, AuditLog>();
+
+        // The performance monitor (0.7.0): measures this component, writes once a minute.
+        services.AddFleetoPerformance(component);
 
         if (component.UsesRootKey())
         {

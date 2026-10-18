@@ -9,6 +9,7 @@ using Fleeto.Gateway.Signing;
 using Fleeto.Gateway.Tls;
 using Fleeto.Infrastructure;
 using Fleeto.Infrastructure.Hosting;
+using Fleeto.Infrastructure.Performance;
 using Fleeto.Protocol;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
@@ -96,6 +97,8 @@ public static class GatewayApplication
 
         var app = builder.Build();
         var ports = app.Services.GetRequiredService<IOptions<GatewayOptions>>().Value;
+        var sessions = app.Services.GetRequiredService<AgentSessionManager>();
+        app.Services.GetRequiredService<PerfRecorder>().UseConnections(() => sessions.Count + sessions.WatchdogCount);
 
         app.UseWebSockets();
         app.UseRateLimiter();

@@ -15,5 +15,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Fleeto.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="Fleeto.Workers.Tests" />
   </ItemGroup>
 </Project>

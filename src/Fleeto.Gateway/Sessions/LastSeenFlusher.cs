@@ -1,4 +1,6 @@
+using Fleeto.Core.Performance;
 using Fleeto.Gateway.Data;
+using Fleeto.Infrastructure.Performance;
 using Npgsql;
 
 namespace Fleeto.Gateway.Sessions;
@@ -41,8 +43,17 @@ public sealed class LastSeenFlusher : BackgroundService
                 break;
             }
 
-            await FlushAsync(stoppingToken);
-            await FlushWatchdogsAsync(stoppingToken);
+            // The performance monitor (0.7.0): one batch per flush, with the rows it wrote.
+            var scope = PerfContext.Begin(PerfKeys.GatewaySource("last-seen"));
+            var rows = await FlushAsync(stoppingToken) + await FlushWatchdogsAsync(stoppingToken);
+            if (rows > 0)
+            {
+                Perf.Recorder.Complete(PerfCollector.AgentChannel, PerfKind.Batch, "last-seen", string.Empty, scope, error: false, bytes: rows);
+            }
+            else
+            {
+                scope.Dispose();
+            }
         }
     }
 

@@ -1,6 +1,7 @@
 using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
+using Fleeto.Core.Performance;
 using Fleeto.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -111,6 +112,18 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<InstanceHealthSample> InstanceHealthSamples => Set<InstanceHealthSample>();
     public DbSet<InstanceHealthIssue> InstanceHealthIssues => Set<InstanceHealthIssue>();
     public DbSet<WorkerWatermark> WorkerWatermarks => Set<WorkerWatermark>();
+
+    // The performance monitor (0.7.0): instance-wide, no client, no personal data.
+    public DbSet<PerfMinute> PerfMinutes => Set<PerfMinute>();
+    public DbSet<PerfHour> PerfHours => Set<PerfHour>();
+    public DbSet<PerfRuntimeMinute> PerfRuntimeMinutes => Set<PerfRuntimeMinute>();
+    public DbSet<PerfHostMinute> PerfHostMinutes => Set<PerfHostMinute>();
+    public DbSet<PerfEvent> PerfEvents => Set<PerfEvent>();
+    public DbSet<PerfStatementSnapshot> PerfStatementSnapshots => Set<PerfStatementSnapshot>();
+    public DbSet<PerfDatabaseSnapshot> PerfDatabaseSnapshots => Set<PerfDatabaseSnapshot>();
+    public DbSet<PerfTableSnapshot> PerfTableSnapshots => Set<PerfTableSnapshot>();
+    public DbSet<PerfMarker> PerfMarkers => Set<PerfMarker>();
+    public DbSet<PerformanceSettingsRow> PerformanceSettings => Set<PerformanceSettingsRow>();
     public DbSet<Integration> Integrations => Set<Integration>();
 
     /// <summary>Authorization codes of a sign-in with Entra ID that wait for the workers (0.5.0).</summary>
@@ -1556,6 +1569,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasKey(w => w.Name);
             entity.Property(w => w.Name).HasMaxLength(100);
         });
+
+        ConfigurePerformance(builder);
     }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
@@ -1739,5 +1754,84 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             .HasForeignKey(foreignKey)
             .HasPrincipalKey(e => new { e.Id, e.ClientId })
             .OnDelete(DeleteBehavior.Cascade);
+    }
+
+    /// <summary>
+    /// The performance monitor (0.7.0, PERFORMANCE.md §6). The minute table becomes a hypertable in migration PerformanceMonitor
+    /// where TimescaleDB is installed; its key holds the minute, as a hypertable needs, and an identity, because a component that
+    /// restarts within a minute writes that minute twice and the reader adds the rows up.
+    /// </summary>
+    private static void ConfigurePerformance(ModelBuilder builder)
+    {
+        builder.Entity<PerfMinute>(entity =>
+        {
+            entity.HasKey(m => new { m.Minute, m.Id });
+            entity.Property(m => m.Id).UseIdentityByDefaultColumn();
+            entity.Property(m => m.Component).HasMaxLength(20);
+            entity.Property(m => m.Kind).HasConversion<string>().HasMaxLength(20);
+            entity.Property(m => m.Key).HasMaxLength(PerfKeys.MaxKeyLength);
+            entity.Property(m => m.SubKey).HasMaxLength(PerfKeys.MaxSubKeyLength);
+            entity.HasIndex(m => new { m.Kind, m.Minute });
+        });
+
+        builder.Entity<PerfHour>(entity =>
+        {
+            entity.Property(h => h.Component).HasMaxLength(20);
+            entity.Property(h => h.Kind).HasConversion<string>().HasMaxLength(20);
+            entity.Property(h => h.Key).HasMaxLength(PerfKeys.MaxKeyLength);
+            entity.Property(h => h.SubKey).HasMaxLength(PerfKeys.MaxSubKeyLength);
+            entity.HasIndex(h => new { h.Hour, h.Kind });
+        });
+
+        builder.Entity<PerfRuntimeMinute>(entity =>
+        {
+            entity.Property(r => r.Component).HasMaxLength(20);
+            entity.Property(r => r.Version).HasMaxLength(50);
+            entity.Property(r => r.Level).HasConversion<string>().HasMaxLength(20);
+            entity.HasIndex(r => new { r.Minute, r.Component });
+        });
+
+        builder.Entity<PerfHostMinute>(entity => entity.HasKey(h => h.Minute));
+
+        builder.Entity<PerfEvent>(entity =>
+        {
+            entity.Property(e => e.Component).HasMaxLength(20);
+            entity.Property(e => e.Kind).HasConversion<string>().HasMaxLength(20);
+            entity.Property(e => e.Key).HasMaxLength(PerfKeys.MaxKeyLength);
+            entity.Property(e => e.SubKey).HasMaxLength(PerfKeys.MaxSubKeyLength);
+            entity.HasIndex(e => e.Time);
+        });
+
+        builder.Entity<PerfStatementSnapshot>(entity =>
+        {
+            entity.Property(s => s.Query).HasMaxLength(SqlFingerprint.MaxLength);
+            entity.HasIndex(s => new { s.Time, s.QueryId });
+        });
+
+        builder.Entity<PerfDatabaseSnapshot>(entity =>
+        {
+            entity.HasKey(s => s.Time);
+            entity.Property(s => s.StatementsProblem).HasMaxLength(500);
+        });
+
+        builder.Entity<PerfTableSnapshot>(entity =>
+        {
+            entity.HasKey(t => new { t.Time, t.Table });
+            entity.Property(t => t.Table).HasMaxLength(200);
+        });
+
+        builder.Entity<PerfMarker>(entity =>
+        {
+            entity.Property(m => m.Kind).HasConversion<string>().HasMaxLength(20);
+            entity.Property(m => m.Label).HasMaxLength(200);
+            entity.HasIndex(m => m.Time);
+        });
+
+        builder.Entity<PerformanceSettingsRow>(entity =>
+        {
+            entity.ToTable("PerformanceSettings");
+            entity.Property(s => s.Id).ValueGeneratedNever();
+            entity.Property(s => s.Json).HasColumnType("jsonb");
+        });
     }
 }

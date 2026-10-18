@@ -196,7 +196,28 @@ also masks client codes and hostnames should one slip into a hand-written SQL co
 
 ## 10. Build plan
 
-### Step 1 — the core (alpha 1)
+### Step 1 — the core (alpha 1) — built 2026-10-18
+
+Built as planned below and described in `ARCHITECTURE.md` §4, *Performance monitor*. Still open: item 7, the overhead at 1,000
+agents with `Fleeto.LoadTest`, on the test VPS. Where the build differs from the plan, decided while building:
+
+- A page load is measured by `FleetoPageBase.LoadAsync` (sub key `load`), an event by the circuit handler (sub key `event`): a
+  navigation is an inbound activity that does not wait for `OnInitializedAsync`, so the circuit handler alone would miss the
+  page's own data loading.
+- `PerfDialogService` replaces MudBlazor's dialog service: a click handler that awaits a confirmation dialog would otherwise
+  count the time the user reads it as Fleeto being slow (100 call sites await a dialog).
+- The recorder is reached through `Perf.Recorder` where a collector is not created by dependency injection (the base class of
+  loops, the gateway's handlers, the signer's processor, the notification bus), so no constructor of the 35 loops changed.
+- Not built in step 1: items handled per worker run (no loop reports them yet), job dispatch beyond delivery (first output,
+  done), the time to first frame of the relay, budgets and the comparison by version (step 3). `PerfFingerprint` comes with
+  Diagnose in step 2, so the migration of step 1 does not create it.
+- Retention of the minutes is a setting (1 to 30 days) the workers enforce with batched deletes; the TimescaleDB retention
+  policy on `PerfMinutes` drops chunks after 31 days as a ceiling, because a policy cannot follow a setting without the owner
+  role.
+- Every component writes only its own rows: triggers on `PerfMinutes`, `PerfRuntimeMinutes` and `PerfEvents` compare the
+  component with the role, because table grants alone cannot.
+- The redactor also takes the client codes and endpoint host names of the instance (words of at least three characters) and
+  masks them wherever they slip into free text; SQL loses every literal before that.
 
 1. `Fleeto.Core/Performance`: histogram, keys, redactor, fingerprinter, the categories, the findings model. Tests: additivity,
    percentiles, cap and `__other__`, redactor cases.

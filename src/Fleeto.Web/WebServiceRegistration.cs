@@ -1,7 +1,9 @@
 using Fleeto.Infrastructure.Data;
 using Fleeto.Infrastructure.Identity;
+using Fleeto.Web.Performance;
 using Fleeto.Web.Security;
 using Fleeto.Web.Services;
+using Microsoft.AspNetCore.Components.Server.Circuits;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 
@@ -51,6 +53,10 @@ public static class WebServiceRegistration
     {
         services.AddSingleton<TwoFactorGate>();
         services.AddSingleton<LiveUpdates>();
+        // The performance monitor (0.7.0): page interactions per route template, one handler per circuit.
+        services.AddSingleton<PageRoutes>();
+        services.AddScoped<CircuitHandler, PerfCircuitHandler>();
+        services.AddSingleton<PerformanceService>();
         services.AddScoped<CurrentUser>();
         services.AddScoped<TimeDisplay>();
         services.AddScoped<SetupService>();

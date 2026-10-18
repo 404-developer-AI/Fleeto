@@ -147,13 +147,15 @@ public sealed class BackupService : WorkerLoop
             }
 
             InstanceInfo instance;
+            IReadOnlyList<(string Schema, string Table)> withoutData;
             await using (var db = _dbFactory.CreateSystem())
             {
                 instance = await InstanceQueries.GetInstanceAsync(db, cancellationToken);
+                withoutData = await PerformanceBackup.TablesWithoutDataAsync(db, Logger, cancellationToken);
             }
 
             Directory.CreateDirectory(tempDirectory);
-            await _pgDump.DumpAsync(dumpFile, cancellationToken);
+            await _pgDump.DumpAsync(dumpFile, withoutData, cancellationToken);
             await BackupDestinations.EncryptFileAsync(dumpFile, encryptedFile, publicKey, cancellationToken);
             TryDelete(dumpFile);
 

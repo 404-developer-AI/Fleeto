@@ -1,3 +1,6 @@
+using Fleeto.Core.Performance;
+using Fleeto.Infrastructure.Performance;
+using Fleeto.Web.Performance;
 using Fleeto.Web.Security;
 using Fleeto.Web.Services;
 using Microsoft.AspNetCore.Components;
@@ -8,7 +11,7 @@ namespace Fleeto.Web.Components.Shared;
 /// <summary>
 /// Base for interactive pages: resolves the <see cref="Security.Caller"/>, runs service calls with one consistent snackbar
 /// and error handling (cause and next step; exceptions are logged, never shown), and re-renders when the browser time
-/// zone becomes known.
+/// zone becomes known. Every load is measured by the performance monitor (0.7.0) as an interaction of the page's route template.
 /// </summary>
 public abstract class FleetoPageBase : ComponentBase, IDisposable
 {
@@ -17,6 +20,8 @@ public abstract class FleetoPageBase : ComponentBase, IDisposable
     [Inject] protected TimeDisplay Time { get; set; } = default!;
     [Inject] protected NavigationManager Navigation { get; set; } = default!;
     [Inject] private ILoggerFactory LoggerFactory { get; set; } = default!;
+    [Inject] private PerfRecorder PerfRecorder { get; set; } = default!;
+    [Inject] private PageRoutes PageRoutes { get; set; } = default!;
 
     protected Caller? Caller { get; private set; }
 
@@ -40,6 +45,9 @@ public abstract class FleetoPageBase : ComponentBase, IDisposable
     /// <summary>Resolves the caller and runs the page's load. Errors are logged and shown as a load failure.</summary>
     protected async Task LoadAsync(Func<Caller, Task> load)
     {
+        var measured = PerfRecorder.Collects(PerfCollector.Interactions);
+        var route = measured ? PageRoutes.Of(GetType(), Navigation.Uri) : string.Empty;
+        var scope = measured ? PerfContext.Begin(PerfCircuitHandler.SourceOf(route)) : null;
         try
         {
             Caller ??= await CurrentUser.GetAsync();
@@ -58,6 +66,10 @@ public abstract class FleetoPageBase : ComponentBase, IDisposable
         finally
         {
             Loading = false;
+            if (scope is not null)
+            {
+                PerfRecorder.Complete(PerfCollector.Interactions, PerfKind.Interaction, route, "load", scope, LoadFailed);
+            }
         }
     }
 

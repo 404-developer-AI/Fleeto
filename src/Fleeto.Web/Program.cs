@@ -4,10 +4,12 @@ using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure;
 using Fleeto.Infrastructure.Hosting;
 using Fleeto.Infrastructure.Identity;
+using Fleeto.Infrastructure.Performance;
 using Fleeto.Web;
 using Fleeto.Web.Account;
 using Fleeto.Web.Api;
 using Fleeto.Web.Components;
+using Fleeto.Web.Performance;
 using Fleeto.Web.Security;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.DataProtection;
@@ -128,6 +130,8 @@ builder.Services.AddFleetoPublicApi(builder.Configuration);
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddMudServices();
+// After MudBlazor: the dialog service that leaves an open dialog out of the measured interaction (0.7.0).
+builder.Services.AddScoped<MudBlazor.IDialogService, PerfDialogService>();
 builder.Services.AddRazorComponents().AddInteractiveServerComponents()
     .AddHubOptions(options => options.MaximumReceiveMessageSize = CircuitLimits.MaxReceiveMessageBytes);
 builder.Services.AddCascadingAuthenticationState();
@@ -151,6 +155,7 @@ catch (Exception ex)
 }
 
 app.Logger.LogInformation("fleeto-web {Version} starting", FleetoVersion.Current);
+app.Services.GetRequiredService<PerfRecorder>().UseConnections(() => PerfCircuitHandler.Open);
 
 if (app.Configuration.GetValue<bool>("ReverseProxy:Enabled"))
 {
@@ -186,6 +191,8 @@ app.UseFleetoSecurityHeaders();
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseFleetoPublicApiProblems();
 app.UseRouting();
+// Right after routing, so the route template is known and refused requests are measured too (0.7.0).
+app.UseMiddleware<PerfHttpMiddleware>();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();

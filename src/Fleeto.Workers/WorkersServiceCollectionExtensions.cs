@@ -15,6 +15,7 @@ using Fleeto.Workers.Integrations;
 using Fleeto.Workers.Jobs;
 using Fleeto.Workers.Licensing;
 using Fleeto.Workers.Options;
+using Fleeto.Workers.Performance;
 using Fleeto.Workers.Remote;
 using Fleeto.Workers.Retention;
 using Fleeto.Workers.SignIn;
@@ -82,6 +83,11 @@ public static class WorkersServiceCollectionExtensions
         services.AddHostedService<RetentionService>();
         services.AddSingleton<HostMetricsReader>();
         services.AddHostedService<InstanceHealthService>();
+        // The performance monitor (0.7.0): the VPS every minute, the database statistics, and rollup and retention.
+        services.AddSingleton<PerfHostReader>();
+        services.AddHostedService<PerfHostService>();
+        services.AddHostedService<PerfSnapshotService>();
+        services.AddHostedService<PerfMaintenanceService>();
         services.AddHostedService<IntegrationSyncService>();
         services.AddHostedService<IntegrationFollowService>();
         services.AddHostedService<PatchAutomationService>();

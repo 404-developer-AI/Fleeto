@@ -1,17 +1,21 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using System.Net.WebSockets;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading.RateLimiting;
 using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
+using Fleeto.Core.Performance;
 using Fleeto.Gateway.Data;
 using Fleeto.Gateway.Http;
 using Fleeto.Gateway.Sessions;
 using Fleeto.Gateway.Tls;
+using Fleeto.Infrastructure.Performance;
 using Fleeto.Infrastructure.Security;
 using Fleeto.Protocol.Agent.V1;
 using Google.Protobuf;
@@ -461,8 +465,11 @@ public sealed class RemoteRelay : BackgroundService
     private async Task<string> PipeAsync(Pairing pairing, WebSocket endpoint, CancellationToken aborted)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(aborted, pairing.Closed);
-        var toEndpoint = CopyAsync(pairing.Browser, endpoint, linked.Token);
-        var toBrowser = CopyAsync(endpoint, pairing.Browser, linked.Token);
+        var started = Stopwatch.GetTimestamp();
+        var toEndpointBytes = new StrongBox<long>();
+        var toBrowserBytes = new StrongBox<long>();
+        var toEndpoint = CopyAsync(pairing.Browser, endpoint, toEndpointBytes, linked.Token);
+        var toBrowser = CopyAsync(endpoint, pairing.Browser, toBrowserBytes, linked.Token);
         var first = await Task.WhenAny(toEndpoint, toBrowser);
         var reason = pairing.CloseReason ?? (first == toEndpoint ? "The technician closed the session." : "The endpoint closed the session.");
         if (first.IsFaulted && first.Exception?.InnerException is RelayProtocolException protocol)
@@ -474,10 +481,15 @@ public sealed class RemoteRelay : BackgroundService
         await Task.WhenAll(CloseAsync(pairing.Browser, WebSocketCloseStatus.NormalClosure, "session ended"),
             CloseAsync(endpoint, WebSocketCloseStatus.NormalClosure, "session ended"));
         await Task.WhenAll(toEndpoint.ContinueWith(_ => { }, TaskScheduler.Default), toBrowser.ContinueWith(_ => { }, TaskScheduler.Default));
+
+        // The performance monitor (0.7.0): how long a relayed connection lasted and what it carried each way, never what.
+        var lasted = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        Perf.Recorder.Record(PerfCollector.AgentChannel, PerfKind.Relay, "to-endpoint", string.Empty, lasted, bytes: Volatile.Read(ref toEndpointBytes.Value));
+        Perf.Recorder.Record(PerfCollector.AgentChannel, PerfKind.Relay, "to-browser", string.Empty, lasted, bytes: Volatile.Read(ref toBrowserBytes.Value));
         return reason;
     }
 
-    private static async Task CopyAsync(WebSocket from, WebSocket to, CancellationToken cancellationToken)
+    private static async Task CopyAsync(WebSocket from, WebSocket to, StrongBox<long> relayed, CancellationToken cancellationToken)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
         try
@@ -503,6 +515,7 @@ public sealed class RemoteRelay : BackgroundService
                 }
 
                 await to.SendAsync(buffer.AsMemory(0, result.Count), WebSocketMessageType.Binary, result.EndOfMessage, cancellationToken);
+                Interlocked.Add(ref relayed.Value, result.Count);
                 if (result.EndOfMessage)
                 {
                     messageBytes = 0;

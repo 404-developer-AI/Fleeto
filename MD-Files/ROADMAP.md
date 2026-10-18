@@ -29,7 +29,8 @@ endpoints it manages. Placed before hardening (which moved from 0.7.0 to 0.8.0 t
 agents is measured by it. The generic spec is `performance-monitoring.md`; how it maps onto Fleeto, the data model and the
 build plan are in `PERFORMANCE.md`. Built in three steps, each an alpha on the test VPS, released as a whole.
 
-- [open] **Step 1, the core**: collectors in web, gateway, workers and signer (in memory, one batch write per minute,
+- [open] **Step 1, the core** (built 2026-10-18, to be tested on the test VPS as `0.7.0-alpha.1`; the overhead measurement at
+  1,000 agents is still to do): collectors in web, gateway, workers and signer (in memory, one batch write per minute,
   bounded keys without values), database time through the shared Npgsql data source, a run scope in `WorkerLoop` so every
   loop is measured, the agent channel of the gateway, the VPS figures of Instance health reused, deltas of
   `pg_stat_statements`, the findings engine with a score per category, Settings, Performance with Overview, and the

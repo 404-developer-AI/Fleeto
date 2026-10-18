@@ -1,7 +1,9 @@
 using System.Net;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
+using Fleeto.Core.Performance;
 using Fleeto.Infrastructure.Data;
+using Fleeto.Infrastructure.Performance;
 using Fleeto.Signer.Keys;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -139,6 +141,42 @@ public sealed class SigningRequestProcessor
             return new ProcessResult(ProcessStatus.NothingClaimed);
         }
 
+        return await MeasureAsync(request.Kind, claimTime - request.CreatedAt,
+            () => HandleClaimedAsync(db, transaction, request, cancellationToken));
+    }
+
+    /// <summary>
+    /// The performance monitor (0.7.0, PERFORMANCE.md §4.7): per request kind the time it waited to be claimed, the time to decide
+    /// and sign it, and its outcome. No payloads, no users, no endpoints.
+    /// </summary>
+    private static async Task<ProcessResult> MeasureAsync(SigningRequestKind kind, TimeSpan waited, Func<Task<ProcessResult>> handle)
+    {
+        var recorder = Perf.Recorder;
+        var name = kind.ToString();
+        recorder.Record(PerfCollector.Signer, PerfKind.Signing, name, "wait", Math.Max(0, waited.TotalMilliseconds));
+        var scope = PerfContext.Begin(PerfKeys.SignerSource(name));
+        var outcome = "failed";
+        try
+        {
+            var result = await handle();
+            outcome = result.Status switch
+            {
+                ProcessStatus.Completed => "completed",
+                ProcessStatus.Refused => "refused",
+                ProcessStatus.RateLimited => "rate-limited",
+                _ => "failed"
+            };
+            return result;
+        }
+        finally
+        {
+            recorder.Complete(PerfCollector.Signer, PerfKind.Signing, name, outcome, scope, error: outcome == "failed");
+        }
+    }
+
+    private async Task<ProcessResult> HandleClaimedAsync(FleetoDbContext db, IDbContextTransaction transaction, SigningRequest request,
+        CancellationToken cancellationToken)
+    {
         var id = request.Id;
         var kind = request.Kind;
         try

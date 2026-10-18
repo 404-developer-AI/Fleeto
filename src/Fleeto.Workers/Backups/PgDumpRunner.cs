@@ -121,7 +121,10 @@ public sealed class PgDumpRunner
         _logger = logger;
     }
 
-    public async Task DumpAsync(string outputFile, CancellationToken cancellationToken)
+    public Task DumpAsync(string outputFile, CancellationToken cancellationToken) => DumpAsync(outputFile, [], cancellationToken);
+
+    /// <param name="excludeTableData">Tables dumped with their structure only, as schema and name (0.7.0: the performance monitor).</param>
+    public async Task DumpAsync(string outputFile, IReadOnlyList<(string Schema, string Table)> excludeTableData, CancellationToken cancellationToken)
     {
         var executable = PgDumpLocator.Resolve(_options.PgDumpPath);
         PgDumpTarget target;
@@ -149,6 +152,12 @@ public sealed class PgDumpRunner
                  })
         {
             startInfo.ArgumentList.Add(argument);
+        }
+
+        foreach (var (schema, table) in excludeTableData)
+        {
+            // Quoted, so the name is taken literally: no pattern characters, case kept.
+            startInfo.ArgumentList.Add($"--exclude-table-data=\"{schema.Replace("\"", "\"\"")}\".\"{table.Replace("\"", "\"\"")}\"");
         }
 
         // Only the child process sees the password; it is never on the command line or in a file.

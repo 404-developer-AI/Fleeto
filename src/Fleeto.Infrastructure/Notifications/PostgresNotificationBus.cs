@@ -1,7 +1,10 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Reflection;
 using System.Threading.Channels;
 using Fleeto.Core.Interfaces;
+using Fleeto.Core.Performance;
+using Fleeto.Infrastructure.Performance;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -16,6 +19,10 @@ namespace Fleeto.Infrastructure.Notifications;
 /// <para>
 /// PostgreSQL instead of Valkey because fleeto-signer may only talk to the database, so database
 /// notifications are needed anyway; one mechanism is simpler on a single VPS.
+/// </para>
+/// <para>
+/// The performance monitor (0.7.0) counts what is published per channel and measures every handled notification from its
+/// arrival to the end of its handler, so a slow subscriber shows as lag on its channel.
 /// </para>
 /// </summary>
 public sealed class PostgresNotificationBus : BackgroundService, INotificationBus
@@ -42,6 +49,7 @@ public sealed class PostgresNotificationBus : BackgroundService, INotificationBu
         command.Parameters.AddWithValue("channel", channel);
         command.Parameters.AddWithValue("payload", payload);
         await command.ExecuteNonQueryAsync(cancellationToken);
+        Perf.Recorder.Count(PerfCollector.LiveUpdates, PerfKind.Notification, channel, "published");
     }
 
     public IDisposable Subscribe(string channel, Func<string, CancellationToken, Task> handler)
@@ -147,7 +155,8 @@ public sealed class PostgresNotificationBus : BackgroundService, INotificationBu
     /// <summary>One subscriber with its own queue, so a slow handler never blocks the listener or other subscribers.</summary>
     private sealed class Subscription
     {
-        private readonly Channel<string> _queue = System.Threading.Channels.Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true });
+        private readonly Channel<(string Payload, long Arrived)> _queue =
+            System.Threading.Channels.Channel.CreateUnbounded<(string Payload, long Arrived)>(new UnboundedChannelOptions { SingleReader = true });
         private readonly CancellationTokenSource _cts = new();
 
         public Subscription(string channel, Func<string, CancellationToken, Task> handler, ILogger logger)
@@ -155,8 +164,9 @@ public sealed class PostgresNotificationBus : BackgroundService, INotificationBu
             Channel = channel;
             _ = Task.Run(async () =>
             {
-                await foreach (var payload in _queue.Reader.ReadAllAsync(_cts.Token).ConfigureAwait(false))
+                await foreach (var (payload, arrived) in _queue.Reader.ReadAllAsync(_cts.Token).ConfigureAwait(false))
                 {
+                    var failed = false;
                     try
                     {
                         await handler(payload, _cts.Token).ConfigureAwait(false);
@@ -167,8 +177,12 @@ public sealed class PostgresNotificationBus : BackgroundService, INotificationBu
                     }
                     catch (Exception ex)
                     {
+                        failed = true;
                         logger.LogError(ex, "Notification handler for {Channel} failed", channel);
                     }
+
+                    Perf.Recorder.Record(PerfCollector.LiveUpdates, PerfKind.Notification, channel, "handled",
+                        Stopwatch.GetElapsedTime(arrived).TotalMilliseconds, failed);
                 }
             });
         }
@@ -176,7 +190,7 @@ public sealed class PostgresNotificationBus : BackgroundService, INotificationBu
         public Guid Id { get; } = Guid.NewGuid();
         public string Channel { get; }
 
-        public void Enqueue(string payload) => _queue.Writer.TryWrite(payload);
+        public void Enqueue(string payload) => _queue.Writer.TryWrite((payload, Stopwatch.GetTimestamp()));
 
         public void Complete()
         {

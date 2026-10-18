@@ -1,4 +1,7 @@
+using System.Globalization;
 using System.Threading.Channels;
+using Fleeto.Core.Performance;
+using Fleeto.Infrastructure.Performance;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -9,6 +12,11 @@ namespace Fleeto.Workers.Hosting;
 /// called (a notification arrived). A failed run is logged and retried with exponential backoff; an exception never
 /// leaves the loop, so one broken job cannot stop the host or the other loops. The loop reports to the
 /// <see cref="WorkerHeartbeat"/> at least every 30 seconds.
+/// <para>
+/// Every run is measured by the performance monitor (0.7.0) as <c>worker:&lt;Name&gt;</c>: its duration, its database work and
+/// whether it failed. A loop added later is measured the same way without doing anything; idle runs (under 25 ms without a
+/// query) are left out.
+/// </para>
 /// </summary>
 public abstract class WorkerLoop : BackgroundService
 {
@@ -54,6 +62,21 @@ public abstract class WorkerLoop : BackgroundService
     /// <summary>Requests a run as soon as the current one has finished. Safe from any thread.</summary>
     public void Wake() => _wake.Writer.TryWrite(true);
 
+    /// <summary>A run shorter than this without a query or more work waiting is idle and not measured.</summary>
+    internal static readonly TimeSpan IdleRun = TimeSpan.FromMilliseconds(25);
+
+    private void Measure(PerfScope run, bool more, bool failed)
+    {
+        run.Dispose();
+        if (!failed && !more && run.DbCount == 0 && run.ElapsedMs < IdleRun.TotalMilliseconds)
+        {
+            return;
+        }
+
+        Perf.Recorder.Complete(PerfCollector.Workers, PerfKind.WorkerRun, Name,
+            ((long)Interval.TotalSeconds).ToString(CultureInfo.InvariantCulture), run, failed);
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Why: BackgroundService.StartAsync runs ExecuteAsync synchronously up to the first await; yield so a slow
@@ -80,10 +103,13 @@ public abstract class WorkerLoop : BackgroundService
                 _heartbeat.Report(Name);
                 if (Time.GetUtcNow() >= nextRun)
                 {
+                    var run = PerfContext.Begin(PerfKeys.WorkerSource(Name));
+                    var more = false;
+                    var failed = false;
                     try
                     {
                         _heartbeat.BeginRun(Name, MaxRunDuration);
-                        var more = await RunOnceAsync(stoppingToken);
+                        more = await RunOnceAsync(stoppingToken);
                         backoff = TimeSpan.FromSeconds(5);
                         nextRun = more ? Time.GetUtcNow() : Time.GetUtcNow() + Interval;
                     }
@@ -93,6 +119,7 @@ public abstract class WorkerLoop : BackgroundService
                     }
                     catch (Exception ex)
                     {
+                        failed = true;
                         Logger.LogError(ex, "Loop {Loop} failed; retrying in {Backoff}", Name, backoff);
                         nextRun = Time.GetUtcNow() + backoff;
                         backoff = TimeSpan.FromTicks(Math.Min(MaxBackoff.Ticks, backoff.Ticks * 2));
@@ -100,6 +127,7 @@ public abstract class WorkerLoop : BackgroundService
                     finally
                     {
                         _heartbeat.EndRun(Name);
+                        Measure(run, more, failed);
                     }
                 }
 

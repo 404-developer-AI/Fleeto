@@ -9,8 +9,8 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 - **Language**: conversation with the developer is always in Dutch. Documentation, code,
   comments, commit messages, log messages and UI text are always in English.
 - **Current phase**: 0.6.0 (refactors, fixes and what the developer wanted before the next round of testing, features
-  included) is released (2026-10-18) and runs on the first test VPS, tested through `v0.6.0-alpha.1` to `alpha.26`. Next is
-  0.7.0, the performance monitor, in `MD-Files/ROADMAP.md`. Patch management on Linux and the other integrations moved to "Not
+  included) is released (2026-10-18) and runs on the first test VPS, tested through `v0.6.0-alpha.1` to `alpha.26`. Building
+  0.7.0, the performance monitor (`MD-Files/ROADMAP.md`, `MD-Files/PERFORMANCE.md`): step 1, the core, is built (2026-10-18). Patch management on Linux and the other integrations moved to "Not
   yet scheduled" on 2026-09-23. Local development runs without Docker (see `README.md`); Docker
   is for the VPS and CI only.
 - **Git**: always ask before committing, pushing or tagging. No intermediate commits while a version is being built.
@@ -206,7 +206,7 @@ UI structure:
   Clients: left, a settings panel; right, the selected page. Group **Templates** (client
   templates, monitoring templates, policies, patch policies, scripts, tasks) for every user, and the administration pages for
   admins: users and roles, groups, tags, licensing, API keys, integrations, notification channels, retention,
-  audit log, instance health.
+  audit log, instance health, performance (0.7.0).
 
 ## Licensing: per endpoint, two tiers
 
@@ -614,6 +614,10 @@ home-grown patch engine. Note them, do not build them. (File transfer inside rem
   `deploy/ci/branding-check.sh`. Run that check (`MD-Files/branding-fleeto.md` §7) before every release.
 - UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, patch policy, monitoring template, client template, integration, note, tag, task, remote control session, API key, role, permission).
 - Follow the Migrify codebase conventions where they exist (project layout, EF Core patterns, MudBlazor usage, email templates).
+- **Performance monitor** (0.7.0, `MD-Files/PERFORMANCE.md`): every workers loop derives from `WorkerLoop`, which measures
+  each run; a loop that does not is a review finding. Metric keys never contain values: route templates, type names and fixed
+  names only, never an id, client code, host name, user, address, path or payload. Never a database write per request: record
+  into `PerfRecorder`, which writes once a minute.
 - Tests: unit tests for domain logic, integration tests against real PostgreSQL in CI, the cross-client tests from Security, license-tier enforcement tests, signer rule tests (refused roles, tiers, unapproved scripts, expired jobs), certificate revocation tests, and the load-test scenario. New features without tests are not done, and neither are new features
   that are not in `MD-Files/API.md` or on `MD-Files/API-WAITLIST.md` (see Public API).
 - CI on GitHub Actions: build, tests, vulnerability scan, secret scan, the Fleeto grep check. A release is a tagged commit that passes CI.

@@ -7,10 +7,10 @@ using Fleeto.Infrastructure.Notifications;
 using Fleeto.Infrastructure.Settings;
 using Fleeto.Workers.Email;
 using Fleeto.Workers.Hosting;
+using Fleeto.Workers.Performance;
 using Fleeto.Workers.Webhooks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Npgsql;
 
 namespace Fleeto.Workers.Health;
 
@@ -58,16 +58,6 @@ public sealed class InstanceHealthService : WorkerLoop
         """;
 
     private const string TimescaleInstalledSql = """SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') AS "Value" """;
-
-    // String literals are replaced as well, although Fleeto's statements are parameterized: the diagnostics never carry data.
-    private const string QueriesSql = """
-        SELECT left(regexp_replace(s.query, '''[^'']*''', '''?''', 'g'), 400) AS "Query", s.calls AS "Calls",
-               s.total_exec_time AS "TotalMs", s.mean_exec_time AS "MeanMs", s.rows AS "Rows"
-        FROM pg_stat_statements s
-        WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-        ORDER BY s.total_exec_time DESC
-        LIMIT 10
-        """;
 
     private readonly IFleetoDbContextFactory _dbFactory;
     private readonly SettingsStore _settings;
@@ -336,27 +326,25 @@ public sealed class InstanceHealthService : WorkerLoop
         return added;
     }
 
-    /// <summary>Reads the costliest statements and stores them for the diagnostics; a missing extension is stored as the reason.</summary>
+    /// <summary>
+    /// Reads the costliest statements and stores them for the diagnostics; a missing extension is stored as the reason. The same
+    /// reader as the performance monitor (0.7.0), so both name the same statements.
+    /// </summary>
     public async Task<QueryStatistics> ReadQueryStatisticsAsync(CancellationToken cancellationToken)
     {
         var now = Time.GetUtcNow().UtcDateTime;
-        QueryStatistics statistics;
-        try
+        StatementRead read;
+        await using (var db = _dbFactory.CreateSystem())
         {
-            await using var db = _dbFactory.CreateSystem();
-            var installed = await db.Database
-                .SqlQueryRaw<bool>("""SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements') AS "Value" """)
-                .SingleAsync(cancellationToken);
-            statistics = installed
-                ? new QueryStatistics(now, null, (await db.Database.SqlQueryRaw<QueryRow>(QueriesSql).ToListAsync(cancellationToken))
-                    .Select(q => new SlowQuery(q.Query, q.Calls, Math.Round(q.TotalMs, 1), Math.Round(q.MeanMs, 2), q.Rows)).ToList())
-                : new QueryStatistics(now, "pg_stat_statements is not installed in this database. install.sh switches it on with the next update.", []);
-        }
-        catch (PostgresException ex)
-        {
-            statistics = new QueryStatistics(now, $"Query statistics could not be read: {ex.MessageText}", []);
+            read = await StatementStatisticsReader.ReadAsync(db, cancellationToken);
         }
 
+        var statistics = new QueryStatistics(now, read.Problem, read.Statements
+            .OrderByDescending(q => q.TotalMs)
+            .Take(10)
+            .Select(q => new SlowQuery(q.Query.Length <= 400 ? q.Query : q.Query[..400], q.Calls, Math.Round(q.TotalMs, 1),
+                Math.Round(q.Calls == 0 ? 0 : q.TotalMs / q.Calls, 2), q.Rows))
+            .ToList());
         await _settings.SetAsync(SettingKeys.InstanceHealthQueries, statistics, encrypted: false, userId: null, cancellationToken);
         return statistics;
     }
@@ -374,15 +362,6 @@ public sealed class InstanceHealthService : WorkerLoop
     {
         public string Name { get; set; } = string.Empty;
         public long Bytes { get; set; }
-        public long Rows { get; set; }
-    }
-
-    private sealed class QueryRow
-    {
-        public string Query { get; set; } = string.Empty;
-        public long Calls { get; set; }
-        public double TotalMs { get; set; }
-        public double MeanMs { get; set; }
         public long Rows { get; set; }
     }
 }

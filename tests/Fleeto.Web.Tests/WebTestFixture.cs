@@ -69,6 +69,7 @@ public class WebFixtureBase : IAsyncLifetime
         services.AddSingleton<EndpointTierService>();
         services.AddSingleton<EndpointRevocationService>();
         services.AddSingleton<SettingsStore>();
+        services.AddSingleton<Infrastructure.Performance.PerfSettingsCache>();
         services.AddIdentityCore<ApplicationUser>(WebServiceRegistration.ConfigureIdentity)
             .AddRoles<ApplicationRole>()
             .AddFleetoIdentityStores();

@@ -125,6 +125,9 @@ public static class NotificationChannels
     /// <summary>Payload: empty. A setting that instance health reads changed (the backups, 0.6.0); the workers measure again.</summary>
     public const string InstanceHealth = "fleeto_instance_health";
 
+    /// <summary>Payload: empty. The settings of the performance monitor changed (0.7.0); every component reads them again.</summary>
+    public const string Performance = "fleeto_performance";
+
     /// <summary>
     /// Payload: user id. What a user may reach changed (0.6.0): its groups, the rules of one of them, or its role. Web closes
     /// the open pages of that user; the gateway ends the remote session connections web marked as revoked.
@@ -251,6 +254,10 @@ public static class AuditActions
     public const string StorageScanRequested = "storage.scan_requested";
     /// <summary>An admin copied or downloaded the instance health diagnostics (0.6.0).</summary>
     public const string InstanceDiagnosticsExported = "instance.diagnostics_exported";
+    /// <summary>An admin changed the settings of the performance monitor (0.7.0); the entry holds the old and new values.</summary>
+    public const string PerformanceSettingsChanged = "performance.settings_changed";
+    /// <summary>An admin copied or downloaded the performance report (0.7.0).</summary>
+    public const string PerformanceExported = "performance.exported";
     public const string NoteCreated = "note.created";
     public const string NoteUpdated = "note.updated";
     public const string NoteDeleted = "note.deleted";
