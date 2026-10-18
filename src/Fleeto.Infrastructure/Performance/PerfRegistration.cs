@@ -23,6 +23,7 @@ public static class PerfRegistration
         {
             var recorder = new PerfRecorder(component.PerfName(), sp.GetRequiredService<PerfSettingsCache>(), sp.GetRequiredService<TimeProvider>());
             Perf.Use(recorder);
+            PerfStatementTracer.Listen();
             return recorder;
         });
         services.AddSingleton<PerfMeterListener>();

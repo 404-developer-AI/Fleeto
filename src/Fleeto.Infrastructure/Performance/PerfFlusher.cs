@@ -75,6 +75,7 @@ public sealed class PerfFlusher : BackgroundService
         var rows = window.Rows();
         var runtime = _recorder.Runtime.Take();
         var events = _recorder.TakeEvents();
+        var fingerprints = _recorder.Statements.TakeSeen();
         if (!settings.IsOn && rows.Count == 0)
         {
             _recorder.TakeOverheadMs();
@@ -88,10 +89,13 @@ public sealed class PerfFlusher : BackgroundService
             await WriteMinuteAsync(connection, window.Minute, rows, cancellationToken);
             if (runtime is not null)
             {
-                await WriteRuntimeAsync(connection, window.Minute, runtime, settings.Level, cancellationToken);
+                // A minute in which statements were measured ran in Diagnose, however short; else the level of its middle.
+                var level = rows.Any(r => r.Series.Kind == PerfKind.Statement) ? PerfLevel.Diagnose : _recorder.LevelAt(window.Minute.AddSeconds(30));
+                await WriteRuntimeAsync(connection, window.Minute, runtime, level, cancellationToken);
             }
 
             await WriteEventsAsync(connection, events, cancellationToken);
+            await WriteFingerprintsAsync(connection, window.Minute, fingerprints, cancellationToken);
         }
         catch (Exception ex) when (ex is NpgsqlException or TimeoutException or InvalidOperationException)
         {
@@ -183,7 +187,7 @@ public sealed class PerfFlusher : BackgroundService
         }
 
         await using var writer = await connection.BeginBinaryImportAsync("""
-            COPY "PerfEvents" ("Time", "Component", "Kind", "Key", "SubKey", "DurationMs", "DbCount", "DbMs", "ExternalMs", "Failed")
+            COPY "PerfEvents" ("Time", "Component", "Kind", "Key", "SubKey", "DurationMs", "DbCount", "DbMs", "ExternalMs", "Failed", "Statements")
             FROM STDIN (FORMAT BINARY)
             """, cancellationToken);
         foreach (var e in events)
@@ -199,8 +203,47 @@ public sealed class PerfFlusher : BackgroundService
             await writer.WriteAsync(e.DbMs, NpgsqlDbType.Double, cancellationToken);
             await writer.WriteAsync(e.ExternalMs, NpgsqlDbType.Double, cancellationToken);
             await writer.WriteAsync(e.Failed, NpgsqlDbType.Boolean, cancellationToken);
+            if (e.Statements is null)
+            {
+                await writer.WriteNullAsync(cancellationToken);
+            }
+            else
+            {
+                await writer.WriteAsync(e.Statements, NpgsqlDbType.Varchar, cancellationToken);
+            }
         }
 
         await writer.CompleteAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// The statements seen in the minute (Diagnose), one upsert: new ones are added, known ones get the minute as last seen and the
+    /// callers found since, up to five. Callers travel as one text per statement, separated by a bar no method name contains.
+    /// </summary>
+    private async Task WriteFingerprintsAsync(NpgsqlConnection connection, DateTime minute, IReadOnlyList<PerfStatements.Fingerprint> fingerprints,
+        CancellationToken cancellationToken)
+    {
+        if (fingerprints.Count == 0)
+        {
+            return;
+        }
+
+        // LIMIT 5 is PerfFingerprint.MaxCallers.
+        await using var command = new NpgsqlCommand("""
+            INSERT INTO "PerfFingerprints" ("Component", "Hash", "Sql", "Callers", "FirstSeen", "LastSeen")
+            SELECT $1, t.hash, t.sql, CASE WHEN t.callers = '' THEN ARRAY[]::text[] ELSE string_to_array(t.callers, '|') END, $5, $5
+            FROM unnest($2::text[], $3::text[], $4::text[]) AS t(hash, sql, callers)
+            ON CONFLICT ("Component", "Hash") DO UPDATE SET
+              "LastSeen" = GREATEST("PerfFingerprints"."LastSeen", EXCLUDED."LastSeen"),
+              "Callers" = COALESCE((SELECT array_agg(c ORDER BY c) FROM (
+                  SELECT DISTINCT c FROM unnest("PerfFingerprints"."Callers" || EXCLUDED."Callers") AS c ORDER BY c LIMIT 5) AS callers),
+                ARRAY[]::text[])
+            """, connection);
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = _recorder.Component });
+        command.Parameters.Add(new NpgsqlParameter<string[]> { TypedValue = fingerprints.Select(f => f.Hash).ToArray() });
+        command.Parameters.Add(new NpgsqlParameter<string[]> { TypedValue = fingerprints.Select(f => f.Sql).ToArray() });
+        command.Parameters.Add(new NpgsqlParameter<string[]> { TypedValue = fingerprints.Select(f => string.Join('|', f.Callers)).ToArray() });
+        command.Parameters.Add(new NpgsqlParameter<DateTime> { TypedValue = minute, NpgsqlDbType = NpgsqlDbType.TimestampTz });
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 }

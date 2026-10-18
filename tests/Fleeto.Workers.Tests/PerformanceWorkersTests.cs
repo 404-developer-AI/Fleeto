@@ -119,12 +119,23 @@ public sealed class PerformanceWorkersTests
             await db.SaveChangesAsync();
         }
 
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            await db.PerfFingerprints.ExecuteDeleteAsync();
+            db.PerfFingerprints.AddRange(
+                new PerfFingerprint { Component = "web", Hash = "0000000000000old", Sql = "SELECT ?", FirstSeen = now.AddDays(-100), LastSeen = now.AddDays(-95) },
+                new PerfFingerprint { Component = "web", Hash = "0000000000000new", Sql = "SELECT ?", FirstSeen = now.AddDays(-100), LastSeen = now.AddDays(-3) });
+            await db.SaveChangesAsync();
+        }
+
         await Maintenance().ApplyRetentionAsync(PerformanceSettings.Default with { MinuteRetentionDays = 2 }, CancellationToken.None);
 
         await using (var db = _fixture.Db.DbFactory.CreateSystem())
         {
             Assert.Equal(new[] { "/new" }, await db.PerfMinutes.Select(m => m.Key).ToListAsync());
             Assert.Equal(new[] { "/new" }, await db.PerfEvents.Select(e => e.Key).ToListAsync());
+            // A statement is kept as long as an hour row can refer to it.
+            Assert.Equal(new[] { "0000000000000new" }, await db.PerfFingerprints.Select(f => f.Hash).ToListAsync());
         }
     }
 
@@ -150,6 +161,10 @@ public sealed class PerformanceWorkersTests
         var snapshot = await db.PerfDatabaseSnapshots.AsNoTracking().OrderByDescending(s => s.Time).FirstAsync();
         Assert.True(snapshot.DatabaseBytes > 0);
         Assert.True(snapshot.MaxConnections > 0);
+        // Sessions are counted by the workers (0.7.0 step 2): web may not see other roles' sessions.
+        Assert.NotNull(snapshot.ActiveSessions);
+        Assert.NotNull(snapshot.IdleInTransactionSessions);
+        Assert.NotNull(snapshot.LockWaitingSessions);
         var tables = await db.PerfTableSnapshots.AsNoTracking().Where(t => t.Time == db.PerfTableSnapshots.Max(x => x.Time)).ToListAsync();
         Assert.Contains(tables, t => t.Table == "Endpoints");
         Assert.Contains(tables, t => t.Table == "PerfMinutes");
@@ -162,6 +177,7 @@ public sealed class PerformanceWorkersTests
         var tables = await PerformanceBackup.TablesWithoutDataAsync(db, NullLogger.Instance, CancellationToken.None);
         Assert.Contains(("public", "PerfMinutes"), tables);
         Assert.Contains(("public", "PerfStatementSnapshots"), tables);
+        Assert.Contains(("public", "PerfFingerprints"), tables);
         Assert.DoesNotContain(("public", "PerformanceSettings"), tables);
         foreach (var table in PerformanceBackup.Tables)
         {

@@ -126,7 +126,9 @@ public sealed class PerfMeterListener : IDisposable
         try
         {
             Interlocked.Increment(ref _exceptions);
-            _recorder.Count(PerfCollector.Runtime, PerfKind.Exception, e.Exception.GetType().FullName ?? "Exception");
+            // Diagnose adds the class that threw and the kind of work it happened in; Basic only the type (spec §5, Runtime).
+            var subKey = _recorder.Diagnosing ? $"{Thrower(e.Exception)} in {SourceKind(PerfContext.Source)}" : string.Empty;
+            _recorder.Count(PerfCollector.Runtime, PerfKind.Exception, e.Exception.GetType().FullName ?? "Exception", subKey);
         }
         catch (Exception)
         {
@@ -137,6 +139,28 @@ public sealed class PerfMeterListener : IDisposable
             _inException = false;
         }
     }
+
+    /// <summary>The class whose method threw, with compiler-generated classes (async methods, lambdas) turned back into their own.</summary>
+    internal static string Thrower(Exception exception)
+    {
+        var type = exception.TargetSite?.DeclaringType;
+        while (type is { DeclaringType: not null } && type.Name.StartsWith('<'))
+        {
+            type = type.DeclaringType;
+        }
+
+        if (type is null)
+        {
+            return "unknown";
+        }
+
+        var name = type.FullName ?? type.Name;
+        var generic = name.IndexOf('`', StringComparison.Ordinal);
+        return (generic > 0 ? name[..generic] : name).Replace('+', '.');
+    }
+
+    /// <summary>interaction, api, worker, gateway, signer or other: never the page or loop itself, which would multiply the keys.</summary>
+    internal static string SourceKind(string source) => source.IndexOf(':') is > 0 and var colon ? source[..colon] : source;
 
     private static string? Tag(ReadOnlySpan<KeyValuePair<string, object?>> tags, string name)
     {

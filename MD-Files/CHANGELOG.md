@@ -9,7 +9,7 @@ When a third released version is added, the oldest entry moves to the top of
 
 ## [Unreleased]
 
-Version 0.7.0, the performance monitor (`ROADMAP.md`, `PERFORMANCE.md`), step 1: the core.
+Version 0.7.0, the performance monitor (`ROADMAP.md`, `PERFORMANCE.md`), step 1: the core, and step 2: Diagnose.
 
 ### Added
 
@@ -34,6 +34,30 @@ Version 0.7.0, the performance monitor (`ROADMAP.md`, `PERFORMANCE.md`), step 1:
   performance monitoring and is audited with the old and new values; viewing needs Performance. Both are administration of
   the instance, held by admins only.
 - A deploy marker on the timeline when Fleeto starts on a new version.
+- Diagnose (step 2): started from the top of Settings, Performance for 15 minutes to 4 hours (60 by default, the longest a
+  setting up to 24 hours), with a countdown, and ending by itself on server time; stopping it early and starting it are
+  audited. While it runs every component traces every database statement through Npgsql: its fingerprint (literals replaced by
+  `?`, never a value), the page, route, loop or message that sent it, and the method in the code that sent it, found under a
+  budget of 50 stack walks a second. One statement sent more often than the threshold N+1 repeats (10) within one interaction,
+  request, run or message is an N+1 suspect; a slow event keeps its three heaviest statements; an exception names the class
+  that threw it; statement and table statistics are read every 5 and 15 minutes. Outside Diagnose none of this runs.
+- New findings: N+1 suspects naming the page, the statement and the method; the statements that cost the components most,
+  with who sent them; database sessions idle in a transaction or waiting for a lock (the workers now count the sessions in
+  every database snapshot); duplicate indexes. The monitor may cost three times its threshold while Diagnose runs.
+- New tabs on Settings, Performance: Pages and API (every page and route, opened to its latency over the period, its
+  distribution, its slowest occurrences and the statements it sent), Database (time by source, the statements measured in
+  Diagnose, N+1 suspects, PostgreSQL's statement statistics, tables, unused and duplicate indexes, sessions, and the settings
+  and I/O of PostgreSQL read live), Server (the VPS and the runtime of each component over the period, exceptions by type),
+  Background (when every loop ran, whether pages are slower while a loop runs, loops, external calls, live updates,
+  notifications) and Agent channel (connected agents, connections, messages, job delivery, relay, signing).
+- Plan and Analyze on the Database tab: the generic plan of a stored statement (EXPLAIN without running it, in a read-only
+  transaction of 5 seconds at most, only for a statement that reads, looked up by its id on the server, never text from the
+  browser), and ANALYZE of one table. Both need Manage performance monitoring and are audited. They go through two database
+  functions granted to web only: one that can only analyze a table of Fleeto, one that only explains, with web's own rights.
+- Manual markers on the timeline ("added an index on Jobs"), stored masked; the audit entry holds the length, never the text.
+- The export as JSON (with a `schemaVersion`) for tooling, and as a ZIP with the Markdown, the JSON and the generic plans of the
+  top statements. The Markdown says how much of the period ran in Diagnose and adds the statements measured in Diagnose with
+  their callers, the N+1 suspects, the slowest events with their heaviest statements, the indexes and the sessions.
 
 ### Changed
 
@@ -42,7 +66,9 @@ Version 0.7.0, the performance monitor (`ROADMAP.md`, `PERFORMANCE.md`), step 1:
 - Instance health reads its statement statistics through the same reader as the performance monitor, so both name the same
   statements.
 - The nightly backup dumps the tables of the performance monitor without their rows, so a restore does not bring old
-  measurements; its settings are kept.
+  measurements; its settings are kept. The statements of Diagnose (`PerfFingerprints`) are among them.
+- Migration `PerformanceDiagnose` (expand only): the table `PerfFingerprints`, the heaviest statements of a slow event, the
+  sessions of a database snapshot, and the functions `fleeto_perf_analyze` and `fleeto_perf_explain`.
 
 ## [0.6.0] — 2026-10-18
 

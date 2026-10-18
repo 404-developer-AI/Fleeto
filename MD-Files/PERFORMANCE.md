@@ -137,13 +137,14 @@ rate limiter refusing. No payloads, no users, no endpoints.
 | `PerfRuntimeMinute` | Component, minute, version, level, CPU, memory, GC, thread pool, overhead | all four | web, workers |
 | `PerfHostMinute` | Minute, CPU incl. steal and iowait, load, memory, swap, disk | workers | web |
 | `PerfEvent` | Slow interactions, slow requests, worker runs above the threshold, with split | web, gateway, workers | web, workers |
-| `PerfFingerprint` | Hash, normalized SQL, calling method, first and last seen | all four | web |
+| `PerfFingerprint` | Component, hash, normalized SQL, up to five calling methods, first and last seen | all four, own rows | web, workers |
 | `PerfStatementSnapshot`, `PerfDatabaseSnapshot`, `PerfTableSnapshot` | §4.3 | workers | web |
 | `PerfMarker` | Deploy (version change) and manual markers | workers, web | web |
 | `PerformanceSettings` | One row, the settings of §8 as JSON | web | all four |
 
 Kind is an enum: `Interaction`, `Http`, `Db`, `WorkerRun`, `External`, `AgentMessage`, `JobDispatch`, `Relay`, `Signing`,
-`Broadcast`, `Notification`. One minute table instead of one per domain keeps the rollup, the retention and the reading in
+`Broadcast`, `Notification`, and in Diagnose `Statement` (key: fingerprint, sub key: source) and `NPlusOne` (key: source, sub
+key: fingerprint). One minute table instead of one per domain keeps the rollup, the retention and the reading in
 one place. Every table gets its grants in `DatabaseGrants` (the test enforces it). The nightly backup dumps these tables
 without data (`--exclude-table-data`), so a restore does not bring old measurements. Retention: minutes 7 days, hours 90
 days, events 14 days, snapshots 30 days, settings in §8.
@@ -231,11 +232,39 @@ agents with `Fleeto.LoadTest`, on the test VPS. Where the build differs from the
    Settings tab; Markdown export with copy to clipboard.
 7. Measure the overhead with `Fleeto.LoadTest` at 1,000 agents with the monitor off and on Basic; below 1 % or it is not done.
 
-### Step 2 — Diagnose (alpha 2)
+### Step 2 — Diagnose (alpha 2) — built 2026-10-18
 
 Diagnose with its countdown; fingerprints, N+1 and callers; tabs API and interactions, Database (with plan and analyze),
 Server, Background, Agent channel; manual markers; JSON and ZIP. Test: one hour of Diagnose under `Fleeto.LoadTest`, export,
 and Claude finds every referenced page, loop, query and table in the repository without guessing (spec §16).
+
+Built as planned and described in `ARCHITECTURE.md` §4, *Performance monitor*. Still open: the test above, on the test VPS.
+Where the build differs from the plan, decided while building:
+
+- Diagnose is not a level that is stored: it is Basic with an end on server time (`PerformanceSettings.DiagnoseUntil`), started
+  and stopped from the top of the page (needs level Basic; 5 minutes to the longest setting, 240 by default, at most 24 hours).
+  Saving the settings keeps it; level Off ends it. The runtime rows of a minute carry the level that ran, `Diagnose` included,
+  which gives the share of a period in Diagnose.
+- Statements are traced through `ConfigureTracing` on the one data source of each process (`PerfStatementTracer`): outside
+  Diagnose the filter answers false before Npgsql creates an activity. At the start of a command its text becomes a
+  fingerprint (`PerfStatements`, at most 5,000 texts and 2,000 fingerprints per process), and the caller is the first method of
+  Fleeto on the stack that is not plumbing, under 50 stack walks a second, until a statement has five callers or twenty tries.
+  A statement sent after its method awaited something else has no caller on the stack: the report says so. A batch (EF Core's
+  SaveChanges) is one statement of its distinct texts.
+- N+1 is counted in the innermost scope only, so a page load inside an event does not count twice; a row of kind `NPlusOne`
+  per source and statement with the repeats as its value. A slow event keeps its three heaviest statements in a text column.
+- Generic plans run through the database function `fleeto_perf_explain`, with web's own rights (SECURITY INVOKER) in a
+  read-only transaction of 5 seconds: a generic plan needs its `$1` left unbound, and Npgsql's extended protocol binds every
+  parameter (with nulls the planner folds them into a constant). The statement is the monitor's own stored text with its `?`
+  turned into parameters, checked to read only. ANALYZE runs through `fleeto_perf_analyze`, owned by the migrator (SECURITY
+  DEFINER), which takes a table name and accepts only a table of the public schema. Both are granted to web only
+  (`DatabaseGrants.FunctionGrants`).
+- Sessions and lock waits come from the database snapshot of the workers instead of a live view in web: web may not see the
+  sessions of other roles, the workers with `pg_monitor` may. Settings, I/O (`pg_stat_io`) and indexes are read live by web.
+- Fingerprints are kept as long as the hour rows (90 days), so a statement in an old hour still has its text.
+- The tab is called Pages and API; the benchmark and the edge check of the Server tab come with step 3.
+- Manual markers are stored through the redactor of the instance; the audit entry holds the length of the label only.
+- The monitor-overhead rule allows three times its threshold for the minutes that ran in Diagnose.
 
 ### Step 3 — the rest (alpha 3)
 

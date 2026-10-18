@@ -57,6 +57,9 @@ public sealed record PerfRuntimeSummary(
 {
     /// <summary>CPU of the monitor as a share of one core over the measured minutes.</summary>
     public double OverheadCpuPercent => Minutes <= 0 ? 0 : OverheadMs / (Minutes * 60_000d) * 100;
+
+    /// <summary>Of <see cref="Minutes"/>, those that ran in Diagnose, which may cost more (spec §8, monitor rule).</summary>
+    public int DiagnoseMinutes { get; init; }
 }
 
 /// <summary>The VPS over the period. Shared by every instance on it.</summary>
@@ -95,7 +98,47 @@ public sealed record PerfDatabaseSummary(
     int Connections,
     int MaxConnections,
     long WraparoundAge,
-    long DatabaseBytes);
+    long DatabaseBytes)
+{
+    /// <summary>The sessions at the last snapshot, or null when the snapshot did not read them (before 0.7.0 step 2).</summary>
+    public PerfSessionsSummary? Sessions { get; init; }
+}
+
+/// <summary>
+/// The sessions of the database at one snapshot, read by the workers (web may not see other roles' sessions). Ages in seconds.
+/// </summary>
+public sealed record PerfSessionsSummary(
+    int Active,
+    int Idle,
+    int IdleInTransaction,
+    double? LongestTransactionSeconds,
+    double? LongestIdleInTransactionSeconds,
+    int LockWaiting,
+    double? LongestLockWaitSeconds);
+
+/// <summary>A statement as the components measured it in Diagnose: its normalized text and the methods that sent it.</summary>
+public sealed record PerfFingerprintView(string Hash, string Sql, IReadOnlyList<string> Callers);
+
+/// <summary>One of the heaviest statements of a slow event: its fingerprint, how often it ran in the event and its time.</summary>
+public sealed record PerfEventStatement(string Hash, int Count, double Ms);
+
+/// <summary>A slow interaction, request, run or message kept on its own, with its split; in Diagnose with its heaviest statements.</summary>
+public sealed record PerfEventView(
+    DateTime Time,
+    string Component,
+    PerfKind Kind,
+    string Key,
+    string SubKey,
+    double DurationMs,
+    int DbCount,
+    double DbMs,
+    double ExternalMs,
+    bool Failed,
+    IReadOnlyList<PerfEventStatement> Statements);
+
+/// <summary>An index of a table with its size and how often it was used since the statistics were reset.</summary>
+/// <param name="DuplicateOf">Another index of the same table on the same columns in the same order, or null.</param>
+public sealed record PerfIndexView(string Table, string Name, long Bytes, long Scans, bool Unique, bool Primary, string Columns, string? DuplicateOf);
 
 /// <summary>A table in the last snapshot of the period, with deltas against the snapshot before it (null without a baseline).</summary>
 public sealed record PerfTableSummary(
@@ -117,6 +160,19 @@ public sealed record PerfTableSummary(
 
 /// <summary>One minute for the overlap rule: the page interactions in it and the worker loops that ran.</summary>
 public sealed record PerfOverlapMinute(DateTime Minute, IReadOnlyList<int> InteractionHistogram, long Interactions, IReadOnlyCollection<string> Loops);
+
+/// <summary>Page interactions in minutes a loop ran against minutes it did not, and whether there was enough to judge.</summary>
+public sealed record PerfOverlap(
+    string Loop,
+    int MinutesWith,
+    int MinutesWithout,
+    long InteractionsWith,
+    long InteractionsWithout,
+    double? P95With,
+    double? P95Without,
+    double? MeanWith,
+    double? MeanWithout,
+    bool Judged);
 
 /// <summary>A deploy or manual marker.</summary>
 public sealed record PerfMarkerView(DateTime Time, string Kind, string Label);
@@ -142,6 +198,24 @@ public sealed record PerformanceDataset(
     IReadOnlyList<string> Missing)
 {
     public TimeSpan Length => To - From;
+
+    /// <summary>Statements measured in Diagnose by fingerprint: their text and callers. Empty when Diagnose did not run.</summary>
+    public IReadOnlyDictionary<string, PerfFingerprintView> Fingerprints { get; init; } = new Dictionary<string, PerfFingerprintView>();
+
+    /// <summary>The slowest events of the period, slowest first.</summary>
+    public IReadOnlyList<PerfEventView> Events { get; init; } = [];
+
+    /// <summary>The indexes of the tables, read live when the dataset was built; empty when they could not be read.</summary>
+    public IReadOnlyList<PerfIndexView> Indexes { get; init; } = [];
+
+    /// <summary>Minutes of the period in which a component ran in Diagnose.</summary>
+    public int DiagnoseMinutes { get; init; }
+
+    /// <summary>The share of the period that ran in Diagnose, from 0 to 1.</summary>
+    public double DiagnoseShare => Length.TotalMinutes <= 0 ? 0 : Math.Min(1, DiagnoseMinutes / Length.TotalMinutes);
+
+    /// <summary>The fingerprint of a statement, or null when it was not stored.</summary>
+    public PerfFingerprintView? Fingerprint(string hash) => Fingerprints.GetValueOrDefault(hash);
 
     public IEnumerable<PerfSeries> Of(PerfKind kind) => Series.Where(s => s.Kind == kind);
 

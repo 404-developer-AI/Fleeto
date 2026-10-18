@@ -35,9 +35,11 @@ build plan are in `PERFORMANCE.md`. Built in three steps, each an alpha on the t
   loop is measured, the agent channel of the gateway, the VPS figures of Instance health reused, deltas of
   `pg_stat_statements`, the findings engine with a score per category, Settings, Performance with Overview, and the
   Markdown export with instructions for Claude Code. Level Basic on by default, below 1 % overhead.
-- [open] **Step 2, Diagnose**: a mode that ends by itself on server time (60 minutes by default) and adds statement
-  fingerprints, N+1 detection, the calling method per query and the heaviest queries per slow interaction; the tabs Database,
-  Server and Background; a generic plan and ANALYZE on click; deploy markers and manual markers; the JSON and ZIP export.
+- [open] **Step 2, Diagnose** (built 2026-10-18, to be tested on the test VPS as `0.7.0-alpha.2`, with an hour of Diagnose
+  under `Fleeto.LoadTest` and its export handed to Claude Code): a mode that ends by itself on server time (60 minutes by
+  default) and adds statement fingerprints, N+1 detection, the calling method per query and the heaviest queries per slow
+  interaction; the tabs Pages and API, Database, Server, Background and Agent channel; a generic plan and ANALYZE on click;
+  manual markers; the JSON and ZIP export.
 - [open] **Step 3, the rest**: the Frontend tab (Web Vitals of staff users, sampled), the edge check of the instance URL, the
   benchmark, budgets, comparison by version and with the previous period, critical findings as an instance health problem.
 

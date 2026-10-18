@@ -31,12 +31,15 @@ public static class DependencyInjection
         services.AddSingleton<SecretFiles>();
 
         services.Configure<DatabaseOptions>(configuration.GetSection(DatabaseOptions.SectionName));
-        // One data source per process: a connection pool for the component's role.
+        // One data source per process: a connection pool for the component's role. Its tracing feeds Diagnose of the performance
+        // monitor and costs nothing outside it (PerfStatementTracer).
         services.AddSingleton(sp =>
         {
             var options = sp.GetRequiredService<IOptions<DatabaseOptions>>().Value;
             var secrets = sp.GetRequiredService<SecretFiles>();
-            return new NpgsqlDataSourceBuilder(options.BuildConnectionString(component, secrets)).Build();
+            var builder = new NpgsqlDataSourceBuilder(options.BuildConnectionString(component, secrets));
+            builder.ConfigureTracing(PerfStatementTracer.Configure);
+            return builder.Build();
         });
         services.AddSingleton(sp => FleetoDbContextFactory.BuildOptions(sp.GetRequiredService<NpgsqlDataSource>()));
         services.AddSingleton<IFleetoDbContextFactory, FleetoDbContextFactory>();

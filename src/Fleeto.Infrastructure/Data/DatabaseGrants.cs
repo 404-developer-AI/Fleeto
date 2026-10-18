@@ -209,6 +209,10 @@ public static class DatabaseGrants
             ["PerfDatabaseSnapshots"] = Grants(web: Read, workers: "SELECT, INSERT, DELETE"),
             ["PerfTableSnapshots"] = Grants(web: Read, workers: "SELECT, INSERT, DELETE"),
             ["PerfMarkers"] = Grants(web: "SELECT, INSERT", workers: "SELECT, INSERT, DELETE"),
+            // Statements measured in Diagnose (0.7.0 step 2): each component upserts its own (TR_PerfFingerprints_Component), web
+            // reads them for the page and the export, the workers delete the ones no longer seen.
+            ["PerfFingerprints"] = Grants(web: "SELECT, INSERT, UPDATE", gateway: "SELECT, INSERT, UPDATE", signer: "SELECT, INSERT, UPDATE",
+                workers: "SELECT, INSERT, UPDATE, DELETE"),
             ["PerformanceSettings"] = Grants(web: "SELECT, INSERT, UPDATE", gateway: Read, signer: Read, workers: Read),
 
             // Key material: full access for the signer only; everyone else reads the public columns.
@@ -239,6 +243,16 @@ public static class DatabaseGrants
         ("AspNetUsers", DatabaseRoles.Signer, ["Id", "LockoutEnd", "TwoFactorEnabled", "EntraObjectId"]),
         ("AspNetUserRoles", DatabaseRoles.Signer, ["UserId", "RoleId"]),
         ("AspNetRoles", DatabaseRoles.Signer, ["Id", "NormalizedName"]),
+    ];
+
+    /// <summary>
+    /// Functions an application role may call. Every one is created with EXECUTE revoked from PUBLIC, so only these roles can.
+    /// The performance monitor (0.7.0 step 2): web runs ANALYZE on one table when an admin asks, and plans a stored statement.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Function, string Role)> FunctionGrants =
+    [
+        ("fleeto_perf_analyze(text)", DatabaseRoles.Web),
+        ("fleeto_perf_explain(text)", DatabaseRoles.Web),
     ];
 
     /// <summary>SQL that resets and applies all grants. Idempotent; run as the migrator (table owner).</summary>
@@ -274,6 +288,11 @@ public static class DatabaseGrants
         foreach (var (table, role, columns) in ColumnGrants)
         {
             sql.AppendLine($"GRANT SELECT ({string.Join(", ", columns.Select(c => $"\"{c}\""))}) ON TABLE \"{table}\" TO {role};");
+        }
+
+        foreach (var (function, role) in FunctionGrants)
+        {
+            sql.AppendLine($"GRANT EXECUTE ON FUNCTION {function} TO {role};");
         }
 
         // The backup role (member of pg_read_all_data) is granted by a superuser in install.sh and setup-dev.ps1;

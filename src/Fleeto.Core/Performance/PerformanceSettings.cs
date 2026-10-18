@@ -35,7 +35,29 @@ public sealed record PerformanceSettings
 {
     public const int MinRetentionDays = 1;
 
+    /// <summary>The ceiling of <see cref="DiagnoseMaxMinutes"/>: Diagnose is for an investigation, not for leaving on.</summary>
+    public const int MaxDiagnoseMinutes = 24 * 60;
+
+    /// <summary>Off or Basic. Diagnose is not a level of its own but Basic with <see cref="DiagnoseUntil"/>.</summary>
     public PerfLevel Level { get; init; } = PerfLevel.Basic;
+
+    /// <summary>
+    /// The end of Diagnose on server time, or null. Diagnose is on while the clock is before it, evaluated on every read, so it
+    /// always ends by itself (spec §2.4). Set by starting and stopping Diagnose, never by the settings form.
+    /// </summary>
+    public DateTime? DiagnoseUntil { get; init; }
+
+    /// <summary>How long Diagnose runs when an admin starts it without choosing.</summary>
+    public int DiagnoseDefaultMinutes { get; init; } = 60;
+
+    /// <summary>The longest Diagnose an admin can start.</summary>
+    public int DiagnoseMaxMinutes { get; init; } = 240;
+
+    /// <summary>Statement statistics and the database are read this often while Diagnose runs.</summary>
+    public int DiagnoseStatementSnapshotMinutes { get; init; } = 5;
+
+    /// <summary>Tables are read this often while Diagnose runs.</summary>
+    public int DiagnoseTableSnapshotMinutes { get; init; } = 15;
 
     /// <summary>Collectors switched off. Stored as the ones that are off, so a collector added later is on.</summary>
     public IReadOnlyList<PerfCollector> DisabledCollectors { get; init; } = [];
@@ -61,6 +83,20 @@ public sealed record PerformanceSettings
 
     public bool Collects(PerfCollector collector) => IsOn && !DisabledCollectors.Contains(collector);
 
+    /// <summary>Whether Diagnose runs at <paramref name="utcNow"/> (server time): the level is on and its end is later.</summary>
+    public bool IsDiagnosing(DateTime utcNow) => IsOn && DiagnoseUntil is { } until && utcNow < until;
+
+    /// <summary>The level that runs at <paramref name="utcNow"/>: Diagnose while it lasts, else the stored level.</summary>
+    public PerfLevel EffectiveLevel(DateTime utcNow) => IsDiagnosing(utcNow) ? PerfLevel.Diagnose : Level;
+
+    /// <summary>How often statement statistics are read at <paramref name="utcNow"/>.</summary>
+    public int StatementSnapshotMinutesAt(DateTime utcNow) =>
+        IsDiagnosing(utcNow) ? Math.Min(StatementSnapshotMinutes, DiagnoseStatementSnapshotMinutes) : StatementSnapshotMinutes;
+
+    /// <summary>How often tables are read at <paramref name="utcNow"/>.</summary>
+    public int TableSnapshotMinutesAt(DateTime utcNow) =>
+        IsDiagnosing(utcNow) ? Math.Min(TableSnapshotMinutes, DiagnoseTableSnapshotMinutes) : TableSnapshotMinutes;
+
     /// <summary>The value of a threshold: the stored one within its range, else the default.</summary>
     public double Threshold(string key)
     {
@@ -71,9 +107,9 @@ public sealed record PerformanceSettings
     /// <summary>Why these settings cannot be saved, or null. Checked by the server whatever the page sent.</summary>
     public string? Problem()
     {
-        if (!Enum.IsDefined(Level))
+        if (Level is not (PerfLevel.Off or PerfLevel.Basic))
         {
-            return "Choose a level: Off or Basic.";
+            return "Choose a level: Off or Basic. Diagnose is started from the top of the page and ends by itself.";
         }
 
         if (DisabledCollectors.Any(c => !Enum.IsDefined(c)))
@@ -84,6 +120,21 @@ public sealed record PerformanceSettings
         if (SlowEventMs is < 100 or > 600_000)
         {
             return "A slow event is between 100 ms and 10 minutes.";
+        }
+
+        if (DiagnoseMaxMinutes is < 15 or > MaxDiagnoseMinutes)
+        {
+            return $"The longest Diagnose is between 15 minutes and {MaxDiagnoseMinutes / 60} hours.";
+        }
+
+        if (DiagnoseDefaultMinutes < 5 || DiagnoseDefaultMinutes > DiagnoseMaxMinutes)
+        {
+            return "The default length of Diagnose is at least 5 minutes and at most its longest.";
+        }
+
+        if (DiagnoseStatementSnapshotMinutes is < 1 or > 60 || DiagnoseTableSnapshotMinutes is < 5 or > 1440)
+        {
+            return "In Diagnose, statement statistics are read every 1 to 60 minutes and table statistics every 5 minutes to once a day.";
         }
 
         if (StatementSnapshotMinutes is < 5 or > 60)
@@ -197,6 +248,7 @@ public static class PerfThresholds
     public const string ExternalErrors = "code.externalErrorPercent";
     public const string GcPause = "code.gcPausePercent";
     public const string ThreadPoolQueue = "code.threadPoolQueue";
+    public const string NPlusOne = "code.nPlusOneRepeats";
     public const string MonitorOverhead = "code.monitorOverheadPercent";
     public const string MinSamples = "code.minSamples";
     public const string StatementShare = "database.statementSharePercent";
@@ -227,7 +279,9 @@ public static class PerfThresholds
         new(ExternalErrors, PerfCategory.Code, "External errors", "Share of failed calls to an external host.", "%", 5, 0.1, 100),
         new(GcPause, PerfCategory.Code, "Garbage collection pauses", "Share of time a component spent paused for garbage collection.", "%", 5, 0.5, 50),
         new(ThreadPoolQueue, PerfCategory.Code, "Thread pool queue", "Work items waiting for a thread, at the peak of a minute.", "items", 100, 5, 100_000),
-        new(MonitorOverhead, PerfCategory.Code, "Monitor overhead", "CPU the monitor itself may use on level Basic.", "%", 1, 0.1, 20),
+        new(NPlusOne, PerfCategory.Code, "N+1 repeats",
+            "Times one statement may run within one interaction, request or run before it counts as a query per item (Diagnose).", "times", 10, 2, 1000),
+        new(MonitorOverhead, PerfCategory.Code, "Monitor overhead", "CPU the monitor itself may use on level Basic; Diagnose may use three times as much.", "%", 1, 0.1, 20),
         new(MinSamples, PerfCategory.Code, "Minimum samples", "Fewest occurrences of a flow before a finding about it is made.", "occurrences", 20, 1, 10_000),
         new(StatementShare, PerfCategory.Database, "Statement share", "Share of all database time one statement takes before it is a top statement.", "%", 10, 1, 100),
         new(SlowStatement, PerfCategory.Database, "Slow statement", "Mean time of a statement above which it is slow.", "ms", 100, 1, 60_000),

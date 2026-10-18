@@ -1,0 +1,69 @@
+@* Agent channel (PERFORMANCE.md §4.4): connected agents over the period, connections by outcome, the time to store and acknowledge
+   every message type, job delivery, the remote session relay, signing and the last-seen batch. *@
+@using Fleeto.Core.Performance
+@using Fleeto.Infrastructure.Performance
+
+@{
+    var gateway = View.RuntimeTimeline.Where(r => r.Component == "gateway").ToList();
+    var connected = PerfCharts.View(View, "Connected agents and watchdogs", string.Empty, gateway.Select(r => new PerfChartPoint(r.Time, null, r.ConnectionsMax, null, 1)));
+    var accepted = PerfCharts.Counts(View, "Connections accepted", View.ConnectionTimeline, p => p.Key == "accepted");
+}
+<div class="health-trends mb-4">
+    <div class="fl-panel pa-3">
+        <MudText Typo="Typo.subtitle2" Class="mb-1">Connected agents and watchdogs <PerfInfo Text="The peak per interval of connections the gateway held." /></MudText>
+        @if (PerfCharts.HasValues(connected))
+        {
+            <HistoryChart View="connected" />
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="muted">No gateway runtime in this period.</MudText>
+        }
+    </div>
+    <div class="fl-panel pa-3">
+        <MudText Typo="Typo.subtitle2" Class="mb-1">Connections accepted <PerfInfo Text="New connections per interval. A spike is a reconnect storm: after a restart of the gateway or the host proxy, or a network problem." /></MudText>
+        @if (PerfCharts.HasValues(accepted))
+        {
+            <HistoryChart View="accepted" />
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="muted">No connections in this period.</MudText>
+        }
+    </div>
+</div>
+
+<div class="health-grid mb-4">
+    @foreach (var (key, label) in new[] { ("accepted", "Accepted"), ("closed", "Closed"), ("refused", "Refused"), ("duplicate", "Refused as a duplicate") })
+    {
+        var series = View.Data.Of(PerfKind.Connection).Where(c => c.Key == key).ToList();
+        <div class="health-card fl-panel">
+            <div class="health-card-head"><span>@label</span></div>
+            <div style="font-size:1.25rem">@PerformanceRules.Count(series.Sum(c => c.Count))</div>
+            <div class="muted" style="font-size:0.75rem">busiest minute @PerformanceRules.Count(series.Sum(c => c.PeakCount))</div>
+        </div>
+    }
+</div>
+
+<PerfFlowTable Title="Agent messages" KeyLabel="Message type · from" View="View" LoadTimeline="LoadTimeline" ShowBytes="true"
+               Threshold="View.Settings.Threshold(PerfThresholds.IngestP95)" Flows="@View.Data.Of(PerfKind.AgentMessage).ToList()"
+               Info="Every message from agents and watchdogs: the time from receiving it to storing and acknowledging it. The agent keeps check results on its disk until the acknowledgement." />
+
+<PerfFlowTable Title="Job delivery" KeyLabel="Job type" View="View" ShowSplit="false"
+               Threshold="View.Settings.Threshold(PerfThresholds.JobDelivery)" Flows="@View.Data.Of(PerfKind.JobDispatch).ToList()"
+               Info="The time from a job being ready to deliver (signed, its agent online) until the gateway sent it." />
+
+<PerfFlowTable Title="Remote session relay" KeyLabel="Side" View="View" ShowSplit="false" ShowBytes="true" Flows="@View.Data.Of(PerfKind.Relay).ToList()"
+               Info="Remote control and remote background connections through the gateway, per side: how long they lasted and how much they relayed." />
+
+<PerfFlowTable Title="Signing requests" KeyLabel="Request kind · outcome" View="View" LoadTimeline="LoadTimeline" ShowComponent="false"
+               Flows="@View.Data.Of(PerfKind.Signing).ToList()"
+               Info="Requests to the signer per kind: the time to sign and the outcome, and as wait the time a request waited to be claimed." />
+
+<PerfFlowTable Title="Last-seen batch" KeyLabel="Batch" View="View" ShowBytes="false" Flows="@View.Data.Of(PerfKind.Batch).ToList()"
+               Info="The gateway writes when agents were last seen in one batch; its duration and database share." />
+
+@code {
+    [Parameter, EditorRequired] public PerformanceView View { get; set; } = default!;
+    [Parameter, EditorRequired] public Func<PerfSeries, Task<IReadOnlyList<PerfFlowPoint>?>> LoadTimeline { get; set; } = default!;
+}

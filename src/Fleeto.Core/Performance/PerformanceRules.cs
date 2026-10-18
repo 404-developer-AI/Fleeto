@@ -37,7 +37,11 @@ public static class PerformanceRules
         var findings = new List<PerfFinding>();
         Hosting(data, findings);
         Code(data, findings);
+        NPlusOne(data, findings);
+        IdleInTransaction(data, findings);
         Database(data, findings);
+        AppStatements(data, findings);
+        LocksAndIndexes(data, findings);
         Maintenance(data, findings);
         Background(data, findings);
         Agents(data, findings);
@@ -78,7 +82,7 @@ public static class PerformanceRules
     {
         PerfCategory.Hosting => data.Host is { Minutes: > 0 } || data.Runtime.Count > 0,
         PerfCategory.Code => data.Series.Any(s => s.Kind is PerfKind.Interaction or PerfKind.Http or PerfKind.External) || data.Runtime.Count > 0,
-        PerfCategory.Database => data.Series.Any(s => s.Kind == PerfKind.Db) || data.Statements.Count > 0,
+        PerfCategory.Database => data.Series.Any(s => s.Kind is PerfKind.Db or PerfKind.Statement) || data.Statements.Count > 0,
         PerfCategory.Maintenance => data.Database is not null || data.Tables.Count > 0,
         PerfCategory.Background => data.Series.Any(s => s.Kind is PerfKind.WorkerRun or PerfKind.Broadcast or PerfKind.Notification),
         PerfCategory.Agents => data.Series.Any(s => s.Kind is PerfKind.AgentMessage or PerfKind.Connection or PerfKind.JobDispatch),
@@ -259,7 +263,9 @@ public static class PerformanceRules
                     "Each command is a round trip to the database. Many of them per interaction usually means a query in a loop (N+1).",
                     FlowEvidence(flow),
                     "A query per item of a list, or a separate query per section of the page.",
-                    "Load the items in one query (a join or Include, or a WHERE ... IN), or load sections together. Diagnose (0.7.0 step 2) will name the repeated statement.",
+                    data.Of(PerfKind.NPlusOne).Any(n => n.Key == SourceOf(flow))
+                        ? "Load the items in one query (a join or Include, or a WHERE ... IN), or load sections together. The N+1 finding of this page names the repeated statement and its caller."
+                        : "Load the items in one query (a join or Include, or a WHERE ... IN), or load sections together. Start Diagnose for an hour: it names the repeated statement and the method that sends it.",
                     [new("page", flow.Key)],
                     flow.DbMs * (flow.DbPerCall - maxQueries) / flow.DbPerCall));
             }
@@ -375,13 +381,15 @@ public static class PerformanceRules
             }
 
             var overhead = runtime.Cores > 0 ? runtime.OverheadCpuPercent / runtime.Cores : runtime.OverheadCpuPercent;
-            if (runtime.Minutes > 0 && overhead > settings.Threshold(PerfThresholds.MonitorOverhead))
+            if (runtime.Minutes > 0 && overhead > OverheadAllowance(runtime, settings.Threshold(PerfThresholds.MonitorOverhead)))
             {
                 findings.Add(new PerfFinding(
                     $"code-monitor-overhead:{runtime.Component}", PerfCategory.Code, PerfSeverity.Warning,
                     $"The performance monitor cost {Pct(overhead)} of the CPU of {runtime.Component}",
-                    "The monitor is meant to cost less than 1 % on level Basic; this is more.",
-                    [new("Monitor time", Ms(runtime.OverheadMs)), new("Minutes", runtime.Minutes.ToString(CultureInfo.InvariantCulture))],
+                    "The monitor is meant to cost less than its threshold on level Basic, and three times that in Diagnose; this is more.",
+                    [new("Monitor time", Ms(runtime.OverheadMs)), new("Minutes", runtime.Minutes.ToString(CultureInfo.InvariantCulture)),
+                        new("Of which in Diagnose", runtime.DiagnoseMinutes.ToString(CultureInfo.InvariantCulture)),
+                        new("Allowed", Pct(OverheadAllowance(runtime, settings.Threshold(PerfThresholds.MonitorOverhead))))],
                     "Many distinct keys, or a collector that does more work than it should.",
                     "Switch off collectors one by one in the Settings tab to find it, and report it.",
                     [new("component", runtime.Component)],
@@ -395,18 +403,91 @@ public static class PerformanceRules
             var total = component.Sum(s => s.Count);
             if (minutes > 0 && total / (double)minutes > 60)
             {
-                var top = component.OrderByDescending(s => s.Count).Take(5).ToList();
+                var types = component.GroupBy(s => s.Key)
+                    .Select(g => (Type: g.Key, Count: g.Sum(s => s.Count), Throwers: g.Where(s => s.SubKey.Length > 0).OrderByDescending(s => s.Count).ToList()))
+                    .OrderByDescending(t => t.Count).Take(5).ToList();
+                var evidence = types.Select(t => new PerfEvidence(t.Type, Count(t.Count))).ToList();
+                var refs = new List<PerfCodeRef> { new("component", component.Key) };
+                if (types[0].Throwers.Count > 0)
+                {
+                    // Diagnose names the class that threw and the kind of work it happened in (spec §5, Runtime).
+                    evidence.Add(new PerfEvidence($"Thrown by ({types[0].Type})",
+                        string.Join("; ", types[0].Throwers.Take(3).Select(t => $"{t.SubKey}: {Count(t.Count)}"))));
+                    refs.AddRange(types[0].Throwers.Take(3).Select(t => new PerfCodeRef("method", ThrowerOf(t.SubKey))).DistinctBy(r => r.Value));
+                }
+
                 findings.Add(new PerfFinding(
                     $"code-exceptions:{component.Key}", PerfCategory.Code, PerfSeverity.Info,
                     $"{component.Key} threw {Num(total / (double)minutes, "0")} exceptions a minute",
                     "An exception is expensive: the runtime captures a stack trace for each one. Many per minute cost CPU even when they are handled.",
-                    top.Select(s => new PerfEvidence(s.Key, Count(s.Count))).ToList(),
+                    evidence,
                     "Exceptions used for control flow, or a failure that repeats.",
-                    "Find where the most frequent type is thrown and check for it beforehand instead.",
-                    [new("component", component.Key)],
+                    types[0].Throwers.Count > 0
+                        ? "Look at the class that throws the most frequent type, and check for the condition beforehand instead."
+                        : "Find where the most frequent type is thrown and check for it beforehand instead. Diagnose names the class that throws it.",
+                    refs,
                     null));
             }
         }
+    }
+
+    /// <summary>
+    /// Diagnose: one unit of work (an interaction, request, run or message) that sends the same statement more often than the
+    /// threshold, the classic query per item of a list. Needs a few occurrences, or one that is far over the threshold.
+    /// </summary>
+    private static void NPlusOne(PerformanceDataset data, List<PerfFinding> findings)
+    {
+        var threshold = data.Settings.Threshold(PerfThresholds.NPlusOne);
+        foreach (var group in data.Of(PerfKind.NPlusOne).Where(s => !IsMonitorSource(s.Key)).GroupBy(s => (s.Key, s.SubKey)))
+        {
+            var units = group.Sum(s => s.Count);
+            var repeats = group.Sum(s => s.Sum);
+            var most = group.Max(s => s.Max);
+            var dbMs = group.Sum(s => s.DbMs);
+            if (units < 3 && most < 3 * threshold)
+            {
+                continue;
+            }
+
+            var mean = units == 0 ? 0 : repeats / units;
+            var (source, hash) = group.Key;
+            var fingerprint = data.Fingerprint(hash);
+            var refs = new List<PerfCodeRef> { SourceRef(source), new("statement", hash, fingerprint?.Sql) };
+            refs.AddRange((fingerprint?.Callers ?? []).Select(c => new PerfCodeRef("method", c)));
+            findings.Add(new PerfFinding(
+                $"code-n-plus-one:{source}:{hash}", PerfCategory.Code, mean >= 10 * threshold ? PerfSeverity.Critical : PerfSeverity.Warning,
+                $"{Describe(source)} ran one statement {Num(mean, "0")} times per {UnitOf(source)} (N+1), {Count(units)} times in the period",
+                "The same statement was sent again and again within one unit of work: a query per item of a list instead of one query for all of them. Each repeat is a round trip to the database.",
+                [
+                    new("Occurrences", Count(units)), new("Repeats per occurrence", Num(mean, "0.#")), new("Most repeats", Num(most, "0")),
+                    new("Database time of the repeats", Ms(dbMs)),
+                    new("Caller", fingerprint is { Callers.Count: > 0 } ? string.Join(", ", fingerprint.Callers) : "unknown")
+                ],
+                "A loop that queries per item, or a lazy load per row.",
+                "Load the items in one query: a join or Include, a WHERE ... IN with the ids, or one query before the loop. Then check here that the finding is gone.",
+                refs,
+                mean > 1 ? dbMs * (1 - 1 / mean) : null));
+        }
+    }
+
+    /// <summary>Sessions the workers saw idle inside a transaction at the last snapshot: they hold locks and connections.</summary>
+    private static void IdleInTransaction(PerformanceDataset data, List<PerfFinding> findings)
+    {
+        if (data.Database?.Sessions is not { IdleInTransaction: > 0, LongestIdleInTransactionSeconds: >= 60 } sessions)
+        {
+            return;
+        }
+
+        findings.Add(new PerfFinding(
+            "code-idle-in-transaction", PerfCategory.Code, sessions.LongestIdleInTransactionSeconds >= 600 ? PerfSeverity.Critical : PerfSeverity.Warning,
+            $"{sessions.IdleInTransaction} database sessions sat idle in a transaction, the longest {Ms(sessions.LongestIdleInTransactionSeconds * 1000)}",
+            "A transaction that is open while the code does something else holds its locks and its connection, and stops vacuum from removing dead rows.",
+            [new("Idle in transaction", sessions.IdleInTransaction.ToString(CultureInfo.InvariantCulture)),
+                new("Longest", Ms(sessions.LongestIdleInTransactionSeconds * 1000)), new("Seen at", "the last database snapshot")],
+            "Code that opens a transaction and then waits: for an external call, a user, or a long computation.",
+            "Keep transactions around database work only; make external calls before or after them.",
+            [new("component", "database")],
+            null));
     }
 
     private static List<PerfEvidence> FlowEvidence(PerfSeries flow) =>
@@ -485,7 +566,7 @@ public static class PerformanceRules
 
         foreach (var table in data.Tables.Where(t => t is { SequentialScans: >= 100, Rows: >= BigTableRows }))
         {
-            var perScan = table.SequentialRowsRead / (double)table.SequentialScans!.Value;
+            var perScan = (table.SequentialRowsRead ?? 0) / (double)table.SequentialScans!.Value;
             if (perScan < 10_000)
             {
                 continue;
@@ -513,6 +594,85 @@ public static class PerformanceRules
                 "A query that sorts or groups many rows, often a report or an export without a limit.",
                 "Find the statement with the most temporary blocks in the statement table and make it sort fewer rows, or add an index in its sort order.",
                 [new("component", "database")],
+                null));
+        }
+    }
+
+    /// <summary>
+    /// Diagnose: the statements that cost the components the most time, as they measured them, with the methods that sent them.
+    /// Unlike the statement statistics of PostgreSQL these name the page, loop or message and the calling method.
+    /// </summary>
+    private static void AppStatements(PerformanceDataset data, List<PerfFinding> findings)
+    {
+        var settings = data.Settings;
+        var statements = data.Of(PerfKind.Statement).Where(s => !IsMonitorSource(s.SubKey)).GroupBy(s => s.Key)
+            .Select(g => (Hash: g.Key, Series: g.ToList(), Merged: Merge(g))).ToList();
+        var total = statements.Sum(s => s.Merged.Sum);
+        if (total <= 0)
+        {
+            return;
+        }
+
+        var shareLimit = settings.Threshold(PerfThresholds.StatementShare) / 100;
+        var slow = settings.Threshold(PerfThresholds.SlowStatement);
+        // A statement run once or twice (a cold first query, a short Diagnose) is not a pattern: it needs the minimum samples.
+        var minSamples = settings.Threshold(PerfThresholds.MinSamples);
+        foreach (var (hash, series, merged) in statements.OrderByDescending(s => s.Merged.Sum).Take(5)
+                     .Where(s => s.Merged.Sum / total >= shareLimit && s.Merged.Count >= minSamples))
+        {
+            var share = merged.Sum / total;
+            var fingerprint = data.Fingerprint(hash);
+            var sources = series.GroupBy(s => s.SubKey).Select(g => (Source: g.Key, Ms: g.Sum(s => s.Sum), Calls: g.Sum(s => s.Count)))
+                .OrderByDescending(s => s.Ms).Take(3).ToList();
+            var refs = new List<PerfCodeRef> { new("statement", hash, fingerprint?.Sql) };
+            refs.AddRange((fingerprint?.Callers ?? []).Select(c => new PerfCodeRef("method", c)));
+            refs.AddRange(sources.Select(s => SourceRef(s.Source)).Where(r => r.Kind != "component"));
+            findings.Add(new PerfFinding(
+                $"database-app-statement:{hash}", PerfCategory.Database, merged.Mean > slow || share >= 0.3 ? PerfSeverity.Warning : PerfSeverity.Info,
+                $"One statement took {Pct(share * 100)} of the measured database time ({Ms(merged.Sum)} over {Count(merged.Count)} calls)",
+                "Measured by the components in Diagnose: this statement cost more time than any other, and the evidence names who sent it.",
+                [
+                    new("Calls", Count(merged.Count)), new("Total time", Ms(merged.Sum)), new("Mean per call", Ms(merged.Mean)), new("95th percentile", Ms(merged.P95)),
+                    new("Share of measured database time", Pct(share * 100)), new("Failed", Count(merged.Errors)),
+                    new("Sent by", string.Join("; ", sources.Select(s => $"{s.Source}: {Count(s.Calls)} calls, {Ms(s.Ms)}"))),
+                    new("Caller", fingerprint is { Callers.Count: > 0 } ? string.Join(", ", fingerprint.Callers) : "unknown")
+                ],
+                merged.Mean > slow ? "Each call is slow: it reads many rows or misses an index." : "Each call is fast, but it runs very often.",
+                merged.Mean > slow
+                    ? "Use Plan on the Database tab to see how it runs; add the index it needs, or select fewer rows."
+                    : "Call it less often from the method named: cache the result, batch the calls, or load it once per page.",
+                refs,
+                merged.Sum));
+        }
+    }
+
+    /// <summary>Sessions waiting for a lock at the last snapshot, and indexes that duplicate another one.</summary>
+    private static void LocksAndIndexes(PerformanceDataset data, List<PerfFinding> findings)
+    {
+        if (data.Database?.Sessions is { LockWaiting: > 0, LongestLockWaitSeconds: >= 5 } sessions)
+        {
+            findings.Add(new PerfFinding(
+                "database-lock-waits", PerfCategory.Database, sessions.LongestLockWaitSeconds >= 60 ? PerfSeverity.Critical : PerfSeverity.Warning,
+                $"{sessions.LockWaiting} database sessions waited for a lock, the longest {Ms(sessions.LongestLockWaitSeconds * 1000)}",
+                "A session that waits for a lock does nothing until the session holding it commits; the page or loop behind it waits as long.",
+                [new("Waiting", sessions.LockWaiting.ToString(CultureInfo.InvariantCulture)), new("Longest wait", Ms(sessions.LongestLockWaitSeconds * 1000)),
+                    new("Longest transaction", Ms(sessions.LongestTransactionSeconds * 1000)), new("Seen at", "the last database snapshot")],
+                "A long transaction that updates rows others need, or rows locked in a different order by two pieces of code.",
+                "Keep transactions that update hot rows short, and update rows in the same order everywhere. The loops that overlap with pages are a good first suspect.",
+                [new("component", "database")],
+                null));
+        }
+
+        foreach (var index in data.Indexes.Where(i => i is { DuplicateOf: not null, Primary: false }))
+        {
+            findings.Add(new PerfFinding(
+                $"database-duplicate-index:{index.Name}", PerfCategory.Database, PerfSeverity.Info,
+                $"Index {index.Name} on {index.Table} duplicates {index.DuplicateOf}",
+                "Two indexes on the same columns in the same order cost every write twice and take space, while queries use only one of them.",
+                [new("Table", index.Table), new("Columns", index.Columns), new("Size", Bytes(index.Bytes)), new("Scans", Count(index.Scans))],
+                "An index added in a migration next to one that already existed, often one created for a foreign key.",
+                "Drop one of the two in a migration (keep a unique one), after checking that no query needs it for its sort order.",
+                [new("index", index.Name), new("table", index.Table)],
                 null));
         }
     }
@@ -704,50 +864,56 @@ public static class PerformanceRules
     }
 
     /// <summary>
-    /// Does a loop slow pages down? Compares page interactions in minutes the loop ran with minutes it did not. Needs enough minutes
-    /// on both sides and an absolute gap in the 95th percentile, not just a ratio, so a quiet period does not count as evidence.
+    /// Does a loop slow pages down? Compares page interactions in minutes the loop ran with minutes it did not, for every loop that
+    /// ran in a minute with interactions. <see cref="PerfOverlap.Judged"/> says whether there were enough minutes on both sides and
+    /// enough interactions to judge, so a quiet period does not count as evidence. The Background tab shows the same comparison.
     /// </summary>
-    private static void Overlap(PerformanceDataset data, List<PerfFinding> findings)
+    public static IReadOnlyList<PerfOverlap> Overlaps(PerformanceDataset data)
     {
-        var settings = data.Settings;
-        var gap = settings.Threshold(PerfThresholds.LoopOverlap);
-        var minSamples = settings.Threshold(PerfThresholds.MinSamples);
+        var minSamples = data.Settings.Threshold(PerfThresholds.MinSamples);
         var busy = data.Minutes.Where(m => m.Interactions > 0).ToList();
-        foreach (var loop in busy.SelectMany(m => m.Loops).Distinct(StringComparer.Ordinal))
+        var overlaps = new List<PerfOverlap>();
+        foreach (var loop in busy.SelectMany(m => m.Loops).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
         {
             var with = busy.Where(m => m.Loops.Contains(loop)).ToList();
             var without = busy.Where(m => !m.Loops.Contains(loop)).ToList();
-            if (with.Count < MinOverlapMinutes || without.Count < MinOverlapMinutes)
-            {
-                continue;
-            }
-
             var withHistogram = with.Aggregate((int[]?)null, (total, m) => PerfHistogram.Add(total, m.InteractionHistogram));
             var withoutHistogram = without.Aggregate((int[]?)null, (total, m) => PerfHistogram.Add(total, m.InteractionHistogram));
             var withCount = PerfHistogram.Total(withHistogram);
-            if (withCount < minSamples || PerfHistogram.Total(withoutHistogram) < minSamples)
-            {
-                continue;
-            }
+            var withoutCount = PerfHistogram.Total(withoutHistogram);
+            overlaps.Add(new PerfOverlap(loop, with.Count, without.Count, withCount, withoutCount, PerfHistogram.Percentile(withHistogram, 0.95),
+                PerfHistogram.Percentile(withoutHistogram, 0.95), PerfHistogram.Mean(withHistogram), PerfHistogram.Mean(withoutHistogram),
+                with.Count >= MinOverlapMinutes && without.Count >= MinOverlapMinutes && withCount >= minSamples && withoutCount >= minSamples));
+        }
 
-            var p95With = PerfHistogram.Percentile(withHistogram, 0.95) ?? 0;
-            var p95Without = PerfHistogram.Percentile(withoutHistogram, 0.95) ?? 0;
+        return overlaps;
+    }
+
+    private static void Overlap(PerformanceDataset data, List<PerfFinding> findings)
+    {
+        var gap = data.Settings.Threshold(PerfThresholds.LoopOverlap);
+        foreach (var overlap in Overlaps(data).Where(o => o.Judged))
+        {
+            var p95With = overlap.P95With ?? 0;
+            var p95Without = overlap.P95Without ?? 0;
             if (p95With - p95Without < gap || p95With < 1.5 * p95Without)
             {
                 continue;
             }
 
-            var meanGap = (PerfHistogram.Mean(withHistogram) ?? 0) - (PerfHistogram.Mean(withoutHistogram) ?? 0);
+            var meanGap = (overlap.MeanWith ?? 0) - (overlap.MeanWithout ?? 0);
             findings.Add(new PerfFinding(
-                $"background-loop-overlap:{loop}", PerfCategory.Background, PerfSeverity.Warning,
-                $"Pages are slower while loop {loop} runs: 95th percentile {Ms(p95With)} against {Ms(p95Without)}",
+                $"background-loop-overlap:{overlap.Loop}", PerfCategory.Background, PerfSeverity.Warning,
+                $"Pages are slower while loop {overlap.Loop} runs: 95th percentile {Ms(p95With)} against {Ms(p95Without)}",
                 "In the minutes this loop ran, page interactions were clearly slower than in the minutes it did not, so it competes with users for the database or CPU.",
-                [new("Minutes with the loop", with.Count.ToString(CultureInfo.InvariantCulture)), new("Minutes without", without.Count.ToString(CultureInfo.InvariantCulture)),
-                    new("95th percentile with", Ms(p95With)), new("95th percentile without", Ms(p95Without)), new("Interactions with the loop", Count(withCount))],
+                [new("Minutes with the loop", overlap.MinutesWith.ToString(CultureInfo.InvariantCulture)),
+                    new("Minutes without", overlap.MinutesWithout.ToString(CultureInfo.InvariantCulture)),
+                    new("95th percentile with", Ms(p95With)), new("95th percentile without", Ms(p95Without)),
+                    new("Interactions with the loop", Count(overlap.InteractionsWith))],
                 "The loop does heavy database work or holds locks the pages need.",
                 "Make the loop work in smaller batches with short transactions, or move its heavy part to a quieter time.",
-                [new("loop", loop)],
-                meanGap > 0 ? meanGap * withCount : null));
+                [new("loop", overlap.Loop)],
+                meanGap > 0 ? meanGap * overlap.InteractionsWith : null));
         }
     }
 
@@ -847,6 +1013,73 @@ public static class PerformanceRules
     /// <summary>The time users and integrations waited for pages and requests in the period.</summary>
     private static double UserFacingTime(PerformanceDataset data) =>
         data.Series.Where(s => s.Kind is PerfKind.Interaction or PerfKind.Http && s.Key != DashboardRoute).Sum(s => s.Sum);
+
+    /// <summary>The CPU the monitor may use in a component: the threshold for Basic minutes, three times it for Diagnose minutes.</summary>
+    private static double OverheadAllowance(PerfRuntimeSummary runtime, double threshold) =>
+        runtime.Minutes <= 0 ? threshold : threshold * (runtime.Minutes + 2d * Math.Min(runtime.DiagnoseMinutes, runtime.Minutes)) / runtime.Minutes;
+
+    private static bool IsMonitorSource(string source) => source is PerfKeys.MonitorSource or PerfKeys.DashboardSource;
+
+    /// <summary>The class in an exception sub key of Diagnose (<c>Fleeto.Web.Services.ClientService in interaction</c>).</summary>
+    private static string ThrowerOf(string subKey) => subKey.Split(" in ", 2)[0];
+
+    /// <summary>The source the database work of a flow counts under; the monitor's own page counts under its own.</summary>
+    public static string SourceOf(PerfSeries flow) => flow.Kind switch
+    {
+        PerfKind.Interaction when string.Equals(flow.Key, DashboardRoute, StringComparison.OrdinalIgnoreCase) => PerfKeys.DashboardSource,
+        PerfKind.Interaction => PerfKeys.InteractionSource(flow.Key),
+        PerfKind.Http => PerfKeys.ApiSource(flow.Key),
+        PerfKind.WorkerRun => PerfKeys.WorkerSource(flow.Key),
+        PerfKind.AgentMessage => PerfKeys.GatewaySource(flow.Key),
+        PerfKind.Signing => PerfKeys.SignerSource(flow.Key),
+        _ => flow.Key
+    };
+
+    /// <summary>Where to look for a source: the page, route, loop, message type or signing request kind.</summary>
+    public static PerfCodeRef SourceRef(string source)
+    {
+        var colon = source.IndexOf(':');
+        if (colon <= 0)
+        {
+            return new PerfCodeRef("component", source);
+        }
+
+        var value = source[(colon + 1)..];
+        return source[..colon] switch
+        {
+            "interaction" => new PerfCodeRef("page", value),
+            "api" => new PerfCodeRef("api", value),
+            "worker" => new PerfCodeRef("loop", value),
+            "gateway" => new PerfCodeRef("message", value),
+            "signer" => new PerfCodeRef("signing", value),
+            _ => new PerfCodeRef("component", source)
+        };
+    }
+
+    /// <summary>A source in words: "Page /clients", "Loop patch-sync".</summary>
+    public static string Describe(string source)
+    {
+        var reference = SourceRef(source);
+        return reference.Kind switch
+        {
+            "page" => $"Page {reference.Value}",
+            "api" => $"Route {reference.Value}",
+            "loop" => $"Loop {reference.Value}",
+            "message" => $"Agent message {reference.Value}",
+            "signing" => $"Signing {reference.Value}",
+            _ => $"Work outside a measured scope ({source})"
+        };
+    }
+
+    private static string UnitOf(string source) => SourceRef(source).Kind switch
+    {
+        "page" => "interaction",
+        "api" => "request",
+        "loop" => "run",
+        "message" => "message",
+        "signing" => "request",
+        _ => "unit of work"
+    };
 
     private static PerfSeries Merge(IEnumerable<PerfSeries> series)
     {

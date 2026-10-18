@@ -128,6 +128,34 @@ public class PerfEvent
     public double DbMs { get; set; }
     public double ExternalMs { get; set; }
     public bool Failed { get; set; }
+
+    /// <summary>
+    /// In Diagnose, the heaviest statements of the event: up to three of <c>fingerprint count milliseconds</c>, separated by
+    /// <c>;</c>. Null outside Diagnose.
+    /// </summary>
+    public string? Statements { get; set; }
+}
+
+/// <summary>
+/// A statement one component measured in Diagnose (0.7.0 step 2): its fingerprint, its normalized text (every literal a
+/// <c>?</c>) and the methods that sent it. Written once a minute by the component itself; a trigger keeps every role to its own rows.
+/// </summary>
+public class PerfFingerprint
+{
+    public string Component { get; set; } = string.Empty;
+
+    /// <summary><see cref="Performance.SqlFingerprint.Hash"/> of <see cref="Sql"/>.</summary>
+    public string Hash { get; set; } = string.Empty;
+
+    public string Sql { get; set; } = string.Empty;
+
+    /// <summary>Up to <see cref="MaxCallers"/> methods, as <c>Namespace.Type.Method</c>; never a value.</summary>
+    public string[] Callers { get; set; } = [];
+
+    public DateTime FirstSeen { get; set; }
+    public DateTime LastSeen { get; set; }
+
+    public const int MaxCallers = 5;
 }
 
 /// <summary>
@@ -167,6 +195,16 @@ public class PerfDatabaseSnapshot
 
     /// <summary>Why statement statistics were not read at this time, or null.</summary>
     public string? StatementsProblem { get; set; }
+
+    // The sessions of the database at this time (0.7.0 step 2), read by the workers, which may see every role's sessions.
+    // Null in snapshots of 0.7.0 step 1.
+    public int? ActiveSessions { get; set; }
+    public int? IdleSessions { get; set; }
+    public int? IdleInTransactionSessions { get; set; }
+    public double? LongestTransactionSeconds { get; set; }
+    public double? LongestIdleInTransactionSeconds { get; set; }
+    public int? LockWaitingSessions { get; set; }
+    public double? LongestLockWaitSeconds { get; set; }
 }
 
 /// <summary>One table at one time, hypertables measured with their chunks. Counters are cumulative.</summary>
@@ -194,7 +232,7 @@ public enum PerfMarkerKind
     /// <summary>A component started on a new version.</summary>
     Deploy,
 
-    /// <summary>An admin noted a change (0.7.0 step 2).</summary>
+    /// <summary>An admin noted a change, such as an index added, so before and after are visible.</summary>
     Manual
 }
 

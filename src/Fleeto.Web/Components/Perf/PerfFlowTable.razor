@@ -1,0 +1,132 @@
+@* The flows of one kind by the time they cost: count, percentiles, total, where the time went and failures. With LoadTimeline a row
+   opens its detail: latency over the period, the distribution, its slowest events and, in Diagnose, the statements it sent. *@
+@using Fleeto.Core.Performance
+@using Fleeto.Infrastructure.Performance
+
+<MudText Typo="Typo.h6" Class="section-title mb-2">@Title <PerfInfo Text="@Info" /></MudText>
+@if (Flows.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="muted mb-4">@Empty</MudText>
+}
+else
+{
+    <div class="fl-panel pa-2 mb-4" style="overflow-x:auto">
+        <MudSimpleTable Dense="true" Elevation="0" Hover="@(LoadTimeline is not null)">
+            <thead>
+                <tr>
+                    <th>@KeyLabel</th>
+                    <th style="text-align:right">Count</th>
+                    @if (Durations)
+                    {
+                        <th style="text-align:right">p50</th>
+                        <th style="text-align:right">p95</th>
+                        <th style="text-align:right">p99</th>
+                        <th style="text-align:right">Total</th>
+                    }
+                    else
+                    {
+                        <th style="text-align:right">Average</th>
+                        <th style="text-align:right">Highest</th>
+                    }
+                    @if (ShowSplit)
+                    {
+                        <th style="text-align:right" title="Database · external calls · own code">DB · ext · own</th>
+                        <th style="text-align:right">DB per call</th>
+                    }
+                    @if (ShowBytes)
+                    {
+                        <th style="text-align:right">Average size</th>
+                    }
+                    <th style="text-align:right">Errors</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var flow in Flows.OrderByDescending(f => Durations ? f.Sum : f.Count).Take(Max))
+                {
+                    var open = _open == Id(flow);
+                    var (db, external, own) = PerfCharts.Split(flow);
+                    <tr style="@(LoadTimeline is null ? "" : "cursor:pointer")" @onclick="@(() => Toggle(flow))">
+                        <td class="mono" style="max-width:360px;overflow-wrap:anywhere">
+                            @if (LoadTimeline is not null)
+                            {
+                                <MudIcon Icon="@(open ? Icons.Material.Outlined.ExpandLess : Icons.Material.Outlined.ExpandMore)" Size="Size.Small" Class="muted mr-1" Style="vertical-align:middle" />
+                            }
+                            @flow.Key@(flow.SubKey.Length > 0 ? $" · {flow.SubKey}" : "")@(ShowComponent ? $" ({flow.Component})" : "")
+                        </td>
+                        <td style="text-align:right">@PerformanceRules.Count(flow.Count)</td>
+                        @if (Durations)
+                        {
+                            <td style="text-align:right">@PerformanceRules.Ms(flow.P50)</td>
+                            <td style="text-align:right">@PerformanceRules.Ms(flow.P95)</td>
+                            <td style="text-align:right">@PerformanceRules.Ms(flow.P99)</td>
+                            <td style="text-align:right">@PerformanceRules.Ms(flow.Sum)</td>
+                        }
+                        else
+                        {
+                            <td style="text-align:right">@PerformanceRules.Num(flow.Mean, "0.#")</td>
+                            <td style="text-align:right">@PerformanceRules.Num(flow.Max, "0")</td>
+                        }
+                        @if (ShowSplit)
+                        {
+                            <td style="text-align:right;white-space:nowrap">
+                                @(flow.Kind == PerfKind.Db ? "–" : $"{PerformanceRules.Pct(db * 100)} · {PerformanceRules.Pct(external * 100)} · {PerformanceRules.Pct(own * 100)}")
+                            </td>
+                            <td style="text-align:right">@PerformanceRules.Num(flow.DbPerCall, "0.#")</td>
+                        }
+                        @if (ShowBytes)
+                        {
+                            <td style="text-align:right">@PerformanceRules.Bytes(flow.Count == 0 ? 0 : flow.Bytes / flow.Count)</td>
+                        }
+                        <td style="text-align:right">@PerformanceRules.Count(flow.Errors)</td>
+                    </tr>
+                    @if (open && LoadTimeline is not null)
+                    {
+                        <tr>
+                            <td colspan="12" style="background:var(--fl-bg)">
+                                <PerfFlowDetail Flow="flow" View="View" LoadTimeline="LoadTimeline" Threshold="Threshold" />
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </MudSimpleTable>
+        @if (Flows.Count > Max)
+        {
+            <MudText Typo="Typo.caption" Class="muted pa-2">@(Flows.Count - Max) more with less time; the export has them all.</MudText>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Info { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public IReadOnlyList<PerfSeries> Flows { get; set; } = [];
+    [Parameter, EditorRequired] public PerformanceView View { get; set; } = default!;
+    [Parameter] public string KeyLabel { get; set; } = "Key";
+    [Parameter] public string Empty { get; set; } = "None in this period.";
+    [Parameter] public int Max { get; set; } = 15;
+    [Parameter] public bool ShowSplit { get; set; } = true;
+    [Parameter] public bool ShowBytes { get; set; }
+    [Parameter] public bool ShowComponent { get; set; }
+
+    /// <summary>False for a kind whose value is a count rather than milliseconds (live updates).</summary>
+    [Parameter] public bool Durations { get; set; } = true;
+
+    /// <summary>The threshold drawn in the detail chart, in milliseconds.</summary>
+    [Parameter] public double? Threshold { get; set; }
+
+    [Parameter] public Func<PerfSeries, Task<IReadOnlyList<PerfFlowPoint>?>>? LoadTimeline { get; set; }
+
+    // The open row by its identity, so it stays open when the page reloads its data.
+    private (string, PerfKind, string, string)? _open;
+
+    private static (string, PerfKind, string, string) Id(PerfSeries flow) => (flow.Component, flow.Kind, flow.Key, flow.SubKey);
+
+    private void Toggle(PerfSeries flow)
+    {
+        if (LoadTimeline is not null)
+        {
+            _open = _open == Id(flow) ? null : Id(flow);
+        }
+    }
+}

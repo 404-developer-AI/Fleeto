@@ -123,6 +123,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<PerfDatabaseSnapshot> PerfDatabaseSnapshots => Set<PerfDatabaseSnapshot>();
     public DbSet<PerfTableSnapshot> PerfTableSnapshots => Set<PerfTableSnapshot>();
     public DbSet<PerfMarker> PerfMarkers => Set<PerfMarker>();
+    public DbSet<PerfFingerprint> PerfFingerprints => Set<PerfFingerprint>();
     public DbSet<PerformanceSettingsRow> PerformanceSettings => Set<PerformanceSettingsRow>();
     public DbSet<Integration> Integrations => Set<Integration>();
 
@@ -1799,7 +1800,18 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(e => e.Kind).HasConversion<string>().HasMaxLength(20);
             entity.Property(e => e.Key).HasMaxLength(PerfKeys.MaxKeyLength);
             entity.Property(e => e.SubKey).HasMaxLength(PerfKeys.MaxSubKeyLength);
+            entity.Property(e => e.Statements).HasMaxLength(200);
             entity.HasIndex(e => e.Time);
+        });
+
+        builder.Entity<PerfFingerprint>(entity =>
+        {
+            entity.HasKey(f => new { f.Component, f.Hash });
+            entity.Property(f => f.Component).HasMaxLength(20);
+            entity.Property(f => f.Hash).HasMaxLength(16);
+            entity.Property(f => f.Sql).HasMaxLength(SqlFingerprint.MaxLength);
+            entity.HasIndex(f => f.LastSeen);
+            entity.HasIndex(f => f.Hash);
         });
 
         builder.Entity<PerfStatementSnapshot>(entity =>

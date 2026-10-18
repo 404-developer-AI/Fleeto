@@ -1,0 +1,105 @@
+@* Background (spec §9): when every loop ran over the period, whether pages are slower while a loop runs, the loops with their database
+   share, external calls per host, live updates to open pages and database notifications. *@
+@using Fleeto.Core.Performance
+@using Fleeto.Infrastructure.Performance
+
+@{
+    var buckets = new List<DateTime>();
+    for (var time = View.From; time < View.To; time += View.Bucket)
+    {
+        buckets.Add(time);
+    }
+
+    var loops = View.LoopTimeline.GroupBy(p => p.Key).Select(g => (Loop: g.Key, Points: g.ToDictionary(p => p.Time), Total: g.Sum(p => p.Sum)))
+        .OrderByDescending(l => l.Total).Take(40).ToList();
+    var bucketMs = View.Bucket.TotalMilliseconds;
+}
+<MudText Typo="Typo.h6" Class="section-title mb-2">
+    When the loops ran
+    <PerfInfo Text="One row per loop of the workers, one cell per interval: the darker the cell, the more of the interval the loop was busy. Loops that are busy at the same time as slow pages are the first suspects." />
+</MudText>
+@if (loops.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="muted mb-4">No worker runs in this period. Runs under 25 ms without database work are not kept.</MudText>
+}
+else
+{
+    <div class="fl-panel pa-2 mb-4" style="overflow-x:auto">
+        <div style="display:grid;grid-template-columns:200px repeat(@buckets.Count, minmax(3px, 1fr));gap:1px;align-items:center;min-width:480px">
+            @foreach (var loop in loops)
+            {
+                <div class="mono" style="font-size:0.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@loop.Loop">@loop.Loop</div>
+                @foreach (var time in buckets)
+                {
+                    var point = loop.Points.GetValueOrDefault(time);
+                    var share = point is null || bucketMs <= 0 ? 0 : Math.Min(1, point.Sum / bucketMs);
+                    <div style="height:14px;border-radius:2px;background:@Shade(point, share)"
+                         title="@($"{Time.Absolute(time)}: {(point is null ? "did not run" : $"{PerformanceRules.Count(point.Count)} runs, {PerformanceRules.Ms(point.Sum)} busy{(point.Errors > 0 ? $", {point.Errors} failed" : "")}")}")"></div>
+                }
+            }
+        </div>
+    </div>
+}
+
+@{
+    var overlaps = PerformanceRules.Overlaps(View.Data).OrderByDescending(o => (o.P95With ?? 0) - (o.P95Without ?? 0)).Take(20).ToList();
+}
+<MudText Typo="Typo.h6" Class="section-title mb-2">
+    Do loops slow pages down?
+    <PerfInfo Text="Page interactions in the minutes a loop ran against the minutes it did not. Only judged with enough minutes on both sides and enough interactions; a loop is a finding when the gap is larger than the threshold Worker overlap." />
+</MudText>
+@if (overlaps.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="muted mb-4">
+        @(View.Period == PerfPeriod.Days7 ? "Periods longer than 24 hours are not compared; choose 24 hours or less." : "No minutes with both page interactions and worker runs in this period.")
+    </MudText>
+}
+else
+{
+    <div class="fl-panel pa-2 mb-4" style="overflow-x:auto">
+        <MudSimpleTable Dense="true" Elevation="0">
+            <thead><tr><th>Loop</th><th style="text-align:right">Minutes with</th><th style="text-align:right">Minutes without</th><th style="text-align:right">p95 with</th><th style="text-align:right">p95 without</th><th>Judged</th></tr></thead>
+            <tbody>
+                @foreach (var o in overlaps)
+                {
+                    <tr>
+                        <td class="mono">@o.Loop</td>
+                        <td style="text-align:right">@o.MinutesWith</td>
+                        <td style="text-align:right">@o.MinutesWithout</td>
+                        <td style="text-align:right">@PerformanceRules.Ms(o.P95With)</td>
+                        <td style="text-align:right">@PerformanceRules.Ms(o.P95Without)</td>
+                        <td>@(o.Judged ? "yes" : "too few minutes or interactions")</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+
+<PerfFlowTable Title="Worker loops" KeyLabel="Loop · interval (s)" View="View" LoadTimeline="LoadTimeline" Max="40"
+               Flows="@View.Data.Of(PerfKind.WorkerRun).ToList()"
+               Info="Every loop of the workers by the time it spent, with the share in the database and in external calls. A loop whose 95th percentile is longer than its interval is always running." />
+
+<PerfFlowTable Title="External calls" KeyLabel="Host · status" View="View" ShowSplit="false" ShowComponent="true"
+               Flows="@View.Data.Of(PerfKind.External).ToList()"
+               Info="Outbound HTTP calls per host: Action1, Microsoft, webhooks, Slack, Teams and backup storage. A 429 is the external product refusing more calls." />
+
+<PerfFlowTable Title="Live updates to open pages" KeyLabel="Update" View="View" ShowSplit="false" Durations="false"
+               Flows="@View.Data.Of(PerfKind.Broadcast).ToList()"
+               Info="Every live update web sent to its open pages, by kind. Average and highest are the number of pages reached; each page that listens reloads its data." />
+
+<PerfFlowTable Title="Database notifications" KeyLabel="Channel" View="View" ShowSplit="false" ShowComponent="true"
+               Flows="@View.Data.Of(PerfKind.Notification).ToList()"
+               Info="Notifications each component handled per channel: the time from arriving to handled, including the wait in the queue." />
+
+@code {
+    [Parameter, EditorRequired] public PerformanceView View { get; set; } = default!;
+    [Parameter, EditorRequired] public Func<PerfSeries, Task<IReadOnlyList<PerfFlowPoint>?>> LoadTimeline { get; set; } = default!;
+
+    [Inject] private TimeDisplay Time { get; set; } = default!;
+
+    private static string Shade(PerfKeyPoint? point, double share) =>
+        point is null ? "var(--fl-border)"
+        : point.Errors > 0 ? "var(--mud-palette-error)"
+        : $"color-mix(in srgb, var(--mud-palette-primary) {(15 + share * 85).ToString("0", System.Globalization.CultureInfo.InvariantCulture)}%, transparent)";
+}

@@ -258,6 +258,16 @@ public static class AuditActions
     public const string PerformanceSettingsChanged = "performance.settings_changed";
     /// <summary>An admin copied or downloaded the performance report (0.7.0).</summary>
     public const string PerformanceExported = "performance.exported";
+    /// <summary>An admin started Diagnose of the performance monitor (0.7.0 step 2); the entry holds its end.</summary>
+    public const string PerformanceDiagnoseStarted = "performance.diagnose_started";
+    /// <summary>An admin stopped Diagnose before its end.</summary>
+    public const string PerformanceDiagnoseStopped = "performance.diagnose_stopped";
+    /// <summary>An admin put a marker on the timeline of the performance monitor; the entry holds its length, never its text.</summary>
+    public const string PerformanceMarkerAdded = "performance.marker_added";
+    /// <summary>An admin asked for the generic plan of a stored statement.</summary>
+    public const string PerformancePlanned = "performance.planned";
+    /// <summary>An admin ran ANALYZE on one table from the performance monitor.</summary>
+    public const string PerformanceTableAnalyzed = "performance.table_analyzed";
     public const string NoteCreated = "note.created";
     public const string NoteUpdated = "note.updated";
     public const string NoteDeleted = "note.deleted";

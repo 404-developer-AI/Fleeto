@@ -168,6 +168,11 @@ public sealed class PerfMaintenanceService : WorkerLoop
         await DeleteAsync("""
             DELETE FROM "PerfEvents" WHERE "Id" IN (SELECT "Id" FROM "PerfEvents" WHERE "Time" < @cutoff LIMIT 5000)
             """, now.AddDays(-settings.EventRetentionDays), cancellationToken);
+        // A statement no longer seen goes with the last hour row that can refer to it.
+        await DeleteAsync("""
+            DELETE FROM "PerfFingerprints" WHERE ("Component", "Hash") IN
+              (SELECT "Component", "Hash" FROM "PerfFingerprints" WHERE "LastSeen" < @cutoff LIMIT 5000)
+            """, now.AddDays(-settings.HourRetentionDays), cancellationToken);
         var snapshots = now.AddDays(-settings.SnapshotRetentionDays);
         await DeleteAsync("""
             DELETE FROM "PerfStatementSnapshots" WHERE "Id" IN (SELECT "Id" FROM "PerfStatementSnapshots" WHERE "Time" < @cutoff LIMIT 5000)

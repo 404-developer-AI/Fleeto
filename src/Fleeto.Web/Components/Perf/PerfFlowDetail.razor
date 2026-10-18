@@ -1,0 +1,122 @@
+@* One flow opened from its row: latency over the period, how its times are spread, its slowest events, and in Diagnose the statements
+   it sent with their callers. *@
+@using Fleeto.Core.Performance
+@using Fleeto.Infrastructure.Performance
+
+<div class="pa-2">
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="7">
+            <MudText Typo="Typo.subtitle2" Class="mb-1">Over the period <PerfInfo Text="The line is the 95th percentile per interval, the band runs from the median to the 99th percentile." /></MudText>
+            @if (_timeline is null)
+            {
+                <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-4" />
+            }
+            else if (PerfCharts.Latency(View, Flow.Key, _timeline, Threshold) is { } chart && PerfCharts.HasValues(chart))
+            {
+                <HistoryChart View="chart" />
+            }
+            else
+            {
+                <MudText Typo="Typo.body2" Class="muted">No minutes of it are kept for this period; the minute data is kept for the days the settings say.</MudText>
+            }
+        </MudItem>
+        <MudItem xs="12" lg="5">
+            <MudText Typo="Typo.subtitle2" Class="mb-1">How the times are spread <PerfInfo Text="How many took up to each bound. A second hump to the right means some calls take another, slower path." /></MudText>
+            @{
+                var buckets = Flow.Histogram.Select((count, index) => (Count: count, Index: index)).Where(b => b.Count > 0).ToList();
+                var most = buckets.Count == 0 ? 1 : buckets.Max(b => b.Count);
+            }
+            @foreach (var bucket in buckets)
+            {
+                <div class="d-flex align-center gap-2" style="font-size:0.75rem">
+                    <span class="muted" style="width:72px;text-align:right">@Bound(bucket.Index)</span>
+                    <div style="flex:1;background:var(--fl-border);border-radius:2px;height:8px">
+                        <div style="width:@(Pct(bucket.Count, most));background:var(--mud-palette-primary);height:8px;border-radius:2px"></div>
+                    </div>
+                    <span style="width:60px">@PerformanceRules.Count(bucket.Count)</span>
+                </div>
+            }
+        </MudItem>
+    </MudGrid>
+
+    @{
+        var events = View.Data.Events.Where(e => e.Kind == Flow.Kind && e.Key == Flow.Key && (Flow.SubKey.Length == 0 || e.SubKey == Flow.SubKey)).Take(10).ToList();
+        var source = PerformanceRules.SourceOf(Flow);
+        var statements = View.Data.Of(PerfKind.Statement).Where(s => s.SubKey == source).OrderByDescending(s => s.Sum).Take(10).ToList();
+    }
+    @if (events.Count > 0)
+    {
+        <MudText Typo="Typo.subtitle2" Class="mt-3 mb-1">Slowest @(Flow.Kind == PerfKind.WorkerRun ? "runs" : "occurrences") <PerfInfo Text="Each one took longer than the setting Slow event; in Diagnose with the statements that cost it most." /></MudText>
+        <MudSimpleTable Dense="true" Elevation="0">
+            <thead><tr><th>Time</th><th style="text-align:right">Duration</th><th style="text-align:right">Database</th><th style="text-align:right">Commands</th><th style="text-align:right">External</th><th>Heaviest statements</th></tr></thead>
+            <tbody>
+                @foreach (var e in events)
+                {
+                    <tr>
+                        <td style="white-space:nowrap">@Time.Absolute(e.Time)@(e.Failed ? " · failed" : "")</td>
+                        <td style="text-align:right">@PerformanceRules.Ms(e.DurationMs)</td>
+                        <td style="text-align:right">@PerformanceRules.Ms(e.DbMs)</td>
+                        <td style="text-align:right">@e.DbCount</td>
+                        <td style="text-align:right">@PerformanceRules.Ms(e.ExternalMs)</td>
+                        <td class="mono" style="font-size:0.75rem">@(e.Statements.Count == 0 ? "–" : string.Join(", ", e.Statements.Select(s => $"{s.Hash} ×{s.Count} {PerformanceRules.Ms(s.Ms)}")))</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+
+    @if (statements.Count > 0)
+    {
+        <MudText Typo="Typo.subtitle2" Class="mt-3 mb-1">Statements it sent (Diagnose) <PerfInfo Text="Measured by the component while Diagnose ran, with the method that sent each statement." /></MudText>
+        @foreach (var statement in statements)
+        {
+            var fingerprint = View.Data.Fingerprint(statement.Key);
+            <div class="mb-2">
+                <div style="font-size:0.8125rem">
+                    <span class="mono">@statement.Key</span> · @PerformanceRules.Count(statement.Count) calls · @PerformanceRules.Ms(statement.Sum) total ·
+                    @PerformanceRules.Ms(statement.Mean) mean · p95 @PerformanceRules.Ms(statement.P95)
+                    @if (fingerprint is { Callers.Count: > 0 })
+                    {
+                        <span class="muted"> · @string.Join(", ", fingerprint.Callers)</span>
+                    }
+                </div>
+                @if (fingerprint is not null)
+                {
+                    <pre class="mono perf-sql">@PerfRedactor.Default.Sql(fingerprint.Sql)</pre>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public PerfSeries Flow { get; set; } = default!;
+    [Parameter, EditorRequired] public PerformanceView View { get; set; } = default!;
+    [Parameter, EditorRequired] public Func<PerfSeries, Task<IReadOnlyList<PerfFlowPoint>?>> LoadTimeline { get; set; } = default!;
+    [Parameter] public double? Threshold { get; set; }
+
+    [Inject] private TimeDisplay Time { get; set; } = default!;
+
+    private IReadOnlyList<PerfFlowPoint>? _timeline;
+    private (PerfKind, string, string, DateTime)? _loaded;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Once per flow and period, not on every render of the page.
+        var key = (Flow.Kind, Flow.Key, Flow.SubKey, View.From);
+        if (_loaded == key)
+        {
+            return;
+        }
+
+        _loaded = key;
+        _timeline = null;
+        _timeline = await LoadTimeline(Flow) ?? [];
+    }
+
+    private static string Bound(int index) =>
+        index >= PerfHistogram.Bounds.Count ? $"> {PerformanceRules.Ms(PerfHistogram.Bounds[^1])}" : $"≤ {PerformanceRules.Ms(PerfHistogram.Bounds[index])}";
+
+    private static string Pct(int count, int most) =>
+        (100d * count / Math.Max(1, most)).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + "%";
+}

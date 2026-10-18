@@ -238,8 +238,8 @@ public sealed class MaintenanceServiceTests
         var (otherClient, _, otherEndpoint, _) = await ScopeAsync();
         Assert.True((await Maintenance.StartAsync(technician, MaintenanceTarget.Client, otherClient.Id, null, "Other client")).Success);
 
-        var history = await Maintenance.GetEndpointHistoryAsync(technician, endpoint.Id);
-        Assert.Equal(["Rack move", "Firmware and BIOS", "Disk swap"], history!.Select(h => h.Reason).ToArray());
+        var history = (await Maintenance.GetEndpointHistoryAsync(technician, endpoint.Id))!;
+        Assert.Equal(["Rack move", "Firmware and BIOS", "Disk swap"], history.Select(h => h.Reason ?? string.Empty).ToArray());
 
         var siteRecord = history[0];
         Assert.Equal(MaintenanceSource.Site, siteRecord.Source);
@@ -260,6 +260,6 @@ public sealed class MaintenanceServiceTests
         // Out of reach for another client.
         var otherCaller = WebFixture.CallerWith(new RestrictedClientScope([otherClient.Id]), FleetoRoles.Technician);
         Assert.Null(await Maintenance.GetEndpointHistoryAsync(otherCaller, endpoint.Id));
-        Assert.Equal(["Other client"], (await Maintenance.GetEndpointHistoryAsync(otherCaller, otherEndpoint.Id))!.Select(h => h.Reason).ToArray());
+        Assert.Equal(["Other client"], (await Maintenance.GetEndpointHistoryAsync(otherCaller, otherEndpoint.Id))!.Select(h => h.Reason ?? string.Empty).ToArray());
     }
 }

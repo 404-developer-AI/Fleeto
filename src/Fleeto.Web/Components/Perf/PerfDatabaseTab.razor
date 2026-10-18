@@ -1,0 +1,374 @@
+@* Database (spec §9): time by source, the statements measured in Diagnose with their callers, N+1 suspects, PostgreSQL's statement
+   statistics, tables, indexes, sessions and settings. Plan shows the generic plan of a stored statement (nothing runs); Analyze
+   refreshes the planner statistics of one table. Both need Manage performance monitoring and are audited. *@
+@using Fleeto.Core.Performance
+@using Fleeto.Infrastructure.Performance
+
+<PerfFlowTable Title="Database time by source" KeyLabel="Source" View="View" ShowSplit="false" ShowComponent="true" Max="20"
+               Flows="@View.Data.Of(PerfKind.Db).ToList()"
+               Info="Database commands as the components measured them, by the page, route, loop or message that sent them. Other is work outside a measured scope." />
+
+@{
+    var measured = View.Data.Of(PerfKind.Statement).Where(s => s.SubKey is not (PerfKeys.MonitorSource or PerfKeys.DashboardSource)).GroupBy(s => s.Key)
+        .Select(g => (Hash: g.Key, Series: g.ToList(), Sum: g.Sum(s => s.Sum), Calls: g.Sum(s => s.Count), Errors: g.Sum(s => s.Errors),
+            P95: PerfHistogram.Percentile(g.Aggregate((int[]?)null, (h, s) => PerfHistogram.Add(h, s.Histogram)) ?? [], 0.95, g.Max(s => s.Max))))
+        .OrderByDescending(s => s.Sum).Take(25).ToList();
+    var measuredTotal = measured.Sum(s => s.Sum);
+}
+<MudText Typo="Typo.h6" Class="section-title mb-2">
+    Statements measured in Diagnose
+    <PerfInfo Text="Every statement the components sent while Diagnose ran, by fingerprint: literals replaced by ?, with the pages or loops that sent it and the method in the code. Plan shows how PostgreSQL would run it." />
+</MudText>
+@if (measured.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="muted mb-4">
+        @(View.Data.DiagnoseMinutes == 0 ? "Diagnose did not run in this period. Start it at the top of the page and use Fleeto for its duration." : "No statements were measured in the minutes Diagnose ran.")
+    </MudText>
+}
+else
+{
+    <div class="fl-panel pa-2 mb-4" style="overflow-x:auto">
+        <MudSimpleTable Dense="true" Elevation="0">
+            <thead>
+                <tr><th>Fingerprint</th><th style="text-align:right">Calls</th><th style="text-align:right">Total</th><th style="text-align:right">Mean</th>
+                    <th style="text-align:right">p95</th><th style="text-align:right">Share</th><th>Sent by</th><th>Caller</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var s in measured)
+                {
+                    var fingerprint = View.Data.Fingerprint(s.Hash);
+                    var key = "f:" + s.Hash;
+                    <tr>
+                        <td class="mono" style="cursor:pointer" @onclick="@(() => ToggleSql(key))">@s.Hash</td>
+                        <td style="text-align:right">@PerformanceRules.Count(s.Calls)</td>
+                        <td style="text-align:right">@PerformanceRules.Ms(s.Sum)</td>
+                        <td style="text-align:right">@PerformanceRules.Ms(s.Calls == 0 ? 0 : s.Sum / s.Calls)</td>
+                        <td style="text-align:right">@PerformanceRules.Ms(s.P95)</td>
+                        <td style="text-align:right">@PerformanceRules.Pct(measuredTotal > 0 ? s.Sum / measuredTotal * 100 : 0)</td>
+                        <td class="mono" style="font-size:0.75rem;overflow-wrap:anywhere">@string.Join(", ", s.Series.GroupBy(x => x.SubKey).OrderByDescending(g => g.Sum(x => x.Sum)).Take(3).Select(g => g.Key))</td>
+                        <td class="mono" style="font-size:0.75rem;overflow-wrap:anywhere">@(fingerprint is { Callers.Count: > 0 } ? string.Join(", ", fingerprint.Callers) : "unknown")</td>
+                        <td style="white-space:nowrap">@PlanButton(PerfPlanTarget.Fingerprint, s.Hash)</td>
+                    </tr>
+                    @if (_sql.Contains(key) && fingerprint is not null)
+                    {
+                        <tr><td colspan="9"><pre class="mono perf-sql">@PerfRedactor.Default.Sql(fingerprint.Sql)</pre></td></tr>
+                    }
+                    @PlanRow(PerfPlanTarget.Fingerprint, s.Hash, 9)
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+
+@{
+    var suspects = View.Data.Of(PerfKind.NPlusOne).Where(s => s.Key is not (PerfKeys.MonitorSource or PerfKeys.DashboardSource)).GroupBy(s => (s.Key, s.SubKey))
+        .Select(g => (Source: g.Key.Key, Hash: g.Key.SubKey, Units: g.Sum(s => s.Count), Repeats: g.Sum(s => s.Sum), Most: g.Max(s => s.Max), Ms: g.Sum(s => s.DbMs)))
+        .OrderByDescending(s => s.Ms).Take(20).ToList();
+}
+<MudText Typo="Typo.h6" Class="section-title mb-2">
+    N+1 suspects
+    <PerfInfo Text="One statement sent more often than the threshold N+1 repeats within one page interaction, request, run or message: a query per item of a list. Diagnose only." />
+</MudText>
+@if (suspects.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="muted mb-4">@(View.Data.DiagnoseMinutes == 0 ? "Diagnose did not run in this period, so N+1 was not looked for." : "None: no statement repeated more often than the threshold within one unit of work.")</MudText>
+}
+else
+{
+    <div class="fl-panel pa-2 mb-4" style="overflow-x:auto">
+        <MudSimpleTable Dense="true" Elevation="0">
+            <thead><tr><th>Source</th><th>Fingerprint</th><th style="text-align:right">Occurrences</th><th style="text-align:right">Repeats each</th><th style="text-align:right">Most</th><th style="text-align:right">Time</th><th>Caller</th></tr></thead>
+            <tbody>
+                @foreach (var s in suspects)
+                {
+                    <tr>
+                        <td class="mono" style="overflow-wrap:anywhere">@s.Source</td>
+                        <td class="mono">@s.Hash</td>
+                        <td style="text-align:right">@PerformanceRules.Count(s.Units)</td>
+                        <td style="text-align:right">@PerformanceRules.Num(s.Units == 0 ? 0 : s.Repeats / s.Units, "0.#")</td>
+                        <td style="text-align:right">@PerformanceRules.Num(s.Most, "0")</td>
+                        <td style="text-align:right">@PerformanceRules.Ms(s.Ms)</td>
+                        <td class="mono" style="font-size:0.75rem">@(View.Data.Fingerprint(s.Hash) is { Callers.Count: > 0 } f ? string.Join(", ", f.Callers) : "unknown")</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+
+<MudText Typo="Typo.h6" Class="section-title mb-2">
+    Statement statistics
+    <PerfInfo Text="PostgreSQL's own statistics (pg_stat_statements), read by the workers: the difference between the snapshot before the period and the last in it. They count every role, also migrations." />
+</MudText>
+@if (View.Data.Statements.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="muted mb-4">@(View.Data.StatementsProblem ?? "No difference between two statement snapshots in this period yet.")</MudText>
+}
+else
+{
+    var total = View.Data.Statements.Sum(s => s.TotalMs);
+    <div class="fl-panel pa-2 mb-4" style="overflow-x:auto">
+        <MudSimpleTable Dense="true" Elevation="0">
+            <thead><tr><th>Statement</th><th style="text-align:right">Calls</th><th style="text-align:right">Total</th><th style="text-align:right">Mean</th><th style="text-align:right">Share</th><th style="text-align:right">Rows</th><th style="text-align:right">From disk</th><th style="text-align:right">Temp</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var s in View.Data.Statements.Take(20))
+                {
+                    var id = s.QueryId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    <tr>
+                        <td class="mono" style="max-width:420px;overflow-wrap:anywhere;font-size:0.75rem">@Shorten(PerfRedactor.Default.Sql(s.Query))</td>
+                        <td style="text-align:right">@PerformanceRules.Count(s.Calls)</td>
+                        <td style="text-align:right">@PerformanceRules.Ms(s.TotalMs)</td>
+                        <td style="text-align:right">@PerformanceRules.Ms(s.MeanMs)</td>
+                        <td style="text-align:right">@PerformanceRules.Pct(total > 0 ? s.TotalMs / total * 100 : 0)</td>
+                        <td style="text-align:right">@PerformanceRules.Count(s.Rows)</td>
+                        <td style="text-align:right">@PerformanceRules.Count(s.SharedBlocksRead)</td>
+                        <td style="text-align:right">@PerformanceRules.Count(s.TempBlocksWritten)</td>
+                        <td style="white-space:nowrap">@PlanButton(PerfPlanTarget.Statement, id)</td>
+                    </tr>
+                    @PlanRow(PerfPlanTarget.Statement, id, 9)
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+
+<MudText Typo="Typo.h6" Class="section-title mb-2">
+    Tables
+    <PerfInfo Text="Size, growth and scans in the period (– without a snapshot before it), dead rows and the last vacuum. A large table read in full often misses an index. Analyze refreshes the planner statistics of one table." />
+</MudText>
+@if (View.Data.Tables.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="muted mb-4">No table snapshot in this period. The workers read the tables every hour, and at start.</MudText>
+}
+else
+{
+    <div class="fl-panel pa-2 mb-4" style="overflow-x:auto">
+        <MudSimpleTable Dense="true" Elevation="0">
+            <thead><tr><th>Table</th><th style="text-align:right">Size</th><th style="text-align:right">Growth</th><th style="text-align:right">Rows</th><th style="text-align:right">Seq scans</th><th style="text-align:right">Index scans</th><th style="text-align:right">Dead rows</th><th>Last vacuum</th><th>Last analyze</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var t in View.Data.Tables.Take(_allTables ? 500 : 25))
+                {
+                    <tr>
+                        <td class="mono">@t.Name@(t.IsHypertable ? $" (hypertable, {t.Chunks} chunks{(t.Compressed ? ", compressed" : "")})" : "")</td>
+                        <td style="text-align:right">@PerformanceRules.Bytes(t.Bytes)</td>
+                        <td style="text-align:right">@(t.BytesGrowth is { } growth ? PerformanceRules.Bytes(growth) : "–")</td>
+                        <td style="text-align:right">@PerformanceRules.Count(t.Rows)</td>
+                        <td style="text-align:right">@(t.SequentialScans is { } seq ? PerformanceRules.Count(seq) : "–")</td>
+                        <td style="text-align:right">@(t.IndexScans is { } idx ? PerformanceRules.Count(idx) : "–")</td>
+                        <td style="text-align:right">@PerformanceRules.Count(t.DeadRows)</td>
+                        <td style="white-space:nowrap">@(t.LastVacuum is { } vacuum ? Time.Absolute(vacuum) : "never")</td>
+                        <td style="white-space:nowrap">@(t.LastAnalyze is { } analyze ? Time.Absolute(analyze) : "never")</td>
+                        <td>
+                            @if (View.CanManage)
+                            {
+                                <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="_busy" OnClick="@(() => AnalyzeAsync(t.Name))">Analyze</MudButton>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+        @if (View.Data.Tables.Count > 25 && !_allTables)
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => _allTables = true)">Show all @View.Data.Tables.Count tables</MudButton>
+        }
+    </div>
+}
+
+@{
+    var hypertables = View.Data.Tables.Where(t => t.IsHypertable).Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
+    var duplicates = View.Data.Indexes.Where(i => i.DuplicateOf is not null).ToList();
+    var unused = View.Data.Indexes.Where(i => i is { Scans: 0, Unique: false, Primary: false } && i.Bytes >= 1024 * 1024 && !hypertables.Contains(i.Table)).Take(20).ToList();
+}
+<MudText Typo="Typo.h6" Class="section-title mb-2">
+    Unused and duplicate indexes
+    <PerfInfo Text="An index costs every write and takes space. Unused means no scan since the statistics were last reset, which says little on a young instance. A duplicate has the same columns in the same order as another." />
+</MudText>
+@if (View.Data.Indexes.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="muted mb-4">The indexes could not be read.</MudText>
+}
+else if (duplicates.Count == 0 && unused.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="muted mb-4">No duplicate index, and no unused index of 1 MB or more.</MudText>
+}
+else
+{
+    <div class="fl-panel pa-2 mb-4" style="overflow-x:auto">
+        <MudSimpleTable Dense="true" Elevation="0">
+            <thead><tr><th>Table</th><th>Index</th><th>Columns</th><th style="text-align:right">Size</th><th style="text-align:right">Scans</th><th>Note</th></tr></thead>
+            <tbody>
+                @foreach (var i in duplicates.Concat(unused.Where(u => duplicates.All(d => d.Name != u.Name))))
+                {
+                    <tr>
+                        <td class="mono">@i.Table</td>
+                        <td class="mono">@i.Name</td>
+                        <td class="mono" style="font-size:0.75rem">@i.Columns</td>
+                        <td style="text-align:right">@PerformanceRules.Bytes(i.Bytes)</td>
+                        <td style="text-align:right">@PerformanceRules.Count(i.Scans)</td>
+                        <td>@(i.DuplicateOf is { } original ? $"duplicates {original}" : "unused")</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+
+<MudText Typo="Typo.h6" Class="section-title mb-2">
+    Health and sessions
+    <PerfInfo Text="From the database snapshots of the workers. Sessions idle in a transaction hold locks and keep vacuum from cleaning up; sessions waiting for a lock do nothing until it is released." />
+</MudText>
+@if (View.Data.Database is { } d)
+{
+    <div class="health-grid mb-4">
+        @Card("Cache hit ratio", d.CacheHitRatio is { } hit ? PerformanceRules.Pct(hit * 100) : "– (no baseline)")
+        @Card("Temporary files", d.TempBytes is { } temp ? $"{PerformanceRules.Count(d.TempFiles ?? 0)} files, {PerformanceRules.Bytes(temp)}" : "–")
+        @Card("Deadlocks", d.Deadlocks is { } deadlocks ? PerformanceRules.Count(deadlocks) : "–")
+        @Card("Connections", $"{d.Connections} of {d.MaxConnections}")
+        @Card("Oldest transaction id", PerformanceRules.Count(d.WraparoundAge))
+        @if (d.Sessions is { } x)
+        {
+            @Card("Sessions", $"{x.Active} active · {x.Idle} idle")
+            @Card("Idle in a transaction", x.IdleInTransaction == 0 ? "none" : $"{x.IdleInTransaction}, longest {PerformanceRules.Ms(x.LongestIdleInTransactionSeconds * 1000)}")
+            @Card("Waiting for a lock", x.LockWaiting == 0 ? "none" : $"{x.LockWaiting}, longest {PerformanceRules.Ms(x.LongestLockWaitSeconds * 1000)}")
+            @Card("Longest open transaction", PerformanceRules.Ms(x.LongestTransactionSeconds * 1000))
+        }
+    </div>
+}
+else
+{
+    <MudText Typo="Typo.body2" Class="muted mb-4">No database snapshot in this period.</MudText>
+}
+
+<MudText Typo="Typo.h6" Class="section-title mb-2">
+    Settings and I/O
+    <PerfInfo Text="Read live from PostgreSQL as you open this tab. I/O counts reads, writes and cache hits per kind of process since the I/O statistics were reset." />
+</MudText>
+@if (_live is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-4" />
+}
+else
+{
+    @if (_live.Problem is { } problem)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">@problem</MudAlert>
+    }
+    <MudGrid Spacing="3" Class="mb-4">
+        <MudItem xs="12" lg="7">
+            <div class="fl-panel pa-2" style="overflow-x:auto">
+                <MudSimpleTable Dense="true" Elevation="0">
+                    <thead><tr><th>Setting</th><th>Value</th><th>What it does</th></tr></thead>
+                    <tbody>
+                        @if (_live.ServerVersion is { } version)
+                        {
+                            <tr><td class="mono">server_version</td><td class="mono">@version</td><td class="muted">The version of PostgreSQL.</td></tr>
+                        }
+                        @foreach (var setting in _live.Settings)
+                        {
+                            <tr><td class="mono">@setting.Name</td><td class="mono">@setting.Value@(setting.Unit is { Length: > 0 } unit ? $" × {unit}" : "")</td><td class="muted" style="font-size:0.75rem">@setting.Description</td></tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        </MudItem>
+        <MudItem xs="12" lg="5">
+            <div class="fl-panel pa-2" style="overflow-x:auto">
+                <MudSimpleTable Dense="true" Elevation="0">
+                    <thead><tr><th>Process</th><th style="text-align:right">Reads</th><th style="text-align:right">Writes</th><th style="text-align:right">Hits</th></tr></thead>
+                    <tbody>
+                        @foreach (var io in _live.Io)
+                        {
+                            <tr><td>@io.BackendType</td><td style="text-align:right">@PerformanceRules.Count(io.Reads)</td><td style="text-align:right">@PerformanceRules.Count(io.Writes)</td><td style="text-align:right">@PerformanceRules.Count(io.Hits)</td></tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter, EditorRequired] public PerformanceView View { get; set; } = default!;
+    [Parameter, EditorRequired] public Func<PerfPlanTarget, string, Task<PerfPlan?>> Plan { get; set; } = default!;
+    [Parameter, EditorRequired] public Func<string, Task> Analyze { get; set; } = default!;
+    [Parameter, EditorRequired] public Func<Task<PerfLiveDatabase?>> LoadLive { get; set; } = default!;
+
+    [Inject] private TimeDisplay Time { get; set; } = default!;
+
+    private readonly HashSet<string> _sql = [];
+    private readonly Dictionary<string, PerfPlan> _plans = [];
+    private PerfLiveDatabase? _live;
+    private bool _busy;
+    private bool _allTables;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _live = await LoadLive() ?? new PerfLiveDatabase([], [], null, "The settings could not be read.");
+    }
+
+    private void ToggleSql(string key)
+    {
+        if (!_sql.Remove(key))
+        {
+            _sql.Add(key);
+        }
+    }
+
+    private RenderFragment PlanButton(PerfPlanTarget target, string id) => @<span>
+        @if (View.CanManage)
+        {
+            var key = $"{target}:{id}";
+            <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="_busy" OnClick="@(() => PlanAsync(target, id))">@(_plans.ContainsKey(key) ? "Hide plan" : "Plan")</MudButton>
+        }
+    </span>;
+
+    private RenderFragment PlanRow(PerfPlanTarget target, string id, int columns) => @<text>
+        @if (_plans.TryGetValue($"{target}:{id}", out var plan))
+        {
+            <tr><td colspan="@columns"><PerfPlanView Plan="plan" /></td></tr>
+        }
+    </text>;
+
+    private async Task PlanAsync(PerfPlanTarget target, string id)
+    {
+        var key = $"{target}:{id}";
+        if (_plans.Remove(key))
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            if (await Plan(target, id) is { } plan)
+            {
+                _plans[key] = plan;
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task AnalyzeAsync(string table)
+    {
+        _busy = true;
+        try
+        {
+            await Analyze(table);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static RenderFragment Card(string name, string value) => @<div class="health-card fl-panel">
+        <div class="health-card-head"><span>@name</span></div>
+        <div style="font-size:0.875rem">@value</div>
+    </div>;
+
+    private static string Shorten(string sql) => sql.Length <= 300 ? sql : sql[..300] + " …";
+}

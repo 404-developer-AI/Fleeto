@@ -15,7 +15,7 @@ public static class PerformanceBackup
     public static readonly IReadOnlyList<string> Tables =
     [
         "PerfMinutes", "PerfHours", "PerfRuntimeMinutes", "PerfHostMinutes", "PerfEvents", "PerfStatementSnapshots",
-        "PerfDatabaseSnapshots", "PerfTableSnapshots", "PerfMarkers"
+        "PerfDatabaseSnapshots", "PerfTableSnapshots", "PerfMarkers", "PerfFingerprints"
     ];
 
     private const string ChunksSql = """

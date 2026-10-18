@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Performance;
 
@@ -43,6 +44,57 @@ public sealed class PerfRecorder
     internal PerfRuntimeState Runtime { get; }
 
     public bool Collects(PerfCollector collector) => Settings.Current.Collects(collector);
+
+    /// <summary>
+    /// Whether Diagnose runs now (0.7.0 step 2): the database collector is on and the end of Diagnose is later than the server
+    /// clock. Evaluated on every call, so Diagnose ends on time without anyone switching it off.
+    /// </summary>
+    public bool Diagnosing => Settings.Current.Collects(PerfCollector.Database) && Settings.Current.IsDiagnosing(_time.GetUtcNow().UtcDateTime);
+
+    /// <summary>The level that runs at <paramref name="utc"/>, as the runtime rows record it.</summary>
+    public PerfLevel LevelAt(DateTime utc) => Settings.Current.EffectiveLevel(utc);
+
+    /// <summary>The statements seen in Diagnose, with their callers.</summary>
+    public PerfStatements Statements { get; } = new();
+
+    /// <summary>
+    /// A statement starts (Diagnose): its fingerprint, its caller under the budget, and the scope it counts in. Null outside
+    /// Diagnose or when it has no text. Called by <see cref="PerfStatementTracer"/> at the start of the command.
+    /// </summary>
+    public PerfStatementStart? BeginStatement(string? commandText)
+    {
+        if (!Diagnosing)
+        {
+            return null;
+        }
+
+        var start = Stopwatch.GetTimestamp();
+        try
+        {
+            if (Statements.Of(commandText) is not { } fingerprint)
+            {
+                return null;
+            }
+
+            Statements.CaptureCaller(fingerprint, _time.GetUtcNow().ToUnixTimeSeconds());
+            var scope = PerfContext.Innermost;
+            return new PerfStatementStart(fingerprint, scope, scope?.Source ?? PerfKeys.OtherSource);
+        }
+        finally
+        {
+            AddOverhead(start);
+        }
+    }
+
+    /// <summary>A statement ended: recorded per fingerprint and source, and counted in its scope for N+1.</summary>
+    public void EndStatement(PerfStatementStart statement, double milliseconds, bool failed)
+    {
+        var start = Stopwatch.GetTimestamp();
+        Volatile.Read(ref _window).Add(PerfKind.Statement, statement.Fingerprint.Hash, statement.Source, milliseconds, histogram: true, failed, bytes: 0,
+            dbCount: 0, dbMs: 0, externalMs: 0);
+        statement.Scope?.AddStatement(statement.Fingerprint.Hash, milliseconds);
+        AddOverhead(start);
+    }
 
     /// <summary>The number of open circuits (web) or connected agents (gateway), sampled with the runtime.</summary>
     public void UseConnections(Func<int> connections) => _connections = connections;
@@ -100,14 +152,33 @@ public sealed class PerfRecorder
 
         var elapsed = scope.ElapsedMs;
         Record(collector, kind, key, subKey, elapsed, error, bytes, scope.DbCount, scope.DbMs, scope.ExternalMs);
+        var statements = scope.Statements();
+        if (statements.Count > 0)
+        {
+            // Diagnose: a statement sent more often than the threshold in this one unit of work is an N+1 suspect.
+            var threshold = Settings.Current.Threshold(PerfThresholds.NPlusOne);
+            foreach (var (hash, count, ms) in statements.Where(s => s.Count >= threshold))
+            {
+                Record(PerfCollector.Database, PerfKind.NPlusOne, scope.Source, hash, count, dbCount: count, dbMs: ms);
+            }
+        }
+
         if (elapsed >= Settings.Current.SlowEventMs)
         {
-            Event(kind, key, subKey, elapsed, scope.DbCount, scope.DbMs, scope.ExternalMs, error);
+            Event(kind, key, subKey, elapsed, scope.DbCount, scope.DbMs, scope.ExternalMs, error, HeaviestStatements(statements));
         }
     }
 
+    /// <summary>The heaviest statements of a slow event, as stored: <c>fingerprint count milliseconds</c> separated by <c>;</c>.</summary>
+    internal static string? HeaviestStatements(IReadOnlyList<(string Hash, int Count, double Ms)> statements) =>
+        statements.Count == 0
+            ? null
+            : string.Join(';', statements.OrderByDescending(s => s.Ms).Take(3)
+                .Select(s => string.Create(CultureInfo.InvariantCulture, $"{s.Hash} {s.Count} {s.Ms:0.#}")));
+
     /// <summary>Keeps one slow event, up to <see cref="MaxEventsPerMinute"/> a minute.</summary>
-    public void Event(PerfKind kind, string key, string subKey, double durationMs, int dbCount, double dbMs, double externalMs, bool failed)
+    public void Event(PerfKind kind, string key, string subKey, double durationMs, int dbCount, double dbMs, double externalMs, bool failed,
+        string? statements = null)
     {
         if (!Settings.Current.IsOn || Interlocked.Increment(ref _eventsThisMinute) > MaxEventsPerMinute)
         {
@@ -125,7 +196,8 @@ public sealed class PerfRecorder
             DbCount = dbCount,
             DbMs = dbMs,
             ExternalMs = externalMs,
-            Failed = failed
+            Failed = failed,
+            Statements = statements
         });
     }
 
@@ -157,7 +229,7 @@ public sealed class PerfRecorder
     public static DateTime MinuteOf(DateTime utc) => new(utc.Ticks - utc.Ticks % TimeSpan.TicksPerMinute, DateTimeKind.Utc);
 
     private static bool HasHistogram(PerfKind kind) =>
-        kind is not (PerfKind.Exception or PerfKind.Connection or PerfKind.Circuit or PerfKind.Broadcast);
+        kind is not (PerfKind.Exception or PerfKind.Connection or PerfKind.Circuit or PerfKind.Broadcast or PerfKind.NPlusOne);
 }
 
 /// <summary>The recorder of this process, for collectors that are not created by dependency injection (the base class of loops).</summary>

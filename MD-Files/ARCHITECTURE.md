@@ -160,14 +160,15 @@ AuditEntry (append-only)
 | **StorageScanRequest** | `Id`, `ClientId`, `EndpointId`, `Reason` (`Technician`, `DiskFree`), `RequestedByUserId?`, `RequestedByName`, `RequestedAt`, `ExpiresAt`, `DeliveredAt?` | "Scan now" (1 hour to reach the agent) or a Disk free check in warning (12 hours). Kept 7 days. |
 | **InstanceHealthSample** | `Id`, `Time`, `CpuPercent?`, `Load1?`, `Cores?`, `MemoryTotalBytes?`, `MemoryAvailableBytes?`, `SwapTotalBytes?`, `SwapFreeBytes?`, `DiskTotalBytes?`, `DiskFreeBytes?`, `DatabaseBytes`, `DatabaseConnections`, `DatabaseMaxConnections`, `DetailJson` | Instance health (0.6.0, §4): one measurement every 5 minutes, kept 30 days. Host values are of the whole VPS and null where the platform has no /proc. `DetailJson`: the 15 largest tables and the instance facts. No personal data. Workers write, web reads. |
 | **InstanceHealthIssue** | `Id`, `Key`, `Component`, `Severity`, `Title`, `Detail`, `OpenedAt`, `UpdatedAt`, `ResolvedAt?` | A problem of the VPS or the instance (0.6.0, §4). At most one open per `Key` (unique partial index). Not an `Alert`: it has no client or endpoint. Resolved issues are kept 90 days. |
-| **PerfMinute** | `Minute`, `Id`, `Component`, `Kind`, `Key`, `SubKey`, `Count`, `Errors`, `Sum`, `Min`, `Max`, `Histogram` (`integer[]`), `Bytes`, `DbCount`, `DbMs`, `ExternalMs` | The performance monitor (0.7.0, §4): one flow of one component in one minute, written by the component itself in one binary COPY per minute. A TimescaleDB hypertable (1-day chunks, retention policy at 31 days as a ceiling) where the extension is installed. `Kind`: Interaction, Http, Db, WorkerRun, External, AgentMessage, JobDispatch, Relay, Signing, Broadcast, Notification, Exception, Connection, Circuit, Batch. `Key` is a route template, type name or fixed name, never a value; at most 300 keys per kind and minute per process, the rest under `__other__`. `Histogram`: counts per bucket of the fixed log-linear set in `PerfHistogram`, trailing zeros left out, so histograms add up. `TR_PerfMinutes_Component` lets each role write only rows of its own name. Kept 7 days (setting). |
+| **PerfMinute** | `Minute`, `Id`, `Component`, `Kind`, `Key`, `SubKey`, `Count`, `Errors`, `Sum`, `Min`, `Max`, `Histogram` (`integer[]`), `Bytes`, `DbCount`, `DbMs`, `ExternalMs` | The performance monitor (0.7.0, §4): one flow of one component in one minute, written by the component itself in one binary COPY per minute. A TimescaleDB hypertable (1-day chunks, retention policy at 31 days as a ceiling) where the extension is installed. `Kind`: Interaction, Http, Db, WorkerRun, External, AgentMessage, JobDispatch, Relay, Signing, Broadcast, Notification, Exception, Connection, Circuit, Batch, and in Diagnose Statement (key: fingerprint, sub key: source) and NPlusOne (key: source, sub key: fingerprint, value: repeats in one unit of work). `Key` is a route template, type name or fixed name, never a value; at most 300 keys per kind and minute per process, the rest under `__other__`. `Histogram`: counts per bucket of the fixed log-linear set in `PerfHistogram`, trailing zeros left out, so histograms add up. `TR_PerfMinutes_Component` lets each role write only rows of its own name. Kept 7 days (setting). |
 | **PerfHour** | as **PerfMinute** with `Hour` and `PeakCount` | The minutes of a finished hour added up by the workers, rebuilt whole per hour (idempotent), watermark `perf-rollup`. Kept 90 days (setting). |
 | **PerfRuntimeMinute** | `Id`, `Minute`, `Component`, `Version`, `Level`, `CpuPercent`, `CpuPercentMax`, `Cores`, `WorkingSetBytes`, `HeapBytes`, `GcPauseMs`, `AllocatedBytes`, `ThreadPoolThreads`, `ThreadPoolQueue`, `LockContentions`, `Exceptions`, `Connections`, `DbPoolBusy`, `DbPoolIdle`, `DbPoolMax`, `DbPoolTimeouts`, `OverheadMs` | The runtime of one component in one minute (0.7.0), from samples every 10 seconds. CPU is a share of the whole machine. `Connections`: open circuits (web) or connected agents and watchdogs (gateway). `OverheadMs`: what the monitor itself cost. Own rows only (trigger). |
 | **PerfHostMinute** | `Minute`, `Cores?`, `CpuPercent?`, `StealPercent?`, `IowaitPercent?`, `Load1?`, memory and swap, `DiskLatencyMs?`, `DiskUtilizationPercent?`, disk total and free, `ThrottledPercent?` | The VPS in one minute (0.7.0), read by the workers from /proc and the cgroup. Shared by every instance on the VPS. |
-| **PerfEvent** | `Id`, `Time`, `Component`, `Kind`, `Key`, `SubKey`, `DurationMs`, `DbCount`, `DbMs`, `ExternalMs`, `Failed` | A slow interaction, request, worker run, agent message or signing request kept on its own (above the setting, 1 second), at most 200 a minute per process. Kept 14 days. |
-| **PerfStatementSnapshot**, **PerfDatabaseSnapshot**, **PerfTableSnapshot** | statements per query id; database counters; per table size, scans, dead rows, last vacuum and analyze, hypertable chunks and policies | Cumulative counters as PostgreSQL reports them (0.7.0), every 15 minutes (statements, database) and hourly (tables); the page takes the difference between the snapshot before a period and the last in it, and says so when there is none before it. Kept 30 days. |
-| **PerfMarker** | `Id`, `Time`, `Kind` (`Deploy`, `Manual`), `Label` | A moment on the timeline (0.7.0): a deploy marker when the workers start on a new version. |
-| **PerformanceSettings** | `Id` (1), `Json`, `UpdatedAt`, `UpdatedBy?` | The settings of the monitor (0.7.0) as JSON (`PerformanceSettings` in Core): level, collectors switched off, slow event threshold, snapshot intervals, retention, thresholds that differ from their default. Not secret, so not in the encrypted settings store; read by all four components. |
+| **PerfEvent** | `Id`, `Time`, `Component`, `Kind`, `Key`, `SubKey`, `DurationMs`, `DbCount`, `DbMs`, `ExternalMs`, `Failed`, `Statements?` | A slow interaction, request, worker run, agent message or signing request kept on its own (above the setting, 1 second), at most 200 a minute per process. `Statements` (Diagnose): its three heaviest statements as `fingerprint count ms`. Kept 14 days. |
+| **PerfFingerprint** | `Component`, `Hash`, `Sql`, `Callers` (`text[]`), `FirstSeen`, `LastSeen` | A statement one component measured in Diagnose (0.7.0 step 2): its fingerprint, its normalized text (every literal a `?`) and up to five methods that sent it. Upserted once a minute by the component itself (`TR_PerfFingerprints_Component`). Kept as long as the hour rows. |
+| **PerfStatementSnapshot**, **PerfDatabaseSnapshot**, **PerfTableSnapshot** | statements per query id; database counters and the sessions (active, idle, idle in a transaction, waiting for a lock, the longest of each, 0.7.0 step 2); per table size, scans, dead rows, last vacuum and analyze, hypertable chunks and policies | Cumulative counters as PostgreSQL reports them (0.7.0), every 15 minutes (statements, database) and hourly (tables), every 5 and 15 minutes in Diagnose; the page takes the difference between the snapshot before a period and the last in it, and says so when there is none before it. Kept 30 days. |
+| **PerfMarker** | `Id`, `Time`, `Kind` (`Deploy`, `Manual`), `Label` | A moment on the timeline (0.7.0): a deploy marker when the workers start on a new version, or a manual one an admin added, its label stored through the redactor. |
+| **PerformanceSettings** | `Id` (1), `Json`, `UpdatedAt`, `UpdatedBy?` | The settings of the monitor (0.7.0) as JSON (`PerformanceSettings` in Core): level, the end of Diagnose, its default and longest length and its snapshot intervals, collectors switched off, slow event threshold, snapshot intervals, retention, thresholds that differ from their default. Not secret, so not in the encrypted settings store; read by all four components. |
 | **NotificationChannel** | `Id`, `Name`, `Type` (`Email`, `Webhook`), `Recipients`, `WebhookFormat?` (`Generic`, `Slack`, `Teams`), `WebhookHost?`, `EncryptedWebhook?`, `MinimumSeverity`, `NotifyOnResolve`, `Enabled`, `AllClients`, `InstanceHealth` (0.6.0) | Instance-wide, admins only. Routing (0.2.0): all clients or the clients in **NotificationChannelClient** (`NotificationChannelId`, `ClientId`, deleted with either side), plus minimum severity and resolves. `InstanceHealth`: the channel also receives instance health problems (§4). `EncryptedWebhook` holds URL and signing secret, bound to the channel id (§5). The type cannot change. |
 | **OutboxEmail**, **OutboxWebhook** | `Id`, recipient or `NotificationChannelId`, `Category`, content or `Payload`, `Attempts`, `NextAttemptAt`, `SentAt?`, `LastError?` | Written in the transaction that changes the alert; delivered by the workers (§4, Alert notifications). Sent rows kept 30 days, given up rows 90 days. |
 | **Integration** | `Id`, `Type`, `Enabled`, `Region?`, `EncryptedCredentials`, `CredentialName`, `Status`, `StatusMessage?`, `LastAttemptAt?`, `LastSuccessAt?` | One external product per instance (unique on `Type`, 0.4.0). Credentials are ciphertext bound to the row, see §5; `CredentialName` is the client id, for display. `Region` is the Action1 region, which decides the base URL. `FollowClients` and `FollowMessage?` (0.6.0): Action1 follows the clients and sites (§4, Following clients and sites) and why that last failed. |
@@ -661,8 +662,8 @@ and issues, show 7-day hourly trends with the check history chart, and say so wh
 tables, statements, instance counts), copied or downloaded by an admin and audited as `instance.diagnostics_exported`;
 they carry sizes, counts and normalized statements, never host names, users, secrets or other personal data.
 
-**Performance monitor (0.7.0, step 1).** Where Fleeto itself is slow and why, for admins in Settings, Performance, with a
-Markdown export to hand to Claude Code in this repository. It measures Fleeto, never the endpoints: check results and
+**Performance monitor (0.7.0, steps 1 and 2).** Where Fleeto itself is slow and why, for admins in Settings, Performance, with
+an export to hand to Claude Code in this repository. It measures Fleeto, never the endpoints: check results and
 inventory are product data with their own pipeline. The generic rules are `performance-monitoring.md`, how they map onto
 Fleeto `PERFORMANCE.md`.
 - *Collection, in every component.* `AddFleetoInfrastructure` registers a `PerfRecorder` per process (the tool gets a
@@ -693,6 +694,15 @@ Fleeto `PERFORMANCE.md`.
   cpu.stat). `PerfSnapshotService` stores statement statistics (the 50 costliest in total and the 20 slowest per call, folded
   per query id) and a database snapshot every 15 minutes and every table every hour. `PerfMaintenanceService` rolls finished
   hours up, applies retention in batches and adds a deploy marker when the workers start on a new version.
+- *Diagnose (step 2).* Basic with an end on server time (`PerformanceSettings.DiagnoseUntil`), evaluated on every check, so it
+  always ends by itself; never a stored level. While it runs, Npgsql's tracing on the one data source of each process
+  (`PerfStatementTracer`, whose filter answers false outside Diagnose) gives every command at its start: `PerfStatements` turns
+  its text into a fingerprint (`SqlFingerprint`, literals to `?`, a 16-character hash) and, under 50 stack walks a second,
+  finds the first method of Fleeto on the stack that sent it. The statement is recorded per fingerprint and source, counted in
+  the innermost scope, and a scope that sent one statement more often than the threshold (10) is recorded as `NPlusOne`; a
+  slow event keeps its three heaviest statements, an exception the class that threw it. The fingerprints seen in a minute are
+  upserted with that minute into `PerfFingerprints`. The workers read statement and table statistics every 5 and 15 minutes.
+  Diagnose may cost three times the overhead threshold of Basic.
 - *Signer.* Per request kind the wait before it was claimed, the time to decide and sign it, and its outcome.
 - *Notification bus.* Per channel what was published, and per handled notification the time from its arrival to the end of
   its handler.
@@ -702,13 +712,23 @@ Fleeto `PERFORMANCE.md`.
   hours. `PerformanceRules` (Core, pure) turns it into findings with evidence, cause, action, code references and an impact
   estimate (the extra waiting above a threshold, from the histogram), ranked by impact, and a score per category (100 minus a
   penalty per finding, no score without data). Thresholds are settings. Network and Frontend are not measured before step 3
-  and get no card.
+  and get no card. The page has the tabs Overview, Pages and API, Database, Server, Background, Agent channel and Settings;
+  a row of a page, route, loop or message opens its latency over the period, its distribution, its slowest occurrences and
+  the statements it sent. The Database tab reads the settings, I/O and indexes of PostgreSQL live as web; sessions and lock
+  waits come from the snapshots of the workers, which may see every role's sessions.
 - *Access and export.* Permissions `performance.view` and `performance.manage` (administration of the instance, admin by
   default). Settings changes are audited with the old and new values (`performance.settings_changed`), every export too
-  (`performance.exported`). `PerformanceReport` writes the Markdown in the order of the spec, at most 100 KB, through
+  (`performance.exported`), starting and stopping Diagnose (`performance.diagnose_started`, `performance.diagnose_stopped`),
+  a manual marker (`performance.marker_added`, its length only), a plan (`performance.planned`) and ANALYZE
+  (`performance.table_analyzed`). `PerformanceReport` writes the Markdown in the order of the spec, at most 100 KB, the JSON
+  with a `schemaVersion`, and the ZIP with both and the generic plans of the top statements, everything through
   `PerfRedactor`: SQL normalized, values, addresses, tokens and host names masked, and the client codes and endpoint host
-  names of the instance masked wherever they slip in. The nightly backup dumps the performance tables (and the chunks of the
-  hypertable) without data; the settings are kept.
+  names of the instance masked wherever they slip in. A plan is the generic plan of a statement the monitor stored, looked up
+  by its id, never text from the browser, checked to read only (`PerformancePlanner`) and made through the database function
+  `fleeto_perf_explain` with web's own rights in a read-only transaction of 5 seconds (Npgsql binds every `$1`, which a
+  generic plan must leave open); ANALYZE goes through `fleeto_perf_analyze`, owned by the migrator, which takes a table name
+  of the public schema and does nothing else. Both are granted to web only (`DatabaseGrants.FunctionGrants`). The nightly
+  backup dumps the performance tables (and the chunks of the hypertable) without data; the settings are kept.
 
 **Storage analysis (0.6.0).** Which folders fill a drive, and which grow, without a TreeSize on every server:
 - *On the endpoint.* The agent scans every fixed drive (those of the Disk free check) on the interval of its policy

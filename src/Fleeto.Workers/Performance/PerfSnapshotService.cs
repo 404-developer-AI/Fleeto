@@ -11,9 +11,11 @@ namespace Fleeto.Workers.Performance;
 
 /// <summary>
 /// The database as the performance monitor sees it from the server side (0.7.0, PERFORMANCE.md §4.3): statement statistics and a
-/// snapshot of the database every 15 minutes, the tables every hour (both settings). Counters are stored as PostgreSQL reports them,
-/// cumulative, and the page computes the difference between the snapshots around a period. Catalog and statistics views only:
-/// nothing is reset, vacuumed or changed. Also read once at start, so a period has a baseline as soon as possible.
+/// snapshot of the database every 15 minutes, the tables every hour (both settings), and more often while Diagnose runs (5 and 15
+/// minutes by default). Counters are stored as PostgreSQL reports them, cumulative, and the page computes the difference between
+/// the snapshots around a period. The snapshot also counts the sessions: web may not see other roles' sessions, the workers with
+/// pg_monitor may. Catalog and statistics views only: nothing is reset, vacuumed or changed. Also read once at start, so a period
+/// has a baseline as soon as possible.
 /// </summary>
 public sealed class PerfSnapshotService : WorkerLoop
 {
@@ -26,6 +28,18 @@ public sealed class PerfSnapshotService : WorkerLoop
                pg_database_size(current_database()) AS "DatabaseBytes"
         FROM pg_stat_database d JOIN pg_database db ON db.oid = d.datid
         WHERE d.datname = current_database()
+        """;
+
+    private const string SessionsSql = """
+        SELECT count(*) FILTER (WHERE a.state = 'active')::int AS "Active",
+               count(*) FILTER (WHERE a.state = 'idle')::int AS "Idle",
+               count(*) FILTER (WHERE a.state LIKE 'idle in transaction%')::int AS "IdleInTransaction",
+               EXTRACT(EPOCH FROM max(now() - a.xact_start))::float8 AS "LongestTransaction",
+               EXTRACT(EPOCH FROM max(now() - a.state_change) FILTER (WHERE a.state LIKE 'idle in transaction%'))::float8 AS "LongestIdleInTransaction",
+               count(*) FILTER (WHERE a.wait_event_type = 'Lock')::int AS "LockWaiting",
+               EXTRACT(EPOCH FROM max(now() - a.query_start) FILTER (WHERE a.wait_event_type = 'Lock'))::float8 AS "LongestLockWait"
+        FROM pg_stat_activity a
+        WHERE a.datname = current_database() AND a.backend_type = 'client backend' AND a.pid <> pg_backend_pid()
         """;
 
     private const string TablesSql = """
@@ -66,8 +80,8 @@ public sealed class PerfSnapshotService : WorkerLoop
         """;
 
     private readonly IFleetoDbContextFactory _dbFactory;
-    private DateTimeOffset _nextStatements = DateTimeOffset.MinValue;
-    private DateTimeOffset _nextTables = DateTimeOffset.MinValue;
+    private DateTime _lastStatements = DateTime.MinValue;
+    private DateTime _lastTables = DateTime.MinValue;
 
     public PerfSnapshotService(IFleetoDbContextFactory dbFactory, WorkerHeartbeat heartbeat, TimeProvider time, ILogger<PerfSnapshotService> logger)
         : base("perf-snapshots", heartbeat, time, logger)
@@ -85,16 +99,17 @@ public sealed class PerfSnapshotService : WorkerLoop
             return false;
         }
 
-        var now = Time.GetUtcNow();
-        if (now >= _nextStatements)
+        // The interval is judged against the last snapshot, so starting Diagnose makes the next one come sooner.
+        var now = Time.GetUtcNow().UtcDateTime;
+        if (now >= _lastStatements.AddMinutes(settings.StatementSnapshotMinutesAt(now)))
         {
-            _nextStatements = now + TimeSpan.FromMinutes(settings.StatementSnapshotMinutes);
+            _lastStatements = now;
             await SnapshotDatabaseAsync(cancellationToken);
         }
 
-        if (now >= _nextTables)
+        if (now >= _lastTables.AddMinutes(settings.TableSnapshotMinutesAt(now)))
         {
-            _nextTables = now + TimeSpan.FromMinutes(settings.TableSnapshotMinutes);
+            _lastTables = now;
             await SnapshotTablesAsync(cancellationToken);
         }
 
@@ -108,6 +123,16 @@ public sealed class PerfSnapshotService : WorkerLoop
         await using var db = _dbFactory.CreateSystem();
         var statements = await StatementStatisticsReader.ReadAsync(db, cancellationToken);
         var database = await db.Database.SqlQueryRaw<DatabaseRow>(DatabaseSql).SingleAsync(cancellationToken);
+        SessionsRow? sessions = null;
+        try
+        {
+            sessions = await db.Database.SqlQueryRaw<SessionsRow>(SessionsSql).SingleAsync(cancellationToken);
+        }
+        catch (PostgresException ex)
+        {
+            Logger.LogDebug(ex, "The sessions of the database could not be counted");
+        }
+
         db.PerfDatabaseSnapshots.Add(new PerfDatabaseSnapshot
         {
             Time = now,
@@ -123,7 +148,14 @@ public sealed class PerfSnapshotService : WorkerLoop
             WraparoundAge = database.WraparoundAge,
             DatabaseBytes = database.DatabaseBytes,
             StatisticsResetAt = database.StatisticsResetAt,
-            StatementsProblem = statements.Problem is { } problem ? problem[..Math.Min(problem.Length, 500)] : null
+            StatementsProblem = statements.Problem is { } problem ? problem[..Math.Min(problem.Length, 500)] : null,
+            ActiveSessions = sessions?.Active,
+            IdleSessions = sessions?.Idle,
+            IdleInTransactionSessions = sessions?.IdleInTransaction,
+            LongestTransactionSeconds = sessions?.LongestTransaction,
+            LongestIdleInTransactionSeconds = sessions?.LongestIdleInTransaction,
+            LockWaitingSessions = sessions?.LockWaiting,
+            LongestLockWaitSeconds = sessions?.LongestLockWait
         });
         db.PerfStatementSnapshots.AddRange(statements.Statements.Select(s => new PerfStatementSnapshot
         {
@@ -197,6 +229,17 @@ public sealed class PerfSnapshotService : WorkerLoop
         public int MaxConnections { get; set; }
         public long WraparoundAge { get; set; }
         public long DatabaseBytes { get; set; }
+    }
+
+    private sealed class SessionsRow
+    {
+        public int Active { get; set; }
+        public int Idle { get; set; }
+        public int IdleInTransaction { get; set; }
+        public double? LongestTransaction { get; set; }
+        public double? LongestIdleInTransaction { get; set; }
+        public int LockWaiting { get; set; }
+        public double? LongestLockWait { get; set; }
     }
 
     private sealed class TableRow

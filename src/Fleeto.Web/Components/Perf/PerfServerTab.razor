@@ -1,0 +1,119 @@
+@* Server (spec §9): the VPS over the period (CPU with steal and iowait, memory, disk) and the runtime of each component (CPU, memory,
+   garbage collection, thread pool, database pool), with the exceptions by type. *@
+@using Fleeto.Core.Performance
+@using Fleeto.Infrastructure.Performance
+
+<MudText Typo="Typo.h6" Class="section-title mb-2">
+    VPS
+    <PerfInfo Text="Read by the workers from /proc every minute, shared by every instance on the VPS. The band of CPU runs from the average to the busiest minute. Steal is CPU the hypervisor gave to other guests on its host." />
+</MudText>
+@if (View.HostTimeline.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="muted mb-4">No VPS figures in this period: the workers read /proc on Linux only.</MudText>
+}
+else
+{
+    <div class="health-trends mb-4">
+        @Chart("CPU", PerfCharts.View(View, "VPS CPU", "%", View.HostTimeline.Select(h => new PerfChartPoint(h.Time, h.CpuAverage, h.CpuAverage, h.CpuMax, 1)),
+            View.Settings.Threshold(PerfThresholds.HostCpuWarning)))
+        @Chart("CPU steal", PerfCharts.View(View, "CPU steal", "%", View.HostTimeline.Select(h => new PerfChartPoint(h.Time, null, h.StealAverage, null, 1)),
+            View.Settings.Threshold(PerfThresholds.HostStealWarning)))
+        @Chart("Iowait", PerfCharts.View(View, "Iowait", "%", View.HostTimeline.Select(h => new PerfChartPoint(h.Time, null, h.IowaitAverage, null, 1))))
+        @Chart("Available memory", PerfCharts.View(View, "Available memory", "GB",
+            View.HostTimeline.Select(h => new PerfChartPoint(h.Time, null, h.MemoryAvailableMin / 1073741824d, null, 1))))
+        @Chart("Disk latency", PerfCharts.View(View, "Disk latency", "ms", View.HostTimeline.Select(h => new PerfChartPoint(h.Time, null, h.DiskLatencyAverage, null, 1)),
+            View.Settings.Threshold(PerfThresholds.HostDiskLatency)))
+        @Chart("Load", PerfCharts.View(View, "Load", string.Empty, View.HostTimeline.Select(h => new PerfChartPoint(h.Time, null, h.Load1Max, null, 1))))
+    </div>
+}
+
+@{
+    var components = View.RuntimeTimeline.Select(r => r.Component).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+    var component = components.Contains(_component ?? "") ? _component! : components.FirstOrDefault();
+    var points = View.RuntimeTimeline.Where(r => r.Component == component).ToList();
+    var bucketMs = View.Bucket.TotalMilliseconds;
+}
+<div class="d-flex align-center gap-3 flex-wrap mb-2">
+    <MudText Typo="Typo.h6" Class="section-title">
+        Runtime of a component
+        <PerfInfo Text="CPU is the share of the whole VPS; the band runs from the average to the busiest 10 seconds. GC pause is the share of time the process stood still. The queue is work waiting for a thread; pool busy the database connections in use." />
+    </MudText>
+    @if (components.Count > 0)
+    {
+        <MudSelect T="string" Value="component" ValueChanged="@(value => _component = value)" Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:180px">
+            @foreach (var name in components)
+            {
+                <MudSelectItem Value="name">@name</MudSelectItem>
+            }
+        </MudSelect>
+    }
+</div>
+@if (points.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="muted mb-4">No runtime figures in this period.</MudText>
+}
+else
+{
+    <div class="health-trends mb-4">
+        @Chart("CPU", PerfCharts.View(View, $"CPU of {component}", "%", points.Select(p => new PerfChartPoint(p.Time, p.CpuAverage, p.CpuAverage, p.CpuMax, 1))))
+        @Chart("Working set", PerfCharts.View(View, $"Memory of {component}", "MB", points.Select(p => new PerfChartPoint(p.Time, null, p.WorkingSetMax / 1048576d, null, 1))))
+        @Chart("Garbage collection pauses", PerfCharts.View(View, $"GC pauses of {component}", "%",
+            points.Select(p => new PerfChartPoint(p.Time, null, bucketMs > 0 ? p.GcPauseMs / bucketMs * 100 : 0, null, 1)), View.Settings.Threshold(PerfThresholds.GcPause)))
+        @Chart("Thread pool queue", PerfCharts.View(View, $"Thread pool queue of {component}", string.Empty,
+            points.Select(p => new PerfChartPoint(p.Time, null, p.QueueMax, null, 1)), View.Settings.Threshold(PerfThresholds.ThreadPoolQueue)))
+        @Chart("Database connections in use", PerfCharts.View(View, $"Database pool of {component}", string.Empty,
+            points.Select(p => new PerfChartPoint(p.Time, null, p.PoolBusyMax, null, 1)),
+            View.Data.Runtime.FirstOrDefault(r => r.Component == component)?.DbPoolMax is > 0 and var max ? max : null))
+        @Chart("Exceptions", PerfCharts.View(View, $"Exceptions of {component}", string.Empty, points.Select(p => new PerfChartPoint(p.Time, null, p.Exceptions, null, 1))))
+    </div>
+}
+
+@{
+    var exceptions = View.Data.Of(PerfKind.Exception).OrderByDescending(e => e.Count).Take(30).ToList();
+}
+<MudText Typo="Typo.h6" Class="section-title mb-2">
+    Exceptions by type
+    <PerfInfo Text="Exceptions thrown in the components, also the ones that were handled, by type name. Cancellations are not counted: that is how .NET ends a wait. Diagnose adds the class that threw and the kind of work it happened in." />
+</MudText>
+@if (exceptions.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="muted mb-4">None in this period.</MudText>
+}
+else
+{
+    <div class="fl-panel pa-2 mb-4" style="overflow-x:auto">
+        <MudSimpleTable Dense="true" Elevation="0">
+            <thead><tr><th>Component</th><th>Type</th><th>Thrown by (Diagnose)</th><th style="text-align:right">Count</th><th style="text-align:right">Busiest minute</th></tr></thead>
+            <tbody>
+                @foreach (var e in exceptions)
+                {
+                    <tr>
+                        <td>@e.Component</td>
+                        <td class="mono" style="overflow-wrap:anywhere">@e.Key</td>
+                        <td class="mono" style="font-size:0.75rem;overflow-wrap:anywhere">@(e.SubKey.Length == 0 ? "–" : e.SubKey)</td>
+                        <td style="text-align:right">@PerformanceRules.Count(e.Count)</td>
+                        <td style="text-align:right">@PerformanceRules.Count(e.PeakCount)</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public PerformanceView View { get; set; } = default!;
+
+    private string? _component;
+
+    private static RenderFragment Chart(string title, CheckHistoryView chart) => @<div class="fl-panel pa-3">
+        <MudText Typo="Typo.subtitle2" Class="mb-1">@title</MudText>
+        @if (PerfCharts.HasValues(chart))
+        {
+            <HistoryChart View="chart" />
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="muted">Not measured in this period.</MudText>
+        }
+    </div>;
+}

@@ -10,7 +10,8 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
   comments, commit messages, log messages and UI text are always in English.
 - **Current phase**: 0.6.0 (refactors, fixes and what the developer wanted before the next round of testing, features
   included) is released (2026-10-18) and runs on the first test VPS, tested through `v0.6.0-alpha.1` to `alpha.26`. Building
-  0.7.0, the performance monitor (`MD-Files/ROADMAP.md`, `MD-Files/PERFORMANCE.md`): step 1, the core, is built (2026-10-18). Patch management on Linux and the other integrations moved to "Not
+  0.7.0, the performance monitor (`MD-Files/ROADMAP.md`, `MD-Files/PERFORMANCE.md`): step 1, the core, is built and tested as
+  `v0.7.0-alpha.1`, step 2, Diagnose, is built (2026-10-18). Patch management on Linux and the other integrations moved to "Not
   yet scheduled" on 2026-09-23. Local development runs without Docker (see `README.md`); Docker
   is for the VPS and CI only.
 - **Git**: always ask before committing, pushing or tagging. No intermediate commits while a version is being built.

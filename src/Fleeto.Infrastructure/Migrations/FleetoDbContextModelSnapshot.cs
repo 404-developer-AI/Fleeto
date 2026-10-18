@@ -4139,6 +4139,9 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<DateTime>("Time")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int?>("ActiveSessions")
+                        .HasColumnType("integer");
+
                     b.Property<long>("BlocksHit")
                         .HasColumnType("bigint");
 
@@ -4156,6 +4159,24 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.Property<long>("Deadlocks")
                         .HasColumnType("bigint");
+
+                    b.Property<int?>("IdleInTransactionSessions")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("IdleSessions")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("LockWaitingSessions")
+                        .HasColumnType("integer");
+
+                    b.Property<double?>("LongestIdleInTransactionSeconds")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("LongestLockWaitSeconds")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("LongestTransactionSeconds")
+                        .HasColumnType("double precision");
 
                     b.Property<int>("MaxConnections")
                         .HasColumnType("integer");
@@ -4222,6 +4243,10 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<string>("Statements")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<string>("SubKey")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -4235,6 +4260,40 @@ namespace Fleeto.Infrastructure.Migrations
                     b.HasIndex("Time");
 
                     b.ToTable("PerfEvents");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.PerfFingerprint", b =>
+                {
+                    b.Property<string>("Component")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Hash")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.PrimitiveCollection<string[]>("Callers")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<DateTime>("FirstSeen")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastSeen")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Sql")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.HasKey("Component", "Hash");
+
+                    b.HasIndex("Hash");
+
+                    b.HasIndex("LastSeen");
+
+                    b.ToTable("PerfFingerprints");
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.PerfHostMinute", b =>

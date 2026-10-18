@@ -1,0 +1,75 @@
+@* Pages and API (spec §9, API): every page and route with its percentiles and where the time went; a row opens its latency over the
+   period, its distribution, its slowest occurrences and the statements it sent. *@
+@using Fleeto.Core.Performance
+@using Fleeto.Infrastructure.Performance
+
+<PerfFlowTable Title="Page loads and events" KeyLabel="Page (route template)" View="View" LoadTimeline="LoadTimeline"
+               Threshold="View.Settings.Threshold(PerfThresholds.SlowInteraction)" Max="25"
+               Flows="@View.Data.Of(PerfKind.Interaction).Where(f => f.Key != PerformanceRules.DashboardRoute).ToList()"
+               Info="Every page by its route template. Load is the page loading its data, event a click or other event on it. DB · ext · own splits the time between the database, external calls and our own code and rendering." />
+
+<PerfFlowTable Title="API and sign-in requests" KeyLabel="Route" View="View" LoadTimeline="LoadTimeline" ShowBytes="true" Max="25"
+               Threshold="View.Settings.Threshold(PerfThresholds.SlowRequest)" Flows="@View.Data.Of(PerfKind.Http).ToList()"
+               Info="Requests outside the pages: the public API, sign-in, the OIDC callback and downloads, by route template, method and status class." />
+
+@{
+    var slow = View.Data.Events.Where(e => e.Kind is PerfKind.Interaction or PerfKind.Http && e.Key != PerformanceRules.DashboardRoute).Take(25).ToList();
+}
+<MudText Typo="Typo.h6" Class="section-title mb-2">
+    Slowest page interactions and requests
+    <PerfInfo Text="Each took longer than the setting Slow event. Database and external show where the time went; in Diagnose the heaviest statements name the queries to look at." />
+</MudText>
+@if (slow.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="muted mb-4">None took longer than @PerformanceRules.Ms(View.Settings.SlowEventMs) in this period.</MudText>
+}
+else
+{
+    <div class="fl-panel pa-2 mb-4" style="overflow-x:auto">
+        <MudSimpleTable Dense="true" Elevation="0">
+            <thead>
+                <tr><th>Time</th><th>Page or route</th><th style="text-align:right">Duration</th><th style="text-align:right">Database</th>
+                    <th style="text-align:right">Commands</th><th style="text-align:right">External</th><th>Heaviest statements</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var e in slow)
+                {
+                    <tr>
+                        <td style="white-space:nowrap">@Time.Absolute(e.Time)</td>
+                        <td class="mono" style="overflow-wrap:anywhere">@e.Key · @e.SubKey@(e.Failed ? " · failed" : "")</td>
+                        <td style="text-align:right">@PerformanceRules.Ms(e.DurationMs)</td>
+                        <td style="text-align:right">@PerformanceRules.Ms(e.DbMs)</td>
+                        <td style="text-align:right">@e.DbCount</td>
+                        <td style="text-align:right">@PerformanceRules.Ms(e.ExternalMs)</td>
+                        <td class="mono" style="font-size:0.75rem">@(e.Statements.Count == 0 ? "–" : string.Join(", ", e.Statements.Select(s => $"{s.Hash} ×{s.Count} {PerformanceRules.Ms(s.Ms)}")))</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+
+<MudText Typo="Typo.h6" Class="section-title mb-2">
+    Open pages
+    <PerfInfo Text="Blazor circuits of web: a page that lost its connection and got it back reconnected; many of those point at the network or the host proxy." />
+</MudText>
+<div class="health-grid mb-4">
+    @foreach (var (key, label) in new[] { ("opened", "Opened"), ("closed", "Closed"), ("connection-down", "Lost the connection"), ("connection-up", "Reconnected") })
+    {
+        <div class="health-card fl-panel">
+            <div class="health-card-head"><span>@label</span></div>
+            <div style="font-size:1.25rem">@PerformanceRules.Count(View.Data.Of(PerfKind.Circuit).Where(c => c.Key == key).Sum(c => c.Count))</div>
+        </div>
+    }
+    <div class="health-card fl-panel">
+        <div class="health-card-head"><span>Open at the peak</span></div>
+        <div style="font-size:1.25rem">@(View.Data.Runtime.FirstOrDefault(r => r.Component == "web")?.ConnectionsMax ?? 0)</div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public PerformanceView View { get; set; } = default!;
+    [Parameter, EditorRequired] public Func<PerfSeries, Task<IReadOnlyList<PerfFlowPoint>?>> LoadTimeline { get; set; } = default!;
+
+    [Inject] private TimeDisplay Time { get; set; } = default!;
+}

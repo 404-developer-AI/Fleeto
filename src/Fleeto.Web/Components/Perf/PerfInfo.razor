@@ -1,0 +1,7 @@
+@* An info tip in plain language next to a section title: what it shows and what bad looks like (spec §9). *@
+<MudTooltip Text="@Text"><MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" Class="muted ml-1" /></MudTooltip>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Text { get; set; } = string.Empty;
+}

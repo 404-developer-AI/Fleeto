@@ -3,7 +3,9 @@
 @inherits FleetoPageBase
 @using Fleeto.Core.Performance
 @using Fleeto.Infrastructure.Performance
+@using Fleeto.Web.Components.Perf
 @using System.Globalization
+@implements IAsyncDisposable
 @inject PerformanceService PerformanceSvc
 @inject IJSRuntime JS
 
@@ -26,7 +28,12 @@
             }
         </MudSelect>
         <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.ContentCopy" OnClick="CopyAsync" Disabled="_busy">Copy report</MudButton>
-        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Download" OnClick="DownloadAsync" Disabled="_busy">Download report</MudButton>
+        <MudMenu Label="Download" StartIcon="@Icons.Material.Outlined.Download" EndIcon="@Icons.Material.Filled.KeyboardArrowDown" Variant="Variant.Outlined"
+                 Disabled="_busy" AnchorOrigin="Origin.BottomLeft" TransformOrigin="Origin.TopLeft">
+            <MudMenuItem OnClick="@(() => DownloadAsync(PerfExportFormat.Markdown))">Report for Claude Code (Markdown)</MudMenuItem>
+            <MudMenuItem OnClick="@(() => DownloadAsync(PerfExportFormat.Json))">All data (JSON)</MudMenuItem>
+            <MudMenuItem OnClick="@(() => DownloadAsync(PerfExportFormat.Zip))">Both, with query plans (ZIP)</MudMenuItem>
+        </MudMenu>
         <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Refresh" OnClick="ReloadAsync">Refresh</MudButton>
     </div>
 </div>
@@ -35,11 +42,38 @@
     @if (_view is { } view)
     {
         <div class="d-flex align-center gap-3 flex-wrap mb-3">
-            <StatusChip Text="@($"Level {view.Settings.Level}")" Kind="@(view.Settings.IsOn ? StatusKind.Active : StatusKind.Neutral)" />
+            @if (DiagnoseLeft(view) is { } left)
+            {
+                <StatusChip Text="Diagnose" Kind="StatusKind.Warning" />
+                <MudText Typo="Typo.caption">
+                    until @Utc(view.DiagnoseUntil!.Value) · @Minutes(left) left · statements, N+1 and callers are measured
+                </MudText>
+                @if (view.CanManage)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" OnClick="StopDiagnoseAsync" Disabled="_busy">Stop Diagnose</MudButton>
+                }
+            }
+            else
+            {
+                <StatusChip Text="@($"Level {view.Settings.Level}")" Kind="@(view.Settings.IsOn ? StatusKind.Active : StatusKind.Neutral)" />
+                @if (view.CanManage && view.Settings.IsOn)
+                {
+                    <MudSelect T="int" @bind-Value="_diagnoseMinutes" Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:130px">
+                        @foreach (var minutes in DiagnoseChoices(view.Settings))
+                        {
+                            <MudSelectItem Value="minutes">@Minutes(TimeSpan.FromMinutes(minutes))</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.ManageSearch" OnClick="StartDiagnoseAsync" Disabled="_busy">Start Diagnose</MudButton>
+                }
+            }
+            <MudTooltip Text="Diagnose measures every statement with its fingerprint, finds N+1 queries and names the method that sent each statement. It costs a few percent and ends by itself; use Fleeto while it runs, then export the report.">
+                <MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" Class="muted" />
+            </MudTooltip>
             <MudText Typo="Typo.caption" Class="muted">
-                @Utc(view.From) to @Utc(view.To) · monitor overhead @PerformanceRules.Pct(Overhead(view.Data)) of the CPU
+                @Utc(view.From) to @Utc(view.To) · @PerformanceRules.Pct(view.Data.DiagnoseShare * 100) in Diagnose · monitor overhead @PerformanceRules.Pct(Overhead(view.Data)) of the CPU
             </MudText>
-            <MudTooltip Text="The time the monitor itself spent measuring and writing, as a share of the CPU of the components. On level Basic it stays below 1%.">
+            <MudTooltip Text="The time the monitor itself spent measuring and writing, as a share of the CPU of the components. On level Basic it stays below 1%; Diagnose may cost a few percent.">
                 <MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" Class="muted" />
             </MudTooltip>
         </div>
@@ -47,6 +81,21 @@
         <MudTabs Elevation="0" Class="fl-tabs" MinimumTabWidth="0" ActivePanelIndex="_tab" ActivePanelIndexChanged="OnTabChangedAsync">
             <MudTabPanel Text="Overview" Icon="@Icons.Material.Outlined.Insights">
                 @Overview(view)
+            </MudTabPanel>
+            <MudTabPanel Text="Pages and API" Icon="@Icons.Material.Outlined.Web">
+                <PerfInteractionsTab View="view" LoadTimeline="LoadFlowAsync" />
+            </MudTabPanel>
+            <MudTabPanel Text="Database" Icon="@Icons.Material.Outlined.Storage">
+                <PerfDatabaseTab View="view" Plan="PlanAsync" Analyze="AnalyzeAsync" LoadLive="LoadLiveAsync" />
+            </MudTabPanel>
+            <MudTabPanel Text="Server" Icon="@Icons.Material.Outlined.Dns">
+                <PerfServerTab View="view" />
+            </MudTabPanel>
+            <MudTabPanel Text="Background" Icon="@Icons.Material.Outlined.Schedule">
+                <PerfBackgroundTab View="view" LoadTimeline="LoadFlowAsync" />
+            </MudTabPanel>
+            <MudTabPanel Text="Agent channel" Icon="@Icons.Material.Outlined.Lan">
+                <PerfAgentsTab View="view" LoadTimeline="LoadFlowAsync" />
             </MudTabPanel>
             <MudTabPanel Text="Settings" Icon="@Icons.Material.Outlined.Tune">
                 @SettingsTab(view)
@@ -63,15 +112,73 @@
     private const string PeriodPreference = "fleeto.performance.period";
     private const string TabPreference = "fleeto.performance.tab";
 
+    private const int TabCount = 7;
+
     private PerformanceView? _view;
     private PerfPeriod _period = PerfPeriod.Hour1;
     private int _tab;
     private bool _busy;
     private SettingsForm? _form;
+    private int _diagnoseMinutes = 60;
+    private string _marker = string.Empty;
+    private bool _addingMarker;
+
+    // The countdown of Diagnose runs on the server clock of the last load plus the time since, refreshed every 15 seconds.
+    private readonly System.Diagnostics.Stopwatch _sinceLoad = new();
+    private PeriodicTimer? _timer;
+    private Task? _ticking;
 
     protected override async Task OnInitializedAsync()
     {
         await ReloadAsync();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+        _ticking = TickAsync(_timer);
+    }
+
+    private async Task TickAsync(PeriodicTimer timer)
+    {
+        try
+        {
+            while (await timer.WaitForNextTickAsync())
+            {
+                if (_view is { DiagnoseUntil: not null } view)
+                {
+                    // Diagnose ended on the server clock: read again, so the level and the data show it.
+                    if (DiagnoseLeft(view) is null)
+                    {
+                        await InvokeAsync(async () =>
+                        {
+                            await ReloadAsync();
+                            StateHasChanged();
+                        });
+                    }
+                    else
+                    {
+                        await InvokeAsync(StateHasChanged);
+                    }
+                }
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // The page closed.
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            _timer?.Dispose();
+            if (_ticking is not null)
+            {
+                await _ticking;
+            }
+        }
+        finally
+        {
+            Dispose();
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -91,7 +198,7 @@
             changed = true;
         }
 
-        if (int.TryParse(tab, NumberStyles.None, CultureInfo.InvariantCulture, out var storedTab) && storedTab is 0 or 1 && storedTab != _tab)
+        if (int.TryParse(tab, NumberStyles.None, CultureInfo.InvariantCulture, out var storedTab) && storedTab >= 0 && storedTab < TabCount && storedTab != _tab)
         {
             _tab = storedTab;
             changed = true;
@@ -107,8 +214,118 @@
     private Task ReloadAsync() => LoadAsync(async caller =>
     {
         _view = await PerformanceSvc.GetAsync(caller, _period);
+        _sinceLoad.Restart();
         _form = _view is null ? null : SettingsForm.From(_view.Settings);
+        if (_view is not null && !DiagnoseChoices(_view.Settings).Contains(_diagnoseMinutes))
+        {
+            _diagnoseMinutes = DiagnoseChoices(_view.Settings).OrderBy(m => Math.Abs(m - _view.Settings.DiagnoseDefaultMinutes)).First();
+        }
     });
+
+    /// <summary>The lengths offered for Diagnose: the default and the usual ones, up to the longest the settings allow.</summary>
+    private static IReadOnlyList<int> DiagnoseChoices(PerformanceSettings settings) =>
+        new[] { 15, 30, 60, 120, 240, 480, settings.DiagnoseDefaultMinutes }.Where(m => m >= PerformanceService.MinDiagnoseMinutes && m <= settings.DiagnoseMaxMinutes)
+            .Distinct().Order().ToList();
+
+    /// <summary>The time Diagnose has left on the server clock, or null when it does not run.</summary>
+    private TimeSpan? DiagnoseLeft(PerformanceView view) =>
+        view.DiagnoseUntil is { } until && until - (view.Now + _sinceLoad.Elapsed) is { TotalSeconds: > 0 } left ? left : null;
+
+    private static string Minutes(TimeSpan span) => span.TotalMinutes switch
+    {
+        < 1 => "less than a minute",
+        < 120 => $"{Math.Ceiling(span.TotalMinutes).ToString("0", CultureInfo.InvariantCulture)} min",
+        _ => $"{(span.TotalMinutes / 60).ToString("0.#", CultureInfo.InvariantCulture)} h"
+    };
+
+    private async Task StartDiagnoseAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await RunAsync(caller => PerformanceSvc.StartDiagnoseAsync(caller, _diagnoseMinutes),
+                    "Diagnose started. Every component measures statements within 30 seconds; use Fleeto as usual and export the report when it ends."))
+            {
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task StopDiagnoseAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await RunAsync(caller => PerformanceSvc.StopDiagnoseAsync(caller), "Diagnose stopped. The level is Basic again."))
+            {
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task AddMarkerAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await RunAsync(caller => PerformanceSvc.AddMarkerAsync(caller, _marker), "The marker is on the timeline."))
+            {
+                _marker = string.Empty;
+                _addingMarker = false;
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task<IReadOnlyList<PerfFlowPoint>?> LoadFlowAsync(PerfSeries flow)
+    {
+        var caller = Caller ?? await CurrentUser.GetAsync();
+        try
+        {
+            return await PerformanceSvc.GetFlowTimelineAsync(caller, _period, flow.Kind, flow.Key, flow.SubKey);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Snackbar.Add(ServiceSupport.GenericProblem, Severity.Error);
+            return null;
+        }
+    }
+
+    private async Task<PerfPlan?> PlanAsync(PerfPlanTarget target, string id) =>
+        (await RunForValueAsync(caller => PerformanceSvc.PlanAsync(caller, target, id), null))?.Value;
+
+    private async Task AnalyzeAsync(string table)
+    {
+        if (await RunAsync(caller => PerformanceSvc.AnalyzeAsync(caller, table), $"{table} was analyzed. Its new statistics show at the next table snapshot."))
+        {
+            StateHasChanged();
+        }
+    }
+
+    private async Task<PerfLiveDatabase?> LoadLiveAsync()
+    {
+        var caller = Caller ?? await CurrentUser.GetAsync();
+        try
+        {
+            return await PerformanceSvc.GetLiveDatabaseAsync(caller);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return null;
+        }
+    }
 
     private async Task OnPeriodChangedAsync(PerfPeriod period)
     {
@@ -132,12 +349,19 @@
         }
     }
 
-    private async Task DownloadAsync()
+    private async Task DownloadAsync(PerfExportFormat format)
     {
-        if (await ExportAsync("downloaded") is { } report)
+        _busy = true;
+        try
         {
-            var name = $"fleeto-performance-{DateTime.UtcNow:yyyyMMdd-HHmm}.md";
-            await JS.InvokeVoidAsync("fleeto.saveFile", name, "text/markdown", Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(report)));
+            if ((await RunForValueAsync(caller => PerformanceSvc.ExportAsync(caller, _period, format, "downloaded"), null))?.Value is { } export)
+            {
+                await JS.InvokeVoidAsync("fleeto.saveFile", export.FileName, export.ContentType, Convert.ToBase64String(export.Content));
+            }
+        }
+        finally
+        {
+            _busy = false;
         }
     }
 
@@ -207,6 +431,13 @@
         {
             <MudAlert Severity="Severity.Info" Class="mb-3">
                 The performance monitor is off, so nothing new is measured. @(view.CanManage ? "Set the level to Basic in the Settings tab." : "Ask an admin to switch it on.")
+            </MudAlert>
+        }
+        else if (view.Data.DiagnoseMinutes == 0 && view.DiagnoseUntil is null)
+        {
+            <MudAlert Severity="Severity.Normal" Dense="true" Class="mb-3">
+                Basic shows where time goes. To see which statements cost it and which method sends them, start Diagnose for an hour,
+                use Fleeto as usual, and export the report when it ends.
             </MudAlert>
         }
 
@@ -374,9 +605,31 @@
             </div>
         }
 
-        @if (view.Data.Markers.Count > 0)
+        <div class="d-flex align-center gap-2 mb-2">
+            <MudText Typo="Typo.h6" Class="section-title">
+                Markers
+                @Info("A deploy marker is added when the workers start on a new version. Add your own when you change something, such as an index, so before and after are easy to compare.")
+            </MudText>
+            @if (view.CanManage && !_addingMarker)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Add" OnClick="@(() => _addingMarker = true)">Add marker</MudButton>
+            }
+        </div>
+        @if (_addingMarker)
         {
-            <MudText Typo="Typo.h6" Class="section-title mb-2">Markers</MudText>
+            <div class="d-flex align-center gap-2 mb-3 flex-wrap">
+                <MudTextField T="string" @bind-Value="_marker" Label="What changed" Variant="Variant.Outlined" Margin="Margin.Dense" MaxLength="PerformanceService.MaxMarkerLength"
+                              HelperText="E-mail addresses, addresses, client codes and host names are masked." Style="min-width:320px" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddMarkerAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_marker))">Add</MudButton>
+                <MudButton Variant="Variant.Text" OnClick="@(() => { _addingMarker = false; _marker = string.Empty; })">Cancel</MudButton>
+            </div>
+        }
+        @if (view.Data.Markers.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted mb-4">None in this period.</MudText>
+        }
+        else
+        {
             <div class="fl-panel pa-2 mb-4">
                 <MudSimpleTable Dense="true" Elevation="0">
                     <tbody>
@@ -464,8 +717,9 @@
                         <MudText Typo="Typo.h6" Class="section-title mb-2">Level</MudText>
                         <MudRadioGroup T="PerfLevel" @bind-Value="form.Level" Disabled="!view.CanManage">
                             <MudRadio Value="PerfLevel.Basic" Color="Color.Primary">Basic: aggregates per minute of every layer, below 1% overhead</MudRadio>
-                            <MudRadio Value="PerfLevel.Off" Color="Color.Primary">Off: nothing is measured</MudRadio>
+                            <MudRadio Value="PerfLevel.Off" Color="Color.Primary">Off: nothing is measured, and Diagnose stops</MudRadio>
                         </MudRadioGroup>
+                        <MudText Typo="Typo.caption" Class="muted d-block mt-1">Diagnose is not a level to choose here: start it at the top of the page, and it ends by itself.</MudText>
 
                         <MudText Typo="Typo.h6" Class="section-title mt-4 mb-2">Collectors</MudText>
                         @foreach (var collector in PerfCollectors.All)
@@ -492,6 +746,16 @@
                         <MudNumericField T="int" @bind-Value="form.HourRetentionDays" Label="Keep hour data (days)" Min="1" Max="400" Disabled="!view.CanManage" Class="mb-2" />
                         <MudNumericField T="int" @bind-Value="form.EventRetentionDays" Label="Keep slow events (days)" Min="1" Max="90" Disabled="!view.CanManage" Class="mb-2" />
                         <MudNumericField T="int" @bind-Value="form.SnapshotRetentionDays" Label="Keep database snapshots (days)" Min="1" Max="90"
+                                         Disabled="!view.CanManage" Class="mb-2" />
+
+                        <MudText Typo="Typo.h6" Class="section-title mt-4 mb-2">Diagnose</MudText>
+                        <MudNumericField T="int" @bind-Value="form.DiagnoseDefaultMinutes" Label="Default length (minutes)" Min="5" Max="@PerformanceSettings.MaxDiagnoseMinutes"
+                                         Disabled="!view.CanManage" Class="mb-2" HelperText="Chosen when Diagnose is started; 60 minutes is enough for a report." />
+                        <MudNumericField T="int" @bind-Value="form.DiagnoseMaxMinutes" Label="Longest (minutes)" Min="15" Max="@PerformanceSettings.MaxDiagnoseMinutes"
+                                         Disabled="!view.CanManage" Class="mb-2" HelperText="Diagnose costs a few percent, so it is never left on." />
+                        <MudNumericField T="int" @bind-Value="form.DiagnoseStatementSnapshotMinutes" Label="Statement statistics every (minutes)" Min="1" Max="60"
+                                         Disabled="!view.CanManage" Class="mb-2" />
+                        <MudNumericField T="int" @bind-Value="form.DiagnoseTableSnapshotMinutes" Label="Table statistics every (minutes)" Min="5" Max="1440"
                                          Disabled="!view.CanManage" Class="mb-2" />
                     </div>
                 </MudItem>
@@ -535,6 +799,10 @@
         public int HourRetentionDays { get; set; }
         public int EventRetentionDays { get; set; }
         public int SnapshotRetentionDays { get; set; }
+        public int DiagnoseDefaultMinutes { get; set; }
+        public int DiagnoseMaxMinutes { get; set; }
+        public int DiagnoseStatementSnapshotMinutes { get; set; }
+        public int DiagnoseTableSnapshotMinutes { get; set; }
         public Dictionary<string, double> Thresholds { get; } = new(StringComparer.Ordinal);
 
         public void Toggle(PerfCollector collector, bool on)
@@ -560,7 +828,11 @@
                 MinuteRetentionDays = settings.MinuteRetentionDays,
                 HourRetentionDays = settings.HourRetentionDays,
                 EventRetentionDays = settings.EventRetentionDays,
-                SnapshotRetentionDays = settings.SnapshotRetentionDays
+                SnapshotRetentionDays = settings.SnapshotRetentionDays,
+                DiagnoseDefaultMinutes = settings.DiagnoseDefaultMinutes,
+                DiagnoseMaxMinutes = settings.DiagnoseMaxMinutes,
+                DiagnoseStatementSnapshotMinutes = settings.DiagnoseStatementSnapshotMinutes,
+                DiagnoseTableSnapshotMinutes = settings.DiagnoseTableSnapshotMinutes
             };
             form.Disabled.UnionWith(settings.DisabledCollectors);
             foreach (var threshold in PerfThresholds.All)
@@ -582,6 +854,10 @@
             HourRetentionDays = HourRetentionDays,
             EventRetentionDays = EventRetentionDays,
             SnapshotRetentionDays = SnapshotRetentionDays,
+            DiagnoseDefaultMinutes = DiagnoseDefaultMinutes,
+            DiagnoseMaxMinutes = DiagnoseMaxMinutes,
+            DiagnoseStatementSnapshotMinutes = DiagnoseStatementSnapshotMinutes,
+            DiagnoseTableSnapshotMinutes = DiagnoseTableSnapshotMinutes,
             Thresholds = new Dictionary<string, double>(Thresholds, StringComparer.Ordinal)
         };
     }

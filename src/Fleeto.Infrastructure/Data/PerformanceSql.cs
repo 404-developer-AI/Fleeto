@@ -33,6 +33,56 @@ public static class PerformanceSql
         CREATE TRIGGER "TR_PerfEvents_Component" BEFORE INSERT ON "PerfEvents" FOR EACH ROW EXECUTE FUNCTION fleeto_perf_component();
         """;
 
+    /// <summary>
+    /// Diagnose (0.7.0 step 2, migration PerformanceDiagnose): fingerprints are written and updated by each component for itself,
+    /// and web may run ANALYZE on one existing table on an admin's click (spec §2.8) through a function that can do nothing else:
+    /// it runs as its owner, the migrator that owns the tables, takes a table name rather than SQL, and accepts only an ordinary
+    /// or partitioned table of the public schema. A generic plan needs its <c>$1</c> left unbound, which the extended protocol of
+    /// Npgsql cannot do, so web asks for it through a second function that runs with web's own rights (SECURITY INVOKER) and
+    /// does nothing but EXPLAIN without ANALYZE, which never runs the statement. EXECUTE on both is revoked from PUBLIC here and
+    /// granted to web by <see cref="DatabaseGrants.FunctionGrants"/>.
+    /// </summary>
+    public const string DiagnoseUp = """
+        CREATE TRIGGER "TR_PerfFingerprints_Component" BEFORE INSERT OR UPDATE ON "PerfFingerprints"
+          FOR EACH ROW EXECUTE FUNCTION fleeto_perf_component();
+
+        CREATE OR REPLACE FUNCTION fleeto_perf_analyze(table_name text) RETURNS void
+          LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+        DECLARE
+          target regclass;
+        BEGIN
+          SELECT c.oid::regclass INTO target
+          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'public' AND c.relname = table_name AND c.relkind IN ('r', 'p');
+          IF target IS NULL THEN
+            RAISE EXCEPTION 'No table of Fleeto is called %', table_name USING ERRCODE = 'undefined_table';
+          END IF;
+          EXECUTE format('ANALYZE %s', target);
+        END $$;
+
+        REVOKE ALL ON FUNCTION fleeto_perf_analyze(text) FROM PUBLIC;
+
+        CREATE OR REPLACE FUNCTION fleeto_perf_explain(statement text) RETURNS text
+          LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp AS $$
+        DECLARE
+          plan text;
+        BEGIN
+          IF position(';' IN statement) > 0 THEN
+            RAISE EXCEPTION 'Only a single statement can be planned' USING ERRCODE = 'syntax_error';
+          END IF;
+          EXECUTE 'EXPLAIN (GENERIC_PLAN, FORMAT JSON) ' || statement INTO plan;
+          RETURN plan;
+        END $$;
+
+        REVOKE ALL ON FUNCTION fleeto_perf_explain(text) FROM PUBLIC;
+        """;
+
+    public const string DiagnoseDown = """
+        DROP FUNCTION IF EXISTS fleeto_perf_explain(text);
+        DROP FUNCTION IF EXISTS fleeto_perf_analyze(text);
+        DROP TRIGGER IF EXISTS "TR_PerfFingerprints_Component" ON "PerfFingerprints";
+        """;
+
     public const string Down = """
         DROP TRIGGER IF EXISTS "TR_PerfEvents_Component" ON "PerfEvents";
         DROP TRIGGER IF EXISTS "TR_PerfRuntimeMinutes_Component" ON "PerfRuntimeMinutes";

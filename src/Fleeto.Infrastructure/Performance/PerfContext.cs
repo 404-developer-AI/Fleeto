@@ -16,6 +16,10 @@ public sealed class PerfScope : IDisposable
     private long _externalMicros;
     private long _waitMicros;
     private int _ended;
+    private Dictionary<string, (int Count, double Ms)>? _statements;
+
+    /// <summary>Distinct statements counted per scope in Diagnose; more are not counted for N+1.</summary>
+    public const int MaxStatements = 200;
 
     internal PerfScope(string source, PerfScope? parent)
     {
@@ -75,6 +79,47 @@ public sealed class PerfScope : IDisposable
         }
     }
 
+    /// <summary>
+    /// Diagnose: one more run of the statement <paramref name="hash"/> in this scope, for N+1 detection and the heaviest statements
+    /// of a slow event. Counted in the innermost scope only, so a page load inside an event is not counted twice. At most
+    /// <see cref="MaxStatements"/> distinct statements are kept per scope.
+    /// </summary>
+    internal void AddStatement(string hash, double milliseconds)
+    {
+        if (Ended)
+        {
+            return;
+        }
+
+        var statements = LazyInitializer.EnsureInitialized(ref _statements, () => new Dictionary<string, (int Count, double Ms)>(StringComparer.Ordinal));
+        lock (statements)
+        {
+            if (statements.TryGetValue(hash, out var current))
+            {
+                statements[hash] = (current.Count + 1, current.Ms + milliseconds);
+            }
+            else if (statements.Count < MaxStatements)
+            {
+                statements[hash] = (1, milliseconds);
+            }
+        }
+    }
+
+    /// <summary>The statements counted in this scope (Diagnose), or empty.</summary>
+    internal IReadOnlyList<(string Hash, int Count, double Ms)> Statements()
+    {
+        var statements = Volatile.Read(ref _statements);
+        if (statements is null)
+        {
+            return [];
+        }
+
+        lock (statements)
+        {
+            return statements.Select(pair => (pair.Key, pair.Value.Count, pair.Value.Ms)).ToList();
+        }
+    }
+
     /// <summary>Ends the scope: later work no longer counts against it, and the enclosing scope becomes current again.</summary>
     public void Dispose()
     {
@@ -93,7 +138,10 @@ public static class PerfContext
     public static PerfScope? Current => CurrentScope.Value;
 
     /// <summary>The source of database work right now: the innermost open scope, or <see cref="Core.Performance.PerfKeys.OtherSource"/>.</summary>
-    public static string Source
+    public static string Source => Innermost?.Source ?? Core.Performance.PerfKeys.OtherSource;
+
+    /// <summary>The innermost scope that has not ended, or null outside any measured work.</summary>
+    public static PerfScope? Innermost
     {
         get
         {
@@ -101,11 +149,11 @@ public static class PerfContext
             {
                 if (!scope.Ended)
                 {
-                    return scope.Source;
+                    return scope;
                 }
             }
 
-            return Core.Performance.PerfKeys.OtherSource;
+            return null;
         }
     }
 

@@ -7,7 +7,14 @@ public enum PerfLevel
     Off,
 
     /// <summary>Aggregates per minute of every layer, safe to leave on: below 1 % overhead.</summary>
-    Basic
+    Basic,
+
+    /// <summary>
+    /// Basic plus every statement with its fingerprint, N+1 detection and the calling method (0.7.0 step 2). Never a stored level:
+    /// it is Basic with an end time on server time (<see cref="PerformanceSettings.DiagnoseUntil"/>), so it always ends by itself.
+    /// The runtime rows of a minute carry it, which gives the share of a period that ran in Diagnose.
+    /// </summary>
+    Diagnose
 }
 
 /// <summary>
@@ -59,7 +66,20 @@ public enum PerfKind
     Circuit,
 
     /// <summary>A flush of the gateway's last-seen batch. Key: <c>last-seen</c>. Bytes: rows written.</summary>
-    Batch
+    Batch,
+
+    /// <summary>
+    /// A database statement, in Diagnose only. Key: its fingerprint (<see cref="SqlFingerprint.Hash"/>; the normalized text and its
+    /// callers are in the fingerprint table). Sub key: the source that sent it (<c>interaction:/clients</c>).
+    /// </summary>
+    Statement,
+
+    /// <summary>
+    /// The same statement sent many times by one interaction, request, run or message (N+1), in Diagnose only. Key: the source.
+    /// Sub key: the fingerprint. Value: the number of times in one unit of work, not milliseconds; the database columns hold the
+    /// time of those statements.
+    /// </summary>
+    NPlusOne
 }
 
 /// <summary>The questions the page answers. Every finding, score and section belongs to exactly one (PERFORMANCE.md §3).</summary>
@@ -104,7 +124,7 @@ public static class PerfCategories
 }
 
 /// <summary>Where to look in the repository: a page route template, an API route, a loop, a message type, a query, a table or a host.</summary>
-/// <param name="Kind">page, api, loop, message, job, signing, query, table, host, setting or component.</param>
+/// <param name="Kind">page, api, loop, message, job, signing, query, statement, method, table, index, host, setting or component.</param>
 /// <param name="Detail">For a query its normalized SQL.</param>
 public sealed record PerfCodeRef(string Kind, string Value, string? Detail = null);
 

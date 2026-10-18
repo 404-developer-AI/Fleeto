@@ -1,0 +1,39 @@
+@* The generic plan of a statement as an indented list of its nodes, with the tables it reads in full called out. *@
+@using Fleeto.Infrastructure.Performance
+
+<div class="pa-2">
+    @if (!Plan.Planned)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true">@Plan.Problem</MudAlert>
+    }
+    else
+    {
+        @if (Plan.SequentialScans.Count > 0)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                Reads in full: @string.Join(", ", Plan.SequentialScans). On a large table that usually means a missing index for the condition; on a small one it is cheaper than an index.
+            </MudAlert>
+        }
+        <div class="mono" style="font-size:0.75rem">
+            @foreach (var node in Plan.Nodes)
+            {
+                <div style="padding-left:@(node.Depth * 16)px">
+                    @node.NodeType@(node.Relation is { } relation ? $" on {relation}" : "")@(node.Index is { } index ? $" using {index}" : "")
+                    <span class="muted"> · cost @node.TotalCost.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) · @node.Rows.ToString("0", System.Globalization.CultureInfo.InvariantCulture) rows estimated</span>
+                </div>
+            }
+        </div>
+        <MudButton Size="Size.Small" Variant="Variant.Text" Class="mt-1" OnClick="@(() => _json = !_json)">@(_json ? "Hide the plan as JSON" : "Show the plan as JSON")</MudButton>
+        @if (_json)
+        {
+            <pre class="mono perf-sql">@Plan.Json</pre>
+        }
+        <MudText Typo="Typo.caption" Class="muted">A generic plan: PostgreSQL planned it without values and without running it, so estimates may differ from a real run.</MudText>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public PerfPlan Plan { get; set; } = default!;
+
+    private bool _json;
+}
