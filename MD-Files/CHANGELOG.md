@@ -9,15 +9,26 @@ When a third released version is added, the oldest entry moves to the top of
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-10-18
+
+Refactors, fixes and everything the developer wanted before the next round of testing, features included: policies, patch
+policies and monitoring templates on three levels and per class, patch policies as Action1 automations with Action1 following
+the clients and sites, storage analysis, instance health, user groups and roles with permissions, tasks that run library
+scripts as steps, exit codes per script, uninstalling the agent of a deleted endpoint, and a comment with every alert action
+and a history of maintenance. Started on 2026-09-24 as a release without new features and made a large release the same day;
+tested and released as a whole. The pre-releases `0.6.0-alpha.1` to `0.6.0-alpha.26` were test builds on the first test VPS
+with Windows and Linux endpoints; what they found is in Fixed. Like 0.4.0 and 0.5.0, no load test and no separate security
+review: the release asked for neither.
+
 ### Added
 
 - A comment with every alert action: acknowledging, putting on hold and resolving an alert ask why, and the comment is required
   (ending a hold takes an optional one). What was done, by whom, when and the comment are shown under the alert on the Alerts
   page and in the History tab of the endpoint. The audit log records the action with the length of the comment, never its text.
 - Maintenance history: every period of maintenance mode on a client, site or endpoint is kept, also after it ends, and the
-  History tab of an endpoint has a Maintenance section with those of the endpoint, its site and its client: when it started and
-  ended (and whether it ended before its planned end), who started it and why. Kept 13 months after a period ended; maintenance
-  that runs when this version is installed is included from its start.
+  History tab of an endpoint opens with a Maintenance section, above Alerts, with those of the endpoint, its site and its
+  client: when it started and ended (and whether it ended before its planned end), who started it and why. Kept 13 months
+  after a period ended; maintenance that runs when this version is installed is included from its start.
 
 - Exit codes per script: Edit on a script in Settings, Scripts lists which exit codes mean success, info, warning or error (for
   example 0 success, 1 and 2 a warning, 3 an error, 4 info; ranges such as 5-8 work). Every job, task step and script check that
@@ -361,68 +372,3 @@ Microsoft puts no `amr` claim in the token, which led to the choice described be
   from the Action1 console) rather than promising a Fleeto version. Patch management on Linux and the integrations other
   than Action1 moved to "Not yet scheduled" on 2026-09-23; 0.5.0 is sign-in with Microsoft Entra ID and 0.6.0 is a release
   of refactors and fixes.
-
-## [0.4.0] — 2026-09-23
-
-Patch management through Action1: Fleeto shows per endpoint, client and site what Action1 reports about updates, deploys the
-missing ones and alerts when a patch state cannot be trusted. Fleeto keeps no catalog and no patch engine of its own. Built in
-three steps between 2026-09-20 and 2026-09-22. The pre-releases `0.4.0-alpha.1` to `0.4.0-alpha.4` were test builds on the first
-test VPS and on real Windows endpoints; what they found is in Fixed. Windows only: a Linux endpoint shows no patch state and stays
-out of the compliance counts until 0.4.1, because calling it uncovered would be untrue.
-
-### Added
-
-- Settings, Integrations for admins: the Action1 enterprise of the instance with its client id, client secret and
-  region, a connection test, and the mapping of Action1 organizations to clients. One organization belongs to one client
-  and one client to one organization, so patch state can never land under another client. The client secret is write-only:
-  stored encrypted and bound to its row, never shown again, never in the audit log. A blank secret when editing keeps the
-  one that is stored. The workers make every call to Action1 and read its organizations again every four hours, so the
-  names stay current. Fleeto stays well under the request budget Action1 recommends (20 a minute for the whole instance)
-  and waits as long as Action1 asks after a "too many requests" answer.
-- Patch state from Action1 per managed endpoint: the Patches tab on the endpoint detail shows whether it is up to
-  date, how many updates it misses (critical and other), whether a restart is pending and which updates are missing with
-  their severity. The dashboard has a patch compliance tile, and the clients workspace shows compliance of the selected
-  client or site. The workers read it every four hours, matched on the Action1 agent id of the endpoint and only within
-  the client the organization is mapped to; detail is read for endpoints that miss something. An endpoint Action1 no
-  longer patches (above the licensed number of the subscription) or has not seen for a week opens an alert, because its
-  state cannot be trusted; missing updates themselves are state, not an alert. Agent-only endpoints have no patch state,
-  endpoints in maintenance open no alert, and `GET /api/v1/endpoints/{endpointId}/patches` gives the same data in the API.
-- Deploying updates from Fleeto: on the Patches tab of an endpoint every missing update or the updates a technician
-  ticks in the list, and from the endpoint list every missing update on a selection. The deployment runs in Action1; Fleeto
-  shows per endpoint what Action1 reports, live, and keeps the run in the history of every endpoint it touched. Restarting
-  is a choice per deployment and is off by default; with it on, the signed-in user gets a message and half an hour before
-  Action1 restarts the endpoint. Managed endpoints only, admins and technicians, audited like a job. A deployment Action1
-  refuses says why and installs nothing; one Action1 has not finished after a day is no longer followed and says so instead
-  of claiming success. `GET /api/v1/endpoints/{endpointId}/patch-deployments` gives the same data in the API.
-- Installing the Action1 agent from Fleeto on a Windows endpoint that patch management does not cover yet, from the
-  Patches tab. It is a signed job whose script Fleeto writes itself: fleeto-signer composes it from the installer link of
-  the client's Action1 organization and refuses when that link changed since the technician asked. The link is read from
-  Action1 where Action1 hands it out and can otherwise be pasted per organization in Settings, Integrations. The
-  installation is silent and never restarts the endpoint.
-- The agent reports the id of the Action1 agent installed next to it on a Windows endpoint, read from the endpoint
-  itself. It is shown on the endpoint's Summary tab and as `action1AgentId` on the inventory in the public API. Patch
-  management matches an endpoint on it instead of on the host name, which is not unique across clients and changes.
-  Linux follows in 0.4.1, together with patch management for Linux endpoints.
-
-### Changed
-
-- The Fleeto repository on GitHub is public from 2026-09-21, so CI runs on free GitHub Actions minutes; the release
-  images on ghcr.io stay private. `install.sh` still asks for both read-only tokens: the release token now mainly
-  lifts the rate limit of the GitHub API, the packages token reads the images. Two addresses of a test VPS were
-  taken out of the git history in the same step, which changed the commit of every release from 0.2.1 on. The code is
-  source-available under the Business Source License 1.1, not open source: production use stays with Steaan and every
-  published version turns into Apache-2.0 on 2030-09-21. `SECURITY.md` states how to report a vulnerability privately,
-  and GitHub secret scanning with push protection is on.
-
-### Fixed
-
-- Settings, Integrations releases the page when it is closed. Its own clean-up replaced the one it inherits instead of
-  running next to it, so the page stayed subscribed to the time zone of the signed-in user after it was closed. Found while
-  preparing the release.
-- The workers may change the organization mapping of an integration again. They keep the name of an Action1
-  organization current, but had read-only rights on that table, so a renamed organization made the four-hourly refresh
-  fail on an instance. Found while building 0.4.0 step 3.
-- The connection test of an integration no longer ends in "Action1 did not answer in time" on an instance. fleeto-web
-  runs on a network without outbound access, so it can never reach an external product; it now records what an admin asked
-  for and the workers, which do have outbound access, make the call and write the result back. The page shows "Testing"
-  until the answer is there. Found while testing 0.4.0-alpha.1.

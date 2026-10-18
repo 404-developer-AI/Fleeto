@@ -8,11 +8,10 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 
 - **Language**: conversation with the developer is always in Dutch. Documentation, code,
   comments, commit messages, log messages and UI text are always in English.
-- **Current phase**: 0.5.0 (sign-in with Microsoft Entra ID) is released (2026-09-24) and runs on the first test VPS,
-  built in three steps and tested against a real tenant through `v0.5.0-alpha.1` to `alpha.6`. Next is 0.6.0 in `MD-Files/ROADMAP.md`:
-  refactors and fixes, and everything else the developer wants before the next round of testing, features included
-  (decided 2026-09-24); it is tested and released as a whole. Patch management on Linux and the other integrations moved to "Not yet
-  scheduled" on 2026-09-23. Local development runs without Docker (see `README.md`); Docker
+- **Current phase**: 0.6.0 (refactors, fixes and what the developer wanted before the next round of testing, features
+  included) is released (2026-10-18) and runs on the first test VPS, tested through `v0.6.0-alpha.1` to `alpha.26`. Next is
+  0.7.0, the performance monitor, in `MD-Files/ROADMAP.md`. Patch management on Linux and the other integrations moved to "Not
+  yet scheduled" on 2026-09-23. Local development runs without Docker (see `README.md`); Docker
   is for the VPS and CI only.
 - **Git**: always ask before committing, pushing or tagging. No intermediate commits while a version is being built.
   Tag a version only after its commits are pushed and CI is green.
@@ -148,7 +147,7 @@ the API and the database follows it.
   template; linking needs Edit tasks, Edit monitoring templates and access to everywhere the template is used), on a schedule, when an alert of a chosen check opens, when an endpoint becomes managed, or
   by hand. Only library scripts, never a command of its own. A run Fleeto starts has a system initiator: the workers write it
   only for an enabled task (database trigger) and fleeto-signer signs it only while the task still asks for it, with the script
-  approval of the policy. A failed run opens an alert of kind Task. Details in `MD-Files/ROADMAP.md` §0.6.0.
+  approval of the policy. A failed run opens an alert of kind Task. Details in `MD-Files/ARCHITECTURE.md` and the 0.6.0 entry of `MD-Files/CHANGELOG.md`.
 - **Storage analysis** (0.6.0, decided 2026-09-28): a managed endpoint, server or workstation, scans its drives at the lowest
   CPU and I/O priority, daily by default (set per policy, or only on request), on "Scan now" and when a Disk free check turns
   warning; on NTFS by reading the master file table, elsewhere by walking the folders. Only the 300 largest folders and 50
