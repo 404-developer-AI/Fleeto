@@ -2163,6 +2163,50 @@
 
     private RenderFragment History() => __builder =>
     {
+        @HistoryHeader("Maintenance", "Search maintenance", _maintenanceSearch, SearchMaintenanceAsync)
+        @if (FilteredMaintenance.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted mb-5">
+                @(string.IsNullOrWhiteSpace(_maintenanceSearch)
+                    ? "Maintenance of this endpoint, its site and its client appears here."
+                    : "No maintenance matches this search.")
+            </MudText>
+        }
+        else
+        {
+            <MudTable Items="FilteredMaintenance" Dense="true" Elevation="0" FixedHeader="true" Class="history-table">
+                <HeaderContent>
+                    <MudTh>Started</MudTh>
+                    <MudTh>Ended</MudTh>
+                    <MudTh>On</MudTh>
+                    <MudTh>Started by</MudTh>
+                    <MudTh>Reason</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd><TimeText Value="context.StartedAt" /></MudTd>
+                    <MudTd>
+                        @if (context.EndedAt is { } ended)
+                        {
+                            <TimeText Value="ended" />
+                            @if (context.EndedEarly)
+                            {
+                                <div class="muted" style="font-size:0.75rem">Ended before its planned end</div>
+                            }
+                        }
+                        else
+                        {
+                            <StatusChip Text="@(context.EndsAt is null ? "Until turned off" : $"Until {Time.Absolute(context.EndsAt)}")" Kind="StatusKind.Active" />
+                        }
+                    </MudTd>
+                    <MudTd>@MaintenanceSourceText(context)</MudTd>
+                    <MudTd>@(context.StartedByName ?? "-")</MudTd>
+                    <MudTd><span style="white-space:pre-wrap">@(context.Reason ?? "-")</span></MudTd>
+                </RowTemplate>
+            </MudTable>
+            @HistoryFooter(_maintenance.Count, _maintenanceSearch, "maintenance periods")
+            <div class="mb-5"></div>
+        }
+
         @HistoryHeader("Alerts", "Search alerts", _alertSearch, SearchAlertsAsync)
         @if (_alerts.Count == 0)
         {
@@ -2210,50 +2254,6 @@
                 </RowTemplate>
             </MudTable>
             @HistoryFooter(_alerts.Count, _alertSearch, "alerts")
-            <div class="mb-5"></div>
-        }
-
-        @HistoryHeader("Maintenance", "Search maintenance", _maintenanceSearch, SearchMaintenanceAsync)
-        @if (FilteredMaintenance.Count == 0)
-        {
-            <MudText Typo="Typo.body2" Class="muted mb-5">
-                @(string.IsNullOrWhiteSpace(_maintenanceSearch)
-                    ? "Maintenance of this endpoint, its site and its client appears here."
-                    : "No maintenance matches this search.")
-            </MudText>
-        }
-        else
-        {
-            <MudTable Items="FilteredMaintenance" Dense="true" Elevation="0" FixedHeader="true" Class="history-table">
-                <HeaderContent>
-                    <MudTh>Started</MudTh>
-                    <MudTh>Ended</MudTh>
-                    <MudTh>On</MudTh>
-                    <MudTh>Started by</MudTh>
-                    <MudTh>Reason</MudTh>
-                </HeaderContent>
-                <RowTemplate>
-                    <MudTd><TimeText Value="context.StartedAt" /></MudTd>
-                    <MudTd>
-                        @if (context.EndedAt is { } ended)
-                        {
-                            <TimeText Value="ended" />
-                            @if (context.EndedEarly)
-                            {
-                                <div class="muted" style="font-size:0.75rem">Ended before its planned end</div>
-                            }
-                        }
-                        else
-                        {
-                            <StatusChip Text="@(context.EndsAt is null ? "Until turned off" : $"Until {Time.Absolute(context.EndsAt)}")" Kind="StatusKind.Active" />
-                        }
-                    </MudTd>
-                    <MudTd>@MaintenanceSourceText(context)</MudTd>
-                    <MudTd>@(context.StartedByName ?? "-")</MudTd>
-                    <MudTd><span style="white-space:pre-wrap">@(context.Reason ?? "-")</span></MudTd>
-                </RowTemplate>
-            </MudTable>
-            @HistoryFooter(_maintenance.Count, _maintenanceSearch, "maintenance periods")
             <div class="mb-5"></div>
         }
 
