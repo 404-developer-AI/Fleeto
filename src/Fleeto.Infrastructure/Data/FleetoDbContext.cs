@@ -1063,7 +1063,10 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(a => new { a.State, a.Severity });
             entity.HasIndex(a => new { a.ClientId, a.State });
             entity.HasIndex(a => a.OpenedAt);
-            entity.HasIndex(a => a.HeldUntil).HasFilter("\"HeldUntil\" IS NOT NULL AND \"State\" <> 'Resolved'").HasDatabaseName("IX_Alerts_Held");
+            // A hold is maintenance for the source of its alert, also after the alert resolved (AlertHoldRules): the workers look up
+            // running holds per endpoint and kind, and clear expired ones in every state, so both indexes stay small.
+            entity.HasIndex(a => a.HeldUntil).HasFilter("\"HeldUntil\" IS NOT NULL").HasDatabaseName("IX_Alerts_Held");
+            entity.HasIndex(a => new { a.EndpointId, a.Kind }).HasFilter("\"HeldUntil\" IS NOT NULL").HasDatabaseName("IX_Alerts_HeldSource");
             EndpointOwned(entity);
         });
 

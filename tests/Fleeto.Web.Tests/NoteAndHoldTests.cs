@@ -176,6 +176,55 @@ public sealed class NoteAndHoldTests
     }
 
     [Fact]
+    public async Task A_hold_outlasts_its_alert_resolving_by_itself_can_be_ended_then_and_ends_with_a_manual_resolve()
+    {
+        var (_, endpoint) = await EndpointAsync();
+        var alertId = Guid.NewGuid();
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            db.Alerts.Add(new Alert
+            {
+                Id = alertId, ClientId = endpoint.ClientId, EndpointId = endpoint.Id, Kind = AlertKind.Offline, Severity = AlertSeverity.Critical,
+                Title = "WS-NOTES has been offline", OpenedAt = Now, UpdatedAt = Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var tech = WebFixture.Technician();
+        Assert.True((await Alerts.HoldAsync(tech, alertId, Now.AddHours(4), "Moving the office")).Success);
+
+        // The cause recovered: the alert resolved, and its hold keeps running as maintenance for the offline alert.
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.Alerts.Where(a => a.Id == alertId).ExecuteUpdateAsync(s => s.SetProperty(a => a.State, AlertState.Resolved));
+        }
+
+        var resolved = Assert.Single((await Alerts.ListAsync(tech, new AlertQuery(AlertStateFilter.Resolved, null, endpoint.ClientId))).Items,
+            a => a.Id == alertId);
+        Assert.False(resolved.IsHeld(Now));
+        Assert.True(resolved.HasHold(Now));
+        Assert.True((await Alerts.EndHoldAsync(tech, alertId)).Success);
+        Assert.False((await Alerts.EndHoldAsync(tech, alertId)).Success);
+
+        // A manual resolve ends the hold, so a cause that is still there opens a new alert.
+        var second = Guid.NewGuid();
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            db.Alerts.Add(new Alert
+            {
+                Id = second, ClientId = endpoint.ClientId, EndpointId = endpoint.Id, Kind = AlertKind.Offline, Severity = AlertSeverity.Critical,
+                Title = "WS-NOTES has been offline", OpenedAt = Now, UpdatedAt = Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        Assert.True((await Alerts.HoldAsync(tech, second, Now.AddHours(4), "Moving the office")).Success);
+        Assert.True((await Alerts.ResolveAsync(tech, second, "Office moved")).Success);
+        await using var check = _fixture.Database.DbFactory.CreateSystem();
+        Assert.Null((await check.Alerts.AsNoTracking().SingleAsync(a => a.Id == second)).HeldUntil);
+    }
+
+    [Fact]
     public async Task Acknowledge_hold_and_resolve_need_a_comment_kept_with_the_alert_and_out_of_the_audit_log()
     {
         var (_, endpoint) = await EndpointAsync();

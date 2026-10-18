@@ -172,7 +172,9 @@ the API and the database follows it.
   template check (disabled, or its own interval, thresholds or failures before alert). Adjustments
   keep the template linked: every value that is not overridden follows the template.
 - **Alert hold**: an unresolved alert can be put on hold until a time (at most 7 days): no emails
-  and out of the open alert counts, while the alert itself stays real. Never called snooze or mute.
+  and out of the open alert counts, while the alert itself stays real. Never called snooze or mute. Underneath a hold is
+  maintenance for that alert's check or service alert on its endpoint (decided 2026-10-18): it does not escalate and no new
+  alert of it opens until the hold ends, also after it resolved; maintenance of a client, site or endpoint stays as it is.
 - **A comment with every hand-made alert action** (decided 2026-10-16, 0.6.0): acknowledging, putting on hold and resolving an
   alert need a comment, ending a hold takes an optional one. It is kept with the alert and shown under it in the alert list and
   the History tab; the audit log holds its length, never its text.

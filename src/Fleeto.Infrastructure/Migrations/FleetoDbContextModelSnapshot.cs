@@ -339,13 +339,17 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.HasIndex("HeldUntil")
                         .HasDatabaseName("IX_Alerts_Held")
-                        .HasFilter("\"HeldUntil\" IS NOT NULL AND \"State\" <> 'Resolved'");
+                        .HasFilter("\"HeldUntil\" IS NOT NULL");
 
                     b.HasIndex("OpenedAt");
 
                     b.HasIndex("ClientId", "State");
 
                     b.HasIndex("EndpointId", "ClientId");
+
+                    b.HasIndex("EndpointId", "Kind")
+                        .HasDatabaseName("IX_Alerts_HeldSource")
+                        .HasFilter("\"HeldUntil\" IS NOT NULL");
 
                     b.HasIndex("State", "Severity");
 

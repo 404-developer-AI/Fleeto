@@ -725,7 +725,8 @@ public sealed class AutomationTaskService : WorkerLoop
     /// it. A run that failed opens one when the task asks for it, outside maintenance: for a failed, lost or refused job, for an
     /// expired job of a later step (the endpoint was there for the step before), or when <paramref name="stopReason"/> says the next
     /// step did not start; an open alert of a warning goes up to the severity of the task. A run that succeeded with a warning
-    /// (0.6.0) opens a warning when no alert is open. An expired first step is a missed run, not a failure.
+    /// (0.6.0) opens a warning when no alert is open. An expired first step is a missed run, not a failure. A hold on an alert of the
+    /// task on the endpoint is maintenance for it (<see cref="AlertHoldRules"/>): nothing opens or goes up while it lasts.
     /// </summary>
     private static async Task AlertAsync(FleetoDbContext db, AutomationTask task, TaskPlan plan, AutomationTaskRunTarget target, AutomationTaskRun run,
         IReadOnlyDictionary<Guid, string> endpoints, HashSet<Guid> inMaintenance, List<AlertTransition> transitions, DateTime now,
@@ -736,6 +737,9 @@ public sealed class AutomationTaskService : WorkerLoop
                                                             a.Target == alertTarget && a.State != AlertState.Resolved, cancellationToken)
                    ?? db.Alerts.Local.FirstOrDefault(a => a.EndpointId == target.EndpointId && a.Kind == AlertKind.Task &&
                                                           a.Target == alertTarget && a.State != AlertState.Resolved);
+        var quiet = inMaintenance.Contains(target.EndpointId) ||
+                    await db.Alerts.Where(a => a.EndpointId == target.EndpointId && a.Kind == AlertKind.Task && a.Target == alertTarget)
+                        .AnyAsync(AlertHoldRules.HoldsSource(now), cancellationToken);
         var (outcome, failed, warning) = await ResultOfRunAsync(db, plan, target, cancellationToken);
         var hostname = endpoints.GetValueOrDefault(target.EndpointId, "the endpoint");
         if (stopReason is null && outcome == TaskTargetOutcome.Succeeded)
@@ -750,7 +754,7 @@ public sealed class AutomationTaskService : WorkerLoop
                 return;
             }
 
-            if (!task.AlertOnFailure || open is not null || inMaintenance.Contains(target.EndpointId))
+            if (!task.AlertOnFailure || open is not null || quiet)
             {
                 return;
             }
@@ -761,7 +765,7 @@ public sealed class AutomationTaskService : WorkerLoop
         }
 
         var alertable = failed.LastOrDefault(f => AutomationTasks.IsFailure(f.Job.State) || (f.Job.State == JobState.Expired && f.Step.Position > 1));
-        if ((stopReason is null && alertable.Job is null) || !task.AlertOnFailure || inMaintenance.Contains(target.EndpointId))
+        if ((stopReason is null && alertable.Job is null) || !task.AlertOnFailure || quiet)
         {
             return;
         }

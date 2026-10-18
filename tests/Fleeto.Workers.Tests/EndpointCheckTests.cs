@@ -256,7 +256,7 @@ public sealed class EndpointCheckTests
     }
 
     [Fact]
-    public async Task A_held_alert_sends_no_escalation_email_and_one_email_when_the_hold_ends()
+    public async Task A_held_alert_does_not_escalate_and_sends_one_email_when_the_hold_ends()
     {
         var (site, endpoint) = await ManagedEndpointAsync();
         var cpu = await _fixture.CreateCheckAsync(site, CheckType.CpuUsage, 80, 90);
@@ -286,7 +286,8 @@ public sealed class EndpointCheckTests
             _fixture.Db.Time.Advance(TimeSpan.FromSeconds(1));
             await _fixture.InsertResultAsync(endpoint, cpu, 95);
             await evaluation.EvaluateEndpointAsync(endpoint.Id, CancellationToken.None);
-            Assert.Equal(AlertSeverity.Critical, Assert.Single(await AlertsAsync(endpoint.Id)).Severity);
+            // A hold is maintenance for the check: the alert stays a warning.
+            Assert.Equal(AlertSeverity.Warning, Assert.Single(await AlertsAsync(endpoint.Id)).Severity);
 
             var holds = _fixture.AlertHolds();
             Assert.Empty(await holds.EndExpiredHoldsAsync(CancellationToken.None));
@@ -303,6 +304,11 @@ public sealed class EndpointCheckTests
                     .Select(e => e.Category).ToListAsync();
                 Assert.Equal([AlertNotificationService.CategoryOpened, AlertNotificationService.CategoryHoldEnded], categories);
             }
+
+            // After the hold the next critical result escalates it.
+            await _fixture.InsertResultAsync(endpoint, cpu, 95);
+            await evaluation.EvaluateEndpointAsync(endpoint.Id, CancellationToken.None);
+            Assert.Equal(AlertSeverity.Critical, Assert.Single(await AlertsAsync(endpoint.Id)).Severity);
         }
         finally
         {
@@ -332,7 +338,10 @@ public sealed class EndpointCheckTests
         Assert.Equal(AlertState.Resolved, Assert.Single(await AlertsAsync(endpoint.Id)).State);
 
         _fixture.Db.Time.Advance(TimeSpan.FromHours(1));
-        Assert.DoesNotContain(alert.Id, await _fixture.AlertHolds().EndExpiredHoldsAsync(CancellationToken.None));
+        var holds = _fixture.AlertHolds();
+        Assert.DoesNotContain(alert.Id, await holds.EndExpiredHoldsAsync(CancellationToken.None));
+        Assert.True(await holds.ClearResolvedHoldsAsync(CancellationToken.None) >= 1);
+        Assert.Null(Assert.Single(await AlertsAsync(endpoint.Id)).HeldUntil);
     }
 
     [Fact]

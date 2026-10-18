@@ -399,7 +399,8 @@ public sealed class CheckEvaluationService : WorkerLoop
     /// <summary>
     /// Applies results in id order to states and alerts. Returns true when a state's status changed. In maintenance
     /// (<paramref name="inMaintenance"/>) states and failure counts still update and alerts still resolve, but no alert opens or
-    /// escalates; the first failing result after maintenance opens the alert at once, because the failure count kept counting.
+    /// escalates; the first failing result after maintenance opens the alert at once, because the failure count kept counting. A hold
+    /// on an alert of a check and target (<see cref="AlertHoldRules"/>) is the same maintenance for that check and target only.
     /// </summary>
     private static async Task<bool> ApplyResultsAsync(FleetoDbContext db, EndpointFacts endpoint, List<CheckResult> results,
         List<AlertTransition> transitions, DateTime now, bool inMaintenance, CancellationToken cancellationToken)
@@ -416,6 +417,14 @@ public sealed class CheckEvaluationService : WorkerLoop
                             a.CheckDefinitionId != null && definitionIds.Contains(a.CheckDefinitionId.Value))
                 .ToListAsync(cancellationToken))
             .ToDictionary(a => (a.CheckDefinitionId!.Value, a.Target));
+        var held = (await db.Alerts.AsNoTracking()
+                .Where(a => a.EndpointId == endpoint.Id && a.Kind == AlertKind.Check && a.CheckDefinitionId != null &&
+                            definitionIds.Contains(a.CheckDefinitionId.Value))
+                .Where(AlertHoldRules.HoldsSource(now))
+                .Select(a => new { CheckDefinitionId = a.CheckDefinitionId!.Value, a.Target })
+                .ToListAsync(cancellationToken))
+            .Select(a => (a.CheckDefinitionId, a.Target))
+            .ToHashSet();
 
         // What the exit codes of the scripts of script checks mean (0.6.0), read once for this batch.
         var scriptIds = checks.Values
@@ -522,9 +531,10 @@ public sealed class CheckEvaluationService : WorkerLoop
                 ? ProcessListRules.AlertDetail(definition.Type, result.Detail, ProcessListRules.Parse(result.ProcessesJson))
                 : result.Error, 2000);
 
+            var quiet = inMaintenance || held.Contains(key);
             if (alert is null)
             {
-                if (inMaintenance)
+                if (quiet)
                 {
                     continue;
                 }
@@ -548,7 +558,7 @@ public sealed class CheckEvaluationService : WorkerLoop
                 openAlerts[key] = alert;
                 transitions.Add(new AlertTransition(alert.Id, NotificationEvent.Opened));
             }
-            else if (alert.Severity != severity && !(inMaintenance && severity > alert.Severity))
+            else if (alert.Severity != severity && !(quiet && severity > alert.Severity))
             {
                 var escalated = severity > alert.Severity;
                 alert.Severity = severity;

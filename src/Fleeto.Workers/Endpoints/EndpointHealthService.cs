@@ -20,10 +20,11 @@ namespace Fleeto.Workers.Endpoints;
 /// offline. This covers a crashed gateway that could not mark its connections closed (never lie about endpoint state).</item>
 /// <item>A managed endpoint whose agent and watchdog are both offline for longer than its policy's <c>OfflineAlertAfterMinutes</c> gets an
 /// offline alert, resolved when the agent or the watchdog comes back, when it stops being managed or when the policy turns offline alerts
-/// off. No offline alert opens while the endpoint is in maintenance; one still offline afterwards gets it on the next pass.</item>
+/// off. No offline alert opens while the endpoint is in maintenance, or while an offline alert of the endpoint is on hold (the hold is
+/// maintenance for that alert's source, <see cref="AlertHoldRules"/>); one still offline afterwards gets it on the next pass.</item>
 /// <item>Watchdog (0.2.1): when the watchdog is online but the agent is not, the alert is "Agent service stopped" instead, with the state
 /// of the agent service the watchdog reports; when the agent is online but a watchdog that connected before is not, the alert is
-/// "Watchdog stopped". Same delay, maintenance and managed rules.</item>
+/// "Watchdog stopped". Same delay, maintenance, hold and managed rules.</item>
 /// </list>
 /// </summary>
 public sealed class EndpointHealthService : WorkerLoop
@@ -81,6 +82,7 @@ public sealed class EndpointHealthService : WorkerLoop
           AND pol."OfflineAlertAfterMinutes" > 0
           AND COALESCE(e."LastSeenAt", e."EnrolledAt") < @now - make_interval(mins => pol."OfflineAlertAfterMinutes")
           AND NOT EXISTS (SELECT 1 FROM "Alerts" a WHERE a."EndpointId" = e."Id" AND a."Kind" = 'Offline' AND a."State" <> 'Resolved')
+          AND NOT EXISTS (SELECT 1 FROM "Alerts" h WHERE h."EndpointId" = e."Id" AND h."Kind" = 'Offline' AND h."HeldUntil" > @now)
           AND NOT
         """ + " " + MaintenanceSql.EndpointInMaintenance + " " + """
         ORDER BY e."Id"
@@ -138,6 +140,7 @@ public sealed class EndpointHealthService : WorkerLoop
           AND pol."OfflineAlertAfterMinutes" > 0
           AND COALESCE(e."LastSeenAt", e."EnrolledAt") < @now - make_interval(mins => pol."OfflineAlertAfterMinutes")
           AND NOT EXISTS (SELECT 1 FROM "Alerts" a WHERE a."EndpointId" = e."Id" AND a."Kind" = 'AgentStopped' AND a."State" <> 'Resolved')
+          AND NOT EXISTS (SELECT 1 FROM "Alerts" h WHERE h."EndpointId" = e."Id" AND h."Kind" = 'AgentStopped' AND h."HeldUntil" > @now)
           AND NOT
         """ + " " + MaintenanceSql.EndpointInMaintenance + " " + """
         ORDER BY e."Id"
@@ -153,6 +156,7 @@ public sealed class EndpointHealthService : WorkerLoop
           AND pol."OfflineAlertAfterMinutes" > 0
           AND COALESCE(e."WatchdogLastSeenAt", e."EnrolledAt") < @now - make_interval(mins => pol."OfflineAlertAfterMinutes")
           AND NOT EXISTS (SELECT 1 FROM "Alerts" a WHERE a."EndpointId" = e."Id" AND a."Kind" = 'WatchdogStopped' AND a."State" <> 'Resolved')
+          AND NOT EXISTS (SELECT 1 FROM "Alerts" h WHERE h."EndpointId" = e."Id" AND h."Kind" = 'WatchdogStopped' AND h."HeldUntil" > @now)
           AND NOT
         """ + " " + MaintenanceSql.EndpointInMaintenance + " " + """
         ORDER BY e."Id"

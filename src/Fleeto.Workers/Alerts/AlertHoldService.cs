@@ -11,7 +11,8 @@ namespace Fleeto.Workers.Alerts;
 /// <summary>
 /// Ends alert holds whose time has passed, every 30 seconds: the hold columns are cleared and, for an alert that is still
 /// unresolved, one "still open after hold" email is queued in the same transaction. Pages already treat a hold in the past
-/// as ended, so a late run only delays the email.
+/// as ended, so a late run only delays the email. An alert that resolved while on hold keeps its hold until then, because the hold is
+/// maintenance for its source (<see cref="AlertHoldRules"/>); its hold is cleared without an email.
 /// </summary>
 public sealed class AlertHoldService : WorkerLoop
 {
@@ -30,6 +31,17 @@ public sealed class AlertHoldService : WorkerLoop
         RETURNING a."Id" AS "Value"
         """;
 
+    private const string EndResolvedHoldsSql = """
+        UPDATE "Alerts" a
+        SET "HeldUntil" = NULL, "HeldAt" = NULL, "HeldByUserId" = NULL
+        WHERE a."Id" IN (
+          SELECT "Id" FROM "Alerts"
+          WHERE "HeldUntil" IS NOT NULL AND "HeldUntil" <= @now AND "State" = 'Resolved'
+          ORDER BY "HeldUntil"
+          LIMIT @limit
+          FOR UPDATE SKIP LOCKED)
+        """;
+
     private readonly IFleetoDbContextFactory _dbFactory;
     private readonly INotificationBus _bus;
     private readonly AlertNotificationService _notifier;
@@ -46,9 +58,17 @@ public sealed class AlertHoldService : WorkerLoop
     protected override TimeSpan Interval => TimeSpan.FromSeconds(30);
 
     protected override async Task<bool> RunOnceAsync(CancellationToken cancellationToken) =>
-        (await EndExpiredHoldsAsync(cancellationToken)).Count >= BatchSize;
+        (await EndExpiredHoldsAsync(cancellationToken)).Count >= BatchSize | await ClearResolvedHoldsAsync(cancellationToken) >= BatchSize;
 
-    /// <summary>Ends up to <see cref="BatchSize"/> expired holds. Returns the ids of the alerts whose hold ended.</summary>
+    /// <summary>Clears up to <see cref="BatchSize"/> expired holds of resolved alerts. Returns how many.</summary>
+    public async Task<int> ClearResolvedHoldsAsync(CancellationToken cancellationToken)
+    {
+        await using var db = _dbFactory.CreateSystem();
+        return await db.Database.ExecuteSqlRawAsync(EndResolvedHoldsSql,
+            [new NpgsqlParameter("now", Time.GetUtcNow().UtcDateTime), new NpgsqlParameter("limit", BatchSize)], cancellationToken);
+    }
+
+    /// <summary>Ends up to <see cref="BatchSize"/> expired holds of unresolved alerts. Returns the ids of the alerts whose hold ended.</summary>
     public async Task<IReadOnlyList<Guid>> EndExpiredHoldsAsync(CancellationToken cancellationToken)
     {
         List<Guid> ended;

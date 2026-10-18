@@ -95,6 +95,12 @@ public sealed record AlertView(Guid Id, Guid EndpointId, string Hostname, Guid C
 {
     /// <summary>True while the alert is on hold at <paramref name="now"/>.</summary>
     public bool IsHeld(DateTime now) => State != AlertState.Resolved && HeldUntil is { } until && until > now;
+
+    /// <summary>
+    /// True while a hold runs on the alert, also one that resolved on hold: the hold stays maintenance for its source until it ends
+    /// (<see cref="AlertHoldRules"/>).
+    /// </summary>
+    public bool HasHold(DateTime now) => HeldUntil is { } until && until > now;
 }
 
 public sealed record EndpointEventView(long Id, EndpointEventKind Kind, string Detail, DateTime Time);

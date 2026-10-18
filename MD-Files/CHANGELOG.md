@@ -61,6 +61,14 @@ Version 0.7.0, the performance monitor (`ROADMAP.md`, `PERFORMANCE.md`), step 1:
 
 ### Changed
 
+- An alert on hold is maintenance for what it reports: its check and target, or its offline, agent or watchdog stopped, patch
+  state or task alert on that endpoint. While the hold lasts the alert does not escalate, and no new alert of it opens, also
+  when the alert resolved and the problem returns; other checks of the endpoint still alert, and a duplicate identity alert
+  always opens. The first failure after the hold opens or escalates it, as after maintenance. A resolved alert shows its hold
+  until it ends and can end it early; resolving an alert by hand ends its hold. Maintenance of a client, site or endpoint is
+  unchanged.
+- Migration `AlertHoldIsMaintenance` (expand only): the index on held alerts covers resolved alerts too, and a new partial index
+  finds the holds of an endpoint by kind.
 - `install.sh` grants `pg_monitor` to the workers instead of `pg_read_all_stats`: monitoring rights only, which also cover the
   table statistics and settings the performance monitor reads.
 - Instance health reads its statement statistics through the same reader as the performance monitor, so both name the same
