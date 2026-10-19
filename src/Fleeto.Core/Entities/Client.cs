@@ -271,4 +271,10 @@ public class InventorySnapshot
     /// an older agent does not report it. See <see cref="Domain.RemoteSessionRules.SupportsRemoteControl"/>.
     /// </summary>
     public string Desktop { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Where automatic Windows Update stands (0.7.0), as the agent reports it: a state of <see cref="Domain.WindowsUpdateRules"/>,
+    /// or empty when an older agent or a platform other than Windows does not report it.
+    /// </summary>
+    public string WindowsUpdate { get; set; } = string.Empty;
 }

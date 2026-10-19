@@ -114,6 +114,14 @@ public class PatchPolicy
     /// </summary>
     public bool AutoInstallAgent { get; set; }
 
+    /// <summary>
+    /// The Fleeto agent turns automatic Windows Update off (0.7.0) on the managed Windows endpoints this enabled policy applies
+    /// to that Action1 reports, so only the rounds of the policy install updates. Action1 offers this only in its console, so
+    /// Fleeto does it on the endpoint itself (<see cref="Domain.WindowsUpdateRules"/>); a group policy that sets Windows Update
+    /// wins, and the agent turns it back on when the policy no longer asks for it.
+    /// </summary>
+    public bool TurnOffWindowsUpdate { get; set; }
+
     /// <summary>Patch policy this one was copied from; the copy is independent.</summary>
     public Guid? CopiedFromId { get; set; }
 

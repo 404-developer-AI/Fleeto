@@ -122,6 +122,14 @@ public sealed class Action1AgentInstallService : WorkerLoop
         transitions.AddRange(await MissingUpdateChecks.ForgetChecksAsync(db, CheckType.Action1Agent, gone, now,
             "Patch management through Action1 no longer applies to this endpoint.", cancellationToken));
 
+        // Out of view, Action1 no longer patches it for Fleeto: an agent that turned automatic Windows Update off turns it back on.
+        foreach (var row in rows.Values.Where(r => !endpoints.ContainsKey(r.EndpointId) && r.Status == Action1AgentStatus.Installed))
+        {
+            Reset(row, Action1AgentStatus.Missing);
+            row.UpdatedAt = now;
+            AddWindowsUpdateChange(db, row.EndpointId, now);
+        }
+
         if (ids.Count > 0)
         {
             var policies = await EffectivePolicies.Query(db)
@@ -223,6 +231,11 @@ public sealed class Action1AgentInstallService : WorkerLoop
                 {
                     row.UpdatedAt = now;
                     changed.Add(endpoint.Id);
+                }
+
+                if ((before.Status == Action1AgentStatus.Installed) != (row.Status == Action1AgentStatus.Installed))
+                {
+                    AddWindowsUpdateChange(db, endpoint.Id, now);
                 }
             }
 
@@ -446,6 +459,13 @@ public sealed class Action1AgentInstallService : WorkerLoop
             row.NextAttemptAt = automatic ? now + RetryDelays[row.Attempts - 1] : null;
         }
     }
+
+    /// <summary>
+    /// The agent turns automatic Windows Update off only on an endpoint Action1 reports (0.7.0), so a status that starts or stops
+    /// being installed re-signs the configuration of the endpoint; the signer skips it when nothing changed.
+    /// </summary>
+    private static void AddWindowsUpdateChange(FleetoDbContext db, Guid endpointId, DateTime now) =>
+        db.ConfigChangeEvents.Add(new ConfigChangeEvent { Scope = ConfigChangeScope.Endpoint, ScopeId = endpointId, CreatedAt = now });
 
     private static void Reset(Action1AgentInstallState row, Action1AgentStatus status)
     {

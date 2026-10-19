@@ -244,9 +244,10 @@ public sealed class LinkService
                 cancellationToken);
         }
 
-        if (changedPolicySlots.Count > 0 || templatesChanged)
+        if (changedPolicySlots.Count > 0 || changedPatchSlots.Count > 0 || templatesChanged)
         {
-            // The agents of the level get a new configuration; the signer skips the ones that did not change.
+            // The agents of the level get a new configuration; the signer skips the ones that did not change. A patch policy
+            // decides whether the agent turns automatic Windows Update off (0.7.0).
             var scope = level switch
             {
                 LinkLevel.Client => ConfigChangeScope.Client,

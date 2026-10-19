@@ -77,4 +77,14 @@ public static class EffectivePolicies
             ? null
             : await db.Policies.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(p => p.Id == policyId, cancellationToken);
     }
+
+    /// <summary>The patch policy of one endpoint, or null when none applies; like <see cref="LoadAsync"/>, without the client scope.</summary>
+    public static async Task<PatchPolicy?> LoadPatchPolicyAsync(FleetoDbContext db, Guid endpointId, CancellationToken cancellationToken = default)
+    {
+        var patchPolicyId = await Query(db).IgnoreQueryFilters().Where(p => p.EndpointId == endpointId).Select(p => p.PatchPolicyId)
+            .FirstOrDefaultAsync(cancellationToken);
+        return patchPolicyId is null
+            ? null
+            : await db.PatchPolicies.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(p => p.Id == patchPolicyId, cancellationToken);
+    }
 }

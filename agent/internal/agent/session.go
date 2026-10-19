@@ -588,11 +588,16 @@ func (s *session) handleConfig(sc *agentv1.SignedConfig) error {
 		return s.send(configApplied(applied, "the agent could not store the configuration: "+err.Error()))
 	}
 	a.mu.Lock()
+	windowsUpdateChanged := a.config.GetTurnOffWindowsUpdate() != cfg.GetTurnOffWindowsUpdate() || a.config.GetTier() != cfg.GetTier()
 	a.st = st
 	a.config = cfg
 	a.appliedPayload = sc.GetPayload()
 	a.mu.Unlock()
 	a.scheduler.Apply(cfg)
+	if windowsUpdateChanged {
+		// The inventory applies the Windows Update switch and reports where it stands (0.7.0); unchanged inventory is not sent.
+		s.startInventory(false)
+	}
 	if s.acked {
 		s.heartbeat.Reset(s.heartbeatInterval())
 	}
@@ -809,6 +814,9 @@ func (s *session) startInventory(force bool) {
 			}
 		}()
 		inv = a.opts.Inventory(s.ctx)
+		if inv != nil {
+			inv.WindowsUpdate = a.applyWindowsUpdate(inv.GetAction1AgentId() != "")
+		}
 	}()
 }
 

@@ -29,6 +29,7 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/signedconfig"
 	"github.com/404-developer-AI/Fleeto/agent/internal/state"
 	"github.com/404-developer-AI/Fleeto/agent/internal/testpki"
+	"github.com/404-developer-AI/Fleeto/agent/internal/winupdate"
 )
 
 const (
@@ -277,6 +278,8 @@ func testOptions(store *state.Store) Options {
 		HandshakeTimeout:   5 * time.Second,
 		// The sessions of the machine running the tests are not the endpoint's.
 		SignedInUsers: func() ([]*agentv1.SignedInUser, error) { return nil, errors.New("no signed-in users in tests") },
+		// Nor are its Windows Update settings.
+		WindowsUpdate: func(bool, bool) (string, bool, error) { return winupdate.StateUntouched, false, nil },
 	}
 }
 
@@ -524,6 +527,55 @@ func TestAgentOnlyConfigurationRunsNoChecks(t *testing.T) {
 	}
 	if a.scheduler.Count() != 0 || a.buffer.Total() != 0 {
 		t.Fatalf("expected no checks and no results, got %d checks and %d results", a.scheduler.Count(), a.buffer.Total())
+	}
+}
+
+// A managed configuration that asks for it turns automatic Windows Update off, but only with the Action1 agent installed; the state
+// travels with the inventory. An agent-only configuration never turns it off, whatever it carries.
+func TestTheConfigurationTurnsWindowsUpdateOff(t *testing.T) {
+	g := newFakeGateway(t)
+	store := enrollForTest(t, g)
+	type call struct{ turnOff, action1 bool }
+	calls := make(chan call, 16)
+	opts := testOptions(store)
+	opts.Inventory = func(context.Context) *agentv1.Inventory {
+		inv := testInventory(context.Background())
+		inv.Action1AgentId = "6f1c2a1e-0d9b-4c53-9a43-1d2f3e4a5b6c"
+		return inv
+	}
+	opts.WindowsUpdate = func(turnOff, action1 bool) (string, bool, error) {
+		calls <- call{turnOff, action1}
+		if turnOff && action1 {
+			return winupdate.StateTurnedOff, true, nil
+		}
+		return winupdate.StateUntouched, false, nil
+	}
+	startAgent(t, opts)
+	c := g.accept(t)
+	c.expect(t, "Hello", func(m *agentv1.AgentMessage) bool { return isType[*agentv1.AgentMessage_Hello](m) })
+	c.send(t, &agentv1.ServerMessage{Body: &agentv1.ServerMessage_HelloAck{HelloAck: &agentv1.HelloAck{HeartbeatIntervalSeconds: 30}}})
+	c.expect(t, "the first inventory", func(m *agentv1.AgentMessage) bool {
+		return m.GetInventory().GetInventory().GetWindowsUpdate() == winupdate.StateUntouched
+	})
+
+	cfg := &agentv1.AgentConfig{InstanceId: gwInstance, EndpointId: gwEndpoint, Version: 1, Tier: agentv1.Tier_TIER_MANAGED, TurnOffWindowsUpdate: true}
+	c.send(t, &agentv1.ServerMessage{Body: &agentv1.ServerMessage_Config{Config: g.signed(t, cfg, g.signingKey)}})
+	c.expect(t, "an inventory with Windows Update turned off", func(m *agentv1.AgentMessage) bool {
+		return m.GetInventory().GetInventory().GetWindowsUpdate() == winupdate.StateTurnedOff
+	})
+
+	agentOnly := &agentv1.AgentConfig{InstanceId: gwInstance, EndpointId: gwEndpoint, Version: 2, Tier: agentv1.Tier_TIER_AGENT_ONLY, TurnOffWindowsUpdate: true}
+	c.send(t, &agentv1.ServerMessage{Body: &agentv1.ServerMessage_Config{Config: g.signed(t, agentOnly, g.signingKey)}})
+	c.expect(t, "an inventory with Windows Update back on", func(m *agentv1.AgentMessage) bool {
+		return m.GetInventory().GetInventory().GetWindowsUpdate() == winupdate.StateUntouched
+	})
+
+	var last call
+	for len(calls) > 0 {
+		last = <-calls
+	}
+	if last.turnOff || !last.action1 {
+		t.Fatalf("the agent-only configuration asked to turn Windows Update off (%+v)", last)
 	}
 }
 

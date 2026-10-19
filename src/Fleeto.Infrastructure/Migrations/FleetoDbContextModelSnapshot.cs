@@ -2951,6 +2951,13 @@ namespace Fleeto.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("jsonb");
 
+                    b.Property<string>("WindowsUpdate")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("");
+
                     b.HasKey("EndpointId");
 
                     b.HasIndex("Action1AgentId")
@@ -4036,6 +4043,9 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.Property<int>("StartMinute")
                         .HasColumnType("integer");
+
+                    b.Property<bool>("TurnOffWindowsUpdate")
+                        .HasColumnType("boolean");
 
                     b.PrimitiveCollection<List<string>>("UpdateSources")
                         .IsRequired()

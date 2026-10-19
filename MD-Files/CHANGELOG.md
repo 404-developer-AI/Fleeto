@@ -9,7 +9,8 @@ When a third released version is added, the oldest entry moves to the top of
 
 ## [Unreleased]
 
-Version 0.7.0, the performance monitor (`ROADMAP.md`, `PERFORMANCE.md`), step 1: the core, and step 2: Diagnose.
+Version 0.7.0, the performance monitor (`ROADMAP.md`, `PERFORMANCE.md`), step 1: the core, and step 2: Diagnose; and turning
+automatic Windows Update off from a patch policy.
 
 ### Added
 
@@ -58,6 +59,16 @@ Version 0.7.0, the performance monitor (`ROADMAP.md`, `PERFORMANCE.md`), step 1:
 - The export as JSON (with a `schemaVersion`) for tooling, and as a ZIP with the Markdown, the JSON and the generic plans of the
   top statements. The Markdown says how much of the period ran in Diagnose and adds the statements measured in Diagnose with
   their callers, the N+1 suspects, the slowest events with their heaviest statements, the indexes and the sessions.
+- "Turn off automatic Windows Update" on a patch policy (decided 2026-10-19), so only the rounds of the policy install updates.
+  Action1 has this option only in its console, not in its API, so the Fleeto agent does it on the endpoint itself: on a managed
+  Windows endpoint whose enabled patch policy asks for it and that Action1 reports, it sets the Windows Update group policy value
+  `NoAutoUpdate` to 1, only when that value is missing, and records under `HKLM\SOFTWARE\Fleeto` that it did. A value a group
+  policy sets wins and is never changed. The agent removes its own value again when the policy no longer applies, is switched off
+  or no longer asks for it, when Action1 no longer reports the endpoint, when the Action1 agent is not installed (checked on the
+  endpoint itself as well) and when the Fleeto agent is uninstalled. The switch travels in the signed agent configuration;
+  fleeto-signer refuses an agent-only configuration that carries it. The Patches tab shows where it stands: turned off by Fleeto,
+  set by a group policy, not turned off without the Action1 agent, or not reported by an agent older than 0.7.0. On the API
+  waiting list.
 
 ### Changed
 
@@ -72,6 +83,9 @@ Version 0.7.0, the performance monitor (`ROADMAP.md`, `PERFORMANCE.md`), step 1:
   statements.
 - The nightly backup dumps the tables of the performance monitor without their rows, so a restore does not bring old
   measurements; its settings are kept. The statements of Diagnose (`PerfFingerprints`) are among them.
+- A change of the patch policy linked to a client, site or endpoint, and Action1 starting or stopping to report an endpoint, now
+  give its agents a new configuration (unchanged ones are skipped by the signer).
+- Migration `TurnOffWindowsUpdate` (expand only): `PatchPolicies.TurnOffWindowsUpdate` and `InventorySnapshots.WindowsUpdate`.
 - Migration `PerformanceDiagnose` (expand only): the table `PerfFingerprints`, the heaviest statements of a slow event, the
   sessions of a database snapshot, and the functions `fleeto_perf_analyze` and `fleeto_perf_explain`.
 

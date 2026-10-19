@@ -27,6 +27,7 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/state"
 	"github.com/404-developer-AI/Fleeto/agent/internal/svcctl"
 	"github.com/404-developer-AI/Fleeto/agent/internal/update"
+	"github.com/404-developer-AI/Fleeto/agent/internal/winupdate"
 )
 
 // stopTimeout is how long the service waits for the agent to stop before it reports stopped anyway.
@@ -343,6 +344,11 @@ func Uninstall(out io.Writer) error {
 		s.Close()
 	} else {
 		fmt.Fprintln(out, "The service is not installed")
+	}
+
+	// With the agent stopped nothing turns it off again: automatic Windows Update goes back to how it was before Fleeto (0.7.0).
+	if err := winupdate.Restore(); err != nil {
+		errs = append(errs, err)
 	}
 
 	stateDir := platform.DefaultStateDir()

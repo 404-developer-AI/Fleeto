@@ -346,6 +346,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(i => i.LoggedOnUser).HasMaxLength(255);
             entity.Property(i => i.Action1AgentId).HasMaxLength(64).HasDefaultValue(string.Empty);
             entity.Property(i => i.Desktop).HasMaxLength(20).HasDefaultValue(string.Empty);
+            entity.Property(i => i.WindowsUpdate).HasMaxLength(20).HasDefaultValue(string.Empty);
             // The patch poller looks an endpoint up by the id its Action1 agent reports (0.4.0).
             entity.HasIndex(i => i.Action1AgentId).HasFilter("\"Action1AgentId\" <> ''");
             entity.Property(i => i.DisksJson).HasColumnType("jsonb");

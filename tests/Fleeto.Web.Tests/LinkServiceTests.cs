@@ -400,4 +400,41 @@ public class LinkServiceTests
         Assert.Equal(CheckAppliesTo.Workstation, (await check.Policies.SingleAsync(p => p.Id == policy)).AppliesTo);
         Assert.True(await check.ConfigChangeEvents.CountAsync(e => e.Scope == ConfigChangeScope.Instance) > before);
     }
+
+    /// <summary>
+    /// Turning automatic Windows Update off travels in the agent configuration (0.7.0): a change that turns it on or off for the
+    /// endpoints of a patch policy asks every agent for a new configuration, any other change of the policy does not.
+    /// </summary>
+    [Fact]
+    public async Task Turning_Windows_Update_off_in_a_patch_policy_reconfigures_the_agents()
+    {
+        var admin = WebFixtureBase.Admin();
+        var name = Unique("Quiet updates");
+        var created = await PatchPolicies.CreateAsync(admin, null, PatchInput(name));
+        Assert.True(created.Success);
+
+        async Task<int> InstanceChangesAsync()
+        {
+            await using var db = _fixture.Database.DbFactory.CreateSystem();
+            return await db.ConfigChangeEvents.CountAsync(e => e.Scope == ConfigChangeScope.Instance);
+        }
+
+        var before = await InstanceChangesAsync();
+        Assert.True((await PatchPolicies.UpdateAsync(admin, created.Value, PatchInput(name) with { AutoReboot = true })).Success);
+        Assert.Equal(before, await InstanceChangesAsync());
+
+        Assert.True((await PatchPolicies.UpdateAsync(admin, created.Value, PatchInput(name) with { TurnOffWindowsUpdate = true })).Success);
+        Assert.True((await PatchPolicies.GetAsync(admin, created.Value))!.TurnOffWindowsUpdate);
+        Assert.Equal(before + 1, await InstanceChangesAsync());
+
+        Assert.True((await PatchPolicies.UpdateAsync(admin, created.Value, PatchInput(name) with { TurnOffWindowsUpdate = true, AutoReboot = true })).Success);
+        Assert.Equal(before + 1, await InstanceChangesAsync());
+
+        Assert.True((await PatchPolicies.UpdateAsync(admin, created.Value, PatchInput(name) with { TurnOffWindowsUpdate = true, Enabled = false })).Success);
+        Assert.Equal(before + 2, await InstanceChangesAsync());
+
+        Assert.True((await PatchPolicies.UpdateAsync(admin, created.Value, PatchInput(name) with { TurnOffWindowsUpdate = true })).Success);
+        Assert.True((await PatchPolicies.DeleteAsync(admin, created.Value)).Success);
+        Assert.Equal(before + 4, await InstanceChangesAsync());
+    }
 }

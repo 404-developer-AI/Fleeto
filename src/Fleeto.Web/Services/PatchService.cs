@@ -62,8 +62,9 @@ public sealed record AgentInstallView(Action1AgentStatus Status, bool Automatic,
 /// </param>
 /// <param name="Problem">Why the next run is not known or will not happen, in the words of the UI; null when all is well.</param>
 /// <param name="ProblemNeedsAction">True when the problem lasts until somebody acts; false while Fleeto or Action1 is still busy.</param>
+/// <param name="WindowsUpdate">Where automatic Windows Update stands when the patch policy turns it off (0.7.0); null otherwise.</param>
 public sealed record PatchScheduleView(Guid? PolicyId, string? PolicyName, string? Schedule, bool Enabled, bool AutoReboot, bool EndpointLocalTime,
-    DateTime? NextRunAt, string? Problem, bool ProblemNeedsAction = false);
+    DateTime? NextRunAt, string? Problem, bool ProblemNeedsAction = false, string? WindowsUpdate = null);
 
 /// <summary>A sync or agent removal a technician asked for (0.6.0), with what the workers made of it.</summary>
 /// <param name="Failure">Cause and next step when it failed; null when it succeeded or still waits.</param>
@@ -225,10 +226,14 @@ public sealed class PatchService
         var policyId = await EffectivePolicies.Query(db).Where(p => p.EndpointId == endpointId).Select(p => p.PatchPolicyId)
             .SingleOrDefaultAsync(cancellationToken);
         var policy = policyId is { } id ? await db.PatchPolicies.AsNoTracking().SingleOrDefaultAsync(p => p.Id == id, cancellationToken) : null;
+        var windowsUpdateState = await db.InventorySnapshots.AsNoTracking().Where(i => i.EndpointId == endpointId).Select(i => i.WindowsUpdate)
+            .SingleOrDefaultAsync(cancellationToken);
+        var windowsUpdate = WindowsUpdateRules.Describe(policy is { Enabled: true, TurnOffWindowsUpdate: true }, windowsUpdateState);
         if (policy is null)
         {
             return new PatchScheduleView(null, null, null, false, false, false, null,
-                "No patch policy applies to this endpoint, so Action1 deploys nothing on a schedule. Link one to the client, site or endpoint.", true);
+                "No patch policy applies to this endpoint, so Action1 deploys nothing on a schedule. Link one to the client, site or endpoint.", true,
+                windowsUpdate);
         }
 
         var automation = await db.IntegrationAutomations.AsNoTracking()
@@ -245,7 +250,8 @@ public sealed class PatchService
                             ? "Action1 has not planned the next deployment yet."
                             : null;
         return new PatchScheduleView(policy.Id, policy.Name, PatchPolicyRules.DescribeSchedule(policy), policy.Enabled, policy.AutoReboot,
-            policy.EndpointLocalTime, problem is null ? automation!.NextRunAt : null, problem, !policy.Enabled || automation?.LastError is not null);
+            policy.EndpointLocalTime, problem is null ? automation!.NextRunAt : null, problem, !policy.Enabled || automation?.LastError is not null,
+            windowsUpdate);
     }
 
     /// <summary>

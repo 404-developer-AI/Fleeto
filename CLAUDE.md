@@ -393,7 +393,7 @@ Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
 - **Patch policies become Action1 automations** (decided 2026-09-25, 0.6.0): per mapped client and per patch policy that
   applies to at least one of its managed endpoints, one scheduled automation (`deploy_update`) in the client's organization,
   aimed at those endpoints by Action1 id, kept in step by the workers and removed when nobody needs it. Only options the
-  Action1 API offers exist in Fleeto (no daily schedule, no description, no "switch off Windows Update"). Fleeto only touches
+  Action1 API offers exist in Fleeto (no daily schedule, no description), with one exception below. Fleeto only touches
   the automations it made, known by the id it stored; the others in an organization are shown as a warning on the client,
   because an endpoint they target can be patched twice. Without a patch policy Fleeto schedules nothing. The credentials
   then need `view_automations` and `manage_automations`.
@@ -402,6 +402,11 @@ Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
   hourly and a few minutes after its `next_run`; the next run Action1 planned is shown with the patch policy. A round that
   fails or never runs is not an alert of its own but the "Scheduled patching" check of a monitoring template: days since a
   scheduled deployment last succeeded on the endpoint.
+- **Automatic Windows Update off** (decided 2026-10-19, 0.7.0): a patch policy can turn automatic Windows Update off, so only
+  its rounds install updates. Action1 offers this only in its console, not in its API, so the Fleeto agent does it itself
+  through the signed configuration: only on managed Windows endpoints that Action1 reports and that have the Action1 agent, by
+  setting `NoAutoUpdate` only when it is missing; a group policy that sets Windows Update wins and is shown as such, and the
+  agent turns it back on when the policy no longer applies, Action1 no longer covers the endpoint or the agent is uninstalled.
 - **Sync and the Action1 agent from the Patches tab** (decided 2026-10-13, 0.6.0): Sync reads the endpoint from Action1 at
   once (Action1 offers no way to make an endpoint scan for missing updates), one per endpoint a minute. Installing refuses
   an endpoint that already reports an Action1 agent, and the job stops without changes when it finds one. Removing goes

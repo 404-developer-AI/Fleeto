@@ -59,6 +59,16 @@ public sealed class AgentConfigBuilder
                 ? (uint)policy.StorageScanIntervalHours
                 : StorageRules.DefaultScanIntervalHours;
 
+            // Automatic Windows Update off (0.7.0): only where Action1 really patches the endpoint, or it would get no updates at all.
+            var patchPolicy = await EffectivePolicies.LoadPatchPolicyAsync(db, endpoint.Id, cancellationToken);
+            Action1AgentStatus? action1 = patchPolicy is { Enabled: true, TurnOffWindowsUpdate: true }
+                ? await db.Action1AgentInstallStates.IgnoreQueryFilters().AsNoTracking()
+                    .Where(a => a.EndpointId == endpoint.Id)
+                    .Select(a => (Action1AgentStatus?)a.Status)
+                    .FirstOrDefaultAsync(cancellationToken)
+                : null;
+            config.TurnOffWindowsUpdate = WindowsUpdateRules.Applies(effectiveTier, endpoint.OsPlatform, patchPolicy, action1);
+
             var checks = await EffectiveCheckResolver.LoadAsync(db, endpoint, includeDisabledOnEndpoint: false, cancellationToken);
             var scriptBytes = 0L;
             // A check Fleeto evaluates itself (the missing updates of Action1) never reaches the agent.

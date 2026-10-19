@@ -1,5 +1,6 @@
-@* Create or edit a patch policy (0.6.0). Every option is one an Action1 automation offers (PatchPolicyRules); the scope
-   (global or one client) is chosen at creation and cannot change. *@
+@* Create or edit a patch policy (0.6.0). Every option is one an Action1 automation offers (PatchPolicyRules), except turning
+   automatic Windows Update off, which the Fleeto agent does itself (0.7.0); the scope (global or one client) is chosen at
+   creation and cannot change. *@
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">@(IsEdit ? $"Edit patch policy {_m.Name}" : "New patch policy")</MudText>
@@ -160,6 +161,19 @@
                 @:Endpoints without the Action1 agent get it only when a technician installs it on the Patches tab.
             }
         </MudText>
+
+        <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Windows Update</MudText>
+        <MudSwitch T="bool" @bind-Value="_m.TurnOffWindowsUpdate" Color="Color.Primary" Label="Turn off automatic Windows Update" />
+        <MudText Typo="Typo.caption" Class="muted d-block">
+            @if (_m.TurnOffWindowsUpdate)
+            {
+                @:The Fleeto agent turns automatic Windows Update off on every managed Windows endpoint this policy applies to that Action1 reports, so only the rounds of this policy install updates. A group policy that sets Windows Update wins, and the agent turns Windows Update back on when this policy no longer applies, is switched off or Action1 no longer reports the endpoint.
+            }
+            else
+            {
+                @:Windows can also install updates by itself, outside the rounds of this policy.
+            }
+        </MudText>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
@@ -199,11 +213,12 @@
         public int RebootTimeoutMinutes { get; set; } = 30;
         public int RetryHours { get; set; } = 24;
         public bool AutoInstallAgent { get; set; }
+        public bool TurnOffWindowsUpdate { get; set; }
 
         public PatchPolicyInput ToInput() => new(Name, Description, Enabled, ScheduleKind, WeekDays, MonthDay, MonthWeek, MonthWeekday,
             (int)(Start ?? TimeSpan.Zero).TotalMinutes, EndpointLocalTime, Scope, Sources.ToList(), Types.ToList(), Severities.ToList(),
             Split(ExcludedNames), Split(ExcludedVendors), RequireApproval, InstallDelayDays, AutoReboot, RebootMessage, RebootMessageText,
-            RebootTimeoutMinutes, RetryHours, AppliesTo, AutoInstallAgent);
+            RebootTimeoutMinutes, RetryHours, AppliesTo, AutoInstallAgent, TurnOffWindowsUpdate);
 
         /// <summary>A throwaway entity, only to describe the schedule while it is edited.</summary>
         public PatchPolicy ToPolicy() => new()
@@ -221,7 +236,7 @@
             ExcludedVendors = string.Join(", ", p.ExcludedVendors), RequireApproval = p.RequireApproval, InstallDelayDays = p.InstallDelayDays,
             AutoReboot = p.AutoReboot, RebootMessage = p.RebootMessage, RebootMessageText = p.RebootMessageText,
             RebootTimeoutMinutes = p.RebootTimeoutMinutes, RetryHours = p.RetryHours, AppliesTo = p.AppliesTo,
-            AutoInstallAgent = p.AutoInstallAgent
+            AutoInstallAgent = p.AutoInstallAgent, TurnOffWindowsUpdate = p.TurnOffWindowsUpdate
         };
 
         private static List<string> Split(string? text) =>

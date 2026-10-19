@@ -28,6 +28,7 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/state"
 	"github.com/404-developer-AI/Fleeto/agent/internal/storage"
 	"github.com/404-developer-AI/Fleeto/agent/internal/update"
+	"github.com/404-developer-AI/Fleeto/agent/internal/winupdate"
 )
 
 // JobsDirName is the job spool inside the state directory.
@@ -57,6 +58,9 @@ type Options struct {
 	SignedInUsersInterval time.Duration
 	// StorageScan scans the volumes (0.6.0); default storage.ScanAll. Tests replace it.
 	StorageScan func(ctx context.Context, requestID string) []*agentv1.StorageScanReport
+	// WindowsUpdate turns automatic Windows Update off or back on (0.7.0) and returns the state to report and whether it changed
+	// anything; default winupdate.Apply. Tests replace it.
+	WindowsUpdate func(turnOff, action1 bool) (string, bool, error)
 
 	MaxBufferedResults       int
 	BatchMinResults          int
@@ -102,6 +106,9 @@ func (o *Options) setDefaults() {
 	}
 	if o.OSInfo == nil {
 		o.OSInfo = inventory.OSInfo
+	}
+	if o.WindowsUpdate == nil {
+		o.WindowsUpdate = winupdate.Apply
 	}
 	if o.SignedInUsers == nil {
 		o.SignedInUsers = jobs.SignedInUsers
@@ -428,6 +435,23 @@ func (a *Agent) watchSignedInUsers(ctx context.Context) {
 }
 
 // saveStorageScanStarted keeps the start of the last storage scan in the state file.
+// applyWindowsUpdate turns automatic Windows Update off or back on as the applied configuration asks (0.7.0) and returns the state
+// for the inventory. Only a managed configuration can ask for it; action1 is whether the inventory found the Action1 agent.
+func (a *Agent) applyWindowsUpdate(action1 bool) string {
+	a.mu.Lock()
+	turnOff := a.config.GetTier() == agentv1.Tier_TIER_MANAGED && a.config.GetTurnOffWindowsUpdate()
+	a.mu.Unlock()
+	state, changed, err := a.opts.WindowsUpdate(turnOff, action1)
+	if err != nil {
+		a.logger.Warn("could not bring automatic Windows Update in line with the configuration", "error", err)
+		return ""
+	}
+	if changed {
+		a.logger.Info("changed automatic Windows Update as the configuration asks", "state", state)
+	}
+	return state
+}
+
 func (a *Agent) saveStorageScanStarted(started time.Time) error {
 	st, err := a.store.Update(func(st *state.State) error {
 		st.StorageScanStartedAt = started.UTC()

@@ -42,6 +42,10 @@ build plan are in `PERFORMANCE.md`. Built in three steps, each an alpha on the t
   manual markers; the JSON and ZIP export.
 - [open] **Step 3, the rest**: the Frontend tab (Web Vitals of staff users, sampled), the edge check of the instance URL, the
   benchmark, budgets, comparison by version and with the previous period, critical findings as an instance health problem.
+- [open] **Turn off automatic Windows Update from a patch policy** (asked for by the developer and built 2026-10-19, to be
+  tested on the test VPS): Action1 offers it only in its console, so the Fleeto agent sets `NoAutoUpdate` itself on the managed
+  Windows endpoints Action1 reports, where no group policy decides, and undoes it when it no longer applies. The Patches tab shows
+  where it stands.
 
 ## 0.8.0 — Hardening
 

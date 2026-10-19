@@ -2625,7 +2625,12 @@ type Inventory struct {
 	// graphical when a display manager is installed, the active session of seat0 is graphical or an X server runs. Windows:
 	// none on Server Core and Nano Server, graphical otherwise. Empty when an older agent does not report it or it cannot
 	// be read; the server then keeps offering remote control as before.
-	Desktop       string `protobuf:"bytes,18,opt,name=desktop,proto3" json:"desktop,omitempty"`
+	Desktop string `protobuf:"bytes,18,opt,name=desktop,proto3" json:"desktop,omitempty"`
+	// Where automatic Windows Update stands (0.7.0), Windows only: "turned_off" (the agent turned it off), "policy" (the
+	// configuration asks for it, but a group policy sets Windows Update, so the agent left it), "no_action1" (the configuration
+	// asks for it, but the Action1 agent is not installed) or "untouched" (the configuration does not ask for it). Empty on other
+	// platforms and from older agents.
+	WindowsUpdate string `protobuf:"bytes,19,opt,name=windows_update,json=windowsUpdate,proto3" json:"windows_update,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2782,6 +2787,13 @@ func (x *Inventory) GetAction1AgentId() string {
 func (x *Inventory) GetDesktop() string {
 	if x != nil {
 		return x.Desktop
+	}
+	return ""
+}
+
+func (x *Inventory) GetWindowsUpdate() string {
+	if x != nil {
+		return x.WindowsUpdate
 	}
 	return ""
 }
@@ -3909,8 +3921,14 @@ type AgentConfig struct {
 	// Hours between two scheduled storage scans (0.6.0); 0 for none. Only on TIER_MANAGED; the agent never scans an agent-only
 	// endpoint, also not on a StorageScanRequest.
 	StorageScanIntervalHours uint32 `protobuf:"varint,9,opt,name=storage_scan_interval_hours,json=storageScanIntervalHours,proto3" json:"storage_scan_interval_hours,omitempty"`
-	unknownFields            protoimpl.UnknownFields
-	sizeCache                protoimpl.SizeCache
+	// Turn automatic Windows Update off (0.7.0): set by the server only for a managed Windows endpoint whose enabled patch policy
+	// asks for it and that Action1 reports. The agent sets NoAutoUpdate = 1 under
+	// HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU only when the value is missing and the Action1 agent is installed,
+	// remembers that it did, and removes it again when this is false; a value somebody else set (a group policy) wins and is never
+	// changed. Never true on TIER_AGENT_ONLY; the agent ignores it there. Older agents ignore the field.
+	TurnOffWindowsUpdate bool `protobuf:"varint,10,opt,name=turn_off_windows_update,json=turnOffWindowsUpdate,proto3" json:"turn_off_windows_update,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *AgentConfig) Reset() {
@@ -4004,6 +4022,13 @@ func (x *AgentConfig) GetStorageScanIntervalHours() uint32 {
 		return x.StorageScanIntervalHours
 	}
 	return 0
+}
+
+func (x *AgentConfig) GetTurnOffWindowsUpdate() bool {
+	if x != nil {
+		return x.TurnOffWindowsUpdate
+	}
+	return false
 }
 
 type CheckSpec struct {
@@ -5996,7 +6021,7 @@ const file_agent_proto_rawDesc = "" +
 	"request_id\x18\x02 \x01(\tR\trequestId\"_\n" +
 	"\x0fInventoryReport\x12\x12\n" +
 	"\x04hash\x18\x01 \x01(\tR\x04hash\x128\n" +
-	"\tinventory\x18\x02 \x01(\v2\x1a.fleeto.agent.v1.InventoryR\tinventory\"\xfc\x05\n" +
+	"\tinventory\x18\x02 \x01(\v2\x1a.fleeto.agent.v1.InventoryR\tinventory\"\xa3\x06\n" +
 	"\tInventory\x12\x1a\n" +
 	"\bhostname\x18\x01 \x01(\tR\bhostname\x12'\n" +
 	"\x02os\x18\x02 \x01(\v2\x17.fleeto.agent.v1.OsInfoR\x02os\x12\"\n" +
@@ -6016,7 +6041,8 @@ const file_agent_proto_rawDesc = "" +
 	"\x0elogged_on_user\x18\x0f \x01(\tR\floggedOnUser\x128\n" +
 	"\bservices\x18\x10 \x03(\v2\x1c.fleeto.agent.v1.ServiceItemR\bservices\x12(\n" +
 	"\x10action1_agent_id\x18\x11 \x01(\tR\x0eaction1AgentId\x12\x18\n" +
-	"\adesktop\x18\x12 \x01(\tR\adesktop\"y\n" +
+	"\adesktop\x18\x12 \x01(\tR\adesktop\x12%\n" +
+	"\x0ewindows_update\x18\x13 \x01(\tR\rwindowsUpdate\"y\n" +
 	"\vServiceItem\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x1d\n" +
@@ -6114,7 +6140,7 @@ const file_agent_proto_rawDesc = "" +
 	"\fSignedConfig\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\fR\tsignature\x12\x15\n" +
-	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\xbc\x03\n" +
+	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\xf3\x03\n" +
 	"\vAgentConfig\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x12\x1f\n" +
@@ -6126,7 +6152,9 @@ const file_agent_proto_rawDesc = "" +
 	"\x1aheartbeat_interval_seconds\x18\x06 \x01(\rR\x18heartbeatIntervalSeconds\x12<\n" +
 	"\x1ainventory_interval_seconds\x18\a \x01(\rR\x18inventoryIntervalSeconds\x122\n" +
 	"\x06checks\x18\b \x03(\v2\x1a.fleeto.agent.v1.CheckSpecR\x06checks\x12=\n" +
-	"\x1bstorage_scan_interval_hours\x18\t \x01(\rR\x18storageScanIntervalHours\"\xb5\x02\n" +
+	"\x1bstorage_scan_interval_hours\x18\t \x01(\rR\x18storageScanIntervalHours\x125\n" +
+	"\x17turn_off_windows_update\x18\n" +
+	" \x01(\bR\x14turnOffWindowsUpdate\"\xb5\x02\n" +
 	"\tCheckSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12.\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x1a.fleeto.agent.v1.CheckTypeR\x04type\x12)\n" +

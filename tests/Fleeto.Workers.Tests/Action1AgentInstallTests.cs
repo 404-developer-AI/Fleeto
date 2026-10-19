@@ -254,6 +254,52 @@ public sealed class Action1AgentInstallTests
         Assert.Equal(1, result.Value);
     }
 
+    /// <summary>
+    /// The agent turns automatic Windows Update off only where Action1 reports the endpoint (0.7.0), so the configuration of the
+    /// endpoint is signed again when that starts and when it stops, also when the client is no longer mapped.
+    /// </summary>
+    [Fact]
+    public async Task The_configuration_is_signed_again_when_Action1_starts_or_stops_reporting_the_endpoint()
+    {
+        var (client, _, endpoint) = await SeedAsync(autoInstall: false);
+        await Service().RunAsync(CancellationToken.None);
+        Assert.Equal(0, await EndpointChangesAsync(endpoint));
+
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            db.EndpointPatchStates.Add(new EndpointPatchState
+            {
+                EndpointId = endpoint.Id, ClientId = client.Id, ExternalEndpointId = Guid.NewGuid().ToString(), ExternalTenantId = "org-auto", UpdatedAt = Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await Service().RunAsync(CancellationToken.None);
+        Assert.Equal(Action1AgentStatus.Installed, (await StateAsync(endpoint)).Status);
+        Assert.Equal(1, await EndpointChangesAsync(endpoint));
+
+        // Unchanged: no new configuration.
+        await Service().RunAsync(CancellationToken.None);
+        Assert.Equal(1, await EndpointChangesAsync(endpoint));
+
+        // The client is no longer mapped: out of view, Action1 no longer patches it for Fleeto.
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            db.IntegrationMappings.RemoveRange(await db.IntegrationMappings.Where(m => m.ClientId == client.Id).ToListAsync());
+            await db.SaveChangesAsync();
+        }
+
+        await Service().RunAsync(CancellationToken.None);
+        Assert.Equal(Action1AgentStatus.Missing, (await StateAsync(endpoint)).Status);
+        Assert.Equal(2, await EndpointChangesAsync(endpoint));
+    }
+
+    private async Task<int> EndpointChangesAsync(Endpoint endpoint)
+    {
+        await using var db = _fixture.Db.DbFactory.CreateSystem();
+        return await db.ConfigChangeEvents.CountAsync(e => e.Scope == ConfigChangeScope.Endpoint && e.ScopeId == endpoint.Id);
+    }
+
     [Fact]
     public async Task An_agent_removed_through_Fleeto_is_not_installed_again_until_a_technician_installs_it()
     {

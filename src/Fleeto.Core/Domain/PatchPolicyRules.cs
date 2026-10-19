@@ -5,7 +5,8 @@ namespace Fleeto.Core.Domain;
 /// <summary>
 /// The rules of patch policies (0.6.0). Every option and value here is one an Action1 automation accepts (its OpenAPI
 /// document 3.1, schemas <c>DeployUpdate</c> and <c>AutomationSchedulePayload</c>): Fleeto offers nothing the product
-/// cannot do. Options Action1 has only in its console (such as switching Windows Update off) are left out on purpose.
+/// cannot do. The one exception is turning automatic Windows Update off (0.7.0): Action1 has it only in its console, and the
+/// Fleeto agent does it on the endpoint itself (<see cref="WindowsUpdateRules"/>), never through Action1.
 /// </summary>
 public static class PatchPolicyRules
 {

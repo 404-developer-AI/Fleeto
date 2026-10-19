@@ -62,12 +62,13 @@ public sealed class AgentConfigSigner
         var config = built.Config;
 
         // Tier enforcement layer 2 (the signer): whatever the builder computed, an agent-only configuration never
-        // carries checks and an agent-only endpoint never gets a managed configuration.
+        // carries checks or turns Windows Update off, and an agent-only endpoint never gets a managed configuration.
         var violation = config.Tier switch
         {
             ProtoTier.Managed when built.Endpoint.Tier != EndpointTier.Managed => "managed configuration for an agent-only endpoint",
             ProtoTier.Managed => null,
             ProtoTier.AgentOnly when config.Checks.Count > 0 => "agent-only configuration with checks",
+            ProtoTier.AgentOnly when config.TurnOffWindowsUpdate => "agent-only configuration that turns Windows Update off",
             ProtoTier.AgentOnly => null,
             _ => "configuration without a tier"
         };

@@ -1559,6 +1559,10 @@
                     </tr>
                     <tr><td class="muted">Restart</td><td>@(schedule.AutoReboot ? "Action1 restarts the endpoint when an update needs it" : "No automatic restart")</td></tr>
                 }
+                @if (schedule.WindowsUpdate is { } windowsUpdate)
+                {
+                    <tr><td class="muted">Automatic Windows Update</td><td>@windowsUpdate</td></tr>
+                }
             </tbody>
         </MudSimpleTable>
         @if (schedule.Problem is { } problem)

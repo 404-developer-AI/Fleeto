@@ -48,12 +48,13 @@ public sealed record PatchPolicyInput(
     int RebootTimeoutMinutes,
     int RetryHours,
     CheckAppliesTo AppliesTo = CheckAppliesTo.All,
-    bool AutoInstallAgent = false)
+    bool AutoInstallAgent = false,
+    bool TurnOffWindowsUpdate = false)
 {
     public static PatchPolicyInput From(PatchPolicy p) => new(p.Name, p.Description, p.Enabled, p.ScheduleKind, p.WeekDays, p.MonthDay, p.MonthWeek,
         p.MonthWeekday, p.StartMinute, p.EndpointLocalTime, p.Scope, p.UpdateSources, p.UpdateTypes, p.Severities, p.ExcludedNames,
         p.ExcludedVendors, p.RequireApproval, p.InstallDelayDays, p.AutoReboot, p.RebootMessage, p.RebootMessageText, p.RebootTimeoutMinutes,
-        p.RetryHours, p.AppliesTo, p.AutoInstallAgent);
+        p.RetryHours, p.AppliesTo, p.AutoInstallAgent, p.TurnOffWindowsUpdate);
 }
 
 /// <summary>
@@ -189,6 +190,7 @@ public sealed class PatchPolicyService
         }
 
         var now = _time.GetUtcNow().UtcDateTime;
+        var before = (TurnsOffWindowsUpdate(policy), policy.AppliesTo);
         Apply(policy, input, now);
         if (PatchPolicyRules.Validate(policy) is { } problem)
         {
@@ -202,6 +204,11 @@ public sealed class PatchPolicyService
 
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.PatchPolicyUpdated, "PatchPolicy", policy.Id.ToString(), policy.ClientId,
             Describe(policy)), now));
+        if (before != (TurnsOffWindowsUpdate(policy), policy.AppliesTo) && (before.Item1 || TurnsOffWindowsUpdate(policy)))
+        {
+            AddWindowsUpdateChange(db, now);
+        }
+
         await db.SaveChangesAsync(cancellationToken);
         await IntegrationFollow.NotifyAsync(_bus, _logger, cancellationToken);
         return ServiceResult.Ok();
@@ -261,10 +268,26 @@ public sealed class PatchPolicyService
         db.PatchPolicies.Remove(policy);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.PatchPolicyDeleted, "PatchPolicy", policy.Id.ToString(), policy.ClientId,
             new { policy.Name, Links = links }), now));
+        if (TurnsOffWindowsUpdate(policy))
+        {
+            AddWindowsUpdateChange(db, now);
+        }
+
         await db.SaveChangesAsync(cancellationToken);
         await IntegrationFollow.NotifyAsync(_bus, _logger, cancellationToken);
         return ServiceResult.Ok();
     }
+
+    /// <summary>True when the policy asks the agents of its endpoints to turn automatic Windows Update off (0.7.0).</summary>
+    private static bool TurnsOffWindowsUpdate(PatchPolicy policy) => policy is { Enabled: true, TurnOffWindowsUpdate: true };
+
+    /// <summary>
+    /// The agent configurations carry the Windows Update switch (0.7.0), so a change that turns it on or off for the endpoints of a
+    /// policy re-signs them. The endpoints of a policy follow from links on three levels and its servers or workstations, so every
+    /// agent is asked: such a change is rare, and the signer skips every configuration that did not change.
+    /// </summary>
+    private static void AddWindowsUpdateChange(FleetoDbContext db, DateTime now) =>
+        db.ConfigChangeEvents.Add(new ConfigChangeEvent { Scope = ConfigChangeScope.Instance, CreatedAt = now });
 
     private static Task<bool> NameTakenAsync(FleetoDbContext db, Guid? clientId, string name, Guid? exceptId, CancellationToken cancellationToken) =>
         db.PatchPolicies.IgnoreQueryFilters().AnyAsync(p => p.ClientId == clientId && p.Name.ToLower() == name.ToLower() && p.Id != exceptId,
@@ -300,6 +323,7 @@ public sealed class PatchPolicyService
         policy.RebootTimeoutMinutes = input.RebootTimeoutMinutes;
         policy.RetryHours = input.RetryHours;
         policy.AutoInstallAgent = input.AutoInstallAgent;
+        policy.TurnOffWindowsUpdate = input.TurnOffWindowsUpdate;
         policy.UpdatedAt = now;
     }
 
@@ -324,6 +348,7 @@ public sealed class PatchPolicyService
         policy.RebootMessage,
         policy.RebootTimeoutMinutes,
         policy.RetryHours,
-        policy.AutoInstallAgent
+        policy.AutoInstallAgent,
+        policy.TurnOffWindowsUpdate
     };
 }

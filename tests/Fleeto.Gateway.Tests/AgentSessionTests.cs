@@ -298,7 +298,8 @@ public sealed class AgentSessionTests
             Software = { new SoftwareItem { Name = "Fleeto agent", Version = "0.1.0", Publisher = "Steaan", InstallDate = "20260914" } },
             Services = { new ServiceItem { Name = "Spooler", DisplayName = "Print Spooler", StartType = "automatic", State = "running" } },
             Action1AgentId = "ef17c844-5b7c-4b32-9724-f2716b596639",
-            Desktop = "none"
+            Desktop = "none",
+            WindowsUpdate = "policy"
         };
         await harness.Manager.HandleAsync(session, new AgentMessage { Inventory = new InventoryReport { Hash = "abc", Inventory = inventory } },
             CancellationToken.None);
@@ -316,6 +317,9 @@ public sealed class AgentSessionTests
         Assert.Equal("ef17c844-5b7c-4b32-9724-f2716b596639", snapshot.Action1AgentId);
         // Whether the endpoint has a desktop (0.6.0): without one, remote control is not offered.
         Assert.Equal("none", snapshot.Desktop);
+        // Where automatic Windows Update stands (0.7.0); a value the server does not know is stored as nothing.
+        Assert.Equal("policy", snapshot.WindowsUpdate);
+        Assert.Equal(string.Empty, Core.Domain.WindowsUpdateRules.NormalizeState("off; DROP TABLE"));
         var stored = await ReadEndpointAsync(endpoint.Id);
         Assert.Equal("SRV-NEW", stored.Hostname);
         Assert.Equal(EndpointClass.Server, stored.DetectedClass);
