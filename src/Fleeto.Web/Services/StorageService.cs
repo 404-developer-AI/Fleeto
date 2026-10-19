@@ -33,12 +33,51 @@ public sealed record EndpointStorageView(bool Managed, bool AgentSupports, bool 
 
 public sealed record StorageHistoryPoint(DateTime At, long SizeBytes, bool Complete);
 
+/// <summary>How a storage report leaves Fleeto (0.7.0).</summary>
+public enum StorageReportFormat
+{
+    /// <summary>The summary copied as an image: the drive and the top 10 folders and files.</summary>
+    Image,
+
+    /// <summary>The PDF report: the summary, then every folder and file of the scan.</summary>
+    Pdf
+}
+
+/// <summary>
+/// The storage of one drive of an endpoint as a report for the customer (0.7.0): the copied image and the PDF. Paths are personal
+/// data: the report goes to whoever the user hands it to, so only the export itself is audited, never what it holds.
+/// </summary>
+/// <param name="TopFolders">The largest folders directly below the drive, largest first, at most <see cref="StorageService.ReportTopCount"/>.</param>
+/// <param name="TopFiles">The largest files, largest first, at most <see cref="StorageService.ReportTopCount"/>.</param>
+public sealed record StorageReport(string Hostname, string ClientCode, string ClientName, string SiteName, StorageVolumeDetail Detail,
+    IReadOnlyList<StorageFolderRow> TopFolders, IReadOnlyList<StorageFileEntry> TopFiles, string GeneratedBy, DateTime GeneratedAt)
+{
+    public StorageVolumeSummary Summary => Detail.Summary;
+    public long UsedBytes => Math.Max(0, Summary.TotalBytes - Summary.FreeBytes);
+
+    /// <summary>A file name without characters a file system refuses: <c>fleeto-storage-SRV01-C-2026-10-19.pdf</c>.</summary>
+    public string FileName(string extension)
+    {
+        var name = $"fleeto-storage-{Hostname}-{Summary.Volume}-{GeneratedAt:yyyy-MM-dd}";
+        var clean = new string(name.Select(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' ? c : '-').ToArray());
+        while (clean.Contains("--", StringComparison.Ordinal))
+        {
+            clean = clean.Replace("--", "-", StringComparison.Ordinal);
+        }
+
+        return clean.TrimEnd('-') + "." + extension;
+    }
+}
+
 /// <summary>
 /// Storage analysis on the endpoint page (0.6.0): the largest folders and files of each drive from the agent's scans, how
 /// they changed, the history of one folder, and "Scan now". Scoped by client like every endpoint read; managed endpoints only.
 /// </summary>
 public sealed class StorageService
 {
+    /// <summary>Folders and files in the summary of a storage report (0.7.0).</summary>
+    public const int ReportTopCount = 10;
+
     /// <summary>A drive whose latest scan is older than this is left out: it was removed or no longer scanned.</summary>
     private static readonly TimeSpan VolumeFreshness = TimeSpan.FromDays(30);
 
@@ -93,6 +132,65 @@ public sealed class StorageService
         var detail = summary is null ? null : await DetailAsync(db, endpointId, summary, cancellationToken);
         return new EndpointStorageView(true, supports, caller.Has(Permissions.StorageScan) && supports, volumes, detail, requestedAt, interval);
     }
+
+    /// <summary>
+    /// The storage of one drive as a report for the customer (0.7.0), audited as an export in <paramref name="format"/>. Refused
+    /// when the endpoint is not visible, not managed or has no scan of the drive. Needs the same permission as the Storage tab.
+    /// </summary>
+    public async Task<ServiceResult<StorageReport>> GetReportAsync(Caller caller, Guid endpointId, string volume, StorageReportFormat format,
+        CancellationToken cancellationToken = default)
+    {
+        if (!caller.Has(Permissions.StorageView))
+        {
+            return ServiceResult<StorageReport>.Forbidden();
+        }
+
+        var view = await GetAsync(caller, endpointId, volume, cancellationToken);
+        if (view is null)
+        {
+            return ServiceResult<StorageReport>.NotFound("endpoint");
+        }
+
+        if (view.Selected is not { } detail || !string.Equals(detail.Summary.Volume, volume, StringComparison.OrdinalIgnoreCase))
+        {
+            return ServiceResult<StorageReport>.Fail($"There is no recent scan of drive {volume} to report on. Start one with Scan now.");
+        }
+
+        await using var db = _dbFactory.Create(caller.Scope);
+        var endpoint = await db.Endpoints.AsNoTracking()
+            .Where(e => e.Id == endpointId)
+            .Select(e => new
+            {
+                e.Hostname, e.ClientId,
+                ClientCode = db.Clients.Where(c => c.Id == e.ClientId).Select(c => c.Code).FirstOrDefault(),
+                ClientName = db.Clients.Where(c => c.Id == e.ClientId).Select(c => c.Name).FirstOrDefault(),
+                SiteName = db.Sites.Where(s => s.Id == e.SiteId).Select(s => s.Name).FirstOrDefault()
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (endpoint is null)
+        {
+            return ServiceResult<StorageReport>.NotFound("endpoint");
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        var report = new StorageReport(endpoint.Hostname, endpoint.ClientCode ?? string.Empty, endpoint.ClientName ?? string.Empty,
+            endpoint.SiteName ?? string.Empty, detail, TopFolders(detail.Folders), TopFiles(detail.Files), caller.Name, now);
+        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.StorageReportExported, "Endpoint", endpointId.ToString(), endpoint.ClientId,
+            new { endpoint.Hostname, detail.Summary.Volume, Format = format.ToString(), ScanId = detail.Summary.ScanId }), now));
+        await db.SaveChangesAsync(cancellationToken);
+        return ServiceResult<StorageReport>.Ok(report);
+    }
+
+    /// <summary>The largest folders directly below the drive (0.7.0): no folder counted twice, so the sizes add up.</summary>
+    internal static IReadOnlyList<StorageFolderRow> TopFolders(IReadOnlyList<StorageFolderRow> folders) =>
+        folders.Where(f => f.Depth == 1)
+            .OrderByDescending(f => f.SizeBytes)
+            .ThenBy(f => f.Path, StringComparer.OrdinalIgnoreCase)
+            .Take(ReportTopCount)
+            .ToList();
+
+    internal static IReadOnlyList<StorageFileEntry> TopFiles(IReadOnlyList<StorageFileEntry> files) =>
+        files.OrderByDescending(f => f.SizeBytes).ThenBy(f => f.Path, StringComparer.OrdinalIgnoreCase).Take(ReportTopCount).ToList();
 
     private static async Task<StorageVolumeDetail> DetailAsync(FleetoDbContext db, Guid endpointId, StorageVolumeSummary summary,
         CancellationToken cancellationToken)

@@ -325,6 +325,12 @@ public sealed class PatchRequestService : WorkerLoop
             }
             else if (automation is { Ok: true, Value: { } info })
             {
+                if (ScheduledDeployments.NeedsRuns(info) &&
+                    await client.ListAutomationRunsAsync(row.ExternalTenantId, cancellationToken) is { Ok: true, Value: { } runs })
+                {
+                    info = ScheduledDeployments.WithRun(info, runs, now);
+                }
+
                 outcome.Started = await ScheduledDeployments.RecordAsync(db, row, info, now, cancellationToken);
             }
             else

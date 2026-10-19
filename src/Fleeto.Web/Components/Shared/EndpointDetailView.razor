@@ -14,6 +14,7 @@
 @inject IDialogService DialogService
 @inject TimeProvider Clock
 @inject LiveUpdates Live
+@inject IJSRuntime JS
 
 <LoadState Loading="Loading" Failed="LoadFailed" NotFound="_notFound" What="endpoint">
     @if (_endpoint is { } e)
@@ -198,6 +199,7 @@
     private string? _storageVolume;
     private readonly HashSet<string> _storageExpanded = new(StringComparer.OrdinalIgnoreCase);
     private bool _storageScanning;
+    private bool _storageExporting;
     private DebouncedRefresh? _refresh;
     private bool _refreshing;
 
@@ -1844,6 +1846,15 @@
                     </MudButton>
                 }
                 <MudSpacer />
+                @if (storage.Selected is { } shown)
+                {
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.ContentCopy" Size="Size.Small" Disabled="_storageExporting"
+                               title="Copy the drive and its 10 largest folders and files as an image, for a mail or a ticket"
+                               OnClick="@(() => CopyStorageImageAsync(shown.Summary.Volume))">Copy summary</MudButton>
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.PictureAsPdf" Size="Size.Small" Disabled="_storageExporting"
+                               title="Download a PDF report with every scanned folder and file of this drive"
+                               OnClick="@(() => ExportStoragePdfAsync(shown.Summary.Volume))">Export PDF</MudButton>
+                }
                 @if (storage.CanScan)
                 {
                     <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Refresh" Size="Size.Small"
@@ -2051,6 +2062,54 @@
         finally
         {
             _storageScanning = false;
+        }
+    }
+
+    /// <summary>Copies the summary of a drive as an image (0.7.0); the browser draws it from text formatted here.</summary>
+    private async Task CopyStorageImageAsync(string volume)
+    {
+        _storageExporting = true;
+        try
+        {
+            if (await RunForValueAsync(caller => StorageSvc.GetReportAsync(caller, EndpointId, volume, StorageReportFormat.Image), null) is not
+                { Value: { } report })
+            {
+                return;
+            }
+
+            var outcome = await JS.InvokeAsync<string>("fleeto.copyStorageImage", Reports.StorageReportImage.From(report, t => Time.Short(t)));
+            Snackbar.Add(outcome == "copied"
+                ? "The storage summary is copied as an image. Paste it into a mail or a ticket."
+                : "The browser did not allow copying an image, so it was downloaded instead.", Severity.Info);
+        }
+        catch (JSException)
+        {
+            Snackbar.Add("The image could not be made in this browser. Use Export PDF instead.", Severity.Warning);
+        }
+        finally
+        {
+            _storageExporting = false;
+        }
+    }
+
+    /// <summary>Downloads the PDF report of a drive (0.7.0).</summary>
+    private async Task ExportStoragePdfAsync(string volume)
+    {
+        _storageExporting = true;
+        try
+        {
+            if (await RunForValueAsync(caller => StorageSvc.GetReportAsync(caller, EndpointId, volume, StorageReportFormat.Pdf), null) is not
+                { Value: { } report })
+            {
+                return;
+            }
+
+            var pdf = Reports.StorageReportPdf.Render(report, t => Time.Short(t));
+            await JS.InvokeVoidAsync("fleeto.saveFile", report.FileName("pdf"), "application/pdf", Convert.ToBase64String(pdf));
+        }
+        finally
+        {
+            _storageExporting = false;
         }
     }
 

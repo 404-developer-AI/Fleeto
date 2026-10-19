@@ -103,6 +103,57 @@ public sealed class StorageServiceTests
         Assert.Empty(view.Volumes);
     }
 
+    /// <summary>
+    /// The report for the customer (0.7.0): the 10 largest folders directly below the drive, so no folder counts twice, the 10
+    /// largest files, every folder and file for the PDF, and an audit entry that never holds a path.
+    /// </summary>
+    [Fact]
+    public async Task A_report_holds_the_largest_folders_below_the_drive_and_its_export_is_audited_without_paths()
+    {
+        var endpoint = await EndpointAsync();
+        var folders = new List<(string, long)> { (@"C:\", 900), (@"C:\Users", 300), (@"C:\Users\jan", 250) };
+        folders.AddRange(Enumerable.Range(1, 12).Select(i => ($@"C:\Folder{i:00}", (long)i)));
+        await AddScanAsync(endpoint, Now, "C:", [.. folders]);
+
+        var result = await Service.GetReportAsync(WebFixture.Technician(), endpoint.Id, "C:", StorageReportFormat.Pdf);
+
+        var report = result.Value!;
+        Assert.Equal(StorageService.ReportTopCount, report.TopFolders.Count);
+        Assert.Equal(@"C:\Users", report.TopFolders[0].Path);
+        Assert.DoesNotContain(report.TopFolders, f => f.Path == @"C:\Users\jan" || f.Path == @"C:\");
+        Assert.Equal(@"C:\Folder12", report.TopFolders[1].Path);
+        Assert.Equal(15, report.Detail.Folders.Count);
+        Assert.Equal("SRV-STORAGE", report.Hostname);
+        Assert.Equal("fleeto-storage-SRV-STORAGE-C-" + Now.ToString("yyyy-MM-dd") + ".pdf", report.FileName("pdf"));
+
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        var audit = await db.AuditEntries.AsNoTracking()
+            .SingleAsync(a => a.Action == AuditActions.StorageReportExported && a.TargetId == endpoint.Id.ToString());
+        Assert.Contains("Pdf", audit.DetailsJson);
+        Assert.DoesNotContain("Users", audit.DetailsJson);
+
+        // A drive without a recent scan has nothing to report.
+        Assert.False((await Service.GetReportAsync(WebFixture.Technician(), endpoint.Id, "D:", StorageReportFormat.Image)).Success);
+    }
+
+    [Fact]
+    public async Task Another_client_or_an_agent_only_endpoint_gets_no_report()
+    {
+        var endpoint = await EndpointAsync();
+        await AddScanAsync(endpoint, Now, "C:", (@"C:\", 10), (@"C:\Users", 5));
+        var otherClient = await _fixture.Database.CreateClientAsync();
+        var outsider = WebFixture.CallerWith(new RestrictedClientScope([otherClient.Id]), FleetoRoles.Technician);
+        Assert.False((await Service.GetReportAsync(outsider, endpoint.Id, "C:", StorageReportFormat.Image)).Success);
+
+        var agentOnly = await EndpointAsync(EndpointTier.AgentOnly);
+        await AddScanAsync(agentOnly, Now, "C:", (@"C:\", 1));
+        Assert.False((await Service.GetReportAsync(WebFixture.Technician(), agentOnly.Id, "C:", StorageReportFormat.Pdf)).Success);
+
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        Assert.False(await db.AuditEntries.AnyAsync(a => a.Action == AuditActions.StorageReportExported &&
+            (a.TargetId == endpoint.Id.ToString() || a.TargetId == agentOnly.Id.ToString())));
+    }
+
     [Fact]
     public async Task Scan_now_is_for_admins_and_technicians_on_a_managed_endpoint_with_a_scanning_agent_once_per_15_minutes()
     {

@@ -154,7 +154,10 @@ the API and the database follows it.
   warning; on NTFS by reading the master file table, elsewhere by walking the folders. Only the 300 largest folders and 50
   largest files of a drive reach the server, kept daily for 30 days and weekly for 13 months; paths are personal data and
   never appear in logs or alert titles. The Storage tab shows them with their growth, and a "Folder growth" check, evaluated
-  by the workers after every scan like "Missing updates", alerts on a drive that grows too fast and names the folder.
+  by the workers after every scan like "Missing updates", alerts on a drive that grows too fast and names the folder. The
+  Storage tab copies a summary of a drive as an image and exports a PDF report for the customer (0.7.0, decided 2026-10-19):
+  the 10 largest folders directly below the drive and files, and in the PDF every scanned folder and file; Fleeto writes the PDF
+  itself, without a library; every export is audited without its paths.
 - **Tag** (0.6.0, decided 2026-09-25): a colored label on a client, in the way of Proxmox. Typed on the client (also when it is
   created) by an admin or technician and created on first use with a color from its name; one name (case-insensitive) is one tag with one color
   across the instance, at most 10 per client. Shown in the clients panel, which filters on tags; admins rename, recolor and
@@ -398,7 +401,8 @@ Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
   because an endpoint they target can be patched twice. Without a patch policy Fleeto schedules nothing. The credentials
   then need `view_automations` and `manage_automations`.
 - **The scheduled rounds of a patch policy are visible** (decided 2026-10-13, 0.6.0): every run of an automation of Fleeto
-  becomes a scheduled deployment on the Patches tab, found through `last_instance` of the automation, which the workers read
+  becomes a scheduled deployment on the Patches tab, found through `last_instance` of the automation or, when Action1 names
+  none (0.7.0), among the runs of the organization, which the workers read
   hourly and a few minutes after its `next_run`; the next run Action1 planned is shown with the patch policy. A round that
   fails or never runs is not an alert of its own but the "Scheduled patching" check of a monitoring template: days since a
   scheduled deployment last succeeded on the endpoint.

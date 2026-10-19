@@ -18,8 +18,29 @@ public sealed record Action1AutomationInfo(string Id, string Name, string Settin
         Action1Client.Text(item, "id") is { Length: > 0 } id
             ? new Action1AutomationInfo(id, Action1Client.Text(item, "name"), Action1Client.Text(item, "settings"),
                 Action1Api.ParseTime(Action1Client.Text(item, "next_run")), Action1Api.ParseTime(Action1Client.Text(item, "last_run")),
-                LastSegment(Action1Client.Text(item, "last_instance")))
+                LastInstance(item))
             : null;
+
+    /// <summary>
+    /// The id of the last run. Action1 documents <c>last_instance</c> as a link; an object with an <c>id</c> or <c>self</c> is
+    /// read as well, since the scheduled rounds of the test VPS never matched the documented form (found 2026-10-19).
+    /// </summary>
+    private static string LastInstance(JsonElement item)
+    {
+        if (!item.TryGetProperty("last_instance", out var value))
+        {
+            return string.Empty;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => LastSegment(value.GetString()),
+            JsonValueKind.Object => Action1Client.Text(value, "id") is { Length: > 0 } id
+                ? LastSegment(id)
+                : LastSegment(Action1Client.Text(value, "self")),
+            _ => string.Empty
+        };
+    }
 
     /// <summary>Action1 links the last run as <c>/API/automations/instances/{instance-id}</c>; the id is the last segment.</summary>
     public static string LastSegment(string? link)
@@ -28,6 +49,30 @@ public sealed record Action1AutomationInfo(string Id, string Name, string Settin
         var id = trimmed.Length == 0 ? string.Empty : trimmed[(trimmed.LastIndexOf('/') + 1)..];
         return id.Length is > 0 and <= 200 && !id.Contains('{') ? id : string.Empty;
     }
+}
+
+/// <summary>
+/// One run of an automation as Action1 lists it under <c>automations/instances</c> (0.7.0): a scheduled round or a
+/// deployment started now. Used to find the round of a patch policy when its automation names no <c>last_instance</c>.
+/// </summary>
+/// <param name="AutomationId">The automation it is a run of, the last segment of its <c>schedule</c> link; empty when not named.</param>
+/// <param name="StartedAt">When it started, as Action1 writes it (no time zone); null when not named.</param>
+public sealed record Action1AutomationRun(string Id, string AutomationId, DateTime? StartedAt)
+{
+    public static Action1AutomationRun? From(JsonElement item) =>
+        Action1AutomationInfo.LastSegment(Action1Client.Text(item, "id")) is { Length: > 0 } id
+            ? new Action1AutomationRun(id, Action1AutomationInfo.LastSegment(Action1Client.Text(item, "schedule")),
+                Action1Api.ParseTime(Action1Client.Text(item, "start_time")))
+            : null;
+
+    /// <summary>
+    /// True when this is a run of the automation: named by its <c>schedule</c> link, or, when that is missing, by its id, which
+    /// Action1 builds from the id of the automation and the start time (<c>{automation-id}_2026-10-19_13-04-06</c>).
+    /// </summary>
+    public bool IsRunOf(string automationId) =>
+        AutomationId.Length > 0
+            ? string.Equals(AutomationId, automationId, StringComparison.Ordinal)
+            : Id.StartsWith(automationId + "_", StringComparison.Ordinal);
 }
 
 /// <summary>

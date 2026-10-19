@@ -419,6 +419,8 @@ button.tag-chip:focus-visible { outline: 2px solid var(--fl-primary); outline-of
 .remote-terminal-surface .xterm { height: 100%; }
 .remote-restart { position: absolute; top: 12px; right: 16px; padding: 6px 12px; border: 1px solid var(--mud-palette-lines-default); border-radius: 6px; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); cursor: pointer; }
 .remote-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--mud-palette-lines-default); flex-wrap: wrap; }
+.remote-terminal-toolbar { padding: 4px 12px; }
+.remote-toolbar-spacer { flex: 1; }
 .remote-button { padding: 6px 12px; border: 1px solid var(--mud-palette-lines-default); border-radius: 6px; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); cursor: pointer; font: inherit; }
 .remote-button:disabled { opacity: 0.5; cursor: default; }
 .remote-icon-button { padding: 2px 8px; font-size: 0.8rem; }

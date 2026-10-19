@@ -482,6 +482,46 @@ public sealed class Action1Client : IIntegration, IDisposable
     /// One scheduled automation (0.6.0), with its next and last run; null when Action1 no longer has it. Read when a
     /// technician syncs an endpoint, so the next run and a run that just happened show without waiting for the hourly read.
     /// </summary>
+    /// <summary>
+    /// The runs of the automations of an organization (0.7.0), scheduled rounds and deployments started now, at most
+    /// <see cref="MaxRunPages"/> pages. Read only when an automation of Fleeto names no last run of its own.
+    /// </summary>
+    public async Task<IntegrationResult<IReadOnlyList<Action1AutomationRun>>> ListAutomationRunsAsync(string organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var runs = new List<Action1AutomationRun>();
+            for (var page = 0; page < MaxRunPages; page++)
+            {
+                using var document = await GetAsync($"automations/instances/{Uri.EscapeDataString(organizationId)}",
+                    $"from={page * Action1Api.PageSize}&limit={Action1Api.PageSize}", cancellationToken);
+                var items = Items(document.RootElement);
+                foreach (var item in items)
+                {
+                    if (Action1AutomationRun.From(item) is { } run)
+                    {
+                        runs.Add(run);
+                    }
+                }
+
+                if (items.Count < Action1Api.PageSize)
+                {
+                    break;
+                }
+            }
+
+            return IntegrationResult<IReadOnlyList<Action1AutomationRun>>.Success(runs);
+        }
+        catch (Action1Exception ex)
+        {
+            return IntegrationResult<IReadOnlyList<Action1AutomationRun>>.Fail(ex.Message, ex.IsPermanent);
+        }
+    }
+
+    /// <summary>Pages of runs read per organization: 500 runs, many weeks of rounds and deployments.</summary>
+    public const int MaxRunPages = 10;
+
     public async Task<IntegrationResult<Action1AutomationInfo?>> GetAutomationAsync(string organizationId, string automationId,
         CancellationToken cancellationToken = default)
     {

@@ -215,6 +215,64 @@ public sealed class PatchAutomationTests
         }
     }
 
+    /// <summary>
+    /// The scheduled rounds on the test VPS never named a <c>last_instance</c> (found 2026-10-19, 0.7.0): the round is then found
+    /// among the runs of the organization, by its schedule link or by its id, and becomes one scheduled deployment like before.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Without_a_last_instance_the_round_is_found_among_the_runs_of_the_organization(bool scheduleLink)
+    {
+        var integration = await SeedAsync();
+        var organization = "org-r" + (scheduleLink ? "1" : "2");
+        var (client, servers, _) = await MappedClientAsync(integration, organization);
+        var server = await ReportedEndpointAsync(servers, organization, "r1");
+        var policy = await PatchPolicyAsync("Rounds " + scheduleLink);
+        await AddAsync(new ClientPatchPolicy { ClientId = client.Id, PatchPolicyId = policy.Id, CreatedAt = Now });
+        var action1 = new FakeAction1();
+        await Service(action1).SyncAsync(CancellationToken.None);
+        string automationId;
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            automationId = (await db.IntegrationAutomations.AsNoTracking().SingleAsync(a => a.ClientId == client.Id)).ExternalAutomationId!;
+        }
+
+        string Time(DateTime t) => t.ToString("yyyy-MM-dd_HH-mm-ss", System.Globalization.CultureInfo.InvariantCulture);
+        var round = $"{automationId}_{Time(Now.AddHours(-3))}";
+        action1.Runs.Add((organization, $"{automationId}_{Time(Now.AddDays(-20))}", scheduleLink ? automationId : null, Time(Now.AddDays(-20))));
+        action1.Runs.Add((organization, round, scheduleLink ? automationId : null, Time(Now.AddHours(-3))));
+        // A deployment a technician started is a run of another automation.
+        action1.Runs.Add((organization, "Fleeto_2026_10_19_13_04_UTC_1_" + Time(Now.AddHours(-1)), scheduleLink ? "Fleeto_2026_10_19_13_04_UTC_1" : null,
+            Time(Now.AddHours(-1))));
+
+        await ReadAgainAsync(client.Id);
+        await Service(action1).SyncAsync(CancellationToken.None);
+        await ReadAgainAsync(client.Id);
+        await Service(action1).SyncAsync(CancellationToken.None);
+
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var deployment = await db.PatchDeployments.AsNoTracking().Include(d => d.Targets).SingleAsync(d => d.ClientId == client.Id);
+            Assert.Equal((PatchDeploymentScope.PatchPolicy, round, policy.Id), (deployment.Scope, deployment.ExternalDeploymentId, deployment.PatchPolicyId));
+            Assert.Equal(server.Id, Assert.Single(deployment.Targets).EndpointId);
+        }
+
+        Assert.True(action1.RunReads >= 2);
+    }
+
+    [Fact]
+    public void A_last_instance_of_its_own_wins_over_the_runs_of_the_organization()
+    {
+        var info = new Action1AutomationInfo("auto-1", "Fleeto: Weekly", "ENABLED WEEKLY:Mon AT:10-00-00", LastInstanceId: "named");
+        var runs = new[] { new Action1AutomationRun("auto-1_2026-10-19_08-00-00", "auto-1", Now) };
+
+        Assert.Equal("named", ScheduledDeployments.WithRun(info, runs, Now).LastInstanceId);
+        Assert.Equal("auto-1_2026-10-19_08-00-00", ScheduledDeployments.WithRun(info with { LastInstanceId = "" }, runs, Now).LastInstanceId);
+        // Another automation whose id starts the same is not this one.
+        Assert.False(new Action1AutomationRun("auto-10_2026-10-19_08-00-00", "", Now).IsRunOf("auto-1"));
+    }
+
     /// <summary>Makes the automations of the client's organization due for their hourly read.</summary>
     private async Task ReadAgainAsync(Guid clientId)
     {
@@ -288,6 +346,11 @@ public sealed class PatchAutomationTests
         /// <summary>The run Action1 started last, per automation id (0.6.0).</summary>
         public Dictionary<string, string> LastInstances { get; } = new(StringComparer.Ordinal);
 
+        /// <summary>The runs of every organization under automations/instances (0.7.0): id, schedule link or null, start time.</summary>
+        public List<(string Organization, string Id, string? Schedule, string StartTime)> Runs { get; } = [];
+
+        public int RunReads { get; private set; }
+
         /// <summary>The next run every automation reports, in Action1's notation (0.6.0).</summary>
         public string NextRun { get; set; } = "2026-12-02_20-00-00";
 
@@ -303,8 +366,20 @@ public sealed class PatchAutomationTests
                 return Json(HttpStatusCode.OK, """{"access_token":"token","expires_in":3600}""");
             }
 
-            // automations/schedules/{org}[/{id}]
+            // automations/instances/{org}: the runs (0.7.0).
             var organization = parts[2];
+            if (parts[1] == "instances" && request.Method == HttpMethod.Get)
+            {
+                RunReads++;
+                var runs = Runs.Where(r => r.Organization == organization)
+                    .Select(r => r.Schedule is null
+                        ? (object)new { id = r.Id, start_time = r.StartTime, status = "Running" }
+                        : new { id = r.Id, schedule = $"/API/automations/schedules/{organization}/{r.Schedule}", start_time = r.StartTime, status = "Running" })
+                    .ToList();
+                return Json(HttpStatusCode.OK, JsonSerializer.Serialize(new { items = runs, total_items = runs.Count }));
+            }
+
+            // automations/schedules/{org}[/{id}]
             if (request.Method == HttpMethod.Get)
             {
                 var items = Automations.Where(a => a.Value.Organization == organization)

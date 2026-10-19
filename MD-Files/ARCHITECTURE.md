@@ -408,7 +408,10 @@ Three kinds of tables:
   while the signed configuration the agent applied verifies against the pinned instance key and is managed. Same trust
   model as remote control (§4 Remote session); admins and technicians, managed endpoints only, no policy switch. Every
   session and participant is recorded and audited (technician, endpoint, start, end, reason); terminal content never
-  leaves the session. See §5 for the accepted risk towards script approval.
+  leaves the session. "Copy output" (0.7.0) copies the whole terminal, the scrollback of 10,000 lines included, as plain text
+  to the technician's clipboard: read from the buffer of xterm in the browser (`terminalLines`), lines xterm wrapped joined
+  again, so nothing passes the server and nothing is audited, like text selected by hand. See §5 for the accepted risk towards
+  script approval.
   - **Files** (0.3.0 step 2): browse the endpoint, download a file (streamed with flow control, at most the policy's file size
     cap, resumable from a byte offset after a reconnect; the endpoint starts sending when it answers, so the browser keeps frames
     of a transfer it does not know yet, and a download without acknowledgements for 2 minutes stops and closes the file), upload a file (written to a `.fleeto-part` file, then renamed), and
@@ -758,6 +761,14 @@ Fleeto `PERFORMANCE.md`.
   titles never name a folder: they go out by email and webhook.
 - *In the UI.* The Storage tab of an endpoint shows the drives, the folder tree with size, share of the drive and change
   since the previous scan, 7 and 30 days, the largest files, and per folder its size in every stored scan.
+- *For the customer (0.7.0).* "Copy summary" copies the drive and its 10 largest folders directly below the drive (so no folder
+  counts twice) and 10 largest files as a PNG for a mail or ticket: web formats every text (`StorageReportImage`) and the
+  browser draws it on a canvas in the branding of Fleeto with the bundled Inter font (`fleeto.copyStorageImage`), and downloads
+  the PNG where the browser refuses an image on the clipboard. "Export PDF" adds every folder of the scan as a tree with its
+  growth and every file. The PDF is written by Fleeto itself (`Reports/PdfDocument`): A4, the standard Helvetica fonts in
+  WinAnsiEncoding (no font embedded, a character outside it prints as `?`), filled shapes and lines, no library, so no
+  dependency. Both need the permission of the Storage tab and are audited as `storage.report_exported` with the drive and the
+  format, never a path; what the report holds is personal data the user hands on.
 
 **Checks of an endpoint.** One rule decides which checks run on an endpoint, implemented once
 in C# (`EffectiveChecks`, used by the configuration builder in the signer, the check evaluation
@@ -2051,7 +2062,11 @@ that is not yet a deployment becomes one (`ScheduledDeployments`): a `PatchDeplo
 policy's id and name, the automation id, the instance id as its external id (unique per client for scheduled ones), and a
 target per endpoint that the automation targets in Fleeto. From there `PatchDeploymentService` follows it like any other
 deployment (endpoint results, history), but until `FollowUntil`: the retry window of the policy plus an hour, at least a
-day. A schedule runs at most once a day, so reading `last_instance` finds every run: the automations of an organization are
+day. A schedule runs at most once a day, so reading `last_instance` finds every run. On the test VPS Action1 never gave a usable
+`last_instance` (found 2026-10-19, 0.7.0), so when it is empty the workers read the runs of the organization once
+(`automations/instances`, at most 10 pages) and take the newest run of the automation from the last 8 days: named by its
+`schedule` link, or else by its id, which Action1 builds as `{automation-id}_{start time}` (`ScheduledDeployments.WithRun`).
+A sync of an endpoint does the same for its automation. The automations of an organization are
 read every hour, right after Fleeto wrote one of them, and 5 minutes after a planned run (`RunReadDelay`). Action1 writes
 `next_run` and `last_run` without a time zone; for a policy in UTC they are UTC, for a policy in the endpoint's own time the
 tab shows `next_run` as endpoint time and a run starts at the moment Fleeto found it.

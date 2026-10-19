@@ -252,6 +252,8 @@ public static class AuditActions
     public const string CheckReset = "check.reset";
     /// <summary>A technician asked an endpoint to scan its storage now (0.6.0).</summary>
     public const string StorageScanRequested = "storage.scan_requested";
+    /// <summary>A user copied the storage summary of an endpoint as an image or downloaded its PDF report (0.7.0); never the paths.</summary>
+    public const string StorageReportExported = "storage.report_exported";
     /// <summary>An admin copied or downloaded the instance health diagnostics (0.6.0).</summary>
     public const string InstanceDiagnosticsExported = "instance.diagnostics_exported";
     /// <summary>An admin changed the settings of the performance monitor (0.7.0); the entry holds the old and new values.</summary>

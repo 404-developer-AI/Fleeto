@@ -59,6 +59,15 @@ automatic Windows Update off from a patch policy.
 - The export as JSON (with a `schemaVersion`) for tooling, and as a ZIP with the Markdown, the JSON and the generic plans of the
   top statements. The Markdown says how much of the period ran in Diagnose and adds the statements measured in Diagnose with
   their callers, the N+1 suspects, the slowest events with their heaviest statements, the indexes and the sessions.
+- "Copy output" above the terminal of a remote background session, on Windows and Linux (asked for by the developer on
+  2026-10-19): copies everything the terminal shows as plain text, also what scrolled away (up to 10,000 lines), with lines the
+  terminal wrapped joined again. It happens in the browser; the output never passes the server, as before.
+- Storage tab, "Copy summary" and "Export PDF" (asked for by the developer on 2026-10-19), to hand the storage of a drive to the
+  customer. The summary is an image in the branding of Fleeto, the same in every mail or ticket it is pasted into: the drive with
+  how full it is, its 10 largest folders directly below the drive and its 10 largest files. Where the browser does not allow an
+  image on the clipboard, the image is downloaded. The PDF report adds every scanned folder as a tree with its growth over 7 and 30
+  days and every scanned file, with the logo, header and page numbers on every page. Fleeto writes the PDF itself, without a new
+  library. Both are audited (`storage.report_exported`, the drive and the format, never a path). On the API waiting list.
 - "Turn off automatic Windows Update" on a patch policy (decided 2026-10-19), so only the rounds of the policy install updates.
   Action1 has this option only in its console, not in its API, so the Fleeto agent does it on the endpoint itself: on a managed
   Windows endpoint whose enabled patch policy asks for it and that Action1 reports, it sets the Windows Update group policy value
@@ -88,6 +97,15 @@ automatic Windows Update off from a patch policy.
 - Migration `TurnOffWindowsUpdate` (expand only): `PatchPolicies.TurnOffWindowsUpdate` and `InventorySnapshots.WindowsUpdate`.
 - Migration `PerformanceDiagnose` (expand only): the table `PerfFingerprints`, the heaviest statements of a slow event, the
   sessions of a database snapshot, and the functions `fleeto_perf_analyze` and `fleeto_perf_explain`.
+
+### Fixed
+
+- The scheduled rounds of a patch policy never appeared under Deployments on the Patches tab, while a deployment started by
+  hand did (found on the test VPS on 2026-10-19: the automations were read every hour, but not one scheduled deployment was ever
+  made). Action1 gave no usable `last_instance` for the automation. When it names none, the workers now find the round among the
+  runs of the organization (`automations/instances`), by its schedule link or by its id, which Action1 builds from the id of the
+  automation and the start time; `last_instance` is also read when it comes as an object. When Action1 says the automation ran
+  but no run is found, the workers log what Action1 sent, without secrets.
 
 ## [0.6.0] — 2026-10-18
 

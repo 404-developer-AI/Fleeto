@@ -13,6 +13,8 @@ namespace Fleeto.Workers.Integrations;
 /// <para>
 /// Action1 names the last run of an automation in <c>last_instance</c>. A schedule runs at most once a day, and Fleeto reads
 /// every automation of its own at least once an hour, so reading that one field finds every run without listing them.
+/// On the test VPS that field never gave a run (found 2026-10-19, 0.7.0), so when it is empty the run is looked up in the
+/// runs of the organization instead (<see cref="WithRun"/>).
 /// </para>
 /// </summary>
 internal static class ScheduledDeployments
@@ -84,6 +86,31 @@ internal static class ScheduledDeployments
 
         db.PatchDeployments.Add(deployment);
         return deployment;
+    }
+
+    /// <summary>How far back a run found in the list of runs still counts as new: a week of rounds and a day of margin.</summary>
+    public static readonly TimeSpan RunLookback = TimeSpan.FromDays(8);
+
+    /// <summary>True when the automation names no last run of its own, so its runs have to be looked up.</summary>
+    public static bool NeedsRuns(Action1AutomationInfo info) => info.LastInstanceId.Length == 0;
+
+    /// <summary>
+    /// The automation with its newest run from the runs of its organization (0.7.0) when it names none itself: a run of
+    /// this automation (<see cref="Action1AutomationRun.IsRunOf"/>) that started within <see cref="RunLookback"/>. Unchanged
+    /// when there is none, or when the automation names its last run.
+    /// </summary>
+    public static Action1AutomationInfo WithRun(Action1AutomationInfo info, IReadOnlyList<Action1AutomationRun> runs, DateTime now)
+    {
+        if (!NeedsRuns(info))
+        {
+            return info;
+        }
+
+        var run = runs.Where(r => r.IsRunOf(info.Id) && (r.StartedAt is null || r.StartedAt >= now - RunLookback))
+            .OrderByDescending(r => r.StartedAt ?? DateTime.MinValue)
+            .ThenByDescending(r => r.Id, StringComparer.Ordinal)
+            .FirstOrDefault();
+        return run is null ? info : info with { LastInstanceId = run.Id, LastRunAt = run.StartedAt ?? info.LastRunAt };
     }
 
     /// <summary>

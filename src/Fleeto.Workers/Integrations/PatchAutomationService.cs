@@ -339,6 +339,22 @@ public sealed class PatchAutomationService : WorkerLoop
             var ours = rows.Where(r => r.ExternalTenantId == mapping.ExternalTenantId && r.ExternalAutomationId is not null).ToList();
             var present = listed.Value!.GroupBy(a => a.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
             var ourIds = ours.Select(r => r.ExternalAutomationId).ToHashSet(StringComparer.Ordinal);
+            // An automation that names no last run of its own: its round is looked up in the runs of the organization, read once.
+            IReadOnlyList<Action1AutomationRun>? runs = null;
+            if (ours.Any(r => present.TryGetValue(r.ExternalAutomationId!, out var a) && ScheduledDeployments.NeedsRuns(a)) && budget.Spend())
+            {
+                var listedRuns = await client.ListAutomationRunsAsync(mapping.ExternalTenantId, cancellationToken);
+                if (listedRuns.Ok)
+                {
+                    runs = listedRuns.Value;
+                }
+                else
+                {
+                    Logger.LogWarning("Could not read the automation runs of Action1 organization {Organization}: {Message}",
+                        mapping.ExternalTenantId, listedRuns.Message);
+                }
+            }
+
             foreach (var row in ours)
             {
                 if (!present.TryGetValue(row.ExternalAutomationId!, out var info))
@@ -347,6 +363,20 @@ public sealed class PatchAutomationService : WorkerLoop
                     row.NextRunAt = null;
                     row.UpdatedAt = now;
                     continue;
+                }
+
+                if (runs is not null)
+                {
+                    var found = ScheduledDeployments.WithRun(info, runs, now);
+                    if (ScheduledDeployments.NeedsRuns(found) && info.LastRunAt is not null)
+                    {
+                        // Action1 says it ran but names the run nowhere Fleeto looks: say what it did send, so the next fix is not a guess.
+                        Logger.LogWarning(
+                            "Automation {Automation} last ran at {LastRun} but Fleeto found no run of it among {Runs} runs of organization {Organization}",
+                            info.Id, info.LastRunAt, runs.Count, mapping.ExternalTenantId);
+                    }
+
+                    info = found;
                 }
 
                 if (await ScheduledDeployments.RecordAsync(db, row, info, now, cancellationToken) is { } deployment)

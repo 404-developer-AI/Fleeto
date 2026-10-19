@@ -142,6 +142,166 @@ window.fleeto = {
       handle.addEventListener("pointermove", move);
       handle.addEventListener("pointerup", up);
     });
+  },
+  // The storage summary of a drive as an image (0.7.0): drawn on a canvas in the branding of Fleeto, so it looks the same in every
+  // mail or ticket it is pasted into. The server sends the text already formatted; nothing here reads the page. Copies a PNG to the
+  // clipboard and answers "copied"; where the browser refuses that, it downloads the PNG and answers "downloaded".
+  copyStorageImage: async function (report) {
+    var canvas = await window.fleeto.drawStorageImage(report);
+    var blob = await new Promise(function (resolve) { canvas.toBlob(resolve, "image/png"); });
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      return "copied";
+    } catch (e) {
+      window.fleeto.saveBlob(report.fileName, blob);
+      return "downloaded";
+    }
+  },
+  saveBlob: function (fileName, blob) {
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  },
+  drawStorageImage: async function (report) {
+    var colors = {
+      primary: "#0F766E", tint: "#F0FDFA", tintStrong: "#CCFBF1", text: "#1C1917", secondary: "#78716C", muted: "#A8A29E",
+      border: "#E7E5E4", surface: "#FAFAF9", warning: "#B45309", white: "#FFFFFF"
+    };
+    var font = "Inter, -apple-system, \"Segoe UI\", Roboto, sans-serif";
+    try {
+      await Promise.all([document.fonts.load("400 13px Inter"), document.fonts.load("600 13px Inter")]);
+    } catch (e) {
+      // The system font is drawn instead.
+    }
+
+    var width = 760, pad = 28, row = 26, scale = 2;
+    var height = pad + 54 + 64 + 104 + (report.warning ? 24 : 0) + 2 * (32 + row + 12) +
+      row * (Math.max(1, report.folders.length) + Math.max(1, report.files.length)) + 40;
+    var canvas = document.createElement("canvas");
+    canvas.width = width * scale;
+    canvas.height = height * scale;
+    var g = canvas.getContext("2d");
+    g.scale(scale, scale);
+    g.textBaseline = "alphabetic";
+
+    function setFont(size, weight) { g.font = (weight || 400) + " " + size + "px " + font; }
+    function text(value, x, y, size, color, weight, align) {
+      setFont(size, weight);
+      g.fillStyle = color;
+      g.textAlign = align || "left";
+      g.fillText(value, x, y);
+    }
+    function rounded(x, y, w, h, r, color) {
+      if (w <= 0 || h <= 0) { return; }
+      r = Math.min(r, w / 2, h / 2);
+      g.beginPath();
+      g.moveTo(x + r, y);
+      g.arcTo(x + w, y, x + w, y + h, r);
+      g.arcTo(x + w, y + h, x, y + h, r);
+      g.arcTo(x, y + h, x, y, r);
+      g.arcTo(x, y, x + w, y, r);
+      g.closePath();
+      g.fillStyle = color;
+      g.fill();
+    }
+    // Shortens with an ellipsis in the middle, so a path keeps its drive and its last folder or file name.
+    function fit(value, maxWidth, size, weight) {
+      setFont(size, weight);
+      if (g.measureText(value).width <= maxWidth) { return value; }
+      var head = Math.floor(value.length / 2), tail = value.length - head;
+      while (head + tail > 0) {
+        if (tail >= head && tail > 0) { tail--; } else { head--; }
+        var candidate = value.slice(0, head) + "…" + value.slice(value.length - tail);
+        if (g.measureText(candidate).width <= maxWidth) { return candidate; }
+      }
+      return "…";
+    }
+
+    g.fillStyle = colors.white;
+    g.fillRect(0, 0, width, height);
+    var right = width - pad, y = pad;
+
+    // Header: the mark of Fleeto, a teal rounded square with a white heartbeat line (branding section 5).
+    rounded(pad, y, 28, 28, 7, colors.primary);
+    g.strokeStyle = colors.white;
+    g.lineWidth = 2;
+    g.lineJoin = "round";
+    g.lineCap = "round";
+    g.beginPath();
+    [[5, 15], [9.5, 15], [12, 9], [16, 21], [18.5, 13], [20.5, 15], [23.5, 15]].forEach(function (p, i) {
+      if (i === 0) { g.moveTo(pad + p[0], y + p[1]); } else { g.lineTo(pad + p[0], y + p[1]); }
+    });
+    g.stroke();
+    text("Fleeto", pad + 38, y + 20, 17, colors.text, 600);
+    text("Storage report", right, y + 20, 13, colors.secondary, 400, "right");
+    y += 40;
+    g.fillStyle = colors.border;
+    g.fillRect(pad, y, width - 2 * pad, 1);
+    y += 14;
+
+    text(fit(report.hostname, width - 2 * pad, 22, 600), pad, y + 22, 22, colors.text, 600);
+    text(fit(report.owner, width - 2 * pad, 13), pad, y + 42, 13, colors.secondary);
+    y += 64;
+
+    // The drive.
+    rounded(pad, y, width - 2 * pad, 92, 12, colors.surface);
+    text(report.drive, pad + 18, y + 28, 15, colors.text, 600);
+    text(report.percentFull, right - 18, y + 28, 15, colors.text, 600, "right");
+    rounded(pad + 18, y + 40, width - 2 * pad - 36, 10, 5, colors.tintStrong);
+    rounded(pad + 18, y + 40, (width - 2 * pad - 36) * Math.max(0, Math.min(1, report.usedShare)), 10, 5, colors.primary);
+    text(report.usage, pad + 18, y + 74, 13, colors.text);
+    text(report.scanned, right - 18, y + 74, 12, colors.secondary, 400, "right");
+    y += 104;
+    if (report.warning) {
+      text(fit(report.warning, width - 2 * pad, 12), pad, y + 4, 12, colors.warning);
+      y += 24;
+    }
+
+    function table(title, columns, rows, drawRow) {
+      text(title, pad, y + 20, 15, colors.text, 600);
+      y += 32;
+      rounded(pad, y, width - 2 * pad, row, 6, colors.tint);
+      columns.forEach(function (c) { text(c.title, c.x, y + 17, 11, colors.primary, 600, c.align); });
+      y += row;
+      rows.forEach(function (r, i) {
+        if (i % 2 === 1) { g.fillStyle = colors.surface; g.fillRect(pad, y, width - 2 * pad, row); }
+        drawRow(r, y + 17);
+        g.fillStyle = colors.border;
+        g.fillRect(pad, y + row - 1, width - 2 * pad, 1);
+        y += row;
+      });
+      if (rows.length === 0) {
+        text(report.empty, pad + 10, y + 17, 12, colors.secondary);
+        y += row;
+      }
+      y += 12;
+    }
+
+    table(report.foldersTitle, [
+      { title: "Folder", x: pad + 10 }, { title: "Size on disk", x: pad + 470, align: "right" }, { title: "Of the drive", x: pad + 490 }
+    ], report.folders, function (f, baseline) {
+      text(fit(f.path, 380, 13), pad + 10, baseline, 13, colors.text);
+      text(f.size, pad + 470, baseline, 13, colors.text, 500, "right");
+      rounded(pad + 490, baseline - 9, 130, 8, 4, colors.tint);
+      rounded(pad + 490, baseline - 9, 130 * Math.max(0, Math.min(1, f.share)), 8, 4, colors.primary);
+      text(f.percent, right - 10, baseline, 12, colors.secondary, 400, "right");
+    });
+
+    table(report.filesTitle, [
+      { title: "File", x: pad + 10 }, { title: "Size on disk", x: pad + 540, align: "right" }, { title: "Changed", x: right - 10, align: "right" }
+    ], report.files, function (f, baseline) {
+      text(fit(f.path, 440, 13), pad + 10, baseline, 13, colors.text);
+      text(f.size, pad + 540, baseline, 13, colors.text, 500, "right");
+      text(f.changed, right - 10, baseline, 12, colors.secondary, 400, "right");
+    });
+
+    text(fit(report.footer, width - 2 * pad, 11), pad, height - 18, 11, colors.muted);
+    return canvas;
   }
 };
 

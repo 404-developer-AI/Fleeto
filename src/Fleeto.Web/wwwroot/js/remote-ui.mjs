@@ -130,6 +130,11 @@ export class Workspace {
 
   buildTerminal() {
     const panel = this.panels.terminal;
+    const toolbar = el("div", "remote-toolbar remote-terminal-toolbar");
+    this.copyButton = button("Copy output", () => this.copyOutput());
+    this.copyButton.title = "Copy everything the terminal shows, including what scrolled away";
+    toolbar.append(el("span", "remote-toolbar-spacer"), this.copyButton);
+    panel.appendChild(toolbar);
     const surface = el("div", "remote-terminal-surface");
     panel.appendChild(surface);
     this.terminalSurface = surface;
@@ -235,6 +240,26 @@ export class Workspace {
         this.terminal.write(ch);
       }
     }
+  }
+
+  // Copies the whole output of the terminal (0.7.0), also what scrolled away (up to the scrollback of 10,000 lines), as plain text.
+  // It never leaves the browser except to the clipboard: the server only relays the encrypted frames and never sees terminal content.
+  // A line the terminal wrapped because it was wider than the window is joined again, so a long path or command stays one line.
+  async copyOutput() {
+    if (!this.terminal) {
+      return;
+    }
+    const lines = terminalLines(this.terminal);
+    const label = "Copy output";
+    try {
+      await navigator.clipboard.writeText(lines.join(this.windows ? "\r\n" : "\n"));
+      this.copyButton.textContent = lines.length === 0 ? "Nothing to copy" : `Copied ${lines.length} ${lines.length === 1 ? "line" : "lines"}`;
+    } catch {
+      this.copyButton.textContent = "The browser did not allow copying";
+    }
+    clearTimeout(this.copyReset);
+    this.copyReset = setTimeout(() => { this.copyButton.textContent = label; }, 2500);
+    this.terminal.focus();
   }
 
   fit() {
@@ -617,6 +642,29 @@ export class Workspace {
       this.terminal = null;
     }
   }
+}
+
+// The lines of a terminal as plain text, oldest first: a line the terminal wrapped is joined to the one before it, and empty lines at
+// the end (the unused rows below the prompt) are left out.
+export function terminalLines(terminal) {
+  const buffer = terminal.buffer.active;
+  const lines = [];
+  for (let i = 0; i < buffer.length; i++) {
+    const line = buffer.getLine(i);
+    if (!line) {
+      continue;
+    }
+    const text = line.translateToString(true);
+    if (line.isWrapped && lines.length > 0) {
+      lines[lines.length - 1] += text;
+    } else {
+      lines.push(text);
+    }
+  }
+  while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
+    lines.pop();
+  }
+  return lines;
 }
 
 function el(tag, className, text) {
