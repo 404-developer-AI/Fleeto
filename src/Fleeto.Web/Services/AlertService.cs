@@ -98,7 +98,7 @@ public sealed class AlertService
         alerts.Select(a => new AlertView(a.Id, a.EndpointId, a.Endpoint!.Hostname, a.ClientId,
             db.Clients.Where(c => c.Id == a.ClientId).Select(c => c.Code).FirstOrDefault() ?? string.Empty,
             a.Kind, a.Severity, a.State, a.Title, a.Detail, a.OpenedAt, a.UpdatedAt, a.AcknowledgedAt, a.ResolvedAt, a.ResolvedReason,
-            a.HeldUntil, a.CheckDefinitionId, a.Target));
+            a.State != AlertState.Resolved ? a.HeldUntil : null, a.CheckDefinitionId, a.Target));
 
     /// <summary>
     /// Acknowledges an open alert. Like holding and resolving it needs a comment (0.6.0): why, kept with the alert, so whoever looks
@@ -145,7 +145,7 @@ public sealed class AlertService
 
     /// <summary>
     /// Resolves an alert by hand, with a comment. If the cause is still there, the workers open a new alert on the next result, so a
-    /// manual resolve never hides a real problem for long; it also ends a hold, which would otherwise keep that new alert from opening.
+    /// manual resolve never hides a real problem for long.
     /// </summary>
     public async Task<ServiceResult> ResolveAsync(Caller caller, Guid alertId, string? comment, CancellationToken cancellationToken = default)
     {
@@ -180,9 +180,6 @@ public sealed class AlertService
             alert.ResolvedReason = alert.ResolvedReason[..500];
         }
 
-        alert.HeldUntil = null;
-        alert.HeldAt = null;
-        alert.HeldByUserId = null;
         alert.UpdatedAt = now;
         var activity = AddActivity(db, caller, alert, AlertActivityKind.Resolved, comment, now);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.AlertResolvedManually, "Alert", alert.Id.ToString(), alert.ClientId,
@@ -193,10 +190,9 @@ public sealed class AlertService
     }
 
     /// <summary>
-    /// Puts an unresolved alert on hold until <paramref name="untilUtc"/>, with a comment: maintenance for its source
-    /// (<see cref="AlertHoldRules"/>), so it does not escalate and no new alert of the same check or problem opens, also after it
-    /// resolved; no emails, and left out of the open alert lists and counts. The alert still resolves when its cause recovers, and it
-    /// returns (with one email) when the hold ends while it is still unresolved.
+    /// Puts an unresolved alert on hold until <paramref name="untilUtc"/>, with a comment: no escalation or resolve emails, and left
+    /// out of the open alert lists and counts. The alert still resolves when its cause recovers, and it returns (with one email) when
+    /// the hold ends while it is still unresolved.
     /// </summary>
     public async Task<ServiceResult> HoldAsync(Caller caller, Guid alertId, DateTime untilUtc, string? comment,
         CancellationToken cancellationToken = default)
@@ -247,10 +243,7 @@ public sealed class AlertService
         return ServiceResult.Ok();
     }
 
-    /// <summary>
-    /// Ends a hold early; the alert is counted and listed as open again, or, when it resolved on hold, its source may open alerts again.
-    /// A comment is optional here.
-    /// </summary>
+    /// <summary>Ends a hold early; the alert is counted and listed as open again. A comment is optional here.</summary>
     public async Task<ServiceResult> EndHoldAsync(Caller caller, Guid alertId, string? comment = null, CancellationToken cancellationToken = default)
     {
         if (!caller.Has(Permissions.AlertsHold))
@@ -271,7 +264,7 @@ public sealed class AlertService
         }
 
         var now = _time.GetUtcNow().UtcDateTime;
-        if (alert.HeldUntil is null || alert.HeldUntil <= now)
+        if (alert.State == AlertState.Resolved || alert.HeldUntil is null || alert.HeldUntil <= now)
         {
             return ServiceResult.Fail("This alert is not on hold.");
         }

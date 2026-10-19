@@ -1,4 +1,3 @@
-using Fleeto.Core.Entities;
 using Fleeto.Web.Components.Dialogs;
 using Fleeto.Web.Security;
 using Fleeto.Web.Services;
@@ -29,11 +28,8 @@ public static class AlertActionPrompts
                 "The alert was resolved. If the cause is still there, a new alert opens."));
 
     public static Task<bool> EndHoldAsync(IDialogService dialogs, AlertService alerts, AlertView alert, Runner run) =>
-        alert.State == AlertState.Resolved
-            ? ShowAsync(dialogs, alert, "End hold", "End hold", "The alert is resolved. A new alert opens when the problem returns.",
-                required: false, comment => run(caller => alerts.EndHoldAsync(caller, alert.Id, comment), "The hold was ended."))
-            : ShowAsync(dialogs, alert, "End hold", "End hold", "The alert is counted and listed as open again.", required: false,
-                comment => run(caller => alerts.EndHoldAsync(caller, alert.Id, comment), "The hold was ended. The alert is open again."));
+        ShowAsync(dialogs, alert, "End hold", "End hold", "The alert is counted and listed as open again.", required: false,
+            comment => run(caller => alerts.EndHoldAsync(caller, alert.Id, comment), "The hold was ended. The alert is open again."));
 
     public static async Task<bool> HoldAsync(IDialogService dialogs, AlertService alerts, TimeDisplay time, AlertView alert, Runner run)
     {

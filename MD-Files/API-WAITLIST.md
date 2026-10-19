@@ -49,7 +49,6 @@ One row per feature, in the table of its area. Keep it concrete enough to build 
 
 | Feature | Since | API shape | Notes |
 |---|---|---|---|
-| The hold of a resolved alert that still runs, as maintenance for its check or service alert (`onHold` and `heldUntil` cover unresolved alerts only) | 0.7.0 | `holdsSourceUntil` (timestamp, nullable) on Alert, set while a hold runs in any state | Additive. Same scope as the alert. |
 | Who acknowledged or put an alert on hold, and when the hold was set | 0.1.0 | `acknowledgedBy`, `heldAt`, `heldBy` on Alert | User names are personal data; already visible to read-only users in the UI. |
 | What users did with an alert and their comment: acknowledged, put on hold (until when), hold ended, resolved | 0.6.0 | `activities: [{kind, comment, userName, time, heldUntil}]` on Alert, oldest first | The comment is free text a technician typed and may hold personal data; same client and endpoint scope as the alert. |
 | Maintenance history: every period of maintenance mode on a client, site or endpoint, with start, planned end, actual end, who started it and the reason | 0.6.0 | `GET /api/v1/endpoints/{endpointId}/maintenance-history` (its own, its site's and its client's, newest first, paged); `GET /api/v1/clients/{clientId}/maintenance-history` | Kept 13 months after a period ended. |

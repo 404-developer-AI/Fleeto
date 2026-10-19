@@ -1,11 +1,11 @@
-@* Actions on one unresolved alert: acknowledge, put on hold, end hold, resolve, each with its own permission (0.6.0); on a resolved
-   alert whose hold still runs only end hold. Render only where AnyAction is true for the caller. *@
+@* Actions on one unresolved alert: acknowledge, put on hold, end hold, resolve, each with its own permission (0.6.0). Render only
+   where AnyAction is true for the caller. *@
 @inherits FleetoPageBase
 @inject AlertService AlertSvc
 @inject IDialogService DialogService
 @inject TimeProvider Clock
 
-@if ((Alert.State != AlertState.Resolved && AnyAction(Caller)) || (Alert.HasHold(Clock.GetUtcNow().UtcDateTime) && Can(Permissions.AlertsHold)))
+@if (Alert.State != AlertState.Resolved && AnyAction(Caller))
 {
     <MudMenu Icon="@Icons.Material.Outlined.MoreVert" Size="Size.Small" Dense="true" AriaLabel="Alert actions" AnchorOrigin="Origin.BottomRight"
              TransformOrigin="Origin.TopRight">
@@ -15,16 +15,16 @@
         }
         @if (Can(Permissions.AlertsHold))
         {
-            @if (Alert.HasHold(Clock.GetUtcNow().UtcDateTime))
+            @if (Alert.IsHeld(Clock.GetUtcNow().UtcDateTime))
             {
                 <MudMenuItem Icon="@Icons.Material.Outlined.PlayCircle" OnClick="EndHoldAsync">End hold</MudMenuItem>
             }
-            else if (Alert.State != AlertState.Resolved)
+            else
             {
                 <MudMenuItem Icon="@Icons.Material.Outlined.PauseCircle" OnClick="HoldAsync">Put on hold</MudMenuItem>
             }
         }
-        @if (Alert.State != AlertState.Resolved && Can(Permissions.AlertsResolve))
+        @if (Can(Permissions.AlertsResolve))
         {
             <MudMenuItem Icon="@Icons.Material.Outlined.TaskAlt" OnClick="ResolveAsync">Resolve</MudMenuItem>
         }

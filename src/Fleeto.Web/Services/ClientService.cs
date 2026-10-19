@@ -22,7 +22,8 @@ public sealed record ClientOption(Guid Id, string Code, string Name);
 
 /// <summary>
 /// A client in the clients panel, with its sites and live counts. <see cref="InMaintenanceCount"/> counts endpoints in effective
-/// maintenance; <see cref="MaintenanceActive"/> is the client's own maintenance. <see cref="OpenAlertCount"/> and <see cref="WorstAlert"/>
+/// maintenance, and endpoints whose only unresolved alerts are on hold (decided 2026-10-18: they show like maintenance);
+/// <see cref="MaintenanceActive"/> is the client's own maintenance. <see cref="OpenAlertCount"/> and <see cref="WorstAlert"/>
 /// count only the open alerts of its endpoints that are not in maintenance: the panel shows what needs attention, and maintenance has its
 /// own badge. <see cref="WorstAlert"/> is null when there is no such alert; it colors the icon and the alert badge in the panel.
 /// </summary>
@@ -153,8 +154,19 @@ public sealed class ClientService
             .GroupBy(e => new { e.ClientId, e.SiteId })
             .Select(g => new { g.Key.ClientId, g.Key.SiteId, Count = g.Count() })
             .ToListAsync(cancellationToken);
-        var siteMaintenance = inMaintenance.ToDictionary(m => m.SiteId, m => m.Count);
-        var clientMaintenance = inMaintenance.GroupBy(m => m.ClientId).ToDictionary(g => g.Key, g => g.Sum(m => m.Count));
+
+        // Endpoints outside maintenance whose unresolved alerts are all on hold count with them: on hold shows as maintenance.
+        var onHold = await db.Endpoints.AsNoTracking()
+            .Where(e => clientIds.Contains(e.ClientId))
+            .Where(e => db.Alerts.Any(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && a.HeldUntil != null && a.HeldUntil > now) &&
+                        !db.Alerts.Any(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now)))
+            .Where(MaintenanceRules.EndpointNotInMaintenance(now, db.MaintenanceWindowOccurrences, EffectivePolicies.Query(db)))
+            .GroupBy(e => new { e.ClientId, e.SiteId })
+            .Select(g => new { g.Key.ClientId, g.Key.SiteId, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+        var maintenanceLike = inMaintenance.Concat(onHold).ToList();
+        var siteMaintenance = maintenanceLike.GroupBy(m => m.SiteId).ToDictionary(g => g.Key, g => g.Sum(m => m.Count));
+        var clientMaintenance = maintenanceLike.GroupBy(m => m.ClientId).ToDictionary(g => g.Key, g => g.Sum(m => m.Count));
 
         // The open alerts per site and severity, of endpoints that are not in maintenance: an endpoint in maintenance never counts
         // for or colors its site or client, whatever its alerts.

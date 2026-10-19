@@ -9,9 +9,8 @@
     <DialogContent>
         <MudText Typo="Typo.body2" Class="mb-3">@Alert.Title</MudText>
         <MudText Typo="Typo.body2" Class="muted mb-3">
-            While the alert is on hold, what it reports is treated as in maintenance: the alert does not escalate, no new alert
-            opens for it, no emails are sent and it is left out of the open alerts. It still resolves when the cause recovers. If
-            it is still open when the hold ends, it returns and one email is sent.
+            While the alert is on hold, no emails are sent for it and it is left out of the open alerts. It still resolves when
+            the cause recovers. If it is still open when the hold ends, it returns and one email is sent.
         </MudText>
         <MudRadioGroup T="int" @bind-Value="_choice">
             <MudRadio T="int" Value="1" Color="Color.Primary">1 hour</MudRadio>

@@ -1288,11 +1288,13 @@
     // ---------------------------------------------------------------------------------------------------------------
 
     /// <summary>
-    /// Color of an endpoint icon: green in maintenance whatever its alerts, red with a critical alert, amber with a warning, gray
-    /// otherwise. Alerts on hold do not count, as everywhere.
+    /// Color of an endpoint icon: green in maintenance whatever its alerts, red with a critical alert, amber with a warning, green
+    /// again when its only unresolved alerts are on hold (decided 2026-10-18: on hold shows as maintenance), gray otherwise. Alerts on
+    /// hold do not count as open, as everywhere.
     /// </summary>
     private static string EndpointHealthClass(EndpointRow row) =>
-        row.Maintenance is not null ? "health-maintenance" : HealthClass(row.OpenAlertCount == 0 ? null : row.HasCriticalAlert ? AlertSeverity.Critical : AlertSeverity.Warning);
+        row.Maintenance is not null || (row.OpenAlertCount == 0 && row.HeldUntil is not null) ? "health-maintenance"
+            : HealthClass(row.OpenAlertCount == 0 ? null : row.HasCriticalAlert ? AlertSeverity.Critical : AlertSeverity.Warning);
 
     private string EndpointHealthTitle(EndpointRow row)
     {
@@ -1302,6 +1304,11 @@
             1 => row.HasCriticalAlert ? "1 open critical alert" : "1 open alert",
             _ => row.HasCriticalAlert ? $"{row.OpenAlertCount} open alerts, at least one critical" : $"{row.OpenAlertCount} open alerts"
         };
+        if (row.HeldUntil is { } heldUntil)
+        {
+            alerts += $" · Alerts on hold until {Time.Short(heldUntil)}";
+        }
+
         if (row.Maintenance is not { } m)
         {
             return alerts;
@@ -1352,7 +1359,10 @@
         </span>
     };
 
-    /// <summary>"all" when the whole client or site is in maintenance, "2/14" when some endpoints are.</summary>
+    /// <summary>
+    /// "all" when the whole client or site is in maintenance, "2/14" when some endpoints are. Endpoints whose only unresolved alerts
+    /// are on hold count with them.
+    /// </summary>
     private RenderFragment MaintenanceBadge(bool wholeScope, int count, int endpoints) => __builder =>
     {
         if (!wholeScope && count == 0)
@@ -1361,7 +1371,7 @@
         }
 
         var all = wholeScope || count >= endpoints;
-        <span class="tree-badge" title="@(all ? "Every endpoint is in maintenance" : $"{count} of {endpoints} endpoints are in maintenance")">
+        <span class="tree-badge" title="@(wholeScope ? "Every endpoint is in maintenance" : all ? "Every endpoint is in maintenance or has its alerts on hold" : $"{count} of {endpoints} endpoints are in maintenance or have their alerts on hold")">
             <MudIcon Icon="@Icons.Material.Outlined.Construction" Class="health-maintenance" Style="font-size:11px;vertical-align:-1px" />
             @(all ? "all" : $"{count}/{endpoints}")
         </span>

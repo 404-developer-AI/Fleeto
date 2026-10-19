@@ -118,21 +118,13 @@ internal static class PatchStateWriter
             return;
         }
 
-        var target = state.Coverage == PatchCoverage.Inactive ? "coverage" : "stale";
-        if (await db.Alerts.Where(a => a.EndpointId == endpoint.Id && a.Kind == AlertKind.PatchState && a.Target == target)
-                .AnyAsync(AlertHoldRules.HoldsSource(now), cancellationToken))
-        {
-            // A hold on an alert of this problem is maintenance for it (AlertHoldRules).
-            return;
-        }
-
         var alert = new Alert
         {
             Id = Guid.NewGuid(),
             ClientId = endpoint.ClientId,
             EndpointId = endpoint.Id,
             Kind = AlertKind.PatchState,
-            Target = target,
+            Target = state.Coverage == PatchCoverage.Inactive ? "coverage" : "stale",
             Severity = AlertSeverity.Warning,
             State = AlertState.Open,
             Title = Cut(problem, 500),

@@ -262,4 +262,51 @@ public sealed class MaintenanceServiceTests
         Assert.Null(await Maintenance.GetEndpointHistoryAsync(otherCaller, endpoint.Id));
         Assert.Equal(["Other client"], (await Maintenance.GetEndpointHistoryAsync(otherCaller, otherEndpoint.Id))!.Select(h => h.Reason ?? string.Empty).ToArray());
     }
+
+    [Fact]
+    public async Task An_endpoint_whose_only_unresolved_alerts_are_on_hold_shows_and_counts_like_maintenance()
+    {
+        var (client, site, managed, _) = await ScopeAsync();
+        var caller = WebFixture.CallerWith(new RestrictedClientScope([client.Id]), FleetoRoles.ReadOnly);
+        var clients = _fixture.Services.GetRequiredService<ClientService>();
+        var endpoints = _fixture.Services.GetRequiredService<EndpointService>();
+        var heldUntil = Now.AddHours(2);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            db.Alerts.Add(new Alert
+            {
+                Id = Guid.NewGuid(), ClientId = client.Id, EndpointId = managed.Id, Kind = AlertKind.Offline, Severity = AlertSeverity.Critical,
+                Title = "SRV-MNT-01 has been offline", OpenedAt = Now, UpdatedAt = Now, HeldUntil = heldUntil, HeldAt = Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var tree = Assert.Single(await clients.ListTreeAsync(caller));
+        Assert.Equal(1, tree.InMaintenanceCount);
+        Assert.Equal(1, tree.Sites.Single(s => s.Id == site.Id).InMaintenanceCount);
+        Assert.Equal(0, tree.OpenAlertCount);
+        var row = (await endpoints.ListAsync(caller, new EndpointListQuery(client.Id, null, null, null, EndpointStatusFilter.All, null))).Rows.Single(r => r.Id == managed.Id);
+        Assert.Equal(heldUntil, row.HeldUntil!.Value, TimeSpan.FromMilliseconds(1));
+        Assert.Equal(0, row.OpenAlertCount);
+
+        // An alert that is not on hold next to it: the endpoint needs attention and no longer counts as maintenance.
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            db.Alerts.Add(new Alert
+            {
+                Id = Guid.NewGuid(), ClientId = client.Id, EndpointId = managed.Id, Kind = AlertKind.WatchdogStopped, Severity = AlertSeverity.Warning,
+                Title = "The watchdog of SRV-MNT-01 stopped", OpenedAt = Now, UpdatedAt = Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        tree = Assert.Single(await clients.ListTreeAsync(caller));
+        Assert.Equal(0, tree.InMaintenanceCount);
+        Assert.Equal(1, tree.OpenAlertCount);
+
+        // An endpoint in maintenance with alerts on hold counts once.
+        Assert.True((await Maintenance.StartAsync(WebFixture.Technician(), MaintenanceTarget.Site, site.Id, null, "Rack move")).Success);
+        tree = Assert.Single(await clients.ListTreeAsync(caller));
+        Assert.Equal(2, tree.InMaintenanceCount);
+    }
 }

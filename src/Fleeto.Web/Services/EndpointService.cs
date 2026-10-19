@@ -44,10 +44,12 @@ public enum EndpointStatusFilter
 public sealed record EndpointListQuery(Guid? ClientId, Guid? SiteId, EndpointClass? Class, string? Search, EndpointStatusFilter Status,
     EndpointTier? Tier);
 
+/// <param name="HeldUntil">The latest end of the holds of its unresolved alerts on hold, or null when none is on hold (decided 2026-10-18:
+/// an endpoint whose only unresolved alerts are on hold shows like one in maintenance).</param>
 public sealed record EndpointRow(Guid Id, string Hostname, Guid ClientId, string ClientCode, string ClientName, Guid SiteId, string SiteName,
     bool IsOnline, EndpointTier Tier, EndpointClass EffectiveClass, string OsName, string OsVersion, string AgentVersion, string LoggedOnUser,
     DateTime? LastSeenAt, int OpenAlertCount, bool HasCriticalAlert, EffectiveMaintenance? Maintenance = null, bool OwnMaintenanceActive = false,
-    MaintenancePeriod? OwnMaintenance = null, string OsPlatform = "", string Desktop = "");
+    MaintenancePeriod? OwnMaintenance = null, string OsPlatform = "", string Desktop = "", DateTime? HeldUntil = null);
 
 /// <summary>
 /// One page of the endpoint list. Counts cover the whole scope and filters; <see cref="Rows"/> holds at most
@@ -95,12 +97,6 @@ public sealed record AlertView(Guid Id, Guid EndpointId, string Hostname, Guid C
 {
     /// <summary>True while the alert is on hold at <paramref name="now"/>.</summary>
     public bool IsHeld(DateTime now) => State != AlertState.Resolved && HeldUntil is { } until && until > now;
-
-    /// <summary>
-    /// True while a hold runs on the alert, also one that resolved on hold: the hold stays maintenance for its source until it ends
-    /// (<see cref="AlertHoldRules"/>).
-    /// </summary>
-    public bool HasHold(DateTime now) => HeldUntil is { } until && until > now;
 }
 
 public sealed record EndpointEventView(long Id, EndpointEventKind Kind, string Detail, DateTime Time);
@@ -214,7 +210,9 @@ public sealed class EndpointService
                 db.Alerts.Count(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now)),
                 db.Alerts.Any(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && (a.HeldUntil == null || a.HeldUntil <= now) &&
                                    a.Severity == AlertSeverity.Critical), null, false, null, e.OsPlatform,
-                e.Inventory != null ? e.Inventory.Desktop : string.Empty),
+                e.Inventory != null ? e.Inventory.Desktop : string.Empty,
+                db.Alerts.Where(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && a.HeldUntil != null && a.HeldUntil > now)
+                    .Max(a => a.HeldUntil)),
                 Own = new MaintenancePeriod(e.MaintenanceStartedAt, e.MaintenanceEndsAt, e.MaintenanceStartedByName, e.MaintenanceReason),
                 Site = new MaintenancePeriod(e.Site.MaintenanceStartedAt, e.Site.MaintenanceEndsAt, e.Site.MaintenanceStartedByName, e.Site.MaintenanceReason),
                 Client = new MaintenancePeriod(e.Site.Client!.MaintenanceStartedAt, e.Site.Client.MaintenanceEndsAt, e.Site.Client.MaintenanceStartedByName,

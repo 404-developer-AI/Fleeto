@@ -67,10 +67,6 @@
                     else
                     {
                         <StatusChip Text="@context.State.ToString()" Kind="@Ui.AlertStateKind(context.State)" />
-                        @if (context.HasHold(Clock.GetUtcNow().UtcDateTime))
-                        {
-                            <StatusChip Text="@($"On hold until {Time.Absolute(context.HeldUntil)}")" Kind="StatusKind.Neutral" />
-                        }
                     }
                 </MudTd>
                 <MudTd>
