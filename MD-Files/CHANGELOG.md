@@ -105,6 +105,14 @@ automatic Windows Update off from a patch policy.
 
 ### Fixed
 
+- The workers loop that follows patch deployments woke itself up for as long as a deployment was open: every pass announced
+  every open deployment on the channel the loop itself listens on, also when nothing had changed, so it ran about 100 times a
+  second instead of once a minute (found with the performance monitor on the test VPS on 2026-10-20: 2.2 million runs in 6
+  hours, 79% of the database time, and a notification for web, signer and gateway on every run). A pass now announces only the
+  deployments it changed, and a deployment Action1 could not take yet waits the poll interval before it is offered again.
+- Settings, Performance failed to load for every period longer than the minute rows ("permission denied for table
+  WorkerWatermarks", found on the test VPS on 2026-10-20): web reads how far the hourly rollup got, but its database role had
+  no access to that table. Web now reads it, and a test reads every period with the privileges of web.
 - The scheduled rounds of a patch policy never appeared under Deployments on the Patches tab, while a deployment started by
   hand did (found on the test VPS on 2026-10-19: the automations were read every hour, but not one scheduled deployment was ever
   made). Action1 gave no usable `last_instance` for the automation. When it names none, the workers now find the round among the

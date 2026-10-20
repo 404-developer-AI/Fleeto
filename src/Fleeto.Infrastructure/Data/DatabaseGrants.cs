@@ -194,7 +194,8 @@ public static class DatabaseGrants
             ["BackupRuns"] = Grants(web: Read, workers: ReadWrite),
             ["InstanceHealthSamples"] = Grants(web: Read, workers: ReadWrite),
             ["InstanceHealthIssues"] = Grants(web: Read, workers: ReadWrite),
-            ["WorkerWatermarks"] = Grants(workers: ReadWrite),
+            // Web reads how far the performance rollup got (0.7.0), so a long period takes hours up to it and minutes after it.
+            ["WorkerWatermarks"] = Grants(web: Read, workers: ReadWrite),
 
             // The performance monitor (0.7.0): every component writes its own minute rows (TR_PerfMinutes_Component and
             // TR_PerfRuntimeMinutes_Component refuse another component's), web reads them for the page, the workers roll them up

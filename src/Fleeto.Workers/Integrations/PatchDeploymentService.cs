@@ -144,7 +144,8 @@ public sealed class PatchDeploymentService : WorkerLoop
                 continue;
             }
 
-            if (deployment.State == PatchDeploymentState.Running && deployment.PolledAt is { } polled && now - polled < PatchRules.PollInterval)
+            // A request the product could not take yet carries PolledAt too, and waits as long as a running one.
+            if (deployment.PolledAt is { } polled && now - polled < PatchRules.PollInterval)
             {
                 continue;
             }
@@ -448,10 +449,18 @@ public sealed class PatchDeploymentService : WorkerLoop
                 RequestedBy = deployment.RequestedByName
             }), now));
 
-    private async Task SaveAsync(FleetoDbContext db, IReadOnlyList<PatchDeployment> touched, CancellationToken cancellationToken)
+    /// <summary>
+    /// Saves and announces only the deployments this pass changed. This loop listens on the same channel, so announcing an
+    /// untouched deployment would wake it at once, again and again, for as long as the deployment stays open.
+    /// </summary>
+    private async Task SaveAsync(FleetoDbContext db, IReadOnlyList<PatchDeployment> open, CancellationToken cancellationToken)
     {
+        db.ChangeTracker.DetectChanges();
+        var changed = open
+            .Where(d => db.Entry(d).State != EntityState.Unchanged || d.Targets.Any(t => db.Entry(t).State != EntityState.Unchanged))
+            .ToList();
         await db.SaveChangesAsync(cancellationToken);
-        foreach (var deployment in touched)
+        foreach (var deployment in changed)
         {
             await _bus.PublishAsync(NotificationChannels.PatchDeployments, deployment.Id.ToString(), cancellationToken);
         }

@@ -333,6 +333,48 @@ public sealed class PatchDeploymentTests
     }
 
     [Fact]
+    public async Task A_pass_that_changes_nothing_announces_nothing_so_the_loop_does_not_wake_itself()
+    {
+        var (client, _) = await SeedAsync("PD9" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        var action1Id = Guid.NewGuid().ToString();
+        var endpoint = await CreateEndpointAsync(client, "DEPLOY-09");
+        var deployment = await RequestAsync(client, endpoint, action1Id, state: PatchDeploymentState.Running,
+            externalId: StubHandler.DeploymentId);
+        var handler = new StubHandler { Results = [(action1Id, "Running")] };
+        var payload = deployment.Id.ToString();
+        int Announced() => _fixture.Db.Bus.PayloadsFor(NotificationChannels.PatchDeployments).Count(p => p == payload);
+
+        await Service(handler).RunAsync(CancellationToken.None);
+        var afterPoll = Announced();
+        Assert.True(afterPoll > 0);
+
+        // Polled within the interval: the pass skips it, and announcing it anyway would wake this loop at once, forever.
+        await Service(handler).RunAsync(CancellationToken.None);
+        await Service(handler).RunAsync(CancellationToken.None);
+
+        Assert.Equal(afterPoll, Announced());
+    }
+
+    [Fact]
+    public async Task A_request_the_product_could_not_take_yet_waits_the_poll_interval_before_it_is_tried_again()
+    {
+        var (client, _) = await SeedAsync("PDA" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        var endpoint = await CreateEndpointAsync(client, "DEPLOY-10");
+        var deployment = await RequestAsync(client, endpoint, Guid.NewGuid().ToString());
+        var handler = new StubHandler { StartStatus = HttpStatusCode.ServiceUnavailable };
+
+        await Service(handler).RunAsync(CancellationToken.None);
+        await Service(handler).RunAsync(CancellationToken.None);
+
+        Assert.Single(handler.Started);
+        Assert.Equal(PatchDeploymentState.Requested, (await ReadAsync(deployment.Id)).State);
+
+        await MakePollDueAsync(deployment.Id);
+        await Service(handler).RunAsync(CancellationToken.None);
+        Assert.Equal(2, handler.Started.Count);
+    }
+
+    [Fact]
     public async Task A_deployment_is_not_left_running_when_the_integration_is_switched_off()
     {
         var (client, _) = await SeedAsync("PD7" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), enabled: false);

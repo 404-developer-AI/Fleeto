@@ -184,6 +184,59 @@ public sealed class PerformanceDatabaseTests
         }
     }
 
+    [Fact]
+    public async Task The_page_reads_every_period_with_the_privileges_of_web()
+    {
+        // Found on the test VPS on 2026-10-20: a period longer than the minute rows failed with "permission denied for table
+        // WorkerWatermarks", which the owner role of the other tests never sees. A part that catches its own failure counts too.
+        await EnsureRolesAsync();
+        await using var connection = await _db.DataSource.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        await Execute(connection, DatabaseGrants.BuildSql());
+        await Execute(connection, "SET LOCAL ROLE fleeto_web");
+        await using var db = new FleetoDbContext(new DbContextOptionsBuilder<FleetoDbContext>().UseNpgsql(connection).Options);
+        await db.Database.UseTransactionAsync(transaction);
+
+        var refused = new List<string>();
+        // Other tests provoke refusals on purpose; only the ones thrown in this test's own flow count.
+        var mine = new AsyncLocal<bool> { Value = true };
+        void OnException(object? sender, System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs e)
+        {
+            if (mine.Value && e.Exception is PostgresException { SqlState: PostgresErrorCodes.InsufficientPrivilege } denied)
+            {
+                lock (refused)
+                {
+                    refused.Add(denied.MessageText);
+                }
+            }
+        }
+
+        AppDomain.CurrentDomain.FirstChanceException += OnException;
+        try
+        {
+            var now = PerfRecorder.MinuteOf(_db.Time.GetUtcNow().UtcDateTime);
+            foreach (var length in new[] { TimeSpan.FromMinutes(15), TimeSpan.FromHours(6), TimeSpan.FromDays(1), TimeSpan.FromDays(7) })
+            {
+                var from = now - length;
+                var bucket = TimeSpan.FromMinutes(5);
+                await PerformanceReader.ReadAsync(db, from, now, PerformanceSettings.Default, CancellationToken.None);
+                await PerformanceReader.ReadTimelineAsync(db, from, now, bucket, CancellationToken.None);
+                await PerformanceReader.ReadRuntimeTimelineAsync(db, from, now, bucket, CancellationToken.None);
+                await PerformanceReader.ReadHostTimelineAsync(db, from, now, bucket, CancellationToken.None);
+                await PerformanceReader.ReadKeyTimelineAsync(db, from, now, bucket, PerfKind.WorkerRun, CancellationToken.None);
+            }
+
+            await PerformanceReader.ReadIndexesAsync(db, CancellationToken.None);
+        }
+        finally
+        {
+            AppDomain.CurrentDomain.FirstChanceException -= OnException;
+        }
+
+        Assert.Empty(refused);
+        await transaction.RollbackAsync();
+    }
+
     private static PerfMinute Minute(DateTime minute, int count) => new()
     {
         Minute = minute, Component = "web", Kind = PerfKind.Http, Key = "/api/v1/clients", SubKey = "GET 2xx", Count = count, Sum = count * 50d, Max = 60,
