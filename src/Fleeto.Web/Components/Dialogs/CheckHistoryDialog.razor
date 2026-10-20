@@ -1,6 +1,7 @@
 @* History of one check of an endpoint: the last hour, day, week, month or year. *@
 @inherits FleetoPageBase
 @inject CheckHistoryService HistorySvc
+@inject IJSRuntime JS
 
 <MudDialog>
     <TitleContent>
@@ -87,6 +88,7 @@
     private CheckHistoryView? _view;
     // The bucket whose process list is shown; the latest one after every load.
     private DateTime? _processList;
+    private bool _copying;
 
     protected override async Task OnInitializedAsync()
     {
@@ -115,7 +117,12 @@
             <div class="process-list-panel">
                 <div class="d-flex justify-space-between align-baseline flex-wrap gap-2 mb-1">
                     <MudText Typo="Typo.subtitle2">@(cpu ? "CPU" : "Memory") @Ui.CheckValue(view.Type, snapshot.Value) at @Time.Absolute(snapshot.At)</MudText>
-                    <span class="muted" style="font-size:0.75rem">@(view.ProcessLists.Count > 1 ? "Hover over another dot to see its processes." : "")</span>
+                    <div class="d-flex align-center gap-2">
+                        <span class="muted" style="font-size:0.75rem">@(view.ProcessLists.Count > 1 ? "Hover over another dot to see its processes." : "")</span>
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.ContentCopy" Size="Size.Small" Disabled="_copying"
+                                   title="@($"Copy these processes and the {(cpu ? "CPU" : "memory")} usage as an image, for a mail or a ticket")"
+                                   OnClick="@(() => CopyProcessListAsync(bucket))">Copy</MudButton>
+                    </div>
                 </div>
                 <MudSimpleTable Dense="true" Elevation="0">
                     <thead>
@@ -153,6 +160,33 @@
             <MudText Typo="Typo.caption" Class="muted d-block mt-1">@NoProcessListText(view)</MudText>
         }
     };
+
+    /// <summary>Copies the process list of a bucket as an image (0.7.0); the browser draws it from text formatted here.</summary>
+    private async Task CopyProcessListAsync(DateTime bucket)
+    {
+        _copying = true;
+        try
+        {
+            if (await RunForValueAsync(caller => HistorySvc.GetProcessListReportAsync(caller, EndpointId, CheckId, _target, _range, bucket), null) is not
+                { Value: { } report })
+            {
+                return;
+            }
+
+            var outcome = await JS.InvokeAsync<string>("fleeto.copyProcessImage", Reports.ProcessListReportImage.From(report, t => Time.Short(t)));
+            Snackbar.Add(outcome == "copied"
+                ? "The process list is copied as an image. Paste it into a mail or a ticket."
+                : "The browser did not allow copying an image, so it was downloaded instead.", Severity.Info);
+        }
+        catch (JSException)
+        {
+            Snackbar.Add("The image could not be made in this browser. Try another browser, or copy the table by hand.", Severity.Warning);
+        }
+        finally
+        {
+            _copying = false;
+        }
+    }
 
     private static string NoProcessListText(CheckHistoryView view) =>
         ProcessListRules.ListAt(view.WarningThreshold, view.CriticalThreshold) is { } at

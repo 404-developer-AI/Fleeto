@@ -46,6 +46,8 @@ build plan are in `PERFORMANCE.md`. Built in three steps, each an alpha on the t
 - [open] **Storage report for the customer** (asked for by the developer and built 2026-10-19, to be tested on the test VPS):
   "Copy summary" as an image with the top 10 folders and files of a drive, and "Export PDF" with every scanned folder and file,
   in the branding of Fleeto; the PDF written by Fleeto itself.
+- [open] **Copy the process list of a CPU or memory result** (asked for by the developer and built 2026-10-20, to be tested on
+  the test VPS): "Copy" in the check history copies the process list as an image, like the storage summary.
 - [open] **Turn off automatic Windows Update from a patch policy** (asked for by the developer and built 2026-10-19, to be
   tested on the test VPS): Action1 offers it only in its console, so the Fleeto agent sets `NoAutoUpdate` itself on the managed
   Windows endpoints Action1 reports, where no group policy decides, and undoes it when it no longer applies. The Patches tab shows

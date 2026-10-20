@@ -254,6 +254,8 @@ public static class AuditActions
     public const string StorageScanRequested = "storage.scan_requested";
     /// <summary>A user copied the storage summary of an endpoint as an image or downloaded its PDF report (0.7.0); never the paths.</summary>
     public const string StorageReportExported = "storage.report_exported";
+    /// <summary>A user copied the process list of a CPU or memory usage result as an image (0.7.0); never the processes or users.</summary>
+    public const string ProcessListExported = "check.process_list_exported";
     /// <summary>An admin copied or downloaded the instance health diagnostics (0.6.0).</summary>
     public const string InstanceDiagnosticsExported = "instance.diagnostics_exported";
     /// <summary>An admin changed the settings of the performance monitor (0.7.0); the entry holds the old and new values.</summary>

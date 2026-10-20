@@ -1,8 +1,11 @@
 using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
+using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Data;
 using Fleeto.Web.Components.Shared;
+using Fleeto.Web.Security;
 using Fleeto.Web.Services;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Fleeto.Web.Tests;
@@ -152,6 +155,46 @@ public sealed class CheckHistoryTests
         var (_, other, disk) = await SetupAsync(CheckType.DiskFree, """{"drive":"C:"}""", 15);
         await ResultAsync(other, disk, start.AddMinutes(1), 10, processesJson: List("disk"));
         Assert.Empty((await History.GetAsync(WebFixture.Technician(), other.Id, disk.Id, null, HistoryRange.Day))!.ProcessLists);
+    }
+
+    /// <summary>The copied process list (0.7.0): read again with the caller's scope, and audited without a process or user.</summary>
+    [Fact]
+    public async Task A_copied_process_list_is_read_again_with_the_callers_scope_and_audited_without_processes()
+    {
+        var (_, endpoint, check) = await SetupAsync(CheckType.CpuUsage, "{}", 80);
+        var now = _fixture.Database.Time.GetUtcNow().UtcDateTime;
+        var origin = new DateTime(2000, 1, 3, 0, 0, 0, DateTimeKind.Utc);
+        var bucket = TimeSpan.FromMinutes(10);
+        var start = origin + TimeSpan.FromTicks((now.AddHours(-1) - origin).Ticks / bucket.Ticks * bucket.Ticks);
+        await ResultAsync(endpoint, check, start.AddMinutes(1), 92,
+            processesJson: ProcessListRules.Serialize([new ProcessEntry(42, "sqlservr.exe", "svc-sql", 61.5, 4L << 30)]));
+
+        var result = await History.GetProcessListReportAsync(WebFixture.Technician(), endpoint.Id, check.Id, null, HistoryRange.Day, start);
+
+        var report = result.Value!;
+        Assert.Equal("SRV-CHART", report.Hostname);
+        Assert.Equal(92, report.Snapshot.Value);
+        Assert.Equal("sqlservr.exe", Assert.Single(report.Snapshot.Processes).Name);
+        Assert.Equal($"fleeto-cpu-SRV-CHART-{start.AddMinutes(1):yyyy-MM-dd-HHmm}.png", report.FileName("png"));
+        var image = Fleeto.Web.Reports.ProcessListReportImage.From(report, t => t.ToString("O"));
+        Assert.True(image.Cpu);
+        Assert.Equal("61.5%", image.Processes[0].Cpu);
+        Assert.Equal("Warning at 80%", image.Thresholds);
+
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            var audit = await db.AuditEntries.AsNoTracking()
+                .SingleAsync(a => a.Action == AuditActions.ProcessListExported && a.TargetId == endpoint.Id.ToString());
+            Assert.DoesNotContain("sqlservr", audit.DetailsJson);
+            Assert.DoesNotContain("svc-sql", audit.DetailsJson);
+        }
+
+        // A bucket without a list and another client get no report.
+        Assert.False((await History.GetProcessListReportAsync(WebFixture.Technician(), endpoint.Id, check.Id, null, HistoryRange.Day,
+            start.AddMinutes(-10))).Success);
+        var otherClient = await _fixture.Database.CreateClientAsync();
+        var outsider = WebFixture.CallerWith(new RestrictedClientScope([otherClient.Id]), FleetoRoles.Technician);
+        Assert.False((await History.GetProcessListReportAsync(outsider, endpoint.Id, check.Id, null, HistoryRange.Day, start)).Success);
     }
 
     [Fact]

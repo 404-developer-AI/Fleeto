@@ -1,5 +1,7 @@
 using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
+using Fleeto.Core.Interfaces;
+using Fleeto.Infrastructure.Audit;
 using Fleeto.Infrastructure.Data;
 using Fleeto.Infrastructure.Licensing;
 using Fleeto.Infrastructure.Services;
@@ -48,6 +50,27 @@ public sealed record CheckHistoryView(
 
 /// <summary>The process list of one result: when it was measured, its value, and the processes using the most, highest first.</summary>
 public sealed record ProcessSnapshot(DateTime At, double Value, IReadOnlyList<ProcessEntry> Processes);
+
+/// <summary>
+/// The process list of one CPU or memory usage result as a report for the customer (0.7.0): the copied image. Users are personal
+/// data: the report goes to whoever the user hands it to, so only the export itself is audited, never what it holds.
+/// </summary>
+public sealed record ProcessListReport(string Hostname, string ClientCode, string ClientName, string SiteName, string CheckName, CheckType Type,
+    ProcessSnapshot Snapshot, double? WarningThreshold, double? CriticalThreshold, string GeneratedBy, DateTime GeneratedAt)
+{
+    /// <summary>A file name without characters a file system refuses: <c>fleeto-cpu-SRV01-2026-10-20-1430.png</c>.</summary>
+    public string FileName(string extension)
+    {
+        var name = $"fleeto-{(Type == CheckType.CpuUsage ? "cpu" : "memory")}-{Hostname}-{Snapshot.At:yyyy-MM-dd-HHmm}";
+        var clean = new string(name.Select(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' ? c : '-').ToArray());
+        while (clean.Contains("--", StringComparison.Ordinal))
+        {
+            clean = clean.Replace("--", "-", StringComparison.Ordinal);
+        }
+
+        return clean.TrimEnd('-') + "." + extension;
+    }
+}
 
 /// <summary>
 /// Check history per check of an endpoint (ARCHITECTURE.md §4, Check history): the last hour and day from raw results (kept 30 days),
@@ -212,6 +235,54 @@ public sealed class CheckHistoryService
             ProcessLists = processLists,
             Interval = CheckHistoryRules.ExpectedInterval(check.Type, check.IntervalSeconds)
         };
+    }
+
+    /// <summary>
+    /// The process list of one bucket as a report (0.7.0), read again with the caller's own scope and permission, and the export
+    /// audited with the check and the time of the result, never a process or user.
+    /// </summary>
+    public async Task<ServiceResult<ProcessListReport>> GetProcessListReportAsync(Caller caller, Guid endpointId, Guid checkId, string? target,
+        HistoryRange range, DateTime bucket, CancellationToken cancellationToken = default)
+    {
+        if (!caller.Has(Permissions.ChecksView))
+        {
+            return ServiceResult<ProcessListReport>.Forbidden();
+        }
+
+        var view = await GetAsync(caller, endpointId, checkId, target, range, cancellationToken);
+        if (view is null)
+        {
+            return ServiceResult<ProcessListReport>.NotFound("check");
+        }
+
+        if (!view.ProcessLists.TryGetValue(bucket, out var snapshot))
+        {
+            return ServiceResult<ProcessListReport>.Fail("This process list is no longer in the history. Close the history and open it again.");
+        }
+
+        await using var db = _dbFactory.Create(caller.Scope);
+        var endpoint = await db.Endpoints.AsNoTracking()
+            .Where(e => e.Id == endpointId)
+            .Select(e => new
+            {
+                e.Hostname, e.ClientId,
+                ClientCode = db.Clients.Where(c => c.Id == e.ClientId).Select(c => c.Code).FirstOrDefault(),
+                ClientName = db.Clients.Where(c => c.Id == e.ClientId).Select(c => c.Name).FirstOrDefault(),
+                SiteName = db.Sites.Where(s => s.Id == e.SiteId).Select(s => s.Name).FirstOrDefault()
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (endpoint is null)
+        {
+            return ServiceResult<ProcessListReport>.NotFound("endpoint");
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        var report = new ProcessListReport(endpoint.Hostname, endpoint.ClientCode ?? string.Empty, endpoint.ClientName ?? string.Empty,
+            endpoint.SiteName ?? string.Empty, view.Name, view.Type, snapshot, view.WarningThreshold, view.CriticalThreshold, caller.Name, now);
+        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.ProcessListExported, "Endpoint", endpointId.ToString(), endpoint.ClientId,
+            new { endpoint.Hostname, CheckId = checkId, Check = view.Name, Type = view.Type.ToString(), snapshot.At }), now));
+        await db.SaveChangesAsync(cancellationToken);
+        return ServiceResult<ProcessListReport>.Ok(report);
     }
 
     private static DateTime Align(DateTime time, TimeSpan bucket, DateTime origin) =>

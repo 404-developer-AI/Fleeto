@@ -619,6 +619,11 @@ cut to length, CPU within 0 to 100 percent). The workers put the first three, wi
 user, in the alert detail, which goes out by email and webhook; the check state keeps the agent's detail. The check history
 marks every bucket that has a list with a dot, taken from the highest result in that bucket that has one; hovering or
 clicking the bucket shows the list below the chart. An agent before 0.6.0 ignores the parameter and sends no list.
+"Copy" above the list (0.7.0) copies it as a PNG for a mail or ticket, the same way as the storage summary: web reads the
+list again with the caller's scope, formats every text (`ProcessListReportImage`), and the browser draws it with the shared
+report painter of `fleeto.js` (`fleeto.copyProcessImage`), downloading it where the browser refuses an image on the clipboard.
+It needs View checks and is audited as `check.process_list_exported` with the check and the time of the result, never a
+process or user.
 
 **Checks Fleeto evaluates itself (0.6.0).** A check type marked `EvaluatedByFleeto` in the catalog is left out of the
 agent's configuration. Its results come from the workers, which insert them into `CheckResults` (the one table the

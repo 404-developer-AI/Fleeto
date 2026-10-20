@@ -143,17 +143,23 @@ window.fleeto = {
       handle.addEventListener("pointerup", up);
     });
   },
-  // The storage summary of a drive as an image (0.7.0): drawn on a canvas in the branding of Fleeto, so it looks the same in every
-  // mail or ticket it is pasted into. The server sends the text already formatted; nothing here reads the page. Copies a PNG to the
-  // clipboard and answers "copied"; where the browser refuses that, it downloads the PNG and answers "downloaded".
+  // The storage summary of a drive and the process list of a CPU or memory result as an image (0.7.0): drawn on a canvas in the
+  // branding of Fleeto, so it looks the same in every mail or ticket it is pasted into. The server sends the text already formatted;
+  // nothing here reads the page. Copies a PNG to the clipboard and answers "copied"; where the browser refuses that, it downloads the
+  // PNG and answers "downloaded".
   copyStorageImage: async function (report) {
-    var canvas = await window.fleeto.drawStorageImage(report);
+    return window.fleeto.copyCanvas(await window.fleeto.drawStorageImage(report), report.fileName);
+  },
+  copyProcessImage: async function (report) {
+    return window.fleeto.copyCanvas(await window.fleeto.drawProcessImage(report), report.fileName);
+  },
+  copyCanvas: async function (canvas, fileName) {
     var blob = await new Promise(function (resolve) { canvas.toBlob(resolve, "image/png"); });
     try {
       await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
       return "copied";
     } catch (e) {
-      window.fleeto.saveBlob(report.fileName, blob);
+      window.fleeto.saveBlob(fileName, blob);
       return "downloaded";
     }
   },
@@ -167,7 +173,9 @@ window.fleeto = {
     link.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   },
-  drawStorageImage: async function (report) {
+  // A white canvas with the drawing helpers of a report image and its header: the mark of Fleeto, a teal rounded square with a
+  // white heartbeat line (branding section 5), the name and the title. Answers the helpers and the y below the header.
+  reportPainter: async function (width, height, pad, title) {
     var colors = {
       primary: "#0F766E", tint: "#F0FDFA", tintStrong: "#CCFBF1", text: "#1C1917", secondary: "#78716C", muted: "#A8A29E",
       border: "#E7E5E4", surface: "#FAFAF9", warning: "#B45309", white: "#FFFFFF"
@@ -179,9 +187,7 @@ window.fleeto = {
       // The system font is drawn instead.
     }
 
-    var width = 760, pad = 28, row = 26, scale = 2;
-    var height = pad + 54 + 64 + 104 + (report.warning ? 24 : 0) + 2 * (32 + row + 12) +
-      row * (Math.max(1, report.folders.length) + Math.max(1, report.files.length)) + 40;
+    var scale = 2;
     var canvas = document.createElement("canvas");
     canvas.width = width * scale;
     canvas.height = height * scale;
@@ -224,9 +230,7 @@ window.fleeto = {
 
     g.fillStyle = colors.white;
     g.fillRect(0, 0, width, height);
-    var right = width - pad, y = pad;
-
-    // Header: the mark of Fleeto, a teal rounded square with a white heartbeat line (branding section 5).
+    var y = pad;
     rounded(pad, y, 28, 28, 7, colors.primary);
     g.strokeStyle = colors.white;
     g.lineWidth = 2;
@@ -238,11 +242,19 @@ window.fleeto = {
     });
     g.stroke();
     text("Fleeto", pad + 38, y + 20, 17, colors.text, 600);
-    text("Storage report", right, y + 20, 13, colors.secondary, 400, "right");
+    text(title, width - pad, y + 20, 13, colors.secondary, 400, "right");
     y += 40;
     g.fillStyle = colors.border;
     g.fillRect(pad, y, width - 2 * pad, 1);
-    y += 14;
+    return { canvas: canvas, g: g, colors: colors, text: text, rounded: rounded, fit: fit, y: y + 14 };
+  },
+  drawStorageImage: async function (report) {
+    var width = 760, pad = 28, row = 26;
+    var height = pad + 54 + 64 + 104 + (report.warning ? 24 : 0) + 2 * (32 + row + 12) +
+      row * (Math.max(1, report.folders.length) + Math.max(1, report.files.length)) + 40;
+    var p = await window.fleeto.reportPainter(width, height, pad, "Storage report");
+    var canvas = p.canvas, g = p.g, colors = p.colors, text = p.text, rounded = p.rounded, fit = p.fit;
+    var right = width - pad, y = p.y;
 
     text(fit(report.hostname, width - 2 * pad, 22, 600), pad, y + 22, 22, colors.text, 600);
     text(fit(report.owner, width - 2 * pad, 13), pad, y + 42, 13, colors.secondary);
@@ -299,6 +311,61 @@ window.fleeto = {
       text(f.size, pad + 540, baseline, 13, colors.text, 500, "right");
       text(f.changed, right - 10, baseline, 12, colors.secondary, 400, "right");
     });
+
+    text(fit(report.footer, width - 2 * pad, 11), pad, height - 18, 11, colors.muted);
+    return canvas;
+  },
+  drawProcessImage: async function (report) {
+    var width = 760, pad = 28, row = 26;
+    var height = pad + 54 + 64 + 92 + 32 + row + row * Math.max(1, report.processes.length) + 12 + 40;
+    var p = await window.fleeto.reportPainter(width, height, pad, report.title);
+    var canvas = p.canvas, g = p.g, colors = p.colors, text = p.text, rounded = p.rounded, fit = p.fit;
+    var right = width - pad, y = p.y;
+
+    text(fit(report.hostname, width - 2 * pad, 22, 600), pad, y + 22, 22, colors.text, 600);
+    text(fit(report.owner, width - 2 * pad, 13), pad, y + 42, 13, colors.secondary);
+    y += 64;
+
+    // The measurement.
+    rounded(pad, y, width - 2 * pad, 80, 12, colors.surface);
+    text(fit(report.check, width - 2 * pad - 200, 15, 600), pad + 18, y + 30, 15, colors.text, 600);
+    text(report.value, right - 18, y + 32, 22, colors.text, 600, "right");
+    text(report.measured, pad + 18, y + 60, 13, colors.text);
+    if (report.thresholds) {
+      text(report.thresholds, right - 18, y + 60, 12, colors.secondary, 400, "right");
+    }
+    y += 92;
+
+    text(report.processesTitle, pad, y + 20, 15, colors.text, 600);
+    y += 32;
+    // Columns from the right: memory, then CPU with a bar of its share of the machine when the list has it.
+    var memoryX = right - 10, cpuX = report.cpu ? right - 110 : null, barX = report.cpu ? right - 270 : null;
+    var userEnd = report.cpu ? barX - 16 : memoryX - 120, userX = userEnd - 170, pidX = userX - 20;
+    var columns = [{ title: "Process", x: pad + 10 }, { title: "PID", x: pidX, align: "right" }, { title: "User", x: userX }];
+    if (report.cpu) { columns.push({ title: "CPU", x: barX }); }
+    columns.push({ title: "Memory", x: memoryX, align: "right" });
+    rounded(pad, y, width - 2 * pad, row, 6, colors.tint);
+    columns.forEach(function (c) { text(c.title, c.x, y + 17, 11, colors.primary, 600, c.align); });
+    y += row;
+    report.processes.forEach(function (process, i) {
+      var baseline = y + 17;
+      if (i % 2 === 1) { g.fillStyle = colors.surface; g.fillRect(pad, y, width - 2 * pad, row); }
+      text(fit(process.name, pidX - 60 - pad - 10, 13), pad + 10, baseline, 13, colors.text);
+      text(process.pid, pidX, baseline, 12, colors.secondary, 400, "right");
+      text(fit(process.user, userEnd - userX, 12), userX, baseline, 12, colors.secondary);
+      if (report.cpu) {
+        rounded(barX, baseline - 9, 100, 8, 4, colors.tint);
+        rounded(barX, baseline - 9, 100 * Math.max(0, Math.min(1, process.cpuShare)), 8, 4, colors.primary);
+        text(process.cpu, cpuX, baseline, 13, colors.text, 500, "right");
+      }
+      text(process.memory, memoryX, baseline, 13, colors.text, 500, "right");
+      g.fillStyle = colors.border;
+      g.fillRect(pad, y + row - 1, width - 2 * pad, 1);
+      y += row;
+    });
+    if (report.processes.length === 0) {
+      text(report.empty, pad + 10, y + 17, 12, colors.secondary);
+    }
 
     text(fit(report.footer, width - 2 * pad, 11), pad, height - 18, 11, colors.muted);
     return canvas;
