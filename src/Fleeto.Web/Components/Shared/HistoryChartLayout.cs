@@ -94,6 +94,26 @@ public sealed class HistoryChartLayout
 
     public static string F(double value) => value.ToString("0.#", CultureInfo.InvariantCulture);
 
+    /// <summary>A value on the y axis and in the tooltips.</summary>
+    public static string ValueLabel(double value, string unit) => unit switch
+    {
+        "%" => value.ToString("0", CultureInfo.InvariantCulture) + "%",
+        _ => (Math.Abs(value) >= 100 ? value.ToString("0", CultureInfo.InvariantCulture) : value.ToString("0.#", CultureInfo.InvariantCulture)) +
+            (string.IsNullOrEmpty(unit) ? "" : " " + unit)
+    };
+
+    /// <summary>A time on the x axis, in the user's own time zone, as precise as the range needs.</summary>
+    public static string TimeLabel(DateTime utc, HistoryRange range, TimeZoneInfo zone)
+    {
+        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), zone);
+        return range switch
+        {
+            HistoryRange.Hour or HistoryRange.Day => local.ToString("HH:mm", CultureInfo.InvariantCulture),
+            HistoryRange.Year => local.ToString("MMM yyyy", CultureInfo.InvariantCulture),
+            _ => local.ToString("d MMM", CultureInfo.InvariantCulture)
+        };
+    }
+
     private string Runs(Func<int, double> value, bool forward)
     {
         var path = new StringBuilder();

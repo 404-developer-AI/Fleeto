@@ -42,12 +42,13 @@ build plan are in `PERFORMANCE.md`. Built in three steps, each an alpha on the t
   manual markers; the JSON and ZIP export.
 - [open] **Step 3, the rest**: the Frontend tab (Web Vitals of staff users, sampled), the edge check of the instance URL, the
   benchmark, budgets, comparison by version and with the previous period, critical findings as an instance health problem.
-- [open] **Copy output of the remote terminal** (asked for by the developer and built 2026-10-19, to be tested on the test VPS).
-- [open] **Storage report for the customer** (asked for by the developer and built 2026-10-19, to be tested on the test VPS):
+- [done] **Copy output of the remote terminal** (asked for by the developer and built 2026-10-19, tested on the test VPS 2026-10-20).
+- [done] **Storage report for the customer** (asked for by the developer and built 2026-10-19, tested on the test VPS 2026-10-20):
   "Copy summary" as an image with the top 10 folders and files of a drive, and "Export PDF" with every scanned folder and file,
   in the branding of Fleeto; the PDF written by Fleeto itself.
 - [open] **Copy the process list of a CPU or memory result** (asked for by the developer and built 2026-10-20, to be tested on
-  the test VPS): "Copy" in the check history copies the process list as an image, like the storage summary.
+  the test VPS): "Copy" in the check history copies the process list with the chart of the period shown as an image, like the storage summary
+  (the chart added after testing `0.7.0-alpha.7`).
 - [open] **Turn off automatic Windows Update from a patch policy** (asked for by the developer and built 2026-10-19, to be
   tested on the test VPS): Action1 offers it only in its console, so the Fleeto agent sets `NoAutoUpdate` itself on the managed
   Windows endpoints Action1 reports, where no group policy decides, and undoes it when it no longer applies. The Patches tab shows

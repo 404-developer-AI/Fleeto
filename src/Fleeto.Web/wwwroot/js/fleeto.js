@@ -178,7 +178,7 @@ window.fleeto = {
   reportPainter: async function (width, height, pad, title) {
     var colors = {
       primary: "#0F766E", tint: "#F0FDFA", tintStrong: "#CCFBF1", text: "#1C1917", secondary: "#78716C", muted: "#A8A29E",
-      border: "#E7E5E4", surface: "#FAFAF9", warning: "#B45309", white: "#FFFFFF"
+      border: "#E7E5E4", surface: "#FAFAF9", warning: "#B45309", error: "#DC2626", white: "#FFFFFF"
     };
     var font = "Inter, -apple-system, \"Segoe UI\", Roboto, sans-serif";
     try {
@@ -317,7 +317,8 @@ window.fleeto = {
   },
   drawProcessImage: async function (report) {
     var width = 760, pad = 28, row = 26;
-    var height = pad + 54 + 64 + 92 + 32 + row + row * Math.max(1, report.processes.length) + 12 + 40;
+    var chart = report.chart, chartScale = (width - 2 * pad) / chart.width, chartHeight = chart.height * chartScale;
+    var height = pad + 54 + 64 + 92 + 32 + chartHeight + 22 + 12 + 32 + row + row * Math.max(1, report.processes.length) + 12 + 40;
     var p = await window.fleeto.reportPainter(width, height, pad, report.title);
     var canvas = p.canvas, g = p.g, colors = p.colors, text = p.text, rounded = p.rounded, fit = p.fit;
     var right = width - pad, y = p.y;
@@ -336,11 +337,100 @@ window.fleeto = {
     }
     y += 92;
 
+    // The chart of the period as the check history draws it, in its own coordinates scaled to the width of the image; the dot of
+    // the copied process list is filled. Lines and texts are drawn at their own size, not scaled.
+    text(chart.title, pad, y + 20, 15, colors.text, 600);
+    y += 32;
+    var top = y;
+    function cx(x) { return pad + x * chartScale; }
+    function cy(v) { return top + v * chartScale; }
+    var plotLeft = cx(chart.left), plotRight = cx(chart.width - chart.right);
+    function line(atY, color, dashed) {
+      g.save();
+      g.strokeStyle = color;
+      g.lineWidth = 1;
+      g.setLineDash(dashed ? [6, 4] : []);
+      g.beginPath();
+      g.moveTo(plotLeft, atY);
+      g.lineTo(plotRight, atY);
+      g.stroke();
+      g.restore();
+    }
+    chart.yTicks.forEach(function (t) {
+      line(cy(t.at), colors.border, false);
+      text(t.label, plotLeft - 6, cy(t.at) + 4, 11, colors.secondary, 400, "right");
+    });
+    chart.xTicks.forEach(function (t) { text(t.label, cx(t.at), top + chartHeight - 8, 11, colors.secondary, 400, "center"); });
+    function path(data, draw) {
+      if (!data) { return; }
+      g.save();
+      g.translate(pad, top);
+      g.scale(chartScale, chartScale);
+      draw(new Path2D(data));
+      g.restore();
+    }
+    path(chart.band, function (shape) { g.globalAlpha = 0.7; g.fillStyle = colors.tintStrong; g.fill(shape); });
+    path(chart.average, function (shape) {
+      g.strokeStyle = colors.primary;
+      g.lineWidth = 2 / chartScale;
+      g.lineJoin = "round";
+      g.stroke(shape);
+    });
+    if (chart.warningY !== null) { line(cy(chart.warningY), "#D97706", true); }
+    if (chart.criticalY !== null) { line(cy(chart.criticalY), colors.error, true); }
+    chart.problems.forEach(function (s) {
+      g.fillStyle = colors.error;
+      g.fillRect(cx(s.x), top + (chart.top + chart.plotHeight + 2) * chartScale, Math.max(1, s.width * chartScale), 4);
+    });
+    chart.markers.forEach(function (m) {
+      g.beginPath();
+      g.arc(cx(m.x), cy(m.y), m.selected ? 5 : 3, 0, 2 * Math.PI);
+      g.fillStyle = m.selected ? colors.primary : colors.white;
+      g.fill();
+      g.strokeStyle = colors.primary;
+      g.lineWidth = 2;
+      g.stroke();
+    });
+    y = top + chartHeight + 4;
+
+    // The legend, as under the check history.
+    var legendX = plotLeft;
+    function legend(label, draw) {
+      draw(legendX, y + 10);
+      text(label, legendX + 22, y + 14, 11, colors.secondary);
+      legendX += 22 + g.measureText(label).width + 18;
+    }
+    legend("Average", function (x, mid) { g.fillStyle = colors.primary; g.fillRect(x, mid - 1, 16, 2); });
+    legend("Lowest to highest", function (x, mid) { rounded(x, mid - 4, 16, 8, 2, colors.tintStrong); });
+    if (chart.warningY !== null) {
+      legend("Warning threshold", function (x, mid) { g.fillStyle = "#D97706"; g.fillRect(x, mid - 1, 6, 2); g.fillRect(x + 10, mid - 1, 6, 2); });
+    }
+    if (chart.criticalY !== null) {
+      legend("Critical threshold", function (x, mid) { g.fillStyle = colors.error; g.fillRect(x, mid - 1, 6, 2); g.fillRect(x + 10, mid - 1, 6, 2); });
+    }
+    legend("Process list", function (x, mid) {
+      g.beginPath();
+      g.arc(x + 8, mid, 3, 0, 2 * Math.PI);
+      g.fillStyle = colors.white;
+      g.fill();
+      g.strokeStyle = colors.primary;
+      g.lineWidth = 2;
+      g.stroke();
+    });
+    legend("Copied list", function (x, mid) {
+      g.beginPath();
+      g.arc(x + 8, mid, 4, 0, 2 * Math.PI);
+      g.fillStyle = colors.primary;
+      g.fill();
+    });
+    y += 22 + 12;
+
     text(report.processesTitle, pad, y + 20, 15, colors.text, 600);
     y += 32;
     // Columns from the right: memory, then CPU with a bar of its share of the machine when the list has it.
-    var memoryX = right - 10, cpuX = report.cpu ? right - 110 : null, barX = report.cpu ? right - 270 : null;
-    var userEnd = report.cpu ? barX - 16 : memoryX - 120, userX = userEnd - 170, pidX = userX - 20;
+    // Process names are short; users such as NT AUTHORITY\NETWORK SERVICE get the room that is left.
+    var memoryX = right - 10, cpuX = report.cpu ? right - 110 : null, barX = report.cpu ? right - 240 : null;
+    var pidX = pad + 225, userX = pidX + 20, userEnd = report.cpu ? barX - 14 : memoryX - 120;
     var columns = [{ title: "Process", x: pad + 10 }, { title: "PID", x: pidX, align: "right" }, { title: "User", x: userX }];
     if (report.cpu) { columns.push({ title: "CPU", x: barX }); }
     columns.push({ title: "Memory", x: memoryX, align: "right" });
@@ -350,12 +440,12 @@ window.fleeto = {
     report.processes.forEach(function (process, i) {
       var baseline = y + 17;
       if (i % 2 === 1) { g.fillStyle = colors.surface; g.fillRect(pad, y, width - 2 * pad, row); }
-      text(fit(process.name, pidX - 60 - pad - 10, 13), pad + 10, baseline, 13, colors.text);
+      text(fit(process.name, pidX - 45 - pad - 10, 13), pad + 10, baseline, 13, colors.text);
       text(process.pid, pidX, baseline, 12, colors.secondary, 400, "right");
       text(fit(process.user, userEnd - userX, 12), userX, baseline, 12, colors.secondary);
       if (report.cpu) {
-        rounded(barX, baseline - 9, 100, 8, 4, colors.tint);
-        rounded(barX, baseline - 9, 100 * Math.max(0, Math.min(1, process.cpuShare)), 8, 4, colors.primary);
+        rounded(barX, baseline - 9, 70, 8, 4, colors.tint);
+        rounded(barX, baseline - 9, 70 * Math.max(0, Math.min(1, process.cpuShare)), 8, 4, colors.primary);
         text(process.cpu, cpuX, baseline, 13, colors.text, 500, "right");
       }
       text(process.memory, memoryX, baseline, 13, colors.text, 500, "right");

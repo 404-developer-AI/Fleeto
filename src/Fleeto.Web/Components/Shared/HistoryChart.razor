@@ -85,23 +85,9 @@
 
     private string AriaLabel => $"History of {View.Name}{(string.IsNullOrEmpty(View.Target) ? "" : $" ({View.Target})")}";
 
-    private string FormatValue(double value) => View.Unit switch
-    {
-        "%" => value.ToString("0", System.Globalization.CultureInfo.InvariantCulture) + "%",
-        _ => (Math.Abs(value) >= 100 ? value.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
-            : value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)) + (string.IsNullOrEmpty(View.Unit) ? "" : " " + View.Unit)
-    };
+    private string FormatValue(double value) => HistoryChartLayout.ValueLabel(value, View.Unit);
 
-    private string FormatTime(DateTime utc)
-    {
-        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), Time.Zone);
-        return View.Range switch
-        {
-            HistoryRange.Hour or HistoryRange.Day => local.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture),
-            HistoryRange.Year => local.ToString("MMM yyyy", System.Globalization.CultureInfo.InvariantCulture),
-            _ => local.ToString("d MMM", System.Globalization.CultureInfo.InvariantCulture)
-        };
-    }
+    private string FormatTime(DateTime utc) => HistoryChartLayout.TimeLabel(utc, View.Range, Time.Zone);
 
     private string Tooltip(HistoryPoint point)
     {

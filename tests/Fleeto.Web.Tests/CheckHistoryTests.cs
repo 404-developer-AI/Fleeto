@@ -176,10 +176,19 @@ public sealed class CheckHistoryTests
         Assert.Equal(92, report.Snapshot.Value);
         Assert.Equal("sqlservr.exe", Assert.Single(report.Snapshot.Processes).Name);
         Assert.Equal($"fleeto-cpu-SRV-CHART-{start.AddMinutes(1):yyyy-MM-dd-HHmm}.png", report.FileName("png"));
-        var image = Fleeto.Web.Reports.ProcessListReportImage.From(report, t => t.ToString("O"));
+        var image = Fleeto.Web.Reports.ProcessListReportImage.From(report, t => t.ToString("O"), TimeZoneInfo.Utc);
         Assert.True(image.Cpu);
         Assert.Equal("61.5%", image.Processes[0].Cpu);
         Assert.Equal("Warning at 80%", image.Thresholds);
+
+        // The chart of the period the history showed, with the dot of the copied list filled.
+        Assert.Equal("CPU over the last day", image.Chart.Title);
+        Assert.NotEmpty(image.Chart.Average);
+        Assert.NotNull(image.Chart.WarningY);
+        Assert.Null(image.Chart.CriticalY);
+        Assert.True(Assert.Single(image.Chart.Markers).Selected);
+        Assert.Equal(["0%", "33%", "67%", "100%"], image.Chart.YTicks.Select(t => t.Label));
+        Assert.Equal(5, image.Chart.XTicks.Count);
 
         await using (var db = _fixture.Database.DbFactory.CreateSystem())
         {

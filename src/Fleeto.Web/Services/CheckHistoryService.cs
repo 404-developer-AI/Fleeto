@@ -52,11 +52,13 @@ public sealed record CheckHistoryView(
 public sealed record ProcessSnapshot(DateTime At, double Value, IReadOnlyList<ProcessEntry> Processes);
 
 /// <summary>
-/// The process list of one CPU or memory usage result as a report for the customer (0.7.0): the copied image. Users are personal
+/// The process list of one CPU or memory usage result as a report for the customer (0.7.0): the copied image, with the chart of
+/// the period in <see cref="History"/> and the bucket of the list marked. Users are personal
 /// data: the report goes to whoever the user hands it to, so only the export itself is audited, never what it holds.
 /// </summary>
 public sealed record ProcessListReport(string Hostname, string ClientCode, string ClientName, string SiteName, string CheckName, CheckType Type,
-    ProcessSnapshot Snapshot, double? WarningThreshold, double? CriticalThreshold, string GeneratedBy, DateTime GeneratedAt)
+    ProcessSnapshot Snapshot, double? WarningThreshold, double? CriticalThreshold, string GeneratedBy, DateTime GeneratedAt,
+    CheckHistoryView History, DateTime Bucket)
 {
     /// <summary>A file name without characters a file system refuses: <c>fleeto-cpu-SRV01-2026-10-20-1430.png</c>.</summary>
     public string FileName(string extension)
@@ -278,7 +280,8 @@ public sealed class CheckHistoryService
 
         var now = _time.GetUtcNow().UtcDateTime;
         var report = new ProcessListReport(endpoint.Hostname, endpoint.ClientCode ?? string.Empty, endpoint.ClientName ?? string.Empty,
-            endpoint.SiteName ?? string.Empty, view.Name, view.Type, snapshot, view.WarningThreshold, view.CriticalThreshold, caller.Name, now);
+            endpoint.SiteName ?? string.Empty, view.Name, view.Type, snapshot, view.WarningThreshold, view.CriticalThreshold, caller.Name, now,
+            view, bucket);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.ProcessListExported, "Endpoint", endpointId.ToString(), endpoint.ClientId,
             new { endpoint.Hostname, CheckId = checkId, Check = view.Name, Type = view.Type.ToString(), snapshot.At }), now));
         await db.SaveChangesAsync(cancellationToken);

@@ -63,8 +63,9 @@ automatic Windows Update off from a patch policy.
   2026-10-19): copies everything the terminal shows as plain text, also what scrolled away (up to 10,000 lines), with lines the
   terminal wrapped joined again. It happens in the browser; the output never passes the server, as before.
 - Check history of a CPU or memory usage check, "Copy" above the process list (asked for by the developer on 2026-10-20): copies
-  the measurement and its processes (name, PID, user, CPU with a bar, memory) as an image in the branding of Fleeto, the same
-  way as the storage summary, and downloads it where the browser does not allow an image on the clipboard. Audited
+  the measurement, the chart of the period shown (hour, day, week, month or year, with thresholds and the dot of the copied list
+  filled; added 2026-10-20 after testing `0.7.0-alpha.7`) and its processes (name, PID, user, CPU with a bar, memory) as an image
+  in the branding of Fleeto, the same way as the storage summary, and downloads it where the browser does not allow an image on the clipboard. Audited
   (`check.process_list_exported`, the check and the time of the result, never a process or user). The image stays in the UI.
 - Storage tab, "Copy summary" and "Export PDF" (asked for by the developer on 2026-10-19), to hand the storage of a drive to the
   customer. The summary is an image in the branding of Fleeto, the same in every mail or ticket it is pasted into: the drive with

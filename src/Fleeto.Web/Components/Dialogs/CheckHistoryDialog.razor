@@ -173,7 +173,7 @@
                 return;
             }
 
-            var outcome = await JS.InvokeAsync<string>("fleeto.copyProcessImage", Reports.ProcessListReportImage.From(report, t => Time.Short(t)));
+            var outcome = await JS.InvokeAsync<string>("fleeto.copyProcessImage", Reports.ProcessListReportImage.From(report, t => Time.Absolute(t), Time.Zone));
             Snackbar.Add(outcome == "copied"
                 ? "The process list is copied as an image. Paste it into a mail or a ticket."
                 : "The browser did not allow copying an image, so it was downloaded instead.", Severity.Info);
