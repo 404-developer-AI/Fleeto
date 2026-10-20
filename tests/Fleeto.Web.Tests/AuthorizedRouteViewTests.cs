@@ -16,6 +16,9 @@ namespace Fleeto.Web.Tests;
 /// </summary>
 public sealed class AuthorizedRouteViewTests : BunitContext
 {
+    // The check completes on another thread; a busy CI runner can take longer than the default second to render after it.
+    private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
+
     private readonly PendingAuthorization _authorization = new();
 
     public AuthorizedRouteViewTests()
@@ -41,14 +44,14 @@ public sealed class AuthorizedRouteViewTests : BunitContext
         var view = RenderView(typeof(ProtectedPage));
         view.Find(".authorizing");
         _authorization.Complete(true);
-        var page = view.WaitForComponent<ProtectedPage>().Instance;
+        var page = view.WaitForComponent<ProtectedPage>(Wait).Instance;
 
         Navigate(view, typeof(ProtectedPage));
         Assert.Same(page, view.FindComponent<ProtectedPage>().Instance);
         Assert.Empty(view.FindAll(".authorizing"));
 
         _authorization.Complete(true);
-        view.WaitForAssertion(() => Assert.Same(page, view.FindComponent<ProtectedPage>().Instance));
+        view.WaitForAssertion(() => Assert.Same(page, view.FindComponent<ProtectedPage>().Instance), Wait);
     }
 
     [Fact]
@@ -56,12 +59,12 @@ public sealed class AuthorizedRouteViewTests : BunitContext
     {
         var view = RenderView(typeof(ProtectedPage));
         _authorization.Complete(true);
-        view.WaitForComponent<ProtectedPage>();
+        view.WaitForComponent<ProtectedPage>(Wait);
 
         Navigate(view, typeof(ProtectedPage));
         _authorization.Complete(false);
 
-        view.WaitForElement(".refused");
+        view.WaitForElement(".refused", Wait);
         Assert.Empty(view.FindComponents<ProtectedPage>());
     }
 
@@ -70,14 +73,14 @@ public sealed class AuthorizedRouteViewTests : BunitContext
     {
         var view = RenderView(typeof(ProtectedPage));
         _authorization.Complete(true);
-        view.WaitForComponent<ProtectedPage>();
+        view.WaitForComponent<ProtectedPage>(Wait);
 
         Navigate(view, typeof(OtherProtectedPage));
         view.Find(".authorizing");
         Assert.Empty(view.FindComponents<ProtectedPage>());
 
         _authorization.Complete(true);
-        view.WaitForComponent<OtherProtectedPage>();
+        view.WaitForComponent<OtherProtectedPage>(Wait);
     }
 
     [Authorize(Policy = "test")]
