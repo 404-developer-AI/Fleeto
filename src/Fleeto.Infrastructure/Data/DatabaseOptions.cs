@@ -40,7 +40,10 @@ public sealed class DatabaseOptions
             MaxPoolSize = MaxPoolSize > 0 ? MaxPoolSize : component.DefaultPoolSize(),
             ApplicationName = "fleeto-" + component.ToString().ToLowerInvariant(),
             // Keep-alive so LISTEN connections notice a dead peer.
-            KeepAlive = 30
+            KeepAlive = 30,
+            // Fleeto signs in with a password, never Kerberos. Npgsql prefers GSS encryption by default and then loads the
+            // native GSSAPI library on every new connection, which the runtime images lack: a caught exception each time.
+            GssEncryptionMode = GssEncryptionMode.Disable
         };
 
         return builder.ConnectionString;

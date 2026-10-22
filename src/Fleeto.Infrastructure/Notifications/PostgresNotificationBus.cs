@@ -100,9 +100,10 @@ public sealed class PostgresNotificationBus : BackgroundService, INotificationBu
 
                 while (!stoppingToken.IsCancellationRequested)
                 {
-                    // Wake up regularly so a dead connection is noticed even when no notifications arrive.
-                    await connection.WaitAsync(TimeSpan.FromSeconds(30), stoppingToken);
-                    if (!await PingAsync(connection, stoppingToken))
+                    // Wake up regularly so a dead connection is noticed even when no notifications arrive. A notification
+                    // proves the connection alive, so only a quiet wait is followed by a ping: pinging after every
+                    // notification would cost every component a round trip per notification.
+                    if (!await connection.WaitAsync(TimeSpan.FromSeconds(30), stoppingToken) && !await PingAsync(connection, stoppingToken))
                     {
                         break;
                     }

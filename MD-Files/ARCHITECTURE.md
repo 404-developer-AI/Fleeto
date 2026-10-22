@@ -651,7 +651,8 @@ setting is saved, `InstanceHealthService` in the workers takes a sample: disk, m
 CPU and load of the VPS from /proc (a container shares it with the host, so no Docker socket is needed; the disk is the file
 system of the container root, which holds the Docker data directory; CPU is the average since the previous sample), the
 database (`pg_database_size`, client connections against `max_connections`, the 15 largest tables with
-`pg_total_relation_size`, a hypertable with TimescaleDB's `hypertable_size` because its rows live in chunks), and the instance (worker tasks that stopped reporting to `WorkerHeartbeat`, the last successful
+`pg_total_relation_size`, a hypertable with TimescaleDB's `hypertable_size` because its rows live in chunks; measured once an
+hour since 0.7.0 and reused by the samples in between, because table sizes decide no finding), and the instance (worker tasks that stopped reporting to `WorkerHeartbeat`, the last successful
 backup, emails and webhooks that wait, unprocessed endpoint events, endpoints online). `InstanceHealthRules` judges it with
 fixed thresholds: disk 80 and 90% used or full within 14 and 3 days at the growth of the last week (a least-squares line),
 memory under 10 and 5% available or swap half in use, CPU 85 and 95% on average over 15 minutes, connections 80 and 95%, a

@@ -33,6 +33,10 @@ public sealed class InstanceHealthService : WorkerLoop
 
     private static readonly TimeSpan QueryInterval = TimeSpan.FromHours(1);
 
+    // Measuring the hypertables takes TimescaleDB a few hundred milliseconds, and table sizes decide no finding (a disk or
+    // database finding only names the largest tables), so every sample of the hour reuses the last measurement.
+    private static readonly TimeSpan TablesInterval = TimeSpan.FromHours(1);
+
     private const string DatabaseSql = """
         SELECT pg_database_size(current_database()) AS "Size",
                (SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend')::int AS "Connections",
@@ -66,6 +70,8 @@ public sealed class InstanceHealthService : WorkerLoop
     private readonly INotificationBus _bus;
     private IDisposable? _subscription;
     private DateTimeOffset _nextQueries = DateTimeOffset.MinValue;
+    private IReadOnlyList<TableSize>? _tables;
+    private DateTimeOffset _nextTables = DateTimeOffset.MinValue;
 
     public InstanceHealthService(IFleetoDbContextFactory dbFactory, SettingsStore settings, HostMetricsReader host, WorkerHeartbeat heartbeat,
         INotificationBus bus, TimeProvider time, ILogger<InstanceHealthService> logger)
@@ -108,7 +114,13 @@ public sealed class InstanceHealthService : WorkerLoop
         await using var db = _dbFactory.CreateSystem();
 
         var database = await db.Database.SqlQueryRaw<DatabaseRow>(DatabaseSql).SingleAsync(cancellationToken);
-        var tables = await ReadTablesAsync(db, cancellationToken);
+        if (_tables is null || Time.GetUtcNow() >= _nextTables)
+        {
+            _tables = await ReadTablesAsync(db, cancellationToken);
+            _nextTables = Time.GetUtcNow() + TablesInterval;
+        }
+
+        var tables = _tables;
         var detail = new InstanceHealthDetail(tables, await ReadFleetoAsync(db, cancellationToken));
 
         var sample = new InstanceHealthSample

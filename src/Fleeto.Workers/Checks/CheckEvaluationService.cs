@@ -44,6 +44,9 @@ public sealed class CheckEvaluationService : WorkerLoop
     private static readonly TimeSpan WideSweepInterval = TimeSpan.FromHours(1);
     private static readonly TimeSpan LicenseCacheDuration = TimeSpan.FromSeconds(30);
 
+    /// <summary>How long before the cursor last moved a result newer than the cursor can be stamped: far more than an ingest transaction.</summary>
+    internal static readonly TimeSpan CursorTimeMargin = TimeSpan.FromHours(1);
+
     private const string SweepSql = """
         SELECT r."EndpointId" AS "Value"
         FROM (SELECT "EndpointId", max("Id") AS "MaxId" FROM "CheckResults" WHERE "Time" >= @since GROUP BY "EndpointId") r
@@ -328,8 +331,12 @@ public sealed class CheckEvaluationService : WorkerLoop
             }
             else
             {
+                // Results are stamped on ingest, so one newer than the cursor was stamped at most a transaction before the
+                // cursor last moved. The time bound changes no result; it only lets TimescaleDB skip the older (compressed)
+                // chunks, which the id alone cannot.
                 var cursor = watermark.Value;
-                query = query.Where(r => r.Id > cursor);
+                var since = watermark.UpdatedAt - CursorTimeMargin;
+                query = query.Where(r => r.Id > cursor && r.Time >= since);
             }
 
             var batchSize = Math.Max(1, _options.BatchSize);

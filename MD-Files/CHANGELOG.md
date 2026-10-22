@@ -113,6 +113,17 @@ automatic Windows Update off from a patch policy.
 - Settings, Performance failed to load for every period longer than the minute rows ("permission denied for table
   WorkerWatermarks", found on the test VPS on 2026-10-20): web reads how far the hourly rollup got, but its database role had
   no access to that table. Web now reads it, and a test reads every period with the privileges of web.
+- The notification listener of every component sent the database a ping after every notification, a round trip per
+  notification in each of the four components (7 million in 6 hours on the test VPS, with the loop above). A notification
+  proves the connection alive, so the listener now pings only after 30 seconds without one.
+- fleeto-signer threw and caught an exception on every new database connection (`TypeInitializationException` in
+  `Interop.NetSecurityNative`, 77 in 6 hours): Npgsql tries GSS encryption by default and loads a native Kerberos library the
+  images do not have. Fleeto signs in to its database with a password, so connections no longer try GSS encryption.
+- Check evaluation read the new results of an endpoint by id alone, so TimescaleDB searched every chunk of `CheckResults`,
+  the compressed ones too (61 ms per read, 178 ms at the 95th percentile, on the test VPS). The read is now also bounded by
+  time, an hour before the cursor last moved, which skips the old chunks and leaves out no result.
+- Instance health measured every table every 5 minutes, which takes TimescaleDB about 250 ms for the hypertables. Table sizes
+  decide no finding, so it now measures them once an hour.
 - The scheduled rounds of a patch policy never appeared under Deployments on the Patches tab, while a deployment started by
   hand did (found on the test VPS on 2026-10-19: the automations were read every hour, but not one scheduled deployment was ever
   made). Action1 gave no usable `last_instance` for the automation. When it names none, the workers now find the round among the

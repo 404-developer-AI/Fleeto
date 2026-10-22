@@ -247,6 +247,34 @@ public sealed class CheckEvaluationTests
     }
 
     [Fact]
+    public async Task A_result_stamped_before_the_cursor_last_moved_is_still_evaluated()
+    {
+        // The cursor query is bounded by time so TimescaleDB can skip old chunks. A result stamped on ingest just before
+        // the cursor moved, and committed after, must stay inside that bound.
+        var (site, endpoint) = await ManagedEndpointAsync();
+        var cpu = await _fixture.CreateCheckAsync(site, CheckType.CpuUsage, 80, 90);
+        await _fixture.InsertResultAsync(endpoint, cpu, 10);
+        var evaluation = _fixture.CheckEvaluation();
+        await evaluation.EvaluateEndpointAsync(endpoint.Id, CancellationToken.None);
+        Assert.Equal(CheckStatus.Ok, Assert.Single(await StatesAsync(endpoint.Id)).Status);
+
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var stamped = _fixture.Now - CheckEvaluationService.CursorTimeMargin / 2;
+            db.CheckResults.Add(new CheckResult
+            {
+                Time = stamped, ClientId = endpoint.ClientId, EndpointId = endpoint.Id, CheckDefinitionId = cpu.Id, Target = string.Empty,
+                AgentTime = stamped, Value = 99, Detail = string.Empty, Error = string.Empty, ConfigVersion = 1
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await evaluation.EvaluateEndpointAsync(endpoint.Id, CancellationToken.None);
+
+        Assert.Equal(CheckStatus.Critical, Assert.Single(await StatesAsync(endpoint.Id)).Status);
+    }
+
+    [Fact]
     public async Task Alerts_of_removed_checks_and_unmanaged_endpoints_are_resolved()
     {
         var (site, endpoint) = await ManagedEndpointAsync();
