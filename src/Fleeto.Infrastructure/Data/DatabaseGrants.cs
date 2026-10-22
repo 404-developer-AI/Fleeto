@@ -216,6 +216,21 @@ public static class DatabaseGrants
                 workers: "SELECT, INSERT, UPDATE, DELETE"),
             ["PerformanceSettings"] = Grants(web: "SELECT, INSERT, UPDATE", gateway: Read, signer: Read, workers: Read),
 
+            // The security monitor (0.7.0): web and the gateway write their own signals (TR_SecuritySignals_Component), the workers
+            // read them and apply retention. Both read the blocked and allowed addresses; web writes what an admin adds or removes
+            // (only manual blocks, TR_IpBlocks_Source), the workers the automatic blocks and their expiry. Web records the networks
+            // users sign in from.
+            ["SecuritySignals"] = Grants(web: "SELECT, INSERT", gateway: "INSERT", workers: "SELECT, DELETE"),
+            ["IpBlocks"] = Grants(web: ReadWrite, gateway: Read, workers: ReadWrite),
+            ["IpAllows"] = Grants(web: ReadWrite, gateway: Read, workers: Read),
+            ["UserSignInNetworks"] = Grants(web: ReadWrite, workers: "SELECT, DELETE"),
+            // Incidents (step 2): the workers open, update and resolve them; web acknowledges and resolves them by hand.
+            ["SecurityIncidents"] = Grants(web: "SELECT, UPDATE", workers: ReadWrite),
+            // Blocklists (step 3): an admin switches a list on or off and asks for a refresh in web; only the workers fetch them and
+            // write their entries. Web and the gateway read the entries of the lists that are on.
+            ["IpFeeds"] = Grants(web: "SELECT, UPDATE", gateway: Read, workers: ReadWrite),
+            ["IpFeedEntries"] = Grants(web: Read, gateway: Read, workers: ReadWrite),
+
             // Key material: full access for the signer only; everyone else reads the public columns.
             ["InstanceSigningKeys"] = Grants(signer: "SELECT, INSERT, UPDATE"),
             ["CertificateAuthorities"] = Grants(signer: "SELECT, INSERT, UPDATE"),
@@ -238,6 +253,8 @@ public static class DatabaseGrants
         // INSERT ... RETURNING "Id" (EF Core) needs SELECT on the returned column; the rest of the audit trail stays unreadable.
         ("AuditEntries", DatabaseRoles.Gateway, ["Id"]),
         ("AuditEntries", DatabaseRoles.Signer, ["Id"]),
+        // The security monitor (0.7.0) checks how API keys are set up; never their hash.
+        ("ApiKeys", DatabaseRoles.Workers, ["Id", "Name", "CreatedAt", "ExpiresAt", "LastUsedAt", "RevokedAt"]),
         // The signer checks that the initiator and the approver of a job still exist, are not locked out and hold the right role;
         // never password hashes, security stamps or two-factor secrets. Whether a user is linked to Entra ID (0.5.0) tells it
         // that the second factor comes from Microsoft.

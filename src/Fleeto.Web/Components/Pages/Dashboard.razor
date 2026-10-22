@@ -120,6 +120,22 @@
                     </a>
                 </MudItem>
             }
+            @if (data.Security is { } security)
+            {
+                <MudItem xs="12" sm="6" md="4" lg="2">
+                    <a href="/settings/security" class="stat-card-link">
+                        <div class="stat-card fl-panel @(security.Critical > 0 ? "stat-error" : security.OpenIncidents > 0 ? "stat-warning" : "")">
+                            <div class="stat-label">Security</div>
+                            <div class="stat-number" style="font-size:1.125rem;margin-top:10px;">
+                                @(security.OpenIncidents switch { 0 => "No incidents", 1 => "1 incident", _ => $"{security.OpenIncidents} incidents" })
+                            </div>
+                            <div class="stat-detail">
+                                @(security.Latest ?? (security.BlockedAddresses == 1 ? "1 blocked address" : $"{security.BlockedAddresses} blocked addresses"))
+                            </div>
+                        </div>
+                    </a>
+                </MudItem>
+            }
             <MudItem xs="12" sm="6" md="4" lg="2">
                 <div class="stat-card fl-panel @(data.Backups.ExternalDescription is null && (!data.Backups.DestinationConfigured || data.Backups.LastRunFailed) ? "stat-warning" : "")">
                     <div class="stat-label">Backups</div>

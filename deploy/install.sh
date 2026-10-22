@@ -161,6 +161,7 @@ ARG_LIST=false
 ARG_ALL=false
 ARG_YES=false
 ARG_GITHUB_TOKENS=false
+ARG_UNBLOCK=false
 ORIGINAL_ARGS=("$@")
 
 usage() {
@@ -175,6 +176,7 @@ Usage:
   install.sh --list                           List the instances on this VPS
   install.sh --all [--version <x.y.z>]        Update every instance on this VPS
   install.sh --github-tokens                  Enter or replace the GitHub tokens used to download releases
+  install.sh --fqdn <name> --unblock          Lift every blocked address of the instance (when you blocked yourself out)
   install.sh --help                           Show this help
 
 Options:
@@ -203,6 +205,7 @@ parse_args() {
             --all) ARG_ALL=true; shift ;;
             --yes | -y) ARG_YES=true; shift ;;
             --github-tokens) ARG_GITHUB_TOKENS=true; shift ;;
+            --unblock) ARG_UNBLOCK=true; shift ;;
             --help | -h) usage; exit 0 ;;
             *) die "Unknown argument '$1'." "Run install.sh --help to see the supported commands." ;;
         esac
@@ -216,6 +219,9 @@ parse_args() {
     fi
     if $ARG_LIST && { $ARG_CHECK || $ARG_ALL || [[ -n "$ARG_FQDN" ]]; }; then
         die "--list cannot be combined with other commands." "Run install.sh --list on its own."
+    fi
+    if $ARG_UNBLOCK && { $ARG_LIST || $ARG_CHECK || $ARG_ALL || $ARG_GITHUB_TOKENS || [[ -z "$ARG_FQDN" || -n "$ARG_VERSION" ]]; }; then
+        die "--unblock works on one instance and cannot be combined with other commands." "Run install.sh --fqdn <name> --unblock."
     fi
     if $ARG_ALL && { $ARG_CHECK || [[ -n "$ARG_FQDN" ]]; }; then
         die "--all updates every instance and cannot be combined with --fqdn or --check." "Run install.sh --all on its own, optionally with --version."
@@ -2205,6 +2211,31 @@ command_all() {
 # ---------------------------------------------------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------------------------------------------------
+# command_unblock <fqdn>: lifts every blocked address of an instance (the security monitor, 0.7.0), the way back in for an admin
+# whose own address was blocked. Allowed addresses stay. Written to the audit log as the host; web and the gateway load the
+# empty list within seconds through the database trigger.
+command_unblock() {
+    local fqdn="${1%.}" instance
+    fqdn="$(tr '[:upper:]' '[:lower:]' <<<"$fqdn")"
+    validate_fqdn "$fqdn"
+    instance="$(instance_name_for "$fqdn")"
+    [[ -f "$(instance_dir "$instance")/instance.conf" ]] || die "There is no instance for $fqdn on this VPS." "Run install.sh --list to see the instances."
+    confirm "Lift every blocked address of $fqdn? Automatic blocks return if an attack goes on." || die "Nothing was changed." "Run the command again to confirm."
+    local lifted
+    lifted="$(dc_instance "$instance" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username=postgres --dbname="$DB_NAME" -Atq <<'SQL'
+WITH lifted AS (DELETE FROM "IpBlocks" RETURNING "Network")
+, audit AS (
+  INSERT INTO "AuditEntries" ("Time", "ActorType", "ActorId", "ActorName", "Action", "TargetType", "TargetId", "DetailsJson")
+  SELECT now(), 'System', 'install.sh', 'install.sh --unblock', 'ip_block.removed', 'IpBlock', 'all',
+         jsonb_build_object('Networks', (SELECT count(*) FROM lifted))
+  WHERE EXISTS (SELECT 1 FROM lifted)
+)
+SELECT count(*) FROM lifted;
+SQL
+)" || die "The blocked addresses of $fqdn could not be lifted." "Check that the instance runs (docker compose ps) and try again."
+    ok "Lifted ${lifted:-0} blocked address(es) of $fqdn. Allow your address in Settings, Security to keep it from being blocked again."
+}
+
 main() {
     parse_args "$@"
 
@@ -2226,6 +2257,11 @@ main() {
 
     if $ARG_CHECK; then
         command_check "$ARG_FQDN"
+        return 0
+    fi
+
+    if $ARG_UNBLOCK; then
+        command_unblock "$ARG_FQDN"
         return 0
     fi
 

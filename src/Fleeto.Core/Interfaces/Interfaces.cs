@@ -176,6 +176,15 @@ public static class NotificationChannels
     /// workers look at its schedule again and the task page reloads its runs.
     /// </summary>
     public const string Tasks = "fleeto_tasks";
+
+    /// <summary>
+    /// Payload: empty. A blocked or allowed address was added, changed or removed (0.7.0, security monitor). Raised by a database
+    /// trigger, so no writer can forget it; web and the gateway load the list again.
+    /// </summary>
+    public const string IpBlocks = "fleeto_ip_blocks";
+
+    /// <summary>Payload: the key of a blocklist. An admin asked for a refresh (0.7.0); raised by a database trigger, the workers fetch it.</summary>
+    public const string IpFeeds = "fleeto_ip_feeds";
 }
 
 /// <summary>Writes audit entries. The table is append-only; there is no update or delete.</summary>
@@ -201,6 +210,9 @@ public static class AuditActions
 {
     public const string LoginSucceeded = "user.login";
     public const string LoginFailed = "user.login_failed";
+
+    /// <summary>A failed sign-in locked the account (0.7.0): written once, for the attempt that locked it.</summary>
+    public const string LockedOut = "user.locked_out";
     public const string Logout = "user.logout";
     public const string TwoFactorEnabled = "user.2fa_enabled";
     public const string TwoFactorReset = "user.2fa_reset";
@@ -330,6 +342,22 @@ public static class AuditActions
     public const string ApiKeyCreated = "api_key.created";
     public const string ApiKeyRevoked = "api_key.revoked";
     public const string ApiKeyAuthenticationFailed = "api_key.authentication_failed";
+
+    /// <summary>The security monitor (0.7.0): an address blocked or allowed by an admin, or a block or allow removed.</summary>
+    public const string IpBlockCreated = "ip_block.created";
+    public const string IpBlockRemoved = "ip_block.removed";
+    public const string IpAllowCreated = "ip_allow.created";
+    public const string IpAllowRemoved = "ip_allow.removed";
+
+    /// <summary>A security incident acknowledged or resolved by an admin, with the length of the comment, never its text (0.7.0).</summary>
+    public const string SecurityIncidentAcknowledged = "security_incident.acknowledged";
+    public const string SecurityIncidentResolved = "security_incident.resolved";
+
+    /// <summary>The settings of the security monitor changed (0.7.0): automatic blocking on or off.</summary>
+    public const string SecuritySettingsChanged = "security.settings_changed";
+
+    /// <summary>A blocklist switched on or off, its CrowdSec integration set or removed (never the password), or a refresh asked for (0.7.0).</summary>
+    public const string IpFeedChanged = "ip_feed.changed";
     public const string ApiRequest = "api.request";
 
     public const string LicenseLoaded = "license.loaded";

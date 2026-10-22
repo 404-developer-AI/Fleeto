@@ -1,5 +1,6 @@
 using System.IO.Pipelines;
 using System.Net.WebSockets;
+using Fleeto.Infrastructure.Security;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Gateway.Sessions;
@@ -75,7 +76,7 @@ public sealed class UninstallSessionTests
         Assert.True(pending!.IsSigned);
 
         var handler = new AgentConnectionHandler(harness.Manager, harness.AllowList, harness.Metrics, _fixture.Database.Time,
-            Options.Create(harness.Options), harness.Store, NullLogger<AgentConnectionHandler>.Instance);
+            Options.Create(harness.Options), harness.Store, SecuritySignalRecorder.Disabled, NullLogger<AgentConnectionHandler>.Instance);
         var (server, client) = SocketPair();
         var run = handler.RunUninstallAsync(server, pending, "203.0.113.5", CancellationToken.None);
 

@@ -1,5 +1,7 @@
 using System.Threading.RateLimiting;
+using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
+using Fleeto.Infrastructure.Security;
 using Fleeto.Web.Security;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.RateLimiting;
@@ -86,6 +88,9 @@ public static class PublicApi
             var previous = options.OnRejected;
             options.OnRejected = async (context, cancellationToken) =>
             {
+                // Every refusal of every limiter of web is a signal for the security monitor (0.7.0).
+                context.HttpContext.RequestServices.GetRequiredService<SecuritySignalRecorder>()
+                    .Record(SecuritySignalKind.RateLimited, context.HttpContext.Connection.RemoteIpAddress);
                 if (!IsApiRequest(context.HttpContext))
                 {
                     if (previous is not null)
@@ -219,6 +224,8 @@ public static class PublicApi
 
         if (authentication.Caller is not { } caller)
         {
+            // A malformed, unknown, revoked or expired key, or a wrong secret: a signal for the security monitor (0.7.0).
+            services.GetRequiredService<SecuritySignalRecorder>().Record(SecuritySignalKind.ApiKeyInvalid, http.Connection.RemoteIpAddress);
             http.Response.Headers.WWWAuthenticate = "Bearer";
             return ApiProblems.Problem(StatusCodes.Status401Unauthorized, ApiProblems.Unauthorized, authentication.Problem!,
                 "Send a valid key as \"Authorization: Bearer flt_<id>_<secret>\". An admin creates keys in Settings, API keys.");
@@ -228,6 +235,8 @@ public static class PublicApi
         {
             if (!lease.IsAcquired)
             {
+                services.GetRequiredService<SecuritySignalRecorder>()
+                    .Record(SecuritySignalKind.RateLimited, http.Connection.RemoteIpAddress, caller.UserId.ToString());
                 var seconds = lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter) ? (int)Math.Ceiling(retryAfter.TotalSeconds) : 60;
                 http.Response.Headers.RetryAfter = Math.Max(1, seconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
                 return ApiProblems.Problem(StatusCodes.Status429TooManyRequests, ApiProblems.RateLimited, "This API key made too many requests.",

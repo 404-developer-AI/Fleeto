@@ -111,6 +111,8 @@ public static class Permissions
     public const string InstanceHealthView = "instancehealth.view";
     public const string PerformanceView = "performance.view";
     public const string PerformanceManage = "performance.manage";
+    public const string SecurityView = "security.view";
+    public const string SecurityManage = "security.manage";
     public const string InstanceView = "instance.view";
 
     /// <summary>Every permission, in the order the role editor shows them.</summary>
@@ -207,6 +209,9 @@ public static class Permissions
         new(PerformanceView, AdministrationGroup, "Performance", "The performance monitor of Fleeto itself and its export for Claude Code.", []),
         new(PerformanceManage, AdministrationGroup, "Manage performance monitoring",
             "Change the level, collectors, thresholds and retention of the performance monitor.", [PerformanceView]),
+        new(SecurityView, AdministrationGroup, "Security", "Security incidents, blocked and allowed addresses and blocklists of the instance.", []),
+        new(SecurityManage, AdministrationGroup, "Manage security",
+            "Acknowledge and resolve security incidents, block and allow addresses, and switch automatic blocking and blocklists.", [SecurityView]),
         new(InstanceView, AdministrationGroup, "Instance", "The instance identity: FQDN, CA and signing key.", []),
     ];
 

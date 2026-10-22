@@ -176,6 +176,9 @@ if (app.Configuration.GetValue<bool>("ReverseProxy:Enabled"))
     app.UseForwardedHeaders(forwarded);
 }
 
+// The security monitor (0.7.0): a blocked address is refused before anything else, by the caller's address, not the proxy's.
+app.UseMiddleware<IpBlockMiddleware>();
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
@@ -191,6 +194,8 @@ app.UseFleetoSecurityHeaders();
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseFleetoPublicApiProblems();
 app.UseRouting();
+// After routing, so a real route is never judged by its path; before the measurements, so a probe is not measured as a page.
+app.UseMiddleware<ScannerDetectionMiddleware>();
 // Right after routing, so the route template is known and refused requests are measured too (0.7.0).
 app.UseMiddleware<PerfHttpMiddleware>();
 app.UseRateLimiter();

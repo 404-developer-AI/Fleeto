@@ -38,6 +38,7 @@ public static class GatewayApplication
         builder.Services.AddSingleton<GatewayHealth>();
         builder.Services.AddSingleton<AgentTlsOptions>();
         builder.Services.AddSingleton<ProxyProtocolMiddleware>();
+        builder.Services.AddSingleton<AgentConnectionGuard>();
         builder.Services.AddSingleton<ReleaseDownloadHandler>();
 
         // Hosted singletons: resolvable by type and started by the host. Order matters for shutdown (reverse order):
@@ -82,11 +83,16 @@ public static class GatewayApplication
                 // Before TLS: the PROXY protocol header precedes the ClientHello.
                 listen.Use(next => connection =>
                     kestrel.ApplicationServices.GetRequiredService<ProxyProtocolMiddleware>().OnConnectionAsync(connection, next));
+                // After the PROXY header, before TLS (0.7.0): drops a blocked address and counts failed handshakes.
+                listen.Use(next => connection =>
+                    kestrel.ApplicationServices.GetRequiredService<AgentConnectionGuard>().OnConnectionAsync(connection, next));
                 listen.UseHttps(new TlsHandshakeCallbackOptions
                 {
                     HandshakeTimeout = TimeSpan.FromSeconds(10),
                     OnConnection = callback => kestrel.ApplicationServices.GetRequiredService<AgentTlsOptions>().OnConnectionAsync(callback)
                 });
+                listen.Use(next => connection =>
+                    kestrel.ApplicationServices.GetRequiredService<AgentConnectionGuard>().OnSecuredAsync(connection, next));
             });
 
             kestrel.Listen(address, options.HealthPort, listen => listen.Protocols = HttpProtocols.Http1);
@@ -101,11 +107,15 @@ public static class GatewayApplication
         app.Services.GetRequiredService<PerfRecorder>().UseConnections(() => sessions.Count + sessions.WatchdogCount);
 
         app.UseWebSockets();
+        app.UseRouting();
+        // After routing, so a real route is never judged by its path (0.7.0, security monitor).
+        app.UseMiddleware<GatewayScannerMiddleware>();
         app.UseRateLimiter();
 
         // Separate by the local port, not RequireHost: behind the SNI passthrough the agent's Host header carries no port.
         app.MapPost(ProtocolLimits.EnrollPath, (HttpContext context, EnrollmentHandler handler) => handler.HandleAsync(context))
             .AddEndpointFilter(OnlyOnPort(ports.AgentPort))
+            .AddEndpointFilter(AgentConnectionGuard.RefuseBlocked)
             .RequireRateLimiting(EnrollmentHandler.RateLimitPolicy);
         app.MapGet(ProtocolLimits.ConnectPath, (HttpContext context, AgentConnectionHandler handler) => handler.HandleAsync(context))
             .AddEndpointFilter(OnlyOnPort(ports.AgentPort));
@@ -114,6 +124,7 @@ public static class GatewayApplication
             .AddEndpointFilter(OnlyOnPort(ports.AgentPort));
         app.MapPost(ProtocolLimits.RecoverPath, (HttpContext context, RecoveryHandler handler) => handler.HandleAsync(context))
             .AddEndpointFilter(OnlyOnPort(ports.AgentPort))
+            .AddEndpointFilter(AgentConnectionGuard.RefuseBlocked)
             .RequireRateLimiting(EnrollmentHandler.RateLimitPolicy);
         // Public: the instance CA certificates (PEM). TLS stacks leave a self-signed root out of the handshake, so before
         // enrollment the agent fetches the CA here, matches it against the install fingerprint and only then connects
@@ -127,6 +138,7 @@ public static class GatewayApplication
                     : Results.Text(pem, "application/x-pem-file");
             })
             .AddEndpointFilter(OnlyOnPort(ports.AgentPort))
+            .AddEndpointFilter(AgentConnectionGuard.RefuseBlocked)
             .RequireRateLimiting(EnrollmentHandler.RateLimitPolicy);
         app.MapGet("/health", (HttpContext context, GatewayHealth health) => health.HandleAsync(context))
             .AddEndpointFilter(OnlyOnPort(ports.HealthPort));

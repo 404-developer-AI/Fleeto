@@ -11,8 +11,8 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 - **Current phase**: 0.6.0 (refactors, fixes and what the developer wanted before the next round of testing, features
   included) is released (2026-10-18) and runs on the first test VPS, tested through `v0.6.0-alpha.1` to `alpha.26`. Building
   0.7.0, the performance monitor (`MD-Files/ROADMAP.md`, `MD-Files/PERFORMANCE.md`): step 1, the core, is built and tested as
-  `v0.7.0-alpha.1`, step 2, Diagnose, is built (2026-10-18). Patch management on Linux and the other integrations moved to "Not
-  yet scheduled" on 2026-09-23. Local development runs without Docker (see `README.md`); Docker
+  `v0.7.0-alpha.1`, step 2, Diagnose, is built (2026-10-18); the security monitor, steps 1 to 3, are built (2026-10-22 and 23).
+  Patch management on Linux and the other integrations moved to "Not yet scheduled" on 2026-09-23. Local development runs without Docker (see `README.md`); Docker
   is for the VPS and CI only.
 - **Git**: always ask before committing, pushing or tagging. No intermediate commits while a version is being built.
   Tag a version only after its commits are pushed and CI is green.
@@ -212,7 +212,7 @@ UI structure:
   Clients: left, a settings panel; right, the selected page. Group **Templates** (client
   templates, monitoring templates, policies, patch policies, scripts, tasks) for every user, and the administration pages for
   admins: users and roles, groups, tags, licensing, API keys, integrations, notification channels, retention,
-  audit log, instance health, performance (0.7.0).
+  audit log, instance health, performance (0.7.0), security (0.7.0).
 
 ## Licensing: per endpoint, two tiers
 
@@ -319,6 +319,36 @@ Every user signs in with two factors. Local accounts use a password (Argon2id) a
 - Configuring the sign-in, linking or unlinking a user and the way each sign-in came in are all in the audit log.
 - Settings tests the app registration of the sign-in and of Graph email through the workers and shows a set-up guide for
   each (2026-09-24).
+
+## Security monitor (0.7.0)
+
+Fleeto watches for attacks itself and refuses the addresses they come from, so admins hear about an attack while it runs instead
+of finding it in the audit log afterwards. Decisions of 2026-10-22:
+
+- **Inside Fleeto, per instance**: web and the gateway enforce, nothing on the host (no firewall rule, no fail2ban, the host
+  Caddy unchanged), managed in Settings, Security and audited. No blocking by country.
+- **Signals, never a write per request**: web and the gateway count per minute and address what they see (refused rate limits,
+  failed sign-ins, invalid API keys, revoked and unknown agent certificates, failed TLS handshakes, scanner probes, exploit
+  attempts, 404s of anonymous callers, refused blocked addresses) and write it once a minute. An IPv4 address counts on its own,
+  an IPv6 address with its /64.
+- **Scanner detection**: a path Fleeto never serves (`/.env`, `/wp-login.php`, `*.php`), an exploit in the path or query, or the
+  User-Agent of a scanning tool gets a bare 404 and counts. A real route is never judged by its path.
+- **Blocked and allowed addresses**: an allow always wins. Private and reserved ranges are never blocked, whatever lists them.
+  An admin cannot block a network wider than /8 or /19, or one holding their own address. A manual block holds everywhere;
+  an automatic block or a blocklist never refuses an agent that presents a valid certificate (an office address can have managed
+  endpoints behind it; accepted risk in `MD-Files/ARCHITECTURE.md` §5). The list fails open while it was never loaded.
+- **Detection (step 2)**: pure rules in the workers (`SecurityRules`) over the signals and the last hour of the audit log raise
+  security incidents (not alerts: they belong to no client), acknowledged or resolved by an admin with a required comment, or
+  resolved after a day without the finding. They go to the notification channels that choose security incidents, except a scan,
+  enumeration or flood Fleeto blocked by itself (every server is scanned all day). Automatic blocks last 1 hour, 24 hours, then
+  7 days (a scanner at once a day), never permanently, never an allowed address, a reserved range or a network a user signed in
+  from or a managed endpoint connected from in the last 30 days; an admin can switch automatic blocking off.
+  `install.sh --fqdn <name> --unblock` lifts every block for an admin who blocked themselves out.
+- **Blocklists (step 3)**: public lists fetched by the workers every 6 hours (Spamhaus DROP, abuse.ch Feodo Tracker, FireHOL
+  level1 on by default, blocklist.de optional), cleaned of reserved ranges and refused when they look broken, and CrowdSec
+  through a firewall integration of the Console (Basic Auth, only at `admin.api.crowdsec.net`). **No sharing with CrowdSec**
+  (checked 2026-10-23): its community blocklist in exchange for signals is only for its own Security Engine with unmodified Hub
+  scenarios, so signals of Fleeto would not count; the developer had asked for sharing.
 
 ## Public API
 
@@ -624,7 +654,7 @@ home-grown patch engine. Note them, do not build them. (File transfer inside rem
 - **Fleeto is the only name**: namespaces, images, env vars, service names, database objects and user-visible text (decided
   2026-09-15; the internal name Fleetify was renamed in 0.2.1). The old name appears only in the migration code listed in
   `deploy/ci/branding-check.sh`. Run that check (`MD-Files/branding-fleeto.md` §7) before every release.
-- UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, patch policy, monitoring template, client template, integration, note, tag, task, remote control session, API key, role, permission).
+- UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, patch policy, monitoring template, client template, integration, note, tag, task, remote control session, API key, role, permission, blocked address, allowed address, security incident).
 - Follow the Migrify codebase conventions where they exist (project layout, EF Core patterns, MudBlazor usage, email templates).
 - **Performance monitor** (0.7.0, `MD-Files/PERFORMANCE.md`): every workers loop derives from `WorkerLoop`, which measures
   each run; a loop that does not is a review finding. Metric keys never contain values: route templates, type names and fixed

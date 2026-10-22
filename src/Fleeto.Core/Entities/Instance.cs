@@ -235,6 +235,9 @@ public class NotificationChannel
     /// </summary>
     public bool InstanceHealth { get; set; }
 
+    /// <summary>Also receives security incidents (0.7.0): an attack, a sign-in from a new network, a privilege change.</summary>
+    public bool SecurityIncidents { get; set; }
+
     public List<NotificationChannelClient> Clients { get; set; } = [];
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

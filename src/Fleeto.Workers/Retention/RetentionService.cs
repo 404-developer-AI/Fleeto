@@ -146,6 +146,27 @@ public sealed class RetentionService : WorkerLoop
           SELECT "Id" FROM "InstanceHealthIssues" WHERE "ResolvedAt" < @cutoff LIMIT 5000)
         """;
 
+    // The security monitor (0.7.0): signals per minute (a hypertable, so deleted by its key), blocks that ended long enough ago,
+    // and networks a user has not signed in from for over a year.
+    private const string DeleteSecuritySignalsSql = """
+        DELETE FROM "SecuritySignals" WHERE ("Minute", "Id") IN (SELECT "Minute", "Id" FROM "SecuritySignals" WHERE "Minute" < @cutoff LIMIT 5000)
+        """;
+
+    private const string DeleteEndedIpBlocksSql = """
+        DELETE FROM "IpBlocks" WHERE "Id" IN (
+          SELECT "Id" FROM "IpBlocks" WHERE "ExpiresAt" IS NOT NULL AND "ExpiresAt" < @cutoff LIMIT 5000)
+        """;
+
+    private const string DeleteSignInNetworksSql = """
+        DELETE FROM "UserSignInNetworks" WHERE ("UserId", "Network") IN (
+          SELECT "UserId", "Network" FROM "UserSignInNetworks" WHERE "LastSeen" < @cutoff LIMIT 5000)
+        """;
+
+    private const string DeleteSecurityIncidentsSql = """
+        DELETE FROM "SecurityIncidents" WHERE "Id" IN (
+          SELECT "Id" FROM "SecurityIncidents" WHERE "ResolvedAt" < @cutoff LIMIT 5000)
+        """;
+
     private const string DeleteSentEmailsSql = """
         DELETE FROM "OutboxEmails" WHERE "Id" IN (
           SELECT "Id" FROM "OutboxEmails" WHERE "SentAt" IS NOT NULL AND "SentAt" < @cutoff LIMIT 5000)
@@ -283,6 +304,14 @@ public sealed class RetentionService : WorkerLoop
             () => [new NpgsqlParameter("cutoff", now - InstanceHealthRules.SampleRetention)], cancellationToken);
         deleted["InstanceHealthIssues"] = await DeleteInBatchesAsync(DeleteHealthIssuesSql,
             () => [new NpgsqlParameter("cutoff", now - InstanceHealthRules.ResolvedRetention)], cancellationToken);
+        deleted["SecuritySignals"] = await DeleteInBatchesAsync(DeleteSecuritySignalsSql,
+            () => [new NpgsqlParameter("cutoff", now - SecurityMonitorRules.SignalRetention)], cancellationToken);
+        deleted["IpBlocks"] = await DeleteInBatchesAsync(DeleteEndedIpBlocksSql,
+            () => [new NpgsqlParameter("cutoff", now - SecurityMonitorRules.EndedBlockRetention)], cancellationToken);
+        deleted["SecurityIncidents"] = await DeleteInBatchesAsync(DeleteSecurityIncidentsSql,
+            () => [new NpgsqlParameter("cutoff", now - Security.SecurityMonitorService.ResolvedRetention)], cancellationToken);
+        deleted["UserSignInNetworks"] = await DeleteInBatchesAsync(DeleteSignInNetworksSql,
+            () => [new NpgsqlParameter("cutoff", now - SecurityMonitorRules.SignInNetworkRetention)], cancellationToken);
         deleted["AgentCertificates"] = await DeleteInBatchesAsync(DeleteAgentCertificatesSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))], cancellationToken);
         deleted["EnrollmentTokens"] = await DeleteInBatchesAsync(DeleteEnrollmentTokensSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))], cancellationToken);
 

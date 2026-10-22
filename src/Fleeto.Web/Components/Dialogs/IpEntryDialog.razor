@@ -1,0 +1,71 @@
+@* Block or allow an address or network (0.7.0, security monitor). A block can end by itself; an allow never does. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(Block ? "Block an address" : "Allow an address")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_network" Label="Address or network" Variant="Variant.Outlined" MaxLength="50" AutoFocus="true" Immediate="true"
+                      HelperText="An address such as 203.0.113.7, or a network such as 203.0.113.0/24 or 2001:db8::/48." Class="mb-4" />
+        <MudTextField @bind-Value="_text" Label="@(Block ? "Reason" : "Description")" Variant="Variant.Outlined" MaxLength="SecurityService.MaxReasonLength"
+                      Lines="2" Immediate="true" Class="mb-4"
+                      HelperText="@(Block ? "Why the address is blocked, for the other admins." : "Whose address this is, for example the office of the customer.")" />
+        @if (Block)
+        {
+            <MudSelect T="int" @bind-Value="_hours" Label="Blocked for" Variant="Variant.Outlined">
+                <MudSelectItem T="int" Value="1">1 hour</MudSelectItem>
+                <MudSelectItem T="int" Value="24">24 hours</MudSelectItem>
+                <MudSelectItem T="int" Value="168">7 days</MudSelectItem>
+                <MudSelectItem T="int" Value="720">30 days</MudSelectItem>
+                <MudSelectItem T="int" Value="0">Until an admin lifts it</MudSelectItem>
+            </MudSelect>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="muted">
+                An allowed address is never blocked: not by an admin, not by the security monitor and not by a blocklist.
+            </MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="@(Block ? Color.Error : Color.Primary)" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">
+            @(Block ? "Block" : "Allow")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public bool Block { get; set; }
+    [Parameter] public string InitialNetwork { get; set; } = string.Empty;
+
+    /// <summary>Network, reason or description, and the end of a block (null: until lifted). Returns whether it was saved.</summary>
+    [Parameter] public Func<string, string, TimeSpan?, Task<bool>> OnSubmit { get; set; } = (_, _, _) => Task.FromResult(true);
+
+    private string _network = string.Empty;
+    private string _text = string.Empty;
+    private int _hours = 24;
+    private bool _busy;
+
+    protected override void OnInitialized() => _network = InitialNetwork;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(_network, _text, Block && _hours > 0 ? TimeSpan.FromHours(_hours) : null))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

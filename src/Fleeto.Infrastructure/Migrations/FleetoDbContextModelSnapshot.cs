@@ -536,6 +536,8 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.HasIndex("Time");
 
+                    b.HasIndex("Action", "Time");
+
                     b.HasIndex("ClientId", "Time");
 
                     b.HasIndex("TargetType", "TargetId");
@@ -2969,6 +2971,137 @@ namespace Fleeto.Infrastructure.Migrations
                     b.ToTable("InventorySnapshots");
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.IpAllow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CreatedByName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Network")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Network")
+                        .IsUnique();
+
+                    b.ToTable("IpAllows");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.IpBlock", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CreatedByName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Network")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("Times")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("Network")
+                        .IsUnique();
+
+                    b.ToTable("IpBlocks");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.IpFeed", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("EntryCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastSuccessAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Problem")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("RefreshRequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Key");
+
+                    b.ToTable("IpFeeds");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.IpFeedEntry", b =>
+                {
+                    b.Property<string>("Feed")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Network")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Feed", "Network");
+
+                    b.ToTable("IpFeedEntries");
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.Job", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3572,6 +3705,9 @@ namespace Fleeto.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
+
+                    b.Property<bool>("SecurityIncidents")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Type")
                         .IsRequired()
@@ -5203,6 +5339,131 @@ namespace Fleeto.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.SecurityIncident", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AcknowledgeComment")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("AcknowledgedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AcknowledgedByName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime?>("BlockedUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Count")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Detail")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Network")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("OpenedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ResolveComment")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ResolvedByName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Key")
+                        .IsUnique()
+                        .HasDatabaseName("IX_SecurityIncidents_OpenKey")
+                        .HasFilter("\"ResolvedAt\" IS NULL");
+
+                    b.HasIndex("OpenedAt");
+
+                    b.HasIndex("ResolvedAt");
+
+                    b.ToTable("SecurityIncidents");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.SecuritySignal", b =>
+                {
+                    b.Property<DateTime>("Minute")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Component")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("Count")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Network")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Minute", "Id");
+
+                    b.HasIndex("Kind", "Minute");
+
+                    b.HasIndex("Network", "Minute");
+
+                    b.ToTable("SecuritySignals");
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.Setting", b =>
                 {
                     b.Property<string>("Key")
@@ -5796,6 +6057,28 @@ namespace Fleeto.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("CK_UserGroupRules_Target", "num_nonnulls(\"ClientId\", \"SiteId\", \"EndpointId\") = 1");
                         });
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.UserSignInNetwork", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Network")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("FirstSeen")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastSeen")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("UserId", "Network");
+
+                    b.HasIndex("Network", "LastSeen");
+
+                    b.ToTable("UserSignInNetworks");
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.WorkerWatermark", b =>
@@ -6723,6 +7006,15 @@ namespace Fleeto.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.IpFeedEntry", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.IpFeed", null)
+                        .WithMany()
+                        .HasForeignKey("Feed")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.Job", b =>
                 {
                     b.HasOne("Fleeto.Core.Entities.Script", null)
@@ -7133,6 +7425,15 @@ namespace Fleeto.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("SiteId")
                         .OnDelete(DeleteBehavior.Cascade);
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.UserSignInNetwork", b =>
+                {
+                    b.HasOne("Fleeto.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Fleeto.Infrastructure.Identity.RolePermission", b =>

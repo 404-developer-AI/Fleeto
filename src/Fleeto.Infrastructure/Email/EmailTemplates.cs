@@ -160,6 +160,40 @@ public static class EmailTemplates
         return new EmailContent(Subject(subject), html, Footer(text));
     }
 
+    /// <summary>A security incident of the instance (0.7.0): an attack, a sign-in from a new network, a privilege change.</summary>
+    public static EmailContent SecurityIncident(string instanceFqdn, NotificationEvent notificationEvent, string severity, string title, string detail,
+        string securityUrl)
+    {
+        var (lead, subject) = notificationEvent switch
+        {
+            NotificationEvent.Resolved => ($"This security incident of {instanceFqdn} is resolved.", $"Resolved: {title}"),
+            NotificationEvent.Escalated => ($"This security incident of {instanceFqdn} is now {severity.ToLowerInvariant()}.", $"Now {severity.ToLowerInvariant()}: {title}"),
+            _ => ($"The security monitor of {instanceFqdn} found something.", title)
+        };
+        var chip = notificationEvent == NotificationEvent.Resolved
+            ? $"""<span style="display:inline-block;padding:2px 10px;border-radius:12px;background:#F0FDFA;color:{BrandColor};font-size:13px;font-weight:600">Resolved</span>"""
+            : SeverityChip(severity);
+        var shownDetail = notificationEvent == NotificationEvent.Resolved ? string.Empty : detail;
+        var html = Layout($"""
+            <p style="margin:0 0 8px">{chip}</p>
+            <p style="margin:0 0 16px">{Enc(lead)}</p>
+            <p style="margin:0 0 16px;font-size:17px;font-weight:600">{Enc(title)}</p>
+            {DetailBlock(shownDetail)}
+            {Button(securityUrl, "Open security")}
+            """);
+
+        var text = $"""
+            {lead}
+
+            {title}
+
+            {DetailText(shownDetail)}
+            Open security: {securityUrl}
+            """;
+
+        return new EmailContent(Subject(subject), html, Footer(text));
+    }
+
     public static EmailContent AlertResolved(AlertEmailModel alert)
     {
         var reason = string.IsNullOrWhiteSpace(alert.ResolvedReason) ? "The alert was resolved." : alert.ResolvedReason;

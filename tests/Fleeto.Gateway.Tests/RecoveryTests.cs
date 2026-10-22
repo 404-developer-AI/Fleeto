@@ -192,7 +192,7 @@ public sealed class RecoveryTests
             // The connect path refuses the expired certificate and tells the agent to recover.
             await harness.Manager.ResetOnlineStateAsync(CancellationToken.None);
             var connect = new AgentConnectionHandler(harness.Manager, harness.AllowList, harness.Metrics, _fixture.Database.Time,
-                Options.Create(harness.Options), harness.Store, NullLogger<AgentConnectionHandler>.Instance);
+                Options.Create(harness.Options), harness.Store, SecuritySignalRecorder.Disabled, NullLogger<AgentConnectionHandler>.Instance);
             var context = NewContext([], null, certificate);
             context.Features.Set<IHttpWebSocketFeature>(new WebSocketRequestFeature());
             await connect.HandleAsync(context);

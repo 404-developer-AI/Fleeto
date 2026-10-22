@@ -54,6 +54,9 @@ public static class DependencyInjection
         // The performance monitor (0.7.0): measures this component, writes once a minute.
         services.AddFleetoPerformance(component);
 
+        // The security monitor (0.7.0): web and the gateway count attacks and refuse blocked addresses.
+        services.AddFleetoSecurityMonitor(component);
+
         if (component.UsesRootKey())
         {
             services.AddSingleton(sp => new RootKey(sp.GetRequiredService<SecretFiles>().ReadKey(SecretFiles.RootKeyFile)));

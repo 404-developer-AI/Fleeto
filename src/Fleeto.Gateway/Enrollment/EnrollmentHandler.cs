@@ -166,6 +166,9 @@ public sealed class EnrollmentHandler
                 }));
             options.OnRejected = async (rejected, _) =>
             {
+                // A signal for the security monitor (0.7.0).
+                rejected.HttpContext.RequestServices.GetRequiredService<SecuritySignalRecorder>()
+                    .Record(SecuritySignalKind.RateLimited, rejected.HttpContext.Connection.RemoteIpAddress);
                 var retryAfter = rejected.Lease.TryGetMetadata(MetadataName.RetryAfter, out var value) ? value : TimeSpan.FromMinutes(1);
                 rejected.HttpContext.Response.Headers.RetryAfter =
                     ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(CultureInfo.InvariantCulture);

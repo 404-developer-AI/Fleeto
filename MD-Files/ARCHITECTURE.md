@@ -1733,6 +1733,80 @@ The flow is the authorization code flow with PKCE, split over two containers bec
   while the reason (another tenant, a guest, no linked user) goes to the audit log. A precise message would tell an outsider
   which accounts exist in this instance.
 
+### Security monitor (0.7.0)
+
+Fleeto watches for attacks itself, per instance, and refuses the addresses they come from. Nothing runs on the host: no firewall
+rule, no fail2ban, and the host Caddy stays as it is. Built in three steps (`ROADMAP.md`): step 1 the signals and blocking by
+hand, step 2 detection, incidents and automatic blocking, step 3 blocklists.
+
+- **Signals.** Web and the gateway count what they see of attacks in a `SecuritySignalRecorder`, in memory, per minute, kind,
+  attacker network and optional subject (an API key id, never a user name or path), and a `SecuritySignalFlusher` writes the
+  minute in one binary COPY to `SecuritySignals`, as the performance monitor does: never a database write per request. A window
+  holds at most 5,000 addresses; beyond that new ones are counted as dropped and logged. An IPv4 address counts on its own, an
+  IPv6 address with its /64. Kinds: refused rate limits (every limiter of web and the gateway), failed sign-ins, failed
+  two-factor setups, invalid setup links, invalid API keys, revoked and unknown agent certificates (the allow list now also
+  holds the revoked fingerprints that have not expired, to tell them apart), agent connections that never complete their TLS
+  handshake, scanner paths, scanner tools, exploit patterns, other 404s of anonymous callers without a route, and refusals of a
+  blocked address. `TR_SecuritySignals_Component` lets each role write only its own rows; the table is a hypertable with a
+  91-day ceiling where TimescaleDB is installed, and the workers delete after 90 days.
+- **Scanner detection** (`ScannerPatterns`, pure): after routing, so a request that matches a route is never judged by its
+  path, only by exploit fragments in its path or query (traversal, also double encoded, null bytes, Log4Shell, SQL and script
+  injection) and the User-Agent of scanning tools. A request without a route is also judged by its path (`/.env`, `/.git/`,
+  WordPress, phpMyAdmin, Spring actuator, Exchange, `*.php`, backups and more) and by fragments a search may contain
+  (`cmd.exe`). A match gets a bare 404 without the not-found page; the not-found page re-executing the pipeline is not counted
+  twice.
+- **Blocked and allowed addresses** (`IpBlocks`, `IpAllows`): canonical CIDR text, at most one row per network. `IpBlockList`
+  in web and the gateway holds them in memory as sorted ranges per address family with a running maximum, so a lookup is a
+  binary search; it reloads every minute and at once on `fleeto_ip_blocks`, raised by a statement trigger on both tables. An
+  allow always wins; a manual block outranks an automatic one. Reserved ranges (private, loopback, link-local, carrier-grade
+  NAT, unique local, documentation and the other special ranges, `IpNetworks.Reserved`) are left out on load whatever the
+  table holds, so the containers and the host proxy can never be cut off. The list **fails open**: until it was loaded once,
+  nothing is blocked, because refusing every caller while the database is unreachable would be worse than the attack.
+- **Enforcement.** Web: `IpBlockMiddleware` right after the forwarded headers answers 403 with the address and the next step.
+  Gateway: `AgentConnectionGuard` after the PROXY protocol header and before TLS drops a manually blocked address and counts a
+  handshake that never completes; enrollment, recovery and the CA endpoint refuse any block, and so does the relay for the
+  browser address from X-Forwarded-For of the trusted proxy. **Accepted risk:** an automatic block or a blocklist does not drop
+  an agent connection before TLS, and does not refuse the session of an agent with a valid certificate. Such an address can be
+  the shared address of an office with managed endpoints behind it, and refusing it would take those endpoints offline and make
+  Fleeto show a state that is not true; a certificate on the allow list is stronger evidence than an address on a list. A
+  manual block applies everywhere.
+- **Blocking by hand** (Settings, Security, permissions `security.view` and `security.manage`, administration of the instance):
+  refused for a reserved range, a network wider than /8 or /19, and a network that holds the admin's own address. Web writes
+  only manual blocks (`TR_IpBlocks_Source`); automatic blocks are the workers'. Every change is audited (`ip_block.*`,
+  `ip_allow.*`); retention removes a block 30 days after it ended.
+- **Sign-ins.** The attempt that locks an account writes `user.locked_out` once. A sign-in's audit entry holds the User-Agent
+  (256 characters). `UserSignInNetworks` keeps the networks a user signed in from (IPv4 /24, IPv6 /64) with the first and last
+  time, forgotten after 400 days, so step 2 can tell a sign-in from a new network cheaply and never blocks a network a user
+  signed in from.
+- **Detection** (`SecurityMonitorService`, a `WorkerLoop` of one minute, step 2): reads the signals of the last hour summed per
+  kind and network over 10, 30 and 60 minutes, the failed sign-ins and a fixed set of actions of the last hour of the audit log
+  (an index on `AuditEntries (Action, Time)` keeps that cheap), the networks privileged users signed in from for the first time,
+  and once an hour the set-up of API keys and admins. `SecurityRules` (pure, in Fleeto.Core) turns that into findings; the
+  service keeps `SecurityIncidents` in step in one transaction, as instance health does: at most one open incident per key
+  (unique index), a repeat updates its count and last seen, a higher severity escalates, and an incident whose finding stays away
+  for a day (15 minutes for set-up findings) resolves. Notifications go out in the same transaction to the channels with
+  `SecurityIncidents` switched on (email and webhook, `security_incident.opened/escalated/resolved`, never in a digest), except
+  for a scanner, enumeration, flood or agent-port scan that was blocked: those would arrive all day.
+- **Automatic blocking** (step 2): a finding that asks for it upserts the row of its network in `IpBlocks` as `Automatic`, with
+  `Times` counting the blocks within 30 days: 1 hour, 24 hours, then 7 days, a scanner at least 24 hours, never permanent, at most
+  10,000 active, and only while `security.monitor` has automatic blocking on. Never for an allowed address, a reserved range, a
+  network (IPv4 /24, IPv6 /64) a user signed in from or a managed endpoint connected from in the last 30 days (read every 10
+  minutes); the incident then says why it was not blocked. A manual block is never touched. Each automatic block is audited
+  with the security monitor as actor. Web acknowledges and resolves incidents (`SELECT, UPDATE`); only the workers write them.
+- **Blocklists** (`IpFeeds`, `IpFeedEntries`, `IpFeedService`, step 3): the catalog (`Fleeto.Core.Domain.IpFeeds`) names each
+  list, its addresses and format; a row per list holds whether an admin switched it on and the state of the last fetch. Only the
+  workers fetch, every 6 hours, an hour after a failure, at once on `fleeto_ip_feeds` (raised by a trigger when web sets
+  `RefreshRequestedAt`), with a 60-second timeout, a 64 MB ceiling and a circuit breaker per list. `IpFeedParser` keeps only
+  networks Fleeto may block (no reserved range, nothing wider than /8 or /19); a list of more than 500,000 networks, or one that
+  shrank below half of a list of at least 100, is refused and the previous list stays. A good list replaces its entries with a
+  DELETE and a binary COPY in one transaction and raises `Version`; the trigger on `IpFeeds` then wakes web and the gateway,
+  whose `IpBlockList` reads the entries of the lists that are on only when the versions changed. A list blocks like an
+  automatic block (`BlockedFeed`): never an allowed address, never an agent with a valid certificate. CrowdSec: a Console
+  firewall integration, Basic Auth with the credentials an admin entered (encrypted setting `security.crowdsec`), always at
+  `admin.api.crowdsec.net/v1/integrations/<id>/content`; nothing is shared with CrowdSec.
+- **Locked out.** `install.sh --fqdn <name> --unblock` deletes every row of `IpBlocks` as the database superuser and audits it;
+  the statement trigger wakes web and the gateway.
+
 ### Other controls
 
 - Containers non-root, read-only filesystems where possible, no Docker socket in app

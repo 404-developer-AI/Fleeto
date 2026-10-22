@@ -218,6 +218,61 @@ public static class WebhookPayloads
         };
     }
 
+    /// <summary>Event name of a security incident (0.7.0) in webhook payloads and outbox categories.</summary>
+    public static string SecurityIncidentEventName(NotificationEvent notificationEvent) => notificationEvent switch
+    {
+        NotificationEvent.Escalated => "security_incident.escalated",
+        NotificationEvent.Resolved => "security_incident.resolved",
+        _ => "security_incident.opened"
+    };
+
+    /// <summary>A security incident (0.7.0). No client, site or endpoint: it concerns the instance itself.</summary>
+    public static string SecurityIncident(WebhookFormat format, Guid deliveryId, string instanceFqdn, NotificationEvent notificationEvent,
+        Guid incidentId, string kind, AlertSeverity severity, string title, string detail, string? network, DateTime openedAt,
+        DateTime? resolvedAt, string securityUrl, DateTime now)
+    {
+        var headline = notificationEvent switch
+        {
+            NotificationEvent.Escalated => $"Now {severity.ToString().ToLowerInvariant()}: {title}",
+            NotificationEvent.Resolved => $"Resolved: {title}",
+            _ => title
+        };
+        var facts = new List<(string Name, string Value)> { ("Instance", instanceFqdn), ("Security", kind) };
+        if (network is not null)
+        {
+            facts.Add(("Address", network));
+        }
+
+        var text = notificationEvent == NotificationEvent.Resolved ? string.Empty : Trim(detail);
+        return format switch
+        {
+            WebhookFormat.Slack => Slack(headline, facts, text, securityUrl, "Open security"),
+            WebhookFormat.Teams => Teams(headline, facts, text, securityUrl, "Open security",
+                notificationEvent == NotificationEvent.Resolved ? "Good" : severity == AlertSeverity.Critical ? "Attention" : "Warning"),
+            _ => Serialize(new JsonObject
+            {
+                ["id"] = deliveryId,
+                ["type"] = SecurityIncidentEventName(notificationEvent),
+                ["version"] = 1,
+                ["createdAt"] = Utc(now),
+                ["instance"] = instanceFqdn,
+                ["incident"] = new JsonObject
+                {
+                    ["id"] = incidentId,
+                    ["kind"] = kind,
+                    ["title"] = title,
+                    ["detail"] = detail,
+                    ["network"] = network,
+                    ["severity"] = severity.ToString().ToLowerInvariant(),
+                    ["state"] = resolvedAt is null ? "open" : "resolved",
+                    ["openedAt"] = Utc(openedAt),
+                    ["resolvedAt"] = resolvedAt is { } at ? Utc(at) : null,
+                    ["url"] = securityUrl
+                }
+            })
+        };
+    }
+
     public static string Test(WebhookFormat format, Guid deliveryId, string instanceFqdn, string channelsUrl, DateTime now)
     {
         const string headline = "Test message from Fleeto";

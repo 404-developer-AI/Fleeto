@@ -97,6 +97,9 @@ Use these terms consistently in UI, docs and email; do not introduce synonyms.
 | **reset** | A check's state set aside and the check run again: "Reset and run", state "Re-run requested" until the new result arrives. Never shown as OK before it is. |
 | **not run yet** | A check that applies to an endpoint but has no result yet |
 | **watchdog** | The second Fleeto service on an endpoint that keeps the agent running (0.2.0). Never "helper" or "guardian". |
+| **blocked address** | An address or network Fleeto refuses (0.7.0): "Block an address", "Lift the block". Never "ban", "blacklist" or "deny list" in UI text. |
+| **security incident** | Something the security monitor found (0.7.0): an attack, a sign-in from a new network, a change of who can do what. "Acknowledge", "Resolve". Not an alert: it belongs to no client. Never "threat", "breach" or "intrusion" in UI text. |
+| **allowed address** | An address or network that is never blocked (0.7.0): "Allow an address". Never "whitelist" in UI text. |
 | **remote terminal** | A command line on an endpoint from the browser (0.3.0). Never "remote shell", "SSH" or "console" in UI text. |
 | **job** | One execution of a script, patch run or task on an endpoint |
 | **task** | Library scripts that run by themselves as steps, linked to a client, site, endpoint or monitoring template (0.6.0): on a schedule, when an alert of a check opens, when an endpoint becomes managed, or with "Run now". One start is a "run", with a job per step on each endpoint. A step that restarts the endpoint is a "restart" ("Restart the endpoint"), never "reboot". Never "scheduled job", "automation" or "cron" in UI text. |

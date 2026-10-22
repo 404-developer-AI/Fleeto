@@ -1,0 +1,55 @@
+@* Acknowledge or resolve a security incident (0.7.0), with the comment that is kept with it. The comment is required. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@Title</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-3">@Incident</MudText>
+        @if (!string.IsNullOrEmpty(Explanation))
+        {
+            <MudText Typo="Typo.body2" Class="muted mb-3">@Explanation</MudText>
+        }
+        <MudTextField @bind-Value="_comment" Label="Comment" Required="true" Placeholder="For example: our own penetration test, ticket 4711"
+                      Variant="Variant.Outlined" Lines="3" MaxLength="@SecurityIncident.MaxCommentLength" Counter="@SecurityIncident.MaxCommentLength"
+                      Immediate="true" AutoFocus="true" />
+        <MudText Typo="Typo.caption" Class="muted d-block mt-1">Kept with the incident in Settings, Security.</MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_comment))">@ActionLabel</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public string Incident { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string ActionLabel { get; set; } = string.Empty;
+    [Parameter] public string? Explanation { get; set; }
+
+    /// <summary>Receives the comment; returns true when the action was saved.</summary>
+    [Parameter] public Func<string?, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+
+    private string? _comment;
+    private bool _busy;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(_comment))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

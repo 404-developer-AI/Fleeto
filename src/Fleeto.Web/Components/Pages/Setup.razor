@@ -4,6 +4,7 @@
 @attribute [ExcludeFromInteractiveRouting]
 @layout LoginLayout
 @inject SetupService SetupService
+@inject SignInSecurity SignInSecurity
 @inject ILogger<Setup> Logger
 
 <PageTitle>Set up Fleeto - Fleeto</PageTitle>
@@ -73,6 +74,10 @@
     [SupplyParameterFromQuery(Name = "error")]
     private string? Error { get; set; }
 
+    // Static server rendering (ExcludeFromInteractiveRouting): the request is here, so a wrong link counts for its address.
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
     private SetupTokenState _state = SetupTokenState.Invalid;
 
     private string? ProblemMessage =>
@@ -86,6 +91,13 @@
         try
         {
             _state = await SetupService.CheckAsync(Token);
+            // An unknown, expired or used setup link: guessing one is the way to take over a fresh instance (0.7.0). A visit without
+            // a token is somebody who opened /setup by hand and is not counted.
+            if (!string.IsNullOrEmpty(Token) && _state is SetupTokenState.Invalid or SetupTokenState.Expired or SetupTokenState.Used
+                && HttpContext is not null)
+            {
+                SignInSecurity.Failed(HttpContext, SecuritySignalKind.SetupTokenInvalid);
+            }
         }
         catch (Exception ex)
         {

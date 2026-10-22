@@ -38,6 +38,12 @@ public static class SettingKeys
     /// <summary>Last evaluated <see cref="Core.Domain.LicenseState"/>, to detect transitions.</summary>
     public const string LicenseLastState = "license.last-state";
 
+    /// <summary><see cref="SecurityMonitorSettings"/>, plain (0.7.0). Missing means the defaults.</summary>
+    public const string SecurityMonitor = "security.monitor";
+
+    /// <summary><see cref="CrowdSecFeedSettings"/>, encrypted (the password of the Console integration).</summary>
+    public const string CrowdSecFeed = "security.crowdsec";
+
     /// <summary><see cref="Core.Domain.QueryStatistics"/>, plain: the costliest statements for instance health (0.6.0).</summary>
     public const string InstanceHealthQueries = "instance-health.queries";
 
@@ -134,6 +140,18 @@ public enum BackupDestinationType
 }
 
 /// <summary>Backup destination and the backup public key. The backup private key never reaches the instance.</summary>
+/// <summary>
+/// The security monitor (0.7.0): whether it blocks attacking addresses by itself. Off, it still opens incidents and notifies, and
+/// an admin blocks by hand.
+/// </summary>
+public sealed record SecurityMonitorSettings(bool AutomaticBlocking = true);
+
+/// <summary>
+/// A firewall integration of the CrowdSec Console (0.7.0): its id and the Basic Auth credentials the Console shows once. The address
+/// is always <see cref="Core.Domain.IpFeeds.CrowdSecContentUrl"/>, so an admin cannot point the workers anywhere else.
+/// </summary>
+public sealed record CrowdSecFeedSettings(string IntegrationId, string Username, string Password);
+
 public sealed record BackupSettings
 {
     public BackupDestinationType DestinationType { get; init; } = BackupDestinationType.None;

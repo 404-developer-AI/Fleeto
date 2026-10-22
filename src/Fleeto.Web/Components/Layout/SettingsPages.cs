@@ -35,6 +35,7 @@ public static class SettingsPages
         new("/settings/instance", Icons.Material.Outlined.Dns, "Instance", Permissions.InstanceView, true),
         new("/settings/instance-health", Icons.Material.Outlined.MonitorHeart, "Instance health", Permissions.InstanceHealthView, true),
         new("/settings/performance", Icons.Material.Outlined.Speed, "Performance", Permissions.PerformanceView, true),
+        new("/settings/security", Icons.Material.Outlined.Security, "Security", Permissions.SecurityView, true),
     ];
 
     public static IReadOnlyList<SettingsPage> For(Caller? caller) => caller is null ? [] : All.Where(p => caller.Has(p.Permission)).ToList();

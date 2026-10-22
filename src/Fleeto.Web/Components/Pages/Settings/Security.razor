@@ -1,0 +1,405 @@
+@page "/settings/security"
+@attribute [RequirePermission(Permissions.SecurityView)]
+@inherits FleetoPageBase
+@inject SecurityService SecuritySvc
+@inject IDialogService DialogService
+@using Fleeto.Infrastructure.Settings
+
+<PageTitle>Security - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Security</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            The security monitor watches sign-ins, API keys, the agent gateway and the audit log every minute, opens an incident for what it
+            finds and blocks attacking addresses by itself. A blocked address gets no page, no API and no enrollment; an allowed address is
+            never blocked. Private and reserved addresses, which the instance uses itself, are never blocked.
+        </MudText>
+    </div>
+    @if (Can(Permissions.SecurityManage))
+    {
+        <div class="d-flex gap-2">
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.VerifiedUser" OnClick="@(() => AddAsync(block: false))">Allow an address</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Error" StartIcon="@Icons.Material.Outlined.Block" OnClick="@(() => AddAsync(block: true))">Block an address</MudButton>
+        </div>
+    }
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    <MudTabs Elevation="0" Class="fl-tabs" MinimumTabWidth="0">
+        <MudTabPanel Text="@($"Incidents ({_incidents.Count(i => i.ResolvedAt is null)})")" Icon="@Icons.Material.Outlined.GppMaybe">
+            <div class="d-flex align-center gap-2 mb-3">
+                <MudSwitch T="bool" Value="_settings.AutomaticBlocking" ValueChanged="SetAutomaticBlockingAsync" Color="Color.Primary"
+                           Disabled="@(!Can(Permissions.SecurityManage))" Label="Block attacking addresses automatically" />
+                <MudText Typo="Typo.caption" Class="muted">
+                    For an hour, then a day, then a week. Never an allowed address, nor a network a user signed in from or a managed endpoint
+                    connected from in the last 30 days.
+                </MudText>
+            </div>
+            @if (_incidents.Count == 0)
+            {
+                <EmptyState Icon="@Icons.Material.Outlined.GppGood" Title="No security incidents"
+                            Text="Nothing suspicious in the last 7 days. Choose a notification channel for security incidents to hear about the next one." />
+            }
+            else
+            {
+                <MudTable Items="_incidents" Hover="true" Elevation="0">
+                    <HeaderContent>
+                        <MudTh>Incident</MudTh>
+                        <MudTh>Seen</MudTh>
+                        <MudTh>State</MudTh>
+                        <MudTh Style="width:90px"></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>
+                            <div><strong>@context.Title</strong></div>
+                            <div class="muted" style="font-size:0.8125rem">@context.Detail</div>
+                            @if (context.AcknowledgeComment is { } acknowledged)
+                            {
+                                <div class="muted" style="font-size:0.8125rem">Acknowledged by @context.AcknowledgedByName: @acknowledged</div>
+                            }
+                            @if (context.ResolveComment is { } resolved)
+                            {
+                                <div class="muted" style="font-size:0.8125rem">Resolved by @context.ResolvedByName: @resolved</div>
+                            }
+                        </MudTd>
+                        <MudTd Style="white-space:nowrap">
+                            <TimeText Value="context.OpenedAt" />
+                            @if (context.LastSeenAt > context.OpenedAt.AddMinutes(1))
+                            {
+                                <div class="muted" style="font-size:0.8125rem">last <TimeText Value="context.LastSeenAt" /></div>
+                            }
+                        </MudTd>
+                        <MudTd>
+                            @if (context.ResolvedAt is not null)
+                            {
+                                <StatusChip Text="Resolved" Kind="StatusKind.Neutral" />
+                            }
+                            else if (context.AcknowledgedAt is not null)
+                            {
+                                <StatusChip Text="Acknowledged" Kind="StatusKind.Info" />
+                            }
+                            else
+                            {
+                                <StatusChip Text="@(context.Severity == AlertSeverity.Critical ? "Critical" : "Warning")"
+                                            Kind="@(context.Severity == AlertSeverity.Critical ? StatusKind.Error : StatusKind.Warning)" />
+                            }
+                        </MudTd>
+                        <MudTd Style="white-space:nowrap">
+                            @if (context.ResolvedAt is null && Can(Permissions.SecurityManage))
+                            {
+                                @if (context.AcknowledgedAt is null)
+                                {
+                                    <MudTooltip Text="Acknowledge">
+                                        <MudIconButton Icon="@Icons.Material.Outlined.Done" Size="Size.Small" aria-label="@($"Acknowledge {context.Title}")"
+                                                       OnClick="@(() => ChangeIncidentAsync(context, resolve: false))" />
+                                    </MudTooltip>
+                                }
+                                <MudTooltip Text="Resolve">
+                                    <MudIconButton Icon="@Icons.Material.Outlined.DoneAll" Size="Size.Small" aria-label="@($"Resolve {context.Title}")"
+                                                   OnClick="@(() => ChangeIncidentAsync(context, resolve: true))" />
+                                </MudTooltip>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </MudTabPanel>
+        <MudTabPanel Text="@($"Blocked addresses ({_blocks.Count(b => b.Active)})")" Icon="@Icons.Material.Outlined.Block">
+            @if (_blocks.Count == 0)
+            {
+                <EmptyState Icon="@Icons.Material.Outlined.Block" Title="No blocked addresses"
+                            Text="Block an address that attacks the instance. It is refused at once by the UI, the public API and the agent gateway." />
+            }
+            else
+            {
+                <MudTable Items="_blocks" Hover="true" Elevation="0">
+                    <HeaderContent>
+                        <MudTh>Address</MudTh>
+                        <MudTh>Reason</MudTh>
+                        <MudTh>Blocked</MudTh>
+                        <MudTh>Until</MudTh>
+                        <MudTh>State</MudTh>
+                        <MudTh Style="width:60px"></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd><code>@context.Network</code></MudTd>
+                        <MudTd>@context.Reason</MudTd>
+                        <MudTd>
+                            <TimeText Value="context.CreatedAt" />
+                            <span class="muted">@(context.Source == IpBlockSource.Manual ? $"by {context.CreatedByName}" : "by the security monitor")</span>
+                        </MudTd>
+                        <MudTd>
+                            @if (context.ExpiresAt is { } until)
+                            {
+                                <TimeText Value="until" />
+                            }
+                            else
+                            {
+                                <span class="muted">Until lifted</span>
+                            }
+                        </MudTd>
+                        <MudTd>
+                            @if (context.Active)
+                            {
+                                <StatusChip Text="Blocked" Kind="StatusKind.Error" />
+                            }
+                            else
+                            {
+                                <StatusChip Text="Ended" Kind="StatusKind.Neutral" />
+                            }
+                        </MudTd>
+                        <MudTd>
+                            @if (Can(Permissions.SecurityManage))
+                            {
+                                <MudTooltip Text="Lift the block">
+                                    <MudIconButton Icon="@Icons.Material.Outlined.LockOpen" Size="Size.Small" aria-label="@($"Lift the block of {context.Network}")"
+                                                   OnClick="@(() => RemoveBlockAsync(context))" />
+                                </MudTooltip>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </MudTabPanel>
+        <MudTabPanel Text="@($"Blocklists ({_feeds.Count(f => f.Enabled)})")" Icon="@Icons.Material.Outlined.Shield">
+            <MudText Typo="Typo.body2" Class="muted mb-3">
+                Public lists of addresses that serve nothing but attacks, fetched by the workers every 6 hours. A listed address gets no page, no API
+                and no enrollment; an agent with a valid certificate always connects, and an allowed address is never blocked by a list.
+            </MudText>
+            <MudTable Items="_feeds" Hover="true" Elevation="0">
+                <HeaderContent>
+                    <MudTh>Blocklist</MudTh>
+                    <MudTh>Networks</MudTh>
+                    <MudTh>Updated</MudTh>
+                    <MudTh Style="width:140px">On</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd>
+                        <div><strong>@context.Name</strong> <a href="@context.TermsUrl" target="_blank" rel="noopener noreferrer" class="muted" style="font-size:0.8125rem">terms</a></div>
+                        <div class="muted" style="font-size:0.8125rem">@context.Description</div>
+                        @if (context.Key == IpFeeds.CrowdSec)
+                        {
+                            <div class="muted" style="font-size:0.8125rem">
+                                @(context.CrowdSecIntegrationId is { } id ? $"Integration {id}." : "No integration set.")
+                                @if (Can(Permissions.SecurityManage))
+                                {
+                                    <MudLink OnClick="ConfigureCrowdSecAsync" Typo="Typo.caption">@(context.Configured ? "Change" : "Set up")</MudLink>
+                                    @if (context.Configured)
+                                    {
+                                        <text> · </text><MudLink OnClick="RemoveCrowdSecAsync" Typo="Typo.caption" Color="Color.Error">Remove</MudLink>
+                                    }
+                                }
+                            </div>
+                        }
+                        @if (context.Enabled && context.Problem is { } problem)
+                        {
+                            <div style="font-size:0.8125rem;color:var(--mud-palette-warning)">@problem</div>
+                        }
+                    </MudTd>
+                    <MudTd>@(context.Enabled && context.LastSuccessAt is not null ? context.EntryCount.ToString("N0") : "–")</MudTd>
+                    <MudTd>
+                        @if (!context.Enabled)
+                        {
+                            <span class="muted">Off</span>
+                        }
+                        else if (context.RefreshRequested)
+                        {
+                            <span class="muted">Fetching…</span>
+                        }
+                        else if (context.LastSuccessAt is { } updated)
+                        {
+                            <TimeText Value="updated" />
+                        }
+                        else
+                        {
+                            <span class="muted">Not fetched yet</span>
+                        }
+                    </MudTd>
+                    <MudTd Style="white-space:nowrap">
+                        <MudSwitch T="bool" Value="context.Enabled" ValueChanged="@(on => SetFeedAsync(context, on))" Color="Color.Primary"
+                                   Disabled="@(!Can(Permissions.SecurityManage) || !context.Configured)" aria-label="@($"{context.Name} on")" />
+                        @if (context.Enabled && Can(Permissions.SecurityManage))
+                        {
+                            <MudTooltip Text="Fetch now">
+                                <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Size="Size.Small" aria-label="@($"Fetch {context.Name} now")"
+                                               OnClick="@(() => RefreshFeedAsync(context))" />
+                            </MudTooltip>
+                        }
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudTabPanel>
+        <MudTabPanel Text="@($"Allowed addresses ({_allows.Count})")" Icon="@Icons.Material.Outlined.VerifiedUser">
+            @if (_allows.Count == 0)
+            {
+                <EmptyState Icon="@Icons.Material.Outlined.VerifiedUser" Title="No allowed addresses"
+                            Text="Allow the office of the customer, a monitoring service or an integration that calls the public API, so nothing ever blocks it." />
+            }
+            else
+            {
+                <MudTable Items="_allows" Hover="true" Elevation="0">
+                    <HeaderContent>
+                        <MudTh>Address</MudTh>
+                        <MudTh>Description</MudTh>
+                        <MudTh>Added</MudTh>
+                        <MudTh Style="width:60px"></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd><code>@context.Network</code></MudTd>
+                        <MudTd>@context.Description</MudTd>
+                        <MudTd><TimeText Value="context.CreatedAt" /> <span class="muted">by @context.CreatedByName</span></MudTd>
+                        <MudTd>
+                            @if (Can(Permissions.SecurityManage))
+                            {
+                                <MudTooltip Text="Remove">
+                                    <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error"
+                                                   aria-label="@($"Remove {context.Network} from the allowed addresses")" OnClick="@(() => RemoveAllowAsync(context))" />
+                                </MudTooltip>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </MudTabPanel>
+    </MudTabs>
+</LoadState>
+
+@code {
+    private IReadOnlyList<SecurityIncidentView> _incidents = [];
+    private SecurityMonitorSettings _settings = new();
+    private IReadOnlyList<IpBlockView> _blocks = [];
+    private IReadOnlyList<IpFeedView> _feeds = [];
+    private IReadOnlyList<IpAllowView> _allows = [];
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        _incidents = await SecuritySvc.ListIncidentsAsync(caller);
+        _settings = await SecuritySvc.GetSettingsAsync(caller);
+        _blocks = await SecuritySvc.ListBlocksAsync(caller);
+        _feeds = await SecuritySvc.ListFeedsAsync(caller);
+        _allows = await SecuritySvc.ListAllowsAsync(caller);
+    });
+
+    private async Task AddAsync(bool block)
+    {
+        var parameters = new DialogParameters<IpEntryDialog>
+        {
+            { d => d.Block, block },
+            { d => d.OnSubmit, (network, text, duration) => block
+                ? RunAsync(caller => SecuritySvc.BlockAsync(caller, network, text, duration), "The address is blocked.")
+                : RunAsync(caller => SecuritySvc.AllowAsync(caller, network, text), "The address is allowed.") }
+        };
+        var dialog = await DialogService.ShowAsync<IpEntryDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task SetFeedAsync(IpFeedView feed, bool on)
+    {
+        if (await RunAsync(caller => SecuritySvc.SetFeedEnabledAsync(caller, feed.Key, on),
+                on ? $"{feed.Name} is on. The workers fetch it now." : $"{feed.Name} is off."))
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task RefreshFeedAsync(IpFeedView feed)
+    {
+        if (await RunAsync(caller => SecuritySvc.RefreshFeedAsync(caller, feed.Key), $"The workers fetch {feed.Name} now."))
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task ConfigureCrowdSecAsync()
+    {
+        var parameters = new DialogParameters<CrowdSecFeedDialog>
+        {
+            { d => d.InitialIntegrationId, _feeds.FirstOrDefault(f => f.Key == IpFeeds.CrowdSec)?.CrowdSecIntegrationId },
+            { d => d.OnSubmit, (id, user, password) => RunAsync(caller => SecuritySvc.SetCrowdSecAsync(caller, id, user, password),
+                "The CrowdSec integration is saved. The workers fetch it now.") }
+        };
+        var dialog = await DialogService.ShowAsync<CrowdSecFeedDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task RemoveCrowdSecAsync()
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, "Remove the CrowdSec integration" },
+            { d => d.Message, "Its credentials are deleted and its addresses no longer block. Delete the integration in the CrowdSec Console as well." }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => SecuritySvc.RemoveCrowdSecAsync(caller), "The CrowdSec integration was removed."))
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task SetAutomaticBlockingAsync(bool on)
+    {
+        if (await RunAsync(caller => SecuritySvc.SetAutomaticBlockingAsync(caller, on),
+                on ? "Attacking addresses are blocked automatically." : "Automatic blocking is off. Incidents still open and notify."))
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task ChangeIncidentAsync(SecurityIncidentView incident, bool resolve)
+    {
+        var parameters = new DialogParameters<IncidentCommentDialog>
+        {
+            { d => d.Incident, incident.Title },
+            { d => d.Title, resolve ? "Resolve incident" : "Acknowledge incident" },
+            { d => d.ActionLabel, resolve ? "Resolve" : "Acknowledge" },
+            { d => d.Explanation, resolve
+                ? "If the attack goes on, the security monitor opens a new incident. A block stays until it ends or is lifted."
+                : "The incident stays open until it is quiet for a day, but leaves the dashboard tile." },
+            { d => d.OnSubmit, comment => RunAsync(caller => resolve
+                ? SecuritySvc.ResolveAsync(caller, incident.Id, comment)
+                : SecuritySvc.AcknowledgeAsync(caller, incident.Id, comment), resolve ? "The incident was resolved." : "The incident was acknowledged.") }
+        };
+        var dialog = await DialogService.ShowAsync<IncidentCommentDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task RemoveBlockAsync(IpBlockView block)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Lift the block of {block.Network}" },
+            { d => d.Message, "The address can reach the instance again at once. The security monitor blocks it again if the attack goes on." }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => SecuritySvc.RemoveBlockAsync(caller, block.Id), "The block was lifted."))
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task RemoveAllowAsync(IpAllowView allow)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Remove {allow.Network} from the allowed addresses" },
+            { d => d.Message, "A block of the address applies again." }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => SecuritySvc.RemoveAllowAsync(caller, allow.Id), "The address was removed."))
+        {
+            await ReloadAsync();
+        }
+    }
+}

@@ -52,6 +52,9 @@ public static class WebServiceRegistration
     public static IServiceCollection AddFleetoWebServices(this IServiceCollection services)
     {
         services.AddSingleton<TwoFactorGate>();
+        // The security monitor (0.7.0): sign-in signals and networks, and the blocked and allowed addresses in Settings.
+        services.AddSingleton<SignInSecurity>();
+        services.AddSingleton<SecurityService>();
         services.AddSingleton<LiveUpdates>();
         // The performance monitor (0.7.0): page interactions per route template, one handler per circuit.
         services.AddSingleton<PageRoutes>();

@@ -9,8 +9,9 @@ When a third released version is added, the oldest entry moves to the top of
 
 ## [Unreleased]
 
-Version 0.7.0, the performance monitor (`ROADMAP.md`, `PERFORMANCE.md`), step 1: the core, and step 2: Diagnose; and turning
-automatic Windows Update off from a patch policy.
+Version 0.7.0, the performance monitor (`ROADMAP.md`, `PERFORMANCE.md`), step 1: the core, and step 2: Diagnose; turning
+automatic Windows Update off from a patch policy; and the security monitor, step 1: signals, scanner detection, and blocked and
+allowed addresses, step 2: detection, security incidents and automatic blocking, and step 3: blocklists.
 
 ### Added
 
@@ -83,6 +84,25 @@ automatic Windows Update off from a patch policy.
   fleeto-signer refuses an agent-only configuration that carries it. The Patches tab shows where it stands: turned off by Fleeto,
   set by a group policy, not turned off without the Action1 agent, or not reported by an agent older than 0.7.0. On the API
   waiting list.
+- Settings, Security (the security monitor, step 1): block an address or network, for an hour up to 30 days or until lifted, with
+  a reason, and allow one so that nothing ever blocks it. Web answers a blocked address with a 403 that names it before anything
+  else runs; the gateway drops it before the TLS handshake on the agent port and refuses it on the relay. The change takes effect
+  within seconds (a database trigger wakes web and the gateway, which keep the list in memory). An allow always wins. Private
+  and reserved ranges, which the instance uses itself, can never be blocked or allowed, nor can a network wider than /8 (IPv4)
+  or /19 (IPv6), nor the network that holds the admin's own address. Every change is audited. New permissions Security and
+  Manage security, administration of the instance, held by admins only. On the API waiting list.
+- Security incidents (the security monitor, step 2), on the new first tab of Settings, Security: what the workers found, with the
+  cause and the next step, when it was first and last seen, and whether the address was blocked. An admin acknowledges an
+  incident or resolves it, both with a required comment kept with it (the audit log holds its length, never its text); an
+  incident also resolves by itself after a day without the finding (15 minutes for the set-up findings below). A switch on the
+  tab turns automatic blocking off or on; off, incidents still open and notify. A dashboard tile for admins shows the open
+  incidents nobody acknowledged and the blocked addresses. A notification channel can choose "Also send security incidents",
+  never combined into a digest. On the API waiting list.
+- Blocklists (the security monitor, step 3), a tab of Settings, Security: Spamhaus DROP, abuse.ch Feodo Tracker and FireHOL
+  level 1, on by default, and blocklist.de, off by default, each switched on or off by an admin with its number of networks, when
+  it was last fetched and why a fetch failed, and "Fetch now". CrowdSec as a fifth list: the blocklists a CrowdSec Console account
+  subscribes to, through a firewall integration of the Console whose id, user name and password an admin enters (stored
+  encrypted, the password never shown again or audited). On the API waiting list.
 
 ### Changed
 
@@ -130,6 +150,51 @@ automatic Windows Update off from a patch policy.
   runs of the organization (`automations/instances`), by its schedule link or by its id, which Action1 builds from the id of the
   automation and the start time; `last_instance` is also read when it comes as an object. When Action1 says the automation ran
   but no run is found, the workers log what Action1 sent, without secrets.
+
+### Security
+
+- The security monitor, step 1: web and the gateway count what they see of attacks per address and minute, in memory, and
+  write it once a minute in one batch (`SecuritySignals`, kept 90 days): refused rate limits, failed sign-ins and two-factor
+  setups, unknown or used setup links, public API calls with an invalid, unknown, revoked or expired API key (only a wrong
+  secret was audited before), agent sessions with a revoked or an unknown certificate (one log line before, which did not tell
+  them apart), connections to the agent port that never complete their TLS handshake (Kestrel logged those only at debug
+  level), and refused blocked addresses. An IPv4 address counts on its own, an IPv6 address with its /64.
+- Scanner detection in web and the gateway: a request for a path Fleeto never serves but scanners always try (`/.env`,
+  `/.git/`, `/wp-login.php`, `*.php`, `/actuator`, and more), an exploit attempt in the path or query (path traversal, also
+  double encoded, a null byte, Log4Shell, SQL or script injection) or the User-Agent of a scanning tool (sqlmap, Nikto, Nuclei,
+  zgrab, and more) gets a bare 404 without the not-found page and counts as a signal (a path that only exists to leak secrets,
+  such as `/.env` or `/.git/`, as a sensitive path), and so does any other 404 of an anonymous caller on a path without a route. A real route is never judged by its path, so no page of Fleeto can look like a probe.
+- The security monitor, step 2: a workers loop judges the signals and the last hour of the audit log every minute and opens a
+  security incident for: a brute force from one address (10 failed sign-ins or codes in 10 minutes), password spraying (5
+  accounts from one address in 30 minutes), an attack on one account from 5 or more addresses (20 attempts in an hour), a locked
+  admin account, a sign-in from a new network by an admin or a user with remote control, API key guessing (20 in 10 minutes),
+  a scan of the agent port (30 refused connections in 10 minutes), a revoked agent certificate that still connects, a
+  vulnerability scanner (one sensitive path such as `/.env`, one exploit attempt or scanning tool, or 3 other probes), directory
+  enumeration (50 404s in 10 minutes), a rate-limit flood (200 refusals in 10 minutes), a change of who can do what (roles,
+  users, API keys, sign-in, credentials, allowed addresses), a script on 100 or more endpoints at once, 10 remote sessions of one
+  user in an hour, 5 signing refusals in 10 minutes, and, checked hourly, API keys without an expiry date, keys or admins unused
+  for 90 days.
+- Automatic blocking: an attack from one address blocks it for an hour, the next time within 30 days for a day, then a week,
+  and a scanner at once for a day; never permanently and at most 10,000 at once. Never an allowed address, a private or
+  reserved range, a network a user signed in from or a managed endpoint connected from in the last 30 days: those incidents say
+  why the address was not blocked. Every automatic block is audited as the security monitor. A scanner, enumeration, flood or
+  agent-port scan that Fleeto blocked by itself is shown in Settings, Security but not sent to the notification channels:
+  every server on the internet is scanned all day; one that could not be blocked is sent.
+- The blocklists are fetched by the workers only, every 6 hours, an hour after a failure, and at once when switched on or asked
+  for, with a timeout, a 64 MB ceiling and a circuit breaker per list. A list is cleaned of private and reserved ranges (FireHOL
+  level 1 lists 10.0.0.0/8 and 172.16.0.0/12, where the containers of the instance live) and of networks wider than /8 or /19,
+  refused when it holds more than 500,000 networks or shrinks to less than half, and otherwise replaces the previous list in one
+  transaction; a failed or refused fetch keeps the previous list. Web and the gateway read the entries again only when a list
+  changed. An address on a list gets a 403 from web and is refused for enrollment, recovery and the relay; an agent that presents
+  a valid certificate always connects, and an allowed address is never blocked by a list. CrowdSec is only ever called at
+  `admin.api.crowdsec.net` with the id the admin entered. Fleeto shares nothing with CrowdSec: its community blocklist in
+  exchange for signals is only for its own Security Engine with unmodified scenarios of its Hub (checked 2026-10-23), so a
+  Console integration is the way in.
+- `install.sh --fqdn <name> --unblock` lifts every blocked address of an instance, the way back in for an admin whose own
+  address was blocked; audited as `install.sh`.
+- The attempt that locks an account is audited as its own action, `user.locked_out`, once. The audit entry of a sign-in holds
+  the User-Agent, at most 256 characters. The networks users sign in from (an IPv4 /24 or an IPv6 /64) are remembered with
+  the first and last time and forgotten after 400 days without a sign-in.
 
 ## [0.6.0] — 2026-10-18
 

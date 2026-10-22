@@ -83,6 +83,11 @@ public static class WorkersServiceCollectionExtensions
         services.AddHostedService<RetentionService>();
         services.AddSingleton<HostMetricsReader>();
         services.AddHostedService<InstanceHealthService>();
+        // The security monitor (0.7.0): incidents and automatic blocks from the signals of web and the gateway.
+        services.AddSingleton<Security.SecurityMonitorService>();
+        services.AddHostedService(sp => sp.GetRequiredService<Security.SecurityMonitorService>());
+        services.AddSingleton(sp => ActivatorUtilities.CreateInstance<Security.IpFeedService>(sp));
+        services.AddHostedService(sp => sp.GetRequiredService<Security.IpFeedService>());
         // The performance monitor (0.7.0): the VPS every minute, the database statistics, and rollup and retention.
         services.AddSingleton<PerfHostReader>();
         services.AddHostedService<PerfHostService>();

@@ -114,9 +114,19 @@ public sealed class RemoteRelay : BackgroundService
         }
 
         var address = BrowserAddress(context);
+        // The security monitor (0.7.0): a blocked browser address gets no relay, whatever its token.
+        var guard = context.RequestServices.GetRequiredService<AgentConnectionGuard>();
+        if (guard.IsBlocked(guard.ClientAddress(context)))
+        {
+            await Problems.WriteAsync(context, StatusCodes.Status403Forbidden, "Address blocked",
+                "Requests from this address are blocked. If that is a mistake, ask an administrator of the instance to allow the address in Settings, Security.");
+            return;
+        }
+
         using var lease = _connectLimiter.AttemptAcquire(address ?? "unknown");
         if (!lease.IsAcquired)
         {
+            context.RequestServices.GetRequiredService<SecuritySignalRecorder>().Record(SecuritySignalKind.RateLimited, guard.ClientAddress(context));
             context.Response.Headers.RetryAfter = "60";
             await Problems.WriteAsync(context, StatusCodes.Status429TooManyRequests, "Too many sessions",
                 "Too many remote sessions were opened from this address. Wait a minute and try again.");

@@ -7,6 +7,7 @@ using Fleeto.Gateway.Diagnostics;
 using Fleeto.Gateway.Http;
 using Fleeto.Gateway.Tls;
 using Fleeto.Infrastructure.Performance;
+using Fleeto.Infrastructure.Security;
 using Fleeto.Protocol;
 using Fleeto.Protocol.Agent.V1;
 using Google.Protobuf;
@@ -36,11 +37,13 @@ public sealed class AgentConnectionHandler
     private readonly TimeProvider _time;
     private readonly GatewayOptions _options;
     private readonly GatewayStore _store;
+    private readonly SecuritySignalRecorder _signals;
     private readonly ILogger<AgentConnectionHandler> _logger;
 
     public AgentConnectionHandler(AgentSessionManager manager, CertificateAllowList allowList, GatewayMetrics metrics, TimeProvider time,
-        IOptions<GatewayOptions> options, GatewayStore store, ILogger<AgentConnectionHandler> logger)
+        IOptions<GatewayOptions> options, GatewayStore store, SecuritySignalRecorder signals, ILogger<AgentConnectionHandler> logger)
     {
+        _signals = signals;
         _manager = manager;
         _allowList = allowList;
         _store = store;
@@ -100,8 +103,11 @@ public sealed class AgentConnectionHandler
                 return;
             }
 
+            var revoked = certificate is not null && _allowList.IsRevoked(certificate);
+            _signals.Record(revoked ? SecuritySignalKind.AgentCertificateRevoked : SecuritySignalKind.AgentCertificateUnknown,
+                context.Connection.RemoteIpAddress);
             _logger.LogInformation("Refused an agent session from {RemoteAddress}: {Reason}", RemoteAddress(context),
-                certificate is null ? "no client certificate" : "certificate not on the allow list");
+                certificate is null ? "no client certificate" : revoked ? "the certificate was revoked" : "certificate not on the allow list");
             await Problems.WriteAsync(context, StatusCodes.Status401Unauthorized, "Agent certificate not accepted",
                 certificate is null
                     ? "A client certificate is required. Enroll the agent first."

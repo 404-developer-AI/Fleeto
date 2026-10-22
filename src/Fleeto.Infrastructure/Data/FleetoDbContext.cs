@@ -113,6 +113,15 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<InstanceHealthIssue> InstanceHealthIssues => Set<InstanceHealthIssue>();
     public DbSet<WorkerWatermark> WorkerWatermarks => Set<WorkerWatermark>();
 
+    // The security monitor (0.7.0): instance-wide, no client.
+    public DbSet<SecuritySignal> SecuritySignals => Set<SecuritySignal>();
+    public DbSet<IpBlock> IpBlocks => Set<IpBlock>();
+    public DbSet<IpAllow> IpAllows => Set<IpAllow>();
+    public DbSet<UserSignInNetwork> UserSignInNetworks => Set<UserSignInNetwork>();
+    public DbSet<SecurityIncident> SecurityIncidents => Set<SecurityIncident>();
+    public DbSet<IpFeed> IpFeeds => Set<IpFeed>();
+    public DbSet<IpFeedEntry> IpFeedEntries => Set<IpFeedEntry>();
+
     // The performance monitor (0.7.0): instance-wide, no client, no personal data.
     public DbSet<PerfMinute> PerfMinutes => Set<PerfMinute>();
     public DbSet<PerfHour> PerfHours => Set<PerfHour>();
@@ -1253,6 +1262,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(a => a.Time);
             entity.HasIndex(a => new { a.ClientId, a.Time });
             entity.HasIndex(a => new { a.TargetType, a.TargetId });
+            // The security monitor (0.7.0) reads the last hour of a few actions every minute.
+            entity.HasIndex(a => new { a.Action, a.Time });
             // A limited scope sees no instance-wide entries (who changed settings, users or a deleted client), and in a client it
             // sees part of only the entries about its endpoints (0.6.0).
             entity.HasQueryFilter(a => ScopeAllClients ||
@@ -1536,6 +1547,79 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(e => e.NextAttemptAt).HasFilter("\"SentAt\" IS NULL").HasDatabaseName("IX_OutboxEmails_Pending");
             // What was sent to one address lately, for the flood limit (0.6.0).
             entity.HasIndex(e => new { e.ToAddress, e.CreatedAt });
+        });
+
+        // The security monitor (0.7.0): instance-wide, no client. Networks are canonical CIDR text (IpNetworks.Format).
+        builder.Entity<SecuritySignal>(entity =>
+        {
+            // Hypertable-friendly key, like PerfMinutes: the minute and an identity.
+            entity.HasKey(s => new { s.Minute, s.Id });
+            entity.Property(s => s.Id).UseIdentityByDefaultColumn();
+            entity.Property(s => s.Component).HasMaxLength(20);
+            entity.Property(s => s.Kind).HasConversion<string>().HasMaxLength(40);
+            entity.Property(s => s.Network).HasMaxLength(50);
+            entity.Property(s => s.Subject).HasMaxLength(Security.SecuritySignalRecorder.MaxSubjectLength);
+            entity.HasIndex(s => new { s.Kind, s.Minute });
+            entity.HasIndex(s => new { s.Network, s.Minute });
+        });
+
+        builder.Entity<IpBlock>(entity =>
+        {
+            entity.Property(b => b.Network).HasMaxLength(50);
+            entity.Property(b => b.Source).HasConversion<string>().HasMaxLength(20);
+            entity.Property(b => b.Reason).HasMaxLength(500);
+            entity.Property(b => b.CreatedByName).HasMaxLength(256);
+            entity.HasIndex(b => b.Network).IsUnique();
+            entity.HasIndex(b => b.ExpiresAt);
+        });
+
+        builder.Entity<IpAllow>(entity =>
+        {
+            entity.Property(a => a.Network).HasMaxLength(50);
+            entity.Property(a => a.Description).HasMaxLength(500);
+            entity.Property(a => a.CreatedByName).HasMaxLength(256);
+            entity.HasIndex(a => a.Network).IsUnique();
+        });
+
+        builder.Entity<SecurityIncident>(entity =>
+        {
+            entity.Property(i => i.Key).HasMaxLength(200);
+            entity.Property(i => i.Kind).HasConversion<string>().HasMaxLength(40);
+            entity.Property(i => i.Severity).HasConversion<string>().HasMaxLength(20);
+            entity.Property(i => i.Title).HasMaxLength(500);
+            entity.Property(i => i.Detail).HasMaxLength(2000);
+            entity.Property(i => i.Network).HasMaxLength(50);
+            entity.Property(i => i.AcknowledgedByName).HasMaxLength(256);
+            entity.Property(i => i.AcknowledgeComment).HasMaxLength(SecurityIncident.MaxCommentLength);
+            entity.Property(i => i.ResolvedByName).HasMaxLength(256);
+            entity.Property(i => i.ResolveComment).HasMaxLength(SecurityIncident.MaxCommentLength);
+            // At most one open incident per key, so a concurrent pass cannot open it twice.
+            entity.HasIndex(i => i.Key).IsUnique().HasFilter("\"ResolvedAt\" IS NULL").HasDatabaseName("IX_SecurityIncidents_OpenKey");
+            entity.HasIndex(i => i.ResolvedAt);
+            entity.HasIndex(i => i.OpenedAt);
+        });
+
+        builder.Entity<IpFeed>(entity =>
+        {
+            entity.HasKey(f => f.Key);
+            entity.Property(f => f.Key).HasMaxLength(50);
+            entity.Property(f => f.Problem).HasMaxLength(1000);
+        });
+
+        builder.Entity<IpFeedEntry>(entity =>
+        {
+            entity.HasKey(e => new { e.Feed, e.Network });
+            entity.Property(e => e.Feed).HasMaxLength(50);
+            entity.Property(e => e.Network).HasMaxLength(50);
+            entity.HasOne<IpFeed>().WithMany().HasForeignKey(e => e.Feed).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<UserSignInNetwork>(entity =>
+        {
+            entity.HasKey(n => new { n.UserId, n.Network });
+            entity.Property(n => n.Network).HasMaxLength(50);
+            entity.HasOne<ApplicationUser>().WithMany().HasForeignKey(n => n.UserId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(n => new { n.Network, n.LastSeen });
         });
 
         // Instance health (0.6.0): instance-wide, no client, no personal data.

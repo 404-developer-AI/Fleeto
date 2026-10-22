@@ -1,0 +1,57 @@
+@* The CrowdSec Console firewall integration of the blocklists (0.7.0). The password is write-only: never shown again. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">CrowdSec blocklists</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-3">
+            In the CrowdSec Console, create a firewall integration, subscribe it to the blocklists you want and copy its id from the endpoint
+            URL (admin.api.crowdsec.net/v1/integrations/<em>id</em>/content) and the user name and password it shows once. Fleeto only fetches
+            the list; it shares nothing with CrowdSec.
+        </MudText>
+        <MudTextField @bind-Value="_integrationId" Label="Integration id" Variant="Variant.Outlined" MaxLength="64" AutoFocus="true" Immediate="true" Class="mb-3" />
+        <MudTextField @bind-Value="_username" Label="User name" Variant="Variant.Outlined" MaxLength="200" Immediate="true" Class="mb-3" />
+        <MudTextField @bind-Value="_password" Label="Password" Variant="Variant.Outlined" InputType="InputType.Password" MaxLength="500" Immediate="true"
+                      HelperText="Stored encrypted and never shown again." />
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync"
+                   Disabled="@(_busy || string.IsNullOrWhiteSpace(_integrationId) || string.IsNullOrWhiteSpace(_username) || string.IsNullOrEmpty(_password))">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public string? InitialIntegrationId { get; set; }
+
+    /// <summary>Integration id, user name and password; returns true when they were saved.</summary>
+    [Parameter] public Func<string, string, string, Task<bool>> OnSubmit { get; set; } = (_, _, _) => Task.FromResult(true);
+
+    private string _integrationId = string.Empty;
+    private string _username = string.Empty;
+    private string _password = string.Empty;
+    private bool _busy;
+
+    protected override void OnInitialized() => _integrationId = InitialIntegrationId ?? string.Empty;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(_integrationId, _username, _password))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

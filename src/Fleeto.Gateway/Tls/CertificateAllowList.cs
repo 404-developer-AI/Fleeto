@@ -232,6 +232,10 @@ public sealed class CertificateAllowList : BackgroundService
         return AllowListDecision.Accepted;
     }
 
+    /// <summary>Whether a refused certificate is one the instance issued and revoked (0.7.0, a signal of the security monitor).</summary>
+    public bool IsRevoked(X509Certificate2 certificate) =>
+        _snapshot?.Revoked.Contains(KeyIds.Sha256Hex(certificate.RawDataMemory.Span)) == true;
+
     /// <summary>True when a deleted endpoint waits for its uninstall command (0.6.0): its live sessions reconnect to receive it.</summary>
     public bool HasPendingUninstall(Guid endpointId) => _snapshot?.UninstallEndpoints.Contains(endpointId) == true;
 
@@ -316,6 +320,14 @@ public sealed class CertificateAllowList : BackgroundService
                         """)
                     {
                         Parameters = { new NpgsqlParameter<DateTime> { TypedValue = now } }
+                    },
+                    // Revoked certificates that have not expired yet, so a refusal can tell a revoked certificate from an unknown one
+                    // for the security monitor (0.7.0). An expired one is refused for its expiry anyway.
+                    new NpgsqlBatchCommand("""
+                        SELECT "Fingerprint" FROM "AgentCertificates" WHERE "RevokedAt" IS NOT NULL AND "ExpiresAt" > $1
+                        """)
+                    {
+                        Parameters = { new NpgsqlParameter<DateTime> { TypedValue = now } }
                     }
                 }
             };
@@ -325,6 +337,7 @@ public sealed class CertificateAllowList : BackgroundService
             var expired = new Dictionary<string, Entry>(StringComparer.Ordinal);
             var cas = new List<(string Fingerprint, byte[] Der)>();
             var uninstalls = new Dictionary<string, PendingUninstall>(StringComparer.Ordinal);
+            var revoked = new HashSet<string>(StringComparer.Ordinal);
             await using (var reader = await batch.ExecuteReaderAsync(cancellationToken))
             {
                 while (await reader.ReadAsync(cancellationToken))
@@ -351,6 +364,12 @@ public sealed class CertificateAllowList : BackgroundService
                         uninstalls[fingerprint] = pending;
                     }
                 }
+
+                await reader.NextResultAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    revoked.Add(reader.GetString(0));
+                }
             }
 
             var caSetKey = string.Join(",", cas.Select(c => c.Fingerprint));
@@ -359,7 +378,7 @@ public sealed class CertificateAllowList : BackgroundService
                 : LoadCas(cas);
 
             _snapshot = new Snapshot(entries, expired, caCertificates, caSetKey, now, uninstalls,
-                [.. uninstalls.Values.Select(u => u.EndpointId)]);
+                [.. uninstalls.Values.Select(u => u.EndpointId)], revoked);
             _uninstallsAccepted.Clear();
 
             // Additions made before this reload read the database are now covered (or revoked) by the snapshot.
@@ -442,5 +461,6 @@ public sealed class CertificateAllowList : BackgroundService
     private readonly record struct Entry(Guid EndpointId, DateTime ExpiresAt, Guid ClientId, AgentComponent Role);
 
     private sealed record Snapshot(Dictionary<string, Entry> Entries, Dictionary<string, Entry> Expired, X509Certificate2Collection CaCertificates,
-        string CaSetKey, DateTime LoadedAt, Dictionary<string, PendingUninstall> Uninstalls, HashSet<Guid> UninstallEndpoints);
+        string CaSetKey, DateTime LoadedAt, Dictionary<string, PendingUninstall> Uninstalls, HashSet<Guid> UninstallEndpoints,
+        HashSet<string> Revoked);
 }

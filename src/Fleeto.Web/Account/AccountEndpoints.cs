@@ -42,8 +42,9 @@ public static class AccountEndpoints
     }
 
     private static async Task<IResult> LoginAsync(HttpContext context, SignInManager<ApplicationUser> signIn, UserManager<ApplicationUser> users,
-        IAuditLog audit, TimeProvider time)
+        IAuditLog audit, TimeProvider time, SignInSecurity security)
     {
+        var userAgent = SignInSecurity.UserAgent(context);
         var form = await context.Request.ReadFormAsync();
         var email = form["Email"].ToString().Trim();
         var password = form["Password"].ToString();
@@ -60,21 +61,25 @@ public static class AccountEndpoints
         {
             // A linked user has no password at all (0.5.0); the answer stays the same as for a wrong password, so the form
             // does not say which accounts sign in with Microsoft. The button for that is on the page.
+            security.Failed(context);
             await audit.WriteAsync(UserRecord(AuditActions.LoginFailed, user, context,
-                new { Route = "password", Reason = "the account signs in with Microsoft Entra ID" }));
+                new { Route = "password", Reason = "the account signs in with Microsoft Entra ID", UserAgent = userAgent }));
             return Results.Redirect("/account/login?error=invalid" + returnQuery);
         }
 
         if (user is not null)
         {
             // lockoutOnFailure: repeated wrong passwords lock the account (5 attempts, 15 minutes).
+            var wasLockedOut = await users.IsLockedOutAsync(user);
             var result = await signIn.PasswordSignInAsync(user, password, isPersistent: false, lockoutOnFailure: true);
             if (result.Succeeded)
             {
                 // Succeeded means the account has no two-factor authentication yet: the session is restricted to the setup
                 // page until it is done (TwoFactorEnforcementMiddleware).
                 await RecordLoginAsync(users, user, time);
-                await audit.WriteAsync(UserRecord(AuditActions.LoginSucceeded, user, context, new { Route = "password", TwoFactor = "not set up" }));
+                await security.SucceededAsync(user.Id, context);
+                await audit.WriteAsync(UserRecord(AuditActions.LoginSucceeded, user, context,
+                    new { Route = "password", TwoFactor = "not set up", UserAgent = userAgent }));
                 return Results.Redirect("/account/setup-2fa");
             }
 
@@ -83,8 +88,14 @@ public static class AccountEndpoints
                 return Results.Redirect("/account/two-factor" + (returnUrl == "/" ? string.Empty : "?returnUrl=" + Uri.EscapeDataString(returnUrl)));
             }
 
+            security.Failed(context);
             await audit.WriteAsync(UserRecord(AuditActions.LoginFailed, user, context,
-                new { Route = "password", Reason = result.IsLockedOut ? "locked out" : result.IsNotAllowed ? "not allowed" : "wrong password" }));
+                new { Route = "password", Reason = result.IsLockedOut ? "locked out" : result.IsNotAllowed ? "not allowed" : "wrong password", UserAgent = userAgent }));
+            if (result.IsLockedOut && !wasLockedOut)
+            {
+                await audit.WriteAsync(UserRecord(AuditActions.LockedOut, user, context, new { Route = "password" }));
+            }
+
             if (result.IsLockedOut)
             {
                 return Results.Redirect("/account/login?error=lockedout");
@@ -92,8 +103,10 @@ public static class AccountEndpoints
         }
         else
         {
+            security.Failed(context);
             await audit.WriteAsync(new AuditRecord(AuditActions.LoginFailed, "User", "unknown", null, AuditActorType.User, "unknown",
-                email.Length > 200 ? email[..200] : email, new { Route = "password", Reason = "unknown email address" }, context.RemoteIp()));
+                email.Length > 200 ? email[..200] : email, new { Route = "password", Reason = "unknown email address", UserAgent = userAgent },
+                context.RemoteIp()));
         }
 
         // The same answer for an unknown address and a wrong password, so the form does not reveal which accounts exist.
@@ -101,8 +114,9 @@ public static class AccountEndpoints
     }
 
     private static async Task<IResult> TwoFactorAsync(HttpContext context, SignInManager<ApplicationUser> signIn, UserManager<ApplicationUser> users,
-        IAuditLog audit, TimeProvider time)
+        IAuditLog audit, TimeProvider time, SignInSecurity security)
     {
+        var userAgent = SignInSecurity.UserAgent(context);
         var form = await context.Request.ReadFormAsync();
         var code = AccountService.NormalizeCode(form["Code"].ToString());
         var isRecoveryCode = form["IsRecoveryCode"].ToString() is "true" or "on";
@@ -125,6 +139,7 @@ public static class AccountEndpoints
             ? EntraSignInEndpoints.EntraRoute
             : "password";
 
+        var wasLockedOut = await users.IsLockedOutAsync(user);
         var result = isRecoveryCode
             ? await signIn.TwoFactorRecoveryCodeSignInAsync(code)
             : await signIn.TwoFactorAuthenticatorSignInAsync(code, isPersistent: false, rememberClient: false);
@@ -132,13 +147,21 @@ public static class AccountEndpoints
         if (result.Succeeded)
         {
             await RecordLoginAsync(users, user, time);
+            await security.SucceededAsync(user.Id, context);
             await audit.WriteAsync(UserRecord(AuditActions.LoginSucceeded, user, context,
-                new { Route = route, TwoFactor = isRecoveryCode ? "recovery code" : "authenticator app" }));
+                new { Route = route, TwoFactor = isRecoveryCode ? "recovery code" : "authenticator app", UserAgent = userAgent }));
             return Results.Redirect(returnUrl);
         }
 
+        security.Failed(context);
         await audit.WriteAsync(UserRecord(AuditActions.LoginFailed, user, context,
-            new { Route = route, Reason = result.IsLockedOut ? "locked out" : isRecoveryCode ? "wrong recovery code" : "wrong two-factor code" }));
+            new { Route = route, Reason = result.IsLockedOut ? "locked out" : isRecoveryCode ? "wrong recovery code" : "wrong two-factor code",
+                UserAgent = userAgent }));
+        if (result.IsLockedOut && !wasLockedOut)
+        {
+            await audit.WriteAsync(UserRecord(AuditActions.LockedOut, user, context, new { Route = route }));
+        }
+
         return result.IsLockedOut ? Results.Redirect("/account/login?error=lockedout") : Results.Redirect("/account/two-factor?error=invalid");
     }
 
@@ -155,7 +178,7 @@ public static class AccountEndpoints
     }
 
     private static async Task<IResult> SetupTwoFactorAsync(HttpContext context, SignInManager<ApplicationUser> signIn, UserManager<ApplicationUser> users,
-        IAuditLog audit)
+        IAuditLog audit, SignInSecurity security)
     {
         var user = await users.GetUserAsync(context.User);
         if (user is null)
@@ -177,6 +200,7 @@ public static class AccountEndpoints
                     await users.VerifyTwoFactorTokenAsync(user, users.Options.Tokens.AuthenticatorTokenProvider, code);
         if (!valid)
         {
+            security.Failed(context, SecuritySignalKind.TwoFactorSetupFailed);
             await audit.WriteAsync(UserRecord(AuditActions.LoginFailed, user, context, new { Reason = "wrong code during two-factor setup" }));
             return Results.Redirect("/account/setup-2fa?error=invalid" + (fromSetup ? "&" + setupQuery : string.Empty));
         }
@@ -192,7 +216,7 @@ public static class AccountEndpoints
     }
 
     private static async Task<IResult> SetupFirstAdminAsync(HttpContext context, SetupService setup, SignInManager<ApplicationUser> signIn,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory, SignInSecurity security)
     {
         var form = await context.Request.ReadFormAsync();
         var token = form["Token"].ToString();
@@ -217,6 +241,8 @@ public static class AccountEndpoints
 
         if (result.State != SetupTokenState.Valid)
         {
+            // An unknown, expired or used setup link: guessing one is the way to take over a fresh instance (0.7.0).
+            security.Failed(context, SecuritySignalKind.SetupTokenInvalid);
             return Results.Redirect("/setup?error=" + result.State.ToString().ToLowerInvariant() + "&" + tokenQuery);
         }
 

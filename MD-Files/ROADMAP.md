@@ -53,6 +53,24 @@ build plan are in `PERFORMANCE.md`. Built in three steps, each an alpha on the t
   tested on the test VPS): Action1 offers it only in its console, so the Fleeto agent sets `NoAutoUpdate` itself on the managed
   Windows endpoints Action1 reports, where no group policy decides, and undoes it when it no longer applies. The Patches tab shows
   where it stands.
+- [open] **Security monitor** (asked for by the developer on 2026-10-22: detect attacks and suspicious activity, tell the admins
+  at once and block malicious addresses, instead of finding out afterwards). Inside Fleeto, per instance; no host firewall and
+  no blocking by country. Built in three steps, each an alpha on the test VPS:
+  - [open] **Step 1, signals and blocking** (built 2026-10-22): web and the gateway count refused rate limits, failed sign-ins,
+    invalid API keys, revoked and unknown agent certificates, failed TLS handshakes, scanner probes and exploit attempts per
+    address and minute; scanner probes get a bare 404; Settings, Security blocks and allows addresses by hand, enforced by web
+    and the gateway within seconds; `user.locked_out`, the User-Agent of a sign-in and the networks users sign in from.
+  - [open] **Step 2, detection** (built 2026-10-23): a workers loop with pure rules over the signals and the audit log (brute force, password
+    spraying, an attack on one account, a locked admin, a sign-in from a new network, API key misuse, attacks on the agent port,
+    scanners, privilege changes, mass jobs and remote sessions, posture), security incidents with acknowledge and a comment,
+    automatic blocks of 1 hour, 24 hours and 7 days that never hit an allowed address, a reserved range or a network with a
+    recent sign-in or a valid agent, a dashboard tile and notifications to the channels that choose security incidents (a scan
+    Fleeto blocked by itself is not sent), and `install.sh --unblock` for an admin who blocked themselves out.
+  - [open] **Step 3, blocklists** (built 2026-10-23): Spamhaus DROP, abuse.ch Feodo Tracker and FireHOL level1 (blocklist.de
+    optional), refreshed every 6 hours by the workers and cleaned of reserved ranges, and CrowdSec through a firewall
+    integration of its Console. Sharing with CrowdSec was dropped after checking its documentation on 2026-10-23: its
+    community blocklist is only for its own Security Engine with unmodified Hub scenarios. A blocklist never refuses an agent
+    with a valid certificate.
 
 ## 0.8.0 — Hardening
 
