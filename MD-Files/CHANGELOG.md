@@ -195,6 +195,13 @@ allowed addresses, step 2: detection, security incidents and automatic blocking,
 - The attempt that locks an account is audited as its own action, `user.locked_out`, once. The audit entry of a sign-in holds
   the User-Agent, at most 256 characters. The networks users sign in from (an IPv4 /24 or an IPv6 /64) are remembered with
   the first and last time and forgotten after 400 days without a sign-in.
+- The agent and watchdog are built with Go 1.27.3 instead of 1.27.1: nine vulnerabilities of the standard library that their
+  code reaches are fixed, among them GO-2026-6809 (crypto/x509 now distrusts compromised intermediate certificates) and
+  HTTP/2, HTTP/1 and TLS flaws of net/http and crypto/tls (GO-2026-6603 to GO-2026-6617). `go.mod` asks for Go 1.27.3, CI
+  runs govulncheck with the Go of `go.mod`, and a CI step fails when a Dockerfile builds the agent with another Go: CI used to
+  check the newest 1.27 while the images built with the pinned 1.27.1.
+- The images run .NET 10.0.13 (the security update of 2026-10-13) instead of the runtime of September: the SDK, ASP.NET Core
+  and runtime base images are pinned to the 10.0.13 digests, and the Microsoft packages of 10.0.12 moved to 10.0.13.
 
 ## [0.6.0] — 2026-10-18
 
