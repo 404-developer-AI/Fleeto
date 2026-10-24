@@ -43,9 +43,16 @@ public sealed class NotificationBusTests
         await bus.StartAsync(CancellationToken.None);
         try
         {
-            // The listener is ready once its last statement is a LISTEN.
+            // The listener sends one LISTEN per channel, in declaration order, and a NOTIFY before the LISTEN of its channel
+            // is lost. So it is ready once its last statement is the LISTEN of the last channel, not just any LISTEN.
+            var lastChannel = typeof(NotificationChannels)
+                .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+                .Where(f => f.IsLiteral && f.FieldType == typeof(string))
+                .Select(f => (string)f.GetRawConstantValue()!)
+                .Last();
+            var ready = $"LISTEN \"{lastChannel}\"";
             var deadline = DateTime.UtcNow.AddSeconds(10);
-            while (await LastStatementAsync(application) is not { } last || !last.StartsWith("LISTEN", StringComparison.Ordinal))
+            while (await LastStatementAsync(application) != ready)
             {
                 Assert.True(DateTime.UtcNow < deadline, "The listener did not start listening.");
                 await Task.Delay(50);
