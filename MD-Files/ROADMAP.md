@@ -72,11 +72,14 @@ build plan are in `PERFORMANCE.md`. Built in three steps, each an alpha on the t
     community blocklist is only for its own Security Engine with unmodified Hub scenarios. A blocklist never refuses an agent
     with a valid certificate.
 
-## 0.8.0 — Patch management on Linux
+## 0.8.0 — Vulnerability reporting and patch management on Linux
 
-Replaces hardening as 0.8.0 (decided 2026-10-26; hardening was taken off the roadmap). How and what is discussed with the
-developer before anything is built.
+Replaces hardening as 0.8.0 (decided 2026-10-26; hardening was taken off the roadmap). Two parts, in this order (decided
+2026-10-26): vulnerability reporting, designed in `VULNERABILITIES.md`, then patch management on Linux, of which how and what is
+discussed with the developer before anything is built.
 
+- [open] Vulnerability reporting (`VULNERABILITIES.md`): security advisories of the CCB on the dashboard, and the CVEs that
+  affect the distribution packages of managed Ubuntu, Debian, AlmaLinux and Proxmox VE endpoints, matched inside the instance.
 - [open] Patch management on Linux (planned as 0.4.1, moved to "Not yet scheduled" on 2026-09-23, scheduled as 0.8.0 on
   2026-10-26). Until it is built a Linux endpoint shows no patch data at all and stays out of the compliance counts, because
   calling it uncovered would be untrue.

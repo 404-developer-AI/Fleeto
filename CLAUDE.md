@@ -39,6 +39,7 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 | `MD-Files/API-WAITLIST.md` | Features that are not in the public API yet, added in the same commit as the feature. |
 | `MD-Files/performance-monitoring.md` | The generic spec of a built-in performance monitor, shared with other products; not edited for Fleeto. |
 | `MD-Files/PERFORMANCE.md` | The performance monitor of Fleeto (0.7.0): how the spec maps onto Fleeto, its data model and build plan. |
+| `MD-Files/VULNERABILITIES.md` | Vulnerability reporting (0.8.0): security advisories on the dashboard and CVEs on Linux endpoints, its sources, data model and build plan. |
 
 ## Priorities (in this order)
 
