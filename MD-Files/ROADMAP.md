@@ -25,7 +25,7 @@ Markers: [done] built and tested, [open] still to do.
 
 Asked for by the developer on 2026-10-14, after the performance monitor of the Servicedesk: an admin-only page that shows
 where Fleeto itself is slow and why, with an export to hand to Claude Code in this repository. It measures Fleeto, never the
-endpoints it manages. Placed before hardening (which moved from 0.7.0 to 0.8.0 the same day) so the load test at 10,000
+endpoints it manages. Placed before hardening (which moved from 0.7.0 to 0.8.0 the same day, and was taken off the roadmap on 2026-10-26) so the load test at 10,000
 agents is measured by it. The generic spec is `performance-monitoring.md`; how it maps onto Fleeto, the data model and the
 build plan are in `PERFORMANCE.md`. Built in three steps, each an alpha on the test VPS, released as a whole.
 
@@ -72,20 +72,14 @@ build plan are in `PERFORMANCE.md`. Built in three steps, each an alpha on the t
     community blocklist is only for its own Security Engine with unmodified Hub scenarios. A blocklist never refuses an agent
     with a valid certificate.
 
-## 0.8.0 — Hardening
+## 0.8.0 — Patch management on Linux
 
-- Load test at 10,000 simulated agents on the full ingest path, measured with the performance monitor of 0.7.0 in
-  Diagnose and handed to Claude Code as its export; fix what breaks. Document
-  the per-instance footprint and how many instances fit on one VPS size.
-- External security review of enrollment, signing, secrets handling, licensing, remote
-  control and multi-tenancy.
-- Gateway benchmark at 10,000 connections (open since 0.1.0, tested with 200 simulated agents).
-- Key ceremony written out and rehearsed (release and license keys, root key, signer key, backup key pair), and the
-  production release and license keys on hardware tokens (open since 0.1.0; test keys are in use since 2026-09-15).
-- Two instances side by side on one VPS, each on its own FQDN; restore of a backup onto a fresh VPS tested, also for
-  several instances on one VPS; unattended reboot recovery verified with several instances on one VPS (open since 0.1.0).
-- GDPR deliverables: data inventory, data processing agreement template, breach procedure,
-  client and endpoint deletion with full purge, recording retention.
+Replaces hardening as 0.8.0 (decided 2026-10-26; hardening was taken off the roadmap). How and what is discussed with the
+developer before anything is built.
+
+- [open] Patch management on Linux (planned as 0.4.1, moved to "Not yet scheduled" on 2026-09-23, scheduled as 0.8.0 on
+  2026-10-26). Until it is built a Linux endpoint shows no patch data at all and stays out of the compliance counts, because
+  calling it uncovered would be untrue.
 
 ## 1.0.0 — General availability
 
@@ -99,11 +93,6 @@ build plan are in `PERFORMANCE.md`. Built in three steps, each an alpha on the t
 
 Wanted, but not in a version yet: the version is chosen once the open questions are answered. These subjects stay part of
   the v1 scope in `CLAUDE.md` (decided 2026-09-23), so each one gets a version before 1.0.0.
-
-- Patch management on Linux (planned as 0.4.1, moved here on 2026-09-23): the Fleeto agent reads the id of the Action1
-  agent on a Linux endpoint as it already does on Windows, and Linux endpoints get patch state, missing updates,
-  deployments and a place in the compliance counts. Until then a Linux endpoint shows no patch data at all and stays out
-  of the counts, because calling it uncovered would be untrue.
 
 - The integrations other than Action1 (planned as 0.5.0, moved here on 2026-09-23): Sophos Central (endpoint health,
   detections), Veeam (backup job status), Proxmox VE and VMware vCenter (host and VM inventory and health), and

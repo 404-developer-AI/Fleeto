@@ -12,7 +12,8 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
   included) is released (2026-10-18) and runs on the first test VPS, tested through `v0.6.0-alpha.1` to `alpha.26`. Building
   0.7.0, the performance monitor (`MD-Files/ROADMAP.md`, `MD-Files/PERFORMANCE.md`): step 1, the core, is built and tested as
   `v0.7.0-alpha.1`, step 2, Diagnose, is built (2026-10-18); the security monitor, steps 1 to 3, are built (2026-10-22 and 23).
-  Patch management on Linux and the other integrations moved to "Not yet scheduled" on 2026-09-23. Local development runs without Docker (see `README.md`); Docker
+  The other integrations moved to "Not yet scheduled" on 2026-09-23; patch management on Linux is 0.8.0 (decided 2026-10-26,
+  how and what is still to be discussed), in place of hardening, which was taken off the roadmap. Local development runs without Docker (see `README.md`); Docker
   is for the VPS and CI only.
 - **Git**: always ask before committing, pushing or tagging. No intermediate commits while a version is being built.
   Tag a version only after its commits are pushed and CI is green.
@@ -392,7 +393,7 @@ rather than a home-grown fallback.
 
 Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
 
-- **Windows first** (0.4.0), Linux later (planned as 0.4.1, moved to "Not yet scheduled" on 2026-09-23). Action1 patches
+- **Windows first** (0.4.0), Linux later (planned as 0.4.1, moved to "Not yet scheduled" on 2026-09-23, 0.8.0 since 2026-10-26). Action1 patches
   Windows 8.1 and Server 2008 or newer, macOS and Linux x64;
   Windows 7 and Server 2003 are out and are the platforms that show "not covered by patch management". A Linux endpoint
   shows no patch data at all for now and is left out of the compliance counts: saying it is not covered would be untrue.
