@@ -2408,6 +2408,176 @@ namespace Fleeto.Infrastructure.Migrations
                     b.ToTable("EndpointPolicies");
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.EndpointVulnerability", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Advisory")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.PrimitiveCollection<string[]>("Binaries")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Cve")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<decimal?>("Cvss")
+                        .HasPrecision(3, 1)
+                        .HasColumnType("numeric(3,1)");
+
+                    b.Property<string>("EndReason")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("FirstSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FixedVersion")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("InstalledVersion")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("IsKernel")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Package")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("SourceSeverity")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EndedAt");
+
+                    b.HasIndex("ClientId", "Cve")
+                        .HasDatabaseName("IX_EndpointVulnerabilities_ClientCve")
+                        .HasFilter("\"EndedAt\" IS NULL");
+
+                    b.HasIndex("EndpointId", "ClientId");
+
+                    b.HasIndex("EndpointId", "Cve", "Package")
+                        .IsUnique()
+                        .HasDatabaseName("IX_EndpointVulnerabilities_Open")
+                        .HasFilter("\"EndedAt\" IS NULL");
+
+                    b.ToTable("EndpointVulnerabilities");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.EndpointVulnerabilitySummary", b =>
+                {
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Coverage")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<int>("Critical")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Distribution")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("FeedVersion")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("High")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("InventoryHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("Low")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("MatchedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Medium")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("NoFix")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("NotCovered")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("NotOpen")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PackageLists")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("PackageListsUpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("ProOnly")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Release")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<bool>("RestartRequired")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Unknown")
+                        .HasColumnType("integer");
+
+                    b.HasKey("EndpointId");
+
+                    b.HasIndex("ClientId");
+
+                    b.HasIndex("EndpointId", "ClientId");
+
+                    b.ToTable("EndpointVulnerabilitySummaries");
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.EnrollmentToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3040,6 +3210,9 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.Property<string>("NetworkInterfacesJson")
                         .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("PackageInfoJson")
                         .HasColumnType("jsonb");
 
                     b.Property<DateTime>("ReceivedAt")
@@ -6224,6 +6397,153 @@ namespace Fleeto.Infrastructure.Migrations
                     b.ToTable("UserSignInNetworks");
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.VulnerabilityCve", b =>
+                {
+                    b.Property<string>("Cve")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("UbuntuPriority")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Cve");
+
+                    b.ToTable("VulnerabilityCves");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.VulnerabilityFeed", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ETag")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("FailingSince")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModified")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("LastSuccessAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Problem")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("RecordCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Scope")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Key");
+
+                    b.ToTable("VulnerabilityFeeds");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.VulnerabilityFeedRecord", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Advisory")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Cve")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<decimal?>("Cvss")
+                        .HasPrecision(3, 1)
+                        .HasColumnType("numeric(3,1)");
+
+                    b.Property<string>("Distribution")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Feed")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("FixedVersion")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("IsKernel")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("KernelPattern")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ModuleStreams")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Package")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ProService")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTime?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Release")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("SourceSeverity")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Feed");
+
+                    b.HasIndex("Distribution", "Release", "Package");
+
+                    b.ToTable("VulnerabilityFeedRecords");
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.WorkerWatermark", b =>
                 {
                     b.Property<string>("Name")
@@ -7080,6 +7400,26 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Navigation("Policy");
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.EndpointVulnerability", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.EndpointVulnerabilitySummary", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.EnrollmentToken", b =>
                 {
                     b.HasOne("Fleeto.Core.Entities.Endpoint", null)
@@ -7596,6 +7936,15 @@ namespace Fleeto.Infrastructure.Migrations
                     b.HasOne("Fleeto.Infrastructure.Identity.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.VulnerabilityFeedRecord", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.VulnerabilityFeed", null)
+                        .WithMany()
+                        .HasForeignKey("Feed")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

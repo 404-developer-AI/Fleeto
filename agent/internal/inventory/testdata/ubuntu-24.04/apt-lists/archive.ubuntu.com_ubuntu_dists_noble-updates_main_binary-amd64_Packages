@@ -1,0 +1,1377 @@
+Package: amd64-microcode
+Version: 3.20251202.1ubuntu0.24.04.1
+
+Package: apparmor
+Version: 4.0.1really4.0.1-0ubuntu0.24.04.9
+
+Package: apport
+Version: 2.28.3-0ubuntu0.1
+
+Package: apport-core-dump-handler
+Version: 2.28.3-0ubuntu0.1
+
+Package: apt
+Version: 2.8.3
+
+Package: apt-utils
+Version: 2.8.3
+
+Package: base-files
+Version: 13ubuntu10.5
+
+Package: bind9-dnsutils
+Version: 1:9.18.39-0ubuntu0.24.04.8
+
+Package: bind9-host
+Version: 1:9.18.39-0ubuntu0.24.04.8
+
+Package: bind9-libs
+Version: 1:9.18.39-0ubuntu0.24.04.8
+
+Package: bpftrace
+Version: 0.20.2-1ubuntu4.3
+
+Package: bsdextrautils
+Version: 2.39.3-9ubuntu6.6
+
+Package: bsdutils
+Version: 1:2.39.3-9ubuntu6.6
+
+Package: busybox-initramfs
+Version: 1:1.36.1-6ubuntu3.1
+
+Package: busybox-static
+Version: 1:1.36.1-6ubuntu3.1
+
+Package: byobu
+Version: 6.11-0ubuntu1.1
+
+Package: ca-certificates
+Version: 20260816ubuntu0.24.04.1
+
+Package: cloud-init
+Version: 26.2-0ubuntu1~24.04.2
+
+Package: cloud-initramfs-copymods
+Version: 0.49~24.04.1
+
+Package: cloud-initramfs-dyn-netconf
+Version: 0.49~24.04.1
+
+Package: console-setup
+Version: 1.226ubuntu1.1
+
+Package: console-setup-linux
+Version: 1.226ubuntu1.1
+
+Package: coreutils
+Version: 9.4-3ubuntu6.3
+
+Package: cpio
+Version: 2.15+dfsg-1ubuntu2.1
+
+Package: cryptsetup
+Version: 2:2.7.0-1ubuntu4.2
+
+Package: cryptsetup-bin
+Version: 2:2.7.0-1ubuntu4.2
+
+Package: cryptsetup-initramfs
+Version: 2:2.7.0-1ubuntu4.2
+
+Package: curl
+Version: 8.5.0-2ubuntu10.16
+
+Package: dbus
+Version: 1.14.10-4ubuntu4.1
+
+Package: dbus-bin
+Version: 1.14.10-4ubuntu4.1
+
+Package: dbus-daemon
+Version: 1.14.10-4ubuntu4.1
+
+Package: dbus-session-bus-common
+Version: 1.14.10-4ubuntu4.1
+
+Package: dbus-system-bus-common
+Version: 1.14.10-4ubuntu4.1
+
+Package: dbus-user-session
+Version: 1.14.10-4ubuntu4.1
+
+Package: dhcpcd-base
+Version: 1:10.0.6-1ubuntu3.2
+
+Package: diffutils
+Version: 1:3.10-1ubuntu0.1
+
+Package: dirmngr
+Version: 2.4.4-2ubuntu17.6
+
+Package: distro-info-data
+Version: 2026.10.12-0ubuntu0.24.04.1
+
+Package: dmeventd
+Version: 2:1.02.185-3ubuntu3.2
+
+Package: dmidecode
+Version: 3.5-3ubuntu0.2
+
+Package: dmsetup
+Version: 2:1.02.185-3ubuntu3.2
+
+Package: dpkg
+Version: 1.22.6ubuntu6.6
+
+Package: dracut-install
+Version: 060+5-1ubuntu3.4
+
+Package: e2fsprogs
+Version: 1.47.0-2.4~exp1ubuntu4.1
+
+Package: e2fsprogs-l10n
+Version: 1.47.0-2.4~exp1ubuntu4.1
+
+Package: eject
+Version: 2.39.3-9ubuntu6.6
+
+Package: fdisk
+Version: 2.39.3-9ubuntu6.6
+
+Package: firmware-sof-signed
+Version: 2023.12.1-1ubuntu1.11
+
+Package: fwupd
+Version: 2.0.20-1ubuntu2~24.04.2
+
+Package: gawk
+Version: 1:5.2.1-2ubuntu0.1
+
+Package: gcc-14-base
+Version: 14.2.0-4ubuntu2~24.04.1
+
+Package: gir1.2-glib-2.0
+Version: 2.80.0-6ubuntu3.10
+
+Package: gir1.2-packagekitglib-1.0
+Version: 1.2.8-2ubuntu1.5
+
+Package: git
+Version: 1:2.43.0-1ubuntu7.4
+
+Package: git-man
+Version: 1:2.43.0-1ubuntu7.4
+
+Package: gnupg
+Version: 2.4.4-2ubuntu17.6
+
+Package: gnupg-l10n
+Version: 2.4.4-2ubuntu17.6
+
+Package: gnupg-utils
+Version: 2.4.4-2ubuntu17.6
+
+Package: gpg
+Version: 2.4.4-2ubuntu17.6
+
+Package: gpg-agent
+Version: 2.4.4-2ubuntu17.6
+
+Package: gpg-wks-client
+Version: 2.4.4-2ubuntu17.6
+
+Package: gpgconf
+Version: 2.4.4-2ubuntu17.6
+
+Package: gpgsm
+Version: 2.4.4-2ubuntu17.6
+
+Package: gpgv
+Version: 2.4.4-2ubuntu17.6
+
+Package: grub-common
+Version: 2.12-1ubuntu7.3
+
+Package: grub-pc
+Version: 2.12-1ubuntu7.3
+
+Package: grub-pc-bin
+Version: 2.12-1ubuntu7.3
+
+Package: grub2-common
+Version: 2.12-1ubuntu7.3
+
+Package: gsasl-common
+Version: 2.2.1-1willsync1ubuntu0.1
+
+Package: gzip
+Version: 1.12-1ubuntu3.2
+
+Package: ibverbs-providers
+Version: 50.0-2ubuntu0.2
+
+Package: inetutils-telnet
+Version: 2:2.5-3ubuntu4.2
+
+Package: initramfs-tools
+Version: 0.142ubuntu25.8
+
+Package: initramfs-tools-bin
+Version: 0.142ubuntu25.8
+
+Package: initramfs-tools-core
+Version: 0.142ubuntu25.8
+
+Package: intel-microcode
+Version: 3.20260210.0ubuntu0.24.04.1
+
+Package: iproute2
+Version: 6.1.0-1ubuntu6.4
+
+Package: iputils-ping
+Version: 3:20240117-1ubuntu0.1
+
+Package: iputils-tracepath
+Version: 3:20240117-1ubuntu0.1
+
+Package: jq
+Version: 1.7.1-3ubuntu0.24.04.2
+
+Package: keyboard-configuration
+Version: 1.226ubuntu1.1
+
+Package: keyboxd
+Version: 2.4.4-2ubuntu17.6
+
+Package: klibc-utils
+Version: 2.0.13-4ubuntu0.2
+
+Package: kmod
+Version: 31+20240202-2ubuntu7.2
+
+Package: kpartx
+Version: 0.9.4-5ubuntu8.2
+
+Package: krb5-locales
+Version: 1.20.1-6ubuntu2.10
+
+Package: landscape-common
+Version: 24.02-0ubuntu5.7
+
+Package: less
+Version: 590-2ubuntu2.1
+
+Package: libacl1
+Version: 2.3.2-1build1.1
+
+Package: libaio1t64
+Version: 0.3.113-6build1.1
+
+Package: libaom3
+Version: 3.8.2-2ubuntu0.2
+
+Package: libapparmor1
+Version: 4.0.1really4.0.1-0ubuntu0.24.04.9
+
+Package: libapt-pkg6.0t64
+Version: 2.8.3
+
+Package: libarchive13t64
+Version: 3.7.2-2ubuntu0.9
+
+Package: libattr1
+Version: 1:2.5.2-1ubuntu0.1
+
+Package: libaudit-common
+Version: 1:3.1.2-2.1ubuntu0.1
+
+Package: libaudit1
+Version: 1:3.1.2-2.1ubuntu0.1
+
+Package: libblkid1
+Version: 2.39.3-9ubuntu6.6
+
+Package: libblockdev-crypto3
+Version: 3.1.1-1ubuntu0.1
+
+Package: libblockdev-fs3
+Version: 3.1.1-1ubuntu0.1
+
+Package: libblockdev-loop3
+Version: 3.1.1-1ubuntu0.1
+
+Package: libblockdev-mdraid3
+Version: 3.1.1-1ubuntu0.1
+
+Package: libblockdev-nvme3
+Version: 3.1.1-1ubuntu0.1
+
+Package: libblockdev-part3
+Version: 3.1.1-1ubuntu0.1
+
+Package: libblockdev-swap3
+Version: 3.1.1-1ubuntu0.1
+
+Package: libblockdev-utils3
+Version: 3.1.1-1ubuntu0.1
+
+Package: libblockdev3
+Version: 3.1.1-1ubuntu0.1
+
+Package: libbsd0
+Version: 0.12.1-1build1.1
+
+Package: libbz2-1.0
+Version: 1.0.8-5.1ubuntu0.1
+
+Package: libc-bin
+Version: 2.39-0ubuntu8.9
+
+Package: libc-dev-bin
+Version: 2.39-0ubuntu8.9
+
+Package: libc-devtools
+Version: 2.39-0ubuntu8.9
+
+Package: libc6
+Version: 2.39-0ubuntu8.9
+
+Package: libc6-dev
+Version: 2.39-0ubuntu8.9
+
+Package: libcap2
+Version: 1:2.66-5ubuntu2.4
+
+Package: libcap2-bin
+Version: 1:2.66-5ubuntu2.4
+
+Package: libclang-cpp18
+Version: 1:18.1.3-1ubuntu1
+
+Package: libclang1-18
+Version: 1:18.1.3-1ubuntu1
+
+Package: libcom-err2
+Version: 1.47.0-2.4~exp1ubuntu4.1
+
+Package: libcryptsetup12
+Version: 2:2.7.0-1ubuntu4.2
+
+Package: libcurl3t64-gnutls
+Version: 8.5.0-2ubuntu10.16
+
+Package: libcurl4t64
+Version: 8.5.0-2ubuntu10.16
+
+Package: libdbus-1-3
+Version: 1.14.10-4ubuntu4.1
+
+Package: libde265-0
+Version: 1.0.15-1ubuntu0.2
+
+Package: libdeflate0
+Version: 1.19-1build1.1
+
+Package: libdevmapper-event1.02.1
+Version: 2:1.02.185-3ubuntu3.2
+
+Package: libdevmapper1.02.1
+Version: 2:1.02.185-3ubuntu3.2
+
+Package: libdrm-common
+Version: 2.4.125-1ubuntu0.1~24.04.2
+
+Package: libdrm2
+Version: 2.4.125-1ubuntu0.1~24.04.2
+
+Package: libdw1t64
+Version: 0.190-1.1ubuntu0.1
+
+Package: libelf1t64
+Version: 0.190-1.1ubuntu0.1
+
+Package: libevent-core-2.1-7t64
+Version: 2.1.12-stable-9ubuntu2.2
+
+Package: libexpat1
+Version: 2.6.1-2ubuntu0.6
+
+Package: libext2fs2t64
+Version: 1.47.0-2.4~exp1ubuntu4.1
+
+Package: libfdisk1
+Version: 2.39.3-9ubuntu6.6
+
+Package: libfreetype6
+Version: 2.13.2+dfsg-1ubuntu0.2
+
+Package: libfwupd2
+Version: 1.9.34-0ubuntu1~24.04.1
+
+Package: libgcc-s1
+Version: 14.2.0-4ubuntu2~24.04.1
+
+Package: libgcrypt20
+Version: 1.10.3-2ubuntu0.2
+
+Package: libglib2.0-0t64
+Version: 2.80.0-6ubuntu3.10
+
+Package: libglib2.0-bin
+Version: 2.80.0-6ubuntu3.10
+
+Package: libglib2.0-data
+Version: 2.80.0-6ubuntu3.10
+
+Package: libgmp10
+Version: 2:6.3.0+dfsg-2ubuntu6.1
+
+Package: libgnutls30t64
+Version: 3.8.3-1.1ubuntu3.6
+
+Package: libgpg-error-l10n
+Version: 1.47-3build2.1
+
+Package: libgpg-error0
+Version: 1.47-3build2.1
+
+Package: libgsasl18
+Version: 2.2.1-1willsync1ubuntu0.1
+
+Package: libgssapi-krb5-2
+Version: 1.20.1-6ubuntu2.10
+
+Package: libgstreamer1.0-0
+Version: 1.24.2-1ubuntu0.1
+
+Package: libheif-plugin-aomdec
+Version: 1.17.6-1ubuntu4.9
+
+Package: libheif-plugin-aomenc
+Version: 1.17.6-1ubuntu4.9
+
+Package: libheif-plugin-libde265
+Version: 1.17.6-1ubuntu4.9
+
+Package: libheif1
+Version: 1.17.6-1ubuntu4.9
+
+Package: libhogweed6t64
+Version: 3.9.1-2.2build1.1
+
+Package: libibverbs1
+Version: 50.0-2ubuntu0.2
+
+Package: libicu74
+Version: 74.2-1ubuntu3.1
+
+Package: libidn12
+Version: 1.42-1ubuntu0.1
+
+Package: libidn2-0
+Version: 2.3.7-2build1.1
+
+Package: libisns0t64
+Version: 0.101-0.3ubuntu0.1
+
+Package: libjcat1
+Version: 0.2.3-1~ubuntu0.24.04.1
+
+Package: libjq1
+Version: 1.7.1-3ubuntu0.24.04.2
+
+Package: libk5crypto3
+Version: 1.20.1-6ubuntu2.10
+
+Package: libklibc
+Version: 2.0.13-4ubuntu0.2
+
+Package: libkmod2
+Version: 31+20240202-2ubuntu7.2
+
+Package: libkrb5-3
+Version: 1.20.1-6ubuntu2.10
+
+Package: libkrb5support0
+Version: 1.20.1-6ubuntu2.10
+
+Package: libldap-common
+Version: 2.6.10+dfsg-0ubuntu0.24.04.1
+
+Package: libldap2
+Version: 2.6.10+dfsg-0ubuntu0.24.04.1
+
+Package: libllvm18
+Version: 1:18.1.3-1ubuntu1
+
+Package: liblvm2cmd2.03
+Version: 2.03.16-3ubuntu3.2
+
+Package: liblz4-1
+Version: 1.9.4-1build1.1
+
+Package: liblzma5
+Version: 5.6.1+really5.4.5-1ubuntu0.4
+
+Package: libmbim-glib4
+Version: 1.31.2-0ubuntu3.1
+
+Package: libmbim-proxy
+Version: 1.31.2-0ubuntu3.1
+
+Package: libmbim-utils
+Version: 1.31.2-0ubuntu3.1
+
+Package: libmd0
+Version: 1.1.0-2build1.1
+
+Package: libmodule-scandeps-perl
+Version: 1.35-1ubuntu0.24.04.1
+
+Package: libmount1
+Version: 2.39.3-9ubuntu6.6
+
+Package: libmpfr6
+Version: 4.2.1-1build1.1
+
+Package: libmysqlclient21
+Version: 8.0.46-0ubuntu0.24.04.4
+
+Package: libncurses6
+Version: 6.4+20240113-1ubuntu2.2
+
+Package: libncursesw6
+Version: 6.4+20240113-1ubuntu2.2
+
+Package: libnetplan1
+Version: 1.1.2-8ubuntu1~24.04.3
+
+Package: libnettle8t64
+Version: 3.9.1-2.2build1.1
+
+Package: libnftables1
+Version: 1.0.9-1ubuntu0.1
+
+Package: libnghttp2-14
+Version: 1.59.0-1ubuntu0.4
+
+Package: libnl-3-200
+Version: 3.7.0-0.3build1.1
+
+Package: libnl-genl-3-200
+Version: 3.7.0-0.3build1.1
+
+Package: libnl-route-3-200
+Version: 3.7.0-0.3build1.1
+
+Package: libnss-systemd
+Version: 255.4-1ubuntu8.18
+
+Package: libnss3
+Version: 2:3.98-1ubuntu0.3
+
+Package: libntfs-3g89t64
+Version: 1:2022.10.3-1.2ubuntu3.2
+
+Package: libnuma1
+Version: 2.0.18-1ubuntu0.24.04.1
+
+Package: libnvme1t64
+Version: 1.8-3ubuntu1
+
+Package: libopeniscsiusr
+Version: 2.1.9-3ubuntu5.5
+
+Package: libp11-kit0
+Version: 0.25.3-4ubuntu2.2
+
+Package: libpackagekit-glib2-18
+Version: 1.2.8-2ubuntu1.5
+
+Package: libpam-cap
+Version: 1:2.66-5ubuntu2.4
+
+Package: libpam-modules
+Version: 1.5.3-5ubuntu5.7
+
+Package: libpam-modules-bin
+Version: 1.5.3-5ubuntu5.7
+
+Package: libpam-runtime
+Version: 1.5.3-5ubuntu5.7
+
+Package: libpam-systemd
+Version: 255.4-1ubuntu8.18
+
+Package: libpam0g
+Version: 1.5.3-5ubuntu5.7
+
+Package: libpcap0.8t64
+Version: 1.10.4-4.1ubuntu3.1
+
+Package: libpcre2-8-0
+Version: 10.42-4ubuntu2.1
+
+Package: libperl5.38t64
+Version: 5.38.2-3.2ubuntu0.6
+
+Package: libplymouth5
+Version: 24.004.60-1ubuntu7.2
+
+Package: libpng16-16t64
+Version: 1.6.43-5ubuntu0.7
+
+Package: libpolkit-agent-1-0
+Version: 124-2ubuntu1.24.04.4
+
+Package: libpolkit-gobject-1-0
+Version: 124-2ubuntu1.24.04.4
+
+Package: libpq5
+Version: 16.15-0ubuntu0.24.04.1
+
+Package: libproc2-0
+Version: 2:4.0.4-4ubuntu3.3
+
+Package: libpython3-stdlib
+Version: 3.12.3-0ubuntu2.1
+
+Package: libpython3.12-minimal
+Version: 3.12.3-1ubuntu0.17
+
+Package: libpython3.12-stdlib
+Version: 3.12.3-1ubuntu0.17
+
+Package: libpython3.12t64
+Version: 3.12.3-1ubuntu0.17
+
+Package: libsasl2-2
+Version: 2.1.28+dfsg1-5ubuntu3.1
+
+Package: libsasl2-modules
+Version: 2.1.28+dfsg1-5ubuntu3.1
+
+Package: libsasl2-modules-db
+Version: 2.1.28+dfsg1-5ubuntu3.1
+
+Package: libseccomp2
+Version: 2.5.5-1ubuntu3.1
+
+Package: libselinux1
+Version: 3.5-2ubuntu2.1
+
+Package: libsgutils2-1.46-2
+Version: 1.46-3ubuntu4.1
+
+Package: libsmartcols1
+Version: 2.39.3-9ubuntu6.6
+
+Package: libsodium23
+Version: 1.0.18-1ubuntu0.24.04.1
+
+Package: libsqlite3-0
+Version: 3.45.1-1ubuntu2.8
+
+Package: libss2
+Version: 1.47.0-2.4~exp1ubuntu4.1
+
+Package: libssh-4
+Version: 0.10.6-2ubuntu0.5
+
+Package: libssl3t64
+Version: 3.0.13-0ubuntu3.16
+
+Package: libstdc++6
+Version: 14.2.0-4ubuntu2~24.04.1
+
+Package: libsystemd-shared
+Version: 255.4-1ubuntu8.18
+
+Package: libsystemd0
+Version: 255.4-1ubuntu8.18
+
+Package: libtasn1-6
+Version: 4.19.0-3ubuntu0.24.04.2
+
+Package: libtiff6
+Version: 4.5.1+git230720-4ubuntu2.5
+
+Package: libtinfo6
+Version: 6.4+20240113-1ubuntu2.2
+
+Package: libtraceevent1
+Version: 1:1.8.2-1ubuntu2.1
+
+Package: libtraceevent1-plugin
+Version: 1:1.8.2-1ubuntu2.1
+
+Package: libtss2-esys-3.0.2-0t64
+Version: 4.0.1-7.1ubuntu5.1
+
+Package: libtss2-mu-4.0.1-0t64
+Version: 4.0.1-7.1ubuntu5.1
+
+Package: libtss2-sys1t64
+Version: 4.0.1-7.1ubuntu5.1
+
+Package: libtss2-tcti-cmd0t64
+Version: 4.0.1-7.1ubuntu5.1
+
+Package: libtss2-tcti-device0t64
+Version: 4.0.1-7.1ubuntu5.1
+
+Package: libtss2-tcti-mssim0t64
+Version: 4.0.1-7.1ubuntu5.1
+
+Package: libtss2-tcti-swtpm0t64
+Version: 4.0.1-7.1ubuntu5.1
+
+Package: libudev1
+Version: 255.4-1ubuntu8.18
+
+Package: libudisks2-0
+Version: 2.10.1-6ubuntu1.5
+
+Package: libunistring5
+Version: 1.1-2build1.1
+
+Package: libunwind8
+Version: 1.6.2-3build1.1
+
+Package: libuuid1
+Version: 2.39.3-9ubuntu6.6
+
+Package: libx11-6
+Version: 2:1.8.7-1ubuntu0.1
+
+Package: libx11-data
+Version: 2:1.8.7-1ubuntu0.1
+
+Package: libxml2
+Version: 2.9.14+dfsg-1.3ubuntu3.10
+
+Package: libxmlb2
+Version: 0.3.24-1~ubuntu0.24.04.1
+
+Package: libxpm4
+Version: 1:3.5.17-1ubuntu0.24.04.2
+
+Package: libxslt1.1
+Version: 1.1.39-0exp1ubuntu0.24.04.3
+
+Package: libzstd1
+Version: 1.5.5+dfsg2-2build1.1
+
+Package: linux-base
+Version: 4.5ubuntu9+24.04.2
+
+Package: linux-firmware
+Version: 20240318.git3b128b60.0ubuntu3.1
+
+Package: linux-generic
+Version: 6.8.0-147.147
+
+Package: linux-headers-6.8.0-147
+Version: 6.8.0-147.147
+
+Package: linux-headers-6.8.0-147-generic
+Version: 6.8.0-147.147
+
+Package: linux-headers-6.8.0-53
+Version: 6.8.0-53.55
+
+Package: linux-headers-6.8.0-53-generic
+Version: 6.8.0-53.55
+
+Package: linux-headers-generic
+Version: 6.8.0-147.147
+
+Package: linux-image-6.8.0-100-generic
+Version: 6.8.0-100.100
+
+Package: linux-image-6.8.0-101-generic
+Version: 6.8.0-101.101
+
+Package: linux-image-6.8.0-106-generic
+Version: 6.8.0-106.106
+
+Package: linux-image-6.8.0-107-generic
+Version: 6.8.0-107.107
+
+Package: linux-image-6.8.0-110-generic
+Version: 6.8.0-110.110
+
+Package: linux-image-6.8.0-111-generic
+Version: 6.8.0-111.111
+
+Package: linux-image-6.8.0-117-generic
+Version: 6.8.0-117.117
+
+Package: linux-image-6.8.0-124-generic
+Version: 6.8.0-124.124
+
+Package: linux-image-6.8.0-134-generic
+Version: 6.8.0-134.134
+
+Package: linux-image-6.8.0-136-generic
+Version: 6.8.0-136.136
+
+Package: linux-image-6.8.0-137-generic
+Version: 6.8.0-137.137
+
+Package: linux-image-6.8.0-138-generic
+Version: 6.8.0-138.138
+
+Package: linux-image-6.8.0-139-generic
+Version: 6.8.0-139.139
+
+Package: linux-image-6.8.0-142-generic
+Version: 6.8.0-142.142
+
+Package: linux-image-6.8.0-146-generic
+Version: 6.8.0-146.146
+
+Package: linux-image-6.8.0-147-generic
+Version: 6.8.0-147.147
+
+Package: linux-image-6.8.0-53-generic
+Version: 6.8.0-53.55
+
+Package: linux-image-generic
+Version: 6.8.0-147.147
+
+Package: linux-libc-dev
+Version: 6.8.0-147.147
+
+Package: linux-modules-6.8.0-100-generic
+Version: 6.8.0-100.100
+
+Package: linux-modules-6.8.0-101-generic
+Version: 6.8.0-101.101
+
+Package: linux-modules-6.8.0-106-generic
+Version: 6.8.0-106.106
+
+Package: linux-modules-6.8.0-107-generic
+Version: 6.8.0-107.107
+
+Package: linux-modules-6.8.0-110-generic
+Version: 6.8.0-110.110
+
+Package: linux-modules-6.8.0-111-generic
+Version: 6.8.0-111.111
+
+Package: linux-modules-6.8.0-117-generic
+Version: 6.8.0-117.117
+
+Package: linux-modules-6.8.0-124-generic
+Version: 6.8.0-124.124
+
+Package: linux-modules-6.8.0-134-generic
+Version: 6.8.0-134.134
+
+Package: linux-modules-6.8.0-136-generic
+Version: 6.8.0-136.136
+
+Package: linux-modules-6.8.0-137-generic
+Version: 6.8.0-137.137
+
+Package: linux-modules-6.8.0-138-generic
+Version: 6.8.0-138.138
+
+Package: linux-modules-6.8.0-139-generic
+Version: 6.8.0-139.139
+
+Package: linux-modules-6.8.0-142-generic
+Version: 6.8.0-142.142
+
+Package: linux-modules-6.8.0-146-generic
+Version: 6.8.0-146.146
+
+Package: linux-modules-6.8.0-147-generic
+Version: 6.8.0-147.147
+
+Package: linux-modules-6.8.0-53-generic
+Version: 6.8.0-53.55
+
+Package: linux-modules-extra-6.8.0-100-generic
+Version: 6.8.0-100.100
+
+Package: linux-modules-extra-6.8.0-101-generic
+Version: 6.8.0-101.101
+
+Package: linux-modules-extra-6.8.0-106-generic
+Version: 6.8.0-106.106
+
+Package: linux-modules-extra-6.8.0-107-generic
+Version: 6.8.0-107.107
+
+Package: linux-modules-extra-6.8.0-110-generic
+Version: 6.8.0-110.110
+
+Package: linux-modules-extra-6.8.0-111-generic
+Version: 6.8.0-111.111
+
+Package: linux-modules-extra-6.8.0-117-generic
+Version: 6.8.0-117.117
+
+Package: linux-modules-extra-6.8.0-124-generic
+Version: 6.8.0-124.124
+
+Package: linux-modules-extra-6.8.0-134-generic
+Version: 6.8.0-134.134
+
+Package: linux-modules-extra-6.8.0-136-generic
+Version: 6.8.0-136.136
+
+Package: linux-modules-extra-6.8.0-137-generic
+Version: 6.8.0-137.137
+
+Package: linux-modules-extra-6.8.0-138-generic
+Version: 6.8.0-138.138
+
+Package: linux-modules-extra-6.8.0-139-generic
+Version: 6.8.0-139.139
+
+Package: linux-modules-extra-6.8.0-142-generic
+Version: 6.8.0-142.142
+
+Package: linux-modules-extra-6.8.0-146-generic
+Version: 6.8.0-146.146
+
+Package: linux-modules-extra-6.8.0-147-generic
+Version: 6.8.0-147.147
+
+Package: linux-modules-extra-6.8.0-53-generic
+Version: 6.8.0-53.55
+
+Package: linux-tools-6.8.0-147
+Version: 6.8.0-147.147
+
+Package: linux-tools-6.8.0-147-generic
+Version: 6.8.0-147.147
+
+Package: linux-tools-6.8.0-53
+Version: 6.8.0-53.55
+
+Package: linux-tools-6.8.0-53-generic
+Version: 6.8.0-53.55
+
+Package: linux-tools-common
+Version: 6.8.0-41.41
+
+Package: linux-tools-common
+Version: 6.8.0-53.55
+
+Package: linux-tools-common
+Version: 6.8.0-71.71
+
+Package: linux-tools-common
+Version: 6.8.0-100.100
+
+Package: linux-tools-common
+Version: 6.8.0-101.101
+
+Package: linux-tools-common
+Version: 6.8.0-106.106
+
+Package: linux-tools-common
+Version: 6.8.0-107.107
+
+Package: linux-tools-common
+Version: 6.8.0-110.110
+
+Package: linux-tools-common
+Version: 6.8.0-111.111
+
+Package: linux-tools-common
+Version: 6.8.0-117.117
+
+Package: linux-tools-common
+Version: 6.8.0-124.124
+
+Package: linux-tools-common
+Version: 6.8.0-134.134
+
+Package: linux-tools-common
+Version: 6.8.0-136.136
+
+Package: linux-tools-common
+Version: 6.8.0-137.137
+
+Package: linux-tools-common
+Version: 6.8.0-138.138
+
+Package: linux-tools-common
+Version: 6.8.0-139.139
+
+Package: linux-tools-common
+Version: 6.8.0-142.142
+
+Package: linux-tools-common
+Version: 6.8.0-146.146
+
+Package: linux-tools-common
+Version: 6.8.0-147.147
+
+Package: locales
+Version: 2.39-0ubuntu8.9
+
+Package: login
+Version: 1:4.13+dfsg1-4ubuntu3.2
+
+Package: logsave
+Version: 1.47.0-2.4~exp1ubuntu4.1
+
+Package: lshw
+Version: 02.19.git.2021.06.19.996aaad9c7-2ubuntu0.24.04.1
+
+Package: lvm2
+Version: 2.03.16-3ubuntu3.2
+
+Package: lxd-agent-loader
+Version: 0.7ubuntu0.1
+
+Package: lxd-installer
+Version: 4ubuntu0.1
+
+Package: mdadm
+Version: 4.3-1ubuntu2.1
+
+Package: motd-news-config
+Version: 13ubuntu10.5
+
+Package: mount
+Version: 2.39.3-9ubuntu6.6
+
+Package: mtr-tiny
+Version: 0.95-1.1ubuntu0.1
+
+Package: multipath-tools
+Version: 0.9.4-5ubuntu8.2
+
+Package: nano
+Version: 7.2-2ubuntu0.2
+
+Package: ncurses-base
+Version: 6.4+20240113-1ubuntu2.2
+
+Package: ncurses-bin
+Version: 6.4+20240113-1ubuntu2.2
+
+Package: ncurses-term
+Version: 6.4+20240113-1ubuntu2.2
+
+Package: needrestart
+Version: 3.6-7ubuntu4.5
+
+Package: netplan-generator
+Version: 1.1.2-8ubuntu1~24.04.3
+
+Package: netplan.io
+Version: 1.1.2-8ubuntu1~24.04.3
+
+Package: nftables
+Version: 1.0.9-1ubuntu0.1
+
+Package: ntfs-3g
+Version: 1:2022.10.3-1.2ubuntu3.2
+
+Package: numactl
+Version: 2.0.18-1ubuntu0.24.04.1
+
+Package: open-iscsi
+Version: 2.1.9-3ubuntu5.5
+
+Package: open-vm-tools
+Version: 2:13.0.10-0ubuntu0.24.04.2
+
+Package: openssh-client
+Version: 1:9.6p1-3ubuntu13.20
+
+Package: openssh-server
+Version: 1:9.6p1-3ubuntu13.20
+
+Package: openssh-sftp-server
+Version: 1:9.6p1-3ubuntu13.20
+
+Package: openssl
+Version: 3.0.13-0ubuntu3.16
+
+Package: overlayroot
+Version: 0.49~24.04.1
+
+Package: packagekit
+Version: 1.2.8-2ubuntu1.5
+
+Package: packagekit-tools
+Version: 1.2.8-2ubuntu1.5
+
+Package: passwd
+Version: 1:4.13+dfsg1-4ubuntu3.2
+
+Package: pci.ids
+Version: 0.0~2024.03.31-1ubuntu0.1
+
+Package: perl
+Version: 5.38.2-3.2ubuntu0.6
+
+Package: perl-base
+Version: 5.38.2-3.2ubuntu0.6
+
+Package: perl-modules-5.38
+Version: 5.38.2-3.2ubuntu0.6
+
+Package: plymouth
+Version: 24.004.60-1ubuntu7.2
+
+Package: plymouth-theme-ubuntu-text
+Version: 24.004.60-1ubuntu7.2
+
+Package: polkitd
+Version: 124-2ubuntu1.24.04.4
+
+Package: pollinate
+Version: 4.33-3.1ubuntu1.3
+
+Package: postfix
+Version: 3.8.6-1ubuntu0.1
+
+Package: powermgmt-base
+Version: 1.37ubuntu0.1
+
+Package: procps
+Version: 2:4.0.4-4ubuntu3.3
+
+Package: python-apt-common
+Version: 2.7.7ubuntu5.3
+
+Package: python3
+Version: 3.12.3-0ubuntu2.1
+
+Package: python3-apport
+Version: 2.28.3-0ubuntu0.1
+
+Package: python3-apt
+Version: 2.7.7ubuntu5.3
+
+Package: python3-cryptography
+Version: 41.0.7-4ubuntu0.4
+
+Package: python3-distupgrade
+Version: 1:24.04.29
+
+Package: python3-httplib2
+Version: 0.20.4-3ubuntu0.1
+
+Package: python3-idna
+Version: 3.6-2ubuntu0.2
+
+Package: python3-jinja2
+Version: 3.1.2-1ubuntu1.3
+
+Package: python3-jwt
+Version: 2.7.0-1ubuntu0.4
+
+Package: python3-minimal
+Version: 3.12.3-0ubuntu2.1
+
+Package: python3-netplan
+Version: 1.1.2-8ubuntu1~24.04.3
+
+Package: python3-openssl
+Version: 23.2.0-1ubuntu0.1
+
+Package: python3-pkg-resources
+Version: 68.1.2-2ubuntu1.2
+
+Package: python3-problem-report
+Version: 2.28.3-0ubuntu0.1
+
+Package: python3-pyasn1
+Version: 0.4.8-4ubuntu0.3
+
+Package: python3-requests
+Version: 2.31.0+dfsg-1ubuntu1.2
+
+Package: python3-setuptools
+Version: 68.1.2-2ubuntu1.2
+
+Package: python3-software-properties
+Version: 0.99.49.4
+
+Package: python3-twisted
+Version: 24.3.0-1ubuntu0.2
+
+Package: python3-update-manager
+Version: 1:24.04.12
+
+Package: python3-urllib3
+Version: 2.0.7-1ubuntu0.8
+
+Package: python3.12
+Version: 3.12.3-1ubuntu0.17
+
+Package: python3.12-minimal
+Version: 3.12.3-1ubuntu0.17
+
+Package: rsync
+Version: 3.2.7-1ubuntu1.5
+
+Package: rsyslog
+Version: 8.2312.0-3ubuntu9.4
+
+Package: screen
+Version: 4.9.1-1ubuntu1
+
+Package: sed
+Version: 4.9-2ubuntu0.24.04.1
+
+Package: sg3-utils
+Version: 1.46-3ubuntu4.1
+
+Package: sg3-utils-udev
+Version: 1.46-3ubuntu4.1
+
+Package: snapd
+Version: 2.77.1+ubuntu24.04
+
+Package: software-properties-common
+Version: 0.99.49.4
+
+Package: sosreport
+Version: 4.11.2-0ubuntu0~24.04.1
+
+Package: ssh-import-id
+Version: 5.11-0ubuntu2.24.04.1
+
+Package: sudo
+Version: 1.9.15p5-3ubuntu5.24.04.4
+
+Package: systemd
+Version: 255.4-1ubuntu8.18
+
+Package: systemd-dev
+Version: 255.4-1ubuntu8.18
+
+Package: systemd-hwe-hwdb
+Version: 255.1.7
+
+Package: systemd-resolved
+Version: 255.4-1ubuntu8.18
+
+Package: systemd-sysv
+Version: 255.4-1ubuntu8.18
+
+Package: systemd-timesyncd
+Version: 255.4-1ubuntu8.18
+
+Package: tar
+Version: 1.35+dfsg-3ubuntu0.4
+
+Package: tcpdump
+Version: 4.99.4-3ubuntu4.24.04.1
+
+Package: telnet
+Version: 0.17+2.5-3ubuntu4.2
+
+Package: thermald
+Version: 2.5.6-2ubuntu0.24.04.6
+
+Package: thin-provisioning-tools
+Version: 0.9.0-2ubuntu5.1
+
+Package: tmux
+Version: 3.4-1ubuntu0.2
+
+Package: tzdata
+Version: 2026e-0ubuntu0.24.04.1
+
+Package: ubuntu-drivers-common
+Version: 1:0.9.7.6ubuntu3.7
+
+Package: ubuntu-kernel-accessories
+Version: 1.539.2
+
+Package: ubuntu-minimal
+Version: 1.539.2
+
+Package: ubuntu-pro-client
+Version: 38ubuntu0~24.04
+
+Package: ubuntu-pro-client-l10n
+Version: 38ubuntu0~24.04
+
+Package: ubuntu-release-upgrader-core
+Version: 1:24.04.29
+
+Package: ubuntu-server
+Version: 1.539.2
+
+Package: ubuntu-server-minimal
+Version: 1.539.2
+
+Package: ubuntu-standard
+Version: 1.539.2
+
+Package: udev
+Version: 255.4-1ubuntu8.18
+
+Package: udisks2
+Version: 2.10.1-6ubuntu1.5
+
+Package: unminimize
+Version: 0.2.1
+
+Package: update-manager-core
+Version: 1:24.04.12
+
+Package: update-notifier-common
+Version: 3.192.68.2
+
+Package: usbmuxd
+Version: 1.1.1-5~exp3ubuntu2.1
+
+Package: util-linux
+Version: 2.39.3-9ubuntu6.6
+
+Package: uuid-runtime
+Version: 2.39.3-9ubuntu6.6
+
+Package: vim
+Version: 2:9.1.0016-1ubuntu7.20
+
+Package: vim-common
+Version: 2:9.1.0016-1ubuntu7.20
+
+Package: vim-runtime
+Version: 2:9.1.0016-1ubuntu7.20
+
+Package: vim-tiny
+Version: 2:9.1.0016-1ubuntu7.20
+
+Package: wget
+Version: 1.21.4-1ubuntu4.5
+
+Package: wireless-regdb
+Version: 2026.05.30-0ubuntu1~24.04.1
+
+Package: xfsprogs
+Version: 6.6.0-1ubuntu2.1
+
+Package: xkb-data
+Version: 2.41-2ubuntu1.1
+
+Package: xxd
+Version: 2:9.1.0016-1ubuntu7.20
+
+Package: xz-utils
+Version: 5.6.1+really5.4.5-1ubuntu0.4
+
+Package: zlib1g
+Version: 1:1.3.dfsg-3.1ubuntu2.3
+
+Package: zstd
+Version: 1.5.5+dfsg2-2build1.1
+

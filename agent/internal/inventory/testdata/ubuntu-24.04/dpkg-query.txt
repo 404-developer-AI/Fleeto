@@ -1,0 +1,760 @@
+ii 	adduser	3.137ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	adduser	3.137ubuntu1	all
+ii 	amd64-microcode	3.20251202.1ubuntu0.24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	amd64-microcode	3.20251202.1ubuntu0.24.04.1	amd64
+ii 	apparmor	4.0.1really4.0.1-0ubuntu0.24.04.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	apparmor	4.0.1really4.0.1-0ubuntu0.24.04.4	amd64
+ii 	apport	2.28.1-0ubuntu3.8	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	apport	2.28.1-0ubuntu3.8	all
+ii 	apport-core-dump-handler	2.28.1-0ubuntu3.8	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	apport	2.28.1-0ubuntu3.8	all
+ii 	apport-symptoms	0.25	Ubuntu Developers <ubuntu-motu@lists.ubuntu.com>	apport-symptoms	0.25	all
+ii 	appstream	1.0.2-1build6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	appstream	1.0.2-1build6	amd64
+ii 	apt	2.8.3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	apt	2.8.3	amd64
+ii 	apt-utils	2.8.3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	apt	2.8.3	amd64
+ii 	base-files	13ubuntu10.3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	base-files	13ubuntu10.3	amd64
+ii 	base-passwd	3.6.3build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	base-passwd	3.6.3build1	amd64
+ii 	bash	5.2.21-2ubuntu4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	bash	5.2.21-2ubuntu4	amd64
+ii 	bash-completion	1:2.11-8	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	bash-completion	1:2.11-8	all
+ii 	bc	1.07.1-3ubuntu4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	bc	1.07.1-3ubuntu4	amd64
+ii 	bcache-tools	1.0.8-5build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	bcache-tools	1.0.8-5build1	amd64
+ii 	bind9-dnsutils	1:9.18.39-0ubuntu0.24.04.8	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	bind9	1:9.18.39-0ubuntu0.24.04.8	amd64
+ii 	bind9-host	1:9.18.39-0ubuntu0.24.04.8	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	bind9	1:9.18.39-0ubuntu0.24.04.8	amd64
+ii 	bind9-libs	1:9.18.39-0ubuntu0.24.04.8	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	bind9	1:9.18.39-0ubuntu0.24.04.8	amd64
+ii 	bolt	0.9.7-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	bolt	0.9.7-1	amd64
+ii 	bpfcc-tools	0.29.1+ds-1ubuntu7	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	bpfcc	0.29.1+ds-1ubuntu7	all
+ii 	bpftrace	0.20.2-1ubuntu4.3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	bpftrace	0.20.2-1ubuntu4.3	amd64
+ii 	bsdextrautils	2.39.3-9ubuntu6.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	util-linux	2.39.3-9ubuntu6.6	amd64
+ii 	bsdutils	1:2.39.3-9ubuntu6.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	util-linux	2.39.3-9ubuntu6.6	amd64
+ii 	btrfs-progs	6.6.3-1.1build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	btrfs-progs	6.6.3-1.1build2	amd64
+ii 	busybox-initramfs	1:1.36.1-6ubuntu3.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	busybox	1:1.36.1-6ubuntu3.1	amd64
+ii 	busybox-static	1:1.36.1-6ubuntu3.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	busybox	1:1.36.1-6ubuntu3.1	amd64
+ii 	byobu	6.11-0ubuntu1	Dustin Kirkland <kirkland@ubuntu.com>	byobu	6.11-0ubuntu1	all
+ii 	ca-certificates	20260816ubuntu0.24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ca-certificates	20260816ubuntu0.24.04.1	all
+ii 	cloud-guest-utils	0.33-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	cloud-utils	0.33-1	all
+ii 	cloud-init	25.2-0ubuntu1~24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	cloud-init	25.2-0ubuntu1~24.04.1	all
+ii 	cloud-initramfs-copymods	0.49~24.04.1	Scott Moser <smoser@ubuntu.com>	cloud-initramfs-tools	0.49~24.04.1	all
+ii 	cloud-initramfs-dyn-netconf	0.49~24.04.1	Scott Moser <smoser@ubuntu.com>	cloud-initramfs-tools	0.49~24.04.1	all
+ii 	command-not-found	23.04.0	Michael Vogt <michael.vogt@ubuntu.com>	command-not-found	23.04.0	all
+ii 	console-setup	1.226ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	console-setup	1.226ubuntu1	all
+ii 	console-setup-linux	1.226ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	console-setup	1.226ubuntu1	all
+ii 	coreutils	9.4-3ubuntu6.3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	coreutils	9.4-3ubuntu6.3	amd64
+ii 	cpio	2.15+dfsg-1ubuntu2.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	cpio	2.15+dfsg-1ubuntu2.1	amd64
+ii 	cron	3.0pl1-184ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	cron	3.0pl1-184ubuntu2	amd64
+ii 	cron-daemon-common	3.0pl1-184ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	cron	3.0pl1-184ubuntu2	all
+ii 	cryptsetup	2:2.7.0-1ubuntu4.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	cryptsetup	2:2.7.0-1ubuntu4.2	amd64
+ii 	cryptsetup-bin	2:2.7.0-1ubuntu4.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	cryptsetup	2:2.7.0-1ubuntu4.2	amd64
+ii 	cryptsetup-initramfs	2:2.7.0-1ubuntu4.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	cryptsetup	2:2.7.0-1ubuntu4.2	all
+ii 	curl	8.5.0-2ubuntu10.16	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	curl	8.5.0-2ubuntu10.16	amd64
+ii 	dash	0.5.12-6ubuntu5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	dash	0.5.12-6ubuntu5	amd64
+ii 	dbus	1.14.10-4ubuntu4.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	dbus	1.14.10-4ubuntu4.1	amd64
+ii 	dbus-bin	1.14.10-4ubuntu4.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	dbus	1.14.10-4ubuntu4.1	amd64
+ii 	dbus-daemon	1.14.10-4ubuntu4.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	dbus	1.14.10-4ubuntu4.1	amd64
+ii 	dbus-session-bus-common	1.14.10-4ubuntu4.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	dbus	1.14.10-4ubuntu4.1	all
+ii 	dbus-system-bus-common	1.14.10-4ubuntu4.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	dbus	1.14.10-4ubuntu4.1	all
+ii 	dbus-user-session	1.14.10-4ubuntu4.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	dbus	1.14.10-4ubuntu4.1	amd64
+ii 	debconf	1.5.86ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	debconf	1.5.86ubuntu1	all
+ii 	debconf-i18n	1.5.86ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	debconf	1.5.86ubuntu1	all
+ii 	debianutils	5.17build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	debianutils	5.17build1	amd64
+ii 	dhcpcd-base	1:10.0.6-1ubuntu3.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	dhcpcd	1:10.0.6-1ubuntu3.1	amd64
+ii 	diffutils	1:3.10-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	diffutils	1:3.10-1ubuntu0.1	amd64
+ii 	dirmngr	2.4.4-2ubuntu17.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gnupg2	2.4.4-2ubuntu17.6	amd64
+ii 	distro-info	1.7build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	distro-info	1.7build1	amd64
+ii 	distro-info-data	2026.10.12-0ubuntu0.24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	distro-info-data	2026.10.12-0ubuntu0.24.04.1	all
+ii 	dmeventd	2:1.02.185-3ubuntu3.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lvm2	2.03.16-3ubuntu3.2	amd64
+ii 	dmidecode	3.5-3ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	dmidecode	3.5-3ubuntu0.1	amd64
+ii 	dmsetup	2:1.02.185-3ubuntu3.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lvm2	2.03.16-3ubuntu3.2	amd64
+ii 	dosfstools	4.2-1.1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	dosfstools	4.2-1.1build1	amd64
+ii 	dpkg	1.22.6ubuntu6.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	dpkg	1.22.6ubuntu6.6	amd64
+ii 	dracut-install	060+5-1ubuntu3.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	dracut	060+5-1ubuntu3.4	amd64
+ii 	e2fsprogs	1.47.0-2.4~exp1ubuntu4.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	e2fsprogs	1.47.0-2.4~exp1ubuntu4.1	amd64
+ii 	e2fsprogs-l10n	1.47.0-2.4~exp1ubuntu4.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	e2fsprogs	1.47.0-2.4~exp1ubuntu4.1	all
+ii 	eatmydata	131-1ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libeatmydata	131-1ubuntu1	all
+ii 	ed	1.20.1-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ed	1.20.1-1	amd64
+ii 	eject	2.39.3-9ubuntu6.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	util-linux	2.39.3-9ubuntu6.6	amd64
+ii 	ethtool	1:6.7-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ethtool	1:6.7-1build1	amd64
+ii 	fdisk	2.39.3-9ubuntu6.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	util-linux	2.39.3-9ubuntu6.6	amd64
+ii 	file	1:5.45-3build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	file	1:5.45-3build1	amd64
+ii 	finalrd	9build1	Dimitri John Ledkov <xnox@ubuntu.com>	finalrd	9build1	all
+ii 	findutils	4.9.0-5build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	findutils	4.9.0-5build1	amd64
+ii 	firmware-sof-signed	2023.12.1-1ubuntu1.10	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	firmware-sof	2023.12.1-1ubuntu1.10	all
+ii 	fontconfig-config	2.15.0-1.1ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	fontconfig	2.15.0-1.1ubuntu2	amd64
+ii 	fonts-dejavu-core	2.37-8	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	fonts-dejavu	2.37-8	all
+ii 	fonts-dejavu-mono	2.37-8	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	fonts-dejavu	2.37-8	all
+ii 	fonts-ubuntu-console	0.869+git20240321-0ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	fonts-ubuntu	0.869+git20240321-0ubuntu1	all
+ii 	friendly-recovery	0.2.42	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	friendly-recovery	0.2.42	all
+ii 	ftp	20230507-2build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	tnftp	20230507-2build3	all
+ii 	fuse3	3.14.0-5build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	fuse3	3.14.0-5build1	amd64
+ii 	fwupd	1.9.31-0ubuntu1~24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	fwupd	1.9.31-0ubuntu1~24.04.1	amd64
+ii 	fwupd-signed	1.52+1.4-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	fwupd-signed	1.52	amd64
+ii 	gawk	1:5.2.1-2ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gawk	1:5.2.1-2ubuntu0.1	amd64
+ii 	gcc-14-base	14.2.0-4ubuntu2~24.04.1	Ubuntu Core developers <ubuntu-devel-discuss@lists.ubuntu.com>	gcc-14	14.2.0-4ubuntu2~24.04.1	amd64
+ii 	gdisk	1.0.10-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gdisk	1.0.10-1build1	amd64
+ii 	gettext-base	0.21-14ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gettext	0.21-14ubuntu2	amd64
+ii 	gir1.2-girepository-2.0	1.80.1-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gobject-introspection	1.80.1-1	amd64
+ii 	gir1.2-glib-2.0	2.80.0-6ubuntu3.9	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	glib2.0	2.80.0-6ubuntu3.9	amd64
+ii 	gir1.2-packagekitglib-1.0	1.2.8-2ubuntu1.5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	packagekit	1.2.8-2ubuntu1.5	amd64
+ii 	git	1:2.43.0-1ubuntu7.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	git	1:2.43.0-1ubuntu7.4	amd64
+ii 	git-man	1:2.43.0-1ubuntu7.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	git	1:2.43.0-1ubuntu7.4	all
+ii 	gnupg	2.4.4-2ubuntu17.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gnupg2	2.4.4-2ubuntu17.6	all
+ii 	gnupg-l10n	2.4.4-2ubuntu17.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gnupg2	2.4.4-2ubuntu17.6	all
+ii 	gnupg-utils	2.4.4-2ubuntu17.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gnupg2	2.4.4-2ubuntu17.6	amd64
+ii 	gpg	2.4.4-2ubuntu17.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gnupg2	2.4.4-2ubuntu17.6	amd64
+ii 	gpg-agent	2.4.4-2ubuntu17.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gnupg2	2.4.4-2ubuntu17.6	amd64
+ii 	gpg-wks-client	2.4.4-2ubuntu17.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gnupg2	2.4.4-2ubuntu17.6	amd64
+ii 	gpgconf	2.4.4-2ubuntu17.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gnupg2	2.4.4-2ubuntu17.6	amd64
+ii 	gpgsm	2.4.4-2ubuntu17.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gnupg2	2.4.4-2ubuntu17.6	amd64
+ii 	gpgv	2.4.4-2ubuntu17.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gnupg2	2.4.4-2ubuntu17.6	amd64
+ii 	grep	3.11-4build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	grep	3.11-4build1	amd64
+ii 	groff-base	1.23.0-3build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	groff	1.23.0-3build2	amd64
+ii 	grub-common	2.12-1ubuntu7.3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	grub2	2.12-1ubuntu7.3	amd64
+ii 	grub-gfxpayload-lists	0.7build2	Colin Watson <cjwatson@ubuntu.com>	grub-gfxpayload-lists	0.7build2	amd64
+ii 	grub-pc	2.12-1ubuntu7.3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	grub2	2.12-1ubuntu7.3	amd64
+ii 	grub-pc-bin	2.12-1ubuntu7.3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	grub2	2.12-1ubuntu7.3	amd64
+ii 	grub2-common	2.12-1ubuntu7.3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	grub2	2.12-1ubuntu7.3	amd64
+ii 	gsasl-common	2.2.1-1willsync1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gsasl	2.2.1-1willsync1ubuntu0.1	all
+ii 	guile-3.0-libs	3.0.9-1build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	guile-3.0	3.0.9-1build2	amd64
+ii 	gzip	1.12-1ubuntu3.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gzip	1.12-1ubuntu3.2	amd64
+ii 	hdparm	9.65+ds-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	hdparm	9.65+ds-1build1	amd64
+ii 	hostname	3.23+nmu2ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	hostname	3.23+nmu2ubuntu2	amd64
+ii 	htop	3.3.0-4build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	htop	3.3.0-4build1	amd64
+ii 	hwdata	0.379-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	hwdata	0.379-1	all
+ii 	ibverbs-providers	50.0-2ubuntu0.2	Benjamin Drung <bdrung@ubuntu.com>	rdma-core	50.0-2ubuntu0.2	amd64
+ii 	ieee-data	20220827.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ieee-data	20220827.1	all
+ii 	inetutils-telnet	2:2.5-3ubuntu4.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	inetutils	2:2.5-3ubuntu4.2	amd64
+ii 	info	7.1-3build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	texinfo	7.1-3build2	amd64
+ii 	init	1.66ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	init-system-helpers	1.66ubuntu1	amd64
+ii 	init-system-helpers	1.66ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	init-system-helpers	1.66ubuntu1	all
+ii 	initramfs-tools	0.142ubuntu25.5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	initramfs-tools	0.142ubuntu25.5	all
+ii 	initramfs-tools-bin	0.142ubuntu25.5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	initramfs-tools	0.142ubuntu25.5	amd64
+ii 	initramfs-tools-core	0.142ubuntu25.5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	initramfs-tools	0.142ubuntu25.5	all
+ii 	install-info	7.1-3build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	texinfo	7.1-3build2	amd64
+ii 	intel-microcode	3.20260210.0ubuntu0.24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	intel-microcode	3.20260210.0ubuntu0.24.04.1	amd64
+ii 	iproute2	6.1.0-1ubuntu6.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	iproute2	6.1.0-1ubuntu6.2	amd64
+ii 	iptables	1.8.10-3ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	iptables	1.8.10-3ubuntu2	amd64
+ii 	iputils-ping	3:20240117-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	iputils	3:20240117-1ubuntu0.1	amd64
+ii 	iputils-tracepath	3:20240117-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	iputils	3:20240117-1ubuntu0.1	amd64
+ii 	iso-codes	4.16.0-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	iso-codes	4.16.0-1	all
+ii 	iucode-tool	2.3.1-3build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	iucode-tool	2.3.1-3build1	amd64
+ii 	jq	1.7.1-3ubuntu0.24.04.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	jq	1.7.1-3ubuntu0.24.04.2	amd64
+ii 	kbd	2.6.4-2ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	kbd	2.6.4-2ubuntu2	amd64
+ii 	keyboard-configuration	1.226ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	console-setup	1.226ubuntu1	all
+ii 	keyboxd	2.4.4-2ubuntu17.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gnupg2	2.4.4-2ubuntu17.6	amd64
+ii 	klibc-utils	2.0.13-4ubuntu0.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	klibc	2.0.13-4ubuntu0.2	amd64
+ii 	kmod	31+20240202-2ubuntu7.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	kmod	31+20240202-2ubuntu7.2	amd64
+ii 	kpartx	0.9.4-5ubuntu8	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	multipath-tools	0.9.4-5ubuntu8	amd64
+ii 	krb5-locales	1.20.1-6ubuntu2.7	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	krb5	1.20.1-6ubuntu2.7	all
+ii 	landscape-common	24.02-0ubuntu5.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	landscape-client	24.02-0ubuntu5.6	amd64
+ii 	less	590-2ubuntu2.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	less	590-2ubuntu2.1	amd64
+ii 	libacl1	2.3.2-1build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	acl	2.3.2-1build1.1	amd64
+ii 	libaio1t64	0.3.113-6build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libaio	0.3.113-6build1.1	amd64
+ii 	libaom3	3.8.2-2ubuntu0.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	aom	3.8.2-2ubuntu0.2	amd64
+ii 	libapparmor1	4.0.1really4.0.1-0ubuntu0.24.04.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	apparmor	4.0.1really4.0.1-0ubuntu0.24.04.4	amd64
+ii 	libappstream5	1.0.2-1build6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	appstream	1.0.2-1build6	amd64
+ii 	libapt-pkg6.0t64	2.8.3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	apt	2.8.3	amd64
+ii 	libarchive13t64	3.7.2-2ubuntu0.9	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libarchive	3.7.2-2ubuntu0.9	amd64
+ii 	libargon2-1	0~20190702+dfsg-4build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	argon2	0~20190702+dfsg-4build1	amd64
+ii 	libassuan0	2.5.6-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libassuan	2.5.6-1build1	amd64
+ii 	libatasmart4	0.19-5build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libatasmart	0.19-5build3	amd64
+ii 	libatm1t64	1:2.5.1-5.1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	linux-atm	1:2.5.1-5.1build1	amd64
+ii 	libattr1	1:2.5.2-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	attr	1:2.5.2-1ubuntu0.1	amd64
+ii 	libaudit-common	1:3.1.2-2.1build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	audit	1:3.1.2-2.1build1.1	all
+ii 	libaudit1	1:3.1.2-2.1build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	audit	1:3.1.2-2.1build1.1	amd64
+ii 	libblkid1	2.39.3-9ubuntu6.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	util-linux	2.39.3-9ubuntu6.6	amd64
+ii 	libblockdev-crypto3	3.1.1-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libblockdev	3.1.1-1ubuntu0.1	amd64
+ii 	libblockdev-fs3	3.1.1-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libblockdev	3.1.1-1ubuntu0.1	amd64
+ii 	libblockdev-loop3	3.1.1-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libblockdev	3.1.1-1ubuntu0.1	amd64
+ii 	libblockdev-mdraid3	3.1.1-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libblockdev	3.1.1-1ubuntu0.1	amd64
+ii 	libblockdev-nvme3	3.1.1-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libblockdev	3.1.1-1ubuntu0.1	amd64
+ii 	libblockdev-part3	3.1.1-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libblockdev	3.1.1-1ubuntu0.1	amd64
+ii 	libblockdev-swap3	3.1.1-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libblockdev	3.1.1-1ubuntu0.1	amd64
+ii 	libblockdev-utils3	3.1.1-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libblockdev	3.1.1-1ubuntu0.1	amd64
+ii 	libblockdev3	3.1.1-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libblockdev	3.1.1-1ubuntu0.1	amd64
+ii 	libbpf1	1:1.3.0-2build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libbpf	1.3.0-2build2	amd64
+ii 	libbpfcc	0.29.1+ds-1ubuntu7	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	bpfcc	0.29.1+ds-1ubuntu7	amd64
+ii 	libbrotli1	1.1.0-2build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	brotli	1.1.0-2build2	amd64
+ii 	libbsd0	0.12.1-1build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libbsd	0.12.1-1build1.1	amd64
+ii 	libbytesize-common	2.10-1ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libbytesize	2.10-1ubuntu2	all
+ii 	libbytesize1	2.10-1ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libbytesize	2.10-1ubuntu2	amd64
+ii 	libbz2-1.0	1.0.8-5.1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	bzip2	1.0.8-5.1ubuntu0.1	amd64
+ii 	libc-bin	2.39-0ubuntu8.9	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	glibc	2.39-0ubuntu8.9	amd64
+ii 	libc-dev-bin	2.39-0ubuntu8.9	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	glibc	2.39-0ubuntu8.9	amd64
+ii 	libc-devtools	2.39-0ubuntu8.9	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	glibc	2.39-0ubuntu8.9	amd64
+ii 	libc6	2.39-0ubuntu8.9	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	glibc	2.39-0ubuntu8.9	amd64
+ii 	libc6-dev	2.39-0ubuntu8.9	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	glibc	2.39-0ubuntu8.9	amd64
+ii 	libcap-ng0	0.8.4-2build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libcap-ng	0.8.4-2build2	amd64
+ii 	libcap2	1:2.66-5ubuntu2.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libcap2	1:2.66-5ubuntu2.4	amd64
+ii 	libcap2-bin	1:2.66-5ubuntu2.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libcap2	1:2.66-5ubuntu2.4	amd64
+ii 	libcbor0.10	0.10.2-1.2ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libcbor	0.10.2-1.2ubuntu2	amd64
+ii 	libclang-cpp18	1:18.1.3-1ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	llvm-toolchain-18	1:18.1.3-1ubuntu1	amd64
+ii 	libclang1-18	1:18.1.3-1ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	llvm-toolchain-18	1:18.1.3-1ubuntu1	amd64
+ii 	libcom-err2	1.47.0-2.4~exp1ubuntu4.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	e2fsprogs	1.47.0-2.4~exp1ubuntu4.1	amd64
+ii 	libcrypt-dev	1:4.4.36-4build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libxcrypt	1:4.4.36-4build1	amd64
+ii 	libcrypt1	1:4.4.36-4build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libxcrypt	1:4.4.36-4build1	amd64
+ii 	libcryptsetup12	2:2.7.0-1ubuntu4.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	cryptsetup	2:2.7.0-1ubuntu4.2	amd64
+ii 	libcurl3t64-gnutls	8.5.0-2ubuntu10.16	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	curl	8.5.0-2ubuntu10.16	amd64
+ii 	libcurl4t64	8.5.0-2ubuntu10.16	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	curl	8.5.0-2ubuntu10.16	amd64
+ii 	libdb5.3t64	5.3.28+dfsg2-7	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	db5.3	5.3.28+dfsg2-7	amd64
+ii 	libdbus-1-3	1.14.10-4ubuntu4.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	dbus	1.14.10-4ubuntu4.1	amd64
+ii 	libdbus-glib-1-2	0.112-3build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	dbus-glib	0.112-3build2	amd64
+ii 	libde265-0	1.0.15-1ubuntu0.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libde265	1.0.15-1ubuntu0.2	amd64
+ii 	libdebconfclient0	0.271ubuntu3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	cdebconf	0.271ubuntu3	amd64
+ii 	libdeflate0	1.19-1build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libdeflate	1.19-1build1.1	amd64
+ii 	libdevmapper-event1.02.1	2:1.02.185-3ubuntu3.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lvm2	2.03.16-3ubuntu3.2	amd64
+ii 	libdevmapper1.02.1	2:1.02.185-3ubuntu3.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lvm2	2.03.16-3ubuntu3.2	amd64
+ii 	libdrm-common	2.4.125-1ubuntu0.1~24.04.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libdrm	2.4.125-1ubuntu0.1~24.04.2	all
+ii 	libdrm2	2.4.125-1ubuntu0.1~24.04.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libdrm	2.4.125-1ubuntu0.1~24.04.2	amd64
+ii 	libduktape207	2.7.0+tests-0ubuntu3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	duktape	2.7.0+tests-0ubuntu3	amd64
+ii 	libdw1t64	0.190-1.1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	elfutils	0.190-1.1ubuntu0.1	amd64
+ii 	libeatmydata1	131-1ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libeatmydata	131-1ubuntu1	amd64
+ii 	libedit2	3.1-20230828-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libedit	3.1-20230828-1build1	amd64
+ii 	libefiboot1t64	38-3.1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	efivar	38-3.1build1	amd64
+ii 	libefivar1t64	38-3.1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	efivar	38-3.1build1	amd64
+ii 	libelf1t64	0.190-1.1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	elfutils	0.190-1.1ubuntu0.1	amd64
+ii 	liberror-perl	0.17029-2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	liberror-perl	0.17029-2	all
+ii 	libestr0	0.1.11-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libestr	0.1.11-1build1	amd64
+ii 	libevdev2	1.13.1+dfsg-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libevdev	1.13.1+dfsg-1build1	amd64
+ii 	libevent-core-2.1-7t64	2.1.12-stable-9ubuntu2.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libevent	2.1.12-stable-9ubuntu2.2	amd64
+ii 	libexpat1	2.6.1-2ubuntu0.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	expat	2.6.1-2ubuntu0.6	amd64
+ii 	libext2fs2t64	1.47.0-2.4~exp1ubuntu4.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	e2fsprogs	1.47.0-2.4~exp1ubuntu4.1	amd64
+ii 	libfastjson4	1.2304.0-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libfastjson	1.2304.0-1build1	amd64
+ii 	libfdisk1	2.39.3-9ubuntu6.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	util-linux	2.39.3-9ubuntu6.6	amd64
+ii 	libffi8	3.4.6-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libffi	3.4.6-1build1	amd64
+ii 	libfido2-1	1.14.0-1build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libfido2	1.14.0-1build3	amd64
+ii 	libflashrom1	1.3.0-2.1ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	flashrom	1.3.0-2.1ubuntu2	amd64
+ii 	libfontconfig1	2.15.0-1.1ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	fontconfig	2.15.0-1.1ubuntu2	amd64
+ii 	libfreetype6	2.13.2+dfsg-1ubuntu0.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	freetype	2.13.2+dfsg-1ubuntu0.2	amd64
+ii 	libfribidi0	1.0.13-3build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	fribidi	1.0.13-3build1	amd64
+ii 	libftdi1-2	1.5-6build5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libftdi1	1.5-6build5	amd64
+ii 	libfuse3-3	3.14.0-5build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	fuse3	3.14.0-5build1	amd64
+ii 	libfwupd2	1.9.31-0ubuntu1~24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	fwupd	1.9.31-0ubuntu1~24.04.1	amd64
+ii 	libgc1	1:8.2.6-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libgc	1:8.2.6-1build1	amd64
+ii 	libgcc-s1	14.2.0-4ubuntu2~24.04.1	Ubuntu Core developers <ubuntu-devel-discuss@lists.ubuntu.com>	gcc-14	14.2.0-4ubuntu2~24.04.1	amd64
+ii 	libgcrypt20	1.10.3-2ubuntu0.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libgcrypt20	1.10.3-2ubuntu0.2	amd64
+ii 	libgd3	2.3.3-9ubuntu5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libgd2	2.3.3-9ubuntu5	amd64
+ii 	libgdbm-compat4t64	1.23-5.1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gdbm	1.23-5.1build1	amd64
+ii 	libgdbm6t64	1.23-5.1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gdbm	1.23-5.1build1	amd64
+ii 	libgirepository-1.0-1	1.80.1-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gobject-introspection	1.80.1-1	amd64
+ii 	libglib2.0-0t64	2.80.0-6ubuntu3.9	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	glib2.0	2.80.0-6ubuntu3.9	amd64
+ii 	libglib2.0-bin	2.80.0-6ubuntu3.9	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	glib2.0	2.80.0-6ubuntu3.9	amd64
+ii 	libglib2.0-data	2.80.0-6ubuntu3.9	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	glib2.0	2.80.0-6ubuntu3.9	all
+ii 	libgmp10	2:6.3.0+dfsg-2ubuntu6.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gmp	2:6.3.0+dfsg-2ubuntu6.1	amd64
+ii 	libgnutls30t64	3.8.3-1.1ubuntu3.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gnutls28	3.8.3-1.1ubuntu3.6	amd64
+ii 	libgpg-error-l10n	1.47-3build2.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libgpg-error	1.47-3build2.1	all
+ii 	libgpg-error0	1.47-3build2.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libgpg-error	1.47-3build2.1	amd64
+ii 	libgpgme11t64	1.18.0-4.1ubuntu4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gpgme1.0	1.18.0-4.1ubuntu4	amd64
+ii 	libgpm2	1.20.7-11	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gpm	1.20.7-11	amd64
+ii 	libgsasl18	2.2.1-1willsync1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gsasl	2.2.1-1willsync1ubuntu0.1	amd64
+ii 	libgssapi-krb5-2	1.20.1-6ubuntu2.7	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	krb5	1.20.1-6ubuntu2.7	amd64
+ii 	libgssglue1	0.9-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libgssglue	0.9-1build1	amd64
+ii 	libgstreamer1.0-0	1.24.2-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	gstreamer1.0	1.24.2-1ubuntu0.1	amd64
+ii 	libgudev-1.0-0	1:238-5ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libgudev	238-5ubuntu1	amd64
+ii 	libgusb2	0.4.8-1build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libgusb	0.4.8-1build2	amd64
+ii 	libheif-plugin-aomdec	1.17.6-1ubuntu4.9	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libheif	1.17.6-1ubuntu4.9	amd64
+ii 	libheif-plugin-aomenc	1.17.6-1ubuntu4.9	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libheif	1.17.6-1ubuntu4.9	amd64
+ii 	libheif-plugin-libde265	1.17.6-1ubuntu4.9	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libheif	1.17.6-1ubuntu4.9	amd64
+ii 	libheif1	1.17.6-1ubuntu4.9	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libheif	1.17.6-1ubuntu4.9	amd64
+ii 	libhogweed6t64	3.9.1-2.2build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	nettle	3.9.1-2.2build1.1	amd64
+ii 	libibverbs1	50.0-2ubuntu0.2	Benjamin Drung <bdrung@ubuntu.com>	rdma-core	50.0-2ubuntu0.2	amd64
+ii 	libicu74	74.2-1ubuntu3.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	icu	74.2-1ubuntu3.1	amd64
+ii 	libidn12	1.42-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libidn	1.42-1ubuntu0.1	amd64
+ii 	libidn2-0	2.3.7-2build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libidn2	2.3.7-2build1.1	amd64
+ii 	libimobiledevice6	1.3.0-8.1build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libimobiledevice	1.3.0-8.1build3	amd64
+ii 	libinih1	55-1ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libinih	55-1ubuntu2	amd64
+ii 	libintl-perl	1.33-1build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libintl-perl	1.33-1build3	all
+ii 	libintl-xs-perl	1.33-1build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libintl-perl	1.33-1build3	amd64
+ii 	libip4tc2	1.8.10-3ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	iptables	1.8.10-3ubuntu2	amd64
+ii 	libip6tc2	1.8.10-3ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	iptables	1.8.10-3ubuntu2	amd64
+ii 	libisns0t64	0.101-0.3ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	open-isns	0.101-0.3ubuntu0.1	amd64
+ii 	libjansson4	2.14-2build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	jansson	2.14-2build2	amd64
+ii 	libjbig0	2.1-6.1ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	jbigkit	2.1-6.1ubuntu2	amd64
+ii 	libjcat1	0.2.0-2build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libjcat	0.2.0-2build3	amd64
+ii 	libjpeg-turbo8	2.1.5-2ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libjpeg-turbo	2.1.5-2ubuntu2	amd64
+ii 	libjpeg8	8c-2ubuntu11	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libjpeg8-empty	8c-2ubuntu11	amd64
+ii 	libjq1	1.7.1-3ubuntu0.24.04.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	jq	1.7.1-3ubuntu0.24.04.2	amd64
+ii 	libjson-c5	0.17-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	json-c	0.17-1build1	amd64
+ii 	libjson-glib-1.0-0	1.8.0-2build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	json-glib	1.8.0-2build2	amd64
+ii 	libjson-glib-1.0-common	1.8.0-2build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	json-glib	1.8.0-2build2	all
+ii 	libk5crypto3	1.20.1-6ubuntu2.7	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	krb5	1.20.1-6ubuntu2.7	amd64
+ii 	libkeyutils1	1.6.3-3build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	keyutils	1.6.3-3build1	amd64
+ii 	libklibc	2.0.13-4ubuntu0.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	klibc	2.0.13-4ubuntu0.2	amd64
+ii 	libkmod2	31+20240202-2ubuntu7.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	kmod	31+20240202-2ubuntu7.2	amd64
+ii 	libkrb5-3	1.20.1-6ubuntu2.7	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	krb5	1.20.1-6ubuntu2.7	amd64
+ii 	libkrb5support0	1.20.1-6ubuntu2.7	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	krb5	1.20.1-6ubuntu2.7	amd64
+ii 	libksba8	1.6.6-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libksba	1.6.6-1build1	amd64
+ii 	libldap-common	2.6.7+dfsg-1~exp1ubuntu8.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	openldap	2.6.7+dfsg-1~exp1ubuntu8.2	all
+ii 	libldap2	2.6.7+dfsg-1~exp1ubuntu8.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	openldap	2.6.7+dfsg-1~exp1ubuntu8.2	amd64
+ii 	liblerc4	4.0.0+ds-4ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lerc	4.0.0+ds-4ubuntu2	amd64
+ii 	libllvm18	1:18.1.3-1ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	llvm-toolchain-18	1:18.1.3-1ubuntu1	amd64
+ii 	liblmdb0	0.9.31-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lmdb	0.9.31-1build1	amd64
+ii 	liblocale-gettext-perl	1.07-6ubuntu5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	liblocale-gettext-perl	1.07-6ubuntu5	amd64
+ii 	libltdl7	2.4.7-7build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libtool	2.4.7-7build1	amd64
+ii 	liblvm2cmd2.03	2.03.16-3ubuntu3.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lvm2	2.03.16-3ubuntu3.2	amd64
+ii 	liblz4-1	1.9.4-1build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lz4	1.9.4-1build1.1	amd64
+ii 	liblzma5	5.6.1+really5.4.5-1ubuntu0.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	xz-utils	5.6.1+really5.4.5-1ubuntu0.4	amd64
+ii 	liblzo2-2	2.10-2build4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lzo2	2.10-2build4	amd64
+ii 	libmagic-mgc	1:5.45-3build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	file	1:5.45-3build1	amd64
+ii 	libmagic1t64	1:5.45-3build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	file	1:5.45-3build1	amd64
+ii 	libmailutils9t64	1:3.17-1.1build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	mailutils	1:3.17-1.1build3	amd64
+ii 	libmaxminddb0	1.9.1-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libmaxminddb	1.9.1-1build1	amd64
+ii 	libmbim-glib4	1.31.2-0ubuntu3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libmbim	1.31.2-0ubuntu3	amd64
+ii 	libmbim-proxy	1.31.2-0ubuntu3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libmbim	1.31.2-0ubuntu3	amd64
+ii 	libmbim-utils	1.31.2-0ubuntu3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libmbim	1.31.2-0ubuntu3	amd64
+ii 	libmd0	1.1.0-2build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libmd	1.1.0-2build1.1	amd64
+ii 	libmm-glib0	1.23.4-0ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	modemmanager	1.23.4-0ubuntu2	amd64
+ii 	libmnl0	1.0.5-2build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libmnl	1.0.5-2build1	amd64
+ii 	libmodule-find-perl	0.16-2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libmodule-find-perl	0.16-2	all
+ii 	libmodule-scandeps-perl	1.35-1ubuntu0.24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libmodule-scandeps-perl	1.35-1ubuntu0.24.04.1	all
+ii 	libmount1	2.39.3-9ubuntu6.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	util-linux	2.39.3-9ubuntu6.6	amd64
+ii 	libmpfr6	4.2.1-1build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	mpfr4	4.2.1-1build1.1	amd64
+ii 	libmspack0t64	0.11-1.1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libmspack	0.11-1.1build1	amd64
+ii 	libmysqlclient21	8.0.46-0ubuntu0.24.04.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	mysql-8.0	8.0.46-0ubuntu0.24.04.4	amd64
+ii 	libncurses6	6.4+20240113-1ubuntu2.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ncurses	6.4+20240113-1ubuntu2.2	amd64
+ii 	libncursesw6	6.4+20240113-1ubuntu2.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ncurses	6.4+20240113-1ubuntu2.2	amd64
+ii 	libnetfilter-conntrack3	1.0.9-6build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libnetfilter-conntrack	1.0.9-6build1	amd64
+ii 	libnetplan1	1.1.2-2~ubuntu24.04.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	netplan.io	1.1.2-2~ubuntu24.04.2	amd64
+ii 	libnettle8t64	3.9.1-2.2build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	nettle	3.9.1-2.2build1.1	amd64
+ii 	libnewt0.52	0.52.24-2ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	newt	0.52.24-2ubuntu2	amd64
+ii 	libnfnetlink0	1.0.2-2build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libnfnetlink	1.0.2-2build1	amd64
+ii 	libnftables1	1.0.9-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	nftables	1.0.9-1build1	amd64
+ii 	libnftnl11	1.2.6-2build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libnftnl	1.2.6-2build1	amd64
+ii 	libnghttp2-14	1.59.0-1ubuntu0.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	nghttp2	1.59.0-1ubuntu0.4	amd64
+ii 	libnl-3-200	3.7.0-0.3build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libnl3	3.7.0-0.3build1.1	amd64
+ii 	libnl-genl-3-200	3.7.0-0.3build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libnl3	3.7.0-0.3build1.1	amd64
+ii 	libnl-route-3-200	3.7.0-0.3build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libnl3	3.7.0-0.3build1.1	amd64
+ii 	libnpth0t64	1.6-3.1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	npth	1.6-3.1build1	amd64
+ii 	libnsl2	1.3.0-3build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libnsl	1.3.0-3build3	amd64
+ii 	libnspr4	2:4.35-1.1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	nspr	2:4.35-1.1build1	amd64
+ii 	libnss-systemd	255.4-1ubuntu8.18	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	systemd	255.4-1ubuntu8.18	amd64
+ii 	libnss3	2:3.98-1ubuntu0.3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	nss	2:3.98-1ubuntu0.3	amd64
+ii 	libntfs-3g89t64	1:2022.10.3-1.2ubuntu3.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ntfs-3g	1:2022.10.3-1.2ubuntu3.2	amd64
+ii 	libntlm0	1.7-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libntlm	1.7-1build1	amd64
+ii 	libnuma1	2.0.18-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	numactl	2.0.18-1build1	amd64
+ii 	libnvme1t64	1.8-3ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libnvme	1.8-3ubuntu1	amd64
+ii 	libonig5	6.9.9-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libonig	6.9.9-1build1	amd64
+ii 	libopeniscsiusr	2.1.9-3ubuntu5.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	open-iscsi	2.1.9-3ubuntu5.4	amd64
+ii 	libp11-kit0	0.25.3-4ubuntu2.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	p11-kit	0.25.3-4ubuntu2.2	amd64
+ii 	libpackagekit-glib2-18	1.2.8-2ubuntu1.5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	packagekit	1.2.8-2ubuntu1.5	amd64
+ii 	libpam-cap	1:2.66-5ubuntu2.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libcap2	1:2.66-5ubuntu2.4	amd64
+ii 	libpam-modules	1.5.3-5ubuntu5.7	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pam	1.5.3-5ubuntu5.7	amd64
+ii 	libpam-modules-bin	1.5.3-5ubuntu5.7	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pam	1.5.3-5ubuntu5.7	amd64
+ii 	libpam-runtime	1.5.3-5ubuntu5.7	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pam	1.5.3-5ubuntu5.7	all
+ii 	libpam-systemd	255.4-1ubuntu8.18	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	systemd	255.4-1ubuntu8.18	amd64
+ii 	libpam0g	1.5.3-5ubuntu5.7	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pam	1.5.3-5ubuntu5.7	amd64
+ii 	libparted2t64	3.6-4build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	parted	3.6-4build1	amd64
+ii 	libpcap0.8t64	1.10.4-4.1ubuntu3.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libpcap	1.10.4-4.1ubuntu3.1	amd64
+ii 	libpci3	1:3.10.0-2build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pciutils	1:3.10.0-2build1	amd64
+ii 	libpcre2-8-0	10.42-4ubuntu2.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pcre2	10.42-4ubuntu2.1	amd64
+ii 	libperl5.38t64	5.38.2-3.2ubuntu0.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	perl	5.38.2-3.2ubuntu0.6	amd64
+ii 	libpipeline1	1.5.7-2	Colin Watson <cjwatson@debian.org>	libpipeline	1.5.7-2	amd64
+ii 	libplist-2.0-4	2.3.0-1~exp2build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libplist	2.3.0-1~exp2build2	amd64
+ii 	libplymouth5	24.004.60-1ubuntu7.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	plymouth	24.004.60-1ubuntu7.1	amd64
+ii 	libpng16-16t64	1.6.43-5ubuntu0.7	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libpng1.6	1.6.43-5ubuntu0.7	amd64
+ii 	libpolkit-agent-1-0	124-2ubuntu1.24.04.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	policykit-1	124-2ubuntu1.24.04.4	amd64
+ii 	libpolkit-gobject-1-0	124-2ubuntu1.24.04.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	policykit-1	124-2ubuntu1.24.04.4	amd64
+ii 	libpopt0	1.19+dfsg-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	popt	1.19+dfsg-1build1	amd64
+ii 	libpq5	16.15-0ubuntu0.24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	postgresql-16	16.15-0ubuntu0.24.04.1	amd64
+ii 	libproc-processtable-perl	0.636-1build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libproc-processtable-perl	0.636-1build3	amd64
+ii 	libproc2-0	2:4.0.4-4ubuntu3.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	procps	2:4.0.4-4ubuntu3.2	amd64
+ii 	libprotobuf-c1	1.4.1-1ubuntu4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	protobuf-c	1.4.1-1ubuntu4	amd64
+ii 	libpsl5t64	0.21.2-1.1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libpsl	0.21.2-1.1build1	amd64
+ii 	libpython3-stdlib	3.12.3-0ubuntu2.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python3-defaults	3.12.3-0ubuntu2.1	amd64
+ii 	libpython3.12-minimal	3.12.3-1ubuntu0.17	Ubuntu Core Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python3.12	3.12.3-1ubuntu0.17	amd64
+ii 	libpython3.12-stdlib	3.12.3-1ubuntu0.17	Ubuntu Core Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python3.12	3.12.3-1ubuntu0.17	amd64
+ii 	libpython3.12t64	3.12.3-1ubuntu0.17	Ubuntu Core Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python3.12	3.12.3-1ubuntu0.17	amd64
+ii 	libqmi-glib5	1.35.2-0ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libqmi	1.35.2-0ubuntu2	amd64
+ii 	libqmi-proxy	1.35.2-0ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libqmi	1.35.2-0ubuntu2	amd64
+ii 	libqmi-utils	1.35.2-0ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libqmi	1.35.2-0ubuntu2	amd64
+ii 	libqrtr-glib0	1.2.2-1ubuntu4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libqrtr-glib	1.2.2-1ubuntu4	amd64
+ii 	libreadline8t64	8.2-4build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	readline	8.2-4build1	amd64
+ii 	libreiserfscore0t64	1:3.6.27-7.1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	reiserfsprogs	1:3.6.27-7.1build1	amd64
+ii 	librtmp1	2.4+20151223.gitfa8646d.1-2build7	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	rtmpdump	2.4+20151223.gitfa8646d.1-2build7	amd64
+ii 	libsasl2-2	2.1.28+dfsg1-5ubuntu3.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	cyrus-sasl2	2.1.28+dfsg1-5ubuntu3.1	amd64
+ii 	libsasl2-modules	2.1.28+dfsg1-5ubuntu3.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	cyrus-sasl2	2.1.28+dfsg1-5ubuntu3.1	amd64
+ii 	libsasl2-modules-db	2.1.28+dfsg1-5ubuntu3.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	cyrus-sasl2	2.1.28+dfsg1-5ubuntu3.1	amd64
+ii 	libseccomp2	2.5.5-1ubuntu3.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libseccomp	2.5.5-1ubuntu3.1	amd64
+ii 	libselinux1	3.5-2ubuntu2.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libselinux	3.5-2ubuntu2.1	amd64
+ii 	libsemanage-common	3.5-1build5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libsemanage	3.5-1build5	all
+ii 	libsemanage2	3.5-1build5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libsemanage	3.5-1build5	amd64
+ii 	libsensors-config	1:3.6.0-9build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lm-sensors	1:3.6.0-9build1	all
+ii 	libsensors5	1:3.6.0-9build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lm-sensors	1:3.6.0-9build1	amd64
+ii 	libsepol2	3.5-2build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libsepol	3.5-2build1	amd64
+ii 	libsgutils2-1.46-2	1.46-3ubuntu4.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	sg3-utils	1.46-3ubuntu4.1	amd64
+ii 	libsharpyuv0	1.3.2-0.4build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libwebp	1.3.2-0.4build3	amd64
+ii 	libsigsegv2	2.14-1ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libsigsegv	2.14-1ubuntu2	amd64
+ii 	libslang2	2.3.3-3build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	slang2	2.3.3-3build2	amd64
+ii 	libsmartcols1	2.39.3-9ubuntu6.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	util-linux	2.39.3-9ubuntu6.6	amd64
+ii 	libsodium23	1.0.18-1ubuntu0.24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libsodium	1.0.18-1ubuntu0.24.04.1	amd64
+ii 	libsort-naturally-perl	1.03-4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libsort-naturally-perl	1.03-4	all
+ii 	libsqlite3-0	3.45.1-1ubuntu2.8	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	sqlite3	3.45.1-1ubuntu2.8	amd64
+ii 	libss2	1.47.0-2.4~exp1ubuntu4.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	e2fsprogs	1.47.0-2.4~exp1ubuntu4.1	amd64
+ii 	libssh-4	0.10.6-2ubuntu0.5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libssh	0.10.6-2ubuntu0.5	amd64
+ii 	libssl3t64	3.0.13-0ubuntu3.16	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	openssl	3.0.13-0ubuntu3.16	amd64
+ii 	libstdc++6	14.2.0-4ubuntu2~24.04.1	Ubuntu Core developers <ubuntu-devel-discuss@lists.ubuntu.com>	gcc-14	14.2.0-4ubuntu2~24.04.1	amd64
+ii 	libstemmer0d	2.2.0-4build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	snowball	2.2.0-4build1	amd64
+ii 	libsystemd-shared	255.4-1ubuntu8.18	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	systemd	255.4-1ubuntu8.18	amd64
+ii 	libsystemd0	255.4-1ubuntu8.18	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	systemd	255.4-1ubuntu8.18	amd64
+ii 	libtasn1-6	4.19.0-3ubuntu0.24.04.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libtasn1-6	4.19.0-3ubuntu0.24.04.2	amd64
+ii 	libtcl8.6	8.6.14+dfsg-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	tcl8.6	8.6.14+dfsg-1build1	amd64
+ii 	libterm-readkey-perl	2.38-2build4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libterm-readkey-perl	2.38-2build4	amd64
+ii 	libtext-charwidth-perl	0.04-11build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libtext-charwidth-perl	0.04-11build3	amd64
+ii 	libtext-iconv-perl	1.7-8build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libtext-iconv-perl	1.7-8build3	amd64
+ii 	libtext-wrapi18n-perl	0.06-10	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libtext-wrapi18n-perl	0.06-10	all
+ii 	libtiff6	4.5.1+git230720-4ubuntu2.5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	tiff	4.5.1+git230720-4ubuntu2.5	amd64
+ii 	libtinfo6	6.4+20240113-1ubuntu2.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ncurses	6.4+20240113-1ubuntu2.2	amd64
+ii 	libtirpc-common	1.3.4+ds-1.1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libtirpc	1.3.4+ds-1.1build1	all
+ii 	libtirpc3t64	1.3.4+ds-1.1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libtirpc	1.3.4+ds-1.1build1	amd64
+ii 	libtraceevent1	1:1.8.2-1ubuntu2.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libtraceevent	1:1.8.2-1ubuntu2.1	amd64
+ii 	libtraceevent1-plugin	1:1.8.2-1ubuntu2.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libtraceevent	1:1.8.2-1ubuntu2.1	amd64
+ii 	libtracefs1	1.8.0-1ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libtracefs	1.8.0-1ubuntu1	amd64
+ii 	libtss2-esys-3.0.2-0t64	4.0.1-7.1ubuntu5.1	Mathieu Trudel-Lapierre <cyphermox@ubuntu.com>	tpm2-tss	4.0.1-7.1ubuntu5.1	amd64
+ii 	libtss2-mu-4.0.1-0t64	4.0.1-7.1ubuntu5.1	Mathieu Trudel-Lapierre <cyphermox@ubuntu.com>	tpm2-tss	4.0.1-7.1ubuntu5.1	amd64
+ii 	libtss2-sys1t64	4.0.1-7.1ubuntu5.1	Mathieu Trudel-Lapierre <cyphermox@ubuntu.com>	tpm2-tss	4.0.1-7.1ubuntu5.1	amd64
+ii 	libtss2-tcti-cmd0t64	4.0.1-7.1ubuntu5.1	Mathieu Trudel-Lapierre <cyphermox@ubuntu.com>	tpm2-tss	4.0.1-7.1ubuntu5.1	amd64
+ii 	libtss2-tcti-device0t64	4.0.1-7.1ubuntu5.1	Mathieu Trudel-Lapierre <cyphermox@ubuntu.com>	tpm2-tss	4.0.1-7.1ubuntu5.1	amd64
+ii 	libtss2-tcti-mssim0t64	4.0.1-7.1ubuntu5.1	Mathieu Trudel-Lapierre <cyphermox@ubuntu.com>	tpm2-tss	4.0.1-7.1ubuntu5.1	amd64
+ii 	libtss2-tcti-swtpm0t64	4.0.1-7.1ubuntu5.1	Mathieu Trudel-Lapierre <cyphermox@ubuntu.com>	tpm2-tss	4.0.1-7.1ubuntu5.1	amd64
+ii 	libuchardet0	0.0.8-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	uchardet	0.0.8-1build1	amd64
+ii 	libudev1	255.4-1ubuntu8.18	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	systemd	255.4-1ubuntu8.18	amd64
+ii 	libudisks2-0	2.10.1-6ubuntu1.5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	udisks2	2.10.1-6ubuntu1.5	amd64
+ii 	libunistring5	1.1-2build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libunistring	1.1-2build1.1	amd64
+ii 	libunwind8	1.6.2-3build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libunwind	1.6.2-3build1.1	amd64
+ii 	libupower-glib3	1.90.3-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	upower	1.90.3-1	amd64
+ii 	liburcu8t64	0.14.0-3.1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	liburcu	0.14.0-3.1build1	amd64
+ii 	libusb-1.0-0	2:1.0.27-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libusb-1.0	2:1.0.27-1	amd64
+ii 	libusbmuxd6	2.0.2-4build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libusbmuxd	2.0.2-4build3	amd64
+ii 	libutempter0	1.2.1-3build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libutempter	1.2.1-3build1	amd64
+ii 	libuuid1	2.39.3-9ubuntu6.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	util-linux	2.39.3-9ubuntu6.6	amd64
+ii 	libuv1t64	1.48.0-1.1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libuv1	1.48.0-1.1build1	amd64
+ii 	libvolume-key1	0.3.12-7build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	volume-key	0.3.12-7build2	amd64
+ii 	libwebp7	1.3.2-0.4build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libwebp	1.3.2-0.4build3	amd64
+ii 	libwrap0	7.6.q-33	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	tcp-wrappers	7.6.q-33	amd64
+ii 	libx11-6	2:1.8.7-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libx11	2:1.8.7-1ubuntu0.1	amd64
+ii 	libx11-data	2:1.8.7-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libx11	2:1.8.7-1ubuntu0.1	all
+ii 	libxau6	1:1.0.9-1build6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libxau	1:1.0.9-1build6	amd64
+ii 	libxcb1	1.15-1ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libxcb	1.15-1ubuntu2	amd64
+ii 	libxdmcp6	1:1.1.3-0ubuntu6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libxdmcp	1:1.1.3-0ubuntu6	amd64
+ii 	libxext6	2:1.3.4-1build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libxext	2:1.3.4-1build2	amd64
+ii 	libxkbcommon0	1.6.0-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libxkbcommon	1.6.0-1build1	amd64
+ii 	libxml2	2.9.14+dfsg-1.3ubuntu3.10	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libxml2	2.9.14+dfsg-1.3ubuntu3.10	amd64
+ii 	libxmlb2	0.3.18-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libxmlb	0.3.18-1	amd64
+ii 	libxmlsec1t64	1.2.39-5build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	xmlsec1	1.2.39-5build2	amd64
+ii 	libxmlsec1t64-openssl	1.2.39-5build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	xmlsec1	1.2.39-5build2	amd64
+ii 	libxmuu1	2:1.1.3-3build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libxmu	2:1.1.3-3build2	amd64
+ii 	libxpm4	1:3.5.17-1ubuntu0.24.04.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libxpm	1:3.5.17-1ubuntu0.24.04.2	amd64
+ii 	libxslt1.1	1.1.39-0exp1ubuntu0.24.04.3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libxslt	1.1.39-0exp1ubuntu0.24.04.3	amd64
+ii 	libxtables12	1.8.10-3ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	iptables	1.8.10-3ubuntu2	amd64
+ii 	libxxhash0	0.8.2-2build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	xxhash	0.8.2-2build1	amd64
+ii 	libyaml-0-2	0.2.5-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libyaml	0.2.5-1build1	amd64
+ii 	libzstd1	1.5.5+dfsg2-2build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libzstd	1.5.5+dfsg2-2build1.1	amd64
+ii 	linux-base	4.5ubuntu9+24.04.1	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux-base	4.5ubuntu9+24.04.1	all
+ii 	linux-firmware	20240318.git3b128b60-0ubuntu2.26	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux-firmware	20240318.git3b128b60-0ubuntu2.26	amd64
+ii 	linux-generic	6.8.0-147.147	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux-meta	6.8.0-147.147	amd64
+ii 	linux-headers-6.8.0-147	6.8.0-147.147	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-147.147	all
+ii 	linux-headers-6.8.0-147-generic	6.8.0-147.147	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-147.147	amd64
+ii 	linux-headers-6.8.0-53	6.8.0-53.55	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-53.55	all
+ii 	linux-headers-6.8.0-53-generic	6.8.0-53.55	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-53.55	amd64
+ii 	linux-headers-generic	6.8.0-147.147	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux-meta	6.8.0-147.147	amd64
+rc 	linux-image-6.8.0-100-generic	6.8.0-100.100	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-100.100	amd64
+rc 	linux-image-6.8.0-101-generic	6.8.0-101.101	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-101.101	amd64
+rc 	linux-image-6.8.0-106-generic	6.8.0-106.106	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-106.106	amd64
+rc 	linux-image-6.8.0-107-generic	6.8.0-107.107	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-107.107	amd64
+rc 	linux-image-6.8.0-110-generic	6.8.0-110.110	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-110.110	amd64
+rc 	linux-image-6.8.0-111-generic	6.8.0-111.111	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-111.111	amd64
+rc 	linux-image-6.8.0-117-generic	6.8.0-117.117	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-117.117	amd64
+rc 	linux-image-6.8.0-124-generic	6.8.0-124.124	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-124.124	amd64
+rc 	linux-image-6.8.0-134-generic	6.8.0-134.134	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-134.134	amd64
+rc 	linux-image-6.8.0-136-generic	6.8.0-136.136	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-136.136	amd64
+rc 	linux-image-6.8.0-137-generic	6.8.0-137.137	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-137.137	amd64
+rc 	linux-image-6.8.0-138-generic	6.8.0-138.138	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-138.138	amd64
+rc 	linux-image-6.8.0-139-generic	6.8.0-139.139	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-139.139	amd64
+rc 	linux-image-6.8.0-142-generic	6.8.0-142.142	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-142.142	amd64
+rc 	linux-image-6.8.0-146-generic	6.8.0-146.146	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-146.146	amd64
+ii 	linux-image-6.8.0-147-generic	6.8.0-147.147	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-147.147	amd64
+ii 	linux-image-6.8.0-53-generic	6.8.0-53.55	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-53.55	amd64
+rc 	linux-image-6.8.0-87-generic	6.8.0-87.88	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-87.88	amd64
+rc 	linux-image-6.8.0-88-generic	6.8.0-88.89	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-88.89	amd64
+rc 	linux-image-6.8.0-90-generic	6.8.0-90.91	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-90.91	amd64
+rc 	linux-image-6.8.0-94-generic	6.8.0-94.96	Canonical Kernel Team <kernel-team@lists.ubuntu.com>	linux-signed	6.8.0-94.96	amd64
+ii 	linux-image-generic	6.8.0-147.147	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux-meta	6.8.0-147.147	amd64
+ii 	linux-libc-dev	6.8.0-147.147	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-147.147	amd64
+rc 	linux-modules-6.8.0-100-generic	6.8.0-100.100	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-100.100	amd64
+rc 	linux-modules-6.8.0-101-generic	6.8.0-101.101	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-101.101	amd64
+rc 	linux-modules-6.8.0-106-generic	6.8.0-106.106	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-106.106	amd64
+rc 	linux-modules-6.8.0-107-generic	6.8.0-107.107	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-107.107	amd64
+rc 	linux-modules-6.8.0-110-generic	6.8.0-110.110	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-110.110	amd64
+rc 	linux-modules-6.8.0-111-generic	6.8.0-111.111	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-111.111	amd64
+rc 	linux-modules-6.8.0-117-generic	6.8.0-117.117	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-117.117	amd64
+rc 	linux-modules-6.8.0-124-generic	6.8.0-124.124	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-124.124	amd64
+rc 	linux-modules-6.8.0-134-generic	6.8.0-134.134	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-134.134	amd64
+rc 	linux-modules-6.8.0-136-generic	6.8.0-136.136	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-136.136	amd64
+rc 	linux-modules-6.8.0-137-generic	6.8.0-137.137	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-137.137	amd64
+rc 	linux-modules-6.8.0-138-generic	6.8.0-138.138	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-138.138	amd64
+rc 	linux-modules-6.8.0-139-generic	6.8.0-139.139	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-139.139	amd64
+rc 	linux-modules-6.8.0-142-generic	6.8.0-142.142	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-142.142	amd64
+rc 	linux-modules-6.8.0-146-generic	6.8.0-146.146	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-146.146	amd64
+ii 	linux-modules-6.8.0-147-generic	6.8.0-147.147	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-147.147	amd64
+ii 	linux-modules-6.8.0-53-generic	6.8.0-53.55	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-53.55	amd64
+rc 	linux-modules-6.8.0-87-generic	6.8.0-87.88	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-87.88	amd64
+rc 	linux-modules-6.8.0-88-generic	6.8.0-88.89	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-88.89	amd64
+rc 	linux-modules-6.8.0-90-generic	6.8.0-90.91	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-90.91	amd64
+rc 	linux-modules-6.8.0-94-generic	6.8.0-94.96	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-94.96	amd64
+rc 	linux-modules-extra-6.8.0-100-generic	6.8.0-100.100	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-100.100	amd64
+rc 	linux-modules-extra-6.8.0-101-generic	6.8.0-101.101	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-101.101	amd64
+rc 	linux-modules-extra-6.8.0-106-generic	6.8.0-106.106	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-106.106	amd64
+rc 	linux-modules-extra-6.8.0-107-generic	6.8.0-107.107	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-107.107	amd64
+rc 	linux-modules-extra-6.8.0-110-generic	6.8.0-110.110	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-110.110	amd64
+rc 	linux-modules-extra-6.8.0-111-generic	6.8.0-111.111	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-111.111	amd64
+rc 	linux-modules-extra-6.8.0-117-generic	6.8.0-117.117	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-117.117	amd64
+rc 	linux-modules-extra-6.8.0-124-generic	6.8.0-124.124	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-124.124	amd64
+rc 	linux-modules-extra-6.8.0-134-generic	6.8.0-134.134	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-134.134	amd64
+rc 	linux-modules-extra-6.8.0-136-generic	6.8.0-136.136	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-136.136	amd64
+rc 	linux-modules-extra-6.8.0-137-generic	6.8.0-137.137	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-137.137	amd64
+rc 	linux-modules-extra-6.8.0-138-generic	6.8.0-138.138	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-138.138	amd64
+rc 	linux-modules-extra-6.8.0-139-generic	6.8.0-139.139	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-139.139	amd64
+rc 	linux-modules-extra-6.8.0-142-generic	6.8.0-142.142	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-142.142	amd64
+rc 	linux-modules-extra-6.8.0-146-generic	6.8.0-146.146	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-146.146	amd64
+ii 	linux-modules-extra-6.8.0-147-generic	6.8.0-147.147	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-147.147	amd64
+ii 	linux-modules-extra-6.8.0-53-generic	6.8.0-53.55	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-53.55	amd64
+rc 	linux-modules-extra-6.8.0-87-generic	6.8.0-87.88	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-87.88	amd64
+rc 	linux-modules-extra-6.8.0-88-generic	6.8.0-88.89	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-88.89	amd64
+rc 	linux-modules-extra-6.8.0-90-generic	6.8.0-90.91	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-90.91	amd64
+rc 	linux-modules-extra-6.8.0-94-generic	6.8.0-94.96	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-94.96	amd64
+ii 	linux-tools-6.8.0-147	6.8.0-147.147	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-147.147	amd64
+ii 	linux-tools-6.8.0-147-generic	6.8.0-147.147	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-147.147	amd64
+ii 	linux-tools-6.8.0-53	6.8.0-53.55	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-53.55	amd64
+ii 	linux-tools-6.8.0-53-generic	6.8.0-53.55	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-53.55	amd64
+ii 	linux-tools-common	6.8.0-147.147	Ubuntu Kernel Team <kernel-team@lists.ubuntu.com>	linux	6.8.0-147.147	all
+ii 	locales	2.39-0ubuntu8.9	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	glibc	2.39-0ubuntu8.9	all
+ii 	login	1:4.13+dfsg1-4ubuntu3.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	shadow	1:4.13+dfsg1-4ubuntu3.2	amd64
+ii 	logrotate	3.21.0-2build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	logrotate	3.21.0-2build1	amd64
+ii 	logsave	1.47.0-2.4~exp1ubuntu4.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	e2fsprogs	1.47.0-2.4~exp1ubuntu4.1	amd64
+ii 	lsb-base	11.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lsb	11.6	all
+ii 	lsb-release	12.0-2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lsb-release-minimal	12.0-2	all
+ii 	lshw	02.19.git.2021.06.19.996aaad9c7-2build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lshw	02.19.git.2021.06.19.996aaad9c7-2build3	amd64
+ii 	lsof	4.95.0-1build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lsof	4.95.0-1build3	amd64
+ii 	lvm2	2.03.16-3ubuntu3.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lvm2	2.03.16-3ubuntu3.2	amd64
+ii 	lxd-agent-loader	0.7ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lxd-agent-loader	0.7ubuntu0.1	all
+ii 	lxd-installer	4ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lxd-installer	4ubuntu0.1	all
+ii 	mailutils	1:3.17-1.1build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	mailutils	1:3.17-1.1build3	amd64
+ii 	mailutils-common	1:3.17-1.1build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	mailutils	1:3.17-1.1build3	all
+ii 	man-db	2.12.0-4build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	man-db	2.12.0-4build2	amd64
+ii 	manpages	6.7-2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	manpages	6.7-2	all
+ii 	manpages-dev	6.7-2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	manpages	6.7-2	all
+ii 	mawk	1.3.4.20240123-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	mawk	1.3.4.20240123-1build1	amd64
+ii 	mdadm	4.3-1ubuntu2.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	mdadm	4.3-1ubuntu2.1	amd64
+ii 	media-types	10.1.0	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	media-types	10.1.0	all
+ii 	modemmanager	1.23.4-0ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	modemmanager	1.23.4-0ubuntu2	amd64
+ii 	motd-news-config	13ubuntu10.3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	base-files	13ubuntu10.3	all
+ii 	mount	2.39.3-9ubuntu6.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	util-linux	2.39.3-9ubuntu6.6	amd64
+ii 	mtr-tiny	0.95-1.1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	mtr	0.95-1.1ubuntu0.1	amd64
+ii 	multipath-tools	0.9.4-5ubuntu8	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	multipath-tools	0.9.4-5ubuntu8	amd64
+ii 	mysql-common	5.8+1.1.0build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	mysql-defaults	1.1.0build1	all
+ii 	nano	7.2-2ubuntu0.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	nano	7.2-2ubuntu0.2	amd64
+ii 	ncurses-base	6.4+20240113-1ubuntu2.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ncurses	6.4+20240113-1ubuntu2.2	all
+ii 	ncurses-bin	6.4+20240113-1ubuntu2.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ncurses	6.4+20240113-1ubuntu2.2	amd64
+ii 	ncurses-term	6.4+20240113-1ubuntu2.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ncurses	6.4+20240113-1ubuntu2.2	all
+ii 	needrestart	3.6-7ubuntu4.5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	needrestart	3.6-7ubuntu4.5	all
+ii 	netbase	6.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	netbase	6.4	all
+ii 	netcat-openbsd	1.226-1ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	netcat-openbsd	1.226-1ubuntu2	amd64
+ii 	netplan-generator	1.1.2-2~ubuntu24.04.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	netplan.io	1.1.2-2~ubuntu24.04.2	amd64
+ii 	netplan.io	1.1.2-2~ubuntu24.04.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	netplan.io	1.1.2-2~ubuntu24.04.2	amd64
+ii 	networkd-dispatcher	2.2.4-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	networkd-dispatcher	2.2.4-1	all
+ii 	nftables	1.0.9-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	nftables	1.0.9-1build1	amd64
+ii 	ntfs-3g	1:2022.10.3-1.2ubuntu3.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ntfs-3g	1:2022.10.3-1.2ubuntu3.2	amd64
+ii 	numactl	2.0.18-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	numactl	2.0.18-1build1	amd64
+ii 	open-iscsi	2.1.9-3ubuntu5.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	open-iscsi	2.1.9-3ubuntu5.4	amd64
+ii 	open-vm-tools	2:12.5.0-1~ubuntu0.24.04.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	open-vm-tools	2:12.5.0-1~ubuntu0.24.04.2	amd64
+ii 	openssh-client	1:9.6p1-3ubuntu13.20	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	openssh	1:9.6p1-3ubuntu13.20	amd64
+ii 	openssh-server	1:9.6p1-3ubuntu13.20	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	openssh	1:9.6p1-3ubuntu13.20	amd64
+ii 	openssh-sftp-server	1:9.6p1-3ubuntu13.20	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	openssh	1:9.6p1-3ubuntu13.20	amd64
+ii 	openssl	3.0.13-0ubuntu3.16	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	openssl	3.0.13-0ubuntu3.16	amd64
+ii 	os-prober	1.81ubuntu4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	os-prober	1.81ubuntu4	amd64
+ii 	overlayroot	0.49~24.04.1	Scott Moser <smoser@ubuntu.com>	cloud-initramfs-tools	0.49~24.04.1	all
+ii 	packagekit	1.2.8-2ubuntu1.5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	packagekit	1.2.8-2ubuntu1.5	amd64
+ii 	packagekit-tools	1.2.8-2ubuntu1.5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	packagekit	1.2.8-2ubuntu1.5	amd64
+ii 	parted	3.6-4build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	parted	3.6-4build1	amd64
+ii 	passwd	1:4.13+dfsg1-4ubuntu3.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	shadow	1:4.13+dfsg1-4ubuntu3.2	amd64
+ii 	pastebinit	1.6.2-1	Thomas Ward <teward@ubuntu.com>	pastebinit	1.6.2-1	all
+ii 	patch	2.7.6-7build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	patch	2.7.6-7build3	amd64
+ii 	pci.ids	0.0~2024.03.31-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pci.ids	0.0~2024.03.31-1ubuntu0.1	all
+ii 	pciutils	1:3.10.0-2build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pciutils	1:3.10.0-2build1	amd64
+ii 	perl	5.38.2-3.2ubuntu0.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	perl	5.38.2-3.2ubuntu0.6	amd64
+ii 	perl-base	5.38.2-3.2ubuntu0.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	perl	5.38.2-3.2ubuntu0.6	amd64
+ii 	perl-modules-5.38	5.38.2-3.2ubuntu0.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	perl	5.38.2-3.2ubuntu0.6	all
+ii 	pinentry-curses	1.2.1-3ubuntu5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pinentry	1.2.1-3ubuntu5	amd64
+ii 	plymouth	24.004.60-1ubuntu7.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	plymouth	24.004.60-1ubuntu7.1	amd64
+ii 	plymouth-theme-ubuntu-text	24.004.60-1ubuntu7.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	plymouth	24.004.60-1ubuntu7.1	amd64
+ii 	polkitd	124-2ubuntu1.24.04.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	policykit-1	124-2ubuntu1.24.04.4	amd64
+ii 	pollinate	4.33-3.1ubuntu1.3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pollinate	4.33-3.1ubuntu1.3	all
+ii 	postfix	3.8.6-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	postfix	3.8.6-1ubuntu0.1	amd64
+ii 	powermgmt-base	1.37ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	powermgmt-base	1.37ubuntu0.1	all
+ii 	procps	2:4.0.4-4ubuntu3.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	procps	2:4.0.4-4ubuntu3.2	amd64
+ii 	psmisc	23.7-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	psmisc	23.7-1build1	amd64
+ii 	publicsuffix	20231001.0357-0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	publicsuffix	20231001.0357-0.1	all
+ii 	python-apt-common	2.7.7ubuntu5.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-apt	2.7.7ubuntu5.1	all
+ii 	python-babel-localedata	2.10.3-3build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-babel	2.10.3-3build1	all
+ii 	python3	3.12.3-0ubuntu2.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python3-defaults	3.12.3-0ubuntu2.1	amd64
+ii 	python3-apport	2.28.1-0ubuntu3.8	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	apport	2.28.1-0ubuntu3.8	all
+ii 	python3-apt	2.7.7ubuntu5.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-apt	2.7.7ubuntu5.1	amd64
+ii 	python3-attr	23.2.0-2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-attrs	23.2.0-2	all
+ii 	python3-automat	22.10.0-2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	automat	22.10.0-2	all
+ii 	python3-babel	2.10.3-3build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-babel	2.10.3-3build1	all
+ii 	python3-bcrypt	3.2.2-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-bcrypt	3.2.2-1build1	amd64
+ii 	python3-blinker	1.7.0-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	blinker	1.7.0-1	all
+ii 	python3-boto3	1.34.46+dfsg-1ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-boto3	1.34.46+dfsg-1ubuntu1	all
+ii 	python3-botocore	1.34.46+repack-1ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-botocore	1.34.46+repack-1ubuntu1	all
+ii 	python3-bpfcc	0.29.1+ds-1ubuntu7	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	bpfcc	0.29.1+ds-1ubuntu7	all
+ii 	python3-certifi	2023.11.17-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-certifi	2023.11.17-1	all
+ii 	python3-cffi-backend	1.16.0-2build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-cffi	1.16.0-2build1	amd64
+ii 	python3-chardet	5.2.0+dfsg-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	chardet	5.2.0+dfsg-1	all
+ii 	python3-click	8.1.6-2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-click	8.1.6-2	all
+ii 	python3-colorama	0.4.6-4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-colorama	0.4.6-4	all
+ii 	python3-commandnotfound	23.04.0	Michael Vogt <michael.vogt@ubuntu.com>	command-not-found	23.04.0	all
+ii 	python3-configobj	5.0.8-3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	configobj	5.0.8-3	all
+ii 	python3-constantly	23.10.4-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	constantly	23.10.4-1	all
+ii 	python3-cryptography	41.0.7-4ubuntu0.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-cryptography	41.0.7-4ubuntu0.4	amd64
+ii 	python3-dateutil	2.8.2-3ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-dateutil	2.8.2-3ubuntu1	all
+ii 	python3-dbus	1.3.2-5build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	dbus-python	1.3.2-5build3	amd64
+ii 	python3-debconf	1.5.86ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	debconf	1.5.86ubuntu1	all
+ii 	python3-debian	0.1.49ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-debian	0.1.49ubuntu2	all
+ii 	python3-distro	1.9.0-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-distro	1.9.0-1	all
+ii 	python3-distro-info	1.7build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	distro-info	1.7build1	all
+ii 	python3-distupgrade	1:24.04.27	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ubuntu-release-upgrader	1:24.04.27	all
+ii 	python3-gdbm	3.12.3-0ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python3-stdlib-extensions	3.12.3-0ubuntu1	amd64
+ii 	python3-gi	3.48.2-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pygobject	3.48.2-1	amd64
+ii 	python3-hamcrest	2.1.0-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pyhamcrest	2.1.0-1	all
+ii 	python3-httplib2	0.20.4-3ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-httplib2	0.20.4-3ubuntu0.1	all
+ii 	python3-hyperlink	21.0.0-5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	hyperlink	21.0.0-5	all
+ii 	python3-idna	3.6-2ubuntu0.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-idna	3.6-2ubuntu0.2	all
+ii 	python3-incremental	22.10.0-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	incremental	22.10.0-1	all
+ii 	python3-jinja2	3.1.2-1ubuntu1.3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	jinja2	3.1.2-1ubuntu1.3	all
+ii 	python3-jmespath	1.0.1-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-jmespath	1.0.1-1	all
+ii 	python3-json-pointer	2.0-0ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-json-pointer	2.0-0ubuntu1	all
+ii 	python3-jsonpatch	1.32-3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-json-patch	1.32-3	all
+ii 	python3-jsonschema	4.10.3-2ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-jsonschema	4.10.3-2ubuntu1	all
+ii 	python3-jwt	2.7.0-1ubuntu0.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pyjwt	2.7.0-1ubuntu0.4	all
+ii 	python3-launchpadlib	1.11.0-6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-launchpadlib	1.11.0-6	all
+ii 	python3-lazr.restfulclient	0.14.6-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lazr.restfulclient	0.14.6-1	all
+ii 	python3-lazr.uri	1.0.6-3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	lazr.uri	1.0.6-3	all
+ii 	python3-magic	2:0.4.27-3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-magic	2:0.4.27-3	all
+ii 	python3-markdown-it	3.0.0-2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	markdown-it-py	3.0.0-2	all
+ii 	python3-markupsafe	2.1.5-1build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	markupsafe	2.1.5-1build2	amd64
+ii 	python3-mdurl	0.1.2-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	mdurl	0.1.2-1	all
+ii 	python3-minimal	3.12.3-0ubuntu2.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python3-defaults	3.12.3-0ubuntu2.1	amd64
+ii 	python3-netaddr	0.8.0-2ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-netaddr	0.8.0-2ubuntu1	all
+ii 	python3-netifaces	0.11.0-2build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	netifaces	0.11.0-2build3	amd64
+ii 	python3-netplan	1.1.2-2~ubuntu24.04.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	netplan.io	1.1.2-2~ubuntu24.04.2	amd64
+ii 	python3-newt	0.52.24-2ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	newt	0.52.24-2ubuntu2	amd64
+ii 	python3-oauthlib	3.2.2-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-oauthlib	3.2.2-1	all
+ii 	python3-openssl	23.2.0-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pyopenssl	23.2.0-1ubuntu0.1	all
+ii 	python3-packaging	24.0-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-packaging	24.0-1	all
+ii 	python3-pexpect	4.9-2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pexpect	4.9-2	all
+ii 	python3-pkg-resources	68.1.2-2ubuntu1.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	setuptools	68.1.2-2ubuntu1.2	all
+ii 	python3-problem-report	2.28.1-0ubuntu3.8	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	apport	2.28.1-0ubuntu3.8	all
+ii 	python3-ptyprocess	0.7.0-5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ptyprocess	0.7.0-5	all
+ii 	python3-pyasn1	0.4.8-4ubuntu0.3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pyasn1	0.4.8-4ubuntu0.3	all
+ii 	python3-pyasn1-modules	0.2.8-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-pyasn1-modules	0.2.8-1	all
+ii 	python3-pygments	2.17.2+dfsg-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pygments	2.17.2+dfsg-1	all
+ii 	python3-pyparsing	3.1.1-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pyparsing	3.1.1-1	all
+ii 	python3-pyrsistent	0.20.0-1build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pyrsistent	0.20.0-1build2	amd64
+ii 	python3-requests	2.31.0+dfsg-1ubuntu1.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	requests	2.31.0+dfsg-1ubuntu1.2	all
+ii 	python3-rich	13.7.1-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	rich	13.7.1-1	all
+ii 	python3-s3transfer	0.10.1-1ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-s3transfer	0.10.1-1ubuntu2	all
+ii 	python3-serial	3.5-2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pyserial	3.5-2	all
+ii 	python3-service-identity	24.1.0-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-service-identity	24.1.0-1	all
+ii 	python3-setuptools	68.1.2-2ubuntu1.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	setuptools	68.1.2-2ubuntu1.2	all
+ii 	python3-six	1.16.0-4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	six	1.16.0-4	all
+ii 	python3-software-properties	0.99.49.3	Michael Vogt <michael.vogt@ubuntu.com>	software-properties	0.99.49.3	all
+ii 	python3-systemd	235-1build4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-systemd	235-1build4	amd64
+ii 	python3-twisted	24.3.0-1ubuntu0.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	twisted	24.3.0-1ubuntu0.2	all
+ii 	python3-tz	2024.1-2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-tz	2024.1-2	all
+ii 	python3-update-manager	1:24.04.12	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	update-manager	1:24.04.12	all
+ii 	python3-urllib3	2.0.7-1ubuntu0.8	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-urllib3	2.0.7-1ubuntu0.8	all
+ii 	python3-wadllib	1.3.6-5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python-wadllib	1.3.6-5	all
+ii 	python3-xkit	0.5.0ubuntu6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	x-kit	0.5.0ubuntu6	all
+ii 	python3-yaml	6.0.1-2build2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	pyyaml	6.0.1-2build2	amd64
+ii 	python3-zope.interface	6.1-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	zope.interface	6.1-1build1	amd64
+ii 	python3.12	3.12.3-1ubuntu0.17	Ubuntu Core Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python3.12	3.12.3-1ubuntu0.17	amd64
+ii 	python3.12-minimal	3.12.3-1ubuntu0.17	Ubuntu Core Developers <ubuntu-devel-discuss@lists.ubuntu.com>	python3.12	3.12.3-1ubuntu0.17	amd64
+ii 	readline-common	8.2-4build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	readline	8.2-4build1	all
+ii 	rpcsvc-proto	1.4.2-0ubuntu7	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	rpcsvc-proto	1.4.2-0ubuntu7	amd64
+ii 	rsync	3.2.7-1ubuntu1.5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	rsync	3.2.7-1ubuntu1.5	amd64
+ii 	rsyslog	8.2312.0-3ubuntu9.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	rsyslog	8.2312.0-3ubuntu9.4	amd64
+ii 	run-one	1.17-0ubuntu2	Dustin Kirkland <kirkland@ubuntu.com>	run-one	1.17-0ubuntu2	all
+ii 	sbsigntool	0.9.4-3.1ubuntu7	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	sbsigntool	0.9.4-3.1ubuntu7	amd64
+ii 	screen	4.9.1-1ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	screen	4.9.1-1ubuntu1	amd64
+ii 	secureboot-db	1.9build1	Steve Langasek <steve.langasek@ubuntu.com>	secureboot-db	1.9build1	amd64
+ii 	sed	4.9-2ubuntu0.24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	sed	4.9-2ubuntu0.24.04.1	amd64
+ii 	sensible-utils	0.0.22	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	sensible-utils	0.0.22	all
+ii 	sg3-utils	1.46-3ubuntu4.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	sg3-utils	1.46-3ubuntu4.1	amd64
+ii 	sg3-utils-udev	1.46-3ubuntu4.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	sg3-utils	1.46-3ubuntu4.1	all
+ii 	sgml-base	1.31	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	sgml-base	1.31	all
+ii 	shared-mime-info	2.4-4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	shared-mime-info	2.4-4	amd64
+ii 	snapd	2.76+ubuntu24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	snapd	2.76+ubuntu24.04.1	amd64
+ii 	software-properties-common	0.99.49.3	Michael Vogt <michael.vogt@ubuntu.com>	software-properties	0.99.49.3	all
+ii 	sosreport	4.9.2-0ubuntu0~24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	sosreport	4.9.2-0ubuntu0~24.04.1	amd64
+ii 	squashfs-tools	1:4.6.1-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	squashfs-tools	1:4.6.1-1build1	amd64
+ii 	ssh-import-id	5.11-0ubuntu2.24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ssh-import-id	5.11-0ubuntu2.24.04.1	all
+ii 	ssl-cert	1.1.2ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ssl-cert	1.1.2ubuntu1	all
+ii 	strace	6.8-0ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	strace	6.8-0ubuntu2	amd64
+ii 	sudo	1.9.15p5-3ubuntu5.24.04.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	sudo	1.9.15p5-3ubuntu5.24.04.4	amd64
+ii 	sysstat	12.6.1-2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	sysstat	12.6.1-2	amd64
+ii 	systemd	255.4-1ubuntu8.18	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	systemd	255.4-1ubuntu8.18	amd64
+ii 	systemd-dev	255.4-1ubuntu8.18	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	systemd	255.4-1ubuntu8.18	all
+ii 	systemd-hwe-hwdb	255.1.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	systemd-hwe	255.1.6	all
+ii 	systemd-resolved	255.4-1ubuntu8.18	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	systemd	255.4-1ubuntu8.18	amd64
+ii 	systemd-sysv	255.4-1ubuntu8.18	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	systemd	255.4-1ubuntu8.18	amd64
+ii 	systemd-timesyncd	255.4-1ubuntu8.18	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	systemd	255.4-1ubuntu8.18	amd64
+ii 	sysvinit-utils	3.08-6ubuntu3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	sysvinit	3.08-6ubuntu3	amd64
+ii 	tar	1.35+dfsg-3ubuntu0.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	tar	1.35+dfsg-3ubuntu0.4	amd64
+ii 	tcl	8.6.14build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	tcltk-defaults	8.6.14build1	amd64
+ii 	tcl8.6	8.6.14+dfsg-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	tcl8.6	8.6.14+dfsg-1build1	amd64
+ii 	tcpdump	4.99.4-3ubuntu4.24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	tcpdump	4.99.4-3ubuntu4.24.04.1	amd64
+ii 	telnet	0.17+2.5-3ubuntu4.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	inetutils	2:2.5-3ubuntu4.2	all
+ii 	thermald	2.5.6-2ubuntu0.24.04.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	thermald	2.5.6-2ubuntu0.24.04.2	amd64
+ii 	thin-provisioning-tools	0.9.0-2ubuntu5.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	thin-provisioning-tools	0.9.0-2ubuntu5.1	amd64
+ii 	time	1.9-0.2build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	time	1.9-0.2build1	amd64
+ii 	tmux	3.4-1ubuntu0.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	tmux	3.4-1ubuntu0.1	amd64
+ii 	tnftp	20230507-2build3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	tnftp	20230507-2build3	amd64
+ii 	tpm-udev	0.6ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	tpm-udev	0.6ubuntu1	all
+ii 	trace-cmd	3.2-1ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	trace-cmd	3.2-1ubuntu2	amd64
+ii 	tzdata	2026e-0ubuntu0.24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	tzdata	2026e-0ubuntu0.24.04.1	all
+ii 	ubuntu-drivers-common	1:0.9.7.6ubuntu3.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ubuntu-drivers-common	1:0.9.7.6ubuntu3.4	amd64
+ii 	ubuntu-kernel-accessories	1.539.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ubuntu-meta	1.539.2	amd64
+ii 	ubuntu-keyring	2023.11.28.1	Dimitri John Ledkov <dimitri.ledkov@canonical.com>	ubuntu-keyring	2023.11.28.1	all
+ii 	ubuntu-minimal	1.539.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ubuntu-meta	1.539.2	amd64
+ii 	ubuntu-pro-client	37.2ubuntu~24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ubuntu-advantage-tools	37.2ubuntu~24.04.1	amd64
+ii 	ubuntu-pro-client-l10n	37.2ubuntu~24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ubuntu-advantage-tools	37.2ubuntu~24.04.1	amd64
+ii 	ubuntu-release-upgrader-core	1:24.04.27	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ubuntu-release-upgrader	1:24.04.27	all
+ii 	ubuntu-server	1.539.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ubuntu-meta	1.539.2	amd64
+ii 	ubuntu-server-minimal	1.539.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ubuntu-meta	1.539.2	amd64
+ii 	ubuntu-standard	1.539.2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ubuntu-meta	1.539.2	amd64
+ii 	ucf	3.0043+nmu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	ucf	3.0043+nmu1	all
+ii 	udev	255.4-1ubuntu8.18	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	systemd	255.4-1ubuntu8.18	amd64
+ii 	udisks2	2.10.1-6ubuntu1.5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	udisks2	2.10.1-6ubuntu1.5	amd64
+ii 	ufw	0.36.2-6	Jamie Strandboge <jdstrand@ubuntu.com>	ufw	0.36.2-6	all
+ii 	unattended-upgrades	2.9.1+nmu4ubuntu1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	unattended-upgrades	2.9.1+nmu4ubuntu1	all
+ii 	unminimize	0.2.1	Utkarsh Gupta <utkarsh@ubuntu.com>	unminimize	0.2.1	amd64
+ii 	update-manager-core	1:24.04.12	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	update-manager	1:24.04.12	all
+ii 	update-notifier-common	3.192.68.2	Michael Vogt <michael.vogt@ubuntu.com>	update-notifier	3.192.68.2	all
+ii 	upower	1.90.3-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	upower	1.90.3-1	amd64
+ii 	usb-modeswitch	2.6.1-3ubuntu3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	usb-modeswitch	2.6.1-3ubuntu3	amd64
+ii 	usb-modeswitch-data	20191128-6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	usb-modeswitch-data	20191128-6	all
+ii 	usb.ids	2024.03.18-1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	usb.ids	2024.03.18-1	all
+ii 	usbmuxd	1.1.1-5~exp3ubuntu2.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	usbmuxd	1.1.1-5~exp3ubuntu2.1	amd64
+ii 	usbutils	1:017-3build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	usbutils	1:017-3build1	amd64
+ii 	util-linux	2.39.3-9ubuntu6.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	util-linux	2.39.3-9ubuntu6.6	amd64
+ii 	uuid-runtime	2.39.3-9ubuntu6.6	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	util-linux	2.39.3-9ubuntu6.6	amd64
+ii 	vim	2:9.1.0016-1ubuntu7.20	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	vim	2:9.1.0016-1ubuntu7.20	amd64
+ii 	vim-common	2:9.1.0016-1ubuntu7.20	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	vim	2:9.1.0016-1ubuntu7.20	all
+ii 	vim-runtime	2:9.1.0016-1ubuntu7.20	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	vim	2:9.1.0016-1ubuntu7.20	all
+ii 	vim-tiny	2:9.1.0016-1ubuntu7.20	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	vim	2:9.1.0016-1ubuntu7.20	amd64
+ii 	wget	1.21.4-1ubuntu4.5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	wget	1.21.4-1ubuntu4.5	amd64
+ii 	whiptail	0.52.24-2ubuntu2	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	newt	0.52.24-2ubuntu2	amd64
+ii 	wireless-regdb	2026.05.30-0ubuntu1~24.04.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	wireless-regdb	2026.05.30-0ubuntu1~24.04.1	all
+ii 	xauth	1:1.1.2-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	xauth	1:1.1.2-1build1	amd64
+ii 	xdg-user-dirs	0.18-1build1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	xdg-user-dirs	0.18-1build1	amd64
+ii 	xfsprogs	6.6.0-1ubuntu2.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	xfsprogs	6.6.0-1ubuntu2.1	amd64
+ii 	xkb-data	2.41-2ubuntu1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	xkeyboard-config	2.41-2ubuntu1.1	all
+ii 	xml-core	0.19	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	xml-core	0.19	all
+ii 	xxd	2:9.1.0016-1ubuntu7.20	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	vim	2:9.1.0016-1ubuntu7.20	amd64
+ii 	xz-utils	5.6.1+really5.4.5-1ubuntu0.4	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	xz-utils	5.6.1+really5.4.5-1ubuntu0.4	amd64
+ii 	zerofree	1.1.1-1build5	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	zerofree	1.1.1-1build5	amd64
+ii 	zlib1g	1:1.3.dfsg-3.1ubuntu2.3	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	zlib	1:1.3.dfsg-3.1ubuntu2.3	amd64
+ii 	zstd	1.5.5+dfsg2-2build1.1	Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>	libzstd	1.5.5+dfsg2-2build1.1	amd64

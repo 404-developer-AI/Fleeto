@@ -1,0 +1,716 @@
+ii 	adduser	3.134	Debian Adduser Developers <adduser@packages.debian.org>	adduser	3.134	all
+ii 	apparmor	3.0.8-3	Debian AppArmor Team <pkg-apparmor-team@lists.alioth.debian.org>	apparmor	3.0.8-3	amd64
+ii 	apt	2.6.1	APT Development Team <deity@lists.debian.org>	apt	2.6.1	amd64
+ii 	apt-listchanges	3.24	Debian QA Group <packages@qa.debian.org>	apt-listchanges	3.24	all
+ii 	apt-utils	2.6.1	APT Development Team <deity@lists.debian.org>	apt	2.6.1	amd64
+ii 	attr	1:2.5.1-4	Guillem Jover <guillem@debian.org>	attr	1:2.5.1-4	amd64
+ii 	base-files	12.4+deb12u11	Santiago Vila <sanvila@debian.org>	base-files	12.4+deb12u11	amd64
+ii 	base-passwd	3.6.1	Colin Watson <cjwatson@debian.org>	base-passwd	3.6.1	amd64
+ii 	bash	5.2.15-2+b8	Matthias Klose <doko@debian.org>	bash	5.2.15-2	amd64
+ii 	bash-completion	1:2.11-6	Gabriel F. T. Gomes <gabriel@debian.org>	bash-completion	1:2.11-6	all
+ii 	bc	1.07.1-3+b1	Ryan Kavanagh <rak@debian.org>	bc	1.07.1-3	amd64
+ii 	bind9-dnsutils	1:9.18.33-1~deb12u2	Debian DNS Team <team+dns@tracker.debian.org>	bind9	1:9.18.33-1~deb12u2	amd64
+ii 	bind9-host	1:9.18.33-1~deb12u2	Debian DNS Team <team+dns@tracker.debian.org>	bind9	1:9.18.33-1~deb12u2	amd64
+ii 	bind9-libs	1:9.18.33-1~deb12u2	Debian DNS Team <team+dns@tracker.debian.org>	bind9	1:9.18.33-1~deb12u2	amd64
+ii 	binutils	2.40-2	Matthias Klose <doko@debian.org>	binutils	2.40-2	amd64
+ii 	binutils-common	2.40-2	Matthias Klose <doko@debian.org>	binutils	2.40-2	amd64
+ii 	binutils-x86-64-linux-gnu	2.40-2	Matthias Klose <doko@debian.org>	binutils	2.40-2	amd64
+ii 	bridge-utils	1.7.1-1	Santiago García Mantiñán <manty@debian.org>	bridge-utils	1.7.1-1	amd64
+ii 	bsd-mailx	8.1.2-0.20220412cvs-1	Robert Luberda <robert@debian.org>	bsd-mailx	8.1.2-0.20220412cvs-1	amd64
+ii 	bsdextrautils	2.38.1-5+deb12u3	util-linux packagers <util-linux@packages.debian.org>	util-linux	2.38.1-5+deb12u3	amd64
+ii 	bsdutils	1:2.38.1-5+deb12u3	util-linux packagers <util-linux@packages.debian.org>	util-linux	2.38.1-5+deb12u3	amd64
+ii 	btrfs-progs	6.2-1+deb12u1	Adam Borowski <kilobyte@angband.pl>	btrfs-progs	6.2-1+deb12u1	amd64
+ii 	busybox	1:1.35.0-4+b4	Debian Install System Team <debian-boot@lists.debian.org>	busybox	1:1.35.0-4	amd64
+ii 	bzip2	1.0.8-5+b1	Anibal Monsalve Salazar <anibal@debian.org>	bzip2	1.0.8-5	amd64
+ii 	ca-certificates	20230311+deb12u1	Julien Cristau <jcristau@debian.org>	ca-certificates	20230311+deb12u1	all
+ii 	ceph-common	17.2.8-pve2	Ceph Maintainers <ceph-maintainers@lists.ceph.com>	ceph	17.2.8-pve2	amd64
+ii 	ceph-fuse	17.2.8-pve2	Ceph Maintainers <ceph-maintainers@lists.ceph.com>	ceph	17.2.8-pve2	amd64
+ii 	chrony	4.3-2+deb12u1	Vincent Blut <vincent.debian@free.fr>	chrony	4.3-2+deb12u1	amd64
+ii 	cifs-utils	2:7.0-2	Debian Samba Maintainers <pkg-samba-maint@lists.alioth.debian.org>	cifs-utils	2:7.0-2	amd64
+ii 	console-setup	1.221	Debian Install System Team <debian-boot@lists.debian.org>	console-setup	1.221	all
+ii 	console-setup-linux	1.221	Debian Install System Team <debian-boot@lists.debian.org>	console-setup	1.221	all
+ii 	coreutils	9.1-1	Michael Stone <mstone@debian.org>	coreutils	9.1-1	amd64
+ii 	corosync	3.1.9-pve1	Proxmox Support Team <support@proxmox.com>	corosync	3.1.9-pve1	amd64
+ii 	cpio	2.13+dfsg-7.1	Anibal Monsalve Salazar <anibal@debian.org>	cpio	2.13+dfsg-7.1	amd64
+ii 	criu	3.17.1-2+deb12u1	Salvatore Bonaccorso <carnil@debian.org>	criu	3.17.1-2+deb12u1	amd64
+ii 	cron	3.0pl1-162	Javier Fernández-Sanguino Peña <jfs@debian.org>	cron	3.0pl1-162	amd64
+ii 	cron-daemon-common	3.0pl1-162	Javier Fernández-Sanguino Peña <jfs@debian.org>	cron	3.0pl1-162	all
+ii 	cstream	4.0.0-1	Jonas Smedegaard <dr@jones.dk>	cstream	4.0.0-1	amd64
+ii 	curl	7.88.1-10+deb12u12	Alessandro Ghedini <ghedo@debian.org>	curl	7.88.1-10+deb12u12	amd64
+ii 	dash	0.5.12-2	Andrej Shadura <andrewsh@debian.org>	dash	0.5.12-2	amd64
+ii 	dbus	1.14.10-1~deb12u1	Utopia Maintenance Team <pkg-utopia-maintainers@lists.alioth.debian.org>	dbus	1.14.10-1~deb12u1	amd64
+ii 	dbus-bin	1.14.10-1~deb12u1	Utopia Maintenance Team <pkg-utopia-maintainers@lists.alioth.debian.org>	dbus	1.14.10-1~deb12u1	amd64
+ii 	dbus-daemon	1.14.10-1~deb12u1	Utopia Maintenance Team <pkg-utopia-maintainers@lists.alioth.debian.org>	dbus	1.14.10-1~deb12u1	amd64
+ii 	dbus-session-bus-common	1.14.10-1~deb12u1	Utopia Maintenance Team <pkg-utopia-maintainers@lists.alioth.debian.org>	dbus	1.14.10-1~deb12u1	all
+ii 	dbus-system-bus-common	1.14.10-1~deb12u1	Utopia Maintenance Team <pkg-utopia-maintainers@lists.alioth.debian.org>	dbus	1.14.10-1~deb12u1	all
+ii 	debconf	1.5.82	Debconf Developers <debconf-devel@lists.alioth.debian.org>	debconf	1.5.82	all
+ii 	debconf-i18n	1.5.82	Debconf Developers <debconf-devel@lists.alioth.debian.org>	debconf	1.5.82	all
+ii 	debian-archive-keyring	2023.3+deb12u2	Debian Release Team <packages@release.debian.org>	debian-archive-keyring	2023.3+deb12u2	all
+ii 	debian-faq	11.1	Javier Fernandez-Sanguino Peña <jfs@debian.org>	debian-faq	11.1	all
+ii 	debianutils	5.7-0.5~deb12u1	Clint Adams <clint@debian.org>	debianutils	5.7-0.5~deb12u1	amd64
+ii 	diffutils	1:3.8-4	Santiago Vila <sanvila@debian.org>	diffutils	1:3.8-4	amd64
+ii 	dirmngr	2.2.40-1.1	Debian GnuPG Maintainers <pkg-gnupg-maint@lists.alioth.debian.org>	gnupg2	2.2.40-1.1	amd64
+ii 	distro-info-data	0.58+deb12u4	Benjamin Drung <bdrung@debian.org>	distro-info-data	0.58+deb12u4	all
+ii 	dmeventd	2:1.02.185-2	Debian LVM Team <team+lvm@tracker.debian.org>	lvm2	2.03.16-2	amd64
+ii 	dmidecode	3.4-1	Jörg Frings-Fürst <debian@jff.email>	dmidecode	3.4-1	amd64
+ii 	dmsetup	2:1.02.185-2	Debian LVM Team <team+lvm@tracker.debian.org>	lvm2	2.03.16-2	amd64
+ii 	doc-debian	11.3+nmu1	Javier Fernández-Sanguino Peña <jfs@debian.org>	doc-debian	11.3+nmu1	all
+ii 	dosfstools	4.2-1	Andreas Bombe <aeb@debian.org>	dosfstools	4.2-1	amd64
+ii 	dpkg	1.21.22	Dpkg Developers <debian-dpkg@lists.debian.org>	dpkg	1.21.22	amd64
+ii 	dtach	0.9-5+b1	Stefan Völkel <bd@bc-bd.org>	dtach	0.9-5	amd64
+ii 	e2fsprogs	1.47.0-2	Theodore Y. Ts'o <tytso@mit.edu>	e2fsprogs	1.47.0-2	amd64
+ii 	ebtables	2.0.11-5	Debian Netfilter Packaging Team <pkg-netfilter-team@lists.alioth.debian.org>	ebtables	2.0.11-5	amd64
+ii 	efibootmgr	17-2	Debian UEFI Maintainers <debian-efi@lists.debian.org>	efibootmgr	17-2	amd64
+ii 	eject	2.38.1-5+deb12u3	util-linux packagers <util-linux@packages.debian.org>	util-linux	2.38.1-5+deb12u3	amd64
+ii 	ethtool	1:6.1-1	Debian Kernel Team <debian-kernel@lists.debian.org>	ethtool	1:6.1-1	amd64
+ii 	faketime	0.9.10-2.1	Daniel Kahn Gillmor <dkg@fifthhorseman.net>	faketime	0.9.10-2.1	amd64
+ii 	fdisk	2.38.1-5+deb12u3	util-linux packagers <util-linux@packages.debian.org>	util-linux	2.38.1-5+deb12u3	amd64
+ii 	fdutils	5.6-4	Matteo Cypriani <mcy@lm7.fr>	fdutils	5.6-4	amd64
+ii 	file	1:5.44-3	Christoph Biedl <debian.axhn@manchmal.in-ulm.de>	file	1:5.44-3	amd64
+ii 	findutils	4.9.0-4	Andreas Metzler <ametzler@debian.org>	findutils	4.9.0-4	amd64
+ii 	fio	3.33-3	Martin Steigerwald <martin.steigerwald@proact.de>	fio	3.33-3	amd64
+ii 	fontconfig	2.14.1-4	Debian freedesktop.org maintainers <pkg-freedesktop-maintainers@lists.alioth.debian.org>	fontconfig	2.14.1-4	amd64
+ii 	fontconfig-config	2.14.1-4	Debian freedesktop.org maintainers <pkg-freedesktop-maintainers@lists.alioth.debian.org>	fontconfig	2.14.1-4	amd64
+ii 	fonts-dejavu-core	2.37-6	Debian Fonts Task Force <debian-fonts@lists.debian.org>	fonts-dejavu	2.37-6	all
+ii 	fonts-font-awesome	5.0.10+really4.7.0~dfsg-4.1	Debian Fonts Task Force <debian-fonts@lists.debian.org>	fonts-font-awesome	5.0.10+really4.7.0~dfsg-4.1	all
+ii 	fonts-font-logos	1.0.1-3	Proxmox Support Team <support@proxmox.com>	fonts-font-logos	1.0.1-3	all
+ii 	fonts-glyphicons-halflings	1.009~3.4.1+dfsg-3+deb12u1	Debian Javascript Maintainers <pkg-javascript-devel@lists.alioth.debian.org>	twitter-bootstrap3	3.4.1+dfsg-3+deb12u1	all
+ii 	frr	10.2.2-1+pve1	Proxmox Support Team <support@proxmox.com>	frr	10.2.2-1+pve1	amd64
+ii 	frr-pythontools	10.2.2-1+pve1	Proxmox Support Team <support@proxmox.com>	frr	10.2.2-1+pve1	all
+ii 	fuse	2.9.9-6+b1	Laszlo Boszormenyi (GCS) <gcs@debian.org>	fuse	2.9.9-6	amd64
+ii 	gcc-12-base	12.2.0-14+deb12u1	Debian GCC Maintainers <debian-gcc@lists.debian.org>	gcc-12	12.2.0-14+deb12u1	amd64
+ii 	gdisk	1.0.9-2.1	Jonathan Carter <jcc@debian.org>	gdisk	1.0.9-2.1	amd64
+ii 	genisoimage	9:1.1.11-3.4	Joerg Jaspert <joerg@debian.org>	cdrkit	9:1.1.11-3.4	amd64
+ii 	gettext-base	0.21-12	Santiago Vila <sanvila@debian.org>	gettext	0.21-12	amd64
+ii 	glusterfs-client	10.3-5	Patrick Matthäi <pmatthaei@debian.org>	glusterfs	10.3-5	amd64
+ii 	glusterfs-common	10.3-5	Patrick Matthäi <pmatthaei@debian.org>	glusterfs	10.3-5	amd64
+ii 	gnupg	2.2.40-1.1	Debian GnuPG Maintainers <pkg-gnupg-maint@lists.alioth.debian.org>	gnupg2	2.2.40-1.1	all
+ii 	gnupg-l10n	2.2.40-1.1	Debian GnuPG Maintainers <pkg-gnupg-maint@lists.alioth.debian.org>	gnupg2	2.2.40-1.1	all
+ii 	gnupg-utils	2.2.40-1.1	Debian GnuPG Maintainers <pkg-gnupg-maint@lists.alioth.debian.org>	gnupg2	2.2.40-1.1	amd64
+ii 	gnutls-bin	3.7.9-2+deb12u5	Debian GnuTLS Maintainers <pkg-gnutls-maint@lists.alioth.debian.org>	gnutls28	3.7.9-2+deb12u5	amd64
+ii 	gpg	2.2.40-1.1	Debian GnuPG Maintainers <pkg-gnupg-maint@lists.alioth.debian.org>	gnupg2	2.2.40-1.1	amd64
+ii 	gpg-agent	2.2.40-1.1	Debian GnuPG Maintainers <pkg-gnupg-maint@lists.alioth.debian.org>	gnupg2	2.2.40-1.1	amd64
+ii 	gpg-wks-client	2.2.40-1.1	Debian GnuPG Maintainers <pkg-gnupg-maint@lists.alioth.debian.org>	gnupg2	2.2.40-1.1	amd64
+ii 	gpg-wks-server	2.2.40-1.1	Debian GnuPG Maintainers <pkg-gnupg-maint@lists.alioth.debian.org>	gnupg2	2.2.40-1.1	amd64
+ii 	gpgconf	2.2.40-1.1	Debian GnuPG Maintainers <pkg-gnupg-maint@lists.alioth.debian.org>	gnupg2	2.2.40-1.1	amd64
+ii 	gpgsm	2.2.40-1.1	Debian GnuPG Maintainers <pkg-gnupg-maint@lists.alioth.debian.org>	gnupg2	2.2.40-1.1	amd64
+ii 	gpgv	2.2.40-1.1	Debian GnuPG Maintainers <pkg-gnupg-maint@lists.alioth.debian.org>	gnupg2	2.2.40-1.1	amd64
+ii 	grep	3.8-5	Anibal Monsalve Salazar <anibal@debian.org>	grep	3.8-5	amd64
+ii 	groff-base	1.22.4-10	Colin Watson <cjwatson@debian.org>	groff	1.22.4-10	amd64
+ii 	grub-common	2.06-13+pmx7	Proxmox Support Team <support@proxmox.com>	grub2	2.06-13+pmx7	amd64
+ii 	grub-efi-amd64	2.06-13+pmx7	Proxmox Support Team <support@proxmox.com>	grub2	2.06-13+pmx7	amd64
+ii 	grub-efi-amd64-bin	2.06-13+pmx7	Proxmox Support Team <support@proxmox.com>	grub2	2.06-13+pmx7	amd64
+ii 	grub-efi-amd64-signed	1+2.06+13+pmx7	GRUB Maintainers <pkg-grub-devel@alioth-lists.debian.net>	grub-efi-amd64-signed	1+2.06+13+pmx7	amd64
+ii 	grub-pc-bin	2.06-13+pmx7	Proxmox Support Team <support@proxmox.com>	grub2	2.06-13+pmx7	amd64
+ii 	grub2-common	2.06-13+pmx7	Proxmox Support Team <support@proxmox.com>	grub2	2.06-13+pmx7	amd64
+ii 	gzip	1.12-1	Milan Kupcevic <milan@debian.org>	gzip	1.12-1	amd64
+ii 	hdparm	9.65+ds-1	Alexandre Mestiashvili <mestia@debian.org>	hdparm	9.65+ds-1	amd64
+ii 	hostname	3.23+nmu1	Michael Meskes <meskes@debian.org>	hostname	3.23+nmu1	amd64
+ii 	ifupdown2	3.2.0-1+pmx11	Proxmox Support Team <support@proxmox.com>	ifupdown2	3.2.0-1+pmx11	all
+ii 	inetutils-telnet	2:2.4-2+deb12u1	Guillem Jover <guillem@debian.org>	inetutils	2:2.4-2+deb12u1	amd64
+ii 	init	1.65.2	Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>	init-system-helpers	1.65.2	amd64
+ii 	init-system-helpers	1.65.2	Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>	init-system-helpers	1.65.2	all
+ii 	initramfs-tools	0.142+deb12u3	Debian kernel team <debian-kernel@lists.debian.org>	initramfs-tools	0.142+deb12u3	all
+ii 	initramfs-tools-core	0.142+deb12u3	Debian kernel team <debian-kernel@lists.debian.org>	initramfs-tools	0.142+deb12u3	all
+ii 	iproute2	6.1.0-3	Debian Kernel Team <debian-kernel@lists.debian.org>	iproute2	6.1.0-3	amd64
+ii 	ipset	7.17-1	Debian Netfilter Packaging Team <pkg-netfilter-team@lists.alioth.debian.org>	ipset	7.17-1	amd64
+ii 	iptables	1.8.9-2	Debian Netfilter Packaging Team <pkg-netfilter-team@lists.alioth.debian.org>	iptables	1.8.9-2	amd64
+ii 	iputils-ping	3:20221126-1+deb12u1	Noah Meyerhans <noahm@debian.org>	iputils	3:20221126-1+deb12u1	amd64
+ii 	isc-dhcp-client	4.4.3-P1-2	Debian ISC DHCP Maintainers <isc-dhcp@packages.debian.org>	isc-dhcp	4.4.3-P1-2	amd64
+ii 	isc-dhcp-common	4.4.3-P1-2	Debian ISC DHCP Maintainers <isc-dhcp@packages.debian.org>	isc-dhcp	4.4.3-P1-2	amd64
+ii 	iso-codes	4.15.0-1	Dr. Tobias Quathamer <toddy@debian.org>	iso-codes	4.15.0-1	all
+ii 	kbd	2.5.1-1+b1	Console utilities maintainers <pkg-kbd-devel@lists.alioth.debian.org>	kbd	2.5.1-1	amd64
+ii 	keyboard-configuration	1.221	Debian Install System Team <debian-boot@lists.debian.org>	console-setup	1.221	all
+ii 	keyutils	1.6.3-2	Christian Kastner <ckk@debian.org>	keyutils	1.6.3-2	amd64
+ii 	klibc-utils	2.0.12-1	Debian Kernel Team <debian-kernel@lists.debian.org>	klibc	2.0.12-1	amd64
+ii 	kmod	30+20221128-1	Marco d'Itri <md@linux.it>	kmod	30+20221128-1	amd64
+ii 	krb5-locales	1.20.1-2+deb12u3	Sam Hartman <hartmans@debian.org>	krb5	1.20.1-2+deb12u3	all
+ii 	ksm-control-daemon	1.5-1	Proxmox Support Team <support@proxmox.com>	ksm-control-daemon	1.5-1	all
+ii 	less	590-2.1~deb12u2	Milan Kupcevic <milan@debian.org>	less	590-2.1~deb12u2	amd64
+ii 	libacl1	2.3.1-3	Guillem Jover <guillem@debian.org>	acl	2.3.1-3	amd64
+ii 	libaio1	0.3.113-4	Guillem Jover <guillem@debian.org>	libaio	0.3.113-4	amd64
+ii 	libanyevent-http-perl	2.25-2	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libanyevent-http-perl	2.25-2	all
+ii 	libanyevent-perl	7.170-2+b3	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libanyevent-perl	7.170-2	amd64
+ii 	libapparmor1	3.0.8-3	Debian AppArmor Team <pkg-apparmor-team@lists.alioth.debian.org>	apparmor	3.0.8-3	amd64
+ii 	libappconfig-perl	1.71-2.2	Stefan Hornburg (Racke) <racke@linuxia.de>	appconfig	1.71-2.2	all
+ii 	libapt-pkg-perl	0.1.40+b2	Brendan O'Dea <bod@debian.org>	libapt-pkg-perl	0.1.40	amd64
+ii 	libapt-pkg6.0	2.6.1	APT Development Team <deity@lists.debian.org>	apt	2.6.1	amd64
+ii 	libarchive13	3.6.2-1+deb12u2	Peter Pentchev <roam@debian.org>	libarchive	3.6.2-1+deb12u2	amd64
+ii 	libargon2-1	0~20171227-0.3+deb12u1	Luca Bruno <lucab@debian.org>	argon2	0~20171227-0.3+deb12u1	amd64
+ii 	libasound2	1.2.8-1+b1	Debian ALSA Maintainers <pkg-alsa-devel@lists.alioth.debian.org>	alsa-lib	1.2.8-1	amd64
+ii 	libasound2-data	1.2.8-1	Debian ALSA Maintainers <pkg-alsa-devel@lists.alioth.debian.org>	alsa-lib	1.2.8-1	all
+ii 	libassuan0	2.5.5-5	Debian GnuPG-Maintainers <pkg-gnupg-maint@lists.alioth.debian.org>	libassuan	2.5.5-5	amd64
+ii 	libasyncns0	0.8-6+b3	Tanguy Ortolo <tanguy+debian@ortolo.eu>	libasyncns	0.8-6	amd64
+ii 	libattr1	1:2.5.1-4	Guillem Jover <guillem@debian.org>	attr	1:2.5.1-4	amd64
+ii 	libaudit-common	1:3.0.9-1	Laurent Bigonville <bigon@debian.org>	audit	1:3.0.9-1	all
+ii 	libaudit1	1:3.0.9-1	Laurent Bigonville <bigon@debian.org>	audit	1:3.0.9-1	amd64
+ii 	libauthen-pam-perl	0.16-5+b1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libauthen-pam-perl	0.16-5	amd64
+ii 	libavahi-client3	0.8-10+deb12u1	Utopia Maintenance Team <pkg-utopia-maintainers@lists.alioth.debian.org>	avahi	0.8-10+deb12u1	amd64
+ii 	libavahi-common-data	0.8-10+deb12u1	Utopia Maintenance Team <pkg-utopia-maintainers@lists.alioth.debian.org>	avahi	0.8-10+deb12u1	amd64
+ii 	libavahi-common3	0.8-10+deb12u1	Utopia Maintenance Team <pkg-utopia-maintainers@lists.alioth.debian.org>	avahi	0.8-10+deb12u1	amd64
+ii 	libbabeltrace1	1.5.11-1+b2	Jon Bernard <jbernard@debian.org>	babeltrace	1.5.11-1	amd64
+ii 	libbinutils	2.40-2	Matthias Klose <doko@debian.org>	binutils	2.40-2	amd64
+ii 	libblas3	3.11.0-2	Debian Science Team <debian-science-maintainers@lists.alioth.debian.org>	lapack	3.11.0-2	amd64
+ii 	libblkid1	2.38.1-5+deb12u3	util-linux packagers <util-linux@packages.debian.org>	util-linux	2.38.1-5+deb12u3	amd64
+ii 	libbpf1	1:1.1.0-1	Sudip Mukherjee <sudipm.mukherjee@gmail.com>	libbpf	1.1.0-1	amd64
+ii 	libbrotli1	1.0.9-2+b6	Tomasz Buchert <tomasz@debian.org>	brotli	1.0.9-2	amd64
+ii 	libbsd0	0.11.7-2	Guillem Jover <guillem@debian.org>	libbsd	0.11.7-2	amd64
+ii 	libbytes-random-secure-perl	0.29-3	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libbytes-random-secure-perl	0.29-3	all
+ii 	libbz2-1.0	1.0.8-5+b1	Anibal Monsalve Salazar <anibal@debian.org>	bzip2	1.0.8-5	amd64
+ii 	libc-ares2	1.18.1-3	Gregor Jasny <gjasny@googlemail.com>	c-ares	1.18.1-3	amd64
+ii 	libc-bin	2.36-9+deb12u10	GNU Libc Maintainers <debian-glibc@lists.debian.org>	glibc	2.36-9+deb12u10	amd64
+ii 	libc-l10n	2.36-9+deb12u10	GNU Libc Maintainers <debian-glibc@lists.debian.org>	glibc	2.36-9+deb12u10	all
+ii 	libc6	2.36-9+deb12u10	GNU Libc Maintainers <debian-glibc@lists.debian.org>	glibc	2.36-9+deb12u10	amd64
+ii 	libcairo2	1.16.0-7	Debian GNOME Maintainers <pkg-gnome-maintainers@lists.alioth.debian.org>	cairo	1.16.0-7	amd64
+ii 	libcap-ng0	0.8.3-1+b3	Håvard F. Aasen <havard.f.aasen@pfft.no>	libcap-ng	0.8.3-1	amd64
+ii 	libcap2	1:2.66-4+deb12u1	Christian Kastner <ckk@debian.org>	libcap2	1:2.66-4+deb12u1	amd64
+ii 	libcap2-bin	1:2.66-4+deb12u1	Christian Kastner <ckk@debian.org>	libcap2	1:2.66-4+deb12u1	amd64
+ii 	libcbor0.8	0.8.0-2+b1	Vincent Bernat <bernat@debian.org>	libcbor	0.8.0-2	amd64
+ii 	libcephfs2	17.2.8-pve2	Ceph Maintainers <ceph-maintainers@lists.ceph.com>	ceph	17.2.8-pve2	amd64
+ii 	libcfg7	3.1.9-pve1	Proxmox Support Team <support@proxmox.com>	corosync	3.1.9-pve1	amd64
+ii 	libclone-perl	0.46-1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libclone-perl	0.46-1	amd64
+ii 	libcmap4	3.1.9-pve1	Proxmox Support Team <support@proxmox.com>	corosync	3.1.9-pve1	amd64
+ii 	libcom-err2	1.47.0-2	Theodore Y. Ts'o <tytso@mit.edu>	e2fsprogs	1.47.0-2	amd64
+ii 	libcommon-sense-perl	3.75-3	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libcommon-sense-perl	3.75-3	amd64
+ii 	libconvert-asn1-perl	0.33-1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libconvert-asn1-perl	0.33-1	all
+ii 	libcorosync-common4	3.1.9-pve1	Proxmox Support Team <support@proxmox.com>	corosync	3.1.9-pve1	amd64
+ii 	libcpg4	3.1.9-pve1	Proxmox Support Team <support@proxmox.com>	corosync	3.1.9-pve1	amd64
+ii 	libcrypt-openssl-bignum-perl	0.09-2+b1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libcrypt-openssl-bignum-perl	0.09-2	amd64
+ii 	libcrypt-openssl-random-perl	0.15-3+b1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libcrypt-openssl-random-perl	0.15-3	amd64
+ii 	libcrypt-openssl-rsa-perl	0.33-3+b1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libcrypt-openssl-rsa-perl	0.33-3	amd64
+ii 	libcrypt-random-seed-perl	0.03-3	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libcrypt-random-seed-perl	0.03-3	all
+ii 	libcrypt-ssleay-perl	0.73.06-2+b1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libcrypt-ssleay-perl	0.73.06-2	amd64
+ii 	libcrypt1	1:4.4.33-2	Marco d'Itri <md@linux.it>	libxcrypt	1:4.4.33-2	amd64
+ii 	libcryptsetup12	2:2.6.1-4~deb12u2	Debian Cryptsetup Team <pkg-cryptsetup-devel@alioth-lists.debian.net>	cryptsetup	2:2.6.1-4~deb12u2	amd64
+ii 	libctf-nobfd0	2.40-2	Matthias Klose <doko@debian.org>	binutils	2.40-2	amd64
+ii 	libctf0	2.40-2	Matthias Klose <doko@debian.org>	binutils	2.40-2	amd64
+ii 	libcurl3-gnutls	7.88.1-10+deb12u12	Alessandro Ghedini <ghedo@debian.org>	curl	7.88.1-10+deb12u12	amd64
+ii 	libcurl4	7.88.1-10+deb12u12	Alessandro Ghedini <ghedo@debian.org>	curl	7.88.1-10+deb12u12	amd64
+ii 	libdatrie1	0.2.13-2+b1	Theppitak Karoonboonyanan <thep@debian.org>	libdatrie	0.2.13-2	amd64
+ii 	libdaxctl1	76.1-1	Adam Borowski <kilobyte@angband.pl>	ndctl	76.1-1	amd64
+ii 	libdb5.3	5.3.28+dfsg2-1	Bastian Germann <bage@debian.org>	db5.3	5.3.28+dfsg2-1	amd64
+ii 	libdbi1	0.9.0-6	Laszlo Boszormenyi (GCS) <gcs@debian.org>	libdbi	0.9.0-6	amd64
+ii 	libdbus-1-3	1.14.10-1~deb12u1	Utopia Maintenance Team <pkg-utopia-maintainers@lists.alioth.debian.org>	dbus	1.14.10-1~deb12u1	amd64
+ii 	libdebconfclient0	0.270	Debian Install System Team <debian-boot@lists.debian.org>	cdebconf	0.270	amd64
+ii 	libdevel-cycle-perl	1.12-2	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libdevel-cycle-perl	1.12-2	all
+ii 	libdevmapper-event1.02.1	2:1.02.185-2	Debian LVM Team <team+lvm@tracker.debian.org>	lvm2	2.03.16-2	amd64
+ii 	libdevmapper1.02.1	2:1.02.185-2	Debian LVM Team <team+lvm@tracker.debian.org>	lvm2	2.03.16-2	amd64
+ii 	libdigest-hmac-perl	1.04+dfsg-2	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libdigest-hmac-perl	1.04+dfsg-2	all
+ii 	libdouble-conversion3	3.2.1-1	Debian Science Team <debian-science-maintainers@lists.alioth.debian.org>	double-conversion	3.2.1-1	amd64
+ii 	libdrm-common	2.4.114-1	Debian X Strike Force <debian-x@lists.debian.org>	libdrm	2.4.114-1	all
+ii 	libdrm2	2.4.114-1+b1	Debian X Strike Force <debian-x@lists.debian.org>	libdrm	2.4.114-1	amd64
+ii 	libdw1	0.188-2.1	Debian Elfutils Maintainers <debian-gcc@lists.debian.org>	elfutils	0.188-2.1	amd64
+ii 	libedit2	3.1-20221030-2	LLVM Packaging Team <pkg-llvm-team@lists.alioth.debian.org>	libedit	3.1-20221030-2	amd64
+ii 	libefiboot1	37-6	Debian UEFI Maintainers <debian-efi@lists.debian.org>	efivar	37-6	amd64
+ii 	libefivar1	37-6	Debian UEFI Maintainers <debian-efi@lists.debian.org>	efivar	37-6	amd64
+ii 	libelf1	0.188-2.1	Debian Elfutils Maintainers <debian-gcc@lists.debian.org>	elfutils	0.188-2.1	amd64
+ii 	libencode-locale-perl	1.05-3	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libencode-locale-perl	1.05-3	all
+ii 	libepoxy0	1.5.10-1	Debian X Strike Force <debian-x@lists.debian.org>	libepoxy	1.5.10-1	amd64
+ii 	libevent-2.1-7	2.1.12-stable-8	Nicolas Mora <babelouest@debian.org>	libevent	2.1.12-stable-8	amd64
+ii 	libevent-core-2.1-7	2.1.12-stable-8	Nicolas Mora <babelouest@debian.org>	libevent	2.1.12-stable-8	amd64
+ii 	libexpat1	2.5.0-1+deb12u1	Laszlo Boszormenyi (GCS) <gcs@debian.org>	expat	2.5.0-1+deb12u1	amd64
+ii 	libext2fs2	1.47.0-2	Theodore Y. Ts'o <tytso@mit.edu>	e2fsprogs	1.47.0-2	amd64
+ii 	libfaketime	0.9.10-2.1	Daniel Kahn Gillmor <dkg@fifthhorseman.net>	faketime	0.9.10-2.1	amd64
+ii 	libfdisk1	2.38.1-5+deb12u3	util-linux packagers <util-linux@packages.debian.org>	util-linux	2.38.1-5+deb12u3	amd64
+ii 	libfdt1	1.6.1-4+b1	Héctor Orón Martínez <zumbi@debian.org>	device-tree-compiler	1.6.1-4	amd64
+ii 	libffi8	3.4.4-1	Debian GCC Maintainers <debian-gcc@lists.debian.org>	libffi	3.4.4-1	amd64
+ii 	libfido2-1	1.12.0-2+b1	Debian Authentication Maintainers <pkg-auth-maintainers@lists.alioth.debian.org>	libfido2	1.12.0-2	amd64
+ii 	libfile-chdir-perl	0.1008-1.1	James Bromberger <jeb@debian.org>	libfile-chdir-perl	0.1008-1.1	all
+ii 	libfile-find-rule-perl	0.34-4~deb12u1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libfile-find-rule-perl	0.34-4~deb12u1	all
+ii 	libfile-listing-perl	6.15-1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libfile-listing-perl	6.15-1	all
+ii 	libfile-readbackwards-perl	1.06-2	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libfile-readbackwards-perl	1.06-2	all
+ii 	libfilesys-df-perl	0.92-7+b1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libfilesys-df-perl	0.92-7	amd64
+ii 	libflac12	1.4.2+ds-2	Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>	flac	1.4.2+ds-2	amd64
+ii 	libfmt9	9.1.0+ds1-2	Shengjing Zhu <zhsj@debian.org>	fmtlib	9.1.0+ds1-2	amd64
+ii 	libfontconfig1	2.14.1-4	Debian freedesktop.org maintainers <pkg-freedesktop-maintainers@lists.alioth.debian.org>	fontconfig	2.14.1-4	amd64
+ii 	libfreetype6	2.12.1+dfsg-5+deb12u4	Hugh McMaster <hugh.mcmaster@outlook.com>	freetype	2.12.1+dfsg-5+deb12u4	amd64
+ii 	libfribidi0	1.0.8-2.1	Debian Hebrew Packaging Team <team+hebrew@tracker.debian.org>	fribidi	1.0.8-2.1	amd64
+ii 	libfstrm0	0.6.1-1	Robert Edmonds <edmonds@debian.org>	fstrm	0.6.1-1	amd64
+ii 	libfuse2	2.9.9-6+b1	Laszlo Boszormenyi (GCS) <gcs@debian.org>	fuse	2.9.9-6	amd64
+ii 	libfuse3-3	3.14.0-4	Laszlo Boszormenyi (GCS) <gcs@debian.org>	fuse3	3.14.0-4	amd64
+ii 	libgbm1	22.3.6-1+deb12u1	Debian X Strike Force <debian-x@lists.debian.org>	mesa	22.3.6-1+deb12u1	amd64
+ii 	libgcc-s1	12.2.0-14+deb12u1	Debian GCC Maintainers <debian-gcc@lists.debian.org>	gcc-12	12.2.0-14+deb12u1	amd64
+ii 	libgcrypt20	1.10.1-3	Debian GnuTLS Maintainers <pkg-gnutls-maint@lists.alioth.debian.org>	libgcrypt20	1.10.1-3	amd64
+ii 	libgdbm-compat4	1.23-3	Nicolas Mora <babelouest@debian.org>	gdbm	1.23-3	amd64
+ii 	libgdbm6	1.23-3	Nicolas Mora <babelouest@debian.org>	gdbm	1.23-3	amd64
+ii 	libgfapi0	10.3-5	Patrick Matthäi <pmatthaei@debian.org>	glusterfs	10.3-5	amd64
+ii 	libgfchangelog0	10.3-5	Patrick Matthäi <pmatthaei@debian.org>	glusterfs	10.3-5	amd64
+ii 	libgfrpc0	10.3-5	Patrick Matthäi <pmatthaei@debian.org>	glusterfs	10.3-5	amd64
+ii 	libgfxdr0	10.3-5	Patrick Matthäi <pmatthaei@debian.org>	glusterfs	10.3-5	amd64
+ii 	libglib2.0-0	2.74.6-2+deb12u6	Debian GNOME Maintainers <pkg-gnome-maintainers@lists.alioth.debian.org>	glib2.0	2.74.6-2+deb12u6	amd64
+ii 	libglusterd0	10.3-5	Patrick Matthäi <pmatthaei@debian.org>	glusterfs	10.3-5	amd64
+ii 	libglusterfs0	10.3-5	Patrick Matthäi <pmatthaei@debian.org>	glusterfs	10.3-5	amd64
+ii 	libgmp10	2:6.2.1+dfsg1-1.1	Debian Science Team <debian-science-maintainers@lists.alioth.debian.org>	gmp	2:6.2.1+dfsg1-1.1	amd64
+ii 	libgnutls-dane0	3.7.9-2+deb12u5	Debian GnuTLS Maintainers <pkg-gnutls-maint@lists.alioth.debian.org>	gnutls28	3.7.9-2+deb12u5	amd64
+ii 	libgnutls30	3.7.9-2+deb12u5	Debian GnuTLS Maintainers <pkg-gnutls-maint@lists.alioth.debian.org>	gnutls28	3.7.9-2+deb12u5	amd64
+ii 	libgnutlsxx30	3.7.9-2+deb12u5	Debian GnuTLS Maintainers <pkg-gnutls-maint@lists.alioth.debian.org>	gnutls28	3.7.9-2+deb12u5	amd64
+ii 	libgoogle-perftools4	2.10-1	Laszlo Boszormenyi (GCS) <gcs@debian.org>	google-perftools	2.10-1	amd64
+ii 	libgpg-error0	1.46-1	Debian GnuPG Maintainers <pkg-gnupg-maint@lists.alioth.debian.org>	libgpg-error	1.46-1	amd64
+ii 	libgprofng0	2.40-2	Matthias Klose <doko@debian.org>	binutils	2.40-2	amd64
+ii 	libgraphite2-3	1.3.14-1	Debian LibreOffice Maintainers <debian-openoffice@lists.debian.org>	graphite2	1.3.14-1	amd64
+ii 	libgssapi-krb5-2	1.20.1-2+deb12u3	Sam Hartman <hartmans@debian.org>	krb5	1.20.1-2+deb12u3	amd64
+ii 	libgstreamer-plugins-base1.0-0	1.22.0-3+deb12u4	Maintainers of GStreamer packages <gst-plugins-base1.0@packages.debian.org>	gst-plugins-base1.0	1.22.0-3+deb12u4	amd64
+ii 	libgstreamer1.0-0	1.22.0-2+deb12u1	Maintainers of GStreamer packages <gstreamer1.0@packages.debian.org>	gstreamer1.0	1.22.0-2+deb12u1	amd64
+ii 	libharfbuzz0b	6.0.0+dfsg-3	أحمد المحمودي (Ahmed El-Mahmoudy) <aelmahmoudy@users.sourceforge.net>	harfbuzz	6.0.0+dfsg-3	amd64
+ii 	libhogweed6	3.8.1-2	Magnus Holmgren <holmgren@debian.org>	nettle	3.8.1-2	amd64
+ii 	libhtml-parser-perl	3.81-1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libhtml-parser-perl	3.81-1	amd64
+ii 	libhtml-tagset-perl	3.20-6	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libhtml-tagset-perl	3.20-6	all
+ii 	libhtml-tree-perl	5.07-3	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libhtml-tree-perl	5.07-3	all
+ii 	libhttp-cookies-perl	6.10-1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libhttp-cookies-perl	6.10-1	all
+ii 	libhttp-daemon-perl	6.16-1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libhttp-daemon-perl	6.16-1	all
+ii 	libhttp-date-perl	6.05-2	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libhttp-date-perl	6.05-2	all
+ii 	libhttp-message-perl	6.44-1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libhttp-message-perl	6.44-1	all
+ii 	libhttp-negotiate-perl	6.01-2	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libhttp-negotiate-perl	6.01-2	all
+ii 	libibverbs1	44.0-2	Benjamin Drung <bdrung@ubuntu.com>	rdma-core	44.0-2	amd64
+ii 	libicu72	72.1-3+deb12u1	Laszlo Boszormenyi (GCS) <gcs@debian.org>	icu	72.1-3+deb12u1	amd64
+ii 	libidn2-0	2.3.3-1+b1	Debian Libidn team <help-libidn@gnu.org>	libidn2	2.3.3-1	amd64
+ii 	libinih1	55-1	Yangfl <mmyangfl@gmail.com>	libinih	55-1	amd64
+ii 	libio-html-perl	1.004-3	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libio-html-perl	1.004-3	all
+ii 	libio-multiplex-perl	1.16-3	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libio-multiplex-perl	1.16-3	all
+ii 	libio-socket-ssl-perl	2.081-2	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libio-socket-ssl-perl	2.081-2	all
+ii 	libio-stringy-perl	2.111-3	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	io-stringy	2.111-3	all
+ii 	libip4tc2	1.8.9-2	Debian Netfilter Packaging Team <pkg-netfilter-team@lists.alioth.debian.org>	iptables	1.8.9-2	amd64
+ii 	libip6tc2	1.8.9-2	Debian Netfilter Packaging Team <pkg-netfilter-team@lists.alioth.debian.org>	iptables	1.8.9-2	amd64
+ii 	libipset13	7.17-1	Debian Netfilter Packaging Team <pkg-netfilter-team@lists.alioth.debian.org>	ipset	7.17-1	amd64
+ii 	libiscsi7	1.19.0-3	Michael Tokarev <mjt@tls.msk.ru>	libiscsi	1.19.0-3	amd64
+ii 	libisns0	0.101-0.2+b1	Debian iSCSI Maintainers <open-isns@packages.debian.org>	open-isns	0.101-0.2	amd64
+ii 	libjansson4	2.14-2	Alessandro Ghedini <ghedo@debian.org>	jansson	2.14-2	amd64
+ii 	libjemalloc2	5.3.0-1	Faidon Liambotis <paravoid@debian.org>	jemalloc	5.3.0-1	amd64
+ii 	libjpeg62-turbo	1:2.1.5-2	Ondřej Surý <ondrej@debian.org>	libjpeg-turbo	1:2.1.5-2	amd64
+ii 	libjs-bootstrap	3.4.1+dfsg-3+deb12u1	Debian Javascript Maintainers <pkg-javascript-devel@lists.alioth.debian.org>	twitter-bootstrap3	3.4.1+dfsg-3+deb12u1	all
+ii 	libjs-extjs	7.0.0-5	Proxmox Support Team <support@proxmox.com>	libjs-extjs	7.0.0-5	all
+ii 	libjs-jquery	3.6.1+dfsg+~3.5.14-1	Debian Javascript Maintainers <pkg-javascript-devel@lists.alioth.debian.org>	node-jquery	3.6.1+dfsg+~3.5.14-1	all
+ii 	libjs-qrcodejs	1.20230525-pve1	Proxmox Support Team <support@proxmox.com>	libjs-qrcodejs	1.20230525-pve1	all
+ii 	libjs-sencha-touch	2.4.2-1	Proxmox Support Team <support@proxmox.com>	libjs-sencha-touch	2.4.2-1	all
+ii 	libjson-c5	0.16-2	Nicolas Mora <babelouest@debian.org>	json-c	0.16-2	amd64
+ii 	libjson-glib-1.0-0	1.6.6-1	Debian GNOME Maintainers <pkg-gnome-maintainers@lists.alioth.debian.org>	json-glib	1.6.6-1	amd64
+ii 	libjson-glib-1.0-common	1.6.6-1	Debian GNOME Maintainers <pkg-gnome-maintainers@lists.alioth.debian.org>	json-glib	1.6.6-1	all
+ii 	libjson-perl	4.10000-1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libjson-perl	4.10000-1	all
+ii 	libjson-xs-perl	4.030-2+b1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libjson-xs-perl	4.030-2	amd64
+ii 	libk5crypto3	1.20.1-2+deb12u3	Sam Hartman <hartmans@debian.org>	krb5	1.20.1-2+deb12u3	amd64
+ii 	libkeyutils1	1.6.3-2	Christian Kastner <ckk@debian.org>	keyutils	1.6.3-2	amd64
+ii 	libklibc	2.0.12-1	Debian Kernel Team <debian-kernel@lists.debian.org>	klibc	2.0.12-1	amd64
+ii 	libkmod2	30+20221128-1	Marco d'Itri <md@linux.it>	kmod	30+20221128-1	amd64
+ii 	libknet1	1.30-pve2	Proxmox Support Team <support@proxmox.com>	kronosnet	1.30-pve2	amd64
+ii 	libkrb5-3	1.20.1-2+deb12u3	Sam Hartman <hartmans@debian.org>	krb5	1.20.1-2+deb12u3	amd64
+ii 	libkrb5support0	1.20.1-2+deb12u3	Sam Hartman <hartmans@debian.org>	krb5	1.20.1-2+deb12u3	amd64
+ii 	libksba8	1.6.3-2	Debian GnuTLS Maintainers <pkg-gnutls-maint@lists.alioth.debian.org>	libksba	1.6.3-2	amd64
+ii 	libldap-2.5-0	2.5.13+dfsg-5	Debian OpenLDAP Maintainers <pkg-openldap-devel@lists.alioth.debian.org>	openldap	2.5.13+dfsg-5	amd64
+ii 	libldb2	2:2.6.2+samba4.17.12+dfsg-0+deb12u1	Debian Samba Maintainers <pkg-samba-maint@lists.alioth.debian.org>	samba	2:4.17.12+dfsg-0+deb12u1	amd64
+ii 	liblinear4	2.3.0+dfsg-5	Debian Science Maintainers <debian-science-maintainers@lists.alioth.debian.org>	liblinear	2.3.0+dfsg-5	amd64
+ii 	liblinux-inotify2-perl	1:2.3-2	Joao Eriberto Mota Filho <eriberto@debian.org>	liblinux-inotify2-perl	1:2.3-2	amd64
+ii 	liblmdb0	0.9.24-1	LMDB <lmdb@packages.debian.org>	lmdb	0.9.24-1	amd64
+ii 	liblocale-gettext-perl	1.07-5	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	liblocale-gettext-perl	1.07-5	amd64
+ii 	liblockfile-bin	1.17-1+b1	Miquel van Smoorenburg <miquels@cistron.nl>	liblockfile	1.17-1	amd64
+ii 	liblockfile1	1.17-1+b1	Miquel van Smoorenburg <miquels@cistron.nl>	liblockfile	1.17-1	amd64
+ii 	liblttng-ust-common1	2.13.5-1	Jon Bernard <jbernard@debian.org>	ust	2.13.5-1	amd64
+ii 	liblttng-ust-ctl5	2.13.5-1	Jon Bernard <jbernard@debian.org>	ust	2.13.5-1	amd64
+ii 	liblttng-ust1	2.13.5-1	Jon Bernard <jbernard@debian.org>	ust	2.13.5-1	amd64
+ii 	liblua5.3-0	5.3.6-2	Debian Lua Team <pkg-lua-devel@lists.alioth.debian.org>	lua5.3	5.3.6-2	amd64
+ii 	liblvm2cmd2.03	2.03.16-2	Debian LVM Team <team+lvm@tracker.debian.org>	lvm2	2.03.16-2	amd64
+ii 	liblwp-mediatypes-perl	6.04-2	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	liblwp-mediatypes-perl	6.04-2	all
+ii 	liblwp-protocol-https-perl	6.10-1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	liblwp-protocol-https-perl	6.10-1	all
+ii 	liblz4-1	1.9.4-1	Nobuhiro Iwamatsu <iwamatsu@debian.org>	lz4	1.9.4-1	amd64
+ii 	liblzma5	5.4.1-1	Sebastian Andrzej Siewior <sebastian@breakpoint.cc>	xz-utils	5.4.1-1	amd64
+ii 	liblzo2-2	2.10-2	Stephen Kitt <skitt@debian.org>	lzo2	2.10-2	amd64
+ii 	libmagic-mgc	1:5.44-3	Christoph Biedl <debian.axhn@manchmal.in-ulm.de>	file	1:5.44-3	amd64
+ii 	libmagic1	1:5.44-3	Christoph Biedl <debian.axhn@manchmal.in-ulm.de>	file	1:5.44-3	amd64
+ii 	libmath-random-isaac-perl	1.004-2	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libmath-random-isaac-perl	1.004-2	all
+ii 	libmaxminddb0	1.7.1-1	Faidon Liambotis <paravoid@debian.org>	libmaxminddb	1.7.1-1	amd64
+ii 	libmd0	1.0.4-2	Guillem Jover <guillem@debian.org>	libmd	1.0.4-2	amd64
+ii 	libmime-base32-perl	1.303-3	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libmime-base32-perl	1.303-3	all
+ii 	libmnl0	1.0.4-3	Debian Netfilter Packaging Team <pkg-netfilter-team@lists.alioth.debian.org>	libmnl	1.0.4-3	amd64
+ii 	libmount1	2.38.1-5+deb12u3	util-linux packagers <util-linux@packages.debian.org>	util-linux	2.38.1-5+deb12u3	amd64
+ii 	libmp3lame0	3.100-6	Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>	lame	3.100-6	amd64
+ii 	libmpg123-0	1.31.2-1+deb12u1	Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>	mpg123	1.31.2-1+deb12u1	amd64
+ii 	libnbd0	1.14.2-1	Hilko Bengen <bengen@debian.org>	libnbd	1.14.2-1	amd64
+ii 	libncurses6	6.4-4	Craig Small <csmall@debian.org>	ncurses	6.4-4	amd64
+ii 	libncursesw6	6.4-4	Craig Small <csmall@debian.org>	ncurses	6.4-4	amd64
+ii 	libndctl6	76.1-1	Adam Borowski <kilobyte@angband.pl>	ndctl	76.1-1	amd64
+ii 	libnet-dbus-perl	1.2.0-2	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libnet-dbus-perl	1.2.0-2	amd64
+ii 	libnet-dns-perl	1.36-1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libnet-dns-perl	1.36-1	all
+ii 	libnet-http-perl	6.22-1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libnet-http-perl	6.22-1	all
+ii 	libnet-ip-perl	1.26-3	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libnet-ip-perl	1.26-3	all
+ii 	libnet-ldap-perl	1:0.6800+dfsg-1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libnet-ldap-perl	1:0.6800+dfsg-1	all
+ii 	libnet-ssleay-perl	1.92-2+b1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libnet-ssleay-perl	1.92-2	amd64
+ii 	libnet-subnet-perl	1.03-2	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libnet-subnet-perl	1.03-2	all
+ii 	libnet1	1.1.6+dfsg-3.2	Stefanos Harhalakis <v13@v13.gr>	libnet	1.1.6+dfsg-3.2	amd64
+ii 	libnetaddr-ip-perl	4.079+dfsg-2+b1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libnetaddr-ip-perl	4.079+dfsg-2	amd64
+ii 	libnetfilter-conntrack3	1.0.9-3	Debian Netfilter Packaging Team <pkg-netfilter-team@lists.alioth.debian.org>	libnetfilter-conntrack	1.0.9-3	amd64
+ii 	libnetfilter-log1	1.0.2-3	Debian Netfilter Packaging Team <pkg-netfilter-team@lists.alioth.debian.org>	libnetfilter-log	1.0.2-3	amd64
+ii 	libnettle8	3.8.1-2	Magnus Holmgren <holmgren@debian.org>	nettle	3.8.1-2	amd64
+ii 	libnewt0.52	0.52.23-1+b1	Alastair McKinstry <mckinstry@debian.org>	newt	0.52.23-1	amd64
+ii 	libnfnetlink0	1.0.2-2	Debian Netfilter Packaging Team <pkg-netfilter-team@lists.alioth.debian.org>	libnfnetlink	1.0.2-2	amd64
+ii 	libnfsidmap1	1:2.6.2-4+deb12u1	Debian kernel team <debian-kernel@lists.debian.org>	nfs-utils	1:2.6.2-4+deb12u1	amd64
+ii 	libnftables1	1.0.6-2+deb12u2	Debian Netfilter Packaging Team <pkg-netfilter-team@lists.alioth.debian.org>	nftables	1.0.6-2+deb12u2	amd64
+ii 	libnftnl11	1.2.4-2	Debian Netfilter Packaging Team <pkg-netfilter-team@lists.alioth.debian.org>	libnftnl	1.2.4-2	amd64
+ii 	libnghttp2-14	1.52.0-1+deb12u2	Tomasz Buchert <tomasz@debian.org>	nghttp2	1.52.0-1+deb12u2	amd64
+ii 	libnl-3-200	3.7.0-0.2+b1	Heiko Stuebner <mmind@debian.org>	libnl3	3.7.0-0.2	amd64
+ii 	libnl-route-3-200	3.7.0-0.2+b1	Heiko Stuebner <mmind@debian.org>	libnl3	3.7.0-0.2	amd64
+ii 	libnozzle1	1.30-pve2	Proxmox Support Team <support@proxmox.com>	kronosnet	1.30-pve2	amd64
+ii 	libnpth0	1.6-3	Eric Dorland <eric@debian.org>	npth	1.6-3	amd64
+ii 	libnsl2	1.3.0-2	GNU Libc Maintainers <debian-glibc@lists.debian.org>	libnsl	1.3.0-2	amd64
+ii 	libnspr4	2:4.35-1	Maintainers of Mozilla-related packages <team+pkg-mozilla@tracker.debian.org>	nspr	2:4.35-1	amd64
+ii 	libnss-systemd	252.38-1~deb12u1	Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>	systemd	252.38-1~deb12u1	amd64
+ii 	libnss3	2:3.87.1-1+deb12u1	Maintainers of Mozilla-related packages <team+pkg-mozilla@tracker.debian.org>	nss	2:3.87.1-1+deb12u1	amd64
+ii 	libnuma1	2.0.16-1	Ian Wienand <ianw@debian.org>	numactl	2.0.16-1	amd64
+ii 	libnumber-compare-perl	0.03-3	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libnumber-compare-perl	0.03-3	all
+ii 	libnvpair3linux	2.2.8-pve1	Proxmox Support Team <support@proxmox.com>	zfs-linux	2.2.8-pve1	amd64
+ii 	liboath0	2.6.7-3.1+deb12u1	OATH Toolkit Team <oath-toolkit-help@nongnu.org>	oath-toolkit	2.6.7-3.1+deb12u1	amd64
+ii 	libogg0	1.3.5-3	Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>	libogg	1.3.5-3	amd64
+ii 	libopeniscsiusr	2.1.8-1.pve1	Debian iSCSI Maintainers <open-iscsi@packages.debian.org>	open-iscsi	2.1.8-1.pve1	amd64
+ii 	libopus0	1.3.1-3	Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>	opus	1.3.1-3	amd64
+ii 	liborc-0.4-0	1:0.4.33-2	Maintainers of GStreamer packages <orc@packages.debian.org>	orc	1:0.4.33-2	amd64
+ii 	libp11-kit0	0.24.1-2	Debian GnuTLS Maintainers <pkg-gnutls-maint@lists.alioth.debian.org>	p11-kit	0.24.1-2	amd64
+ii 	libpam-modules	1.5.2-6+deb12u1	Sam Hartman <hartmans@debian.org>	pam	1.5.2-6+deb12u1	amd64
+ii 	libpam-modules-bin	1.5.2-6+deb12u1	Sam Hartman <hartmans@debian.org>	pam	1.5.2-6+deb12u1	amd64
+ii 	libpam-runtime	1.5.2-6+deb12u1	Sam Hartman <hartmans@debian.org>	pam	1.5.2-6+deb12u1	all
+ii 	libpam-systemd	252.38-1~deb12u1	Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>	systemd	252.38-1~deb12u1	amd64
+ii 	libpam0g	1.5.2-6+deb12u1	Sam Hartman <hartmans@debian.org>	pam	1.5.2-6+deb12u1	amd64
+ii 	libpango-1.0-0	1.50.12+ds-1	Debian GNOME Maintainers <pkg-gnome-maintainers@lists.alioth.debian.org>	pango1.0	1.50.12+ds-1	amd64
+ii 	libpangocairo-1.0-0	1.50.12+ds-1	Debian GNOME Maintainers <pkg-gnome-maintainers@lists.alioth.debian.org>	pango1.0	1.50.12+ds-1	amd64
+ii 	libpangoft2-1.0-0	1.50.12+ds-1	Debian GNOME Maintainers <pkg-gnome-maintainers@lists.alioth.debian.org>	pango1.0	1.50.12+ds-1	amd64
+ii 	libpcap0.8	1.10.3-1	Romain Francoise <rfrancoise@debian.org>	libpcap	1.10.3-1	amd64
+ii 	libpci3	1:3.9.0-4	Guillem Jover <guillem@debian.org>	pciutils	1:3.9.0-4	amd64
+ii 	libpcre2-16-0	10.42-1	Matthew Vernon <matthew@debian.org>	pcre2	10.42-1	amd64
+ii 	libpcre2-8-0	10.42-1	Matthew Vernon <matthew@debian.org>	pcre2	10.42-1	amd64
+ii 	libpcre3	2:8.39-15	Matthew Vernon <matthew@debian.org>	pcre3	2:8.39-15	amd64
+ii 	libperl5.36	5.36.0-7+deb12u2	Niko Tyni <ntyni@debian.org>	perl	5.36.0-7+deb12u2	amd64
+ii 	libpipeline1	1.5.7-1	Colin Watson <cjwatson@debian.org>	libpipeline	1.5.7-1	amd64
+ii 	libpixman-1-0	0.42.2-1	Debian X Strike Force <debian-x@lists.debian.org>	pixman	0.42.2-1	amd64
+ii 	libpmem1	1.12.1-2	Adam Borowski <kilobyte@angband.pl>	pmdk	1.12.1-2	amd64
+ii 	libpmemblk1	1.12.1-2	Adam Borowski <kilobyte@angband.pl>	pmdk	1.12.1-2	amd64
+ii 	libpng16-16	1.6.39-2	Maintainers of libpng1.6 packages <libpng1.6@packages.debian.org>	libpng1.6	1.6.39-2	amd64
+ii 	libpopt0	1.19+dfsg-1	Håvard F. Aasen <havard.f.aasen@pfft.no>	popt	1.19+dfsg-1	amd64
+ii 	libposix-strptime-perl	0.13-2+b1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libposix-strptime-perl	0.13-2	amd64
+ii 	libproc2-0	2:4.0.2-3	Craig Small <csmall@debian.org>	procps	2:4.0.2-3	amd64
+ii 	libprotobuf-c1	1.4.1-1+b1	Robert Edmonds <edmonds@debian.org>	protobuf-c	1.4.1-1	amd64
+ii 	libprotobuf32	3.21.12-3	Laszlo Boszormenyi (GCS) <gcs@debian.org>	protobuf	3.21.12-3	amd64
+ii 	libproxmox-acme-perl	1.6.0	Proxmox Support Team <support@proxmox.com>	libproxmox-acme	1.6.0	all
+ii 	libproxmox-acme-plugins	1.6.0	Proxmox Support Team <support@proxmox.com>	libproxmox-acme	1.6.0	all
+ii 	libproxmox-backup-qemu0	1.5.2	Proxmox Support Team <support@proxmox.com>	proxmox-backup-qemu	1.5.2	amd64
+ii 	libproxmox-rs-perl	0.3.5	Proxmox Support Team <support@proxmox.com>	libproxmox-rs-perl	0.3.5	all
+ii 	libpsl5	0.21.2-1	Tim Rühsen <tim.ruehsen@gmx.de>	libpsl	0.21.2-1	amd64
+ii 	libpulse0	16.1+dfsg1-2+b1	Pulseaudio maintenance team <pkg-pulseaudio-devel@lists.alioth.debian.org>	pulseaudio	16.1+dfsg1-2	amd64
+ii 	libpve-access-control	8.2.2	Proxmox Support Team <support@proxmox.com>	libpve-access-control	8.2.2	all
+ii 	libpve-apiclient-perl	3.3.2	Proxmox Support Team <support@proxmox.com>	libpve-apiclient-perl	3.3.2	all
+ii 	libpve-cluster-api-perl	8.1.2	Proxmox Support Team <support@proxmox.com>	pve-cluster	8.1.2	all
+ii 	libpve-cluster-perl	8.1.2	Proxmox Support Team <support@proxmox.com>	pve-cluster	8.1.2	all
+ii 	libpve-common-perl	8.3.2	Proxmox Support Team <support@proxmox.com>	libpve-common-perl	8.3.2	all
+ii 	libpve-guest-common-perl	5.2.2	Proxmox Support Team <support@proxmox.com>	libpve-guest-common-perl	5.2.2	all
+ii 	libpve-http-server-perl	5.2.2	Proxmox Support Team <support@proxmox.com>	libpve-http-server-perl	5.2.2	all
+ii 	libpve-network-api-perl	0.11.2	Proxmox Support Team <support@proxmox.com>	libpve-network-perl	0.11.2	all
+ii 	libpve-network-perl	0.11.2	Proxmox Support Team <support@proxmox.com>	libpve-network-perl	0.11.2	all
+ii 	libpve-notify-perl	8.1.2	Proxmox Support Team <support@proxmox.com>	pve-cluster	8.1.2	all
+ii 	libpve-rs-perl	0.9.4	Proxmox Support Team <support@proxmox.com>	libpve-rs-perl	0.9.4	amd64
+ii 	libpve-storage-perl	8.3.6	Proxmox Support Team <support@proxmox.com>	libpve-storage-perl	8.3.6	all
+ii 	libpve-u2f-server-perl	1.2.0	Proxmox Support Team <support@proxmox.com>	libpve-u2f-server-perl	1.2.0	amd64
+ii 	libpython3-stdlib	3.11.2-1+b1	Matthias Klose <doko@debian.org>	python3-defaults	3.11.2-1	amd64
+ii 	libpython3.11-minimal	3.11.2-6+deb12u6	Matthias Klose <doko@debian.org>	python3.11	3.11.2-6+deb12u6	amd64
+ii 	libpython3.11-stdlib	3.11.2-6+deb12u6	Matthias Klose <doko@debian.org>	python3.11	3.11.2-6+deb12u6	amd64
+ii 	libqb100	2.0.6-2	Debian HA Maintainers <debian-ha-maintainers@alioth-lists.debian.net>	libqb	2.0.6-2	amd64
+ii 	libqrencode4	4.1.1-1	NIIBE Yutaka <gniibe@fsij.org>	qrencode	4.1.1-1	amd64
+ii 	libqt5core5a	5.15.8+dfsg-11+deb12u3	Debian Qt/KDE Maintainers <debian-qt-kde@lists.debian.org>	qtbase-opensource-src	5.15.8+dfsg-11+deb12u3	amd64
+ii 	libqt5dbus5	5.15.8+dfsg-11+deb12u3	Debian Qt/KDE Maintainers <debian-qt-kde@lists.debian.org>	qtbase-opensource-src	5.15.8+dfsg-11+deb12u3	amd64
+ii 	libqt5network5	5.15.8+dfsg-11+deb12u3	Debian Qt/KDE Maintainers <debian-qt-kde@lists.debian.org>	qtbase-opensource-src	5.15.8+dfsg-11+deb12u3	amd64
+ii 	libquorum5	3.1.9-pve1	Proxmox Support Team <support@proxmox.com>	corosync	3.1.9-pve1	amd64
+ii 	librabbitmq4	0.11.0-1+deb12u1	Florian Ernst <florian@debian.org>	librabbitmq	0.11.0-1+deb12u1	amd64
+ii 	librados2	17.2.8-pve2	Ceph Maintainers <ceph-maintainers@lists.ceph.com>	ceph	17.2.8-pve2	amd64
+ii 	librados2-perl	1.4.1	Proxmox Support Team <support@proxmox.com>	librados2-perl	1.4.1	amd64
+ii 	libradosstriper1	17.2.8-pve2	Ceph Maintainers <ceph-maintainers@lists.ceph.com>	ceph	17.2.8-pve2	amd64
+ii 	librbd1	17.2.8-pve2	Ceph Maintainers <ceph-maintainers@lists.ceph.com>	ceph	17.2.8-pve2	amd64
+ii 	librdkafka1	2.0.2-1	Faidon Liambotis <paravoid@debian.org>	librdkafka	2.0.2-1	amd64
+ii 	librdmacm1	44.0-2	Benjamin Drung <bdrung@ubuntu.com>	rdma-core	44.0-2	amd64
+ii 	libreadline8	8.2-1.3	Matthias Klose <doko@debian.org>	readline	8.2-1.3	amd64
+ii 	libregexp-ipv6-perl	0.03-3	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libregexp-ipv6-perl	0.03-3	all
+ii 	librgw2	17.2.8-pve2	Ceph Maintainers <ceph-maintainers@lists.ceph.com>	ceph	17.2.8-pve2	amd64
+ii 	librrd8	1.7.2-4+b8	Debian RRDtool Team <team+rrdtool@tracker.debian.org>	rrdtool	1.7.2-4	amd64
+ii 	librrds-perl	1.7.2-4+b8	Debian RRDtool Team <team+rrdtool@tracker.debian.org>	rrdtool	1.7.2-4	amd64
+ii 	librtmp1	2.4+20151223.gitfa8646d.1-2+b2	Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>	rtmpdump	2.4+20151223.gitfa8646d.1-2	amd64
+ii 	libsasl2-2	2.1.28+dfsg-10	Debian Cyrus Team <team+cyrus@tracker.debian.org>	cyrus-sasl2	2.1.28+dfsg-10	amd64
+ii 	libsasl2-modules-db	2.1.28+dfsg-10	Debian Cyrus Team <team+cyrus@tracker.debian.org>	cyrus-sasl2	2.1.28+dfsg-10	amd64
+ii 	libseccomp2	2.5.4-1+deb12u1	Kees Cook <kees@debian.org>	libseccomp	2.5.4-1+deb12u1	amd64
+ii 	libselinux1	3.4-1+b6	Debian SELinux maintainers <selinux-devel@lists.alioth.debian.org>	libselinux	3.4-1	amd64
+ii 	libsemanage-common	3.4-1	Debian SELinux maintainers <selinux-devel@lists.alioth.debian.org>	libsemanage	3.4-1	all
+ii 	libsemanage2	3.4-1+b5	Debian SELinux maintainers <selinux-devel@lists.alioth.debian.org>	libsemanage	3.4-1	amd64
+ii 	libsepol2	3.4-2.1	Debian SELinux maintainers <selinux-devel@lists.alioth.debian.org>	libsepol	3.4-2.1	amd64
+ii 	libslang2	2.3.3-3	Alastair McKinstry <mckinstry@debian.org>	slang2	2.3.3-3	amd64
+ii 	libslirp0	4.7.0-1	Debian QEMU Team <pkg-qemu-devel@lists.alioth.debian.org>	libslirp	4.7.0-1	amd64
+ii 	libsmartcols1	2.38.1-5+deb12u3	util-linux packagers <util-linux@packages.debian.org>	util-linux	2.38.1-5+deb12u3	amd64
+ii 	libsmbclient	2:4.17.12+dfsg-0+deb12u1	Debian Samba Maintainers <pkg-samba-maint@lists.alioth.debian.org>	samba	2:4.17.12+dfsg-0+deb12u1	amd64
+ii 	libsnappy1v5	1.1.9-3	Laszlo Boszormenyi (GCS) <gcs@debian.org>	snappy	1.1.9-3	amd64
+ii 	libsndfile1	1.2.0-1	Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>	libsndfile	1.2.0-1	amd64
+ii 	libsocket6-perl	0.29-3	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libsocket6-perl	0.29-3	amd64
+ii 	libspice-server1	0.15.1-1	Debian QEMU Team <pkg-qemu-devel@lists.alioth.debian.org>	spice	0.15.1-1	amd64
+ii 	libsqlite3-0	3.40.1-2+deb12u1	Laszlo Boszormenyi (GCS) <gcs@debian.org>	sqlite3	3.40.1-2+deb12u1	amd64
+ii 	libss2	1.47.0-2	Theodore Y. Ts'o <tytso@mit.edu>	e2fsprogs	1.47.0-2	amd64
+ii 	libssh2-1	1.10.0-3+b1	Nicolas Mora <babelouest@debian.org>	libssh2	1.10.0-3	amd64
+ii 	libssl3	3.0.16-1~deb12u1	Debian OpenSSL Team <pkg-openssl-devel@alioth-lists.debian.net>	openssl	3.0.16-1~deb12u1	amd64
+ii 	libstatgrab10	0.92.1-1.1	Bartosz Fenski <fenio@debian.org>	libstatgrab	0.92.1-1.1	amd64
+ii 	libstdc++6	12.2.0-14+deb12u1	Debian GCC Maintainers <debian-gcc@lists.debian.org>	gcc-12	12.2.0-14+deb12u1	amd64
+ii 	libstring-shellquote-perl	1.04-3	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libstring-shellquote-perl	1.04-3	all
+ii 	libsubid4	1:4.13+dfsg1-1+deb12u1	Shadow package maintainers <pkg-shadow-devel@lists.alioth.debian.org>	shadow	1:4.13+dfsg1-1+deb12u1	amd64
+ii 	libsystemd-shared	252.38-1~deb12u1	Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>	systemd	252.38-1~deb12u1	amd64
+ii 	libsystemd0	252.38-1~deb12u1	Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>	systemd	252.38-1~deb12u1	amd64
+ii 	libtalloc2	2.4.0-f2	Debian Samba Maintainers <pkg-samba-maint@lists.alioth.debian.org>	talloc	2.4.0-f2	amd64
+ii 	libtasn1-6	4.19.0-2+deb12u1	Debian GnuTLS Maintainers <pkg-gnutls-maint@lists.alioth.debian.org>	libtasn1-6	4.19.0-2+deb12u1	amd64
+ii 	libtcmalloc-minimal4	2.10-1	Laszlo Boszormenyi (GCS) <gcs@debian.org>	google-perftools	2.10-1	amd64
+ii 	libtdb1	1.4.8-2	Debian Samba Maintainers <pkg-samba-maint@lists.alioth.debian.org>	tdb	1.4.8-2	amd64
+ii 	libtemplate-perl	2.27-1+b5	Benjamin Mako Hill <mako@debian.org>	libtemplate-perl	2.27-1	amd64
+ii 	libterm-readline-gnu-perl	1.45-1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libterm-readline-gnu-perl	1.45-1	amd64
+ii 	libtevent0	0.14.1-1	Debian Samba Maintainers <pkg-samba-maint@lists.alioth.debian.org>	tevent	0.14.1-1	amd64
+ii 	libtext-charwidth-perl	0.04-11	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libtext-charwidth-perl	0.04-11	amd64
+ii 	libtext-glob-perl	0.11-3	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libtext-glob-perl	0.11-3	all
+ii 	libtext-iconv-perl	1.7-8	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libtext-iconv-perl	1.7-8	amd64
+ii 	libtext-wrapi18n-perl	0.06-10	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libtext-wrapi18n-perl	0.06-10	all
+ii 	libthai-data	0.1.29-1	Theppitak Karoonboonyanan <thep@debian.org>	libthai	0.1.29-1	all
+ii 	libthai0	0.1.29-1	Theppitak Karoonboonyanan <thep@debian.org>	libthai	0.1.29-1	amd64
+ii 	libthrift-0.17.0	0.17.0-2+b2	Laszlo Boszormenyi (GCS) <gcs@debian.org>	thrift	0.17.0-2	amd64
+ii 	libtimedate-perl	2.3300-2	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libtimedate-perl	2.3300-2	all
+ii 	libtinfo6	6.4-4	Craig Small <csmall@debian.org>	ncurses	6.4-4	amd64
+ii 	libtirpc-common	1.3.3+ds-1	Josue Ortega <josue@debian.org>	libtirpc	1.3.3+ds-1	all
+ii 	libtirpc3	1.3.3+ds-1	Josue Ortega <josue@debian.org>	libtirpc	1.3.3+ds-1	amd64
+ii 	libtpms0	0.9.7+pve1	Proxmox Support Team <support@proxmox.com>	libtpms	0.9.7+pve1	amd64
+ii 	libtry-tiny-perl	0.31-2	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libtry-tiny-perl	0.31-2	all
+ii 	libtypes-serialiser-perl	1.01-1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libtypes-serialiser-perl	1.01-1	all
+ii 	libu2f-server0	1.1.0-4+b1	Debian Authentication Maintainers <team+auth@tracker.debian.org>	libu2f-server	1.1.0-4	amd64
+ii 	libuchardet0	0.0.7-1	James Cowgill <jcowgill@debian.org>	uchardet	0.0.7-1	amd64
+ii 	libudev1	252.38-1~deb12u1	Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>	systemd	252.38-1~deb12u1	amd64
+ii 	libunbound8	1.17.1-2+deb12u2	unbound packagers <unbound@packages.debian.org>	unbound	1.17.1-2+deb12u2	amd64
+ii 	libunistring2	1.0-2	Jörg Frings-Fürst <debian@jff.email>	libunistring	1.0-2	amd64
+ii 	libunwind8	1.6.2-3	Adrian Bunk <bunk@debian.org>	libunwind	1.6.2-3	amd64
+ii 	liburcu8	0.13.2-1	Jon Bernard <jbernard@debian.org>	liburcu	0.13.2-1	amd64
+ii 	liburi-perl	5.17-1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	liburi-perl	5.17-1	all
+ii 	liburing2	2.3-3	Guillem Jover <guillem@debian.org>	liburing	2.3-3	amd64
+ii 	libusb-1.0-0	2:1.0.26-1	Aurelien Jarno <aurel32@debian.org>	libusb-1.0	2:1.0.26-1	amd64
+ii 	libusbredirparser1	0.13.0-2	Lance Lin <lq27267@gmail.com>	usbredir	0.13.0-2	amd64
+ii 	libuuid-perl	0.28-2+b1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libuuid-perl	0.28-2	amd64
+ii 	libuuid1	2.38.1-5+deb12u3	util-linux packagers <util-linux@packages.debian.org>	util-linux	2.38.1-5+deb12u3	amd64
+ii 	libuutil3linux	2.2.8-pve1	Proxmox Support Team <support@proxmox.com>	zfs-linux	2.2.8-pve1	amd64
+ii 	libuv1	1.44.2-1+deb12u1	Dominique Dumont <dod@debian.org>	libuv1	1.44.2-1+deb12u1	amd64
+ii 	libva-drm2	2.17.0-1	Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>	libva	2.17.0-1	amd64
+ii 	libva2	2.17.0-1	Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>	libva	2.17.0-1	amd64
+ii 	libvirglrenderer1	0.10.4-1	Gert Wollny <gewo@debian.org>	virglrenderer	0.10.4-1	amd64
+ii 	libvorbis0a	1.3.7-1	Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>	libvorbis	1.3.7-1	amd64
+ii 	libvorbisenc2	1.3.7-1	Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>	libvorbis	1.3.7-1	amd64
+ii 	libvotequorum8	3.1.9-pve1	Proxmox Support Team <support@proxmox.com>	corosync	3.1.9-pve1	amd64
+ii 	libvulkan1	1.3.239.0-1	Debian X Strike Force <debian-x@lists.debian.org>	vulkan-loader	1.3.239.0-1	amd64
+ii 	libwayland-server0	1.21.0-1	Debian X Strike Force <debian-x@lists.debian.org>	wayland	1.21.0-1	amd64
+ii 	libwbclient0	2:4.17.12+dfsg-0+deb12u1	Debian Samba Maintainers <pkg-samba-maint@lists.alioth.debian.org>	samba	2:4.17.12+dfsg-0+deb12u1	amd64
+ii 	libwrap0	7.6.q-32	Marco d'Itri <md@linux.it>	tcp-wrappers	7.6.q-32	amd64
+ii 	libwww-perl	6.68-1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libwww-perl	6.68-1	all
+ii 	libwww-robotrules-perl	6.02-1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libwww-robotrules-perl	6.02-1	all
+ii 	libx11-6	2:1.8.4-2+deb12u2	Debian X Strike Force <debian-x@lists.debian.org>	libx11	2:1.8.4-2+deb12u2	amd64
+ii 	libx11-data	2:1.8.4-2+deb12u2	Debian X Strike Force <debian-x@lists.debian.org>	libx11	2:1.8.4-2+deb12u2	all
+ii 	libx11-xcb1	2:1.8.4-2+deb12u2	Debian X Strike Force <debian-x@lists.debian.org>	libx11	2:1.8.4-2+deb12u2	amd64
+ii 	libxau6	1:1.0.9-1	Debian X Strike Force <debian-x@lists.debian.org>	libxau	1:1.0.9-1	amd64
+ii 	libxcb-render0	1.15-1	Debian X Strike Force <debian-x@lists.debian.org>	libxcb	1.15-1	amd64
+ii 	libxcb-shm0	1.15-1	Debian X Strike Force <debian-x@lists.debian.org>	libxcb	1.15-1	amd64
+ii 	libxcb1	1.15-1	Debian X Strike Force <debian-x@lists.debian.org>	libxcb	1.15-1	amd64
+ii 	libxdmcp6	1:1.1.2-3	Debian X Strike Force <debian-x@lists.debian.org>	libxdmcp	1:1.1.2-3	amd64
+ii 	libxext6	2:1.3.4-1+b1	Debian X Strike Force <debian-x@lists.debian.org>	libxext	2:1.3.4-1	amd64
+ii 	libxml-libxml-perl	2.0207+dfsg+really+2.0134-1+b1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libxml-libxml-perl	2.0207+dfsg+really+2.0134-1	amd64
+ii 	libxml-namespacesupport-perl	1.12-2	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libxml-namespacesupport-perl	1.12-2	all
+ii 	libxml-parser-perl	2.46-4	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libxml-parser-perl	2.46-4	amd64
+ii 	libxml-sax-base-perl	1.09-3	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libxml-sax-base-perl	1.09-3	all
+ii 	libxml-sax-perl	1.02+dfsg-3	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libxml-sax-perl	1.02+dfsg-3	all
+ii 	libxml-twig-perl	1:3.52-2	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libxml-twig-perl	1:3.52-2	all
+ii 	libxml2	2.9.14+dfsg-1.3~deb12u2	Debian XML/SGML Group <debian-xml-sgml-pkgs@lists.alioth.debian.org>	libxml2	2.9.14+dfsg-1.3~deb12u2	amd64
+ii 	libxrender1	1:0.9.10-1.1	Debian X Strike Force <debian-x@lists.debian.org>	libxrender	1:0.9.10-1.1	amd64
+ii 	libxslt1.1	1.1.35-1+deb12u1	Debian XML/SGML Group <debian-xml-sgml-pkgs@lists.alioth.debian.org>	libxslt	1.1.35-1+deb12u1	amd64
+ii 	libxtables12	1.8.9-2	Debian Netfilter Packaging Team <pkg-netfilter-team@lists.alioth.debian.org>	iptables	1.8.9-2	amd64
+ii 	libxxhash0	0.8.1-1	Josue Ortega <josue@debian.org>	xxhash	0.8.1-1	amd64
+ii 	libyaml-0-2	0.2.5-1	Florian Ernst <florian@debian.org>	libyaml	0.2.5-1	amd64
+ii 	libyaml-libyaml-perl	0.86+ds-1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	libyaml-libyaml-perl	0.86+ds-1	amd64
+ii 	libyang3	3.7.8-3~bpo12+1	Daniel Baumann <daniel@debian.org>	libyang	3.7.8-3~bpo12+1	amd64
+ii 	libzfs4linux	2.2.8-pve1	Proxmox Support Team <support@proxmox.com>	zfs-linux	2.2.8-pve1	amd64
+ii 	libzpool5linux	2.2.8-pve1	Proxmox Support Team <support@proxmox.com>	zfs-linux	2.2.8-pve1	amd64
+ii 	libzstd1	1.5.4+dfsg2-5	RPM packaging team <team+pkg-rpm@tracker.debian.org>	libzstd	1.5.4+dfsg2-5	amd64
+ii 	linux-base	4.9	Debian Kernel Team <debian-kernel@lists.debian.org>	linux-base	4.9	all
+ii 	locales	2.36-9+deb12u10	GNU Libc Maintainers <debian-glibc@lists.debian.org>	glibc	2.36-9+deb12u10	all
+ii 	login	1:4.13+dfsg1-1+deb12u1	Shadow package maintainers <pkg-shadow-devel@lists.alioth.debian.org>	shadow	1:4.13+dfsg1-1+deb12u1	amd64
+ii 	logrotate	3.21.0-1	Christian Göttsche <cgzones@googlemail.com>	logrotate	3.21.0-1	amd64
+ii 	logsave	1.47.0-2	Theodore Y. Ts'o <tytso@mit.edu>	e2fsprogs	1.47.0-2	amd64
+ii 	lshw	02.19.git.2021.06.19.996aaad9c7-2+b1	Ghe Rivero <ghe@debian.org>	lshw	02.19.git.2021.06.19.996aaad9c7-2	amd64
+ii 	lsof	4.95.0-1	Andres Salomon <dilinger@debian.org>	lsof	4.95.0-1	amd64
+ii 	lua-lpeg	1.0.2-2	Enrico Tassi <gareuselesinge@debian.org>	lua-lpeg	1.0.2-2	amd64
+ii 	lvm2	2.03.16-2	Debian LVM Team <team+lvm@tracker.debian.org>	lvm2	2.03.16-2	amd64
+ii 	lxc-pve	6.0.0-1	Proxmox Support Team <support@proxmox.com>	lxc-pve	6.0.0-1	amd64
+ii 	lxcfs	6.0.0-pve2	Proxmox Support Team <support@proxmox.com>	lxcfs	6.0.0-pve2	amd64
+ii 	lzop	1.04-2	Stephen Kitt <skitt@debian.org>	lzop	1.04-2	amd64
+ii 	mailcap	3.70+nmu1	Mime-Support Packagers <team+debian-mimesupport-packagers@tracker.debian.org>	mailcap	3.70+nmu1	all
+ii 	man-db	2.11.2-2	Colin Watson <cjwatson@debian.org>	man-db	2.11.2-2	amd64
+ii 	manpages	6.03-2	Dr. Tobias Quathamer <toddy@debian.org>	manpages	6.03-2	all
+ii 	mawk	1.3.4.20200120-3.1	Boyuan Yang <byang@debian.org>	mawk	1.3.4.20200120-3.1	amd64
+ii 	media-types	10.0.0	Mime-Support Packagers <team+debian-mimesupport-packagers@tracker.debian.org>	media-types	10.0.0	all
+ii 	memtest86+	6.10-4	Fabio Fantoni <fantonifabio@tiscali.it>	memtest86+	6.10-4	amd64
+ii 	mime-support	3.66	Mime-Support Packagers <team+debian-mimesupport-packagers@tracker.debian.org>	mime-support	3.66	all
+ii 	mokutil	0.6.0-2	Debian UEFI Maintainers <debian-efi@lists.debian.org>	mokutil	0.6.0-2	amd64
+ii 	mount	2.38.1-5+deb12u3	util-linux packagers <util-linux@packages.debian.org>	util-linux	2.38.1-5+deb12u3	amd64
+ii 	nano	7.2-1+deb12u1	Jordi Mallach <jordi@debian.org>	nano	7.2-1+deb12u1	amd64
+ii 	ncurses-base	6.4-4	Craig Small <csmall@debian.org>	ncurses	6.4-4	all
+ii 	ncurses-bin	6.4-4	Craig Small <csmall@debian.org>	ncurses	6.4-4	amd64
+ii 	ncurses-term	6.4-4	Craig Small <csmall@debian.org>	ncurses	6.4-4	all
+ii 	netbase	6.4	Marco d'Itri <md@linux.it>	netbase	6.4	all
+ii 	netcat-traditional	1.10-47	Anibal Monsalve Salazar <anibal@debian.org>	netcat	1.10-47	amd64
+ii 	nfs-common	1:2.6.2-4+deb12u1	Debian kernel team <debian-kernel@lists.debian.org>	nfs-utils	1:2.6.2-4+deb12u1	amd64
+ii 	nftables	1.0.6-2+deb12u2	Debian Netfilter Packaging Team <pkg-netfilter-team@lists.alioth.debian.org>	nftables	1.0.6-2+deb12u2	amd64
+ii 	nmap	7.93+dfsg1-1	Debian Security Tools <team+pkg-security@tracker.debian.org>	nmap	7.93+dfsg1-1	amd64
+ii 	nmap-common	7.93+dfsg1-1	Debian Security Tools <team+pkg-security@tracker.debian.org>	nmap	7.93+dfsg1-1	all
+ii 	novnc-pve	1.6.0-2	Proxmox Support Team <support@proxmox.com>	novnc-pve	1.6.0-2	all
+ii 	open-iscsi	2.1.8-1.pve1	Debian iSCSI Maintainers <open-iscsi@packages.debian.org>	open-iscsi	2.1.8-1.pve1	amd64
+ii 	openssh-client	1:9.2p1-2+deb12u6	Debian OpenSSH Maintainers <debian-ssh@lists.debian.org>	openssh	1:9.2p1-2+deb12u6	amd64
+ii 	openssh-server	1:9.2p1-2+deb12u6	Debian OpenSSH Maintainers <debian-ssh@lists.debian.org>	openssh	1:9.2p1-2+deb12u6	amd64
+ii 	openssh-sftp-server	1:9.2p1-2+deb12u6	Debian OpenSSH Maintainers <debian-ssh@lists.debian.org>	openssh	1:9.2p1-2+deb12u6	amd64
+ii 	openssl	3.0.16-1~deb12u1	Debian OpenSSL Team <pkg-openssl-devel@alioth-lists.debian.net>	openssl	3.0.16-1~deb12u1	amd64
+ii 	passwd	1:4.13+dfsg1-1+deb12u1	Shadow package maintainers <pkg-shadow-devel@lists.alioth.debian.org>	shadow	1:4.13+dfsg1-1+deb12u1	amd64
+ii 	pci.ids	0.0~2023.04.11-1	Guillem Jover <guillem@debian.org>	pci.ids	0.0~2023.04.11-1	all
+ii 	pciutils	1:3.9.0-4	Guillem Jover <guillem@debian.org>	pciutils	1:3.9.0-4	amd64
+ii 	perl	5.36.0-7+deb12u2	Niko Tyni <ntyni@debian.org>	perl	5.36.0-7+deb12u2	amd64
+ii 	perl-base	5.36.0-7+deb12u2	Niko Tyni <ntyni@debian.org>	perl	5.36.0-7+deb12u2	amd64
+ii 	perl-modules-5.36	5.36.0-7+deb12u2	Niko Tyni <ntyni@debian.org>	perl	5.36.0-7+deb12u2	all
+ii 	perl-openssl-defaults	7+b1	Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>	perl-openssl-defaults	7	amd64
+ii 	pinentry-curses	1.2.1-1	Debian GnuPG Maintainers <pkg-gnupg-maint@lists.alioth.debian.org>	pinentry	1.2.1-1	amd64
+ii 	postfix	3.7.11-0+deb12u1	LaMont Jones <lamont@debian.org>	postfix	3.7.11-0+deb12u1	amd64
+ii 	procmail	3.22-27	Santiago Vila <sanvila@debian.org>	procmail	3.22-27	amd64
+ii 	procps	2:4.0.2-3	Craig Small <csmall@debian.org>	procps	2:4.0.2-3	amd64
+ii 	proxmox-archive-keyring	3.3	Proxmox Support Team <support@proxmox.com>	proxmox-archive-keyring	3.3	all
+ii 	proxmox-backup-client	3.4.3-1	Proxmox Support Team <support@proxmox.com>	rust-proxmox-backup	3.4.3-1	amd64
+ii 	proxmox-backup-file-restore	3.4.3-1	Proxmox Support Team <support@proxmox.com>	rust-proxmox-backup	3.4.3-1	amd64
+ii 	proxmox-backup-restore-image	0.7.0	Proxmox Support Team <support@proxmox.com>	proxmox-backup-restore-image	0.7.0	amd64
+ii 	proxmox-default-kernel	1.1.0	Proxmox Support Team <support@proxmox.com>	proxmox-kernel-meta	1.1.0	all
+ii 	proxmox-firewall	0.7.1	Proxmox Support Team <support@proxmox.com>	proxmox-firewall	0.7.1	amd64
+ii 	proxmox-grub	2.06-13+pmx7	Proxmox Support Team <support@proxmox.com>	grub2	2.06-13+pmx7	amd64
+ii 	proxmox-kernel-6.8	6.8.12-12	Proxmox Support Team <support@proxmox.com>	proxmox-kernel-6.8	6.8.12-12	all
+ii 	proxmox-kernel-6.8.12-12-pve-signed	6.8.12-12	Proxmox Support Team <support@proxmox.com>	proxmox-kernel-signed-6.8	6.8.12+12	amd64
+ii 	proxmox-kernel-6.8.12-9-pve-signed	6.8.12-9	Proxmox Support Team <support@proxmox.com>	proxmox-kernel-signed-6.8	6.8.12+9	amd64
+ii 	proxmox-kernel-helper	8.1.1	Proxmox Support Team <support@proxmox.com>	proxmox-kernel-helper	8.1.1	all
+ii 	proxmox-mail-forward	0.3.3	Proxmox Support Team <support@proxmox.com>	rust-proxmox-mail-forward	0.3.3	amd64
+ii 	proxmox-mini-journalreader	1.5	Proxmox Support Team <support@proxmox.com>	proxmox-mini-journalreader	1.5	amd64
+ii 	proxmox-offline-mirror-docs	0.6.7	Proxmox Support Team <support@proxmox.com>	rust-proxmox-offline-mirror	0.6.7	all
+ii 	proxmox-offline-mirror-helper	0.6.7	Proxmox Support Team <support@proxmox.com>	rust-proxmox-offline-mirror	0.6.7	amd64
+ii 	proxmox-termproxy	1.1.0	Proxmox Support Team <support@proxmox.com>	proxmox-termproxy	1.1.0	amd64
+ii 	proxmox-ve	8.4.0	Proxmox Support Team <support@proxmox.com>	proxmox-ve	8.4.0	all
+ii 	proxmox-websocket-tunnel	0.2.0-1	Proxmox Support Team <support@proxmox.com>	rust-proxmox-websocket-tunnel	0.2.0-1	amd64
+ii 	proxmox-widget-toolkit	4.3.12	Proxmox Support Team <support@proxmox.com>	proxmox-widget-toolkit	4.3.12	all
+ii 	psmisc	23.6-1	Craig Small <csmall@debian.org>	psmisc	23.6-1	amd64
+ii 	pve-cluster	8.1.2	Proxmox Support Team <support@proxmox.com>	pve-cluster	8.1.2	amd64
+ii 	pve-container	5.2.7	Proxmox Support Team <support@proxmox.com>	pve-container	5.2.7	all
+ii 	pve-docs	8.4.0	Proxmox Support Team <support@proxmox.com>	pve-docs	8.4.0	all
+ii 	pve-edk2-firmware	4.2025.02-4~bpo12+1	Proxmox Support Team <support@proxmox.com>	pve-edk2-firmware	4.2025.02-4~bpo12+1	all
+ii 	pve-edk2-firmware-legacy	4.2025.02-4~bpo12+1	Proxmox Support Team <support@proxmox.com>	pve-edk2-firmware	4.2025.02-4~bpo12+1	all
+ii 	pve-edk2-firmware-ovmf	4.2025.02-4~bpo12+1	Proxmox Support Team <support@proxmox.com>	pve-edk2-firmware	4.2025.02-4~bpo12+1	all
+ii 	pve-esxi-import-tools	0.7.4	Proxmox Support Team <support@proxmox.com>	pve-esxi-import-tools	0.7.4	amd64
+ii 	pve-firewall	5.1.2	Proxmox Support Team <support@proxmox.com>	pve-firewall	5.1.2	amd64
+ii 	pve-firmware	3.16-3	Proxmox Support Team <support@proxmox.com>	pve-firmware	3.16-3	all
+ii 	pve-ha-manager	4.0.7	Proxmox Support Team <support@proxmox.com>	pve-ha-manager	4.0.7	amd64
+ii 	pve-i18n	3.4.5	Proxmox Support Team <support@proxmox.com>	proxmox-i18n	3.4.5	all
+ii 	pve-lxc-syscalld	1.3.0	Proxmox Support Team <support@proxmox.com>	pve-lxc-syscalld	1.3.0	amd64
+ii 	pve-manager	8.4.5	Proxmox Support Team <support@proxmox.com>	pve-manager	8.4.5	all
+ii 	pve-qemu-kvm	9.2.0-7	Proxmox Support Team <support@proxmox.com>	pve-qemu-kvm	9.2.0-7	amd64
+ii 	pve-xtermjs	5.5.0-2	Proxmox Support Team <support@proxmox.com>	pve-xtermjs	5.5.0-2	all
+ii 	python-apt-common	2.6.0	APT Development Team <deity@lists.debian.org>	python-apt	2.6.0	all
+ii 	python3	3.11.2-1+b1	Matthias Klose <doko@debian.org>	python3-defaults	3.11.2-1	amd64
+ii 	python3-apt	2.6.0	APT Development Team <deity@lists.debian.org>	python-apt	2.6.0	amd64
+ii 	python3-ceph-argparse	17.2.8-pve2	Ceph Maintainers <ceph-maintainers@lists.ceph.com>	ceph	17.2.8-pve2	all
+ii 	python3-ceph-common	17.2.8-pve2	Ceph Maintainers <ceph-maintainers@lists.ceph.com>	ceph	17.2.8-pve2	all
+ii 	python3-cephfs	17.2.8-pve2	Ceph Maintainers <ceph-maintainers@lists.ceph.com>	ceph	17.2.8-pve2	amd64
+ii 	python3-certifi	2022.9.24-1	Sebastien Delafond <seb@debian.org>	python-certifi	2022.9.24-1	all
+ii 	python3-chardet	5.1.0+dfsg-2	Piotr Ożarowski <piotr@debian.org>	chardet	5.1.0+dfsg-2	all
+ii 	python3-charset-normalizer	3.0.1-2	Debian Python Team <team+python@tracker.debian.org>	python-charset-normalizer	3.0.1-2	all
+ii 	python3-debconf	1.5.82	Debconf Developers <debconf-devel@lists.alioth.debian.org>	debconf	1.5.82	all
+ii 	python3-debian	0.1.49	Debian python-debian Maintainers <pkg-python-debian-maint@lists.alioth.debian.org>	python-debian	0.1.49	all
+ii 	python3-debianbts	4.0.1	Bastian Venthur <venthur@debian.org>	python-debianbts	4.0.1	all
+ii 	python3-distutils	3.11.2-3	Matthias Klose <doko@debian.org>	python3-stdlib-extensions	3.11.2-3	all
+ii 	python3-httplib2	0.20.4-3	Debian Python Team <team+python@tracker.debian.org>	python-httplib2	0.20.4-3	all
+ii 	python3-idna	3.3-1+deb12u1	Debian Python Team <team+python@tracker.debian.org>	python-idna	3.3-1+deb12u1	all
+ii 	python3-jwt	2.6.0-1	Debian Python Team <team+python@tracker.debian.org>	pyjwt	2.6.0-1	all
+ii 	python3-lib2to3	3.11.2-3	Matthias Klose <doko@debian.org>	python3-stdlib-extensions	3.11.2-3	all
+ii 	python3-minimal	3.11.2-1+b1	Matthias Klose <doko@debian.org>	python3-defaults	3.11.2-1	amd64
+ii 	python3-pkg-resources	66.1.1-1+deb12u1	Matthias Klose <doko@debian.org>	setuptools	66.1.1-1+deb12u1	all
+ii 	python3-prettytable	3.6.0-1	Sandro Tosi <morph@debian.org>	prettytable	3.6.0-1	all
+ii 	python3-protobuf	3.21.12-3	Laszlo Boszormenyi (GCS) <gcs@debian.org>	protobuf	3.21.12-3	amd64
+ii 	python3-pycurl	7.45.2-3	Debian Python Team <team+python@tracker.debian.org>	pycurl	7.45.2-3	amd64
+ii 	python3-pyparsing	3.0.9-1	Debian Python Team <team+python@tracker.debian.org>	pyparsing	3.0.9-1	all
+ii 	python3-pysimplesoap	1.16.2-5	Sandro Tosi <morph@debian.org>	pysimplesoap	1.16.2-5	all
+ii 	python3-pyvmomi	6.7.1-4.1	Debian Python Team <team+python@tracker.debian.org>	python-pyvmomi	6.7.1-4.1	all
+ii 	python3-rados	17.2.8-pve2	Ceph Maintainers <ceph-maintainers@lists.ceph.com>	ceph	17.2.8-pve2	amd64
+ii 	python3-rbd	17.2.8-pve2	Ceph Maintainers <ceph-maintainers@lists.ceph.com>	ceph	17.2.8-pve2	amd64
+ii 	python3-reportbug	12.0.0	Reportbug Maintainers <debian-reportbug@lists.debian.org>	reportbug	12.0.0	all
+ii 	python3-requests	2.28.1+dfsg-1	Debian Python Team <team+python@tracker.debian.org>	requests	2.28.1+dfsg-1	all
+ii 	python3-rgw	17.2.8-pve2	Ceph Maintainers <ceph-maintainers@lists.ceph.com>	ceph	17.2.8-pve2	amd64
+ii 	python3-setuptools	66.1.1-1+deb12u1	Matthias Klose <doko@debian.org>	setuptools	66.1.1-1+deb12u1	all
+ii 	python3-six	1.16.0-4	Debian Python Team <team+python@tracker.debian.org>	six	1.16.0-4	all
+ii 	python3-systemd	235-1+b2	Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>	python-systemd	235-1	amd64
+ii 	python3-urllib3	1.26.12-1+deb12u1	Debian Python Team <team+python@tracker.debian.org>	python-urllib3	1.26.12-1+deb12u1	all
+ii 	python3-wcwidth	0.2.5+dfsg1-1.1	Debian Python Team <team+python@tracker.debian.org>	wcwidth	0.2.5+dfsg1-1.1	all
+ii 	python3-yaml	6.0-3+b2	Debian Python Team <team+python@tracker.debian.org>	pyyaml	6.0-3	amd64
+ii 	python3.11	3.11.2-6+deb12u6	Matthias Klose <doko@debian.org>	python3.11	3.11.2-6+deb12u6	amd64
+ii 	python3.11-minimal	3.11.2-6+deb12u6	Matthias Klose <doko@debian.org>	python3.11	3.11.2-6+deb12u6	amd64
+ii 	qemu-server	8.4.1	Proxmox Support Team <support@proxmox.com>	qemu-server	8.4.1	amd64
+ii 	qrencode	4.1.1-1	NIIBE Yutaka <gniibe@fsij.org>	qrencode	4.1.1-1	amd64
+ii 	readline-common	8.2-1.3	Matthias Klose <doko@debian.org>	readline	8.2-1.3	all
+ii 	reportbug	12.0.0	Reportbug Maintainers <debian-reportbug@lists.debian.org>	reportbug	12.0.0	all
+ii 	rpcbind	1.2.6-6+b1	Josue Ortega <josue@debian.org>	rpcbind	1.2.6-6	amd64
+ii 	rrdcached	1.7.2-4+b8	Debian RRDtool Team <team+rrdtool@tracker.debian.org>	rrdtool	1.7.2-4	amd64
+ii 	rsync	3.2.7-1+deb12u2	Paul Slootman <paul@debian.org>	rsync	3.2.7-1+deb12u2	amd64
+ii 	runit-helper	2.15.2	Lorenzo Puliti <plorenzo@disroot.org>	dh-runit	2.15.2	all
+ii 	samba-common	2:4.17.12+dfsg-0+deb12u1	Debian Samba Maintainers <pkg-samba-maint@lists.alioth.debian.org>	samba	2:4.17.12+dfsg-0+deb12u1	all
+ii 	samba-libs	2:4.17.12+dfsg-0+deb12u1	Debian Samba Maintainers <pkg-samba-maint@lists.alioth.debian.org>	samba	2:4.17.12+dfsg-0+deb12u1	amd64
+ii 	sed	4.9-1	Clint Adams <clint@debian.org>	sed	4.9-1	amd64
+ii 	sensible-utils	0.0.17+nmu1	Anibal Monsalve Salazar <anibal@debian.org>	sensible-utils	0.0.17+nmu1	all
+ii 	sgml-base	1.31	Debian QA Group <packages@qa.debian.org>	sgml-base	1.31	all
+ii 	shared-mime-info	2.2-1	Debian freedesktop.org maintainers <pkg-freedesktop-maintainers@lists.alioth.debian.org>	shared-mime-info	2.2-1	amd64
+ii 	shim-helpers-amd64-signed	1+15.8+1+pmx1	Proxmox Support Team <support@proxmox.com>	shim-helpers-amd64-signed	1+15.8+1+pmx1	amd64
+ii 	shim-signed	1.44+pmx1+15.8-1+pmx1	Proxmox Support Team <support@proxmox.com>	shim-signed	1.44+pmx1	amd64
+ii 	shim-signed-common	1.44+pmx1+15.8-1+pmx1	Proxmox Support Team <support@proxmox.com>	shim-signed	1.44+pmx1	all
+ii 	shim-unsigned	15.8-1+pmx1	Proxmox Support Team <support@proxmox.com>	shim	15.8-1+pmx1	amd64
+ii 	smartmontools	7.3-pve1	Proxmox Support Team <support@proxmox.com>	smartmontools	7.3-pve1	amd64
+ii 	smbclient	2:4.17.12+dfsg-0+deb12u1	Debian Samba Maintainers <pkg-samba-maint@lists.alioth.debian.org>	samba	2:4.17.12+dfsg-0+deb12u1	amd64
+ii 	socat	1.7.4.4-2	Laszlo Boszormenyi (GCS) <gcs@debian.org>	socat	1.7.4.4-2	amd64
+ii 	spiceterm	3.3.0	Proxmox Support Team <support@proxmox.com>	spiceterm	3.3.0	amd64
+ii 	spl	2.2.8-pve1	Proxmox Support Team <support@proxmox.com>	zfs-linux	2.2.8-pve1	all
+ii 	sqlite3	3.40.1-2+deb12u1	Laszlo Boszormenyi (GCS) <gcs@debian.org>	sqlite3	3.40.1-2+deb12u1	amd64
+ii 	ssh	1:9.2p1-2+deb12u6	Debian OpenSSH Maintainers <debian-ssh@lists.debian.org>	openssh	1:9.2p1-2+deb12u6	all
+ii 	ssl-cert	1.1.2	Debian Apache Maintainers <debian-apache@lists.debian.org>	ssl-cert	1.1.2	all
+ii 	strace	6.1-0.1	Steve McIntyre <93sam@debian.org>	strace	6.1-0.1	amd64
+ii 	swtpm	0.8.0+pve1	Proxmox Support Team <support@proxmox.com>	swtpm	0.8.0+pve1	amd64
+ii 	swtpm-libs	0.8.0+pve1	Proxmox Support Team <support@proxmox.com>	swtpm	0.8.0+pve1	amd64
+ii 	swtpm-tools	0.8.0+pve1	Proxmox Support Team <support@proxmox.com>	swtpm	0.8.0+pve1	amd64
+ii 	systemd	252.38-1~deb12u1	Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>	systemd	252.38-1~deb12u1	amd64
+ii 	systemd-boot	252.38-1~deb12u1	Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>	systemd	252.38-1~deb12u1	amd64
+ii 	systemd-boot-efi	252.38-1~deb12u1	Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>	systemd	252.38-1~deb12u1	amd64
+ii 	systemd-sysv	252.38-1~deb12u1	Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>	systemd	252.38-1~deb12u1	amd64
+ii 	sysvinit-utils	3.06-4	Debian sysvinit maintainers <debian-init-diversity@chiark.greenend.org.uk>	sysvinit	3.06-4	amd64
+ii 	tar	1.34+dfsg-1.2+deb12u1	Janos Lenart <ocsi@debian.org>	tar	1.34+dfsg-1.2+deb12u1	amd64
+ii 	tasksel	3.73	Debian Install System Team <debian-boot@lists.debian.org>	tasksel	3.73	all
+ii 	tasksel-data	3.73	Debian Install System Team <debian-boot@lists.debian.org>	tasksel	3.73	all
+ii 	tcpdump	4.99.3-1	Romain Francoise <rfrancoise@debian.org>	tcpdump	4.99.3-1	amd64
+ii 	thin-provisioning-tools	0.9.0-2	Debian LVM Team <team+lvm@tracker.debian.org>	thin-provisioning-tools	0.9.0-2	amd64
+ii 	time	1.9-0.2	Bob Proulx <bob@proulx.com>	time	1.9-0.2	amd64
+ii 	traceroute	1:2.1.2-1	Laszlo Boszormenyi (GCS) <gcs@debian.org>	traceroute	1:2.1.2-1	amd64
+ii 	tzdata	2025b-0+deb12u1	GNU Libc Maintainers <debian-glibc@lists.debian.org>	tzdata	2025b-0+deb12u1	all
+ii 	ucf	3.0043+nmu1+deb12u1	Manoj Srivastava <srivasta@debian.org>	ucf	3.0043+nmu1+deb12u1	all
+ii 	udev	252.38-1~deb12u1	Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>	systemd	252.38-1~deb12u1	amd64
+ii 	uidmap	1:4.13+dfsg1-1+deb12u1	Shadow package maintainers <pkg-shadow-devel@lists.alioth.debian.org>	shadow	1:4.13+dfsg1-1+deb12u1	amd64
+ii 	usb.ids	2024.07.04-0+deb12u1	Aurelien Jarno <aurel32@debian.org>	usb.ids	2024.07.04-0+deb12u1	all
+ii 	usbutils	1:014-1+deb12u1	Aurelien Jarno <aurel32@debian.org>	usbutils	1:014-1+deb12u1	amd64
+ii 	usrmerge	37~deb12u1	Marco d'Itri <md@linux.it>	usrmerge	37~deb12u1	all
+ii 	util-linux	2.38.1-5+deb12u3	util-linux packagers <util-linux@packages.debian.org>	util-linux	2.38.1-5+deb12u3	amd64
+ii 	util-linux-extra	2.38.1-5+deb12u3	util-linux packagers <util-linux@packages.debian.org>	util-linux	2.38.1-5+deb12u3	amd64
+ii 	vim-common	2:9.0.1378-2+deb12u2	Debian Vim Maintainers <team+vim@tracker.debian.org>	vim	2:9.0.1378-2+deb12u2	all
+ii 	vim-tiny	2:9.0.1378-2+deb12u2	Debian Vim Maintainers <team+vim@tracker.debian.org>	vim	2:9.0.1378-2+deb12u2	amd64
+ii 	virtiofsd	1.10.1-1~bpo12+pve1	Debian Rust Maintainers <pkg-rust-maintainers@alioth-lists.debian.net>	rust-virtiofsd	1.10.1-1~bpo12+pve1	amd64
+ii 	vncterm	1.8.0	Proxmox Support Team <support@proxmox.com>	vncterm	1.8.0	amd64
+ii 	wamerican	2020.12.07-2	Don Armstrong <don@debian.org>	scowl	2020.12.07-2	all
+ii 	wget	1.21.3-1+deb12u1	Noël Köthe <noel@debian.org>	wget	1.21.3-1+deb12u1	amd64
+ii 	whiptail	0.52.23-1+b1	Alastair McKinstry <mckinstry@debian.org>	newt	0.52.23-1	amd64
+ii 	xfsprogs	6.1.0-1	XFS Development Team <linux-xfs@vger.kernel.org>	xfsprogs	6.1.0-1	amd64
+ii 	xkb-data	2.35.1-1	Debian X Strike Force <debian-x@lists.debian.org>	xkeyboard-config	2.35.1-1	all
+ii 	xsltproc	1.1.35-1+deb12u1	Debian XML/SGML Group <debian-xml-sgml-pkgs@lists.alioth.debian.org>	libxslt	1.1.35-1+deb12u1	amd64
+ii 	xz-utils	5.4.1-1	Sebastian Andrzej Siewior <sebastian@breakpoint.cc>	xz-utils	5.4.1-1	amd64
+ii 	zfs-initramfs	2.2.8-pve1	Proxmox Support Team <support@proxmox.com>	zfs-linux	2.2.8-pve1	all
+ii 	zfs-zed	2.2.8-pve1	Proxmox Support Team <support@proxmox.com>	zfs-linux	2.2.8-pve1	amd64
+ii 	zfsutils-linux	2.2.8-pve1	Proxmox Support Team <support@proxmox.com>	zfs-linux	2.2.8-pve1	amd64
+ii 	zlib1g	1:1.2.13.dfsg-1	Mark Brown <broonie@debian.org>	zlib	1:1.2.13.dfsg-1	amd64
+ii 	zstd	1.5.4+dfsg2-5	RPM packaging team <team+pkg-rpm@tracker.debian.org>	libzstd	1.5.4+dfsg2-5	amd64

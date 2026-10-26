@@ -20,9 +20,6 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1"
 )
 
-// maxSoftware bounds the packages in one inventory; a Linux endpoint with a desktop has a few thousand.
-const maxSoftware = 5000
-
 // commandTimeout bounds every helper the inventory runs.
 const commandTimeout = 60 * time.Second
 
@@ -101,13 +98,7 @@ func proxmoxVersion(ctx context.Context) string {
 	if err != nil {
 		return ""
 	}
-	// pveversion prints pve-manager/8.2.4/<hash> (running kernel: ...).
-	_, rest, ok := strings.Cut(strings.TrimSpace(out), "pve-manager/")
-	if !ok {
-		return ""
-	}
-	version, _, _ := strings.Cut(rest, "/")
-	return strings.TrimSpace(version)
+	return parsePveVersion(out)
 }
 
 func collectPlatform(ctx context.Context) (platformInfo, error) {
@@ -198,70 +189,36 @@ func installedSoftware() ([]*agentv1.SoftwareItem, error) {
 }
 
 func dpkgPackages(ctx context.Context, tool string) ([]*agentv1.SoftwareItem, error) {
-	out, err := output(ctx, tool, "-W", "-f=${db:Status-Abbrev}\\t${Package}\\t${Version}\\t${Maintainer}\\n")
+	out, err := output(ctx, tool, "-W",
+		"-f=${db:Status-Abbrev}\\t${Package}\\t${Version}\\t${Maintainer}\\t${source:Package}\\t${source:Version}\\t${Architecture}\\n")
 	if err != nil {
 		return nil, fmt.Errorf("read the dpkg database: %w", err)
 	}
-	return parseDpkg(out), nil
-}
-
-// parseDpkg reads the dpkg-query output: status, package, version and maintainer per line. Only installed packages ("ii") count.
-func parseDpkg(out string) []*agentv1.SoftwareItem {
-	var items []*agentv1.SoftwareItem
-	for line := range strings.SplitSeq(out, "\n") {
-		fields := strings.Split(strings.TrimRight(line, "\r"), "\t")
-		if len(fields) < 4 || !strings.HasPrefix(strings.TrimSpace(fields[0]), "ii") || fields[1] == "" {
-			continue
+	items := parseDpkg(out)
+	// Where each package came from, decided by name against the apt lists (0.8.0). Without lists the origin stays empty and the
+	// server says the lists are missing.
+	if lists := readAptLists(); lists.State == "ok" {
+		for _, item := range items {
+			item.Origin = aptOrigin(lists.Index, item.GetName(), item.GetVersion())
 		}
-		if len(items) >= maxSoftware {
-			break
-		}
-		items = append(items, &agentv1.SoftwareItem{Name: fields[1], Version: fields[2], Publisher: publisher(fields[3])})
 	}
-	return items
+	return items, nil
 }
 
 func rpmPackages(ctx context.Context, tool string) ([]*agentv1.SoftwareItem, error) {
-	out, err := output(ctx, tool, "-qa", "--qf", "%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{VENDOR}\\t%{INSTALLTIME}\\n")
+	out, err := output(ctx, tool, "-qa", "--qf",
+		"%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{VENDOR}\\t%{INSTALLTIME}\\t%{EPOCH}\\t%{ARCH}\\t%{SOURCERPM}\\t%{MODULARITYLABEL}\\n")
 	if err != nil {
-		return nil, fmt.Errorf("read the rpm database: %w", err)
+		// An rpm older than 4.14 does not know MODULARITYLABEL and refuses the whole query; the inventory of 0.1.0 still works there.
+		out, err = output(ctx, tool, "-qa", "--qf", "%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{VENDOR}\\t%{INSTALLTIME}\\n")
+		if err != nil {
+			return nil, fmt.Errorf("read the rpm database: %w", err)
+		}
 	}
 	return parseRpm(out), nil
 }
 
 // parseRpm reads the rpm output: name, version-release, vendor and install time in seconds per line.
-func parseRpm(out string) []*agentv1.SoftwareItem {
-	var items []*agentv1.SoftwareItem
-	for line := range strings.SplitSeq(out, "\n") {
-		fields := strings.Split(strings.TrimRight(line, "\r"), "\t")
-		// rpm prints (none) for a header without a name.
-		if len(fields) < 4 || fields[0] == "" || fields[0] == "(none)" {
-			continue
-		}
-		if len(items) >= maxSoftware {
-			break
-		}
-		item := &agentv1.SoftwareItem{Name: fields[0], Version: fields[1], Publisher: publisher(fields[2])}
-		if seconds, err := strconv.ParseInt(strings.TrimSpace(fields[3]), 10, 64); err == nil && seconds > 0 {
-			// The same shape as the Windows registry: YYYYMMDD.
-			item.InstallDate = time.Unix(seconds, 0).UTC().Format("20060102")
-		}
-		items = append(items, item)
-	}
-	return items
-}
-
-// publisher is the maintainer or vendor without its email address, which is personal data the inventory does not need.
-func publisher(value string) string {
-	name, _, _ := strings.Cut(value, "<")
-	name = strings.TrimSpace(name)
-	if name == "(none)" {
-		return ""
-	}
-	return name
-}
-
-// services lists the systemd services with their start type and state, so they can be picked in the check dialog.
 func services() ([]*agentv1.ServiceItem, error) {
 	tool, err := exec.LookPath("systemctl")
 	if err != nil {

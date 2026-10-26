@@ -1,0 +1,21 @@
+Package: libnvpair3linux
+Version: 2.1.11-1+deb12u1
+
+Package: libuutil3linux
+Version: 2.1.11-1+deb12u1
+
+Package: libzfs4linux
+Version: 2.1.11-1+deb12u1
+
+Package: libzpool5linux
+Version: 2.1.11-1+deb12u1
+
+Package: zfs-initramfs
+Version: 2.1.11-1+deb12u1
+
+Package: zfs-zed
+Version: 2.1.11-1+deb12u1
+
+Package: zfsutils-linux
+Version: 2.1.11-1+deb12u1
+

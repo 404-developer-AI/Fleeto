@@ -1,0 +1,3120 @@
+Package: corosync
+Version: 3.1.10-pve2~bpo12+1
+
+Package: corosync
+Version: 3.1.7-pve3
+
+Package: corosync
+Version: 3.1.9-pve1
+
+Package: fonts-font-logos
+Version: 1.0.1-3
+
+Package: frr-pythontools
+Version: 10.2.1-1+pve1
+
+Package: frr-pythontools
+Version: 10.2.1-1+pve2
+
+Package: frr-pythontools
+Version: 10.2.2-1+pve1
+
+Package: frr-pythontools
+Version: 10.2.3-1+pve1
+
+Package: frr-pythontools
+Version: 8.5.1-1+pve1
+
+Package: frr-pythontools
+Version: 8.5.2-1+pve1
+
+Package: frr
+Version: 10.2.1-1+pve1
+
+Package: frr
+Version: 10.2.1-1+pve2
+
+Package: frr
+Version: 10.2.2-1+pve1
+
+Package: frr
+Version: 10.2.3-1+pve1
+
+Package: frr
+Version: 8.5.1-1+pve1
+
+Package: frr
+Version: 8.5.2-1+pve1
+
+Package: grub-common
+Version: 2.06-13+pmx1
+
+Package: grub-common
+Version: 2.06-13+pmx2
+
+Package: grub-common
+Version: 2.06-13+pmx5
+
+Package: grub-common
+Version: 2.06-13+pmx6
+
+Package: grub-common
+Version: 2.06-13+pmx7
+
+Package: grub-efi-amd64-bin
+Version: 2.06-13+pmx1
+
+Package: grub-efi-amd64-bin
+Version: 2.06-13+pmx2
+
+Package: grub-efi-amd64-bin
+Version: 2.06-13+pmx5
+
+Package: grub-efi-amd64-bin
+Version: 2.06-13+pmx6
+
+Package: grub-efi-amd64-bin
+Version: 2.06-13+pmx7
+
+Package: grub-efi-amd64-signed
+Version: 1+2.06+13+pmx1
+
+Package: grub-efi-amd64-signed
+Version: 1+2.06+13+pmx2
+
+Package: grub-efi-amd64-signed
+Version: 1+2.06+13+pmx5
+
+Package: grub-efi-amd64-signed
+Version: 1+2.06+13+pmx6
+
+Package: grub-efi-amd64-signed
+Version: 1+2.06+13+pmx7
+
+Package: grub-efi-amd64
+Version: 2.06-13+pmx1
+
+Package: grub-efi-amd64
+Version: 2.06-13+pmx2
+
+Package: grub-efi-amd64
+Version: 2.06-13+pmx5
+
+Package: grub-efi-amd64
+Version: 2.06-13+pmx6
+
+Package: grub-efi-amd64
+Version: 2.06-13+pmx7
+
+Package: grub-pc-bin
+Version: 2.06-13+pmx1
+
+Package: grub-pc-bin
+Version: 2.06-13+pmx2
+
+Package: grub-pc-bin
+Version: 2.06-13+pmx5
+
+Package: grub-pc-bin
+Version: 2.06-13+pmx6
+
+Package: grub-pc-bin
+Version: 2.06-13+pmx7
+
+Package: grub2-common
+Version: 2.06-13+pmx1
+
+Package: grub2-common
+Version: 2.06-13+pmx2
+
+Package: grub2-common
+Version: 2.06-13+pmx5
+
+Package: grub2-common
+Version: 2.06-13+pmx6
+
+Package: grub2-common
+Version: 2.06-13+pmx7
+
+Package: ifupdown2
+Version: 3.2.0-1+pmx10
+
+Package: ifupdown2
+Version: 3.2.0-1+pmx11
+
+Package: ifupdown2
+Version: 3.2.0-1+pmx1
+
+Package: ifupdown2
+Version: 3.2.0-1+pmx2
+
+Package: ifupdown2
+Version: 3.2.0-1+pmx3
+
+Package: ifupdown2
+Version: 3.2.0-1+pmx4
+
+Package: ifupdown2
+Version: 3.2.0-1+pmx5
+
+Package: ifupdown2
+Version: 3.2.0-1+pmx6
+
+Package: ifupdown2
+Version: 3.2.0-1+pmx7
+
+Package: ifupdown2
+Version: 3.2.0-1+pmx8
+
+Package: ifupdown2
+Version: 3.2.0-1+pmx9
+
+Package: ksm-control-daemon
+Version: 1.4-1
+
+Package: ksm-control-daemon
+Version: 1.5-1
+
+Package: libcfg7
+Version: 3.1.10-pve2~bpo12+1
+
+Package: libcfg7
+Version: 3.1.7-pve3
+
+Package: libcfg7
+Version: 3.1.9-pve1
+
+Package: libcmap4
+Version: 3.1.10-pve2~bpo12+1
+
+Package: libcmap4
+Version: 3.1.7-pve3
+
+Package: libcmap4
+Version: 3.1.9-pve1
+
+Package: libcorosync-common4
+Version: 3.1.10-pve2~bpo12+1
+
+Package: libcorosync-common4
+Version: 3.1.7-pve3
+
+Package: libcorosync-common4
+Version: 3.1.9-pve1
+
+Package: libcpg4
+Version: 3.1.10-pve2~bpo12+1
+
+Package: libcpg4
+Version: 3.1.7-pve3
+
+Package: libcpg4
+Version: 3.1.9-pve1
+
+Package: libjs-extjs
+Version: 7.0.0-3
+
+Package: libjs-extjs
+Version: 7.0.0-4
+
+Package: libjs-extjs
+Version: 7.0.0-5
+
+Package: libjs-extjs
+Version: 7.0.0-6
+
+Package: libjs-extjs
+Version: 7.0.0-7
+
+Package: libjs-qrcodejs
+Version: 1.20230525-pve1
+
+Package: libjs-sencha-touch
+Version: 2.4.2-1
+
+Package: libknet1
+Version: 1.25-pve1
+
+Package: libknet1
+Version: 1.26-pve1
+
+Package: libknet1
+Version: 1.28-pve1
+
+Package: libknet1
+Version: 1.30-pve1
+
+Package: libknet1
+Version: 1.30-pve2
+
+Package: libnozzle1
+Version: 1.25-pve1
+
+Package: libnozzle1
+Version: 1.26-pve1
+
+Package: libnozzle1
+Version: 1.28-pve1
+
+Package: libnozzle1
+Version: 1.30-pve1
+
+Package: libnozzle1
+Version: 1.30-pve2
+
+Package: libnss-systemd
+Version: 252.11-pve1
+
+Package: libnss-systemd
+Version: 252.12-pmx1
+
+Package: libnvpair3linux
+Version: 2.1.11-pve2
+
+Package: libnvpair3linux
+Version: 2.1.12-pve1
+
+Package: libnvpair3linux
+Version: 2.1.13-pve1
+
+Package: libnvpair3linux
+Version: 2.2.0-pve1
+
+Package: libnvpair3linux
+Version: 2.2.0-pve2
+
+Package: libnvpair3linux
+Version: 2.2.0-pve3
+
+Package: libnvpair3linux
+Version: 2.2.0-pve4
+
+Package: libnvpair3linux
+Version: 2.2.10-pve1
+
+Package: libnvpair3linux
+Version: 2.2.2-pve1
+
+Package: libnvpair3linux
+Version: 2.2.2-pve2
+
+Package: libnvpair3linux
+Version: 2.2.3-pve1
+
+Package: libnvpair3linux
+Version: 2.2.3-pve2
+
+Package: libnvpair3linux
+Version: 2.2.4-pve1
+
+Package: libnvpair3linux
+Version: 2.2.6-pve1
+
+Package: libnvpair3linux
+Version: 2.2.7-pve1
+
+Package: libnvpair3linux
+Version: 2.2.7-pve2
+
+Package: libnvpair3linux
+Version: 2.2.8-pve1
+
+Package: libnvpair3linux
+Version: 2.2.9-pve1
+
+Package: libopeniscsiusr
+Version: 2.1.8-1.pve1
+
+Package: libpam-systemd
+Version: 252.11-pve1
+
+Package: libpam-systemd
+Version: 252.12-pmx1
+
+Package: libproxmox-acme-perl
+Version: 1.4.5
+
+Package: libproxmox-acme-perl
+Version: 1.4.6
+
+Package: libproxmox-acme-perl
+Version: 1.5.0
+
+Package: libproxmox-acme-perl
+Version: 1.5.1
+
+Package: libproxmox-acme-perl
+Version: 1.6.0
+
+Package: libproxmox-acme-plugins
+Version: 1.4.5
+
+Package: libproxmox-acme-plugins
+Version: 1.4.6
+
+Package: libproxmox-acme-plugins
+Version: 1.5.0
+
+Package: libproxmox-acme-plugins
+Version: 1.5.1
+
+Package: libproxmox-acme-plugins
+Version: 1.6.0
+
+Package: libproxmox-backup-qemu0
+Version: 1.4.0
+
+Package: libproxmox-backup-qemu0
+Version: 1.4.1
+
+Package: libproxmox-backup-qemu0
+Version: 1.5.1
+
+Package: libproxmox-backup-qemu0
+Version: 1.5.2
+
+Package: libproxmox-rs-perl
+Version: 0.3.0
+
+Package: libproxmox-rs-perl
+Version: 0.3.1
+
+Package: libproxmox-rs-perl
+Version: 0.3.3
+
+Package: libproxmox-rs-perl
+Version: 0.3.4
+
+Package: libproxmox-rs-perl
+Version: 0.3.5
+
+Package: libpve-access-control
+Version: 8.0.1
+
+Package: libpve-access-control
+Version: 8.0.3
+
+Package: libpve-access-control
+Version: 8.0.4
+
+Package: libpve-access-control
+Version: 8.0.5
+
+Package: libpve-access-control
+Version: 8.0.6
+
+Package: libpve-access-control
+Version: 8.0.7
+
+Package: libpve-access-control
+Version: 8.1.0
+
+Package: libpve-access-control
+Version: 8.1.1
+
+Package: libpve-access-control
+Version: 8.1.2
+
+Package: libpve-access-control
+Version: 8.1.3
+
+Package: libpve-access-control
+Version: 8.1.4
+
+Package: libpve-access-control
+Version: 8.2.0
+
+Package: libpve-access-control
+Version: 8.2.1
+
+Package: libpve-access-control
+Version: 8.2.2
+
+Package: libpve-access-control
+Version: 8.2.3
+
+Package: libpve-apiclient-perl
+Version: 3.3.1
+
+Package: libpve-apiclient-perl
+Version: 3.3.2
+
+Package: libpve-cluster-api-perl
+Version: 8.0.10
+
+Package: libpve-cluster-api-perl
+Version: 8.0.1
+
+Package: libpve-cluster-api-perl
+Version: 8.0.2
+
+Package: libpve-cluster-api-perl
+Version: 8.0.3
+
+Package: libpve-cluster-api-perl
+Version: 8.0.4
+
+Package: libpve-cluster-api-perl
+Version: 8.0.5
+
+Package: libpve-cluster-api-perl
+Version: 8.0.6
+
+Package: libpve-cluster-api-perl
+Version: 8.0.7
+
+Package: libpve-cluster-api-perl
+Version: 8.0.8
+
+Package: libpve-cluster-api-perl
+Version: 8.1.0
+
+Package: libpve-cluster-api-perl
+Version: 8.1.1
+
+Package: libpve-cluster-api-perl
+Version: 8.1.2
+
+Package: libpve-cluster-api-perl
+Version: 8.1.3
+
+Package: libpve-cluster-perl
+Version: 8.0.10
+
+Package: libpve-cluster-perl
+Version: 8.0.1
+
+Package: libpve-cluster-perl
+Version: 8.0.2
+
+Package: libpve-cluster-perl
+Version: 8.0.3
+
+Package: libpve-cluster-perl
+Version: 8.0.4
+
+Package: libpve-cluster-perl
+Version: 8.0.5
+
+Package: libpve-cluster-perl
+Version: 8.0.6
+
+Package: libpve-cluster-perl
+Version: 8.0.7
+
+Package: libpve-cluster-perl
+Version: 8.0.8
+
+Package: libpve-cluster-perl
+Version: 8.1.0
+
+Package: libpve-cluster-perl
+Version: 8.1.1
+
+Package: libpve-cluster-perl
+Version: 8.1.2
+
+Package: libpve-cluster-perl
+Version: 8.1.3
+
+Package: libpve-common-perl
+Version: 8.0.10
+
+Package: libpve-common-perl
+Version: 8.0.3
+
+Package: libpve-common-perl
+Version: 8.0.4
+
+Package: libpve-common-perl
+Version: 8.0.5
+
+Package: libpve-common-perl
+Version: 8.0.6
+
+Package: libpve-common-perl
+Version: 8.0.7
+
+Package: libpve-common-perl
+Version: 8.0.8
+
+Package: libpve-common-perl
+Version: 8.0.9
+
+Package: libpve-common-perl
+Version: 8.1.0
+
+Package: libpve-common-perl
+Version: 8.1.1
+
+Package: libpve-common-perl
+Version: 8.1.2
+
+Package: libpve-common-perl
+Version: 8.2.0
+
+Package: libpve-common-perl
+Version: 8.2.1
+
+Package: libpve-common-perl
+Version: 8.2.2
+
+Package: libpve-common-perl
+Version: 8.2.3
+
+Package: libpve-common-perl
+Version: 8.2.4
+
+Package: libpve-common-perl
+Version: 8.2.5
+
+Package: libpve-common-perl
+Version: 8.2.6
+
+Package: libpve-common-perl
+Version: 8.2.7
+
+Package: libpve-common-perl
+Version: 8.2.8
+
+Package: libpve-common-perl
+Version: 8.2.9
+
+Package: libpve-common-perl
+Version: 8.3.0
+
+Package: libpve-common-perl
+Version: 8.3.1
+
+Package: libpve-common-perl
+Version: 8.3.2
+
+Package: libpve-common-perl
+Version: 8.3.3
+
+Package: libpve-common-perl
+Version: 8.3.4
+
+Package: libpve-common-perl
+Version: 8.3.5
+
+Package: libpve-common-perl
+Version: 8.3.6
+
+Package: libpve-common-perl
+Version: 8.3.7
+
+Package: libpve-common-perl
+Version: 8.3.8
+
+Package: libpve-guest-common-perl
+Version: 5.0.3
+
+Package: libpve-guest-common-perl
+Version: 5.0.4
+
+Package: libpve-guest-common-perl
+Version: 5.0.5
+
+Package: libpve-guest-common-perl
+Version: 5.0.6
+
+Package: libpve-guest-common-perl
+Version: 5.1.1
+
+Package: libpve-guest-common-perl
+Version: 5.1.2
+
+Package: libpve-guest-common-perl
+Version: 5.1.3
+
+Package: libpve-guest-common-perl
+Version: 5.1.4
+
+Package: libpve-guest-common-perl
+Version: 5.1.6
+
+Package: libpve-guest-common-perl
+Version: 5.1.7
+
+Package: libpve-guest-common-perl
+Version: 5.2.0
+
+Package: libpve-guest-common-perl
+Version: 5.2.1
+
+Package: libpve-guest-common-perl
+Version: 5.2.2
+
+Package: libpve-http-server-perl
+Version: 5.0.2
+
+Package: libpve-http-server-perl
+Version: 5.0.3
+
+Package: libpve-http-server-perl
+Version: 5.0.4
+
+Package: libpve-http-server-perl
+Version: 5.0.5
+
+Package: libpve-http-server-perl
+Version: 5.0.6
+
+Package: libpve-http-server-perl
+Version: 5.1.0
+
+Package: libpve-http-server-perl
+Version: 5.1.1
+
+Package: libpve-http-server-perl
+Version: 5.1.2
+
+Package: libpve-http-server-perl
+Version: 5.2.0
+
+Package: libpve-http-server-perl
+Version: 5.2.1
+
+Package: libpve-http-server-perl
+Version: 5.2.2
+
+Package: libpve-network-api-perl
+Version: 0.10.0
+
+Package: libpve-network-api-perl
+Version: 0.10.1
+
+Package: libpve-network-api-perl
+Version: 0.11.0
+
+Package: libpve-network-api-perl
+Version: 0.11.1
+
+Package: libpve-network-api-perl
+Version: 0.11.2
+
+Package: libpve-network-api-perl
+Version: 0.11.3
+
+Package: libpve-network-api-perl
+Version: 0.9.9
+
+Package: libpve-network-perl
+Version: 0.10.0
+
+Package: libpve-network-perl
+Version: 0.10.1
+
+Package: libpve-network-perl
+Version: 0.11.0
+
+Package: libpve-network-perl
+Version: 0.11.1
+
+Package: libpve-network-perl
+Version: 0.11.2
+
+Package: libpve-network-perl
+Version: 0.11.3
+
+Package: libpve-network-perl
+Version: 0.8.1
+
+Package: libpve-network-perl
+Version: 0.8.2
+
+Package: libpve-network-perl
+Version: 0.9.4
+
+Package: libpve-network-perl
+Version: 0.9.5
+
+Package: libpve-network-perl
+Version: 0.9.6
+
+Package: libpve-network-perl
+Version: 0.9.7
+
+Package: libpve-network-perl
+Version: 0.9.8
+
+Package: libpve-network-perl
+Version: 0.9.9
+
+Package: libpve-notify-perl
+Version: 8.0.10
+
+Package: libpve-notify-perl
+Version: 8.0.3
+
+Package: libpve-notify-perl
+Version: 8.0.4
+
+Package: libpve-notify-perl
+Version: 8.0.5
+
+Package: libpve-notify-perl
+Version: 8.0.6
+
+Package: libpve-notify-perl
+Version: 8.0.7
+
+Package: libpve-notify-perl
+Version: 8.0.8
+
+Package: libpve-notify-perl
+Version: 8.1.0
+
+Package: libpve-notify-perl
+Version: 8.1.1
+
+Package: libpve-notify-perl
+Version: 8.1.2
+
+Package: libpve-notify-perl
+Version: 8.1.3
+
+Package: libpve-rs-perl
+Version: 0.8.10
+
+Package: libpve-rs-perl
+Version: 0.8.11
+
+Package: libpve-rs-perl
+Version: 0.8.12
+
+Package: libpve-rs-perl
+Version: 0.8.13
+
+Package: libpve-rs-perl
+Version: 0.8.3
+
+Package: libpve-rs-perl
+Version: 0.8.4
+
+Package: libpve-rs-perl
+Version: 0.8.5
+
+Package: libpve-rs-perl
+Version: 0.8.6
+
+Package: libpve-rs-perl
+Version: 0.8.7
+
+Package: libpve-rs-perl
+Version: 0.8.8
+
+Package: libpve-rs-perl
+Version: 0.8.9
+
+Package: libpve-rs-perl
+Version: 0.9.0
+
+Package: libpve-rs-perl
+Version: 0.9.1
+
+Package: libpve-rs-perl
+Version: 0.9.2
+
+Package: libpve-rs-perl
+Version: 0.9.3
+
+Package: libpve-rs-perl
+Version: 0.9.4
+
+Package: libpve-storage-perl
+Version: 8.0.0
+
+Package: libpve-storage-perl
+Version: 8.0.1
+
+Package: libpve-storage-perl
+Version: 8.0.2
+
+Package: libpve-storage-perl
+Version: 8.0.3
+
+Package: libpve-storage-perl
+Version: 8.0.4
+
+Package: libpve-storage-perl
+Version: 8.0.5
+
+Package: libpve-storage-perl
+Version: 8.1.0
+
+Package: libpve-storage-perl
+Version: 8.1.3
+
+Package: libpve-storage-perl
+Version: 8.1.4
+
+Package: libpve-storage-perl
+Version: 8.1.5
+
+Package: libpve-storage-perl
+Version: 8.2.0
+
+Package: libpve-storage-perl
+Version: 8.2.1
+
+Package: libpve-storage-perl
+Version: 8.2.2
+
+Package: libpve-storage-perl
+Version: 8.2.3
+
+Package: libpve-storage-perl
+Version: 8.2.4
+
+Package: libpve-storage-perl
+Version: 8.2.5
+
+Package: libpve-storage-perl
+Version: 8.2.6
+
+Package: libpve-storage-perl
+Version: 8.2.7
+
+Package: libpve-storage-perl
+Version: 8.2.8
+
+Package: libpve-storage-perl
+Version: 8.2.9
+
+Package: libpve-storage-perl
+Version: 8.3.0
+
+Package: libpve-storage-perl
+Version: 8.3.1
+
+Package: libpve-storage-perl
+Version: 8.3.2
+
+Package: libpve-storage-perl
+Version: 8.3.3
+
+Package: libpve-storage-perl
+Version: 8.3.4
+
+Package: libpve-storage-perl
+Version: 8.3.5
+
+Package: libpve-storage-perl
+Version: 8.3.6
+
+Package: libpve-storage-perl
+Version: 8.3.7
+
+Package: libpve-storage-perl
+Version: 8.3.8
+
+Package: libpve-u2f-server-perl
+Version: 1.2.0
+
+Package: libquorum5
+Version: 3.1.10-pve2~bpo12+1
+
+Package: libquorum5
+Version: 3.1.7-pve3
+
+Package: libquorum5
+Version: 3.1.9-pve1
+
+Package: librados2-perl
+Version: 1.4.0
+
+Package: librados2-perl
+Version: 1.4.1
+
+Package: libsystemd-shared
+Version: 252.11-pve1
+
+Package: libsystemd-shared
+Version: 252.12-pmx1
+
+Package: libsystemd0
+Version: 252.11-pve1
+
+Package: libsystemd0
+Version: 252.12-pmx1
+
+Package: libtpms0
+Version: 0.9.6+pve1
+
+Package: libtpms0
+Version: 0.9.7+pve1
+
+Package: libudev1
+Version: 252.11-pve1
+
+Package: libudev1
+Version: 252.12-pmx1
+
+Package: libuutil3linux
+Version: 2.1.11-pve2
+
+Package: libuutil3linux
+Version: 2.1.12-pve1
+
+Package: libuutil3linux
+Version: 2.1.13-pve1
+
+Package: libuutil3linux
+Version: 2.2.0-pve1
+
+Package: libuutil3linux
+Version: 2.2.0-pve2
+
+Package: libuutil3linux
+Version: 2.2.0-pve3
+
+Package: libuutil3linux
+Version: 2.2.0-pve4
+
+Package: libuutil3linux
+Version: 2.2.10-pve1
+
+Package: libuutil3linux
+Version: 2.2.2-pve1
+
+Package: libuutil3linux
+Version: 2.2.2-pve2
+
+Package: libuutil3linux
+Version: 2.2.3-pve1
+
+Package: libuutil3linux
+Version: 2.2.3-pve2
+
+Package: libuutil3linux
+Version: 2.2.4-pve1
+
+Package: libuutil3linux
+Version: 2.2.6-pve1
+
+Package: libuutil3linux
+Version: 2.2.7-pve1
+
+Package: libuutil3linux
+Version: 2.2.7-pve2
+
+Package: libuutil3linux
+Version: 2.2.8-pve1
+
+Package: libuutil3linux
+Version: 2.2.9-pve1
+
+Package: libvotequorum8
+Version: 3.1.10-pve2~bpo12+1
+
+Package: libvotequorum8
+Version: 3.1.7-pve3
+
+Package: libvotequorum8
+Version: 3.1.9-pve1
+
+Package: libyang3
+Version: 3.7.8-3~bpo12+1
+
+Package: libzfs4linux
+Version: 2.1.11-pve2
+
+Package: libzfs4linux
+Version: 2.1.12-pve1
+
+Package: libzfs4linux
+Version: 2.1.13-pve1
+
+Package: libzfs4linux
+Version: 2.2.0-pve1
+
+Package: libzfs4linux
+Version: 2.2.0-pve2
+
+Package: libzfs4linux
+Version: 2.2.0-pve3
+
+Package: libzfs4linux
+Version: 2.2.0-pve4
+
+Package: libzfs4linux
+Version: 2.2.10-pve1
+
+Package: libzfs4linux
+Version: 2.2.2-pve1
+
+Package: libzfs4linux
+Version: 2.2.2-pve2
+
+Package: libzfs4linux
+Version: 2.2.3-pve1
+
+Package: libzfs4linux
+Version: 2.2.3-pve2
+
+Package: libzfs4linux
+Version: 2.2.4-pve1
+
+Package: libzfs4linux
+Version: 2.2.6-pve1
+
+Package: libzfs4linux
+Version: 2.2.7-pve1
+
+Package: libzfs4linux
+Version: 2.2.7-pve2
+
+Package: libzfs4linux
+Version: 2.2.8-pve1
+
+Package: libzfs4linux
+Version: 2.2.9-pve1
+
+Package: libzpool5linux
+Version: 2.1.11-pve2
+
+Package: libzpool5linux
+Version: 2.1.12-pve1
+
+Package: libzpool5linux
+Version: 2.1.13-pve1
+
+Package: libzpool5linux
+Version: 2.2.0-pve1
+
+Package: libzpool5linux
+Version: 2.2.0-pve2
+
+Package: libzpool5linux
+Version: 2.2.0-pve3
+
+Package: libzpool5linux
+Version: 2.2.0-pve4
+
+Package: libzpool5linux
+Version: 2.2.10-pve1
+
+Package: libzpool5linux
+Version: 2.2.2-pve1
+
+Package: libzpool5linux
+Version: 2.2.2-pve2
+
+Package: libzpool5linux
+Version: 2.2.3-pve1
+
+Package: libzpool5linux
+Version: 2.2.3-pve2
+
+Package: libzpool5linux
+Version: 2.2.4-pve1
+
+Package: libzpool5linux
+Version: 2.2.6-pve1
+
+Package: libzpool5linux
+Version: 2.2.7-pve1
+
+Package: libzpool5linux
+Version: 2.2.7-pve2
+
+Package: libzpool5linux
+Version: 2.2.8-pve1
+
+Package: libzpool5linux
+Version: 2.2.9-pve1
+
+Package: lxc-pve
+Version: 5.0.2-4
+
+Package: lxc-pve
+Version: 6.0.0-1
+
+Package: lxc-pve
+Version: 6.0.0-2
+
+Package: lxcfs
+Version: 5.0.3-pve3
+
+Package: lxcfs
+Version: 5.0.3-pve4
+
+Package: lxcfs
+Version: 6.0.0-pve1
+
+Package: lxcfs
+Version: 6.0.0-pve2
+
+Package: novnc-pve
+Version: 1.4.0-2
+
+Package: novnc-pve
+Version: 1.4.0-3
+
+Package: novnc-pve
+Version: 1.4.0-4
+
+Package: novnc-pve
+Version: 1.5.0-1
+
+Package: novnc-pve
+Version: 1.6.0-2.1
+
+Package: novnc-pve
+Version: 1.6.0-2
+
+Package: open-iscsi
+Version: 2.1.8-1.pve1
+
+Package: proxmox-archive-keyring
+Version: 3.0
+
+Package: proxmox-archive-keyring
+Version: 3.1
+
+Package: proxmox-archive-keyring
+Version: 3.2
+
+Package: proxmox-archive-keyring
+Version: 3.3
+
+Package: proxmox-backup-client
+Version: 2.99.0-1
+
+Package: proxmox-backup-client
+Version: 3.0.1-1
+
+Package: proxmox-backup-client
+Version: 3.0.2-1
+
+Package: proxmox-backup-client
+Version: 3.0.3-1
+
+Package: proxmox-backup-client
+Version: 3.0.4-1
+
+Package: proxmox-backup-client
+Version: 3.1.2-1
+
+Package: proxmox-backup-client
+Version: 3.1.3-1
+
+Package: proxmox-backup-client
+Version: 3.1.4-1
+
+Package: proxmox-backup-client
+Version: 3.1.5-1
+
+Package: proxmox-backup-client
+Version: 3.2.0-1
+
+Package: proxmox-backup-client
+Version: 3.2.1-1
+
+Package: proxmox-backup-client
+Version: 3.2.12-1
+
+Package: proxmox-backup-client
+Version: 3.2.14-1
+
+Package: proxmox-backup-client
+Version: 3.2.2-1
+
+Package: proxmox-backup-client
+Version: 3.2.3-1
+
+Package: proxmox-backup-client
+Version: 3.2.4-1
+
+Package: proxmox-backup-client
+Version: 3.2.5-1
+
+Package: proxmox-backup-client
+Version: 3.2.6-1
+
+Package: proxmox-backup-client
+Version: 3.2.7-1
+
+Package: proxmox-backup-client
+Version: 3.2.8-1
+
+Package: proxmox-backup-client
+Version: 3.2.9-1
+
+Package: proxmox-backup-client
+Version: 3.3.0-1
+
+Package: proxmox-backup-client
+Version: 3.3.1-1
+
+Package: proxmox-backup-client
+Version: 3.3.2-1
+
+Package: proxmox-backup-client
+Version: 3.3.3-1
+
+Package: proxmox-backup-client
+Version: 3.3.4-1
+
+Package: proxmox-backup-client
+Version: 3.3.5-1
+
+Package: proxmox-backup-client
+Version: 3.3.6-1
+
+Package: proxmox-backup-client
+Version: 3.3.7-1
+
+Package: proxmox-backup-client
+Version: 3.4.0-1
+
+Package: proxmox-backup-client
+Version: 3.4.1-1
+
+Package: proxmox-backup-client
+Version: 3.4.2-1
+
+Package: proxmox-backup-client
+Version: 3.4.3-1
+
+Package: proxmox-backup-client
+Version: 3.4.4-1
+
+Package: proxmox-backup-client
+Version: 3.4.6-1
+
+Package: proxmox-backup-client
+Version: 3.4.7-1
+
+Package: proxmox-backup-client
+Version: 3.4.9-1
+
+Package: proxmox-backup-file-restore
+Version: 2.99.0-1
+
+Package: proxmox-backup-file-restore
+Version: 3.0.1-1
+
+Package: proxmox-backup-file-restore
+Version: 3.0.2-1
+
+Package: proxmox-backup-file-restore
+Version: 3.0.3-1
+
+Package: proxmox-backup-file-restore
+Version: 3.0.4-1
+
+Package: proxmox-backup-file-restore
+Version: 3.1.2-1
+
+Package: proxmox-backup-file-restore
+Version: 3.1.3-1
+
+Package: proxmox-backup-file-restore
+Version: 3.1.4-1
+
+Package: proxmox-backup-file-restore
+Version: 3.1.5-1
+
+Package: proxmox-backup-file-restore
+Version: 3.2.0-1
+
+Package: proxmox-backup-file-restore
+Version: 3.2.1-1
+
+Package: proxmox-backup-file-restore
+Version: 3.2.12-1
+
+Package: proxmox-backup-file-restore
+Version: 3.2.14-1
+
+Package: proxmox-backup-file-restore
+Version: 3.2.2-1
+
+Package: proxmox-backup-file-restore
+Version: 3.2.3-1
+
+Package: proxmox-backup-file-restore
+Version: 3.2.4-1
+
+Package: proxmox-backup-file-restore
+Version: 3.2.5-1
+
+Package: proxmox-backup-file-restore
+Version: 3.2.6-1
+
+Package: proxmox-backup-file-restore
+Version: 3.2.7-1
+
+Package: proxmox-backup-file-restore
+Version: 3.2.8-1
+
+Package: proxmox-backup-file-restore
+Version: 3.2.9-1
+
+Package: proxmox-backup-file-restore
+Version: 3.3.0-1
+
+Package: proxmox-backup-file-restore
+Version: 3.3.1-1
+
+Package: proxmox-backup-file-restore
+Version: 3.3.2-1
+
+Package: proxmox-backup-file-restore
+Version: 3.3.2-2
+
+Package: proxmox-backup-file-restore
+Version: 3.3.3-1
+
+Package: proxmox-backup-file-restore
+Version: 3.3.4-1
+
+Package: proxmox-backup-file-restore
+Version: 3.3.5-1
+
+Package: proxmox-backup-file-restore
+Version: 3.3.6-1
+
+Package: proxmox-backup-file-restore
+Version: 3.3.7-1
+
+Package: proxmox-backup-file-restore
+Version: 3.4.0-1
+
+Package: proxmox-backup-file-restore
+Version: 3.4.1-1
+
+Package: proxmox-backup-file-restore
+Version: 3.4.2-1
+
+Package: proxmox-backup-file-restore
+Version: 3.4.3-1
+
+Package: proxmox-backup-file-restore
+Version: 3.4.4-1
+
+Package: proxmox-backup-file-restore
+Version: 3.4.6-1
+
+Package: proxmox-backup-file-restore
+Version: 3.4.7-1
+
+Package: proxmox-backup-file-restore
+Version: 3.4.9-1
+
+Package: proxmox-backup-restore-image
+Version: 0.5.1
+
+Package: proxmox-backup-restore-image
+Version: 0.6.0
+
+Package: proxmox-backup-restore-image
+Version: 0.6.1
+
+Package: proxmox-backup-restore-image
+Version: 0.7.0
+
+Package: proxmox-default-kernel
+Version: 1.0.0
+
+Package: proxmox-default-kernel
+Version: 1.0.1
+
+Package: proxmox-default-kernel
+Version: 1.1.0
+
+Package: proxmox-firewall
+Version: 0.1.0
+
+Package: proxmox-firewall
+Version: 0.2.0
+
+Package: proxmox-firewall
+Version: 0.3.0
+
+Package: proxmox-firewall
+Version: 0.3.1
+
+Package: proxmox-firewall
+Version: 0.4.0
+
+Package: proxmox-firewall
+Version: 0.4.1
+
+Package: proxmox-firewall
+Version: 0.4.2
+
+Package: proxmox-firewall
+Version: 0.5.0
+
+Package: proxmox-firewall
+Version: 0.6.0
+
+Package: proxmox-firewall
+Version: 0.7.0
+
+Package: proxmox-firewall
+Version: 0.7.1
+
+Package: proxmox-grub
+Version: 2.06-13+pmx1
+
+Package: proxmox-grub
+Version: 2.06-13+pmx2
+
+Package: proxmox-grub
+Version: 2.06-13+pmx5
+
+Package: proxmox-grub
+Version: 2.06-13+pmx6
+
+Package: proxmox-grub
+Version: 2.06-13+pmx7
+
+Package: proxmox-kernel-6.8.12-12-pve-signed
+Version: 6.8.12-12
+
+Package: proxmox-kernel-6.8.12-9-pve-signed
+Version: 6.8.12-9
+
+Package: proxmox-kernel-6.8
+Version: 6.8.1-1
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-10
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-11
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-12
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-13
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-14
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-15
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-16
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-17
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-18
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-19
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-1
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-20
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-22
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-23
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-24
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-25
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-26
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-27
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-28.1
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-28
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-29
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-2
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-30
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-32
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-33
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-34
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-35
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-36
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-37
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-38
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-39
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-3
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-40
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-41
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-42
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-43
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-4
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-5
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-6
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-7
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-8
+
+Package: proxmox-kernel-6.8
+Version: 6.8.12-9
+
+Package: proxmox-kernel-6.8
+Version: 6.8.4-2
+
+Package: proxmox-kernel-6.8
+Version: 6.8.4-3
+
+Package: proxmox-kernel-6.8
+Version: 6.8.4-4
+
+Package: proxmox-kernel-6.8
+Version: 6.8.8-1
+
+Package: proxmox-kernel-6.8
+Version: 6.8.8-2
+
+Package: proxmox-kernel-6.8
+Version: 6.8.8-3
+
+Package: proxmox-kernel-6.8
+Version: 6.8.8-4
+
+Package: proxmox-kernel-helper
+Version: 8.0.0
+
+Package: proxmox-kernel-helper
+Version: 8.0.1
+
+Package: proxmox-kernel-helper
+Version: 8.0.2
+
+Package: proxmox-kernel-helper
+Version: 8.0.3
+
+Package: proxmox-kernel-helper
+Version: 8.0.4
+
+Package: proxmox-kernel-helper
+Version: 8.0.5
+
+Package: proxmox-kernel-helper
+Version: 8.0.9
+
+Package: proxmox-kernel-helper
+Version: 8.1.0
+
+Package: proxmox-kernel-helper
+Version: 8.1.1
+
+Package: proxmox-kernel-helper
+Version: 8.1.3
+
+Package: proxmox-kernel-helper
+Version: 8.1.4
+
+Package: proxmox-mail-forward
+Version: 0.1.1-1
+
+Package: proxmox-mail-forward
+Version: 0.2.0
+
+Package: proxmox-mail-forward
+Version: 0.2.1
+
+Package: proxmox-mail-forward
+Version: 0.2.2
+
+Package: proxmox-mail-forward
+Version: 0.2.3
+
+Package: proxmox-mail-forward
+Version: 0.3.1
+
+Package: proxmox-mail-forward
+Version: 0.3.2
+
+Package: proxmox-mail-forward
+Version: 0.3.3
+
+Package: proxmox-mini-journalreader
+Version: 1.4.0
+
+Package: proxmox-mini-journalreader
+Version: 1.5
+
+Package: proxmox-offline-mirror-docs
+Version: 0.6.0
+
+Package: proxmox-offline-mirror-docs
+Version: 0.6.1
+
+Package: proxmox-offline-mirror-docs
+Version: 0.6.2
+
+Package: proxmox-offline-mirror-docs
+Version: 0.6.3
+
+Package: proxmox-offline-mirror-docs
+Version: 0.6.4
+
+Package: proxmox-offline-mirror-docs
+Version: 0.6.5
+
+Package: proxmox-offline-mirror-docs
+Version: 0.6.6
+
+Package: proxmox-offline-mirror-docs
+Version: 0.6.7
+
+Package: proxmox-offline-mirror-docs
+Version: 0.6.8
+
+Package: proxmox-offline-mirror-helper
+Version: 0.6.0
+
+Package: proxmox-offline-mirror-helper
+Version: 0.6.1
+
+Package: proxmox-offline-mirror-helper
+Version: 0.6.2
+
+Package: proxmox-offline-mirror-helper
+Version: 0.6.3
+
+Package: proxmox-offline-mirror-helper
+Version: 0.6.4
+
+Package: proxmox-offline-mirror-helper
+Version: 0.6.5
+
+Package: proxmox-offline-mirror-helper
+Version: 0.6.6
+
+Package: proxmox-offline-mirror-helper
+Version: 0.6.7
+
+Package: proxmox-offline-mirror-helper
+Version: 0.6.8
+
+Package: proxmox-termproxy
+Version: 1.0.0
+
+Package: proxmox-termproxy
+Version: 1.0.1
+
+Package: proxmox-termproxy
+Version: 1.1.0
+
+Package: proxmox-termproxy
+Version: 1.1.1
+
+Package: proxmox-ve
+Version: 8.0.0
+
+Package: proxmox-ve
+Version: 8.0.1
+
+Package: proxmox-ve
+Version: 8.0.2
+
+Package: proxmox-ve
+Version: 8.1.0
+
+Package: proxmox-ve
+Version: 8.2.0
+
+Package: proxmox-ve
+Version: 8.3.0
+
+Package: proxmox-ve
+Version: 8.4.0
+
+Package: proxmox-websocket-tunnel
+Version: 0.2.0-1
+
+Package: proxmox-widget-toolkit
+Version: 4.0.3
+
+Package: proxmox-widget-toolkit
+Version: 4.0.4
+
+Package: proxmox-widget-toolkit
+Version: 4.0.5
+
+Package: proxmox-widget-toolkit
+Version: 4.0.6
+
+Package: proxmox-widget-toolkit
+Version: 4.0.7
+
+Package: proxmox-widget-toolkit
+Version: 4.0.8
+
+Package: proxmox-widget-toolkit
+Version: 4.0.9
+
+Package: proxmox-widget-toolkit
+Version: 4.1.0
+
+Package: proxmox-widget-toolkit
+Version: 4.1.1
+
+Package: proxmox-widget-toolkit
+Version: 4.1.3
+
+Package: proxmox-widget-toolkit
+Version: 4.1.4
+
+Package: proxmox-widget-toolkit
+Version: 4.1.5
+
+Package: proxmox-widget-toolkit
+Version: 4.2.0
+
+Package: proxmox-widget-toolkit
+Version: 4.2.1
+
+Package: proxmox-widget-toolkit
+Version: 4.2.2
+
+Package: proxmox-widget-toolkit
+Version: 4.2.3
+
+Package: proxmox-widget-toolkit
+Version: 4.2.4
+
+Package: proxmox-widget-toolkit
+Version: 4.3.0
+
+Package: proxmox-widget-toolkit
+Version: 4.3.10
+
+Package: proxmox-widget-toolkit
+Version: 4.3.11
+
+Package: proxmox-widget-toolkit
+Version: 4.3.12
+
+Package: proxmox-widget-toolkit
+Version: 4.3.13
+
+Package: proxmox-widget-toolkit
+Version: 4.3.14
+
+Package: proxmox-widget-toolkit
+Version: 4.3.15
+
+Package: proxmox-widget-toolkit
+Version: 4.3.16
+
+Package: proxmox-widget-toolkit
+Version: 4.3.17
+
+Package: proxmox-widget-toolkit
+Version: 4.3.18
+
+Package: proxmox-widget-toolkit
+Version: 4.3.1
+
+Package: proxmox-widget-toolkit
+Version: 4.3.2
+
+Package: proxmox-widget-toolkit
+Version: 4.3.3
+
+Package: proxmox-widget-toolkit
+Version: 4.3.4
+
+Package: proxmox-widget-toolkit
+Version: 4.3.6
+
+Package: proxmox-widget-toolkit
+Version: 4.3.7
+
+Package: proxmox-widget-toolkit
+Version: 4.3.8
+
+Package: proxmox-widget-toolkit
+Version: 4.3.9
+
+Package: pve-cluster
+Version: 8.0.10
+
+Package: pve-cluster
+Version: 8.0.1
+
+Package: pve-cluster
+Version: 8.0.2
+
+Package: pve-cluster
+Version: 8.0.3
+
+Package: pve-cluster
+Version: 8.0.4
+
+Package: pve-cluster
+Version: 8.0.5
+
+Package: pve-cluster
+Version: 8.0.6
+
+Package: pve-cluster
+Version: 8.0.7
+
+Package: pve-cluster
+Version: 8.0.8
+
+Package: pve-cluster
+Version: 8.1.0
+
+Package: pve-cluster
+Version: 8.1.1
+
+Package: pve-cluster
+Version: 8.1.2
+
+Package: pve-cluster
+Version: 8.1.3
+
+Package: pve-container
+Version: 5.0.10
+
+Package: pve-container
+Version: 5.0.11
+
+Package: pve-container
+Version: 5.0.1
+
+Package: pve-container
+Version: 5.0.2
+
+Package: pve-container
+Version: 5.0.3
+
+Package: pve-container
+Version: 5.0.4
+
+Package: pve-container
+Version: 5.0.5
+
+Package: pve-container
+Version: 5.0.6
+
+Package: pve-container
+Version: 5.0.8
+
+Package: pve-container
+Version: 5.0.9
+
+Package: pve-container
+Version: 5.1.10
+
+Package: pve-container
+Version: 5.1.11
+
+Package: pve-container
+Version: 5.1.12
+
+Package: pve-container
+Version: 5.2.0
+
+Package: pve-container
+Version: 5.2.1
+
+Package: pve-container
+Version: 5.2.2
+
+Package: pve-container
+Version: 5.2.3
+
+Package: pve-container
+Version: 5.2.4
+
+Package: pve-container
+Version: 5.2.5
+
+Package: pve-container
+Version: 5.2.6
+
+Package: pve-container
+Version: 5.2.7
+
+Package: pve-container
+Version: 5.3.0
+
+Package: pve-container
+Version: 5.3.1
+
+Package: pve-container
+Version: 5.3.2
+
+Package: pve-container
+Version: 5.3.3
+
+Package: pve-container
+Version: 5.3.4
+
+Package: pve-container
+Version: 5.3.5
+
+Package: pve-container
+Version: 5.3.6
+
+Package: pve-docs
+Version: 8.0.1
+
+Package: pve-docs
+Version: 8.0.2
+
+Package: pve-docs
+Version: 8.0.3
+
+Package: pve-docs
+Version: 8.0.4
+
+Package: pve-docs
+Version: 8.0.5
+
+Package: pve-docs
+Version: 8.1.3
+
+Package: pve-docs
+Version: 8.1.4
+
+Package: pve-docs
+Version: 8.1.5
+
+Package: pve-docs
+Version: 8.2.1
+
+Package: pve-docs
+Version: 8.2.2
+
+Package: pve-docs
+Version: 8.2.3
+
+Package: pve-docs
+Version: 8.2.4
+
+Package: pve-docs
+Version: 8.2.5
+
+Package: pve-docs
+Version: 8.3.1
+
+Package: pve-docs
+Version: 8.3.2
+
+Package: pve-docs
+Version: 8.4.0
+
+Package: pve-docs
+Version: 8.4.1
+
+Package: pve-docs
+Version: 8.4.2
+
+Package: pve-edk2-firmware-legacy
+Version: 4.2023.08-1
+
+Package: pve-edk2-firmware-legacy
+Version: 4.2023.08-2
+
+Package: pve-edk2-firmware-legacy
+Version: 4.2023.08-3
+
+Package: pve-edk2-firmware-legacy
+Version: 4.2023.08-4
+
+Package: pve-edk2-firmware-legacy
+Version: 4.2025.02-1
+
+Package: pve-edk2-firmware-legacy
+Version: 4.2025.02-2
+
+Package: pve-edk2-firmware-legacy
+Version: 4.2025.02-3
+
+Package: pve-edk2-firmware-legacy
+Version: 4.2025.02-4~bpo12+1
+
+Package: pve-edk2-firmware-legacy
+Version: 4.2025.05-1~bpo12+1
+
+Package: pve-edk2-firmware-ovmf
+Version: 4.2023.08-1
+
+Package: pve-edk2-firmware-ovmf
+Version: 4.2023.08-2
+
+Package: pve-edk2-firmware-ovmf
+Version: 4.2023.08-3
+
+Package: pve-edk2-firmware-ovmf
+Version: 4.2023.08-4
+
+Package: pve-edk2-firmware-ovmf
+Version: 4.2025.02-1
+
+Package: pve-edk2-firmware-ovmf
+Version: 4.2025.02-2
+
+Package: pve-edk2-firmware-ovmf
+Version: 4.2025.02-3
+
+Package: pve-edk2-firmware-ovmf
+Version: 4.2025.02-4~bpo12+1
+
+Package: pve-edk2-firmware-ovmf
+Version: 4.2025.05-1~bpo12+1
+
+Package: pve-edk2-firmware
+Version: 3.20230228-4
+
+Package: pve-edk2-firmware
+Version: 4.2023.08-1
+
+Package: pve-edk2-firmware
+Version: 4.2023.08-2
+
+Package: pve-edk2-firmware
+Version: 4.2023.08-3
+
+Package: pve-edk2-firmware
+Version: 4.2023.08-4
+
+Package: pve-edk2-firmware
+Version: 4.2025.02-1
+
+Package: pve-edk2-firmware
+Version: 4.2025.02-2
+
+Package: pve-edk2-firmware
+Version: 4.2025.02-3
+
+Package: pve-edk2-firmware
+Version: 4.2025.02-4~bpo12+1
+
+Package: pve-edk2-firmware
+Version: 4.2025.05-1~bpo12+1
+
+Package: pve-esxi-import-tools
+Version: 0.5.0
+
+Package: pve-esxi-import-tools
+Version: 0.6.0
+
+Package: pve-esxi-import-tools
+Version: 0.6.1
+
+Package: pve-esxi-import-tools
+Version: 0.7.0
+
+Package: pve-esxi-import-tools
+Version: 0.7.1
+
+Package: pve-esxi-import-tools
+Version: 0.7.2
+
+Package: pve-esxi-import-tools
+Version: 0.7.3
+
+Package: pve-esxi-import-tools
+Version: 0.7.4
+
+Package: pve-firewall
+Version: 5.0.1
+
+Package: pve-firewall
+Version: 5.0.2
+
+Package: pve-firewall
+Version: 5.0.3
+
+Package: pve-firewall
+Version: 5.0.4
+
+Package: pve-firewall
+Version: 5.0.5
+
+Package: pve-firewall
+Version: 5.0.6
+
+Package: pve-firewall
+Version: 5.0.7
+
+Package: pve-firewall
+Version: 5.1.0
+
+Package: pve-firewall
+Version: 5.1.1
+
+Package: pve-firewall
+Version: 5.1.2
+
+Package: pve-firewall
+Version: 5.1.3
+
+Package: pve-firmware
+Version: 3.10-1
+
+Package: pve-firmware
+Version: 3.11-1
+
+Package: pve-firmware
+Version: 3.12-1
+
+Package: pve-firmware
+Version: 3.13-1
+
+Package: pve-firmware
+Version: 3.13-2
+
+Package: pve-firmware
+Version: 3.13-3
+
+Package: pve-firmware
+Version: 3.14-1
+
+Package: pve-firmware
+Version: 3.14-2
+
+Package: pve-firmware
+Version: 3.14-3
+
+Package: pve-firmware
+Version: 3.15-1
+
+Package: pve-firmware
+Version: 3.15-2
+
+Package: pve-firmware
+Version: 3.15-3
+
+Package: pve-firmware
+Version: 3.15-4
+
+Package: pve-firmware
+Version: 3.16-3
+
+Package: pve-firmware
+Version: 3.7-1
+
+Package: pve-firmware
+Version: 3.8-2
+
+Package: pve-firmware
+Version: 3.8-3
+
+Package: pve-firmware
+Version: 3.8-5
+
+Package: pve-firmware
+Version: 3.9-1
+
+Package: pve-firmware
+Version: 3.9-2
+
+Package: pve-ha-manager
+Version: 4.0.1
+
+Package: pve-ha-manager
+Version: 4.0.2
+
+Package: pve-ha-manager
+Version: 4.0.3
+
+Package: pve-ha-manager
+Version: 4.0.4
+
+Package: pve-ha-manager
+Version: 4.0.5
+
+Package: pve-ha-manager
+Version: 4.0.6
+
+Package: pve-ha-manager
+Version: 4.0.7
+
+Package: pve-i18n
+Version: 3.0.2
+
+Package: pve-i18n
+Version: 3.0.3
+
+Package: pve-i18n
+Version: 3.0.4
+
+Package: pve-i18n
+Version: 3.0.5
+
+Package: pve-i18n
+Version: 3.0.7
+
+Package: pve-i18n
+Version: 3.1.2
+
+Package: pve-i18n
+Version: 3.1.4
+
+Package: pve-i18n
+Version: 3.1.5
+
+Package: pve-i18n
+Version: 3.2.0
+
+Package: pve-i18n
+Version: 3.2.1
+
+Package: pve-i18n
+Version: 3.2.2
+
+Package: pve-i18n
+Version: 3.2.3
+
+Package: pve-i18n
+Version: 3.2.4
+
+Package: pve-i18n
+Version: 3.3.0
+
+Package: pve-i18n
+Version: 3.3.1
+
+Package: pve-i18n
+Version: 3.3.2
+
+Package: pve-i18n
+Version: 3.3.3
+
+Package: pve-i18n
+Version: 3.4.0
+
+Package: pve-i18n
+Version: 3.4.1
+
+Package: pve-i18n
+Version: 3.4.2
+
+Package: pve-i18n
+Version: 3.4.3
+
+Package: pve-i18n
+Version: 3.4.4
+
+Package: pve-i18n
+Version: 3.4.5
+
+Package: pve-lxc-syscalld
+Version: 1.3.0
+
+Package: pve-manager
+Version: 8.0.0~8
+
+Package: pve-manager
+Version: 8.0.0~9
+
+Package: pve-manager
+Version: 8.0.3
+
+Package: pve-manager
+Version: 8.0.4
+
+Package: pve-manager
+Version: 8.0.5
+
+Package: pve-manager
+Version: 8.0.6
+
+Package: pve-manager
+Version: 8.0.7
+
+Package: pve-manager
+Version: 8.0.8
+
+Package: pve-manager
+Version: 8.0.9
+
+Package: pve-manager
+Version: 8.1.10
+
+Package: pve-manager
+Version: 8.1.11
+
+Package: pve-manager
+Version: 8.1.3
+
+Package: pve-manager
+Version: 8.1.4
+
+Package: pve-manager
+Version: 8.1.5
+
+Package: pve-manager
+Version: 8.1.8
+
+Package: pve-manager
+Version: 8.2.10
+
+Package: pve-manager
+Version: 8.2.2
+
+Package: pve-manager
+Version: 8.2.3
+
+Package: pve-manager
+Version: 8.2.4
+
+Package: pve-manager
+Version: 8.2.5
+
+Package: pve-manager
+Version: 8.2.6
+
+Package: pve-manager
+Version: 8.2.7
+
+Package: pve-manager
+Version: 8.2.8
+
+Package: pve-manager
+Version: 8.2.9
+
+Package: pve-manager
+Version: 8.3.0
+
+Package: pve-manager
+Version: 8.3.1
+
+Package: pve-manager
+Version: 8.3.2
+
+Package: pve-manager
+Version: 8.3.3
+
+Package: pve-manager
+Version: 8.3.4
+
+Package: pve-manager
+Version: 8.3.5
+
+Package: pve-manager
+Version: 8.3.6
+
+Package: pve-manager
+Version: 8.3.7
+
+Package: pve-manager
+Version: 8.4.0
+
+Package: pve-manager
+Version: 8.4.10
+
+Package: pve-manager
+Version: 8.4.11
+
+Package: pve-manager
+Version: 8.4.12
+
+Package: pve-manager
+Version: 8.4.13
+
+Package: pve-manager
+Version: 8.4.14
+
+Package: pve-manager
+Version: 8.4.15
+
+Package: pve-manager
+Version: 8.4.16
+
+Package: pve-manager
+Version: 8.4.17
+
+Package: pve-manager
+Version: 8.4.18
+
+Package: pve-manager
+Version: 8.4.19
+
+Package: pve-manager
+Version: 8.4.1
+
+Package: pve-manager
+Version: 8.4.20
+
+Package: pve-manager
+Version: 8.4.21
+
+Package: pve-manager
+Version: 8.4.2
+
+Package: pve-manager
+Version: 8.4.3
+
+Package: pve-manager
+Version: 8.4.5
+
+Package: pve-manager
+Version: 8.4.6
+
+Package: pve-manager
+Version: 8.4.7
+
+Package: pve-manager
+Version: 8.4.8
+
+Package: pve-manager
+Version: 8.4.9
+
+Package: pve-qemu-kvm
+Version: 8.0.2-2
+
+Package: pve-qemu-kvm
+Version: 8.0.2-3
+
+Package: pve-qemu-kvm
+Version: 8.0.2-4
+
+Package: pve-qemu-kvm
+Version: 8.0.2-5
+
+Package: pve-qemu-kvm
+Version: 8.0.2-6
+
+Package: pve-qemu-kvm
+Version: 8.0.2-7
+
+Package: pve-qemu-kvm
+Version: 8.1.2-1
+
+Package: pve-qemu-kvm
+Version: 8.1.2-2
+
+Package: pve-qemu-kvm
+Version: 8.1.2-3
+
+Package: pve-qemu-kvm
+Version: 8.1.2-4
+
+Package: pve-qemu-kvm
+Version: 8.1.2-5
+
+Package: pve-qemu-kvm
+Version: 8.1.2-6
+
+Package: pve-qemu-kvm
+Version: 8.1.5-1
+
+Package: pve-qemu-kvm
+Version: 8.1.5-2
+
+Package: pve-qemu-kvm
+Version: 8.1.5-3
+
+Package: pve-qemu-kvm
+Version: 8.1.5-4
+
+Package: pve-qemu-kvm
+Version: 8.1.5-5
+
+Package: pve-qemu-kvm
+Version: 8.1.5-6
+
+Package: pve-qemu-kvm
+Version: 8.2.2-1
+
+Package: pve-qemu-kvm
+Version: 9.0.0-2
+
+Package: pve-qemu-kvm
+Version: 9.0.0-3
+
+Package: pve-qemu-kvm
+Version: 9.0.0-4
+
+Package: pve-qemu-kvm
+Version: 9.0.0-5
+
+Package: pve-qemu-kvm
+Version: 9.0.0-6
+
+Package: pve-qemu-kvm
+Version: 9.0.2-1
+
+Package: pve-qemu-kvm
+Version: 9.0.2-2
+
+Package: pve-qemu-kvm
+Version: 9.0.2-3
+
+Package: pve-qemu-kvm
+Version: 9.0.2-4
+
+Package: pve-qemu-kvm
+Version: 9.0.2-5
+
+Package: pve-qemu-kvm
+Version: 9.1.2-3
+
+Package: pve-qemu-kvm
+Version: 9.2.0-1
+
+Package: pve-qemu-kvm
+Version: 9.2.0-2
+
+Package: pve-qemu-kvm
+Version: 9.2.0-3
+
+Package: pve-qemu-kvm
+Version: 9.2.0-4
+
+Package: pve-qemu-kvm
+Version: 9.2.0-5
+
+Package: pve-qemu-kvm
+Version: 9.2.0-6
+
+Package: pve-qemu-kvm
+Version: 9.2.0-7
+
+Package: pve-qemu-kvm
+Version: 9.2.0-8
+
+Package: pve-xtermjs
+Version: 4.16.0-3
+
+Package: pve-xtermjs
+Version: 5.3.0-1
+
+Package: pve-xtermjs
+Version: 5.3.0-2
+
+Package: pve-xtermjs
+Version: 5.3.0-3
+
+Package: pve-xtermjs
+Version: 5.5.0-1
+
+Package: pve-xtermjs
+Version: 5.5.0-2
+
+Package: python3-pyvmomi
+Version: 6.7.1-4.1
+
+Package: qemu-server
+Version: 8.0.10
+
+Package: qemu-server
+Version: 8.0.3
+
+Package: qemu-server
+Version: 8.0.4
+
+Package: qemu-server
+Version: 8.0.6
+
+Package: qemu-server
+Version: 8.0.7
+
+Package: qemu-server
+Version: 8.0.8
+
+Package: qemu-server
+Version: 8.1.0
+
+Package: qemu-server
+Version: 8.1.1
+
+Package: qemu-server
+Version: 8.1.2
+
+Package: qemu-server
+Version: 8.1.3
+
+Package: qemu-server
+Version: 8.1.4
+
+Package: qemu-server
+Version: 8.2.1
+
+Package: qemu-server
+Version: 8.2.2
+
+Package: qemu-server
+Version: 8.2.3
+
+Package: qemu-server
+Version: 8.2.4
+
+Package: qemu-server
+Version: 8.2.5
+
+Package: qemu-server
+Version: 8.2.6
+
+Package: qemu-server
+Version: 8.2.7
+
+Package: qemu-server
+Version: 8.3.0
+
+Package: qemu-server
+Version: 8.3.10
+
+Package: qemu-server
+Version: 8.3.11
+
+Package: qemu-server
+Version: 8.3.12
+
+Package: qemu-server
+Version: 8.3.13
+
+Package: qemu-server
+Version: 8.3.14
+
+Package: qemu-server
+Version: 8.3.1
+
+Package: qemu-server
+Version: 8.3.2
+
+Package: qemu-server
+Version: 8.3.3
+
+Package: qemu-server
+Version: 8.3.4
+
+Package: qemu-server
+Version: 8.3.5
+
+Package: qemu-server
+Version: 8.3.6
+
+Package: qemu-server
+Version: 8.3.7
+
+Package: qemu-server
+Version: 8.3.8
+
+Package: qemu-server
+Version: 8.4.0
+
+Package: qemu-server
+Version: 8.4.10
+
+Package: qemu-server
+Version: 8.4.1
+
+Package: qemu-server
+Version: 8.4.2
+
+Package: qemu-server
+Version: 8.4.3
+
+Package: qemu-server
+Version: 8.4.4
+
+Package: qemu-server
+Version: 8.4.5
+
+Package: qemu-server
+Version: 8.4.6
+
+Package: qemu-server
+Version: 8.4.7
+
+Package: qemu-server
+Version: 8.4.8
+
+Package: qemu-server
+Version: 8.4.9
+
+Package: shim-helpers-amd64-signed
+Version: 1+15.7+1+pmx1
+
+Package: shim-helpers-amd64-signed
+Version: 1+15.8+1+pmx1
+
+Package: shim-helpers-amd64-signed
+Version: 1+16.1+2+pmx1~bpo12+1
+
+Package: shim-signed-common
+Version: 1.39+pmx1+15.7-1+pmx1
+
+Package: shim-signed-common
+Version: 1.40+pmx1+15.8-1+pmx1
+
+Package: shim-signed-common
+Version: 1.42+pmx1+15.8-1+pmx1
+
+Package: shim-signed-common
+Version: 1.44+pmx1+15.8-1+pmx1
+
+Package: shim-signed-common
+Version: 1.51+pmx1~bpo12+1+16.1-2+pmx1~bpo12+1
+
+Package: shim-signed
+Version: 1.39+pmx1+15.7-1+pmx1
+
+Package: shim-signed
+Version: 1.40+pmx1+15.8-1+pmx1
+
+Package: shim-signed
+Version: 1.42+pmx1+15.8-1+pmx1
+
+Package: shim-signed
+Version: 1.44+pmx1+15.8-1+pmx1
+
+Package: shim-signed
+Version: 1.51+pmx1~bpo12+1+16.1-2+pmx1~bpo12+1
+
+Package: shim-unsigned
+Version: 15.7-1+pmx1
+
+Package: shim-unsigned
+Version: 15.8-1+pmx1
+
+Package: shim-unsigned
+Version: 16.1-2+pmx1~bpo12+1
+
+Package: smartmontools
+Version: 7.3-1+b1
+
+Package: smartmontools
+Version: 7.3-pve1
+
+Package: spiceterm
+Version: 3.3.0
+
+Package: spiceterm
+Version: 3.3.1
+
+Package: spl
+Version: 2.1.11-pve2
+
+Package: spl
+Version: 2.1.12-pve1
+
+Package: spl
+Version: 2.1.13-pve1
+
+Package: spl
+Version: 2.2.0-pve1
+
+Package: spl
+Version: 2.2.0-pve2
+
+Package: spl
+Version: 2.2.0-pve3
+
+Package: spl
+Version: 2.2.0-pve4
+
+Package: spl
+Version: 2.2.10-pve1
+
+Package: spl
+Version: 2.2.2-pve1
+
+Package: spl
+Version: 2.2.2-pve2
+
+Package: spl
+Version: 2.2.3-pve1
+
+Package: spl
+Version: 2.2.3-pve2
+
+Package: spl
+Version: 2.2.4-pve1
+
+Package: spl
+Version: 2.2.6-pve1
+
+Package: spl
+Version: 2.2.7-pve1
+
+Package: spl
+Version: 2.2.7-pve2
+
+Package: spl
+Version: 2.2.8-pve1
+
+Package: spl
+Version: 2.2.9-pve1
+
+Package: swtpm-libs
+Version: 0.8.0+pve1
+
+Package: swtpm-tools
+Version: 0.8.0+pve1
+
+Package: swtpm
+Version: 0.8.0+pve1
+
+Package: systemd-boot-efi
+Version: 252.11-pve1
+
+Package: systemd-boot-efi
+Version: 252.12-pmx1
+
+Package: systemd-boot
+Version: 252.11-pve1
+
+Package: systemd-boot
+Version: 252.12-pmx1
+
+Package: systemd-sysv
+Version: 252.11-pve1
+
+Package: systemd-sysv
+Version: 252.12-pmx1
+
+Package: systemd
+Version: 252.11-pve1
+
+Package: systemd
+Version: 252.12-pmx1
+
+Package: udev
+Version: 252.11-pve1
+
+Package: udev
+Version: 252.12-pmx1
+
+Package: virtiofsd
+Version: 1.10.1-1~bpo12+pve1
+
+Package: virtiofsd
+Version: 1.6.0-4~bpo12+pve1
+
+Package: virtiofsd
+Version: 1.7.0-1~bpo12+pve1
+
+Package: virtiofsd
+Version: 1.7.2-1~bpo12+pve1
+
+Package: vncterm
+Version: 1.8.0
+
+Package: vncterm
+Version: 1.8.1
+
+Package: vncterm
+Version: 1.8.2
+
+Package: zfs-initramfs
+Version: 2.1.11-pve2
+
+Package: zfs-initramfs
+Version: 2.1.12-pve1
+
+Package: zfs-initramfs
+Version: 2.1.13-pve1
+
+Package: zfs-initramfs
+Version: 2.2.0-pve1
+
+Package: zfs-initramfs
+Version: 2.2.0-pve2
+
+Package: zfs-initramfs
+Version: 2.2.0-pve3
+
+Package: zfs-initramfs
+Version: 2.2.0-pve4
+
+Package: zfs-initramfs
+Version: 2.2.10-pve1
+
+Package: zfs-initramfs
+Version: 2.2.2-pve1
+
+Package: zfs-initramfs
+Version: 2.2.2-pve2
+
+Package: zfs-initramfs
+Version: 2.2.3-pve1
+
+Package: zfs-initramfs
+Version: 2.2.3-pve2
+
+Package: zfs-initramfs
+Version: 2.2.4-pve1
+
+Package: zfs-initramfs
+Version: 2.2.6-pve1
+
+Package: zfs-initramfs
+Version: 2.2.7-pve1
+
+Package: zfs-initramfs
+Version: 2.2.7-pve2
+
+Package: zfs-initramfs
+Version: 2.2.8-pve1
+
+Package: zfs-initramfs
+Version: 2.2.9-pve1
+
+Package: zfs-zed
+Version: 2.1.11-pve2
+
+Package: zfs-zed
+Version: 2.1.12-pve1
+
+Package: zfs-zed
+Version: 2.1.13-pve1
+
+Package: zfs-zed
+Version: 2.2.0-pve1
+
+Package: zfs-zed
+Version: 2.2.0-pve2
+
+Package: zfs-zed
+Version: 2.2.0-pve3
+
+Package: zfs-zed
+Version: 2.2.0-pve4
+
+Package: zfs-zed
+Version: 2.2.10-pve1
+
+Package: zfs-zed
+Version: 2.2.2-pve1
+
+Package: zfs-zed
+Version: 2.2.2-pve2
+
+Package: zfs-zed
+Version: 2.2.3-pve1
+
+Package: zfs-zed
+Version: 2.2.3-pve2
+
+Package: zfs-zed
+Version: 2.2.4-pve1
+
+Package: zfs-zed
+Version: 2.2.6-pve1
+
+Package: zfs-zed
+Version: 2.2.7-pve1
+
+Package: zfs-zed
+Version: 2.2.7-pve2
+
+Package: zfs-zed
+Version: 2.2.8-pve1
+
+Package: zfs-zed
+Version: 2.2.9-pve1
+
+Package: zfsutils-linux
+Version: 2.1.11-pve2
+
+Package: zfsutils-linux
+Version: 2.1.12-pve1
+
+Package: zfsutils-linux
+Version: 2.1.13-pve1
+
+Package: zfsutils-linux
+Version: 2.2.0-pve1
+
+Package: zfsutils-linux
+Version: 2.2.0-pve2
+
+Package: zfsutils-linux
+Version: 2.2.0-pve3
+
+Package: zfsutils-linux
+Version: 2.2.0-pve4
+
+Package: zfsutils-linux
+Version: 2.2.10-pve1
+
+Package: zfsutils-linux
+Version: 2.2.2-pve1
+
+Package: zfsutils-linux
+Version: 2.2.2-pve2
+
+Package: zfsutils-linux
+Version: 2.2.3-pve1
+
+Package: zfsutils-linux
+Version: 2.2.3-pve2
+
+Package: zfsutils-linux
+Version: 2.2.4-pve1
+
+Package: zfsutils-linux
+Version: 2.2.6-pve1
+
+Package: zfsutils-linux
+Version: 2.2.7-pve1
+
+Package: zfsutils-linux
+Version: 2.2.7-pve2
+
+Package: zfsutils-linux
+Version: 2.2.8-pve1
+
+Package: zfsutils-linux
+Version: 2.2.9-pve1
+

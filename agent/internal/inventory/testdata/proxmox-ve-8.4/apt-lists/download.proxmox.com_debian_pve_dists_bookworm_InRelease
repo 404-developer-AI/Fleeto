@@ -1,0 +1,11 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA256
+
+Architectures: amd64
+Changelogs: https://metadata.cdn.proxmox.com/download/changelogs/pve/dists/bookworm/@CHANGEPATH@.changelog
+Codename: bookworm
+Components: pve-no-subscription pvetest
+Date: Wed, 26 Aug 2026 17:56:10 +0000
+Label: Proxmox Debian Repository
+Origin: Proxmox
+Suite: stable

@@ -334,8 +334,9 @@ public sealed partial class GatewayStore
             INSERT INTO "InventorySnapshots" ("EndpointId", "ClientId", "ReceivedAt", "Hash", "Manufacturer", "Model", "SerialNumber",
               "CpuModel", "CpuCores", "CpuLogicalProcessors", "MemoryTotalBytes", "BootTime", "Domain", "LoggedOnUser",
               "DisksJson", "NetworkInterfacesJson", "SoftwareJson", "ServicesJson", "Action1AgentId", "Desktop",
-              "WindowsUpdate")
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16::jsonb, $17::jsonb, $18::jsonb, $19, $20, $21)
+              "WindowsUpdate", "PackageInfoJson")
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16::jsonb, $17::jsonb, $18::jsonb, $19, $20, $21,
+                    $22::jsonb)
             ON CONFLICT ("EndpointId") DO UPDATE SET
               "ReceivedAt" = EXCLUDED."ReceivedAt", "Hash" = EXCLUDED."Hash", "Manufacturer" = EXCLUDED."Manufacturer",
               "Model" = EXCLUDED."Model", "SerialNumber" = EXCLUDED."SerialNumber", "CpuModel" = EXCLUDED."CpuModel",
@@ -344,7 +345,7 @@ public sealed partial class GatewayStore
               "LoggedOnUser" = EXCLUDED."LoggedOnUser", "DisksJson" = EXCLUDED."DisksJson",
               "NetworkInterfacesJson" = EXCLUDED."NetworkInterfacesJson", "SoftwareJson" = EXCLUDED."SoftwareJson",
               "ServicesJson" = EXCLUDED."ServicesJson", "Action1AgentId" = EXCLUDED."Action1AgentId", "Desktop" = EXCLUDED."Desktop",
-              "WindowsUpdate" = EXCLUDED."WindowsUpdate"
+              "WindowsUpdate" = EXCLUDED."WindowsUpdate", "PackageInfoJson" = EXCLUDED."PackageInfoJson"
             """);
         upsert.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = endpointId });
         upsert.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = clientId });
@@ -370,6 +371,7 @@ public sealed partial class GatewayStore
         upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = DbText.Clean(inventory.Action1AgentId, 64) });
         upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = RemoteSessionRules.NormalizeDesktop(inventory.Desktop) });
         upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = WindowsUpdateRules.NormalizeState(inventory.WindowsUpdate) });
+        upsert.Parameters.Add(new NpgsqlParameter("", NpgsqlDbType.Text) { Value = (object?)PackageInfoJson(inventory, now) ?? DBNull.Value });
         batch.BatchCommands.Add(upsert);
 
         // Batch commands take positional parameters only.
@@ -570,7 +572,52 @@ public sealed partial class GatewayStore
         writer.WriteString("version", DbText.Clean(item.Version, MaxJsonString));
         writer.WriteString("publisher", DbText.Clean(item.Publisher, MaxJsonString));
         writer.WriteString("installDate", DbText.Clean(item.InstallDate, MaxJsonString));
+        // What vulnerability matching needs (0.8.0), only when the agent reported it, so the list of a Windows endpoint stays as small.
+        WriteIfAny(writer, "sourceName", DbText.Clean(item.SourceName, PackageInventory.MaxText));
+        WriteIfAny(writer, "sourceVersion", DbText.Clean(item.SourceVersion, PackageInventory.MaxText));
+        if (item.Epoch > 0)
+        {
+            writer.WriteNumber("epoch", item.Epoch > int.MaxValue ? int.MaxValue : (int)item.Epoch);
+        }
+
+        WriteIfAny(writer, "architecture", DbText.Clean(item.Architecture, 30));
+        WriteIfAny(writer, "origin", DbText.Clean(item.Origin, PackageInventory.MaxText));
+        WriteIfAny(writer, "moduleStream", DbText.Clean(item.ModuleStream, PackageInventory.MaxText));
     });
+
+    private static void WriteIfAny(Utf8JsonWriter writer, string name, string value)
+    {
+        if (value.Length > 0)
+        {
+            writer.WriteString(name, value);
+        }
+    }
+
+    /// <summary>The distribution and its package manager (0.8.0), bounded and cleaned, or null when the agent did not report them.</summary>
+    internal static string? PackageInfoJson(Inventory inventory, DateTime now)
+    {
+        if (inventory.Packages is not { } info)
+        {
+            return null;
+        }
+
+        static IReadOnlyList<string> List(IEnumerable<string> values, int max, int length) =>
+            values.Select(v => DbText.Clean(v, length).Trim()).Where(v => v.Length > 0).Distinct(StringComparer.Ordinal).Take(max).ToList();
+
+        return PackageInventory.Serialize(new PackageState(
+            DbText.Clean(info.DistributionId, 50),
+            DbText.Clean(info.DistributionVersion, 50),
+            DbText.Clean(info.DistributionVariant, 50) is { Length: > 0 } variant ? variant : null,
+            DbText.Clean(info.DistributionVariantVersion, 50) is { Length: > 0 } variantVersion ? variantVersion : null,
+            DbText.Clean(info.PackageManager, 10),
+            List(info.UbuntuProServices, PackageInventory.MaxServices, 50),
+            info.LivepatchActive,
+            List(info.LivepatchFixes, PackageInventory.MaxFixes, 30),
+            info.RestartRequired,
+            DbText.Clean(info.PackageLists, 20) is { Length: > 0 } lists ? lists : null,
+            info.PackageListsUpdatedAt is null ? null : SafeToDateTime(info.PackageListsUpdatedAt, now),
+            info.ModuleStreams.Count == 0 ? null : List(info.ModuleStreams, PackageInventory.MaxModuleStreams, 100)));
+    }
 
     /// <summary>At most <see cref="MaxServices"/> services: a normal endpoint has a few hundred.</summary>
     private static string ServicesJson(Inventory inventory) => WriteArray(inventory.Services.Take(MaxServices), static (writer, item) =>

@@ -17,6 +17,7 @@
     <PackageReference Include="MailKit" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" />
     <PackageReference Include="AWSSDK.S3" />
+    <PackageReference Include="SharpCompress" />
   </ItemGroup>
   <ItemGroup>
     <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />

@@ -238,6 +238,13 @@ public static class DatabaseGrants
             ["AdvisorySources"] = Grants(web: Read, workers: ReadWrite),
             ["Advisories"] = Grants(web: Read, workers: ReadWrite),
             ["AdvisoryHandlings"] = Grants(web: "SELECT, INSERT", workers: Read),
+            // Vulnerabilities on Linux endpoints (0.8.0): the workers fetch the feeds and match; web shows the findings and the state
+            // of the feeds. The records themselves stay with the workers.
+            ["VulnerabilityFeeds"] = Grants(web: Read, workers: ReadWrite),
+            ["VulnerabilityFeedRecords"] = Grants(workers: ReadWrite),
+            ["VulnerabilityCves"] = Grants(workers: ReadWrite),
+            ["EndpointVulnerabilities"] = Grants(web: Read, workers: ReadWrite),
+            ["EndpointVulnerabilitySummaries"] = Grants(web: Read, workers: ReadWrite),
 
             // Key material: full access for the signer only; everyone else reads the public columns.
             ["InstanceSigningKeys"] = Grants(signer: "SELECT, INSERT, UPDATE"),

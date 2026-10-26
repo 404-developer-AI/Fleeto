@@ -295,6 +295,39 @@ message Inventory {
   // asks for it, but the Action1 agent is not installed) or "untouched" (the configuration does not ask for it). Empty on other
   // platforms and from older agents.
   string windows_update = 19;
+  // What vulnerability matching needs of the distribution and its packages (0.8.0), Linux only. Absent from older agents and on
+  // other platforms; the server then shows "Update the agent to see vulnerabilities".
+  PackageInfo packages = 20;
+}
+
+// The distribution and the state of its package manager (0.8.0), read on every inventory: a restart that is required or an apt
+// update changes it without a reboot.
+message PackageInfo {
+  // ID and VERSION_ID of /etc/os-release, e.g. "ubuntu" and "22.04", "debian" and "12", "almalinux" and "9.4".
+  string distribution_id = 1;
+  string distribution_version = 2;
+  // "proxmox-ve" on a Proxmox VE host (Debian with pve-manager), empty otherwise.
+  string distribution_variant = 3;
+  // The pve-manager version on a Proxmox VE host, e.g. "8.2.4".
+  string distribution_variant_version = 4;
+  // "dpkg" or "rpm".
+  string package_manager = 5;
+  // The Ubuntu Pro services that are enabled, e.g. "esm-infra", "esm-apps", from /var/lib/ubuntu-advantage/status.json.
+  repeated string ubuntu_pro_services = 6;
+  // Canonical Livepatch (Ubuntu) or kpatch (RHEL family) has patched the running kernel.
+  bool livepatch_active = 7;
+  // The CVE identifiers Livepatch reports as fixed in the running kernel, uppercase. Empty for kpatch.
+  repeated string livepatch_fixes = 8;
+  // /var/run/reboot-required exists (dpkg) or needs-restarting -r says so (rpm).
+  bool restart_required = 9;
+  // dpkg only: "ok" when the apt lists were read, "missing" when there are none (a minimal image removed them), "unreadable"
+  // when they could not be read. Empty on rpm.
+  string package_lists = 10;
+  // dpkg only: the newest modification time of the apt lists, so the server can show lists that are old.
+  google.protobuf.Timestamp package_lists_updated_at = 11;
+  // rpm only: the module streams that are enabled, as "name:stream" (e.g. "container-tools:rhel8"), from /etc/dnf/modules.d. The
+  // packages of a stream carry no %{MODULARITYLABEL} on AlmaLinux 8, so the server takes the stream from here (0.8.0).
+  repeated string module_streams = 12;
 }
 
 message ServiceItem {
@@ -326,6 +359,20 @@ message SoftwareItem {
   string publisher = 3;
   // As reported by the OS, e.g. "20260114". Free text.
   string install_date = 4;
+  // Linux packages (0.8.0); empty from older agents and on other platforms.
+  // The source package: ${source:Package} of dpkg, the name part of %{SOURCERPM} of rpm.
+  string source_name = 5;
+  // The version of the source package: ${source:Version} of dpkg, the version-release part of %{SOURCERPM} of rpm.
+  string source_version = 6;
+  // The epoch: of the dpkg version, or %{EPOCH} of rpm; 0 when there is none.
+  uint32 epoch = 7;
+  // ${Architecture} of dpkg, %{ARCH} of rpm.
+  string architecture = 8;
+  // Where the package came from. dpkg: the Origin of the apt list the package belongs to ("Ubuntu", "UbuntuESM",
+  // "UbuntuESMApps", "Debian", "Proxmox", "Docker", ...), or "local" when it is in no list. rpm: %{VENDOR} ("AlmaLinux", ...).
+  string origin = 9;
+  // %{MODULARITYLABEL} of rpm (AlmaLinux 8 modules), e.g. "nginx:1.20:8070020230215123456:9edba152"; empty otherwise.
+  string module_stream = 10;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

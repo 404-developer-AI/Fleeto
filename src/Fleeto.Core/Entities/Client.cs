@@ -277,4 +277,10 @@ public class InventorySnapshot
     /// or empty when an older agent or a platform other than Windows does not report it.
     /// </summary>
     public string WindowsUpdate { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The distribution and the state of its package manager (0.8.0), a <see cref="Domain.PackageState"/> as JSON, or null when an
+    /// older agent or a platform other than Linux did not report it.
+    /// </summary>
+    public string? PackageInfoJson { get; set; }
 }

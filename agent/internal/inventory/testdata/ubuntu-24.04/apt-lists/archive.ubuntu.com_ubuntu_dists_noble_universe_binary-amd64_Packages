@@ -1,0 +1,12 @@
+Package: guile-3.0-libs
+Version: 3.0.9-1build2
+
+Package: libmailutils9t64
+Version: 1:3.17-1.1build3
+
+Package: mailutils
+Version: 1:3.17-1.1build3
+
+Package: mailutils-common
+Version: 1:3.17-1.1build3
+

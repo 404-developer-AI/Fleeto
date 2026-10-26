@@ -172,3 +172,8 @@ func desktop(context.Context) string {
 	defer k.Close()
 	return windowsDesktop(stringValue(k, "InstallationType"))
 }
+
+// packageInfo is Linux only (0.8.0): vulnerability matching covers the packages of Linux distributions.
+func packageInfo(context.Context) *agentv1.PackageInfo {
+	return nil
+}

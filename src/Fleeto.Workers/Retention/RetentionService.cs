@@ -167,6 +167,12 @@ public sealed class RetentionService : WorkerLoop
           SELECT "Id" FROM "SecurityIncidents" WHERE "ResolvedAt" < @cutoff LIMIT 5000)
         """;
 
+    // Ended vulnerability findings (0.8.0): kept 13 months for the history; open ones are current state.
+    private const string DeleteEndedVulnerabilitiesSql = """
+        DELETE FROM "EndpointVulnerabilities" WHERE "Id" IN (
+          SELECT "Id" FROM "EndpointVulnerabilities" WHERE "EndedAt" < @cutoff LIMIT 5000)
+        """;
+
     // Security advisories (0.8.0): kept 13 months after their publication; their handling goes with them by cascade.
     private const string DeleteAdvisoriesSql = """
         DELETE FROM "Advisories" WHERE "Id" IN (
@@ -317,6 +323,8 @@ public sealed class RetentionService : WorkerLoop
         deleted["SecurityIncidents"] = await DeleteInBatchesAsync(DeleteSecurityIncidentsSql,
             () => [new NpgsqlParameter("cutoff", now - Security.SecurityMonitorService.ResolvedRetention)], cancellationToken);
         deleted["Advisories"] = await DeleteInBatchesAsync(DeleteAdvisoriesSql, () => [new NpgsqlParameter("cutoff", now - AdvisorySources.Retention)], cancellationToken);
+        deleted["EndpointVulnerabilities (ended)"] = await DeleteInBatchesAsync(DeleteEndedVulnerabilitiesSql,
+            () => [new NpgsqlParameter("cutoff", now - Vulnerabilities.EndedRetention)], cancellationToken);
         deleted["UserSignInNetworks"] = await DeleteInBatchesAsync(DeleteSignInNetworksSql,
             () => [new NpgsqlParameter("cutoff", now - SecurityMonitorRules.SignInNetworkRetention)], cancellationToken);
         deleted["AgentCertificates"] = await DeleteInBatchesAsync(DeleteAgentCertificatesSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))], cancellationToken);

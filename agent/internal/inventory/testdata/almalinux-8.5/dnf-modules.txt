@@ -1,0 +1,13 @@
+Last metadata expiration check: 0:34:54 ago on Mon 26 Oct 2026 09:42:28 PM CET.
+AlmaLinux 8 - AppStream
+Name                 Stream        Profiles            Summary                                                                                                                                                                                                                          
+container-tools      rhel8 [d][e]  common [d]          Most recent (rolling) versions of podman, buildah, skopeo, runc, conmon, runc, conmon, CRIU, Udica, etc as well as dependencies such as container-selinux built and tested together, and updated as frequently as every 12 weeks.
+javapackages-runtime 201801 [d][e] common [d]          Basic runtime utilities to support Java applications                                                                                                                                                                             
+llvm-toolset         rhel8 [d][e]  common [d]          LLVM                                                                                                                                                                                                                             
+perl                 5.26 [d][e]   common [d], minimal Practical Extraction and Report Language                                                                                                                                                                                         
+perl-IO-Socket-SSL   2.066 [d][e]  common [d]          Perl library for transparent TLS                                                                                                                                                                                                 
+perl-libwww-perl     6.34 [d][e]   common [d]          A Perl interface to the World-Wide Web                                                                                                                                                                                           
+satellite-5-client   1.0 [d][e]    common [d], gui     Red Hat Satellite 5 client packages                                                                                                                                                                                              
+virt                 rhel [d][e]   common [d]          Virtualization module                                                                                                                                                                                                            
+
+Hint: [d]efault, [e]nabled, [x]disabled, [i]nstalled

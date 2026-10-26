@@ -34,7 +34,7 @@ Supported releases in this version:
 
 | Distribution | Releases | Feeds (§5) |
 |---|---|---|
-| Ubuntu | 22.04, 24.04, 26.04 LTS; 20.04 and 18.04 only with Ubuntu Pro (their standard support ended) | OSV `Ubuntu`, Ubuntu VEX |
+| Ubuntu | 22.04, 24.04, 26.04 LTS; 20.04 and 18.04 only with Ubuntu Pro (their standard support ended) | Ubuntu OVAL |
 | Debian | 12 bookworm, 13 trixie | Debian security tracker |
 | AlmaLinux | 8, 9, 10 | OSV `AlmaLinux` |
 | Proxmox VE | 8 (Debian 12 bookworm), 9 (Debian 13 trixie) | Debian security tracker for the Debian packages (§4) |
@@ -122,18 +122,43 @@ repository; the `Origin` of both is `Proxmox`). `/etc/os-release` says `debian`;
 
 | Source | What it gives | How the workers fetch it | Refresh |
 |---|---|---|---|
-| OSV, ecosystem `Ubuntu` | Per CVE (`UBUNTU-CVE-*`) and release: the source package, the fixed version, Ubuntu's priority, CVSS where known, whether the fix needs Ubuntu Pro, the binaries with their versions | `https://storage.googleapis.com/osv-vulnerabilities/Ubuntu/all.zip`, then `Ubuntu/modified_id.csv` for changes | Every 6 hours, full download weekly |
-| Ubuntu VEX (OpenVEX) | Per CVE and release the status of the Ubuntu CVE tracker: fixed, affected (needed or ignored), under investigation (deferred, needs-triage), not affected (not-affected, DNE) | The tarball on `security-metadata.canonical.com/vex/` | Every 6 hours |
+| Ubuntu OVAL, per release | Per CVE and release: the source package with its pocket (`jammy`, `esm-infra/focal`, `esm-apps/focal`), the first fixed version, the state ("is affected and has been fixed", "might be affected and may need fixing"), Ubuntu's priority, CVSS where known, the USN, and the kernels with their fixed versions | `security-metadata.canonical.com/oval/com.ubuntu.<release>.cve.oval.xml.bz2`, only for the releases endpoints of the instance run | Every 6 hours |
 | OSV, ecosystem `AlmaLinux` | Per errata (`ALSA-*`) and release: the **binary** packages, the fixed version, the CVEs it fixes (`related`), the severity only as the first word of its summary ("Important: openssh security update") | `https://storage.googleapis.com/osv-vulnerabilities/AlmaLinux/all.zip`, then `AlmaLinux/modified_id.csv` | Every 6 hours, full download weekly |
 | Debian security tracker | Per source package, CVE and release: the status (resolved, open, undetermined), the fixed version, the urgency (`unimportant`, `end-of-life`, ...) and `nodsa` | The JSON of `security-tracker.debian.org/tracker/data/json` | Every 6 hours |
 | CISA KEV | CVEs that are actively exploited | The JSON feed of the catalog | Daily |
 | EPSS | Per CVE the probability of exploitation in the next 30 days | The daily CSV | Daily |
 
+**Ubuntu from OVAL instead of OSV and VEX** (decided 2026-10-26, measured while building step 1): the OSV zip of Ubuntu is 791 MB
+and needs the VEX tarball (72 MB, every release) for the status, per instance, and a VPS holds several. The OVAL file of one
+release has all of it in one place: 12 MB for jammy, 11 MB for noble, 4 MB for resolute, 8 MB for focal (bzip2; about 300 MB of
+XML once unpacked, so it is read as a stream, never loaded). What it does not have, checked against VEX for the CVEs of 2025 on
+jammy: OVAL knows two states. "Under investigation" (deferred, needs-triage) and "affected" both read "might be affected and may
+need fixing", and "not affected" is left out. On Ubuntu Fleeto therefore shows a CVE Ubuntu is still investigating as "no fix
+yet", which is not fixable and so does not make an endpoint look bad, rather than in the "Not open" group of §7. A fix that
+needs Ubuntu Pro is a package in an `esm-*` pocket.
+The files exist only as bzip2, and .NET has no bzip2 decoder: the workers use `BZip2Stream` of SharpCompress (decided
+2026-10-26), a maintained MIT package, referenced by fleeto-workers only.
+
+**Debian borrows Ubuntu's priority** (decided 2026-10-26): the urgency of the security tracker is "not yet assigned" for about 80%
+of the CVEs, and its JSON carries no CVSS, so most findings on Debian and Proxmox VE would be Unknown. Where Debian has no urgency,
+Fleeto takes the priority Ubuntu gave the same CVE and shows it as such ("Ubuntu: high"); the workers then fetch the OVAL file of
+the newest Ubuntu LTS release also when no endpoint runs Ubuntu.
+
+**AlmaLinux module streams** (revised 2026-10-26 after the real output of an AlmaLinux 8.5 endpoint): OSV has no field for the
+stream, but the summary of every security errata of a module build names it (`Important: virt:rhel and virt-devel:rhel security
+update`: all 476 of AlmaLinux 8 and 124 of AlmaLinux 9 in the zip of 2026-10-26), and the parser keeps those streams with the record.
+`%{MODULARITYLABEL}` turned out to be empty on all 59 module packages of the test endpoint, so the agent also reports the streams
+enabled in `/etc/dnf/modules.d`. A module build is compared only with the errata of its stream: the one of its label when it has
+one, otherwise the ones enabled on the endpoint (podman of `container-tools:rhel8` never with an errata of `container-tools:3.0`).
+A module build whose module has no stream enabled, or on an endpoint whose agent reports no streams, is not covered rather than
+shown clean. A package outside streams is compared only with fixed versions outside module builds. An errata of a module build
+whose summary names no stream falls back to the version of the stream (`nginx:1.20` with fixed versions starting with `1.20`).
+
 Checked on real records on 2026-10-26 (`UBUNTU-CVE-2024-6387`, `ALSA-2024:4312`, `DEBIAN-CVE-2024-6387`):
 
 - **OSV carries no triage status.** An Ubuntu or Debian record has `introduced` and `fixed` events and nothing for "not
-  affected", "deferred" or "ignored"; a release missing from `affected[]` can mean any of them. That is why Ubuntu adds its VEX
-  data and Debian uses the security tracker, which has the status and the urgency (`DEBIAN-CVE-*` in OSV says "not yet
+  affected", "deferred" or "ignored"; a release missing from `affected[]` can mean any of them. That is why Ubuntu was planned with its VEX
+  data (now OVAL, above) and Debian uses the security tracker, which has the status and the urgency (`DEBIAN-CVE-*` in OSV says "not yet
   assigned" for urgency where the tracker knows it).
 - **Ubuntu and Debian list source packages** (`openssh`, not `openssh-server`); Ubuntu adds `ecosystem_specific.binaries` with the
   binary names and versions and `ecosystem_specific.availability` for a fix that needs Ubuntu Pro. The ecosystem string carries
@@ -144,8 +169,9 @@ Checked on real records on 2026-10-26 (`UBUNTU-CVE-2024-6387`, `ALSA-2024:4312`,
   missing security updates, not vulnerabilities without a fix. The tab says so (§9). Red Hat's VEX data (CSAF) has the unfixed
   state of RHEL, but is not applied to AlmaLinux (decided 2026-10-26): it is data of another distribution, AlmaLinux sometimes
   fixes earlier or differently, and a vulnerability without a fix is not something a technician can patch. It can follow later.
-- Ubuntu publishes in OSV both `USN-*` notices and `UBUNTU-CVE-*` records. Only the `UBUNTU-CVE-*` records are used, so a CVE
-  is never counted twice; the USN that fixed it is shown as a reference.
+- Ubuntu's OVAL has one definition per CVE and release (the CVE files, not the USN files), so a CVE is never counted twice; the
+  USN that fixed it is in its references and shown as one. Like OSV it names source packages, so Ubuntu is matched on the
+  source package as planned.
 
 How they are fetched:
 
@@ -175,7 +201,8 @@ The inventory of 0.1.0 reads dpkg and rpm but sends only name, version and publi
 | `SoftwareItem.epoch` | the epoch of `${Version}` (dpkg keeps it inside the version) | `%{EPOCHNUM}` |
 | `SoftwareItem.architecture` | `${Architecture}` | `%{ARCH}` |
 | `SoftwareItem.origin` | the origin decided from the apt lists (below) | `%{VENDOR}` |
-| `SoftwareItem.module_stream` | empty | `%{MODULARITYLABEL}` (AlmaLinux 8 modules) |
+| `SoftwareItem.module_stream` | empty | `%{MODULARITYLABEL}` (AlmaLinux 8 modules; empty in practice, §5) |
+| `PackageInfo.module_streams` | empty | the enabled streams of `/etc/dnf/modules.d/*.module`, as `name:stream` |
 | `OsInfo.distribution_id` | `ID` from `/etc/os-release` (`ubuntu`, `debian`) | `ID` (`almalinux`) |
 | `OsInfo.distribution_version` | `VERSION_ID` (`22.04`, `12`) | `VERSION_ID` (`9.4`, matched on the major version) |
 | `OsInfo.distribution_variant` | `proxmox-ve` with the version of `pve-manager` | empty |
@@ -195,8 +222,9 @@ The inventory of 0.1.0 reads dpkg and rpm but sends only name, version and publi
   update", never "not covered" for every package. Lists older than 30 days are shown on the tab.
 - **Cost**: the lists are parsed again only when one of their files changed (mtime and size), so an inventory run without an
   apt update reuses the result. Measured on a desktop with many repositories when building.
-- **Origin on AlmaLinux**: `%{VENDOR}` is set when a package is built. `AlmaLinux` is covered; `nginx inc.`, `Docker`, `Fedora
-  Project` (EPEL) and an empty vendor are not.
+- **Origin on AlmaLinux**: `%{VENDOR}` is set when a package is built. `AlmaLinux` and `CloudLinux` are covered: the early
+  AlmaLinux 8 builds came from the build system of CloudLinux and carry its name (322 of 814 packages on the test endpoint).
+  `CentOS` (left from a conversion), `nginx inc.`, `Docker`, `Fedora Project` (EPEL) and an empty vendor are not.
 - **Kernels**: several kernel packages are installed at once (apt keeps two, dnf three). The agent reports which one runs
   (`uname -r` mapped to its package).
 - The software list stays capped at 5,000 items. The hash of the inventory covers the new fields, so a changed origin is sent.
@@ -309,7 +337,8 @@ Each step is an alpha on the test VPS; the version is released as a whole with p
 0. **Security advisories** (§2), built 2026-10-26: the CCB feed in the workers with a parser tested on saved warnings, the tables, the dashboard
    panel with "new" and "handled", the two permissions, the language setting if the CCB publishes in more than one, the instance
    health problem for a stale feed, the API waiting list entry and the vocabulary.
-1. **Agent and matching**: the new inventory fields with tests on real `dpkg-query`, apt list and `rpm` output of Ubuntu 22.04,
+1. **Agent and matching**, built 2026-10-26 (how it works: `ARCHITECTURE.md` §5, Vulnerabilities on Linux
+   endpoints; deviations below): the new inventory fields with tests on real `dpkg-query`, apt list and `rpm` output of Ubuntu 22.04,
    24.04 and 26.04, Debian 12 and 13, Proxmox VE 8 and 9 and AlmaLinux 8, 9 and 10; the feeds of Ubuntu (OSV and VEX), AlmaLinux and Debian; the
    dpkg and rpm version comparison with the reference test sets; the severity mapping and the release support table; the
    tables, migrations (expand only) and matching in the workers; the summary table; the instance health problem for a stale
@@ -319,10 +348,37 @@ Each step is an alpha on the test VPS; the version is released as a whole with p
 3. **Exploitation and age**: KEV (with the EUVD fallback) and EPSS, sorting on them, the instance health problem for these two
    feeds, the CVSS score on the advisories panel, retention of ended findings, and the History tab entries.
 
+Deviations of step 1 from §6 to §8, decided while building:
+
+- The distribution, Pro services, Livepatch, restart and apt list fields are a message of their own on the inventory
+  (`Inventory.packages`), not on `OsInfo`: the agent reads `OsInfo` once per process, and a restart or an apt update changes them
+  without one. The running kernel is the kernel version the agent already reports.
+- On Ubuntu only the running kernel is matched (OVAL describes a kernel by what `uname -r` reports), not also the newest installed one;
+  "Restart required" shows when the newest is not running.
+- The records are one table (`VulnerabilityFeedRecords`, one row per CVE, package and release) instead of `VulnerabilityAdvisories`
+  and `VulnerabilityAffected`, and `VulnerabilityCves` holds Ubuntu's priority per CVE; KEV and EPSS (step 3) join it there.
+- No index of (release, package) to endpoints: a feed change matches every endpoint of the release again, with the records of the
+  release held in memory. Measured on 2026-10-26 with `VulnerabilityMatchLoadTests` (10,000 managed endpoints, half Ubuntu 22.04, a
+  quarter Debian 12 and a quarter AlmaLinux 9, 60,000 records per feed, about 310 findings per endpoint, PostgreSQL 17 on the
+  developer's PC): the first match of every endpoint takes 5 minutes (34 endpoints a second), a changed Ubuntu feed matches its 7,500
+  endpoints again in 80 seconds, 1,000 changed inventories take a minute, and a pass with nothing due 80 ms. Fast enough for a loop in
+  the background, so the index was not built. The first run measured 17 minutes; new findings are now written with COPY and the ones
+  that stay the same are not tracked by EF Core. What is left is mostly the check of the composite foreign key to `Endpoints`, about
+  125 µs a row, which stays (tenant separation). 3.1 million findings take 1.1 GB with their indexes and the feed records 35 MB.
+- The AlmaLinux zip is read from memory (about 7 MB, at most 256 MB), not from a file on a scratch volume.
+
 ## 12. Open
 
 Every question was decided on 2026-10-26 (§2, §5, §7, §9, §10). What is left:
 
+- **Step 1, real output of the other releases**: the parsers are tested on the real output of Ubuntu 24.04, Proxmox VE 8.4
+  (Debian 12) and AlmaLinux 8.5 (captured 2026-10-26, `agent/internal/inventory/testdata`). On the Proxmox VE host every package
+  is Debian's (613) or Proxmox's (103), none local, and the packages Proxmox rebuilt (`grub2`, `open-iscsi`, `smartmontools`, `frr`)
+  go to Proxmox by their installed version. Ubuntu 22.04 and 26.04, a plain Debian 12 and 13, Proxmox VE 9 and AlmaLinux 9 and 10
+  still need a capture, and so does a real `/etc/dnf/modules.d` (its test uses the shape dnf writes). A plain Debian first: Ubuntu
+  keeps older kernel ABIs (`linux-image-6.8.0-53-generic`) in its lists, so the running kernel of the test endpoint is the
+  distribution's; whether Debian does too, or an older running kernel ends up "local" and not covered, is not known yet (the Proxmox
+  VE host runs the Proxmox kernel).
 - **To check before building**:
   - Step 0 (checked 2026-10-26, §2): the CCB publishes in English only, and only its RSS feed is reachable for Fleeto. Its
     disclaimer reserves copying a substantial part of the site to its prior written permission. The developer asks the CCB

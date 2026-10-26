@@ -43,3 +43,8 @@ func action1AgentID() string {
 func desktop(context.Context) string {
 	return ""
 }
+
+// packageInfo is Linux only (0.8.0): vulnerability matching covers the packages of Linux distributions.
+func packageInfo(context.Context) *agentv1.PackageInfo {
+	return nil
+}

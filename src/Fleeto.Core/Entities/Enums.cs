@@ -349,5 +349,8 @@ public enum HealthComponent
     Performance,
 
     /// <summary>A source of security advisories that could not be fetched for 48 hours (0.8.0).</summary>
-    Advisories
+    Advisories,
+
+    /// <summary>A vulnerability feed that could not be fetched for 48 hours (0.8.0).</summary>
+    Vulnerabilities
 }

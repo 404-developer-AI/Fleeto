@@ -103,3 +103,47 @@ func TestUnitStateSaysStoppedForAOneshotUnitThatFinished(t *testing.T) {
 		}
 	}
 }
+
+func TestParseDpkgReadsTheSourcePackageEpochAndArchitecture(t *testing.T) {
+	out := "ii \topenssh-server\t1:8.9p1-3ubuntu0.10\tUbuntu Developers <x@example.com>\topenssh\t1:8.9p1-3ubuntu0.10\tamd64\n" +
+		"ii \tlibssl3\t3.0.2-0ubuntu1.18\tUbuntu Developers <x@example.com>\topenssl\t3.0.2-0ubuntu1.18\tamd64\n" +
+		"ii \tlibc6\t2.35-0ubuntu3.8\tUbuntu Developers <x@example.com>\tglibc\t2.35-0ubuntu3.8\ti386\n"
+
+	items := parseDpkg(out)
+
+	if len(items) != 3 {
+		t.Fatalf("got %d packages, want 3", len(items))
+	}
+	ssh := items[0]
+	if ssh.GetSourceName() != "openssh" || ssh.GetSourceVersion() != "1:8.9p1-3ubuntu0.10" || ssh.GetEpoch() != 1 || ssh.GetArchitecture() != "amd64" {
+		t.Errorf("unexpected package: %v", ssh)
+	}
+	if items[1].GetSourceName() != "openssl" || items[1].GetEpoch() != 0 || items[2].GetArchitecture() != "i386" {
+		t.Errorf("unexpected packages: %v", items[1:])
+	}
+}
+
+func TestParseRpmReadsEpochArchitectureSourceRpmAndModuleStream(t *testing.T) {
+	out := "openssh-server\t8.7p1-38.el9_4.1\tAlmaLinux\t1735689600\t(none)\tx86_64\topenssh-8.7p1-38.el9_4.1.src.rpm\t(none)\n" +
+		"openssl-libs\t3.0.7-27.el9\tAlmaLinux\t1735689600\t1\tx86_64\topenssl-3.0.7-27.el9.src.rpm\t(none)\n" +
+		"nginx\t1.20.1-14.module_el8.7.0+3249+3b1c1f0b.alma\tAlmaLinux\t1735689600\t1\tx86_64\t" +
+		"nginx-1.20.1-14.module_el8.7.0+3249+3b1c1f0b.alma.src.rpm\tnginx:1.20:8070020230215123456:9edba152\n" +
+		"gpg-pubkey\t3abb34f8-5ffd890e\t(none)\t1735689600\t(none)\t(none)\t(none)\t(none)\n"
+
+	items := parseRpm(out)
+
+	if len(items) != 4 {
+		t.Fatalf("got %d packages, want 4", len(items))
+	}
+	ssh := items[0]
+	if ssh.GetSourceName() != "openssh" || ssh.GetSourceVersion() != "8.7p1-38.el9_4.1" || ssh.GetEpoch() != 0 ||
+		ssh.GetArchitecture() != "x86_64" || ssh.GetOrigin() != "AlmaLinux" || ssh.GetModuleStream() != "" {
+		t.Errorf("unexpected package: %v", ssh)
+	}
+	if items[1].GetEpoch() != 1 || items[2].GetModuleStream() != "nginx:1.20:8070020230215123456:9edba152" {
+		t.Errorf("unexpected packages: %v", items[1:3])
+	}
+	if items[3].GetOrigin() != "" || items[3].GetSourceName() != "" {
+		t.Errorf("a package without vendor or source rpm: %v", items[3])
+	}
+}

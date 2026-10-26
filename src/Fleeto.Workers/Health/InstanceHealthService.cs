@@ -163,6 +163,9 @@ public sealed class InstanceHealthService : WorkerLoop
             .Concat(await PerformanceProblemsAsync(db, now, cancellationToken))
             .Concat(AdvisoryRules.HealthFindings(await db.AdvisorySources.AsNoTracking()
                 .Select(s => new AdvisorySourceState(s.Key, s.Enabled, s.LastSuccessAt, s.FailingSince, s.Problem)).ToListAsync(cancellationToken), now))
+            .Concat(Vulnerabilities.HealthFindings((await db.VulnerabilityFeeds.AsNoTracking()
+                .Select(f => new { f.Key, f.LastSuccessAt, f.FailingSince, f.Problem }).ToListAsync(cancellationToken))
+                .Select(f => (f.Key, f.LastSuccessAt, f.FailingSince, f.Problem)), now))
             .ToList();
         await ApplyAsync(db, findings, now, cancellationToken);
         return findings;

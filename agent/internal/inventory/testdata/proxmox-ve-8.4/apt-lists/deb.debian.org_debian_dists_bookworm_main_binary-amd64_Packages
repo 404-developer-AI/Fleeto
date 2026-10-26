@@ -1,0 +1,1932 @@
+Package: libacl1
+Version: 2.3.1-3
+
+Package: adduser
+Version: 3.134
+
+Package: libasound2
+Version: 1.2.8-1+b1
+
+Package: libasound2-data
+Version: 1.2.8-1
+
+Package: apparmor
+Version: 3.0.8-3
+
+Package: libapparmor1
+Version: 3.0.8-3
+
+Package: libappconfig-perl
+Version: 1.71-2.2
+
+Package: apt
+Version: 2.6.1
+
+Package: apt-utils
+Version: 2.6.1
+
+Package: libapt-pkg6.0
+Version: 2.6.1
+
+Package: apt-listchanges
+Version: 3.24
+
+Package: libargon2-1
+Version: 0~20171227-0.3+deb12u1
+
+Package: attr
+Version: 1:2.5.1-4
+
+Package: libattr1
+Version: 1:2.5.1-4
+
+Package: libaudit-common
+Version: 1:3.0.9-1
+
+Package: libaudit1
+Version: 1:3.0.9-1
+
+Package: libavahi-client3
+Version: 0.8-10+deb12u1
+
+Package: libavahi-common-data
+Version: 0.8-10+deb12u1
+
+Package: libavahi-common3
+Version: 0.8-10+deb12u1
+
+Package: libbabeltrace1
+Version: 1.5.11-1+b2
+
+Package: base-files
+Version: 12.4+deb12u15
+
+Package: base-passwd
+Version: 3.6.1
+
+Package: bash
+Version: 5.2.15-2+b13
+
+Package: bash-completion
+Version: 1:2.11-6
+
+Package: bc
+Version: 1.07.1-3+b1
+
+Package: bind9-dnsutils
+Version: 1:9.18.49-1~deb12u1
+
+Package: bind9-host
+Version: 1:9.18.49-1~deb12u1
+
+Package: bind9-libs
+Version: 1:9.18.49-1~deb12u1
+
+Package: binutils
+Version: 2.40-2
+
+Package: binutils-common
+Version: 2.40-2
+
+Package: binutils-x86-64-linux-gnu
+Version: 2.40-2
+
+Package: libbinutils
+Version: 2.40-2
+
+Package: libctf-nobfd0
+Version: 2.40-2
+
+Package: libctf0
+Version: 2.40-2
+
+Package: libgprofng0
+Version: 2.40-2
+
+Package: bridge-utils
+Version: 1.7.1-1
+
+Package: libbrotli1
+Version: 1.0.9-2+b6
+
+Package: bsd-mailx
+Version: 8.1.2-0.20220412cvs-1
+
+Package: btrfs-progs
+Version: 6.2-1+deb12u2
+
+Package: busybox
+Version: 1:1.35.0-4+deb12u1+b1
+
+Package: bzip2
+Version: 1.0.8-5+b1
+
+Package: libbz2-1.0
+Version: 1.0.8-5+b1
+
+Package: libc-ares2
+Version: 1.18.1-3
+
+Package: ca-certificates
+Version: 20230311+deb12u1
+
+Package: libcairo2
+Version: 1.16.0-7
+
+Package: libdebconfclient0
+Version: 0.270
+
+Package: genisoimage
+Version: 9:1.1.11-3.4
+
+Package: ceph-common
+Version: 16.2.15+ds-0+deb12u2
+
+Package: ceph-fuse
+Version: 16.2.15+ds-0+deb12u2
+
+Package: libcephfs2
+Version: 16.2.15+ds-0+deb12u2
+
+Package: librados2
+Version: 16.2.15+ds-0+deb12u2
+
+Package: libradosstriper1
+Version: 16.2.15+ds-0+deb12u2
+
+Package: librbd1
+Version: 16.2.15+ds-0+deb12u2
+
+Package: librgw2
+Version: 16.2.15+ds-0+deb12u2
+
+Package: python3-ceph-argparse
+Version: 16.2.15+ds-0+deb12u2
+
+Package: python3-ceph-common
+Version: 16.2.15+ds-0+deb12u2
+
+Package: python3-cephfs
+Version: 16.2.15+ds-0+deb12u2
+
+Package: python3-rados
+Version: 16.2.15+ds-0+deb12u2
+
+Package: python3-rbd
+Version: 16.2.15+ds-0+deb12u2
+
+Package: python3-rgw
+Version: 16.2.15+ds-0+deb12u2
+
+Package: python3-chardet
+Version: 5.1.0+dfsg-2
+
+Package: chrony
+Version: 4.3-2+deb12u3
+
+Package: cifs-utils
+Version: 2:7.0-2
+
+Package: console-setup
+Version: 1.221
+
+Package: console-setup-linux
+Version: 1.221
+
+Package: keyboard-configuration
+Version: 1.221
+
+Package: coreutils
+Version: 9.1-1
+
+Package: corosync
+Version: 3.1.7-1+deb12u2
+
+Package: libcfg7
+Version: 3.1.7-1+deb12u2
+
+Package: libcmap4
+Version: 3.1.7-1+deb12u2
+
+Package: libcorosync-common4
+Version: 3.1.7-1+deb12u2
+
+Package: libcpg4
+Version: 3.1.7-1+deb12u2
+
+Package: libquorum5
+Version: 3.1.7-1+deb12u2
+
+Package: libvotequorum8
+Version: 3.1.7-1+deb12u2
+
+Package: cpio
+Version: 2.13+dfsg-7.1
+
+Package: criu
+Version: 3.17.1-2+deb12u2
+
+Package: cron
+Version: 3.0pl1-162
+
+Package: cron-daemon-common
+Version: 3.0pl1-162
+
+Package: libcryptsetup12
+Version: 2:2.6.1-4~deb12u2
+
+Package: cstream
+Version: 4.0.0-1
+
+Package: curl
+Version: 7.88.1-10+deb12u15
+
+Package: libcurl3-gnutls
+Version: 7.88.1-10+deb12u15
+
+Package: libcurl4
+Version: 7.88.1-10+deb12u15
+
+Package: libsasl2-2
+Version: 2.1.28+dfsg-10
+
+Package: libsasl2-modules-db
+Version: 2.1.28+dfsg-10
+
+Package: dash
+Version: 0.5.12-2
+
+Package: libdb5.3
+Version: 5.3.28+dfsg2-1
+
+Package: dbus
+Version: 1.14.10-1~deb12u1
+
+Package: dbus-bin
+Version: 1.14.10-1~deb12u1
+
+Package: dbus-daemon
+Version: 1.14.10-1~deb12u1
+
+Package: dbus-session-bus-common
+Version: 1.14.10-1~deb12u1
+
+Package: dbus-system-bus-common
+Version: 1.14.10-1~deb12u1
+
+Package: libdbus-1-3
+Version: 1.14.10-1~deb12u1
+
+Package: debconf
+Version: 1.5.82
+
+Package: debconf-i18n
+Version: 1.5.82
+
+Package: python3-debconf
+Version: 1.5.82
+
+Package: debian-archive-keyring
+Version: 2023.3+deb12u2
+
+Package: debian-faq
+Version: 11.1
+
+Package: debianutils
+Version: 5.7-0.5~deb12u1
+
+Package: libfdt1
+Version: 1.6.1-4+b1
+
+Package: runit-helper
+Version: 2.15.2
+
+Package: diffutils
+Version: 1:3.8-4
+
+Package: distro-info-data
+Version: 0.58+deb12u7
+
+Package: dmidecode
+Version: 3.4-1
+
+Package: doc-debian
+Version: 11.3+nmu1
+
+Package: dosfstools
+Version: 4.2-1
+
+Package: libdouble-conversion3
+Version: 3.2.1-1
+
+Package: dpkg
+Version: 1.21.23
+
+Package: dtach
+Version: 0.9-5+b1
+
+Package: e2fsprogs
+Version: 1.47.0-2+b2
+
+Package: libcom-err2
+Version: 1.47.0-2+b2
+
+Package: libext2fs2
+Version: 1.47.0-2+b2
+
+Package: libss2
+Version: 1.47.0-2+b2
+
+Package: logsave
+Version: 1.47.0-2+b2
+
+Package: ebtables
+Version: 2.0.11-5
+
+Package: efibootmgr
+Version: 17-2
+
+Package: libefiboot1
+Version: 37-6
+
+Package: libefivar1
+Version: 37-6
+
+Package: libdw1
+Version: 0.188-2.1
+
+Package: libelf1
+Version: 0.188-2.1
+
+Package: ethtool
+Version: 1:6.1-1
+
+Package: libexpat1
+Version: 2.5.0-1+deb12u2
+
+Package: faketime
+Version: 0.9.10-2.1
+
+Package: libfaketime
+Version: 0.9.10-2.1
+
+Package: fdutils
+Version: 5.6-4
+
+Package: file
+Version: 1:5.44-3
+
+Package: libmagic-mgc
+Version: 1:5.44-3
+
+Package: libmagic1
+Version: 1:5.44-3
+
+Package: findutils
+Version: 4.9.0-4
+
+Package: fio
+Version: 3.33-3
+
+Package: libflac12
+Version: 1.4.2+ds-2
+
+Package: libfmt9
+Version: 9.1.0+ds1-2
+
+Package: fontconfig
+Version: 2.14.1-4
+
+Package: fontconfig-config
+Version: 2.14.1-4
+
+Package: libfontconfig1
+Version: 2.14.1-4
+
+Package: fonts-dejavu-core
+Version: 2.37-6
+
+Package: fonts-font-awesome
+Version: 5.0.10+really4.7.0~dfsg-4.1
+
+Package: libfreetype6
+Version: 2.12.1+dfsg-5+deb12u4
+
+Package: libfribidi0
+Version: 1.0.8-2.1
+
+Package: frr
+Version: 8.4.4-1.1~deb12u2
+
+Package: frr-pythontools
+Version: 8.4.4-1.1~deb12u2
+
+Package: libfstrm0
+Version: 0.6.1-1
+
+Package: fuse
+Version: 2.9.9-6+b1
+
+Package: libfuse2
+Version: 2.9.9-6+b1
+
+Package: libfuse3-3
+Version: 3.14.0-4
+
+Package: gcc-12-base
+Version: 12.2.0-14+deb12u1
+
+Package: libgcc-s1
+Version: 12.2.0-14+deb12u1
+
+Package: libstdc++6
+Version: 12.2.0-14+deb12u1
+
+Package: libgdbm-compat4
+Version: 1.23-3
+
+Package: libgdbm6
+Version: 1.23-3
+
+Package: gdisk
+Version: 1.0.9-2.1
+
+Package: gettext-base
+Version: 0.21-12
+
+Package: libglib2.0-0
+Version: 2.74.6-2+deb12u9
+
+Package: libc-bin
+Version: 2.36-9+deb12u14
+
+Package: libc-l10n
+Version: 2.36-9+deb12u14
+
+Package: libc6
+Version: 2.36-9+deb12u14
+
+Package: locales
+Version: 2.36-9+deb12u14
+
+Package: glusterfs-client
+Version: 10.3-5
+
+Package: glusterfs-common
+Version: 10.3-5
+
+Package: libgfapi0
+Version: 10.3-5
+
+Package: libgfchangelog0
+Version: 10.3-5
+
+Package: libgfrpc0
+Version: 10.3-5
+
+Package: libgfxdr0
+Version: 10.3-5
+
+Package: libglusterd0
+Version: 10.3-5
+
+Package: libglusterfs0
+Version: 10.3-5
+
+Package: libgmp10
+Version: 2:6.2.1+dfsg1-1.1
+
+Package: dirmngr
+Version: 2.2.40-1.1+deb12u2
+
+Package: gnupg
+Version: 2.2.40-1.1+deb12u2
+
+Package: gnupg-l10n
+Version: 2.2.40-1.1+deb12u2
+
+Package: gnupg-utils
+Version: 2.2.40-1.1+deb12u2
+
+Package: gpg
+Version: 2.2.40-1.1+deb12u2
+
+Package: gpg-agent
+Version: 2.2.40-1.1+deb12u2
+
+Package: gpg-wks-client
+Version: 2.2.40-1.1+deb12u2
+
+Package: gpg-wks-server
+Version: 2.2.40-1.1+deb12u2
+
+Package: gpgconf
+Version: 2.2.40-1.1+deb12u2
+
+Package: gpgsm
+Version: 2.2.40-1.1+deb12u2
+
+Package: gpgv
+Version: 2.2.40-1.1+deb12u2
+
+Package: gnutls-bin
+Version: 3.7.9-2+deb12u7
+
+Package: libgnutls-dane0
+Version: 3.7.9-2+deb12u7
+
+Package: libgnutls30
+Version: 3.7.9-2+deb12u7
+
+Package: libgnutlsxx30
+Version: 3.7.9-2+deb12u7
+
+Package: libgoogle-perftools4
+Version: 2.10-1
+
+Package: libtcmalloc-minimal4
+Version: 2.10-1
+
+Package: libgraphite2-3
+Version: 1.3.14-1+deb12u1
+
+Package: grep
+Version: 3.8-5
+
+Package: groff-base
+Version: 1.22.4-10
+
+Package: grub-efi-amd64-signed
+Version: 1+2.06+13+deb12u2
+
+Package: grub-common
+Version: 2.06-13+deb12u2
+
+Package: grub-efi-amd64
+Version: 2.06-13+deb12u2
+
+Package: grub-efi-amd64-bin
+Version: 2.06-13+deb12u2
+
+Package: grub-pc-bin
+Version: 2.06-13+deb12u2
+
+Package: grub2-common
+Version: 2.06-13+deb12u2
+
+Package: libgstreamer-plugins-base1.0-0
+Version: 1.22.0-3+deb12u6
+
+Package: libgstreamer1.0-0
+Version: 1.22.0-2+deb12u1
+
+Package: gzip
+Version: 1.12-1
+
+Package: libharfbuzz0b
+Version: 6.0.0+dfsg-3
+
+Package: hdparm
+Version: 9.65+ds-1
+
+Package: hostname
+Version: 3.23+nmu1
+
+Package: libicu72
+Version: 72.1-3+deb12u1
+
+Package: ifupdown2
+Version: 3.0.0-1.1
+
+Package: inetutils-telnet
+Version: 2:2.4-2+deb12u3
+
+Package: init
+Version: 1.65.2+deb12u1
+
+Package: init-system-helpers
+Version: 1.65.2+deb12u1
+
+Package: initramfs-tools
+Version: 0.142+deb12u3
+
+Package: initramfs-tools-core
+Version: 0.142+deb12u3
+
+Package: libio-stringy-perl
+Version: 2.111-3
+
+Package: iproute2
+Version: 6.1.0-3
+
+Package: ipset
+Version: 7.17-1
+
+Package: libipset13
+Version: 7.17-1
+
+Package: iptables
+Version: 1.8.9-2
+
+Package: libip4tc2
+Version: 1.8.9-2
+
+Package: libip6tc2
+Version: 1.8.9-2
+
+Package: libxtables12
+Version: 1.8.9-2
+
+Package: iputils-ping
+Version: 3:20221126-1+deb12u1
+
+Package: isc-dhcp-client
+Version: 4.4.3-P1-2
+
+Package: isc-dhcp-common
+Version: 4.4.3-P1-2
+
+Package: iso-codes
+Version: 4.15.0-1
+
+Package: libjansson4
+Version: 2.14-2
+
+Package: libjemalloc2
+Version: 5.3.0-1
+
+Package: libjson-c5
+Version: 0.16-2
+
+Package: libjson-glib-1.0-0
+Version: 1.6.6-1
+
+Package: libjson-glib-1.0-common
+Version: 1.6.6-1
+
+Package: kbd
+Version: 2.5.1-1+b1
+
+Package: keyutils
+Version: 1.6.3-2
+
+Package: libkeyutils1
+Version: 1.6.3-2
+
+Package: klibc-utils
+Version: 2.0.12-1
+
+Package: libklibc
+Version: 2.0.12-1
+
+Package: kmod
+Version: 30+20221128-1
+
+Package: libkmod2
+Version: 30+20221128-1
+
+Package: krb5-locales
+Version: 1.20.1-2+deb12u5
+
+Package: libgssapi-krb5-2
+Version: 1.20.1-2+deb12u5
+
+Package: libk5crypto3
+Version: 1.20.1-2+deb12u5
+
+Package: libkrb5-3
+Version: 1.20.1-2+deb12u5
+
+Package: libkrb5support0
+Version: 1.20.1-2+deb12u5
+
+Package: libknet1
+Version: 1.25-1
+
+Package: libnozzle1
+Version: 1.25-1
+
+Package: libmp3lame0
+Version: 3.100-6
+
+Package: libblas3
+Version: 3.11.0-2
+
+Package: less
+Version: 590-2.1~deb12u2
+
+Package: libaio1
+Version: 0.3.113-4
+
+Package: libanyevent-http-perl
+Version: 2.25-2
+
+Package: libanyevent-perl
+Version: 7.170-2+b3
+
+Package: libapt-pkg-perl
+Version: 0.1.40+b2
+
+Package: libarchive13
+Version: 3.6.2-1+deb12u4
+
+Package: libassuan0
+Version: 2.5.5-5
+
+Package: libasyncns0
+Version: 0.8-6+b3
+
+Package: libauthen-pam-perl
+Version: 0.16-5+b1
+
+Package: libbpf1
+Version: 1:1.1.2-0+deb12u1
+
+Package: libbsd0
+Version: 0.11.7-2
+
+Package: libbytes-random-secure-perl
+Version: 0.29-4~deb13u1~deb12u1
+
+Package: libcap-ng0
+Version: 0.8.3-1+b3
+
+Package: libcap2
+Version: 1:2.66-4+deb12u3+b1
+
+Package: libcap2-bin
+Version: 1:2.66-4+deb12u3+b1
+
+Package: libcbor0.8
+Version: 0.8.0-2+b1
+
+Package: libclone-perl
+Version: 0.46-1
+
+Package: libcommon-sense-perl
+Version: 3.75-3
+
+Package: libconvert-asn1-perl
+Version: 0.33-1
+
+Package: libcrypt-openssl-bignum-perl
+Version: 0.09-2+b1
+
+Package: libcrypt-openssl-random-perl
+Version: 0.15-3+b1
+
+Package: libcrypt-openssl-rsa-perl
+Version: 0.33-3+b1
+
+Package: libcrypt-random-seed-perl
+Version: 0.03-3
+
+Package: libcrypt-ssleay-perl
+Version: 0.73.06-2+b1
+
+Package: libdatrie1
+Version: 0.2.13-2+b1
+
+Package: libdbi1
+Version: 0.9.0-6
+
+Package: libdevel-cycle-perl
+Version: 1.12-2
+
+Package: libdigest-hmac-perl
+Version: 1.04+dfsg-2
+
+Package: libdrm-common
+Version: 2.4.114-1
+
+Package: libdrm2
+Version: 2.4.114-1+b1
+
+Package: libedit2
+Version: 3.1-20221030-2
+
+Package: libencode-locale-perl
+Version: 1.05-3
+
+Package: libepoxy0
+Version: 1.5.10-1
+
+Package: libevent-2.1-7
+Version: 2.1.12-stable-8
+
+Package: libevent-core-2.1-7
+Version: 2.1.12-stable-8
+
+Package: libffi8
+Version: 3.4.4-1
+
+Package: libfido2-1
+Version: 1.12.0-2+b1
+
+Package: libfile-chdir-perl
+Version: 0.1008-1.1
+
+Package: libfile-find-rule-perl
+Version: 0.34-4~deb12u1
+
+Package: libfile-listing-perl
+Version: 6.15-1
+
+Package: libfile-readbackwards-perl
+Version: 1.06-2
+
+Package: libfilesys-df-perl
+Version: 0.92-7+b1
+
+Package: libgcrypt20
+Version: 1.10.1-3+deb12u1
+
+Package: libgpg-error0
+Version: 1.46-1
+
+Package: libhtml-parser-perl
+Version: 3.81-1+deb12u1
+
+Package: libhtml-tagset-perl
+Version: 3.20-6
+
+Package: libhtml-tree-perl
+Version: 5.07-3
+
+Package: libhttp-cookies-perl
+Version: 6.10-1
+
+Package: libhttp-daemon-perl
+Version: 6.16-1+deb13u1~deb12u1
+
+Package: libhttp-date-perl
+Version: 6.05-2
+
+Package: libhttp-message-perl
+Version: 6.44-1
+
+Package: libhttp-negotiate-perl
+Version: 6.01-2
+
+Package: libidn2-0
+Version: 2.3.3-1+b1
+
+Package: libinih1
+Version: 55-1
+
+Package: libio-html-perl
+Version: 1.004-3
+
+Package: libio-multiplex-perl
+Version: 1.16-3
+
+Package: libio-socket-ssl-perl
+Version: 2.081-2
+
+Package: libiscsi7
+Version: 1.19.0-3
+
+Package: libjpeg62-turbo
+Version: 1:2.1.5-2
+
+Package: libjson-perl
+Version: 4.10000-1
+
+Package: libjson-xs-perl
+Version: 4.040-1~deb12u1
+
+Package: libksba8
+Version: 1.6.3-2
+
+Package: liblinear4
+Version: 2.3.0+dfsg-5
+
+Package: liblinux-inotify2-perl
+Version: 1:2.3-2
+
+Package: liblocale-gettext-perl
+Version: 1.07-5
+
+Package: liblockfile-bin
+Version: 1.17-1+b1
+
+Package: liblockfile1
+Version: 1.17-1+b1
+
+Package: liblwp-mediatypes-perl
+Version: 6.04-2
+
+Package: liblwp-protocol-https-perl
+Version: 6.10-1
+
+Package: libmath-random-isaac-perl
+Version: 1.004-2
+
+Package: libmaxminddb0
+Version: 1.7.1-1
+
+Package: libmd0
+Version: 1.0.4-2
+
+Package: libmime-base32-perl
+Version: 1.303-3
+
+Package: libmnl0
+Version: 1.0.4-3
+
+Package: libnbd0
+Version: 1.14.2-1
+
+Package: libnet1
+Version: 1.1.6+dfsg-3.2
+
+Package: libnet-dbus-perl
+Version: 1.2.0-2
+
+Package: libnet-dns-perl
+Version: 1.36-1
+
+Package: libnet-http-perl
+Version: 6.22-1
+
+Package: libnet-ip-perl
+Version: 1.26-3
+
+Package: libnet-ldap-perl
+Version: 1:0.6800+dfsg-1
+
+Package: libnet-ssleay-perl
+Version: 1.92-2+b1
+
+Package: libnet-subnet-perl
+Version: 1.03-2
+
+Package: libnetaddr-ip-perl
+Version: 4.079+dfsg-2+b1
+
+Package: libnetfilter-conntrack3
+Version: 1.0.9-3
+
+Package: libnetfilter-log1
+Version: 1.0.2-3
+
+Package: libnfnetlink0
+Version: 1.0.2-2
+
+Package: libnftnl11
+Version: 1.2.4-2
+
+Package: libnl-3-200
+Version: 3.7.0-0.2+b1
+
+Package: libnl-route-3-200
+Version: 3.7.0-0.2+b1
+
+Package: libnsl2
+Version: 1.3.0-2
+
+Package: libnumber-compare-perl
+Version: 0.03-3
+
+Package: libogg0
+Version: 1.3.5-3
+
+Package: libpcap0.8
+Version: 1.10.3-1
+
+Package: libpipeline1
+Version: 1.5.7-1
+
+Package: libpng16-16
+Version: 1.6.39-2+deb12u5
+
+Package: libposix-strptime-perl
+Version: 0.13-2+b1
+
+Package: libpsl5
+Version: 0.21.2-1
+
+Package: libqb100
+Version: 2.0.6-2
+
+Package: librabbitmq4
+Version: 0.11.0-1+deb12u2
+
+Package: librdkafka1
+Version: 2.0.2-1
+
+Package: libregexp-ipv6-perl
+Version: 0.03-3
+
+Package: libseccomp2
+Version: 2.5.4-1+deb12u1
+
+Package: libselinux1
+Version: 3.4-1+b6
+
+Package: libsemanage-common
+Version: 3.4-1
+
+Package: libsemanage2
+Version: 3.4-1+b5
+
+Package: libsepol2
+Version: 3.4-2.1
+
+Package: libslirp0
+Version: 4.7.0-1
+
+Package: libsndfile1
+Version: 1.2.0-1+deb12u1
+
+Package: libsocket6-perl
+Version: 0.29-3
+
+Package: libssh2-1
+Version: 1.10.0-3+b1
+
+Package: libstatgrab10
+Version: 0.92.1-1.1
+
+Package: libstring-shellquote-perl
+Version: 1.04-3
+
+Package: libtasn1-6
+Version: 4.19.0-2+deb12u1
+
+Package: libtemplate-perl
+Version: 2.27-1+b5
+
+Package: libterm-readline-gnu-perl
+Version: 1.45-1
+
+Package: libtext-charwidth-perl
+Version: 0.04-11
+
+Package: libtext-glob-perl
+Version: 0.11-3
+
+Package: libtext-iconv-perl
+Version: 1.7-8
+
+Package: libtext-wrapi18n-perl
+Version: 0.06-10
+
+Package: libthai-data
+Version: 0.1.29-1
+
+Package: libthai0
+Version: 0.1.29-1
+
+Package: libtimedate-perl
+Version: 2.3300-2
+
+Package: libtirpc-common
+Version: 1.3.3+ds-1
+
+Package: libtirpc3
+Version: 1.3.3+ds-1
+
+Package: libtpms0
+Version: 0.9.2-3.1+deb12u1
+
+Package: libtry-tiny-perl
+Version: 0.31-2
+
+Package: libtypes-serialiser-perl
+Version: 1.01-1
+
+Package: libu2f-server0
+Version: 1.1.0-4+b1
+
+Package: libunistring2
+Version: 1.0-2
+
+Package: libunwind8
+Version: 1.6.2-3
+
+Package: liburcu8
+Version: 0.13.2-1
+
+Package: liburi-perl
+Version: 5.17-1
+
+Package: liburing2
+Version: 2.3-3
+
+Package: libusb-1.0-0
+Version: 2:1.0.26-1
+
+Package: libuuid-perl
+Version: 0.28-2+b1
+
+Package: libuv1
+Version: 1.44.2-1+deb12u1
+
+Package: libva-drm2
+Version: 2.17.0-1
+
+Package: libva2
+Version: 2.17.0-1
+
+Package: libvorbis0a
+Version: 1.3.7-1
+
+Package: libvorbisenc2
+Version: 1.3.7-1
+
+Package: libwww-perl
+Version: 6.68-1
+
+Package: libwww-robotrules-perl
+Version: 6.02-1
+
+Package: libx11-6
+Version: 2:1.8.4-2+deb12u2
+
+Package: libx11-data
+Version: 2:1.8.4-2+deb12u2
+
+Package: libx11-xcb1
+Version: 2:1.8.4-2+deb12u2
+
+Package: libxau6
+Version: 1:1.0.9-1
+
+Package: libxcb-render0
+Version: 1.15-1
+
+Package: libxcb-shm0
+Version: 1.15-1
+
+Package: libxcb1
+Version: 1.15-1
+
+Package: libcrypt1
+Version: 1:4.4.33-2
+
+Package: libxdmcp6
+Version: 1:1.1.2-3
+
+Package: libxext6
+Version: 2:1.3.4-1+b1
+
+Package: libxml-libxml-perl
+Version: 2.0207+dfsg+really+2.0134-1+deb12u1
+
+Package: libxml-namespacesupport-perl
+Version: 1.12-2
+
+Package: libxml-parser-perl
+Version: 2.46-4+deb12u1
+
+Package: libxml-sax-base-perl
+Version: 1.09-3
+
+Package: libxml-sax-perl
+Version: 1.02+dfsg-3
+
+Package: libxml-twig-perl
+Version: 1:3.52-2
+
+Package: libxml2
+Version: 2.9.14+dfsg-1.3~deb12u6
+
+Package: libxrender1
+Version: 1:0.9.10-1.1
+
+Package: libxslt1.1
+Version: 1.1.35-1+deb12u4
+
+Package: xsltproc
+Version: 1.1.35-1+deb12u4
+
+Package: libyaml-0-2
+Version: 0.2.5-1
+
+Package: libyaml-libyaml-perl
+Version: 0.86+ds-1+deb12u1
+
+Package: libzstd1
+Version: 1.5.4+dfsg2-5
+
+Package: zstd
+Version: 1.5.4+dfsg2-5
+
+Package: linux-base
+Version: 4.12.1~deb12u1
+
+Package: liblmdb0
+Version: 0.9.24-1
+
+Package: logrotate
+Version: 3.21.0-1
+
+Package: lshw
+Version: 02.19.git.2021.06.19.996aaad9c7-2+b1
+
+Package: lsof
+Version: 4.95.0-1
+
+Package: lua-lpeg
+Version: 1.0.2-2
+
+Package: liblua5.3-0
+Version: 5.3.6-2
+
+Package: dmeventd
+Version: 2:1.02.185-2
+
+Package: dmsetup
+Version: 2:1.02.185-2
+
+Package: libdevmapper-event1.02.1
+Version: 2:1.02.185-2
+
+Package: libdevmapper1.02.1
+Version: 2:1.02.185-2
+
+Package: liblvm2cmd2.03
+Version: 2.03.16-2
+
+Package: lvm2
+Version: 2.03.16-2
+
+Package: lxcfs
+Version: 5.0.3-1+deb12u1
+
+Package: liblz4-1
+Version: 1.9.4-1
+
+Package: liblzo2-2
+Version: 2.10-2
+
+Package: lzop
+Version: 1.04-2
+
+Package: mailcap
+Version: 3.70+nmu1
+
+Package: man-db
+Version: 2.11.2-2
+
+Package: manpages
+Version: 6.03-2
+
+Package: mawk
+Version: 1.3.4.20200120-3.1
+
+Package: media-types
+Version: 10.0.0
+
+Package: memtest86+
+Version: 6.10-4
+
+Package: libgbm1
+Version: 22.3.6-1+deb12u2
+
+Package: mime-support
+Version: 3.66
+
+Package: mokutil
+Version: 0.6.0-2
+
+Package: libmpg123-0
+Version: 1.31.2-1+deb12u1
+
+Package: nano
+Version: 7.2-1+deb12u1
+
+Package: libncurses6
+Version: 6.4-4
+
+Package: libncursesw6
+Version: 6.4-4
+
+Package: libtinfo6
+Version: 6.4-4
+
+Package: ncurses-base
+Version: 6.4-4
+
+Package: ncurses-bin
+Version: 6.4-4
+
+Package: ncurses-term
+Version: 6.4-4
+
+Package: libdaxctl1
+Version: 76.1-1
+
+Package: libndctl6
+Version: 76.1-1
+
+Package: netbase
+Version: 6.4
+
+Package: netcat-traditional
+Version: 1.10-47
+
+Package: libhogweed6
+Version: 3.8.1-2
+
+Package: libnettle8
+Version: 3.8.1-2
+
+Package: libnewt0.52
+Version: 0.52.23-1+b1
+
+Package: whiptail
+Version: 0.52.23-1+b1
+
+Package: libnfsidmap1
+Version: 1:2.6.2-4+deb12u1
+
+Package: nfs-common
+Version: 1:2.6.2-4+deb12u1
+
+Package: libnftables1
+Version: 1.0.6-2+deb12u2
+
+Package: nftables
+Version: 1.0.6-2+deb12u2
+
+Package: libnghttp2-14
+Version: 1.52.0-1+deb12u3
+
+Package: nmap
+Version: 7.93+dfsg1-1
+
+Package: nmap-common
+Version: 7.93+dfsg1-1
+
+Package: libjs-jquery
+Version: 3.6.1+dfsg+~3.5.14-1
+
+Package: libnpth0
+Version: 1.6-3
+
+Package: libnspr4
+Version: 2:4.35-1
+
+Package: libnss3
+Version: 2:3.87.1-1+deb12u2
+
+Package: libnuma1
+Version: 2.0.16-1
+
+Package: liboath0
+Version: 2.6.7-3.1+deb12u1
+
+Package: libopeniscsiusr
+Version: 2.1.8-1
+
+Package: open-iscsi
+Version: 2.1.8-1
+
+Package: libisns0
+Version: 0.101-0.2+b1
+
+Package: libldap-2.5-0
+Version: 2.5.13+dfsg-5
+
+Package: openssh-client
+Version: 1:9.2p1-2+deb12u10
+
+Package: openssh-server
+Version: 1:9.2p1-2+deb12u10
+
+Package: openssh-sftp-server
+Version: 1:9.2p1-2+deb12u10
+
+Package: ssh
+Version: 1:9.2p1-2+deb12u10
+
+Package: libssl3
+Version: 3.0.20-1~deb12u2
+
+Package: openssl
+Version: 3.0.20-1~deb12u2
+
+Package: libopus0
+Version: 1.3.1-3
+
+Package: liborc-0.4-0
+Version: 1:0.4.33-2
+
+Package: libp11-kit0
+Version: 0.24.1-2
+
+Package: libpam-modules
+Version: 1.5.2-6+deb12u2
+
+Package: libpam-modules-bin
+Version: 1.5.2-6+deb12u2
+
+Package: libpam-runtime
+Version: 1.5.2-6+deb12u2
+
+Package: libpam0g
+Version: 1.5.2-6+deb12u2
+
+Package: libpango-1.0-0
+Version: 1.50.12+ds-1
+
+Package: libpangocairo-1.0-0
+Version: 1.50.12+ds-1
+
+Package: libpangoft2-1.0-0
+Version: 1.50.12+ds-1
+
+Package: pci.ids
+Version: 0.0~2023.04.11-1
+
+Package: libpci3
+Version: 1:3.9.0-4
+
+Package: pciutils
+Version: 1:3.9.0-4
+
+Package: libpcre2-16-0
+Version: 10.42-1
+
+Package: libpcre2-8-0
+Version: 10.42-1
+
+Package: libpcre3
+Version: 2:8.39-15
+
+Package: libperl5.36
+Version: 5.36.0-7+deb12u3
+
+Package: perl
+Version: 5.36.0-7+deb12u3
+
+Package: perl-base
+Version: 5.36.0-7+deb12u3
+
+Package: perl-modules-5.36
+Version: 5.36.0-7+deb12u3
+
+Package: perl-openssl-defaults
+Version: 7+b1
+
+Package: pinentry-curses
+Version: 1.2.1-1
+
+Package: libpixman-1-0
+Version: 0.42.2-1
+
+Package: libpmem1
+Version: 1.12.1-2
+
+Package: libpmemblk1
+Version: 1.12.1-2
+
+Package: libpopt0
+Version: 1.19+dfsg-1
+
+Package: postfix
+Version: 3.7.11-0+deb12u1
+
+Package: python3-prettytable
+Version: 3.6.0-1
+
+Package: procmail
+Version: 3.22-27
+
+Package: libproc2-0
+Version: 2:4.0.2-3
+
+Package: procps
+Version: 2:4.0.2-3
+
+Package: libprotobuf32
+Version: 3.21.12-3+deb12u1
+
+Package: python3-protobuf
+Version: 3.21.12-3+deb12u1
+
+Package: libprotobuf-c1
+Version: 1.4.1-1+b1
+
+Package: psmisc
+Version: 23.6-1
+
+Package: libpulse0
+Version: 16.1+dfsg1-2+b1
+
+Package: python3-pycurl
+Version: 7.45.2-3
+
+Package: python3-jwt
+Version: 2.6.0-1+deb12u1
+
+Package: python3-pyparsing
+Version: 3.0.9-1
+
+Package: python3-pysimplesoap
+Version: 1.16.2-5
+
+Package: python-apt-common
+Version: 2.6.0
+
+Package: python3-apt
+Version: 2.6.0
+
+Package: python3-certifi
+Version: 2022.9.24-1
+
+Package: python3-charset-normalizer
+Version: 3.0.1-2
+
+Package: python3-debian
+Version: 0.1.49
+
+Package: python3-debianbts
+Version: 4.0.1
+
+Package: python3-httplib2
+Version: 0.20.4-3
+
+Package: python3-idna
+Version: 3.3-1+deb12u1
+
+Package: python3-pyvmomi
+Version: 6.7.1-4
+
+Package: python3-systemd
+Version: 235-1+b2
+
+Package: python3-urllib3
+Version: 1.26.12-1+deb12u4
+
+Package: libpython3-stdlib
+Version: 3.11.2-1+b1
+
+Package: python3
+Version: 3.11.2-1+b1
+
+Package: python3-minimal
+Version: 3.11.2-1+b1
+
+Package: python3-distutils
+Version: 3.11.2-3
+
+Package: python3-lib2to3
+Version: 3.11.2-3
+
+Package: libpython3.11-minimal
+Version: 3.11.2-6+deb12u8
+
+Package: libpython3.11-stdlib
+Version: 3.11.2-6+deb12u8
+
+Package: python3.11
+Version: 3.11.2-6+deb12u8
+
+Package: python3.11-minimal
+Version: 3.11.2-6+deb12u8
+
+Package: python3-yaml
+Version: 6.0-3+b2
+
+Package: libqrencode4
+Version: 4.1.1-1
+
+Package: qrencode
+Version: 4.1.1-1
+
+Package: libqt5core5a
+Version: 5.15.8+dfsg-11+deb12u3
+
+Package: libqt5dbus5
+Version: 5.15.8+dfsg-11+deb12u3
+
+Package: libqt5network5
+Version: 5.15.8+dfsg-11+deb12u3
+
+Package: libibverbs1
+Version: 44.0-2
+
+Package: librdmacm1
+Version: 44.0-2
+
+Package: libreadline8
+Version: 8.2-1.3
+
+Package: readline-common
+Version: 8.2-1.3
+
+Package: python3-reportbug
+Version: 12.0.0
+
+Package: reportbug
+Version: 12.0.0
+
+Package: python3-requests
+Version: 2.28.1+dfsg-1
+
+Package: rpcbind
+Version: 1.2.6-6+b1
+
+Package: librrd8
+Version: 1.7.2-4+b8
+
+Package: librrds-perl
+Version: 1.7.2-4+b8
+
+Package: rrdcached
+Version: 1.7.2-4+b8
+
+Package: rsync
+Version: 3.2.7-1+deb12u6
+
+Package: librtmp1
+Version: 2.4+20151223.gitfa8646d.1-2+b2
+
+Package: libldb2
+Version: 2:2.6.2+samba4.17.12+dfsg-0+deb12u4
+
+Package: libsmbclient
+Version: 2:4.17.12+dfsg-0+deb12u4
+
+Package: libwbclient0
+Version: 2:4.17.12+dfsg-0+deb12u4
+
+Package: samba-common
+Version: 2:4.17.12+dfsg-0+deb12u4
+
+Package: samba-libs
+Version: 2:4.17.12+dfsg-0+deb12u4
+
+Package: smbclient
+Version: 2:4.17.12+dfsg-0+deb12u4
+
+Package: wamerican
+Version: 2020.12.07-2
+
+Package: sed
+Version: 4.9-1+deb12u1
+
+Package: sensible-utils
+Version: 0.0.17+nmu1
+
+Package: python3-pkg-resources
+Version: 66.1.1-1+deb12u2
+
+Package: python3-setuptools
+Version: 66.1.1-1+deb12u2
+
+Package: sgml-base
+Version: 1.31
+
+Package: libsubid4
+Version: 1:4.13+dfsg1-1+deb12u2
+
+Package: login
+Version: 1:4.13+dfsg1-1+deb12u2
+
+Package: passwd
+Version: 1:4.13+dfsg1-1+deb12u2
+
+Package: uidmap
+Version: 1:4.13+dfsg1-1+deb12u2
+
+Package: shared-mime-info
+Version: 2.2-1
+
+Package: shim-unsigned
+Version: 16.1-2~deb12u1
+
+Package: shim-helpers-amd64-signed
+Version: 1+16.1+2~deb12u1
+
+Package: shim-signed
+Version: 1.51~1+deb12u1+16.1-2~deb12u1
+
+Package: shim-signed-common
+Version: 1.51~1+deb12u1+16.1-2~deb12u1
+
+Package: python3-six
+Version: 1.16.0-4
+
+Package: libslang2
+Version: 2.3.3-3
+
+Package: smartmontools
+Version: 7.3-1+b1
+
+Package: libsnappy1v5
+Version: 1.1.9-3
+
+Package: socat
+Version: 1.7.4.4-2
+
+Package: libspice-server1
+Version: 0.15.1-1
+
+Package: libsqlite3-0
+Version: 3.40.1-2+deb12u2
+
+Package: sqlite3
+Version: 3.40.1-2+deb12u2
+
+Package: ssl-cert
+Version: 1.1.2
+
+Package: strace
+Version: 6.1-0.1
+
+Package: swtpm
+Version: 0.7.1-1.3
+
+Package: swtpm-libs
+Version: 0.7.1-1.3
+
+Package: swtpm-tools
+Version: 0.7.1-1.3
+
+Package: libnss-systemd
+Version: 252.39-1~deb12u2
+
+Package: libpam-systemd
+Version: 252.39-1~deb12u2
+
+Package: libsystemd-shared
+Version: 252.39-1~deb12u2
+
+Package: libsystemd0
+Version: 252.39-1~deb12u2
+
+Package: libudev1
+Version: 252.39-1~deb12u2
+
+Package: systemd
+Version: 252.39-1~deb12u2
+
+Package: systemd-boot
+Version: 252.39-1~deb12u2
+
+Package: systemd-boot-efi
+Version: 252.39-1~deb12u2
+
+Package: systemd-sysv
+Version: 252.39-1~deb12u2
+
+Package: udev
+Version: 252.39-1~deb12u2
+
+Package: sysvinit-utils
+Version: 3.06-4
+
+Package: libtalloc2
+Version: 2.4.0-f2
+
+Package: tar
+Version: 1.34+dfsg-1.2+deb12u1
+
+Package: tasksel
+Version: 3.73
+
+Package: tasksel-data
+Version: 3.73
+
+Package: libwrap0
+Version: 7.6.q-32
+
+Package: tcpdump
+Version: 4.99.3-1
+
+Package: libtdb1
+Version: 1.4.8-2
+
+Package: libtevent0
+Version: 0.14.1-1
+
+Package: thin-provisioning-tools
+Version: 0.9.0-2
+
+Package: libthrift-0.17.0
+Version: 0.17.0-2+b2
+
+Package: time
+Version: 1.9-0.2
+
+Package: traceroute
+Version: 1:2.1.2-1
+
+Package: fonts-glyphicons-halflings
+Version: 1.009~3.4.1+dfsg-3+deb12u1
+
+Package: libjs-bootstrap
+Version: 3.4.1+dfsg-3+deb12u1
+
+Package: tzdata
+Version: 2026b-0+deb12u1
+
+Package: ucf
+Version: 3.0043+nmu1+deb12u1
+
+Package: libuchardet0
+Version: 0.0.7-1
+
+Package: libunbound8
+Version: 1.17.1-2+deb12u4
+
+Package: usb.ids
+Version: 2025.07.26-0+deb12u1
+
+Package: libusbredirparser1
+Version: 0.13.0-2
+
+Package: usbutils
+Version: 1:014-1+deb12u1
+
+Package: usrmerge
+Version: 37~deb12u1
+
+Package: liblttng-ust-common1
+Version: 2.13.5-1
+
+Package: liblttng-ust-ctl5
+Version: 2.13.5-1
+
+Package: liblttng-ust1
+Version: 2.13.5-1
+
+Package: bsdextrautils
+Version: 2.38.1-5+deb12u3
+
+Package: bsdutils
+Version: 1:2.38.1-5+deb12u3
+
+Package: eject
+Version: 2.38.1-5+deb12u3
+
+Package: fdisk
+Version: 2.38.1-5+deb12u3
+
+Package: libblkid1
+Version: 2.38.1-5+deb12u3
+
+Package: libfdisk1
+Version: 2.38.1-5+deb12u3
+
+Package: libmount1
+Version: 2.38.1-5+deb12u3
+
+Package: libsmartcols1
+Version: 2.38.1-5+deb12u3
+
+Package: libuuid1
+Version: 2.38.1-5+deb12u3
+
+Package: mount
+Version: 2.38.1-5+deb12u3
+
+Package: util-linux
+Version: 2.38.1-5+deb12u3
+
+Package: util-linux-extra
+Version: 2.38.1-5+deb12u3
+
+Package: vim-common
+Version: 2:9.0.1378-2+deb12u2
+
+Package: vim-tiny
+Version: 2:9.0.1378-2+deb12u2
+
+Package: libvirglrenderer1
+Version: 0.10.4-1
+
+Package: libvulkan1
+Version: 1.3.239.0-1
+
+Package: libwayland-server0
+Version: 1.21.0-1
+
+Package: python3-wcwidth
+Version: 0.2.5+dfsg1-1.1
+
+Package: wget
+Version: 1.21.3-1+deb12u1
+
+Package: xfsprogs
+Version: 6.1.0-1
+
+Package: xkb-data
+Version: 2.35.1-1
+
+Package: libxxhash0
+Version: 0.8.1-1
+
+Package: liblzma5
+Version: 5.4.1-1+deb12u1
+
+Package: xz-utils
+Version: 5.4.1-1+deb12u1
+
+Package: zlib1g
+Version: 1:1.2.13.dfsg-1
+

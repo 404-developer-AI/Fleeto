@@ -17,6 +17,15 @@ When a third released version is added, the oldest entry moves to the top of
   when and with what comment. The workers read the RSS feed of the CCB every hour; it gives a title, a date and a link, no
   summary and no CVE identifiers. A feed that cannot be fetched for 48 hours is an instance health problem.
 - Permissions View security advisories (every default role) and Handle security advisories (admin and technician).
+- Vulnerability matching on managed Linux endpoints (0.8.0 step 1, not visible yet: the Vulnerabilities tab, the overview and the
+  dashboard tile follow in step 2). The agent reports the source package, epoch, architecture and origin of every package, and the
+  distribution, Ubuntu Pro services, Livepatch, whether a restart is required, the age of the apt lists and the enabled module
+  streams of AlmaLinux. A package of a module stream is matched only with the errata of its stream, and is not covered when its
+  stream is unknown, rather than shown clean. The workers fetch the
+  Ubuntu OVAL files of the releases in use, the Debian security tracker and the AlmaLinux errata, and match every managed Ubuntu,
+  Debian, Proxmox VE and AlmaLinux endpoint inside the instance; nothing of an endpoint leaves it. A feed that cannot be fetched for
+  48 hours is an instance health problem. Load-tested at 10,000 endpoints: 5 minutes for the first match, 80 seconds after a feed
+  change.
 
 ## [0.7.0] — 2026-10-26
 

@@ -96,6 +96,8 @@ func Collect(ctx context.Context, logger *slog.Logger) *agentv1.Inventory {
 	inv.Action1AgentId = action1AgentID()
 	// Whether remote control has a desktop to show; without one only remote background is offered (0.6.0).
 	inv.Desktop = desktop(ctx)
+	// The distribution and the state of its package manager, for vulnerability matching (0.8.0); nil off Linux.
+	inv.Packages = packageInfo(ctx)
 
 	Normalize(inv)
 	return inv
@@ -130,12 +132,15 @@ func Normalize(inv *agentv1.Inventory) {
 			cmp.Compare(strings.ToLower(a.GetName()), strings.ToLower(b.GetName())),
 			cmp.Compare(a.GetName(), b.GetName()),
 			cmp.Compare(a.GetVersion(), b.GetVersion()),
+			cmp.Compare(a.GetArchitecture(), b.GetArchitecture()),
 			cmp.Compare(a.GetPublisher(), b.GetPublisher()),
 			cmp.Compare(a.GetInstallDate(), b.GetInstallDate()),
 		)
 	})
 	inv.Software = slices.CompactFunc(inv.Software, func(a, b *agentv1.SoftwareItem) bool {
-		return a.GetName() == b.GetName() && a.GetVersion() == b.GetVersion() && a.GetPublisher() == b.GetPublisher()
+		// The same package of two architectures (amd64 and i386 on Debian multiarch) stays twice.
+		return a.GetName() == b.GetName() && a.GetVersion() == b.GetVersion() && a.GetArchitecture() == b.GetArchitecture() &&
+			a.GetPublisher() == b.GetPublisher()
 	})
 	slices.SortFunc(inv.Services, func(a, b *agentv1.ServiceItem) int { return cmp.Compare(a.GetName(), b.GetName()) })
 	inv.Services = slices.CompactFunc(inv.Services, func(a, b *agentv1.ServiceItem) bool { return a.GetName() == b.GetName() })

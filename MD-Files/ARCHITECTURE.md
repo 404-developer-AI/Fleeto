@@ -1864,6 +1864,35 @@ in `VULNERABILITIES.md` §2). Instance-wide, never matched to endpoints.
 - **Retention**: 13 months after publication, the handling with it. Web reads the advisories and their sources and inserts a
   handling; only the workers write the rest.
 
+### Vulnerabilities on Linux endpoints (0.8.0)
+
+Which known vulnerabilities affect the distribution packages of a managed Linux endpoint (design and decisions in
+`VULNERABILITIES.md`). Matched inside the instance: only public feeds come in, the inventory never goes out.
+
+- **Agent** (`inventory/packages.go`, `packages_linux.go`): every software item carries its source package and version, epoch,
+  architecture, origin and module stream (`SoftwareItem` fields 5 to 10), and `Inventory.packages` (`PackageInfo`) the distribution,
+  the package manager, the Ubuntu Pro services, Livepatch or kpatch, whether a restart is required and the state of the apt lists.
+  Not on `OsInfo`, which the agent reads once per process. The origin of a Debian package is decided by name against the apt lists
+  (cached until a list changes); an rpm package's origin is its vendor (`AlmaLinux`, or `CloudLinux` for the early AlmaLinux 8
+  builds), and its enabled module streams come from `/etc/dnf/modules.d`. The gateway stores the package state as
+  `InventorySnapshots.PackageInfoJson` (`PackageInventory`) and the new fields in `SoftwareJson`.
+- **Feeds** (`VulnerabilityFeedService`): only what the managed Linux endpoints need, from their package state: the OVAL file of each
+  Ubuntu release in use (bzip2 through SharpCompress, read as a stream; kernel records only for the flavours that run, matched by the
+  `uname -r` pattern of the file), the newest Ubuntu LTS when a Debian endpoint borrows its priorities, the Debian security tracker
+  JSON and the AlmaLinux OSV zip (read in memory, about 7 MB). Every 6 hours, an hour after a failure, at once when the releases or
+  kernel flavours in use change; conditional requests, no redirects, at most 256 MB, a circuit breaker. A feed that shrinks below half
+  is refused. Its records replace the previous ones in `VulnerabilityFeedRecords` in one transaction (DELETE and binary COPY), Ubuntu's
+  priorities are upserted into `VulnerabilityCves`, and `VulnerabilityFeeds.Version` rises. A feed failing for 48 hours is an instance
+  health problem of the component Vulnerability feeds.
+- **Matching** (`VulnerabilityMatchService`, rules in `Fleeto.Core.Domain.Vulnerabilities`, versions in `PackageVersions`): every minute,
+  200 endpoints a pass, each managed Linux endpoint whose inventory hash or feed versions differ from its summary. The records of a
+  release are cached in the workers until their feed version changes. New findings are written with COPY, in one transaction with the
+  changed and ended ones and the summary; findings that stay the same are read without tracking. Measured at 10,000 endpoints: 5
+  minutes for the first match, 80 seconds after a feed change (`VULNERABILITIES.md` §11). A finding is one CVE on one source package
+  (`EndpointVulnerabilities`, at most one open per CVE and package); one that disappears ends as fixed, removed or withdrawn. The counts
+  go to `EndpointVulnerabilitySummaries`, which the UI of step 2 reads. An endpoint that is no longer a managed Linux endpoint loses its
+  findings and summary. Ended findings are kept 13 months.
+
 ### Other controls
 
 - Containers non-root, read-only filesystems where possible, no Docker socket in app

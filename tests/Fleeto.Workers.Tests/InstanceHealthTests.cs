@@ -93,7 +93,10 @@ public sealed class InstanceHealthTests
             var sample = await db.InstanceHealthSamples.OrderByDescending(s => s.Id).FirstAsync();
             Assert.True(sample.DatabaseBytes > 0);
             Assert.True(sample.DatabaseMaxConnections > 0);
-            Assert.Contains(InstanceHealthRules.ParseDetail(sample.DetailJson).Tables, t => t.Name == "CheckResults");
+            // The largest tables, largest first. Which ones they are depends on the tables of the empty test database, not on a name.
+            var tables = InstanceHealthRules.ParseDetail(sample.DetailJson).Tables;
+            Assert.Equal(15, tables.Count);
+            Assert.Equal(tables.OrderByDescending(t => t.Bytes).Select(t => t.Bytes), tables.Select(t => t.Bytes));
         }
 
         // Without the extension (local and CI databases) the reason is stored instead of statements.

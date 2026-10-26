@@ -1,0 +1,42 @@
+Package: ca-certificates
+Version: 20230311+deb12u1
+
+Package: openssh-client
+Version: 1:9.2p1-2+deb12u7
+
+Package: openssh-server
+Version: 1:9.2p1-2+deb12u7
+
+Package: openssh-sftp-server
+Version: 1:9.2p1-2+deb12u7
+
+Package: ssh
+Version: 1:9.2p1-2+deb12u7
+
+Package: libssl3
+Version: 3.0.17-1~deb12u2
+
+Package: openssl
+Version: 3.0.17-1~deb12u2
+
+Package: libldb2
+Version: 2:2.6.2+samba4.17.12+dfsg-0+deb12u2
+
+Package: libsmbclient
+Version: 2:4.17.12+dfsg-0+deb12u2
+
+Package: libwbclient0
+Version: 2:4.17.12+dfsg-0+deb12u2
+
+Package: samba-common
+Version: 2:4.17.12+dfsg-0+deb12u2
+
+Package: samba-libs
+Version: 2:4.17.12+dfsg-0+deb12u2
+
+Package: smbclient
+Version: 2:4.17.12+dfsg-0+deb12u2
+
+Package: tzdata
+Version: 2025b-0+deb12u1
+

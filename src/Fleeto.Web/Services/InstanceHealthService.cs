@@ -200,7 +200,9 @@ public sealed class InstanceHealthService
             Component(HealthComponent.Performance, "Performance", s is null ? null
                 : "A critical finding of the performance monitor opens a problem here"),
             Component(HealthComponent.Advisories, "Security advisories", s is null ? null
-                : "A source that cannot be fetched for 48 hours opens a problem here")
+                : "A source that cannot be fetched for 48 hours opens a problem here"),
+            Component(HealthComponent.Vulnerabilities, "Vulnerability feeds", s is null ? null
+                : "A feed that cannot be fetched for 48 hours opens a problem here")
         ];
     }
 

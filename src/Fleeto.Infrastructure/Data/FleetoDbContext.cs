@@ -127,6 +127,13 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<Advisory> Advisories => Set<Advisory>();
     public DbSet<AdvisoryHandling> AdvisoryHandlings => Set<AdvisoryHandling>();
 
+    // Vulnerabilities on Linux endpoints (0.8.0): the feeds are instance-wide, the findings belong to an endpoint.
+    public DbSet<VulnerabilityFeed> VulnerabilityFeeds => Set<VulnerabilityFeed>();
+    public DbSet<VulnerabilityFeedRecord> VulnerabilityFeedRecords => Set<VulnerabilityFeedRecord>();
+    public DbSet<VulnerabilityCve> VulnerabilityCves => Set<VulnerabilityCve>();
+    public DbSet<EndpointVulnerability> EndpointVulnerabilities => Set<EndpointVulnerability>();
+    public DbSet<EndpointVulnerabilitySummary> EndpointVulnerabilitySummaries => Set<EndpointVulnerabilitySummary>();
+
     // The performance monitor (0.7.0): instance-wide, no client, no personal data.
     public DbSet<PerfMinute> PerfMinutes => Set<PerfMinute>();
     public DbSet<PerfHour> PerfHours => Set<PerfHour>();
@@ -367,6 +374,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(i => i.DisksJson).HasColumnType("jsonb");
             entity.Property(i => i.NetworkInterfacesJson).HasColumnType("jsonb");
             entity.Property(i => i.SoftwareJson).HasColumnType("jsonb");
+            entity.Property(i => i.PackageInfoJson).HasColumnType("jsonb");
             entity.Property(i => i.ServicesJson).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
             EndpointOwned(entity);
         });
@@ -1646,6 +1654,81 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(h => h.UserName).HasMaxLength(256);
             entity.Property(h => h.Comment).HasMaxLength(AdvisoryRules.MaxCommentLength);
             entity.HasOne<Advisory>().WithOne().HasForeignKey<AdvisoryHandling>(h => h.AdvisoryId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<VulnerabilityFeed>(entity =>
+        {
+            entity.HasKey(f => f.Key);
+            entity.Property(f => f.Key).HasMaxLength(50);
+            entity.Property(f => f.Problem).HasMaxLength(1000);
+            entity.Property(f => f.ETag).HasMaxLength(200);
+            entity.Property(f => f.LastModified).HasMaxLength(100);
+            entity.Property(f => f.Scope).HasMaxLength(4000);
+        });
+
+        builder.Entity<VulnerabilityFeedRecord>(entity =>
+        {
+            entity.Property(r => r.Id).UseIdentityAlwaysColumn();
+            entity.Property(r => r.Feed).HasMaxLength(50);
+            entity.Property(r => r.Distribution).HasMaxLength(20);
+            entity.Property(r => r.Release).HasMaxLength(20);
+            entity.Property(r => r.Package).HasMaxLength(200);
+            entity.Property(r => r.Cve).HasMaxLength(30);
+            entity.Property(r => r.Status).HasConversion<string>().HasMaxLength(20);
+            entity.Property(r => r.FixedVersion).HasMaxLength(200);
+            entity.Property(r => r.ProService).HasMaxLength(30);
+            entity.Property(r => r.Severity).HasConversion<string>().HasMaxLength(20);
+            entity.Property(r => r.SourceSeverity).HasMaxLength(50);
+            entity.Property(r => r.Cvss).HasPrecision(3, 1);
+            entity.Property(r => r.Advisory).HasMaxLength(50);
+            entity.Property(r => r.KernelPattern).HasMaxLength(500);
+            entity.Property(r => r.ModuleStreams).HasMaxLength(500);
+            entity.HasOne<VulnerabilityFeed>().WithMany().HasForeignKey(r => r.Feed).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(r => new { r.Distribution, r.Release, r.Package });
+            entity.HasIndex(r => r.Feed);
+        });
+
+        builder.Entity<VulnerabilityCve>(entity =>
+        {
+            entity.HasKey(c => c.Cve);
+            entity.Property(c => c.Cve).HasMaxLength(30);
+            entity.Property(c => c.UbuntuPriority).HasConversion<string>().HasMaxLength(20);
+        });
+
+        builder.Entity<EndpointVulnerability>(entity =>
+        {
+            entity.Property(v => v.Id).UseIdentityAlwaysColumn();
+            entity.Property(v => v.Cve).HasMaxLength(30);
+            entity.Property(v => v.Package).HasMaxLength(200);
+            entity.Property(v => v.InstalledVersion).HasMaxLength(200);
+            entity.Property(v => v.FixedVersion).HasMaxLength(200);
+            entity.Property(v => v.State).HasConversion<string>().HasMaxLength(20);
+            entity.Property(v => v.Severity).HasConversion<string>().HasMaxLength(20);
+            entity.Property(v => v.SourceSeverity).HasMaxLength(50);
+            entity.Property(v => v.Cvss).HasPrecision(3, 1);
+            entity.Property(v => v.Advisory).HasMaxLength(50);
+            entity.Property(v => v.EndReason).HasConversion<string>().HasMaxLength(20);
+            // At most one open finding per CVE and package of an endpoint, so a concurrent pass cannot open it twice.
+            entity.HasIndex(v => new { v.EndpointId, v.Cve, v.Package }).IsUnique().HasFilter("\"EndedAt\" IS NULL")
+                .HasDatabaseName("IX_EndpointVulnerabilities_Open");
+            entity.HasIndex(v => new { v.ClientId, v.Cve }).HasFilter("\"EndedAt\" IS NULL").HasDatabaseName("IX_EndpointVulnerabilities_ClientCve");
+            entity.HasIndex(v => v.EndedAt);
+            EndpointChild(entity, v => new { v.EndpointId, v.ClientId });
+            EndpointOwned(entity);
+        });
+
+        builder.Entity<EndpointVulnerabilitySummary>(entity =>
+        {
+            entity.HasKey(s => s.EndpointId);
+            entity.Property(s => s.Coverage).HasConversion<string>().HasMaxLength(30);
+            entity.Property(s => s.Distribution).HasMaxLength(50);
+            entity.Property(s => s.Release).HasMaxLength(50);
+            entity.Property(s => s.PackageLists).HasMaxLength(20);
+            entity.Property(s => s.InventoryHash).HasMaxLength(64);
+            entity.Property(s => s.FeedVersion).HasMaxLength(500);
+            entity.HasIndex(s => s.ClientId);
+            EndpointChild(entity, s => new { s.EndpointId, s.ClientId });
+            EndpointOwned(entity);
         });
 
         builder.Entity<UserSignInNetwork>(entity =>
