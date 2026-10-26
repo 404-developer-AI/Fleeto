@@ -57,7 +57,8 @@ public sealed class PerformanceRuleTests
         Assert.Equal(100, scores.Single(s => s.Info.Category == PerfCategory.Hosting).Score);
         Assert.Null(scores.Single(s => s.Info.Category == PerfCategory.Agents).Score);
         Assert.Null(scores.Single(s => s.Info.Category == PerfCategory.Frontend).Score);
-        Assert.False(scores.Single(s => s.Info.Category == PerfCategory.Network).Info.Measured);
+        Assert.Null(scores.Single(s => s.Info.Category == PerfCategory.Network).Score);
+        Assert.All(scores, s => Assert.True(s.Info.Measured));
     }
 
     [Theory]

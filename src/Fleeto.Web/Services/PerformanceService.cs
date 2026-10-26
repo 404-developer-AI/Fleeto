@@ -87,6 +87,9 @@ public sealed class PerformanceService
     public const int MinDiagnoseMinutes = 5;
     public const int MaxMarkerLength = 200;
 
+    /// <summary>An edge check or benchmark is asked for at most this often, and one that waits this long without starting has expired.</summary>
+    public static readonly TimeSpan ProbeInterval = TimeSpan.FromMinutes(1);
+
     /// <summary>The ZIP plans the top statements, but never for longer than this in all.</summary>
     private static readonly TimeSpan PlanBudget = TimeSpan.FromSeconds(20);
 
@@ -202,6 +205,7 @@ public sealed class PerformanceService
         settings = settings with
         {
             DisabledCollectors = settings.DisabledCollectors.Distinct().Order().ToList(),
+            Budgets = (settings.Budgets ?? []).Select(b => b with { Key = b.Key.Trim(), SubKey = (b.SubKey ?? string.Empty).Trim() }).ToList(),
             Thresholds = settings.Thresholds
                 .Where(t => PerfThresholds.Find(t.Key) is not { } info || Math.Abs(info.Default - t.Value) > 1e-9)
                 .ToDictionary(t => t.Key, t => t.Value, StringComparer.Ordinal)
@@ -360,6 +364,65 @@ public sealed class PerformanceService
             new { Table = table }), now));
         await db.SaveChangesAsync(cancellationToken);
         return ServiceResult.Ok();
+    }
+
+    /// <summary>
+    /// Asks the workers for an edge check of the instance URL or a benchmark of the VPS (spec §5 and §9, on click only). Web may not
+    /// reach the internet, so it writes the request and notifies; the workers run it and write the result, which the page follows.
+    /// One of each kind a minute; audited.
+    /// </summary>
+    public async Task<ServiceResult<Guid>> RequestProbeAsync(Caller caller, PerfProbeKind kind, CancellationToken cancellationToken = default)
+    {
+        if (!caller.Has(Permissions.PerformanceManage))
+        {
+            return ServiceResult<Guid>.Forbidden();
+        }
+
+        if (!Enum.IsDefined(kind))
+        {
+            return ServiceResult<Guid>.Fail("Choose an edge check or a benchmark.");
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        await using var db = _dbFactory.CreateSystem();
+        var since = now - ProbeInterval;
+        if (await db.PerfProbes.AnyAsync(p => p.Kind == kind && (p.RequestedAt > since || (p.CompletedAt == null && p.StartedAt != null)), cancellationToken))
+        {
+            return ServiceResult<Guid>.Fail(kind == PerfProbeKind.EdgeCheck
+                ? "An edge check ran less than a minute ago or still runs. Wait for its result, then try again."
+                : "A benchmark ran less than a minute ago or still runs. Wait for its result, then try again.");
+        }
+
+        var probe = new PerfProbe { Id = Guid.NewGuid(), Kind = kind, RequestedAt = now, RequestedBy = caller.UserId };
+        db.PerfProbes.Add(probe);
+        var instance = await InstanceQueries.GetInstanceAsync(db, cancellationToken);
+        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.PerformanceProbeRequested, "Instance", instance.InstanceId.ToString(), null,
+            new { Kind = kind.ToString() }), now));
+        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _bus.PublishAsync(NotificationChannels.PerformanceProbes, probe.Id.ToString(), cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The workers look for waiting requests every minute anyway.
+        }
+
+        return ServiceResult<Guid>.Ok(probe.Id);
+    }
+
+    /// <summary>One edge check or benchmark, for the page to follow until it completed.</summary>
+    public async Task<PerfProbeView?> GetProbeAsync(Caller caller, Guid id, CancellationToken cancellationToken = default)
+    {
+        if (!caller.Has(Permissions.PerformanceView))
+        {
+            return null;
+        }
+
+        await using var db = _dbFactory.CreateSystem();
+        using var scope = PerfContext.Begin(PerfKeys.DashboardSource);
+        var probe = await db.PerfProbes.AsNoTracking().SingleOrDefaultAsync(p => p.Id == id, cancellationToken);
+        return probe is null ? null : PerformanceReader.ToView(probe);
     }
 
     /// <summary>Settings and I/O of PostgreSQL, read live as web when the Database tab opens. What cannot be read is said.</summary>

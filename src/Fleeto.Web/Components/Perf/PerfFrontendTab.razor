@@ -1,0 +1,98 @@
+@* Frontend (0.7.0 step 3, spec §9): the Web Vitals of every page as the browsers of signed-in users measured them, in the bands of
+   Core Web Vitals, and the network between those browsers and the server: the round trip of the live connection and the
+   connection setup of a page load. For a share of page loads only, every page while Diagnose runs. *@
+@using Fleeto.Core.Performance
+@using Fleeto.Infrastructure.Performance
+
+@{
+    var pages = PerformanceRules.Vitals(View.Data);
+    var network = PerformanceRules.NetworkSeries(View.Data);
+    var lcp = View.Settings.Threshold(PerfThresholds.Lcp);
+    var inp = View.Settings.Threshold(PerfThresholds.Inp);
+    var cls = View.Settings.Threshold(PerfThresholds.Cls);
+    var longTasks = View.Settings.Threshold(PerfThresholds.LongTasks);
+}
+
+<MudAlert Severity="Severity.Normal" Dense="true" Class="mb-3">
+    Measured by the browsers of signed-in users for @View.Settings.FrontendSamplePercent% of page loads, and every page while Diagnose runs.
+    Only the page's route template and the figures below reach the server. Largest contentful paint, layout shift and interaction to next
+    paint come from browsers that support them, such as Chrome and Edge.
+</MudAlert>
+
+<MudText Typo="Typo.h6" Class="section-title mb-2">
+    Network
+    <PerfInfo Text="The round trip is a message on the live connection to the server and back, sent every 5 seconds and answered at once: it comes on top of every click. Connection setup is DNS, TCP and TLS when a page is opened from the address bar." />
+</MudText>
+<div class="health-grid mb-4">
+    @NetworkCard("Live connection round trip", network.GetValueOrDefault(PerfVitals.CircuitRoundTrip), View.Settings.Threshold(PerfThresholds.CircuitRoundTrip))
+    @NetworkCard("Connection setup", network.GetValueOrDefault(PerfVitals.Connect), View.Settings.Threshold(PerfThresholds.Connect))
+</div>
+
+<MudText Typo="Typo.h6" Class="section-title mb-2">
+    Pages
+    <PerfInfo Text="Per page the 75th percentile, the figure Core Web Vitals are judged on. Green is good, amber needs improvement, red is poor. Largest contentful paint: until the main content shows. Interaction to next paint: the slowest response to a click or key of a view. Layout shift: how far content jumps. Long tasks: time per view the browser could not answer the user." />
+</MudText>
+@if (pages.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="muted mb-4">
+        No page reported in this period. @(View.Settings.Collects(PerfCollector.Frontend) ? $"{View.Settings.FrontendSamplePercent}% of page loads report; start Diagnose to have every page report." : "The collector Browser is off.")
+    </MudText>
+}
+else
+{
+    <div class="fl-panel pa-2 mb-4" style="overflow-x:auto">
+        <MudSimpleTable Dense="true" Elevation="0">
+            <thead>
+                <tr>
+                    <th>Page (route template)</th><th style="text-align:right">Views</th><th style="text-align:right">Largest paint</th>
+                    <th style="text-align:right">First paint</th><th style="text-align:right">First byte</th><th style="text-align:right">Interaction</th>
+                    <th style="text-align:right">Layout shift</th><th style="text-align:right">Long tasks per view</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var vitals in pages.Take(50))
+                {
+                    <tr>
+                        <td class="mono" style="max-width:320px;overflow-wrap:anywhere">@vitals.Route</td>
+                        <td style="text-align:right">@PerformanceRules.Count(vitals.Views)</td>
+                        <td style="text-align:right">@Band(PerformanceRules.PageVitals.P75(vitals.Lcp), lcp, 1.6 * lcp, PerformanceRules.Ms)</td>
+                        <td style="text-align:right">@PerformanceRules.Ms(PerformanceRules.PageVitals.P75(vitals.Fcp))</td>
+                        <td style="text-align:right">@PerformanceRules.Ms(PerformanceRules.PageVitals.P75(vitals.Ttfb))</td>
+                        <td style="text-align:right">@Band(PerformanceRules.PageVitals.P75(vitals.Inp), inp, 2.5 * inp, PerformanceRules.Ms)</td>
+                        <td style="text-align:right">@Band(vitals.ClsP75, cls, 2.5 * cls, v => PerformanceRules.Num(v ?? 0, "0.###"))</td>
+                        <td style="text-align:right">@Band(vitals.LongTaskMsPerView, longTasks, 4 * longTasks, PerformanceRules.Ms)</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public PerformanceView View { get; set; } = default!;
+
+    /// <summary>A value in the band of its thresholds: good up to the first, poor above the second.</summary>
+    private static RenderFragment Band(double? value, double good, double poor, Func<double?, string> format) => value is not { } v
+        ? @<span class="muted">–</span>
+        : @<StatusChip Text="@format(v)" Kind="@(v <= good ? StatusKind.Ok : v <= poor ? StatusKind.Warning : StatusKind.Error)" />;
+
+    private static RenderFragment NetworkCard(string name, PerfSeries? series, double threshold) => @<div class="health-card fl-panel">
+        <div class="health-card-head">
+            <span>@name</span>
+            @if (series?.P95 is { } p95)
+            {
+                <span style="margin-left:auto"><StatusChip Text="@PerformanceRules.Ms(p95)" Kind="@(p95 <= threshold ? StatusKind.Ok : p95 <= 3 * threshold ? StatusKind.Warning : StatusKind.Error)" /></span>
+            }
+        </div>
+        @if (series is null)
+        {
+            <div class="muted" style="font-size:0.8125rem">Not measured in this period.</div>
+        }
+        else
+        {
+            <div class="muted" style="font-size:0.8125rem">
+                95th percentile · median @PerformanceRules.Ms(series.P50) · longest @PerformanceRules.Ms(series.Max) · @PerformanceRules.Count(series.Count) measurements
+            </div>
+        }
+    </div>;
+}

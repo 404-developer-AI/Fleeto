@@ -673,7 +673,7 @@ and issues, show 7-day hourly trends with the check history chart, and say so wh
 tables, statements, instance counts), copied or downloaded by an admin and audited as `instance.diagnostics_exported`;
 they carry sizes, counts and normalized statements, never host names, users, secrets or other personal data.
 
-**Performance monitor (0.7.0, steps 1 and 2).** Where Fleeto itself is slow and why, for admins in Settings, Performance, with
+**Performance monitor (0.7.0, steps 1 to 3).** Where Fleeto itself is slow and why, for admins in Settings, Performance, with
 an export to hand to Claude Code in this repository. It measures Fleeto, never the endpoints: check results and
 inventory are product data with their own pipeline. The generic rules are `performance-monitoring.md`, how they map onto
 Fleeto `PERFORMANCE.md`.
@@ -694,7 +694,27 @@ Fleeto `PERFORMANCE.md`.
   `OnInitializedAsync`. `PerfDialogService` replaces MudBlazor's dialog service and leaves the time a dialog stays open out of
   the interaction that opened it. `PerfHttpMiddleware`, right after routing, measures `/api`, `/account` and the agent download
   per route template, method and status class with the response size. `LiveUpdates` counts every live update and the pages it
-  reaches. The page's own work counts under `perf-dashboard`.
+  reaches. The page's own work counts under `perf-dashboard`. The connection ping of the navigation and the browser's reports
+  discard their scope (`PerfScope.Discard`), so they are no interactions of the page they happen on.
+- *Browser (step 3).* For a share of page loads (10% by default, decided once per page load; every page in Diagnose, and a page
+  opened before Diagnose started joins within a minute without its page load) `startVitals` in `fleeto.js` measures with
+  `PerformanceObserver`: largest and first contentful paint, time to first byte and connection setup of the page load, per view
+  (a path, until the path changes or the tab is hidden) the layout shift as its largest session window and its slowest
+  interaction, every long task, and the round trip of the 5-second ping of the live connection. It sends them every 30 seconds
+  and when the tab is hidden over the circuit (`SidebarStatus.ReportVitals`), so only a signed-in page can report and there is no
+  endpoint to call from outside. `PerfVitalsReceiver` keeps what passes `PerfVitals`: a whitelist of metrics with their ranges,
+  at most 60 items a report and 6 reports a page a minute, the path only choosing a route template web knows (`PageRoutes`),
+  the minute the server's. Stored as kind `Vital` (key the route template, sub key the metric; a layout shift times 1000) and
+  `Network` (`circuit`, `connect`) in `PerfMinutes` like every other flow.
+- *Edge check and benchmark (step 3).* On an admin's click only. Web may not reach the internet, so it writes a `PerfProbes` row
+  and notifies `fleeto_performance_probes`; `PerfProbeService` in the workers claims it with an update, runs it and writes the
+  result as a JSON list of items, each with its value, whether it is as it should be and what to do when it is not. The edge
+  check (`PerfEdgeCheck`) times DNS, TCP and TLS to the instance URL through the host Caddy, reads the TLS version, whether
+  HTTP/2 was agreed and the certificate, then loads the sign-in page and a fingerprinted stylesheet without cookies and judges
+  the HTTP version, keep-alive, compression, caching and the HSTS and CSP headers. The benchmark (`PerfBenchmark`) hashes 64 MB
+  on one core, writes 64 MB with fsync and 50 small writes each with fsync to the work directory (and removes the file), and
+  times 200 trivial queries. One of a kind a minute; a request not picked up within 10 minutes expires with that reason;
+  probes are kept 30 days.
 - *Gateway.* Every agent and watchdog message per type: size and time from receiving it to its durable write and
   acknowledgement, with its database time; connections accepted, refused, duplicate and closed per minute; connected agents;
   job delivery from the moment a job could be delivered (signed, agent online); relayed connections with their bytes each way;
@@ -722,16 +742,26 @@ Fleeto `PERFORMANCE.md`.
   the snapshot before the period and the last in it, reset-aware; the minutes of loops and pages for the overlap rule up to 24
   hours. `PerformanceRules` (Core, pure) turns it into findings with evidence, cause, action, code references and an impact
   estimate (the extra waiting above a threshold, from the histogram), ranked by impact, and a score per category (100 minus a
-  penalty per finding, no score without data). Thresholds are settings. Network and Frontend are not measured before step 3
-  and get no card. The page has the tabs Overview, Pages and API, Database, Server, Background, Agent channel and Settings;
-  a row of a page, route, loop or message opens its latency over the period, its distribution, its slowest occurrences and
-  the statements it sent. The Database tab reads the settings, I/O and indexes of PostgreSQL live as web; sessions and lock
-  waits come from the snapshots of the workers, which may see every role's sessions.
+  penalty per finding, no score without data). Thresholds are settings. Web Vitals are judged on their 75th percentile per
+  page, as Core Web Vitals are, with at least 10 samples. Budgets (step 3) are lines such as `page /clients load = 800` or
+  `api GET /api/v1/endpoints = 300` in the settings (`PerfBudgets`): a flow over its budget is a finding. The reader also
+  compares the period with the one of equal length before it and, when a new version started in it, the stretch of the version
+  before with the stretch since (`PerfComparison`, from `PerfRuntimeMinutes`); a 95th percentile 25% and 20 ms slower than
+  before is a regression finding. The page has the tabs Overview, Pages and API, Database, Server, Background, Agent channel,
+  Frontend and Settings; a row of a page, route, loop or message opens its latency over the period, its distribution, its
+  slowest occurrences and the statements it sent. The Database tab reads the settings, I/O and indexes of PostgreSQL live as
+  web; sessions and lock waits come from the snapshots of the workers, which may see every role's sessions.
+- *Instance health (step 3).* Every 15 minutes `InstanceHealthService` judges the last hour with the same rules; a critical
+  finding becomes a problem of component Performance (`PerformanceHealth`, key `performance:` and a hash of the finding id),
+  as a warning, at most 5 at once, through the usual issues and notification channels of instance health. A finding whose
+  problem resolved does not open again within the cooldown (24 hours by default). An admin switches it off in the settings.
 - *Access and export.* Permissions `performance.view` and `performance.manage` (administration of the instance, admin by
   default). Settings changes are audited with the old and new values (`performance.settings_changed`), every export too
   (`performance.exported`), starting and stopping Diagnose (`performance.diagnose_started`, `performance.diagnose_stopped`),
-  a manual marker (`performance.marker_added`, its length only), a plan (`performance.planned`) and ANALYZE
-  (`performance.table_analyzed`). `PerformanceReport` writes the Markdown in the order of the spec, at most 100 KB, the JSON
+  a manual marker (`performance.marker_added`, its length only), a plan (`performance.planned`), ANALYZE
+  (`performance.table_analyzed`) and an edge check or benchmark (`performance.probe_requested`). `PerformanceReport` writes
+  the Markdown in the order of the spec (with the Web Vitals per page, the network, the budgets, the comparisons and the latest
+  edge check and benchmark), at most 100 KB, the JSON
   with a `schemaVersion`, and the ZIP with both and the generic plans of the top statements, everything through
   `PerfRedactor`: SQL normalized, values, addresses, tokens and host names masked, and the client codes and endpoint host
   names of the instance masked wherever they slip in. A plan is the generic plan of a statement the monitor stored, looked up

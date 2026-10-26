@@ -28,11 +28,14 @@ public static class PerformanceReport
             ("Instructions for Claude Code", Instructions(version)),
             ("Environment", Environment(data)),
             ("Summary per category", Summary(scores)),
+            ("Budgets", Budgets(data, redactor)),
             ("Top bottlenecks", Bottlenecks(findings, redactor)),
             ("Page interactions", Flows(data, PerfKind.Interaction, redactor, "Page (route template)")),
             ("API and sign-in requests", Flows(data, PerfKind.Http, redactor, "Route")),
             ("Worker loops", Flows(data, PerfKind.WorkerRun, redactor, "Loop")),
             ("Agent messages", Flows(data, PerfKind.AgentMessage, redactor, "Message type")),
+            ("Frontend: Web Vitals per page", Frontend(data, redactor)),
+            ("Network", Network(data)),
             ("Signing requests", Flows(data, PerfKind.Signing, redactor, "Request kind")),
             ("External calls", Flows(data, PerfKind.External, redactor, "Host")),
             ("Database time by source", Flows(data, PerfKind.Db, redactor, "Source")),
@@ -45,6 +48,8 @@ public static class PerformanceReport
             ("Database health", DatabaseHealth(data)),
             ("Runtime per component", Runtime(data)),
             ("Exceptions", Exceptions(data, redactor)),
+            ("Edge check and benchmark", Probes(data, redactor)),
+            ("Comparison", Comparisons(data, redactor)),
             ("Markers", Markers(data, redactor)),
         };
         var limitations = ("Missing data / limitations", Limitations(data));
@@ -138,6 +143,17 @@ public static class PerformanceReport
                 DuplicateOf = i.DuplicateOf is null ? null : redactor.Text(i.DuplicateOf)
             }),
             Markers = data.Markers.Select(m => new { m.Time, m.Kind, Label = redactor.AdminText(m.Label) }),
+            Budgets = BudgetResults(data).Select(b => new { Budget = redactor.Text(b.Budget.ToLine()), b.Count, b.P95, b.Measured, b.Met }),
+            Comparisons = data.Comparisons.Select(c => new
+            {
+                c.Kind, Before = redactor.Text(c.Before), Now = redactor.Text(c.Now), c.BeforeFrom, c.BeforeTo, c.NowFrom, c.NowTo,
+                Rows = c.Rows.Select(r => new { r.Kind, Key = redactor.Text(r.Key), SubKey = redactor.Text(r.SubKey), r.BeforeCount, r.BeforeP95, r.NowCount, r.NowP95, r.Change })
+            }),
+            Probes = data.Probes.Select(p => new
+            {
+                p.Kind, p.RequestedAt, p.CompletedAt, Problem = p.Problem is null ? null : redactor.Text(p.Problem),
+                Items = p.Items.Select(i => new { Name = redactor.Text(i.Name), Value = redactor.Text(i.Value), i.Good })
+            }),
             Limitations = data.Missing
         };
         return JsonSerializer.Serialize(report, JsonOptions);
@@ -182,6 +198,7 @@ public static class PerformanceReport
         - This report comes from Settings, Performance of a Fleeto instance on version {version}. It measures Fleeto itself, never the endpoints it manages.
         - Start at "Top bottlenecks". Each one names where to look: a page route template, an API route, a worker loop, an agent message type, a statement or a table.
         - Page interactions are Blazor pages: find the page by its route template (the `@page` directive) under `src/Fleeto.Web/Components/Pages`, and the work it does in its service under `src/Fleeto.Web/Services`. A sub key `load` is the page loading its data (`FleetoPageBase.LoadAsync`), `event` a click or other event on it.
+        - Web Vitals come from the browsers of signed-in users, collected by `startVitals` in `src/Fleeto.Web/wwwroot/js/fleeto.js`. A slow largest contentful paint is usually the first render waiting for data or a heavy first view; a slow interaction to next paint is the server handling the event (see the page's `event` row) or a large render coming back; layout shift is content appearing without reserved space. Styles are in `src/Fleeto.Web/wwwroot/app.css`.
         - API routes are mapped in `src/Fleeto.Web/Api/PublicApi.cs`; sign-in routes in `src/Fleeto.Web/Account`.
         - Worker loops are classes deriving from `WorkerLoop` under `src/Fleeto.Workers`, named by the `Name` they pass to the base constructor. Agent message types are in `src/Fleeto.Protocol`, handled in `AgentSessionManager.HandleAsync` under `src/Fleeto.Gateway/Sessions` with the store under `src/Fleeto.Gateway/Data`. Signing request kinds are handled under `src/Fleeto.Signer/Handlers`.
         - Queries are EF Core LINQ or SQL constants in the services and stores. Statements measured in Diagnose carry their fingerprint (16 hexadecimal characters), their normalized text (every literal a `?`) and the method that sent them as `Namespace.Type.Method`: open that method first. Statement statistics are PostgreSQL's own normalized text (parameters as `$1`); match those on table and column names.
@@ -496,6 +513,113 @@ public static class PerformanceReport
         // In Diagnose the sub key names the class that threw and the kind of work it happened in.
         return "| Component | Type | Thrown by (Diagnose) | Count |\n|---|---|---|---|\n" +
                string.Concat(top.Select(s => $"| {s.Component} | `{Cell(redactor.Text(s.Key))}` | {(s.SubKey.Length == 0 ? "–" : $"`{Cell(redactor.Text(s.SubKey))}`")} | {Count(s.Count)} |\n"));
+    }
+
+    private static string Budgets(PerformanceDataset data, PerfRedactor redactor)
+    {
+        var results = BudgetResults(data);
+        if (results.Count == 0)
+        {
+            return "No budgets are set.";
+        }
+
+        return "| Budget | Count | p95 | Status |\n|---|---|---|---|\n" + string.Concat(results.Select(r =>
+            $"| `{Cell(redactor.Text(r.Budget.ToLine()))}` | {Count(r.Count)} | {Ms(r.P95)} | {(!r.Measured ? "did not run" : r.Met ? "within budget" : "over budget")} |\n"));
+    }
+
+    private static string Frontend(PerformanceDataset data, PerfRedactor redactor)
+    {
+        var pages = Vitals(data).Take(DetailRows).ToList();
+        if (pages.Count == 0)
+        {
+            return "No page reported in this period.";
+        }
+
+        var md = new StringBuilder($"75th percentiles from {data.Settings.FrontendSamplePercent}% of page loads (every page in Diagnose). A page is a route template under `src/Fleeto.Web/Components/Pages`.\n\n");
+        md.Append("| Page (route template) | Views | Largest contentful paint | First contentful paint | Time to first byte | Interaction to next paint | Layout shift | Long tasks per view |\n");
+        md.Append("|---|---|---|---|---|---|---|---|\n");
+        foreach (var page in pages)
+        {
+            md.Append($"| `{Cell(redactor.Text(page.Route))}` | {Count(page.Views)} | {Ms(PageVitals.P75(page.Lcp))} | {Ms(PageVitals.P75(page.Fcp))} | " +
+                      $"{Ms(PageVitals.P75(page.Ttfb))} | {Ms(PageVitals.P75(page.Inp))} | {(page.ClsP75 is { } cls ? Num(cls, "0.###") : "–")} | {Ms(page.LongTaskMsPerView)} |\n");
+        }
+
+        return md.ToString();
+    }
+
+    private static string Network(PerformanceDataset data)
+    {
+        var network = NetworkSeries(data);
+        if (network.Count == 0)
+        {
+            return "No browser reported in this period.";
+        }
+
+        string Line(string name, string key) => network.GetValueOrDefault(key) is { } s
+            ? $"- {name}: median {Ms(s.P50)}, 95th percentile {Ms(s.P95)}, longest {Ms(s.Max)} over {Count(s.Count)} measurements"
+            : $"- {name}: not measured";
+        return Line("Round trip of the live connection (browser to server and back, every 5 seconds)", PerfVitals.CircuitRoundTrip) + "\n" +
+               Line("Connection setup of a page load (DNS, TCP, TLS)", PerfVitals.Connect) + "\n";
+    }
+
+    private static string Probes(PerformanceDataset data, PerfRedactor redactor)
+    {
+        if (data.Probes.Count == 0)
+        {
+            return "Neither ran on this instance yet. An admin runs them on the Server tab.";
+        }
+
+        var md = new StringBuilder();
+        foreach (var probe in data.Probes)
+        {
+            md.Append($"### {(probe.Kind == "EdgeCheck" ? "Edge check" : "Benchmark")}, {(probe.CompletedAt is { } at ? $"ran {Utc(at)}" : "still running")}\n\n");
+            if (probe.Problem is { } problem)
+            {
+                md.Append($"Problem: {redactor.Text(problem)}\n\n");
+            }
+
+            foreach (var item in probe.Items)
+            {
+                md.Append($"- {redactor.Text(item.Name)}: {redactor.Text(item.Value)}{(item.Good is false ? " (needs attention)" : "")}\n");
+            }
+
+            md.Append('\n');
+        }
+
+        return md.ToString();
+    }
+
+    private static string Comparisons(PerformanceDataset data, PerfRedactor redactor)
+    {
+        if (data.Comparisons.Count == 0)
+        {
+            return "Nothing to compare: no flow had enough samples in this period and the one before it, and no new version started in it.";
+        }
+
+        var md = new StringBuilder();
+        foreach (var comparison in data.Comparisons)
+        {
+            md.Append(comparison.Kind == PerfComparisonKind.Version
+                ? $"### Version {redactor.Text(comparison.Now)} against {redactor.Text(comparison.Before)}\n\n"
+                : "### This period against the previous one\n\n");
+            md.Append($"{Utc(comparison.BeforeFrom)} to {Utc(comparison.BeforeTo)} against {Utc(comparison.NowFrom)} to {Utc(comparison.NowTo)}.\n\n");
+            if (comparison.Rows.Count == 0)
+            {
+                md.Append("No flow had enough samples on both sides.\n\n");
+                continue;
+            }
+
+            md.Append("| Flow | p95 before | p95 now | Change |\n|---|---|---|---|\n");
+            foreach (var row in comparison.Rows.Take(DetailRows))
+            {
+                md.Append($"| `{Cell(redactor.Text(Describe(row)))}` | {Value(row, row.BeforeP95)} ({Count(row.BeforeCount)}) | {Value(row, row.NowP95)} ({Count(row.NowCount)}) | " +
+                          $"{(row.Change is { } change ? $"{(change >= 0 ? "+" : "")}{Num(change * 100, "0")}%" : "–")} |\n");
+            }
+
+            md.Append('\n');
+        }
+
+        return md.ToString();
     }
 
     private static string Markers(PerformanceDataset data, PerfRedactor redactor) =>

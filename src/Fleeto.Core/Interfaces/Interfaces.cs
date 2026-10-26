@@ -128,6 +128,9 @@ public static class NotificationChannels
     /// <summary>Payload: empty. The settings of the performance monitor changed (0.7.0); every component reads them again.</summary>
     public const string Performance = "fleeto_performance";
 
+    /// <summary>Payload: PerfProbe id. An admin asked for an edge check or a benchmark (0.7.0 step 3); the workers run it.</summary>
+    public const string PerformanceProbes = "fleeto_performance_probes";
+
     /// <summary>
     /// Payload: user id. What a user may reach changed (0.6.0): its groups, the rules of one of them, or its role. Web closes
     /// the open pages of that user; the gateway ends the remote session connections web marked as revoked.
@@ -284,6 +287,8 @@ public static class AuditActions
     public const string PerformancePlanned = "performance.planned";
     /// <summary>An admin ran ANALYZE on one table from the performance monitor.</summary>
     public const string PerformanceTableAnalyzed = "performance.table_analyzed";
+    /// <summary>An admin asked for an edge check of the instance URL or a benchmark of the VPS (0.7.0 step 3).</summary>
+    public const string PerformanceProbeRequested = "performance.probe_requested";
     public const string NoteCreated = "note.created";
     public const string NoteUpdated = "note.updated";
     public const string NoteDeleted = "note.deleted";

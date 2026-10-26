@@ -9,7 +9,8 @@ When a third released version is added, the oldest entry moves to the top of
 
 ## [Unreleased]
 
-Version 0.7.0, the performance monitor (`ROADMAP.md`, `PERFORMANCE.md`), step 1: the core, and step 2: Diagnose; turning
+Version 0.7.0, the performance monitor (`ROADMAP.md`, `PERFORMANCE.md`), step 1: the core, step 2: Diagnose, and step 3: the
+browser, the edge check and benchmark, budgets, comparisons and instance health; turning
 automatic Windows Update off from a patch policy; and the security monitor, step 1: signals, scanner detection, and blocked and
 allowed addresses, step 2: detection, security incidents and automatic blocking, and step 3: blocklists.
 
@@ -60,6 +61,26 @@ allowed addresses, step 2: detection, security incidents and automatic blocking,
 - The export as JSON (with a `schemaVersion`) for tooling, and as a ZIP with the Markdown, the JSON and the generic plans of the
   top statements. The Markdown says how much of the period ran in Diagnose and adds the statements measured in Diagnose with
   their callers, the N+1 suspects, the slowest events with their heaviest statements, the indexes and the sessions.
+- The browser (step 3): for 10% of page loads (a setting; every page while Diagnose runs) the browser of a signed-in user measures
+  the Web Vitals of each page (largest and first contentful paint, time to first byte, the slowest interaction of a view, layout
+  shift, long tasks) and the round trip of the live connection and the connection setup, and sends them over the live
+  connection every 30 seconds. Only the route template of the page and the figures are kept, checked against a whitelist with
+  ranges and caps, on server time. A new tab Frontend shows them per page in the bands of Core Web Vitals, with the network.
+  New findings under Frontend (largest contentful paint, interaction to next paint, layout shift, long tasks per view) and
+  Network (round trip, connection setup). The collector Browser can be switched off.
+- Edge check and benchmark on the Server tab (step 3), on click and audited (`performance.probe_requested`), run by the workers:
+  the edge check times DNS, TCP and TLS to the instance URL and checks the TLS version, HTTP/2, the certificate, compression,
+  caching of static files, keep-alive, HSTS and the Content Security Policy, with what to change for each problem; the benchmark
+  measures hashing on one core, disk writes with fsync and round trips to the database. Their latest results are in the export.
+- Budgets (step 3): lines such as `page /clients load = 800`, `api GET /api/v1/endpoints = 300`, `loop patch-sync = 5000` in the
+  Settings tab, each read with a reason when it cannot be; the Overview shows every budget against the period, and a flow over
+  its budget is a finding.
+- Comparisons (step 3): every period against the one of equal length before it, and, when a new version started in the period,
+  the version before against the current one. The Overview shows the largest changes; a flow 25% (a threshold) and 20 ms slower
+  than before is a finding.
+- Critical findings of the last hour become a problem of Instance health (step 3), as a warning, judged every 15 minutes, at
+  most 5 at once, and quiet for 24 hours (a setting) after one resolved; an admin can switch it off. Instance health has a card
+  Performance for them.
 - "Copy output" above the terminal of a remote background session, on Windows and Linux (asked for by the developer on
   2026-10-19): copies everything the terminal shows as plain text, also what scrolled away (up to 10,000 lines), with lines the
   terminal wrapped joined again. It happens in the browser; the output never passes the server, as before.
@@ -127,9 +148,16 @@ allowed addresses, step 2: detection, security incidents and automatic blocking,
 - Migration `TurnOffWindowsUpdate` (expand only): `PatchPolicies.TurnOffWindowsUpdate` and `InventorySnapshots.WindowsUpdate`.
 - Migration `PerformanceDiagnose` (expand only): the table `PerfFingerprints`, the heaviest statements of a slow event, the
   sessions of a database snapshot, and the functions `fleeto_perf_analyze` and `fleeto_perf_explain`.
+- Migration `PerformanceProbes` (expand only): the table `PerfProbes` for the edge checks and benchmarks, written by web and run
+  by the workers, kept 30 days and dumped without rows like the other tables of the monitor.
+- Instance health has a component Performance; its card says that critical findings of the performance monitor open a problem
+  there.
 
 ### Fixed
 
+- The connection ping of the navigation counted as an event of the page it happened on, every 5 seconds per open page, which made
+  the events of every page look busier and faster than they were. The ping and the reports of the browser are no longer
+  measured as interactions.
 - The workers loop that follows patch deployments woke itself up for as long as a deployment was open: every pass announced
   every open deployment on the channel the loop itself listens on, also when nothing had changed, so it ran about 100 times a
   second instead of once a minute (found with the performance monitor on the test VPS on 2026-10-20: 2.2 million runs in 6

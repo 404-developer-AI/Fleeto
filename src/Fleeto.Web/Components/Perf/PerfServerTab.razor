@@ -1,7 +1,14 @@
-@* Server (spec §9): the VPS over the period (CPU with steal and iowait, memory, disk) and the runtime of each component (CPU, memory,
-   garbage collection, thread pool, database pool), with the exceptions by type. *@
+@* Server (spec §9): the edge check and benchmark on click, the VPS over the period (CPU with steal and iowait, memory, disk) and the
+   runtime of each component (CPU, memory, garbage collection, thread pool, database pool), with the exceptions by type. *@
+@using Fleeto.Core.Entities
 @using Fleeto.Core.Performance
 @using Fleeto.Infrastructure.Performance
+
+<MudText Typo="Typo.h6" Class="section-title mb-2">
+    Edge check and benchmark
+    <PerfInfo Text="Run on click only, by the workers. The edge check looks at the instance URL from outside; the benchmark at what the VPS gives right now. Both are audited." />
+</MudText>
+<PerfProbes Probes="View.Data.Probes" CanManage="View.CanManage" Request="RequestProbe" Load="LoadProbe" />
 
 <MudText Typo="Typo.h6" Class="section-title mb-2">
     VPS
@@ -102,6 +109,8 @@ else
 
 @code {
     [Parameter, EditorRequired] public PerformanceView View { get; set; } = default!;
+    [Parameter, EditorRequired] public Func<PerfProbeKind, Task<Guid?>> RequestProbe { get; set; } = default!;
+    [Parameter, EditorRequired] public Func<Guid, Task<PerfProbeView?>> LoadProbe { get; set; } = default!;
 
     private string? _component;
 

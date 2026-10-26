@@ -58,6 +58,7 @@ public static class WebServiceRegistration
         services.AddSingleton<LiveUpdates>();
         // The performance monitor (0.7.0): page interactions per route template, one handler per circuit.
         services.AddSingleton<PageRoutes>();
+        services.AddSingleton<PerfVitalsReceiver>();
         services.AddScoped<CircuitHandler, PerfCircuitHandler>();
         services.AddSingleton<PerformanceService>();
         services.AddScoped<CurrentUser>();

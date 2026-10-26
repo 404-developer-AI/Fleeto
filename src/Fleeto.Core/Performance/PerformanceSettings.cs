@@ -17,7 +17,10 @@ public enum PerfCollector
     Snapshots,
     AgentChannel,
     Signer,
-    LiveUpdates
+    LiveUpdates,
+
+    /// <summary>Web Vitals and network time from the browsers of signed-in users (0.7.0 step 3), sampled.</summary>
+    Frontend
 }
 
 public sealed record PerfCollectorInfo(PerfCollector Collector, string Label, string Description);
@@ -68,6 +71,23 @@ public sealed record PerformanceSettings
     public int StatementSnapshotMinutes { get; init; } = 15;
     public int TableSnapshotMinutes { get; init; } = 60;
 
+    /// <summary>
+    /// The share of page loads whose browser reports Web Vitals and network time (0.7.0 step 3), decided once per page load. In
+    /// Diagnose every page reports, also one that was open before it started.
+    /// </summary>
+    public int FrontendSamplePercent { get; init; } = 10;
+
+    /// <summary>Budgets: the 95th percentile a page, route, loop or message type should stay under (0.7.0 step 3).</summary>
+    public IReadOnlyList<PerfBudget> Budgets { get; init; } = [];
+
+    /// <summary>
+    /// Whether a critical finding of the last hour becomes a problem of Instance health (0.7.0 step 3), so the admins who chose
+    /// instance health hear about it. A finding that resolved does not open again within <see cref="HealthCooldownHours"/>.
+    /// </summary>
+    public bool HealthProblems { get; init; } = true;
+
+    public int HealthCooldownHours { get; init; } = 24;
+
     public int MinuteRetentionDays { get; init; } = 7;
     public int HourRetentionDays { get; init; } = 90;
     public int EventRetentionDays { get; init; } = 14;
@@ -85,6 +105,10 @@ public sealed record PerformanceSettings
 
     /// <summary>Whether Diagnose runs at <paramref name="utcNow"/> (server time): the level is on and its end is later.</summary>
     public bool IsDiagnosing(DateTime utcNow) => IsOn && DiagnoseUntil is { } until && utcNow < until;
+
+    /// <summary>Whether a page loaded at <paramref name="utcNow"/> reports from the browser: <paramref name="roll"/> is from 0 to 100.</summary>
+    public bool SamplesFrontend(DateTime utcNow, double roll) =>
+        Collects(PerfCollector.Frontend) && (IsDiagnosing(utcNow) || roll < FrontendSamplePercent);
 
     /// <summary>The level that runs at <paramref name="utcNow"/>: Diagnose while it lasts, else the stored level.</summary>
     public PerfLevel EffectiveLevel(DateTime utcNow) => IsDiagnosing(utcNow) ? PerfLevel.Diagnose : Level;
@@ -162,6 +186,21 @@ public sealed record PerformanceSettings
             return "Slow events and database snapshots are kept 1 to 90 days.";
         }
 
+        if (FrontendSamplePercent is < 0 or > 100)
+        {
+            return "The share of page loads that report from the browser is between 0 and 100%.";
+        }
+
+        if (HealthCooldownHours is < 1 or > 168)
+        {
+            return "A performance problem of Instance health waits 1 to 168 hours before it opens again.";
+        }
+
+        if (PerfBudgets.Problem(Budgets ?? []) is { } budgets)
+        {
+            return budgets;
+        }
+
         foreach (var (key, value) in Thresholds)
         {
             if (PerfThresholds.Find(key) is not { } info)
@@ -230,6 +269,7 @@ public static class PerfCollectors
         new(PerfCollector.AgentChannel, "Agent channel", "Connections, messages, acknowledgement times and job delivery in the gateway."),
         new(PerfCollector.Signer, "Signer", "Signing requests per kind: wait, time to sign and outcome."),
         new(PerfCollector.LiveUpdates, "Live updates and notifications", "Live updates to open pages and database notifications per channel."),
+        new(PerfCollector.Frontend, "Browser", "Web Vitals, long tasks and network time from the browsers of signed-in users, for a share of page loads."),
     ];
 }
 
@@ -263,6 +303,13 @@ public static class PerfThresholds
     public const string JobDelivery = "agents.jobDeliveryP95Ms";
     public const string ReconnectsPerMinute = "agents.reconnectsPerMinute";
     public const string AgentPayload = "agents.payloadKb";
+    public const string Regression = "code.regressionPercent";
+    public const string Lcp = "frontend.lcpMs";
+    public const string Inp = "frontend.inpMs";
+    public const string Cls = "frontend.cls";
+    public const string LongTasks = "frontend.longTaskMsPerView";
+    public const string CircuitRoundTrip = "network.circuitRoundTripMs";
+    public const string Connect = "network.connectMs";
 
     public static readonly IReadOnlyList<PerfThresholdInfo> All =
     [
@@ -295,6 +342,20 @@ public static class PerfThresholds
         new(JobDelivery, PerfCategory.Agents, "Job delivery", "95th percentile from the moment a job could be delivered (signed, agent online) to its delivery.", "ms", 10_000, 100, 3_600_000),
         new(ReconnectsPerMinute, PerfCategory.Agents, "Reconnects per minute", "Agent connections per minute above which agents reconnect in a storm.", "connections", 100, 5, 100_000),
         new(AgentPayload, PerfCategory.Agents, "Agent message size", "Average size of a message type above which it is large.", "KB", 256, 1, 16_384),
+        new(Regression, PerfCategory.Code, "Slower than before",
+            "How much slower the 95th percentile of a flow may get against the previous period or the previous version before it is a finding.", "%", 25, 5, 1000),
+        new(Lcp, PerfCategory.Frontend, "Largest contentful paint",
+            "75th percentile of the time until the main content of a page is shown; Google calls above 2500 ms needs improvement, above 4000 ms poor.", "ms", 2500, 500, 60_000),
+        new(Inp, PerfCategory.Frontend, "Interaction to next paint",
+            "75th percentile of the slowest response to a click or key of a page view; above 200 ms needs improvement, above 500 ms poor.", "ms", 200, 50, 10_000),
+        new(Cls, PerfCategory.Frontend, "Cumulative layout shift",
+            "75th percentile of how much the content of a page moves while it loads and is used; above 0.1 needs improvement, above 0.25 poor.", "score", 0.1, 0.01, 1),
+        new(LongTasks, PerfCategory.Frontend, "Long tasks per view",
+            "Time per page view the browser was busy in tasks over 50 ms, so it could not answer the user.", "ms", 300, 50, 60_000),
+        new(CircuitRoundTrip, PerfCategory.Network, "Live connection round trip",
+            "95th percentile of a message from the browser to the server and back on the live connection of the pages.", "ms", 300, 20, 60_000),
+        new(Connect, PerfCategory.Network, "Connection setup",
+            "95th percentile of DNS, TCP and TLS when a page is opened from the address bar.", "ms", 500, 20, 60_000),
     ];
 
     private static readonly Dictionary<string, PerfThresholdInfo> ByKey = All.ToDictionary(t => t.Key, StringComparer.Ordinal);

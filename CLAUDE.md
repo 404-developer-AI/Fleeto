@@ -11,7 +11,8 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 - **Current phase**: 0.6.0 (refactors, fixes and what the developer wanted before the next round of testing, features
   included) is released (2026-10-18) and runs on the first test VPS, tested through `v0.6.0-alpha.1` to `alpha.26`. Building
   0.7.0, the performance monitor (`MD-Files/ROADMAP.md`, `MD-Files/PERFORMANCE.md`): step 1, the core, is built and tested as
-  `v0.7.0-alpha.1`, step 2, Diagnose, is built (2026-10-18); the security monitor, steps 1 to 3, are built (2026-10-22 and 23).
+  `v0.7.0-alpha.1`, step 2, Diagnose, is built (2026-10-18), step 3, the browser, edge check, benchmark, budgets, comparisons and
+  instance health, is built (2026-10-26); the security monitor, steps 1 to 3, are built (2026-10-22 and 23).
   The other integrations moved to "Not yet scheduled" on 2026-09-23; patch management on Linux is 0.8.0 (decided 2026-10-26,
   how and what is still to be discussed), in place of hardening, which was taken off the roadmap. Local development runs without Docker (see `README.md`); Docker
   is for the VPS and CI only.

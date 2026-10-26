@@ -30,8 +30,8 @@ agents is measured by it. The generic spec is `performance-monitoring.md`; how i
 build plan are in `PERFORMANCE.md`. Built in three steps, each an alpha on the test VPS, released as a whole.
 
 - [open] **Step 1, the core** (built 2026-10-18, to be tested on the test VPS as `0.7.0-alpha.1`; the overhead measurement at
-  1,000 agents is still to do): collectors in web, gateway, workers and signer (in memory, one batch write per minute,
-  bounded keys without values), database time through the shared Npgsql data source, a run scope in `WorkerLoop` so every
+  1,000 agents was dropped by the developer on 2026-10-26, the page shows the monitor's own overhead): collectors in web,
+  gateway, workers and signer (in memory, one batch write per minute, bounded keys without values), database time through the shared Npgsql data source, a run scope in `WorkerLoop` so every
   loop is measured, the agent channel of the gateway, the VPS figures of Instance health reused, deltas of
   `pg_stat_statements`, the findings engine with a score per category, Settings, Performance with Overview, and the
   Markdown export with instructions for Claude Code. Level Basic on by default, below 1 % overhead.
@@ -40,8 +40,11 @@ build plan are in `PERFORMANCE.md`. Built in three steps, each an alpha on the t
   default) and adds statement fingerprints, N+1 detection, the calling method per query and the heaviest queries per slow
   interaction; the tabs Pages and API, Database, Server, Background and Agent channel; a generic plan and ANALYZE on click;
   manual markers; the JSON and ZIP export.
-- [open] **Step 3, the rest**: the Frontend tab (Web Vitals of staff users, sampled), the edge check of the instance URL, the
-  benchmark, budgets, comparison by version and with the previous period, critical findings as an instance health problem.
+- [open] **Step 3, the rest** (built 2026-10-26, to be tested on the test VPS as `0.7.0-alpha.13`): the Frontend tab (Web Vitals
+  of signed-in users for 10% of page loads, every page in Diagnose, reported over the circuit), network time (the round trip of
+  the live connection, connection setup), the edge check of the instance URL and the benchmark of the VPS on click (run by the
+  workers), budgets, comparison with the previous period and by version, and critical findings as a problem of Instance health
+  with a cooldown.
 - [done] **Copy output of the remote terminal** (asked for by the developer and built 2026-10-19, tested on the test VPS 2026-10-20).
 - [done] **Storage report for the customer** (asked for by the developer and built 2026-10-19, tested on the test VPS 2026-10-20):
   "Copy summary" as an image with the top 10 folders and files of a drive, and "Export PDF" with every scanned folder and file,

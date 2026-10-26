@@ -174,6 +174,19 @@ public sealed record PerfOverlap(
     double? MeanWithout,
     bool Judged);
 
+/// <summary>One result of an edge check or a benchmark: a name, its value and whether it is as it should be.</summary>
+/// <param name="Good">True when as it should be, false when it is a problem, null when it only informs.</param>
+public sealed record PerfProbeItem(string Name, string Value, bool? Good, string? Advice = null);
+
+/// <summary>
+/// An edge check of the instance URL or a benchmark of the VPS (0.7.0 step 3), run by the workers on an admin's request. Problem
+/// says why it could not run; Items are empty while it runs.
+/// </summary>
+public sealed record PerfProbeView(Guid Id, string Kind, DateTime RequestedAt, DateTime? CompletedAt, string? Problem, IReadOnlyList<PerfProbeItem> Items)
+{
+    public bool Running => CompletedAt is null;
+}
+
 /// <summary>A deploy or manual marker.</summary>
 public sealed record PerfMarkerView(DateTime Time, string Kind, string Label);
 
@@ -210,6 +223,15 @@ public sealed record PerformanceDataset(
 
     /// <summary>Minutes of the period in which a component ran in Diagnose.</summary>
     public int DiagnoseMinutes { get; init; }
+
+    /// <summary>
+    /// The period against the one before it and, when the period holds a deploy, the version before against the current one
+    /// (0.7.0 step 3). Empty when there was nothing to compare.
+    /// </summary>
+    public IReadOnlyList<PerfComparison> Comparisons { get; init; } = [];
+
+    /// <summary>The latest edge check and benchmark (0.7.0 step 3), whenever they ran; empty when none ever ran.</summary>
+    public IReadOnlyList<PerfProbeView> Probes { get; init; } = [];
 
     /// <summary>The share of the period that ran in Diagnose, from 0 to 1.</summary>
     public double DiagnoseShare => Length.TotalMinutes <= 0 ? 0 : Math.Min(1, DiagnoseMinutes / Length.TotalMinutes);

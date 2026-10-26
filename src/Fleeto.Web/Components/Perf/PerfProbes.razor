@@ -1,0 +1,138 @@
+@* The edge check of the instance URL and the benchmark of the VPS (0.7.0 step 3, spec §9), on click only. The workers run them,
+   because web may not reach the internet; the panel follows a request every 2 seconds until its result is in, for at most a minute. *@
+@using Fleeto.Core.Entities
+@using Fleeto.Core.Performance
+@using System.Globalization
+@implements IDisposable
+
+<MudGrid Spacing="3" Class="mb-4">
+    @foreach (var kind in Enum.GetValues<PerfProbeKind>())
+    {
+        var probe = Latest(kind);
+        <MudItem xs="12" lg="6">
+            <div class="fl-panel pa-3" style="height:100%">
+                <div class="d-flex align-center gap-2 mb-2">
+                    <MudText Typo="Typo.subtitle2">@Title(kind) <PerfInfo Text="@Explanation(kind)" /></MudText>
+                    @if (CanManage)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Style="margin-left:auto" Disabled="@(probe?.Running == true || _requesting)"
+                                   StartIcon="@Icons.Material.Outlined.PlayArrow" OnClick="@(() => RunAsync(kind))">
+                            @(probe?.Running == true ? "Running" : "Run")
+                        </MudButton>
+                    }
+                </div>
+                @if (probe is null)
+                {
+                    <MudText Typo="Typo.body2" Class="muted">Never run on this instance.@(CanManage ? "" : " Running it needs the permission Manage performance monitoring.")</MudText>
+                }
+                else if (probe.Running)
+                {
+                    <div class="d-flex align-center gap-2">
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                        <MudText Typo="Typo.body2" Class="muted">Asked at @Utc(probe.RequestedAt); the workers run it within a minute.</MudText>
+                    </div>
+                }
+                else
+                {
+                    <MudText Typo="Typo.caption" Class="muted d-block mb-1">Ran at @Utc(probe.CompletedAt!.Value)</MudText>
+                    @if (probe.Problem is { } problem)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true">@problem</MudAlert>
+                    }
+                    <MudSimpleTable Dense="true" Elevation="0">
+                        <tbody>
+                            @foreach (var item in probe.Items)
+                            {
+                                <tr>
+                                    <td class="muted" style="width:38%">@item.Name</td>
+                                    <td>
+                                        @if (item.Good is { } good)
+                                        {
+                                            <StatusChip Text="@item.Value" Kind="@(good ? StatusKind.Ok : StatusKind.Warning)" />
+                                        }
+                                        else
+                                        {
+                                            @item.Value
+                                        }
+                                        @if (item.Advice is { Length: > 0 } advice && item.Good != true)
+                                        {
+                                            <div class="muted" style="font-size:0.75rem">@advice</div>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+            </div>
+        </MudItem>
+    }
+</MudGrid>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<PerfProbeView> Probes { get; set; } = [];
+    [Parameter] public bool CanManage { get; set; }
+    [Parameter, EditorRequired] public Func<PerfProbeKind, Task<Guid?>> Request { get; set; } = default!;
+    [Parameter, EditorRequired] public Func<Guid, Task<PerfProbeView?>> Load { get; set; } = default!;
+
+    private readonly Dictionary<string, PerfProbeView> _followed = new(StringComparer.Ordinal);
+    private readonly CancellationTokenSource _stop = new();
+    private bool _requesting;
+
+    private PerfProbeView? Latest(PerfProbeKind kind)
+    {
+        var name = kind.ToString();
+        var stored = Probes.FirstOrDefault(p => p.Kind == name);
+        return _followed.TryGetValue(name, out var followed) && (stored is null || followed.RequestedAt >= stored.RequestedAt) ? followed : stored;
+    }
+
+    private async Task RunAsync(PerfProbeKind kind)
+    {
+        _requesting = true;
+        try
+        {
+            if (await Request(kind) is not { } id)
+            {
+                return;
+            }
+
+            for (var attempt = 0; attempt < 30 && !_stop.IsCancellationRequested; attempt++)
+            {
+                if (await Load(id) is { } probe)
+                {
+                    _followed[kind.ToString()] = probe;
+                    _requesting = false;
+                    StateHasChanged();
+                    if (!probe.Running)
+                    {
+                        return;
+                    }
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(2), _stop.Token);
+            }
+        }
+        catch (Exception ex) when (ex is TaskCanceledException or ObjectDisposedException)
+        {
+            // The page closed.
+        }
+        finally
+        {
+            _requesting = false;
+        }
+    }
+
+    public void Dispose()
+    {
+        _stop.Cancel();
+        _stop.Dispose();
+    }
+
+    private static string Title(PerfProbeKind kind) => kind == PerfProbeKind.EdgeCheck ? "Edge check" : "Benchmark";
+
+    private static string Explanation(PerfProbeKind kind) => kind == PerfProbeKind.EdgeCheck
+        ? "The instance URL as a browser reaches it, checked from the VPS through the host proxy: DNS, TCP and TLS with their times, the TLS version, HTTP/2, the certificate, compression, caching of static files and the security headers."
+        : "What the VPS gives the workers right now: hashing on one core, writing 64 MB to disk with fsync and 50 small writes each with fsync, and 200 trivial round trips to the database. It takes a few seconds; compare runs over time.";
+
+    private static string Utc(DateTime time) => time.ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture);
+}

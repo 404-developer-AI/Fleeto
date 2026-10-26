@@ -4,8 +4,10 @@ using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Data;
 using Fleeto.Infrastructure.Email;
 using Fleeto.Infrastructure.Notifications;
+using Fleeto.Infrastructure.Performance;
 using Fleeto.Infrastructure.Settings;
 using Fleeto.Workers.Email;
+using Fleeto.Core.Performance;
 using Fleeto.Workers.Hosting;
 using Fleeto.Workers.Performance;
 using Fleeto.Workers.Webhooks;
@@ -72,6 +74,8 @@ public sealed class InstanceHealthService : WorkerLoop
     private DateTimeOffset _nextQueries = DateTimeOffset.MinValue;
     private IReadOnlyList<TableSize>? _tables;
     private DateTimeOffset _nextTables = DateTimeOffset.MinValue;
+    private IReadOnlyList<HealthFinding> _performance = [];
+    private DateTimeOffset _nextPerformance = DateTimeOffset.MinValue;
 
     public InstanceHealthService(IFleetoDbContextFactory dbFactory, SettingsStore settings, HostMetricsReader host, WorkerHeartbeat heartbeat,
         INotificationBus bus, TimeProvider time, ILogger<InstanceHealthService> logger)
@@ -155,9 +159,51 @@ public sealed class InstanceHealthService : WorkerLoop
             .Select(s => s.CpuPercent!.Value)
             .ToListAsync(cancellationToken);
 
-        var findings = InstanceHealthRules.Evaluate(InstanceHealthRules.ToSnapshot(sample), disk, cpu);
+        var findings = InstanceHealthRules.Evaluate(InstanceHealthRules.ToSnapshot(sample), disk, cpu)
+            .Concat(await PerformanceProblemsAsync(db, now, cancellationToken))
+            .ToList();
         await ApplyAsync(db, findings, now, cancellationToken);
         return findings;
+    }
+
+    /// <summary>
+    /// The critical findings of the performance monitor over the last hour as problems (0.7.0 step 3), judged every 15 minutes and
+    /// reused by the samples in between, so a problem does not resolve between two judgements. Off with the monitor or its setting;
+    /// a failure keeps the last judgement and never stops the sample.
+    /// </summary>
+    private async Task<IReadOnlyList<HealthFinding>> PerformanceProblemsAsync(FleetoDbContext db, DateTime now, CancellationToken cancellationToken)
+    {
+        if (Time.GetUtcNow() < _nextPerformance)
+        {
+            return _performance;
+        }
+
+        _nextPerformance = Time.GetUtcNow() + PerformanceHealth.Interval;
+        try
+        {
+            var json = await db.PerformanceSettings.AsNoTracking().Select(s => s.Json).FirstOrDefaultAsync(cancellationToken);
+            var settings = Fleeto.Core.Performance.PerformanceSettings.Parse(json);
+            if (!settings.IsOn || !settings.HealthProblems)
+            {
+                return _performance = [];
+            }
+
+            var to = PerfRecorder.MinuteOf(now);
+            var data = await PerformanceReader.ReadAsync(db, to - PerformanceHealth.Window, to, settings, cancellationToken);
+            var since = now - TimeSpan.FromHours(settings.HealthCooldownHours);
+            var resolved = await db.InstanceHealthIssues.AsNoTracking()
+                .Where(i => i.Component == HealthComponent.Performance && i.ResolvedAt != null && i.ResolvedAt > since)
+                .Select(i => i.Key).ToListAsync(cancellationToken);
+            var open = await db.InstanceHealthIssues.AsNoTracking()
+                .Where(i => i.Component == HealthComponent.Performance && i.ResolvedAt == null)
+                .Select(i => i.Key).ToListAsync(cancellationToken);
+            return _performance = PerformanceHealth.Problems(PerformanceRules.Evaluate(data), resolved.Except(open).ToHashSet(StringComparer.Ordinal));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Logger.LogWarning(ex, "The performance of the instance could not be judged for instance health; the last judgement stays");
+            return _performance;
+        }
     }
 
     /// <summary>The largest tables of the instance, hypertables measured with their chunks.</summary>

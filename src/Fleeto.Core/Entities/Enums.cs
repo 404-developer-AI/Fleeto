@@ -343,5 +343,8 @@ public enum HealthComponent
     Database,
     Workers,
     Backups,
-    Notifications
+    Notifications,
+
+    /// <summary>A critical finding of the performance monitor (0.7.0 step 3).</summary>
+    Performance
 }

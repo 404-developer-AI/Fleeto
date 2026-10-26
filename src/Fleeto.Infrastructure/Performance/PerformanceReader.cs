@@ -102,6 +102,16 @@ public static class PerformanceReader
         GROUP BY "Component"
         """;
 
+    // The versions that ran in the period, for the comparison by version: when each started and last ran.
+    private const string VersionsSql = """
+        SELECT "Version", min("Minute") AS "From", max("Minute") AS "To" FROM "PerfRuntimeMinutes"
+        WHERE "Minute" >= @from AND "Minute" < @to AND "Version" <> ''
+        GROUP BY "Version" ORDER BY 2
+        """;
+
+    /// <summary>A stretch of a comparison shorter than this is not compared: too little to judge.</summary>
+    public static readonly TimeSpan MinComparisonSpan = TimeSpan.FromMinutes(15);
+
     private const string DiagnoseMinutesSql = """
         SELECT count(DISTINCT "Minute")::int AS "Value" FROM "PerfRuntimeMinutes"
         WHERE "Level" = 'Diagnose' AND "Minute" >= @from AND "Minute" < @to
@@ -154,11 +164,29 @@ public static class PerformanceReader
         var events = await ReadEventsAsync(db, from, to, cancellationToken);
         var fingerprints = await ReadFingerprintsAsync(db, series, events, cancellationToken);
         var indexes = await ReadIndexesAsync(db, cancellationToken);
+        var comparisons = await ReadComparisonsAsync(db, from, to, series, settings, cancellationToken);
+        var probes = await ReadProbesAsync(db, cancellationToken);
 
         var missing = new List<string>();
         foreach (var info in PerfCategories.All.Where(c => !c.Measured))
         {
-            missing.Add($"{info.Label}: not measured in this version. The browser side (Web Vitals, network time) comes with 0.7.0 step 3.");
+            missing.Add($"{info.Label}: not measured in this version.");
+        }
+
+        if (!series.Any(s => s.Kind is PerfKind.Vital or PerfKind.Network))
+        {
+            missing.Add($"No browser reported in this period, so Frontend and Network have no data: {settings.FrontendSamplePercent}% of page loads report " +
+                        "(every page in Diagnose), and only while the collector Browser is on.");
+        }
+        else
+        {
+            missing.Add($"Browser figures come from {settings.FrontendSamplePercent}% of page loads (every page in Diagnose). Largest contentful paint, " +
+                        "layout shift and interaction to next paint come only from browsers that support them, such as Chrome and Edge.");
+        }
+
+        if (!comparisons.Any(c => c.Kind == PerfComparisonKind.PreviousPeriod))
+        {
+            missing.Add("No comparison with the previous period: no flow had enough samples in both periods.");
         }
 
         var periodMinutes = (int)Math.Round((to - from).TotalMinutes);
@@ -230,9 +258,87 @@ public static class PerformanceReader
             Fingerprints = fingerprints,
             Events = events,
             Indexes = indexes,
-            DiagnoseMinutes = diagnoseMinutes
+            DiagnoseMinutes = diagnoseMinutes,
+            Comparisons = comparisons,
+            Probes = probes
         };
     }
+
+    /// <summary>
+    /// The period against the one of equal length before it, and, when a new version started in the period, the stretch of the
+    /// version before against the stretch since (spec §8, Comparisons). Long stretches are read from hour rows like the period
+    /// itself, so a version that started within an hour counts that hour on both sides.
+    /// </summary>
+    private static async Task<IReadOnlyList<PerfComparison>> ReadComparisonsAsync(FleetoDbContext db, DateTime from, DateTime to, IReadOnlyList<PerfSeries> series,
+        PerformanceSettings settings, CancellationToken cancellationToken)
+    {
+        var minSamples = settings.Threshold(PerfThresholds.MinSamples);
+        var comparisons = new List<PerfComparison>();
+        var length = to - from;
+        var previous = await ReadSeriesAsync(db, from - length, from, cancellationToken);
+        var rows = PerfComparison.Compare(previous, series, minSamples);
+        if (rows.Count > 0)
+        {
+            comparisons.Add(new PerfComparison(PerfComparisonKind.PreviousPeriod, "previous period", "this period", from - length, from, from, to, rows));
+        }
+
+        var versions = await db.Database.SqlQueryRaw<VersionRow>(VersionsSql, Range(from, to)).ToListAsync(cancellationToken);
+        if (versions.Count >= 2)
+        {
+            var now = versions[^1];
+            var before = versions[^2];
+            var beforeFrom = before.From < from ? from : before.From;
+            if (now.From - beforeFrom >= MinComparisonSpan && to - now.From >= MinComparisonSpan)
+            {
+                var beforeSeries = await ReadSeriesAsync(db, beforeFrom, now.From, cancellationToken);
+                var nowSeries = await ReadSeriesAsync(db, now.From, to, cancellationToken);
+                comparisons.Add(new PerfComparison(PerfComparisonKind.Version, before.Version, now.Version, beforeFrom, now.From, now.From, to,
+                    PerfComparison.Compare(beforeSeries, nowSeries, minSamples)));
+            }
+        }
+
+        return comparisons;
+    }
+
+    private static readonly System.Text.Json.JsonSerializerOptions ProbeJson = new(System.Text.Json.JsonSerializerDefaults.Web);
+
+    /// <summary>The latest edge check and benchmark, whenever they ran.</summary>
+    public static async Task<IReadOnlyList<PerfProbeView>> ReadProbesAsync(FleetoDbContext db, CancellationToken cancellationToken)
+    {
+        var probes = new List<PerfProbeView>();
+        foreach (var kind in Enum.GetValues<PerfProbeKind>())
+        {
+            var probe = await db.PerfProbes.AsNoTracking().Where(p => p.Kind == kind).OrderByDescending(p => p.RequestedAt).FirstOrDefaultAsync(cancellationToken);
+            if (probe is not null)
+            {
+                probes.Add(ToView(probe));
+            }
+        }
+
+        return probes;
+    }
+
+    public static PerfProbeView ToView(PerfProbe probe) =>
+        new(probe.Id, probe.Kind.ToString(), probe.RequestedAt, probe.CompletedAt, probe.Problem, ParseItems(probe.ItemsJson));
+
+    public static IReadOnlyList<PerfProbeItem> ParseItems(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<List<PerfProbeItem>>(json, ProbeJson) ?? [];
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return [];
+        }
+    }
+
+    public static string SerializeItems(IReadOnlyList<PerfProbeItem> items) => System.Text.Json.JsonSerializer.Serialize(items, ProbeJson);
 
     /// <summary>The slowest events of the period, with their heaviest statements where Diagnose kept them.</summary>
     private static async Task<IReadOnlyList<PerfEventView>> ReadEventsAsync(FleetoDbContext db, DateTime from, DateTime to, CancellationToken cancellationToken)
@@ -772,6 +878,13 @@ public static class PerformanceReader
         public long Count { get; set; }
         public double Sum { get; set; }
         public long Errors { get; set; }
+    }
+
+    private sealed class VersionRow
+    {
+        public string Version { get; set; } = string.Empty;
+        public DateTime From { get; set; }
+        public DateTime To { get; set; }
     }
 
     private sealed class FingerprintRow

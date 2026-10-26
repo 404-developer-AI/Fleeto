@@ -133,6 +133,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<PerfTableSnapshot> PerfTableSnapshots => Set<PerfTableSnapshot>();
     public DbSet<PerfMarker> PerfMarkers => Set<PerfMarker>();
     public DbSet<PerfFingerprint> PerfFingerprints => Set<PerfFingerprint>();
+    public DbSet<PerfProbe> PerfProbes => Set<PerfProbe>();
     public DbSet<PerformanceSettingsRow> PerformanceSettings => Set<PerformanceSettingsRow>();
     public DbSet<Integration> Integrations => Set<Integration>();
 
@@ -1922,6 +1923,15 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(m => m.Kind).HasConversion<string>().HasMaxLength(20);
             entity.Property(m => m.Label).HasMaxLength(200);
             entity.HasIndex(m => m.Time);
+        });
+
+        builder.Entity<PerfProbe>(entity =>
+        {
+            entity.Property(p => p.Id).ValueGeneratedNever();
+            entity.Property(p => p.Kind).HasConversion<string>().HasMaxLength(20);
+            entity.Property(p => p.ItemsJson).HasColumnType("jsonb");
+            entity.Property(p => p.Problem).HasMaxLength(PerfProbe.MaxProblemLength);
+            entity.HasIndex(p => new { p.Kind, p.RequestedAt });
         });
 
         builder.Entity<PerformanceSettingsRow>(entity =>

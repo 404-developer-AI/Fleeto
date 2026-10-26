@@ -88,11 +88,16 @@ window.fleeto = {
 
     function ping() {
       var answered = false;
+      var sent = performance.now();
       var timeout = setTimeout(function () {
         if (!answered) { state = "lost"; paint(); }
       }, 4000);
       fleeto._statusReference.invokeMethodAsync("Ping").then(function () {
         answered = true; clearTimeout(timeout); state = "ok"; paint();
+        // The round trip of the live connection, for the performance monitor when this page reports.
+        if (fleeto._vitals && document.visibilityState === "visible") {
+          fleeto._vitals.add("circuit", performance.now() - sent, null);
+        }
       }, function () {
         answered = true; clearTimeout(timeout); state = "lost"; paint();
       });
@@ -106,6 +111,173 @@ window.fleeto = {
       }
       paint();
     }, 1000);
+  },
+  // Web Vitals for the performance monitor (0.7.0 step 3). The server decides once per page load whether this page reports; while
+  // Diagnose runs a page that does not report asks every minute whether it should start, and then measures without its page load.
+  // Measured: largest and first contentful paint, time to first byte and connection setup of the page load; per page view the layout
+  // shift and the slowest interaction; long tasks; the round trip of the ping above. A view ends when the path changes or the tab is
+  // hidden. Only the path of the page is sent, never its query or content; reports go over the circuit every 30 seconds.
+  startVitals: function (dotnetReference, sampled) {
+    var fleeto = window.fleeto;
+    if (fleeto._vitalsStarted) {
+      fleeto._vitalsReference = dotnetReference;
+      return;
+    }
+
+    fleeto._vitalsStarted = true;
+    fleeto._vitalsReference = dotnetReference;
+    var queue = [];
+    var view = null;
+
+    function round(value) { return Math.round(value * 1000) / 1000; }
+
+    function add(metric, value, path) {
+      if (queue.length < 60 && isFinite(value) && value >= 0) {
+        queue.push({ path: path || window.location.pathname, metric: metric, value: round(value) });
+      }
+    }
+
+    function observe(type, callback, options) {
+      try {
+        var observer = new PerformanceObserver(function (list) { list.getEntries().forEach(callback); });
+        var init = { type: type, buffered: true };
+        if (options) {
+          Object.keys(options).forEach(function (key) { init[key] = options[key]; });
+        }
+        observer.observe(init);
+      } catch (e) {
+        // Not supported by this browser: the metric is simply not reported.
+      }
+    }
+
+    // The view of the current path: its layout shift as the largest session window (gaps under 1 s, at most 5 s), and its slowest
+    // interaction. Reported when it ends.
+    function newView(path) {
+      view = { path: path, cls: 0, windowValue: 0, windowStart: 0, windowLast: 0, inp: 0 };
+      add("view", 0, path);
+    }
+
+    function endView() {
+      if (!view) {
+        return;
+      }
+      add("cls", view.cls, view.path);
+      if (view.inp > 0) {
+        add("inp", view.inp, view.path);
+      }
+      view = null;
+    }
+
+    function current() {
+      var path = window.location.pathname;
+      if (!view || view.path !== path) {
+        endView();
+        newView(path);
+      }
+      return view;
+    }
+
+    function send() {
+      if (queue.length === 0 || !fleeto._vitalsReference) {
+        return;
+      }
+      var batch = queue.splice(0, queue.length);
+      fleeto._vitalsReference.invokeMethodAsync("ReportVitals", batch).catch(function () {
+        // A lost report is a lost sample, nothing more.
+      });
+    }
+
+    function begin(withLoad) {
+      var loadPath = window.location.pathname;
+      var lcp = null;
+      var lcpReported = !withLoad;
+      newView(loadPath);
+      fleeto._vitals = { add: add };
+
+      if (withLoad) {
+        var navigation = performance.getEntriesByType ? performance.getEntriesByType("navigation")[0] : null;
+        if (navigation) {
+          if (navigation.responseStart > 0) {
+            add("ttfb", navigation.responseStart, loadPath);
+          }
+          var connect = navigation.connectEnd - navigation.domainLookupStart;
+          if (navigation.connectEnd > 0 && connect > 0) {
+            add("connect", connect, null);
+          }
+        }
+        observe("paint", function (entry) {
+          if (entry.name === "first-contentful-paint") {
+            add("fcp", entry.startTime, loadPath);
+          }
+        });
+        observe("largest-contentful-paint", function (entry) { lcp = entry.startTime; });
+      }
+
+      // The largest contentful paint is final at the first input or when the tab is hidden.
+      function reportLcp() {
+        if (!lcpReported && lcp !== null) {
+          add("lcp", lcp, loadPath);
+        }
+        lcpReported = true;
+      }
+      ["keydown", "pointerdown"].forEach(function (type) {
+        window.addEventListener(type, reportLcp, { once: true, capture: true });
+      });
+
+      observe("layout-shift", function (entry) {
+        if (entry.hadRecentInput) {
+          return;
+        }
+        var v = current();
+        if (v.windowValue > 0 && (entry.startTime - v.windowLast > 1000 || entry.startTime - v.windowStart > 5000)) {
+          v.windowValue = 0;
+        }
+        if (v.windowValue === 0) {
+          v.windowStart = entry.startTime;
+        }
+        v.windowValue += entry.value;
+        v.windowLast = entry.startTime;
+        v.cls = Math.max(v.cls, v.windowValue);
+      });
+      observe("event", function (entry) {
+        if (entry.interactionId) {
+          var v = current();
+          v.inp = Math.max(v.inp, entry.duration);
+        }
+      }, { durationThreshold: 40 });
+      observe("longtask", function (entry) { add("long-task", entry.duration, current().path); });
+
+      setInterval(current, 2000);
+      setInterval(send, 30000);
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "hidden") {
+          reportLcp();
+          endView();
+          send();
+        } else {
+          current();
+        }
+      });
+    }
+
+    if (sampled) {
+      begin(true);
+      return;
+    }
+
+    var asking = setInterval(function () {
+      if (document.visibilityState !== "visible" || !fleeto._vitalsReference) {
+        return;
+      }
+      fleeto._vitalsReference.invokeMethodAsync("VitalsWanted").then(function (wanted) {
+        if (wanted && !fleeto._vitals) {
+          clearInterval(asking);
+          begin(false);
+        }
+      }, function () {
+        // No answer: ask again next minute.
+      });
+    }, 60000);
   },
   // Drag handle that resizes the maximum height of a scrollable list. Wires an element once; the height is remembered.
   initSplitter: function (handle, target, storageKey) {

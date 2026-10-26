@@ -1,4 +1,4 @@
-namespace Fleeto.Core.Performance;
+﻿namespace Fleeto.Core.Performance;
 
 /// <summary>What the performance monitor measures (0.7.0). Stored by name.</summary>
 public enum PerfLevel
@@ -79,7 +79,20 @@ public enum PerfKind
     /// Sub key: the fingerprint. Value: the number of times in one unit of work, not milliseconds; the database columns hold the
     /// time of those statements.
     /// </summary>
-    NPlusOne
+    NPlusOne,
+
+    /// <summary>
+    /// A measurement of the browser of a signed-in user (0.7.0 step 3), sampled. Key: the route template of the page. Sub key:
+    /// <c>lcp</c>, <c>fcp</c>, <c>ttfb</c>, <c>inp</c> or <c>long-task</c> in milliseconds, <c>cls</c> as the layout shift
+    /// score times 1000 (<see cref="PerfVitals.ClsScale"/>), or <c>view</c>, a counted page load.
+    /// </summary>
+    Vital,
+
+    /// <summary>
+    /// Time between the browser and the server, measured by the browser (0.7.0 step 3). Key: <c>circuit</c> (the round trip of a
+    /// message on the live connection) or <c>connect</c> (DNS, TCP and TLS of the page load). Sub key empty.
+    /// </summary>
+    Network
 }
 
 /// <summary>The questions the page answers. Every finding, score and section belongs to exactly one (PERFORMANCE.md §3).</summary>
@@ -111,11 +124,11 @@ public static class PerfCategories
     public static readonly IReadOnlyList<PerfCategoryInfo> All =
     [
         new(PerfCategory.Hosting, "hosting", "Hosting / server", "Is the VPS the bottleneck: CPU, steal, memory or disk?", true),
-        new(PerfCategory.Network, "network", "Network / internet", "Is time lost between the browser and the server?", false),
+        new(PerfCategory.Network, "network", "Network / internet", "Is time lost between the browser and the server?", true),
         new(PerfCategory.Code, "code", "Backend code", "Is our own code, an external API or the pipeline slow?", true),
         new(PerfCategory.Database, "database", "Database queries", "Which queries cost most, and why?", true),
         new(PerfCategory.Maintenance, "maintenance", "Database maintenance", "Is the database cleaning up and caching well?", true),
-        new(PerfCategory.Frontend, "frontend", "Frontend / browser", "Is a page slow to load or sluggish to use?", false),
+        new(PerfCategory.Frontend, "frontend", "Frontend / browser", "Is a page slow to load or sluggish to use?", true),
         new(PerfCategory.Background, "background", "Background & realtime", "Do workers or live updates slow users down?", true),
         new(PerfCategory.Agents, "agents", "Agent channel", "Does the gateway keep up with the agents?", true),
     ];
@@ -124,7 +137,7 @@ public static class PerfCategories
 }
 
 /// <summary>Where to look in the repository: a page route template, an API route, a loop, a message type, a query, a table or a host.</summary>
-/// <param name="Kind">page, api, loop, message, job, signing, query, statement, method, table, index, host, setting or component.</param>
+/// <param name="Kind">page, api, loop, message, job, signing, query, statement, method, table, index, host, setting, budget or component.</param>
 /// <param name="Detail">For a query its normalized SQL.</param>
 public sealed record PerfCodeRef(string Kind, string Value, string? Detail = null);
 

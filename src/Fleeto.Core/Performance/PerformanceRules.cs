@@ -45,6 +45,10 @@ public static class PerformanceRules
         Maintenance(data, findings);
         Background(data, findings);
         Agents(data, findings);
+        Frontend(data, findings);
+        Network(data, findings);
+        Budgets(data, findings);
+        Regressions(data, findings);
         return findings
             .OrderByDescending(f => f.ImpactMs ?? -1)
             .ThenByDescending(f => f.Severity)
@@ -86,6 +90,8 @@ public static class PerformanceRules
         PerfCategory.Maintenance => data.Database is not null || data.Tables.Count > 0,
         PerfCategory.Background => data.Series.Any(s => s.Kind is PerfKind.WorkerRun or PerfKind.Broadcast or PerfKind.Notification),
         PerfCategory.Agents => data.Series.Any(s => s.Kind is PerfKind.AgentMessage or PerfKind.Connection or PerfKind.JobDispatch),
+        PerfCategory.Frontend => data.Series.Any(s => s.Kind == PerfKind.Vital),
+        PerfCategory.Network => data.Series.Any(s => s.Kind == PerfKind.Network),
         _ => false
     };
 
@@ -97,6 +103,8 @@ public static class PerformanceRules
         PerfCategory.Maintenance => "No database snapshot in this period. The workers read one every 15 minutes.",
         PerfCategory.Background => "No worker runs or live updates in this period.",
         PerfCategory.Agents => "No agent traffic in this period: no agents connected, or the collector Agent channel is off.",
+        PerfCategory.Frontend or PerfCategory.Network =>
+            "No measurements from browsers in this period: nobody used Fleeto, the collector Browser is off, or its share of page loads is 0%.",
         _ => "No data in this period."
     };
 
@@ -1005,6 +1013,270 @@ public static class PerformanceRules
                 null));
         }
     }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Frontend and network (0.7.0 step 3): measured by the browsers of signed-in users, for a share of page loads.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// <summary>Fewest measurements of a page before a Web Vital of it is judged: browsers report for a share of page loads only.</summary>
+    private const int MinVitalSamples = 10;
+
+    /// <summary>A regression must also be this large in absolute terms (a layout shift of 0.02 counts as 20).</summary>
+    private const double MinRegressionGap = 20;
+
+    /// <summary>The Web Vitals of one page over the period, from the browsers that reported.</summary>
+    public sealed record PageVitals(string Route, long Views, PerfSeries? Lcp, PerfSeries? Fcp, PerfSeries? Ttfb, PerfSeries? Inp, PerfSeries? Cls,
+        PerfSeries? LongTasks)
+    {
+        /// <summary>The 75th percentile of a vital: the figure Google judges Core Web Vitals on.</summary>
+        public static double? P75(PerfSeries? vital) => vital is null ? null : PerfHistogram.Percentile(vital.Histogram, 0.75, vital.Max);
+
+        /// <summary>The layout shift score, which is stored times <see cref="PerfVitals.ClsScale"/>.</summary>
+        public double? ClsP75 => P75(Cls) is { } scaled ? scaled / PerfVitals.ClsScale : null;
+
+        /// <summary>Time per page view the browser was blocked by tasks over 50 ms.</summary>
+        public double? LongTaskMsPerView => Views <= 0 || LongTasks is null ? null : LongTasks.Sum / Views;
+    }
+
+    /// <summary>The pages with Web Vitals in the period, the most viewed first; the monitor's own page left out.</summary>
+    public static IReadOnlyList<PageVitals> Vitals(PerformanceDataset data)
+    {
+        static PerfSeries? Of(IGrouping<string, PerfSeries> page, string metric) =>
+            page.Where(s => s.SubKey == metric).ToList() is { Count: > 0 } list ? Merge(list) with { SubKey = metric } : null;
+
+        return data.Of(PerfKind.Vital)
+            .Where(s => !string.Equals(s.Key, DashboardRoute, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(s => s.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(page => new PageVitals(page.Key, page.Where(s => s.SubKey == PerfVitals.View).Sum(s => s.Count), Of(page, PerfVitals.Lcp),
+                Of(page, PerfVitals.Fcp), Of(page, PerfVitals.Ttfb), Of(page, PerfVitals.Inp), Of(page, PerfVitals.Cls), Of(page, PerfVitals.LongTask)))
+            .OrderByDescending(p => p.Views)
+            .ThenBy(p => p.Route, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static void Frontend(PerformanceDataset data, List<PerfFinding> findings)
+    {
+        var settings = data.Settings;
+        var minSamples = Math.Min(settings.Threshold(PerfThresholds.MinSamples), MinVitalSamples);
+        var lcpLimit = settings.Threshold(PerfThresholds.Lcp);
+        var inpLimit = settings.Threshold(PerfThresholds.Inp);
+        var clsLimit = settings.Threshold(PerfThresholds.Cls);
+        var longTaskLimit = settings.Threshold(PerfThresholds.LongTasks);
+
+        foreach (var page in Vitals(data))
+        {
+            if (page.Lcp is { } lcp && lcp.Count >= minSamples && PageVitals.P75(lcp) is { } lcpP75 && lcpP75 > lcpLimit)
+            {
+                findings.Add(new PerfFinding(
+                    $"frontend-lcp:{page.Route}", PerfCategory.Frontend, lcpP75 > 1.6 * lcpLimit ? PerfSeverity.Critical : PerfSeverity.Warning,
+                    $"Page {page.Route} shows its main content after {Ms(lcpP75)} (75th percentile of {Count(lcp.Count)} loads)",
+                    "Largest contentful paint is the time from opening the page until its largest element is shown. One in four users waited longer than this.",
+                    VitalEvidence(page),
+                    PageVitals.P75(page.Ttfb) is { } ttfbP75 && ttfbP75 > lcpP75 / 2
+                        ? $"The server answered the page late (time to first byte {Ms(ttfbP75)}): the first render of the page waits for its data."
+                        : "The browser itself: large scripts or styles to load before the page can show, or content that appears only after a second render.",
+                    "Load the data of the page after its first render with a placeholder, or make its first query cheaper; keep heavy components out of the first view.",
+                    [new("page", page.Route)],
+                    PerfHistogram.TimeAbove(lcp.Histogram, lcpLimit, lcp.Max)));
+            }
+
+            if (page.Inp is { } inp && inp.Count >= minSamples && PageVitals.P75(inp) is { } inpP75 && inpP75 > inpLimit)
+            {
+                var server = data.Of(PerfKind.Interaction).Where(s => string.Equals(s.Key, page.Route, StringComparison.OrdinalIgnoreCase) && s.SubKey == "event")
+                    .Select(s => s.P95).FirstOrDefault();
+                findings.Add(new PerfFinding(
+                    $"frontend-inp:{page.Route}", PerfCategory.Frontend, inpP75 > 2.5 * inpLimit ? PerfSeverity.Critical : PerfSeverity.Warning,
+                    $"Page {page.Route} responds to clicks after {Ms(inpP75)} (75th percentile of {Count(inp.Count)} views)",
+                    "Interaction to next paint is the time from a click or key until the browser shows its result. On a Blazor page it holds the round trip to the server and the render that comes back.",
+                    VitalEvidence(page),
+                    server is { } serverP95 && serverP95 > inpLimit
+                        ? $"The server handles events of this page slowly ({Ms(serverP95)} at the 95th percentile): see its finding under Backend code."
+                        : "The browser: a large render of the answer (a long table), or scripts that block the main thread.",
+                    "Render less per event (page or virtualize long lists), and make the work behind the event cheaper.",
+                    [new("page", page.Route)],
+                    PerfHistogram.TimeAbove(inp.Histogram, inpLimit, inp.Max)));
+            }
+
+            if (page.Cls is { } cls && cls.Count >= minSamples && page.ClsP75 is { } clsP75 && clsP75 > clsLimit)
+            {
+                findings.Add(new PerfFinding(
+                    $"frontend-cls:{page.Route}", PerfCategory.Frontend, clsP75 > 2.5 * clsLimit ? PerfSeverity.Warning : PerfSeverity.Info,
+                    $"The content of page {page.Route} moves while it is used: layout shift {Num(clsP75, "0.###")} (75th percentile)",
+                    "Cumulative layout shift adds up how far content jumps without the user asking, for example when a list appears above what the user was about to click.",
+                    VitalEvidence(page),
+                    "Content that appears after the first render without reserved space: a loading state replaced by a taller table, a banner or a chart.",
+                    "Give loading states the height of what replaces them, and add banners below the content instead of above it.",
+                    [new("page", page.Route)],
+                    null));
+            }
+
+            if (page.Views >= minSamples && page.LongTaskMsPerView is { } blocked && blocked > longTaskLimit)
+            {
+                var longTasks = page.LongTasks!;
+                findings.Add(new PerfFinding(
+                    $"frontend-long-tasks:{page.Route}", PerfCategory.Frontend, blocked > 4 * longTaskLimit ? PerfSeverity.Warning : PerfSeverity.Info,
+                    $"Page {page.Route} keeps the browser busy {Ms(blocked)} per view in long tasks",
+                    "A task over 50 ms blocks the browser: clicks and keys wait until it ends.",
+                    VitalEvidence(page),
+                    "A large render of the page in the browser (many rows or charts at once), or a script doing a lot of work.",
+                    "Render long lists in pages or virtualized, and draw charts only when they are shown.",
+                    [new("page", page.Route)],
+                    longTasks.Sum - 50d * longTasks.Count is > 0 and var extra ? extra : null));
+            }
+        }
+    }
+
+    private static List<PerfEvidence> VitalEvidence(PageVitals page) =>
+    [
+        new("Views measured", Count(page.Views)),
+        new("Largest contentful paint (p75)", Ms(PageVitals.P75(page.Lcp))),
+        new("First contentful paint (p75)", Ms(PageVitals.P75(page.Fcp))),
+        new("Time to first byte (p75)", Ms(PageVitals.P75(page.Ttfb))),
+        new("Interaction to next paint (p75)", Ms(PageVitals.P75(page.Inp))),
+        new("Layout shift (p75)", page.ClsP75 is { } cls ? Num(cls, "0.###") : "–"),
+        new("Long tasks per view", Ms(page.LongTaskMsPerView))
+    ];
+
+    /// <summary>The network measurements of the period by key (<c>circuit</c>, <c>connect</c>), added up over the components.</summary>
+    public static IReadOnlyDictionary<string, PerfSeries> NetworkSeries(PerformanceDataset data) =>
+        data.Of(PerfKind.Network).GroupBy(s => s.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => Merge(g), StringComparer.Ordinal);
+
+    private static void Network(PerformanceDataset data, List<PerfFinding> findings)
+    {
+        var settings = data.Settings;
+        var minSamples = Math.Min(settings.Threshold(PerfThresholds.MinSamples), MinVitalSamples);
+        var network = NetworkSeries(data);
+
+        var roundTripLimit = settings.Threshold(PerfThresholds.CircuitRoundTrip);
+        if (network.GetValueOrDefault(PerfVitals.CircuitRoundTrip) is { } circuit && circuit.Count >= minSamples && circuit.P95 is { } p95 && p95 > roundTripLimit)
+        {
+            var events = data.Of(PerfKind.Interaction).Where(s => s.SubKey == "event").Sum(s => s.Count);
+            findings.Add(new PerfFinding(
+                "network-circuit-round-trip", PerfCategory.Network, p95 > 3 * roundTripLimit ? PerfSeverity.Critical : PerfSeverity.Warning,
+                $"A message on the live connection takes {Ms(p95)} to the server and back (95th percentile)",
+                "Every click on a page travels to the server and its answer back, so this time comes on top of every interaction. The browser measures it every 5 seconds with a message the server answers at once.",
+                [new("Measurements", Count(circuit.Count)), new("Median", Ms(circuit.P50)), new("95th percentile", Ms(p95)), new("Longest", Ms(circuit.Max)),
+                    new("Page events in the period", Count(events))],
+                circuit.P50 is { } p50 && p50 > roundTripLimit
+                    ? "Most users are far from the VPS or on a slow link: the network, not Fleeto."
+                    : "Some users are on slow or busy links (VPN, mobile), or the VPS answered late now and then: compare with its CPU.",
+                "When the median is high, host the instance closer to its users. When only the tail is high, look at the VPS CPU and the thread pool queue at those times.",
+                [new("component", "network")],
+                null));
+        }
+
+        var connectLimit = settings.Threshold(PerfThresholds.Connect);
+        if (network.GetValueOrDefault(PerfVitals.Connect) is { } connect && connect.Count >= minSamples && connect.P95 is { } connectP95 && connectP95 > connectLimit)
+        {
+            findings.Add(new PerfFinding(
+                "network-connect", PerfCategory.Network, PerfSeverity.Warning,
+                $"Opening a connection to Fleeto takes {Ms(connectP95)} (95th percentile of {Count(connect.Count)} page loads)",
+                "DNS, TCP and TLS before the first byte of a page. It is paid once per page load from the address bar, not per click.",
+                [new("Page loads", Count(connect.Count)), new("Median", Ms(connect.P50)), new("95th percentile", Ms(connectP95))],
+                "A slow DNS server, a long distance to the VPS, or TLS without session resumption.",
+                "Run the edge check on the Server tab: it measures DNS, TCP and TLS from the VPS itself and shows the HTTP version and keep-alive.",
+                [new("component", "network")],
+                null));
+        }
+    }
+
+    /// <summary>Every budget of the settings against the period.</summary>
+    public static IReadOnlyList<PerfBudgetResult> BudgetResults(PerformanceDataset data) =>
+        PerfBudgets.Evaluate(data.Settings.Budgets ?? [], data.Series);
+
+    private static void Budgets(PerformanceDataset data, List<PerfFinding> findings)
+    {
+        foreach (var result in BudgetResults(data).Where(r => !r.Met))
+        {
+            var budget = result.Budget;
+            var what = $"{PerfBudgets.WordOf(budget.Kind)} {budget.Key}{(budget.SubKey.Length > 0 ? " " + budget.SubKey : "")}";
+            findings.Add(new PerfFinding(
+                $"budget:{PerfBudgets.WordOf(budget.Kind)}:{budget.Key}:{budget.SubKey}", CategoryOf(budget.Kind),
+                result.P95 > 2 * budget.P95Ms ? PerfSeverity.Critical : PerfSeverity.Warning,
+                $"Over budget: {what} ran {Ms(result.P95)} at the 95th percentile against a budget of {Ms(budget.P95Ms)}",
+                "An admin set this budget in the Settings tab: the 95th percentile this flow should stay under.",
+                [new("Budget", Ms(budget.P95Ms)), new("95th percentile", Ms(result.P95)), new("Occurrences", Count(result.Count))],
+                "See the other findings of this flow for where its time goes.",
+                "Make the flow faster, or raise the budget when the target was too strict.",
+                [new(CodeRefKind(budget.Kind), budget.Key), new("budget", budget.ToLine())],
+                result.TimeAboveMs));
+        }
+    }
+
+    private static void Regressions(PerformanceDataset data, List<PerfFinding> findings)
+    {
+        var limit = data.Settings.Threshold(PerfThresholds.Regression) / 100;
+        foreach (var comparison in data.Comparisons)
+        {
+            var version = comparison.Kind == PerfComparisonKind.Version;
+            foreach (var row in comparison.Rows.Where(r => r.Change >= limit && r.NowP95 - r.BeforeP95 >= MinRegressionGap))
+            {
+                if (row.Kind is PerfKind.Interaction or PerfKind.Vital && string.Equals(row.Key, DashboardRoute, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var against = version ? $"version {comparison.Before}" : "the previous period";
+                findings.Add(new PerfFinding(
+                    $"regression:{comparison.Kind}:{row.Kind}:{row.Key}:{row.SubKey}", CategoryOf(row.Kind),
+                    row.Change >= 2 * limit ? PerfSeverity.Warning : PerfSeverity.Info,
+                    $"{Describe(row)} is {Pct(row.Change * 100)} slower than in {against}: {Value(row, row.NowP95)} against {Value(row, row.BeforeP95)} at the 95th percentile",
+                    version
+                        ? $"Since version {comparison.Now} started, this flow got slower than it was on version {comparison.Before}."
+                        : "This flow got slower than in the period of equal length just before this one.",
+                    [new(version ? $"Version {comparison.Before}" : "Previous period", $"{Value(row, row.BeforeP95)} over {Count(row.BeforeCount)}"),
+                        new(version ? $"Version {comparison.Now}" : "This period", $"{Value(row, row.NowP95)} over {Count(row.NowCount)}")],
+                    version ? "A change in the new version, or more data than before." : "More load than before, more data, or a change made in between (see the markers).",
+                    version
+                        ? "Look at what the new version changed in this flow; the other findings of it say where its time goes now."
+                        : "Compare with the markers and the timeline; when the load grew, the other findings of this flow say where its time goes.",
+                    [new(CodeRefKind(row.Kind), row.Key)],
+                    null));
+            }
+        }
+    }
+
+    /// <summary>A flow of a comparison in words: "Page /clients loading", "GET 2xx /api/v1/endpoints".</summary>
+    public static string Describe(PerfComparisonRow row) => row.Kind switch
+    {
+        PerfKind.Interaction => $"Page {row.Key} {(row.SubKey == "load" ? "loading" : "events")}",
+        PerfKind.Http => $"{row.SubKey} {row.Key}",
+        PerfKind.WorkerRun => $"Loop {row.Key}",
+        PerfKind.AgentMessage => $"Agent message {row.Key}",
+        PerfKind.Vital => $"{VitalName(row.SubKey)} of page {row.Key}",
+        _ => row.Key
+    };
+
+    /// <summary>A value of a comparison row: milliseconds, or the score of a layout shift.</summary>
+    public static string Value(PerfComparisonRow row, double? value) =>
+        row.Kind == PerfKind.Vital && row.SubKey == PerfVitals.Cls ? value is { } v ? Num(v / PerfVitals.ClsScale, "0.###") : "–" : Ms(value);
+
+    public static string VitalName(string metric) => metric switch
+    {
+        PerfVitals.Lcp => "Largest contentful paint",
+        PerfVitals.Fcp => "First contentful paint",
+        PerfVitals.Ttfb => "Time to first byte",
+        PerfVitals.Inp => "Interaction to next paint",
+        PerfVitals.Cls => "Layout shift",
+        PerfVitals.LongTask => "Long tasks",
+        _ => metric
+    };
+
+    private static PerfCategory CategoryOf(PerfKind kind) => kind switch
+    {
+        PerfKind.WorkerRun => PerfCategory.Background,
+        PerfKind.AgentMessage => PerfCategory.Agents,
+        PerfKind.Vital => PerfCategory.Frontend,
+        _ => PerfCategory.Code
+    };
+
+    private static string CodeRefKind(PerfKind kind) => kind switch
+    {
+        PerfKind.Http => "api",
+        PerfKind.WorkerRun => "loop",
+        PerfKind.AgentMessage => "message",
+        _ => "page"
+    };
 
     // ---------------------------------------------------------------------------------------------------------------
     // Formatting: culture-invariant, "1.5 s", never "1,5 s".

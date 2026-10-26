@@ -93,6 +93,7 @@ public static class WorkersServiceCollectionExtensions
         services.AddHostedService<PerfHostService>();
         services.AddHostedService<PerfSnapshotService>();
         services.AddHostedService<PerfMaintenanceService>();
+        services.AddHostedService<PerfProbeService>();
         services.AddHostedService<IntegrationSyncService>();
         services.AddHostedService<IntegrationFollowService>();
         services.AddHostedService<PatchAutomationService>();

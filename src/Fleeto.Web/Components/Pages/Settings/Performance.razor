@@ -15,8 +15,8 @@
     <div>
         <MudText Typo="Typo.h4" Class="page-title">Performance</MudText>
         <MudText Typo="Typo.body2" Class="muted">
-            Where Fleeto itself is slow and why: the VPS, the database, our own code, the workers and the agent channel. It measures Fleeto,
-            never the endpoints it manages. Export the report and give it to Claude Code in the Fleeto repository.
+            Where Fleeto itself is slow and why: the VPS, the database, our own code, the workers, the agent channel and the browser. It
+            measures Fleeto, never the endpoints it manages. Export the report and give it to Claude Code in the Fleeto repository.
         </MudText>
     </div>
     <div class="d-flex gap-2 flex-wrap align-center">
@@ -89,13 +89,16 @@
                 <PerfDatabaseTab View="view" Plan="PlanAsync" Analyze="AnalyzeAsync" LoadLive="LoadLiveAsync" />
             </MudTabPanel>
             <MudTabPanel Text="Server" Icon="@Icons.Material.Outlined.Dns">
-                <PerfServerTab View="view" />
+                <PerfServerTab View="view" RequestProbe="RequestProbeAsync" LoadProbe="LoadProbeAsync" />
             </MudTabPanel>
             <MudTabPanel Text="Background" Icon="@Icons.Material.Outlined.Schedule">
                 <PerfBackgroundTab View="view" LoadTimeline="LoadFlowAsync" />
             </MudTabPanel>
             <MudTabPanel Text="Agent channel" Icon="@Icons.Material.Outlined.Lan">
                 <PerfAgentsTab View="view" LoadTimeline="LoadFlowAsync" />
+            </MudTabPanel>
+            <MudTabPanel Text="Frontend" Icon="@Icons.Material.Outlined.DesktopWindows">
+                <PerfFrontendTab View="view" />
             </MudTabPanel>
             <MudTabPanel Text="Settings" Icon="@Icons.Material.Outlined.Tune">
                 @SettingsTab(view)
@@ -112,7 +115,7 @@
     private const string PeriodPreference = "fleeto.performance.period";
     private const string TabPreference = "fleeto.performance.tab";
 
-    private const int TabCount = 7;
+    private const int TabCount = 8;
 
     private PerformanceView? _view;
     private PerfPeriod _period = PerfPeriod.Hour1;
@@ -303,6 +306,23 @@
         }
     }
 
+    private async Task<Guid?> RequestProbeAsync(PerfProbeKind kind) =>
+        (await RunForValueAsync(caller => PerformanceSvc.RequestProbeAsync(caller, kind),
+            kind == PerfProbeKind.EdgeCheck ? "The edge check was asked for. The workers run it within a minute." : "The benchmark was asked for. The workers run it within a minute."))?.Value;
+
+    private async Task<PerfProbeView?> LoadProbeAsync(Guid id)
+    {
+        var caller = Caller ?? await CurrentUser.GetAsync();
+        try
+        {
+            return await PerformanceSvc.GetProbeAsync(caller, id);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
     private async Task<PerfPlan?> PlanAsync(PerfPlanTarget target, string id) =>
         (await RunForValueAsync(caller => PerformanceSvc.PlanAsync(caller, target, id), null))?.Value;
 
@@ -386,10 +406,17 @@
             return;
         }
 
+        var settings = _form.ToSettings(out var problem);
+        if (problem is not null)
+        {
+            Snackbar.Add(problem, Severity.Error);
+            return;
+        }
+
         _busy = true;
         try
         {
-            if (await RunAsync(caller => PerformanceSvc.SaveSettingsAsync(caller, _form.ToSettings()),
+            if (await RunAsync(caller => PerformanceSvc.SaveSettingsAsync(caller, settings),
                     "The settings were saved. Every component uses them within 30 seconds."))
             {
                 await ReloadAsync();
@@ -524,6 +551,10 @@
             </div>
         </div>
 
+        @Budgets(view)
+
+        @Comparisons(view)
+
         <MudGrid Spacing="3">
             <MudItem xs="12" lg="6">
                 @Flows("Page interactions", "The pages that cost users the most time, by route template. Load is the page loading its data; event a click or other event on it.",
@@ -651,6 +682,91 @@
         </ul>
     </div>;
 
+    private RenderFragment Budgets(PerformanceView view)
+    {
+        var results = PerformanceRules.BudgetResults(view.Data);
+        return @<div>
+            <MudText Typo="Typo.h6" Class="section-title mb-2">
+                Budgets
+                @Info("The 95th percentile a page, route, loop or agent message should stay under, set in the Settings tab. A flow over its budget is also a finding.")
+            </MudText>
+            @if (results.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted mb-4">No budgets are set. @(view.CanManage ? "Add them in the Settings tab, such as \"page /clients load = 800\"." : "")</MudText>
+            }
+            else
+            {
+                <div class="fl-panel pa-2 mb-4" style="overflow-x:auto">
+                    <MudSimpleTable Dense="true" Elevation="0">
+                        <thead><tr><th>Budget</th><th style="text-align:right">Count</th><th style="text-align:right">p95</th><th style="text-align:right">Budget</th><th>Status</th></tr></thead>
+                        <tbody>
+                            @foreach (var result in results)
+                            {
+                                <tr>
+                                    <td class="mono" style="overflow-wrap:anywhere">@result.Budget.ToLine()</td>
+                                    <td style="text-align:right">@PerformanceRules.Count(result.Count)</td>
+                                    <td style="text-align:right">@PerformanceRules.Ms(result.P95)</td>
+                                    <td style="text-align:right">@PerformanceRules.Ms(result.Budget.P95Ms)</td>
+                                    <td>
+                                        <StatusChip Text="@(!result.Measured ? "Did not run" : result.Met ? "Within budget" : "Over budget")"
+                                                    Kind="@(!result.Measured ? StatusKind.Neutral : result.Met ? StatusKind.Ok : StatusKind.Warning)" />
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            }
+        </div>;
+    }
+
+    private RenderFragment Comparisons(PerformanceView view) => @<div>
+        <MudText Typo="Typo.h6" Class="section-title mb-2">
+            Compared with before
+            @Info("The 95th percentile of every flow against the period of equal length before this one and, when a new version started in the period, against the version before it. Only flows with enough samples on both sides; the largest changes first.")
+        </MudText>
+        @if (view.Data.Comparisons.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted mb-4">Nothing to compare: no flow had enough samples in this period and the one before it.</MudText>
+        }
+        @foreach (var comparison in view.Data.Comparisons)
+        {
+            <MudText Typo="Typo.subtitle2" Class="mb-1">
+                @(comparison.Kind == PerfComparisonKind.Version ? $"Version {comparison.Now} against {comparison.Before}" : "This period against the previous one")
+                <span class="muted" style="font-size:0.75rem">· @Utc(comparison.BeforeFrom) to @Utc(comparison.BeforeTo) against @Utc(comparison.NowFrom) to @Utc(comparison.NowTo)</span>
+            </MudText>
+            @if (comparison.Rows.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted mb-3">No flow had enough samples on both sides.</MudText>
+            }
+            else
+            {
+                <div class="fl-panel pa-2 mb-4" style="overflow-x:auto">
+                    <MudSimpleTable Dense="true" Elevation="0">
+                        <thead><tr><th>Flow</th><th style="text-align:right">Before</th><th style="text-align:right">Now</th><th style="text-align:right">Change</th></tr></thead>
+                        <tbody>
+                            @foreach (var row in comparison.Rows.Take(15))
+                            {
+                                <tr>
+                                    <td class="mono" style="max-width:420px;overflow-wrap:anywhere">@PerformanceRules.Describe(row)</td>
+                                    <td style="text-align:right">@PerformanceRules.Value(row, row.BeforeP95) <span class="muted">· @PerformanceRules.Count(row.BeforeCount)</span></td>
+                                    <td style="text-align:right">@PerformanceRules.Value(row, row.NowP95) <span class="muted">· @PerformanceRules.Count(row.NowCount)</span></td>
+                                    <td style="text-align:right">
+                                        @if (row.Change is { } change)
+                                        {
+                                            <StatusChip Text="@($"{(change >= 0 ? "+" : "")}{PerformanceRules.Num(change * 100, "0")}%")"
+                                                        Kind="@(change >= view.Settings.Threshold(PerfThresholds.Regression) / 100 ? StatusKind.Warning : change <= -0.1 ? StatusKind.Ok : StatusKind.Neutral)" />
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            }
+        }
+    </div>;
+
     private static RenderFragment HostCard(string name, string value) => @<div class="health-card fl-panel">
         <div class="health-card-head"><span>@name</span></div>
         <div class="muted" style="font-size:0.8125rem">@value</div>
@@ -748,6 +864,10 @@
                         <MudNumericField T="int" @bind-Value="form.SnapshotRetentionDays" Label="Keep database snapshots (days)" Min="1" Max="90"
                                          Disabled="!view.CanManage" Class="mb-2" />
 
+                        <MudText Typo="Typo.h6" Class="section-title mt-4 mb-2">Browser</MudText>
+                        <MudNumericField T="int" @bind-Value="form.FrontendSamplePercent" Label="Page loads that report (%)" Min="0" Max="100" Disabled="!view.CanManage"
+                                         Class="mb-2" HelperText="Decided once per page load. In Diagnose every page reports, also one opened before it started." />
+
                         <MudText Typo="Typo.h6" Class="section-title mt-4 mb-2">Diagnose</MudText>
                         <MudNumericField T="int" @bind-Value="form.DiagnoseDefaultMinutes" Label="Default length (minutes)" Min="5" Max="@PerformanceSettings.MaxDiagnoseMinutes"
                                          Disabled="!view.CanManage" Class="mb-2" HelperText="Chosen when Diagnose is started; 60 minutes is enough for a report." />
@@ -757,6 +877,27 @@
                                          Disabled="!view.CanManage" Class="mb-2" />
                         <MudNumericField T="int" @bind-Value="form.DiagnoseTableSnapshotMinutes" Label="Table statistics every (minutes)" Min="5" Max="1440"
                                          Disabled="!view.CanManage" Class="mb-2" />
+                    </div>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <div class="fl-panel pa-4">
+                        <MudText Typo="Typo.h6" Class="section-title mb-2">Budgets</MudText>
+                        <MudTextField T="string" @bind-Value="form.BudgetsText" Lines="6" Variant="Variant.Outlined" Disabled="!view.CanManage" Class="mono"
+                                      Placeholder="@("page /clients load = 800\napi GET /api/v1/endpoints = 300\nloop patch-sync = 5000\nmessage CheckResults = 200")"
+                                      HelperText="One per line: page, api, loop or message, what it is for (a route template, loop name or message type), then = and the 95th percentile in ms. Lines starting with # are ignored." />
+                    </div>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <div class="fl-panel pa-4">
+                        <MudText Typo="Typo.h6" Class="section-title mb-2">Instance health</MudText>
+                        <MudSwitch T="bool" @bind-Value="form.HealthProblems" Color="Color.Primary" Disabled="!view.CanManage"
+                                   Label="A critical finding of the last hour is a problem of Instance health" />
+                        <div class="muted mb-2" style="font-size:0.75rem;margin-left:52px;margin-top:-6px">
+                            Judged every 15 minutes. It goes to the notification channels that receive instance health, as a warning.
+                        </div>
+                        <MudNumericField T="int" @bind-Value="form.HealthCooldownHours" Label="Quiet after it resolved (hours)" Min="1" Max="168"
+                                         Disabled="@(!view.CanManage || !form.HealthProblems)"
+                                         HelperText="A finding whose problem resolved does not open again within this time, so a flow around its threshold does not notify every hour." />
                     </div>
                 </MudItem>
                 <MudItem xs="12">
@@ -803,6 +944,10 @@
         public int DiagnoseMaxMinutes { get; set; }
         public int DiagnoseStatementSnapshotMinutes { get; set; }
         public int DiagnoseTableSnapshotMinutes { get; set; }
+        public int FrontendSamplePercent { get; set; }
+        public bool HealthProblems { get; set; }
+        public int HealthCooldownHours { get; set; }
+        public string BudgetsText { get; set; } = string.Empty;
         public Dictionary<string, double> Thresholds { get; } = new(StringComparer.Ordinal);
 
         public void Toggle(PerfCollector collector, bool on)
@@ -832,7 +977,11 @@
                 DiagnoseDefaultMinutes = settings.DiagnoseDefaultMinutes,
                 DiagnoseMaxMinutes = settings.DiagnoseMaxMinutes,
                 DiagnoseStatementSnapshotMinutes = settings.DiagnoseStatementSnapshotMinutes,
-                DiagnoseTableSnapshotMinutes = settings.DiagnoseTableSnapshotMinutes
+                DiagnoseTableSnapshotMinutes = settings.DiagnoseTableSnapshotMinutes,
+                FrontendSamplePercent = settings.FrontendSamplePercent,
+                HealthProblems = settings.HealthProblems,
+                HealthCooldownHours = settings.HealthCooldownHours,
+                BudgetsText = PerfBudgets.Format(settings.Budgets ?? [])
             };
             form.Disabled.UnionWith(settings.DisabledCollectors);
             foreach (var threshold in PerfThresholds.All)
@@ -843,9 +992,21 @@
             return form;
         }
 
-        public PerformanceSettings ToSettings() => new()
+        /// <summary>The settings of the form, or the problem with its budgets: they are text here and parsed before saving.</summary>
+        public PerformanceSettings ToSettings(out string? problem)
+        {
+            var (budgets, budgetProblem) = PerfBudgets.Parse(BudgetsText);
+            problem = budgetProblem;
+            return ToSettings(budgets);
+        }
+
+        private PerformanceSettings ToSettings(IReadOnlyList<PerfBudget> budgets) => new()
         {
             Level = Level,
+            FrontendSamplePercent = FrontendSamplePercent,
+            HealthProblems = HealthProblems,
+            HealthCooldownHours = HealthCooldownHours,
+            Budgets = budgets,
             DisabledCollectors = Disabled.ToList(),
             SlowEventMs = SlowEventMs,
             StatementSnapshotMinutes = StatementSnapshotMinutes,

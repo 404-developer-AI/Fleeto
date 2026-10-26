@@ -215,6 +215,9 @@ public static class DatabaseGrants
             ["PerfFingerprints"] = Grants(web: "SELECT, INSERT, UPDATE", gateway: "SELECT, INSERT, UPDATE", signer: "SELECT, INSERT, UPDATE",
                 workers: "SELECT, INSERT, UPDATE, DELETE"),
             ["PerformanceSettings"] = Grants(web: "SELECT, INSERT, UPDATE", gateway: Read, signer: Read, workers: Read),
+            // Edge checks and benchmarks (0.7.0 step 3): web writes the request of an admin, the workers run it, write the result
+            // and delete old ones.
+            ["PerfProbes"] = Grants(web: "SELECT, INSERT", workers: "SELECT, UPDATE, DELETE"),
 
             // The security monitor (0.7.0): web and the gateway write their own signals (TR_SecuritySignals_Component), the workers
             // read them and apply retention. Both read the blocked and allowed addresses; web writes what an admin adds or removes

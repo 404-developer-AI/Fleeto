@@ -145,7 +145,7 @@ public sealed class PerfRecorder
     public void Complete(PerfCollector collector, PerfKind kind, string key, string subKey, PerfScope scope, bool error, long bytes = 0)
     {
         scope.Dispose();
-        if (!Collects(collector))
+        if (!Collects(collector) || scope.Discarded)
         {
             return;
         }

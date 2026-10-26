@@ -16,6 +16,7 @@ public sealed class PerfScope : IDisposable
     private long _externalMicros;
     private long _waitMicros;
     private int _ended;
+    private int _discarded;
     private Dictionary<string, (int Count, double Ms)>? _statements;
 
     /// <summary>Distinct statements counted per scope in Diagnose; more are not counted for N+1.</summary>
@@ -33,6 +34,15 @@ public sealed class PerfScope : IDisposable
     public PerfScope? Parent { get; }
 
     public bool Ended => Volatile.Read(ref _ended) == 1;
+
+    /// <summary>Whether the work asked to be left out of the measurements (<see cref="Discard"/>).</summary>
+    public bool Discarded => Volatile.Read(ref _discarded) == 1;
+
+    /// <summary>
+    /// Leaves this unit of work out of the measurements: the monitor's own traffic on the circuit, such as the connection ping and
+    /// the browser's report of Web Vitals, is no interaction of the page it happens on (0.7.0 step 3).
+    /// </summary>
+    public void Discard() => Volatile.Write(ref _discarded, 1);
 
     public int DbCount => (int)Math.Min(int.MaxValue, Interlocked.Read(ref _dbCount));
     public double DbMs => Interlocked.Read(ref _dbMicros) / 1000d;

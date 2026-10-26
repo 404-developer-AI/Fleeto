@@ -196,7 +196,9 @@ public sealed class InstanceHealthService
                 : !fleeto.BackupConfigured ? "No destination configured"
                 : fleeto.LastBackupAt is { } at ? $"Last successful {At(at)}" : "No successful backup yet"),
             Component(HealthComponent.Notifications, "Notifications", s is null ? null
-                : $"{fleeto.OutboxEmails} emails and {fleeto.OutboxWebhooks} webhooks waiting")
+                : $"{fleeto.OutboxEmails} emails and {fleeto.OutboxWebhooks} webhooks waiting"),
+            Component(HealthComponent.Performance, "Performance", s is null ? null
+                : "A critical finding of the performance monitor opens a problem here")
         ];
     }
 

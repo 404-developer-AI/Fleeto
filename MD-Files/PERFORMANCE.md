@@ -199,8 +199,9 @@ also masks client codes and hostnames should one slip into a hand-written SQL co
 
 ### Step 1 — the core (alpha 1) — built 2026-10-18
 
-Built as planned below and described in `ARCHITECTURE.md` §4, *Performance monitor*. Still open: item 7, the overhead at 1,000
-agents with `Fleeto.LoadTest`, on the test VPS. Where the build differs from the plan, decided while building:
+Built as planned below and described in `ARCHITECTURE.md` §4, *Performance monitor*. Item 7, the overhead at 1,000 agents, was
+dropped by the developer on 2026-10-26: the monitor reports its own overhead on the page, which is measured on the test VPS. Where
+the build differs from the plan, decided while building:
 
 - A page load is measured by `FleetoPageBase.LoadAsync` (sub key `load`), an event by the circuit handler (sub key `event`): a
   navigation is an inbound activity that does not wait for `OnInitializedAsync`, so the circuit handler alone would miss the
@@ -230,7 +231,7 @@ agents with `Fleeto.LoadTest`, on the test VPS. Where the build differs from the
 5. `PerformanceRules` with the baseline catalogue and the Fleeto rules above, unit tests per rule.
 6. Settings, Performance: header (level, period, overhead), Overview (category cards, top bottlenecks, timeline), the
    Settings tab; Markdown export with copy to clipboard.
-7. Measure the overhead with `Fleeto.LoadTest` at 1,000 agents with the monitor off and on Basic; below 1 % or it is not done.
+7. ~~Measure the overhead with `Fleeto.LoadTest` at 1,000 agents with the monitor off and on Basic.~~ Dropped on 2026-10-26.
 
 ### Step 2 — Diagnose (alpha 2) — built 2026-10-18
 
@@ -266,11 +267,39 @@ Where the build differs from the plan, decided while building:
 - Manual markers are stored through the redactor of the instance; the audit entry holds the length of the label only.
 - The monitor-overhead rule allows three times its threshold for the minutes that ran in Diagnose.
 
-### Step 3 — the rest (alpha 3)
+### Step 3 — the rest (alpha 3) — built 2026-10-26
 
 The Frontend tab with sampled Web Vitals of staff users (ingest with whitelist and caps, server time), the edge check of the
 instance URL, the benchmark, budgets, comparison by version and with the previous period, critical findings as an instance
 health problem with a cooldown.
+
+Built as planned and described in `ARCHITECTURE.md` §4, *Performance monitor*. Still open: testing it on the test VPS as
+`0.7.0-alpha.13`. Where the build differs from the plan, decided while building:
+
+- The browser reports over the circuit, through the component that already pings it every 5 seconds (`SidebarStatus`), not to an
+  HTTP endpoint: only a signed-in page has a circuit, there is no URL to post to from outside, and SignalR already caps the
+  message size. A page that reports is decided by the server once per page load; in Diagnose a page that did not report asks
+  every minute and joins without its page load (spec §5). The ping and the reports are not interactions of the page
+  (`PerfScope.Discard`): before step 3 every ping counted as an event of the page it happened on.
+- No Web Vitals library: the browser's own `PerformanceObserver` with the definitions of the metrics (layout shift as the
+  largest session window, the slowest interaction per view instead of the 98th percentile, which needs more interactions than
+  a view of Fleeto has). A view is a path, until the path changes or the tab is hidden. Judged on the 75th percentile per page,
+  as Core Web Vitals are, with 10 samples at least, since only a share of page loads reports.
+- Not measured in the browser: API calls with their server and network split (`Server-Timing`, spec §5), because a page of
+  Fleeto makes no API calls; its clicks travel on the circuit, whose round trip is measured instead. No bundle manifest: Fleeto
+  has no bundler, and its scripts are a few files of its own.
+- Network has two rules: the round trip of the live connection, and connection setup. The share of network time in API calls
+  does not apply.
+- The edge check runs in the workers, which may reach the internet, against the FQDN through the host Caddy: DNS, TCP and TLS
+  timed apart, the TLS version, HTTP/2 and the certificate, then the sign-in page and its first fingerprinted stylesheet. HSTS
+  is judged against 30 days, what web sends. The benchmark writes to the work directory of the workers (the disk the backups
+  use), never to a tmpfs.
+- Budgets are lines of text with the kind of flow first (`page /clients load = 800`), because a page of Fleeto is not an HTTP
+  route; stored structured with the settings.
+- Comparison by version uses the minutes the runtime rows give per version within the period: the stretch of the version before
+  the latest against the stretch since. Long stretches read hour rows, so the hour of a deploy counts on both sides.
+- A critical finding is a problem of Instance health as a warning, not as critical: Fleeto is slow, not down. At most 5 at once,
+  judged every 15 minutes over the last hour.
 
 ### Rules for `CLAUDE.md` once step 1 is built
 

@@ -253,3 +253,33 @@ public class PerformanceSettingsRow
     public DateTime UpdatedAt { get; set; }
     public Guid? UpdatedBy { get; set; }
 }
+
+public enum PerfProbeKind
+{
+    /// <summary>The instance URL from outside: DNS, TCP, TLS, HTTP version, compression, caching and security headers.</summary>
+    EdgeCheck,
+
+    /// <summary>The VPS as the workers see it: CPU, writes to disk with fsync, and round trips to the database.</summary>
+    Benchmark
+}
+
+/// <summary>
+/// An edge check or benchmark an admin asked for (0.7.0 step 3). Web may not reach the internet, so it writes the request and the
+/// workers run it and write the result back: <see cref="ItemsJson"/> with what was measured, or <see cref="Problem"/>.
+/// </summary>
+public class PerfProbe
+{
+    public Guid Id { get; set; }
+    public PerfProbeKind Kind { get; set; }
+    public DateTime RequestedAt { get; set; }
+    public Guid? RequestedBy { get; set; }
+    public DateTime? StartedAt { get; set; }
+    public DateTime? CompletedAt { get; set; }
+
+    /// <summary>The results as a JSON array of <see cref="Performance.PerfProbeItem"/>; never a secret, a user or a value of an endpoint.</summary>
+    public string? ItemsJson { get; set; }
+
+    public string? Problem { get; set; }
+
+    public const int MaxProblemLength = 500;
+}

@@ -1,8 +1,15 @@
 @implements IAsyncDisposable
+@using Fleeto.Core.Performance
+@using Fleeto.Infrastructure.Performance
+@using Fleeto.Web.Performance
 @inject IJSRuntime JS
+@inject PerfVitalsReceiver Vitals
+@inject AuthenticationStateProvider Authentication
+@inject TimeProvider Time
 
 @* Live connection dot, version and clock at the bottom of the navigation. The browser pings the circuit every 5 seconds and turns
-   the dot red when the server does not answer; the clock runs in the browser in the user's own time zone. *@
+   the dot red when the server does not answer; the clock runs in the browser in the user's own time zone. For a share of page
+   loads the browser also reports Web Vitals and the time of that ping to the performance monitor (0.7.0 step 3). *@
 <div class="sidebar-status @(Collapsed ? "collapsed" : "")">
     @if (Collapsed)
     {
@@ -24,6 +31,8 @@
     public bool Collapsed { get; set; }
 
     private DotNetObjectReference<SidebarStatus>? _reference;
+    private readonly PerfVitalsBudget _budget = new();
+    private bool? _signedIn;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -36,6 +45,10 @@
         try
         {
             await JS.InvokeVoidAsync("fleeto.startStatus", _reference);
+            if (await SignedInAsync())
+            {
+                await JS.InvokeVoidAsync("fleeto.startVitals", _reference, Vitals.Samples());
+            }
         }
         catch (JSException)
         {
@@ -47,9 +60,43 @@
         }
     }
 
-    /// <summary>Answered by the circuit; a missing answer means the live connection is gone.</summary>
+    /// <summary>Answered by the circuit; a missing answer means the live connection is gone. Not an interaction of the page.</summary>
     [JSInvokable]
-    public bool Ping() => true;
+    public bool Ping()
+    {
+        PerfContext.Innermost?.Discard();
+        return true;
+    }
+
+    /// <summary>Whether a page that does not report Web Vitals should start, asked by the browser every minute (Diagnose).</summary>
+    [JSInvokable]
+    public async Task<bool> VitalsWanted()
+    {
+        PerfContext.Innermost?.Discard();
+        return await SignedInAsync() && Vitals.Wanted();
+    }
+
+    /// <summary>What the browser measured since its last report; at most a few reports a minute are taken.</summary>
+    [JSInvokable]
+    public async Task ReportVitals(PerfVitalSample[]? samples)
+    {
+        PerfContext.Innermost?.Discard();
+        if (samples is { Length: > 0 } && _budget.Take(Time.GetUtcNow().UtcDateTime) && await SignedInAsync())
+        {
+            Vitals.Accept(samples);
+        }
+    }
+
+    private async Task<bool> SignedInAsync()
+    {
+        if (_signedIn is null)
+        {
+            var state = await Authentication.GetAuthenticationStateAsync();
+            _signedIn = state.User.Identity?.IsAuthenticated == true;
+        }
+
+        return _signedIn.Value;
+    }
 
     public ValueTask DisposeAsync()
     {
