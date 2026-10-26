@@ -29,6 +29,23 @@ public sealed record ScriptOption(Guid Id, string Name, ScriptLanguage Language,
 public sealed record ScriptInput(string? Name, string? Description, ScriptLanguage Language, Guid? ClientId, string? Body, int TimeoutSeconds,
     ExitCodeRules? ExitCodes = null);
 
+/// <summary>The search field of the script library (0.7.0): every word must appear in the name, description, language, platform or client.</summary>
+public static class ScriptSearch
+{
+    public static IEnumerable<ScriptListItem> Filter(IEnumerable<ScriptListItem> scripts, string? search)
+    {
+        var words = search?.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [];
+        return words.Length == 0 ? scripts : scripts.Where(s => words.All(w => Matches(s, w)));
+    }
+
+    private static bool Matches(ScriptListItem script, string word) =>
+        script.Name.Contains(word, StringComparison.OrdinalIgnoreCase) ||
+        (script.Description?.Contains(word, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        ScriptLanguages.Label(script.Language).Contains(word, StringComparison.OrdinalIgnoreCase) ||
+        ScriptLanguages.PlatformLabel(script.Language).Contains(word, StringComparison.OrdinalIgnoreCase) ||
+        (script.ClientCode ?? "All clients").Contains(word, StringComparison.OrdinalIgnoreCase);
+}
+
 /// <summary>Script checks (0.2.0): which script a check may use, and the configuration changes a script change causes.</summary>
 public static class ScriptChecks
 {

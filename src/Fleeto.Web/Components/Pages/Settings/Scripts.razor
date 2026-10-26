@@ -48,7 +48,19 @@
     }
     else
     {
-        <MudTable Items="_scripts" Hover="true" Elevation="0">
+        <div class="d-flex align-center justify-space-between mb-2 flex-wrap gap-2">
+            <MudText Typo="Typo.body2" Class="muted">@(Filtered.Count() == _scripts.Count ? $"{_scripts.Count} scripts" : $"{Filtered.Count()} of {_scripts.Count} scripts")</MudText>
+            <MudTextField T="string" @bind-Value="_search" Placeholder="Search scripts" Immediate="true" DebounceInterval="200"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Outlined.Search" Style="max-width:320px" Clearable="true" />
+        </div>
+        @if (!Filtered.Any())
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.SearchOff" Title="No scripts match" Text="Change the search to see more scripts." />
+        }
+        else
+        {
+        <MudTable Items="Filtered" Hover="true" Elevation="0">
             <HeaderContent>
                 <MudTh>Name</MudTh>
                 <MudTh>Language</MudTh>
@@ -76,6 +88,7 @@
                 <MudTd><TimeText Value="context.UpdatedAt" /></MudTd>
             </RowTemplate>
         </MudTable>
+        }
     }
 </LoadState>
 
@@ -84,6 +97,9 @@
     private IReadOnlyList<ClientOption> _clients = [];
     private int _noticeAbove = ScriptRules.DefaultAdminNoticeAbove;
     private bool _savingNotice;
+    private string? _search;
+
+    private IEnumerable<ScriptListItem> Filtered => ScriptSearch.Filter(_scripts, _search);
 
     [SupplyParameterFromQuery(Name = "new")]
     public bool New { get; set; }

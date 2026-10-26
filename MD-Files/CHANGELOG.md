@@ -103,6 +103,8 @@ allowed addresses, step 2: detection, security incidents and automatic blocking,
   it was last fetched and why a fetch failed, and "Fetch now". CrowdSec as a fifth list: the blocklists a CrowdSec Console account
   subscribes to, through a firewall integration of the Console whose id, user name and password an admin enters (stored
   encrypted, the password never shown again or audited). On the API waiting list.
+- Settings, Scripts has a search field: it filters the script library on name, description, language, platform and client,
+  every word must match.
 
 ### Changed
 
