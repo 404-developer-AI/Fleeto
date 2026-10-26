@@ -252,6 +252,8 @@ Screen takeover is built into Fleeto: no external tool, no third-party account. 
   on the endpoint detail were removed in 0.6.0): **Remote control** (the screen, served by the agent) and **Remote background** (terminal, files, services and
   processes without touching the screen, served by the watchdog so it also works when the agent is broken). Managed
   endpoints only; users whose roles give remote control or remote background (admins and technicians by default, 0.6.0). The reason is optional.
+  Remote background opens a new window with its own session every time (0.7.0, decided 2026-10-26), on the same endpoint or
+  others, up to 8 sessions per endpoint; remote control keeps one window per endpoint.
 - **Transport**: a WebSocket relay through the gateway on port 443 (`wss://<fqdn>/relay/`), no WebRTC. Image: tiles with
   change detection first, then H.264 on Windows with automatic fallback to tiles.
 - **Keyboard** never changes characters on the way, also on the Windows sign-in screen with another layout on the

@@ -106,6 +106,9 @@ allowed addresses, step 2: detection, security incidents and automatic blocking,
 
 ### Changed
 
+- Remote background opens a new window with a session of its own every time it is chosen in the right-click menu, so a
+  technician can work in several sessions at once on the same endpoint and on others, Windows and Linux alike, up to 8 sessions
+  per endpoint. Before, choosing it again brought the open window of that endpoint to the front. Remote control is unchanged.
 - An endpoint whose only unresolved alerts are on hold shows like one in maintenance: a green icon in the endpoint list, with
   when the hold ends in its tooltip, and counted in the maintenance badge of its client and site in the clients panel. How a
   hold works is unchanged.

@@ -130,6 +130,36 @@ public sealed class RemoteSessionServiceTests
     }
 
     [Fact]
+    public async Task A_technician_opens_several_background_sessions_on_one_endpoint_and_on_others()
+    {
+        var first = await EndpointAsync();
+        var second = await EndpointAsync();
+        var sessions = new List<Guid>();
+        foreach (var endpointId in new[] { first.Id, first.Id, second.Id })
+        {
+            var signer = SignNextAsync(endpointId);
+            var result = await Service.OpenBackgroundAsync(WebFixtureBase.Technician(), endpointId, RandomNumberGenerator.GetBytes(32), null);
+            await signer;
+            Assert.True(result.Success, result.Problem);
+            sessions.Add(result.Value!.SessionId);
+        }
+
+        // Every window is a session of its own: a second one on the same endpoint never joins or ends the first.
+        Assert.Equal(3, sessions.Distinct().Count());
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        Assert.Equal(2, await db.RemoteSessions.CountAsync(s => s.EndpointId == first.Id && s.EndedAt == null));
+        Assert.Equal(1, await db.RemoteSessions.CountAsync(s => s.EndpointId == second.Id && s.EndedAt == null));
+    }
+
+    [Fact]
+    public void Every_background_window_gets_a_name_of_its_own()
+    {
+        var endpointId = Guid.NewGuid();
+        Assert.NotEqual(RemoteWindow.BackgroundWindowName(endpointId, Guid.NewGuid()), RemoteWindow.BackgroundWindowName(endpointId, Guid.NewGuid()));
+        Assert.StartsWith("fleeto-background-" + endpointId.ToString("N"), RemoteWindow.BackgroundWindowName(endpointId, Guid.NewGuid()));
+    }
+
+    [Fact]
     public async Task Read_only_users_other_clients_and_agent_only_endpoints_get_no_session()
     {
         var endpoint = await EndpointAsync();

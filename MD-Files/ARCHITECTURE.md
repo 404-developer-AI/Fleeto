@@ -1128,7 +1128,9 @@ Script approval of the policy follows for a script step as for every job. A scri
 
 **Remote session (0.3.0).** Two kinds, each in its own popup window opened from the endpoint list or detail: **remote
 control** (the screen, served by the agent; from step 3) and **remote background** (terminal, files, services and
-processes, served by the watchdog; the terminal from step 1). Transport, decided 2026-09-16 without a prototype: a
+processes, served by the watchdog; the terminal from step 1). Opening remote control again brings its window to the front;
+opening remote background again opens another window with a session of its own (0.7.0), on the same endpoint or another, up to
+`MaxSessionsPerEndpoint` (8) sessions per endpoint, which the gateway and the endpoint both hold. Transport, decided 2026-09-16 without a prototype: a
 WebSocket relay through the gateway on port 443, no WebRTC. Traffic passes the VPS either way (TURN would too), UDP is
 often blocked at customers, and every session gets its own sockets, so screen traffic never blocks an agent's control
 connection. The flow for one technician (a participant):
