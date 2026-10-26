@@ -4,6 +4,54 @@ Released versions older than the two kept in `CHANGELOG.md`, newest first. Entri
 moved here verbatim when `CHANGELOG.md` would otherwise hold three released versions, in
 the same commit as the new release. Archived entries are never edited.
 
+## [0.5.0] — 2026-09-24
+
+Sign-in with Microsoft Entra ID for the people of the organization that owns the instance, with users chosen from its own
+tenant, a test and a set-up guide for the app registrations, and a clear choice of who asks the second factor. Planned with
+the developer on 2026-09-23 and built in three steps between 2026-09-23 and 2026-09-24. The pre-releases `0.5.0-alpha.1` to
+`0.5.0-alpha.6` were test builds on the first test VPS against a real Microsoft tenant; what they found was fixed before this
+release: the "Sign in with Microsoft" button was blocked by the Content Security Policy, an admin without a password was held
+back by the break-glass rule, and a session with a second factor from Microsoft could open no page. They also showed that
+Microsoft puts no `amr` claim in the token, which led to the choice described below.
+
+### Added
+
+- Signing in with Microsoft Entra ID, for the people of your own organization. An admin configures the tenant, the
+  app registration and its client secret in Settings, Sign-in, which also names the redirect URI to register, and links a
+  Fleeto user to an Entra ID account in Settings, Users. The sign-in page offers "Sign in with Microsoft" only once that is
+  configured and switched on. A token from another Microsoft tenant is refused, and so is a guest of your tenant: the people
+  of the clients you manage sign in with a local account. Fleeto creates no users of its own from a sign-in, and matches on
+  the object id of the account rather than on an email address. Configuring the sign-in, linking and unlinking, and the way
+  every sign-in came in are in the audit log. Fleeto warns before the client secret expires; after it expires local accounts
+  keep working.
+- You decide who asks for the second factor of people who sign in with Microsoft. By default Fleeto asks its own
+  authenticator code after a sign-in with Entra ID. When your tenant requires multi-factor authentication, switch on
+  "Microsoft handles the second factor of linked users" in Settings, Sign-in, and Fleeto asks no code on top: your tenant is
+  then responsible for it. Switching it off ends the sessions of linked users. The test on that page tells you whether your
+  tenant has Security Defaults or Conditional Access on, and every sign-in with Entra ID records in the audit log how
+  Microsoft says the person signed in. Local accounts always keep the Fleeto code.
+- A linked user has no Fleeto password at all — linking removes it, and the password form answers a linked account
+  exactly as it answers a wrong password, so it tells nobody which accounts sign in with Microsoft. One admin always keeps a
+  password as the way in when Microsoft is unavailable: the last such admin cannot be linked, demoted or deleted, with a
+  message that says why. Settings, Users shows "No password" for a user that has none.
+- Choose people from your Microsoft tenant. With the User.Read.All application permission on the app registration of
+  the sign-in, "Add from Microsoft" in Settings, Users adds a user from an account of your tenant with the roles you give
+  it, and linking an existing user picks the account the same way. Only members with an enabled account are offered, never
+  guests. Without the permission, you link a user by the object ID of its account, as before.
+- "Test settings" on Settings, Sign-in and "Test Microsoft Graph settings" on Settings, Email check the saved app
+  registration: that Fleeto can sign in to the tenant with it, which permissions it has, and which it holds beyond what
+  Fleeto needs. Both pages have a set-up guide with every step and permission.
+- An admin can set a password for a user in Settings, Users. Needed after removing an Entra ID link, and it is what
+  the sign-in page has always pointed at for somebody who lost their password. Their open sessions end, and two-factor
+  authentication is untouched: a password alone is never enough.
+
+### Changed
+
+- Where Fleeto says it cannot install the Action1 agent on a Linux endpoint, it now names what to do instead (install it
+  from the Action1 console) rather than promising a Fleeto version. Patch management on Linux and the integrations other
+  than Action1 moved to "Not yet scheduled" on 2026-09-23; 0.5.0 is sign-in with Microsoft Entra ID and 0.6.0 is a release
+  of refactors and fixes.
+
 ## [0.4.0] — 2026-09-23
 
 Patch management through Action1: Fleeto shows per endpoint, client and site what Action1 reports about updates, deploys the
