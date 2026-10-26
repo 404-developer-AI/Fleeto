@@ -198,7 +198,9 @@ public sealed class InstanceHealthService
             Component(HealthComponent.Notifications, "Notifications", s is null ? null
                 : $"{fleeto.OutboxEmails} emails and {fleeto.OutboxWebhooks} webhooks waiting"),
             Component(HealthComponent.Performance, "Performance", s is null ? null
-                : "A critical finding of the performance monitor opens a problem here")
+                : "A critical finding of the performance monitor opens a problem here"),
+            Component(HealthComponent.Advisories, "Security advisories", s is null ? null
+                : "A source that cannot be fetched for 48 hours opens a problem here")
         ];
     }
 

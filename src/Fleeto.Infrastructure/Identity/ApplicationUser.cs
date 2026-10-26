@@ -24,6 +24,9 @@ public class ApplicationUser : IdentityUser<Guid>
 
     public DateTime? EntraLinkedAt { get; set; }
 
+    /// <summary>When this user last opened the security advisories on the dashboard (0.8.0); a newer advisory is marked new.</summary>
+    public DateTime? AdvisoriesSeenAt { get; set; }
+
     /// <summary>This user signs in with Entra ID.</summary>
     public bool IsLinkedToEntra => EntraObjectId is not null;
 }

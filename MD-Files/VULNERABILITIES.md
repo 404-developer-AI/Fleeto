@@ -50,6 +50,8 @@ It is not:
 
 ## 2. Step 0: security advisories on the dashboard
 
+Built on 2026-10-26; how it works is in `ARCHITECTURE.md` §5, Security advisories. This section keeps the decisions.
+
 Asked for by the developer on 2026-10-26: the warnings of the Belgian Centre for Cybersecurity (CCB, `ccb.belgium.be`) on the
 dashboard, so the technicians of the customer see every day which vulnerabilities were published and can start their own
 communication with their clients. Built first, because it does not depend on the matching of §7. Decided the same day:
@@ -57,11 +59,9 @@ communication with their clients. Built first, because it does not depend on the
 - **A panel on the dashboard only.** No email, no notification channel, no daily digest: the technicians read it in Fleeto.
 - **No link to endpoints.** A warning is information for the team, never matched to the inventory, neither by CVE nor by
   product name. It stays that way when the matching of §7 exists, unless the developer decides otherwise.
-- **The language is a setting of the instance**: English, Dutch or French, chosen by an admin, but only if the CCB publishes
-  its warnings in more than one language. Seen on 2026-10-26: the warnings under `ccb.belgium.be/fr/advisories` carry the same
-  English titles as the English list, so they are probably English only. Confirmed before building; if so, the setting is not
-  built (no placeholder UI) and the decision is noted here. A warning that is not translated is shown in the language it
-  exists in.
+- **English only, no language setting** (checked 2026-10-26): the feed declares `<language>en</language>`, the language
+  paths (`/nl/advisories.xml`, `/fr/advisories`) answer 403, and no Dutch or French warning was found. The setting is not built
+  (no placeholder UI); `Advisories` keeps a language column so a source in another language needs no migration.
 - **A source is a kind, the CCB the only one in 0.8.0** (decided 2026-10-26). `Advisories` carries its source, so another source
   is a parser, not a redesign; an admin switches sources on and off in Settings once there is more than one. Candidates for a
   later version, each built only once it has a usable feed and its terms of use allow fetching it: the **Proxmox security
@@ -71,27 +71,28 @@ communication with their clients. Built first, because it does not depend on the
 
 How it works (CCB):
 
-- **Fetching**: the workers read the RSS feed of the CCB (`https://ccb.belgium.be/advisories.xml`, checked 2026-10-26 through a
-  third-party connector; per-language URLs to verify) every hour, like `IpFeedService`: timeouts, retries with backoff, the
-  circuit breaker. From each item they take the title, the publication date, the link and the CVE identifiers, read from the
-  item and its page with the fixed pattern `CVE-\d{4}-\d{4,}`. The rest of a page is free text with arrows as bullets and dates
-  written in two ways (seen on the pgAdmin warning of 2025-11-14), so Fleeto does not parse the affected software or the CVSS
-  score from it: the panel shows the summary of the RSS item. Once the CVE data of step 3 exists, the highest CVSS score of the
-  listed CVEs comes from there. When the page cannot be read, the warning is still shown with its title, date and link, and
-  marked "details not available", never as a warning without CVEs.
+- **Fetching** (checked 2026-10-26 with a User-Agent that names Fleeto): the RSS feed `https://ccb.belgium.be/advisories.xml`
+  answers 200 and holds the 10 most recent warnings, each with a title, a link, a `guid` (the link) and a publication date; its
+  `description` is the fixed text "CCB Advisories", so there is no summary. Every other path of the site, the warning pages and
+  `robots.txt` included, answers 403 from the bot protection of its CDN to a client that is not a browser. Fleeto does not get
+  around that: it **reads the RSS feed only**, every hour, like `IpFeedService` (timeouts, retries with backoff, the circuit
+  breaker), and shows the title, the date and the link. CVE identifiers and a summary are not shown for the CCB until it offers
+  them in a form Fleeto may fetch (§12). The source id is the `guid`; a warning the feed drops stays in Fleeto until its
+  retention ends, because the feed holds only 10 items.
 - **Untrusted input**: everything from a source is shown as plain text, never as HTML or Markdown, and the only link Fleeto
   renders is the one to the warning on the host of its source (`ccb.belgium.be`), checked against that host.
-- **The panel** on the dashboard: the warnings of the last 30 days, newest first, each with its source, title, date, summary, CVE
-  identifiers and a link. A warning published since the user last opened the panel is marked new (per user, stored on the user,
-  not in the browser).
+- **The panel** on the dashboard: the warnings of the last 30 days, newest first, each with its source, title, date, CVE
+  identifiers (when its source gives them, which the CCB does not) and a link. A warning published since the user last opened
+  the panel is marked new (per user, stored on the user, not in the browser).
 - **Handled with a comment**: a technician marks a warning as handled with a required comment ("clients with pgAdmin
   emailed"), shown under it, like the comment on an alert action. The panel shows who handled it and when. Instance-wide: a
   warning belongs to no client. The audit log holds the length of the comment, never its text.
 - **Permissions**: `advisories.view` (admin, technician and read-only by default) and `advisories.handle` (admin and technician).
-- **Data**: `Advisories` (source, source id, language, title, summary, published, CVE identifiers, link, fetched at, whether
-  the details were read) and `AdvisoryHandlings` (advisory, user, comment, handled at). Kept 13 months.
-- **Settings**: the language, the sources and the state of each feed (last fetched, last error), on the page where the feeds
-  of the security monitor are shown, or on Settings, Vulnerabilities (§9) once that exists.
+- **Data**: `Advisories` (source, source id, language, title, summary when the source gives one, published, CVE identifiers,
+  link, fetched at) and `AdvisoryHandlings` (advisory, user, comment, handled at). Kept 13 months.
+- **No Settings page in 0.8.0** (decided while building, 2026-10-26): with one source there is nothing to switch, so the panel
+  itself states the age of its data and why the last fetch failed, and the instance health problem below warns admins. Switching
+  sources on and off comes to Settings with the second source.
 - A feed that cannot be fetched for 48 hours is an instance health problem; the panel shows the age of its data.
 - **Public API**: reading the warnings goes on `API-WAITLIST.md` in the commit of this step.
 - **Vocabulary**: "advisory" and "vulnerability" are not in `branding-fleeto.md` §6 yet; added there in the commit of this step.
@@ -305,7 +306,7 @@ retention setting of their own. Deleting an endpoint or client removes its findi
 
 Each step is an alpha on the test VPS; the version is released as a whole with patching on Linux.
 
-0. **Security advisories** (§2): the CCB feed in the workers with a parser tested on saved warnings, the tables, the dashboard
+0. **Security advisories** (§2), built 2026-10-26: the CCB feed in the workers with a parser tested on saved warnings, the tables, the dashboard
    panel with "new" and "handled", the two permissions, the language setting if the CCB publishes in more than one, the instance
    health problem for a stale feed, the API waiting list entry and the vocabulary.
 1. **Agent and matching**: the new inventory fields with tests on real `dpkg-query`, apt list and `rpm` output of Ubuntu 22.04,
@@ -323,10 +324,10 @@ Each step is an alpha on the test VPS; the version is released as a whole with p
 Every question was decided on 2026-10-26 (§2, §5, §7, §9, §10). What is left:
 
 - **To check before building**:
-  - Step 0: whether the CCB publishes its warnings in more than one language (§2), and whether its terms of use allow fetching
-    the feed and its pages automatically. The site answered an automated fetch with 403 on 2026-10-26, so the workers send a
-    User-Agent that names Fleeto and its version and fetch the pages at most once per warning; if the CCB does not allow it,
-    step 0 shows the RSS items only.
+  - Step 0 (checked 2026-10-26, §2): the CCB publishes in English only, and only its RSS feed is reachable for Fleeto. Its
+    disclaimer reserves copying a substantial part of the site to its prior written permission. The developer asks the CCB
+    whether Fleeto may show the titles and links of the feed, and whether it offers the CVE identifiers in a feed Fleeto may
+    fetch; until it answers, step 0 is built with the RSS items only (decided 2026-10-26).
   - Step 2: whether the Action1 API offers its vulnerability data (§9).
 - **Later, not in 0.8.0**:
   - A check with an alert ("Vulnerabilities older than N days of severity X or KEV"), decided after the tab has been used on the

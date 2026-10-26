@@ -1839,6 +1839,31 @@ hand, step 2 detection, incidents and automatic blocking, step 3 blocklists.
 - **Locked out.** `install.sh --fqdn <name> --unblock` deletes every row of `IpBlocks` as the database superuser and audits it;
   the statement trigger wakes web and the gateway.
 
+### Security advisories (0.8.0)
+
+The warnings a national CSIRT or a vendor publishes, on the dashboard as information for the team (design and what is still open
+in `VULNERABILITIES.md` §2). Instance-wide, never matched to endpoints.
+
+- **Sources** are a catalog in code (`Fleeto.Core.Domain.AdvisorySources`), each with its feed URL, format, language and the one
+  host its links may point to; `AdvisorySources` holds whether a source is on and the state of its last fetch. In 0.8.0 the only
+  source is the CCB: its RSS feed (`https://ccb.belgium.be/advisories.xml`, its 10 latest warnings, English only) gives a title,
+  a link, a guid and a date, no summary and no CVE identifiers. Its pages answer 403 to a client that is not a browser, and
+  Fleeto does not get around that, so it reads the feed only.
+- **Fetching** (`AdvisoryFeedService` in the workers): every hour, with a User-Agent that names Fleeto, at most 2 MB, no
+  redirects (a feed that moves is followed by a release), 30-second timeout and a circuit breaker. `AdvisoryFeedParser` reads the
+  feed without DTD or external entities, turns every text into one line of plain text, takes CVE identifiers from the title and
+  summary, and keeps a link only when it is https on the host of the source (`AdvisoryRules.SafeLink`, checked again when web
+  shows it). An item is matched on its guid: new ones are added, changed ones updated, and one the feed drops stays. A failed
+  fetch keeps the advisories and records why and since when (`FailingSince`); after 48 hours that is an instance health problem
+  of the component Security advisories.
+- **The dashboard panel** (`AdvisoriesPanel`, `AdvisoryService`): the advisories of the last 30 days for every user with
+  `advisories.view` (every built-in role; not an administration permission, so a user limited to clients has it too). One is new
+  when Fleeto stored it after the user last opened the panel (`AspNetUsers.AdvisoriesSeenAt`). A user with `advisories.handle`
+  (admins and technicians) marks one as handled with a required comment of at most 1,000 characters (`AdvisoryHandlings`, one per
+  advisory); the audit entry `advisory.handled` holds the length of the comment, never its text.
+- **Retention**: 13 months after publication, the handling with it. Web reads the advisories and their sources and inserts a
+  handling; only the workers write the rest.
+
 ### Other controls
 
 - Containers non-root, read-only filesystems where possible, no Docker socket in app

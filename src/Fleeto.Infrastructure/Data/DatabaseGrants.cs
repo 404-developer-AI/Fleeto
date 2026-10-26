@@ -233,6 +233,11 @@ public static class DatabaseGrants
             // write their entries. Web and the gateway read the entries of the lists that are on.
             ["IpFeeds"] = Grants(web: "SELECT, UPDATE", gateway: Read, workers: ReadWrite),
             ["IpFeedEntries"] = Grants(web: Read, gateway: Read, workers: ReadWrite),
+            // Security advisories (0.8.0): the workers fetch them; web shows them and records who handled one. Retention deletes
+            // old advisories, which removes their handling by cascade.
+            ["AdvisorySources"] = Grants(web: Read, workers: ReadWrite),
+            ["Advisories"] = Grants(web: Read, workers: ReadWrite),
+            ["AdvisoryHandlings"] = Grants(web: "SELECT, INSERT", workers: Read),
 
             // Key material: full access for the signer only; everyone else reads the public columns.
             ["InstanceSigningKeys"] = Grants(signer: "SELECT, INSERT, UPDATE"),

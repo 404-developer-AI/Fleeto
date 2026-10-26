@@ -358,6 +358,9 @@ public static class AuditActions
     public const string SecurityIncidentAcknowledged = "security_incident.acknowledged";
     public const string SecurityIncidentResolved = "security_incident.resolved";
 
+    /// <summary>A security advisory marked as handled (0.8.0), with the length of the comment, never its text.</summary>
+    public const string AdvisoryHandled = "advisory.handled";
+
     /// <summary>The settings of the security monitor changed (0.7.0): automatic blocking on or off.</summary>
     public const string SecuritySettingsChanged = "security.settings_changed";
 

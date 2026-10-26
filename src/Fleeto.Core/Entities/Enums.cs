@@ -346,5 +346,8 @@ public enum HealthComponent
     Notifications,
 
     /// <summary>A critical finding of the performance monitor (0.7.0 step 3).</summary>
-    Performance
+    Performance,
+
+    /// <summary>A source of security advisories that could not be fetched for 48 hours (0.8.0).</summary>
+    Advisories
 }

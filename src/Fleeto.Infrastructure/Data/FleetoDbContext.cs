@@ -122,6 +122,11 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<IpFeed> IpFeeds => Set<IpFeed>();
     public DbSet<IpFeedEntry> IpFeedEntries => Set<IpFeedEntry>();
 
+    // Security advisories (0.8.0): instance-wide, no client.
+    public DbSet<AdvisorySource> AdvisorySources => Set<AdvisorySource>();
+    public DbSet<Advisory> Advisories => Set<Advisory>();
+    public DbSet<AdvisoryHandling> AdvisoryHandlings => Set<AdvisoryHandling>();
+
     // The performance monitor (0.7.0): instance-wide, no client, no personal data.
     public DbSet<PerfMinute> PerfMinutes => Set<PerfMinute>();
     public DbSet<PerfHour> PerfHours => Set<PerfHour>();
@@ -1613,6 +1618,34 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(e => e.Feed).HasMaxLength(50);
             entity.Property(e => e.Network).HasMaxLength(50);
             entity.HasOne<IpFeed>().WithMany().HasForeignKey(e => e.Feed).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<AdvisorySource>(entity =>
+        {
+            entity.HasKey(s => s.Key);
+            entity.Property(s => s.Key).HasMaxLength(50);
+            entity.Property(s => s.Problem).HasMaxLength(1000);
+        });
+
+        builder.Entity<Advisory>(entity =>
+        {
+            entity.Property(a => a.Source).HasMaxLength(50);
+            entity.Property(a => a.SourceId).HasMaxLength(AdvisoryRules.MaxSourceIdLength);
+            entity.Property(a => a.Language).HasMaxLength(10);
+            entity.Property(a => a.Title).HasMaxLength(AdvisoryRules.MaxTitleLength);
+            entity.Property(a => a.Summary).HasMaxLength(AdvisoryRules.MaxSummaryLength);
+            entity.Property(a => a.Link).HasMaxLength(AdvisoryRules.MaxLinkLength);
+            entity.HasOne<AdvisorySource>().WithMany().HasForeignKey(a => a.Source).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(a => new { a.Source, a.SourceId }).IsUnique();
+            entity.HasIndex(a => a.PublishedAt);
+        });
+
+        builder.Entity<AdvisoryHandling>(entity =>
+        {
+            entity.HasKey(h => h.AdvisoryId);
+            entity.Property(h => h.UserName).HasMaxLength(256);
+            entity.Property(h => h.Comment).HasMaxLength(AdvisoryRules.MaxCommentLength);
+            entity.HasOne<Advisory>().WithOne().HasForeignKey<AdvisoryHandling>(h => h.AdvisoryId).OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<UserSignInNetwork>(entity =>

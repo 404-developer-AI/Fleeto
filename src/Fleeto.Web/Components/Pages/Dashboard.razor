@@ -204,6 +204,10 @@
             </MudItem>
             }
             <MudItem xs="12" lg="5">
+                @if (Can(Permissions.AdvisoriesView))
+                {
+                    <div class="mb-4"><AdvisoriesPanel /></div>
+                }
                 @if (Can(Permissions.ClientsView))
                 {
                 <MudText Typo="Typo.h6" Class="section-title mb-2">Recent activity</MudText>

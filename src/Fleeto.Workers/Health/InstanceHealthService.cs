@@ -161,6 +161,8 @@ public sealed class InstanceHealthService : WorkerLoop
 
         var findings = InstanceHealthRules.Evaluate(InstanceHealthRules.ToSnapshot(sample), disk, cpu)
             .Concat(await PerformanceProblemsAsync(db, now, cancellationToken))
+            .Concat(AdvisoryRules.HealthFindings(await db.AdvisorySources.AsNoTracking()
+                .Select(s => new AdvisorySourceState(s.Key, s.Enabled, s.LastSuccessAt, s.FailingSince, s.Problem)).ToListAsync(cancellationToken), now))
             .ToList();
         await ApplyAsync(db, findings, now, cancellationToken);
         return findings;

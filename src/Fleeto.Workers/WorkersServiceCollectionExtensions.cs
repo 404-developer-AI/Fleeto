@@ -88,6 +88,8 @@ public static class WorkersServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<Security.SecurityMonitorService>());
         services.AddSingleton(sp => ActivatorUtilities.CreateInstance<Security.IpFeedService>(sp));
         services.AddHostedService(sp => sp.GetRequiredService<Security.IpFeedService>());
+        services.AddSingleton(sp => ActivatorUtilities.CreateInstance<Security.AdvisoryFeedService>(sp));
+        services.AddHostedService(sp => sp.GetRequiredService<Security.AdvisoryFeedService>());
         // The performance monitor (0.7.0): the VPS every minute, the database statistics, and rollup and retention.
         services.AddSingleton<PerfHostReader>();
         services.AddHostedService<PerfHostService>();

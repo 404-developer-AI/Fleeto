@@ -55,6 +55,8 @@ public static class WebServiceRegistration
         // The security monitor (0.7.0): sign-in signals and networks, and the blocked and allowed addresses in Settings.
         services.AddSingleton<SignInSecurity>();
         services.AddSingleton<SecurityService>();
+        // Security advisories on the dashboard (0.8.0).
+        services.AddSingleton<AdvisoryService>();
         services.AddSingleton<LiveUpdates>();
         // The performance monitor (0.7.0): page interactions per route template, one handler per circuit.
         services.AddSingleton<PageRoutes>();

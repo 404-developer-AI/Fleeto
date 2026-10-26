@@ -112,6 +112,8 @@ Use these terms consistently in UI, docs and email; do not introduce synonyms.
 | **tag** | A short colored label on a client, such as `contract-gold` (0.6.0). "Edit tags", "Filter clients by tag". Never "label" or "badge" in UI text. |
 | **role** | What a user may do: a set of permissions (0.6.0). Admin, Technician and Read-only are the default roles; any other is a custom role. "Default" and "Custom" in Settings, Roles. Never "profile" or "access level" in UI text. |
 | **permission** | One thing a role allows, such as "Remote control" or "Deploy updates" (0.6.0). Never "right" or "privilege" in UI text. |
+| **security advisory** | A warning a national CSIRT or a vendor publishes, shown on the dashboard (0.8.0). "Security advisories", "Mark as handled". Never "bulletin", "notice" or "alert" in UI text: an alert belongs to an endpoint. |
+| **vulnerability** | A known weakness (a CVE) in software. Used from 0.8.0; the findings on endpoints follow in a later step. Never "exploit" or "threat" for it in UI text. |
 
 Intervals are written in plain language: "every 30 seconds", "every 5 minutes", "once a month".
 

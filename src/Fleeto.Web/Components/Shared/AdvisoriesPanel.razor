@@ -1,0 +1,119 @@
+@* Security advisories on the dashboard (0.8.0 step 0, VULNERABILITIES.md §2): the warnings of the last 30 days. Everything from a source
+   is plain text; Blazor encodes it, and the only link is the one checked against the host of its source. Render only for a caller with
+   the permission advisories.view. *@
+@inherits FleetoPageBase
+@inject AdvisoryService AdvisorySvc
+@inject IDialogService DialogService
+
+<MudText Typo="Typo.h6" Class="section-title mb-2">Security advisories</MudText>
+@if (_panel is { } panel)
+{
+    @foreach (var source in panel.Sources.Where(s => s.Problem is not null || s.LastSuccessAt is null))
+    {
+        <MudText Typo="Typo.body2" Class="muted mb-2">
+            @if (source.LastSuccessAt is { } fetched)
+            {
+                <span>The advisories of @source.Name date from <TimeText Value="fetched" />. @source.Problem</span>
+            }
+            else
+            {
+                <span>The advisories of @source.Name were not fetched yet. @source.Problem</span>
+            }
+        </MudText>
+    }
+    @if (panel.Advisories.Count == 0)
+    {
+        <EmptyState Icon="@Icons.Material.Outlined.Shield" Title="No security advisories"
+                    Text="@($"Warnings of {string.Join(" and ", panel.Sources.Select(s => s.Name).DefaultIfEmpty("the sources"))} published in the last 30 days appear here.")" />
+    }
+    else
+    {
+        <MudTable Items="panel.Advisories" Dense="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>Published</MudTh>
+                <MudTh>Advisory</MudTh>
+                @if (Can(Permissions.AdvisoriesHandle))
+                {
+                    <MudTh Style="width:52px"></MudTh>
+                }
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd Style="white-space:nowrap;vertical-align:top"><TimeText Value="context.PublishedAt" /></MudTd>
+                <MudTd>
+                    <div>
+                        @if (context.IsNew)
+                        {
+                            <StatusChip Text="New" Kind="StatusKind.Active" />
+                        }
+                        <span class="muted" style="font-size:0.8125rem">@context.SourceName</span>
+                        @if (context.Link is { } link)
+                        {
+                            <a href="@link" target="_blank" rel="noopener noreferrer nofollow">@context.Title</a>
+                        }
+                        else
+                        {
+                            <span>@context.Title</span>
+                        }
+                    </div>
+                    @if (context.Summary is { } summary)
+                    {
+                        <div class="muted" style="font-size:0.8125rem">@summary</div>
+                    }
+                    @if (context.Cves.Count > 0)
+                    {
+                        <div class="mono muted" style="font-size:0.8125rem">@string.Join(", ", context.Cves)</div>
+                    }
+                    @if (context.HandledAt is { } handled)
+                    {
+                        <div class="muted" style="font-size:0.8125rem">
+                            Handled by @context.HandledByName <TimeText Value="handled" />: @context.HandleComment
+                        </div>
+                    }
+                </MudTd>
+                @if (Can(Permissions.AdvisoriesHandle))
+                {
+                    <MudTd Style="vertical-align:top">
+                        @if (context.HandledAt is null)
+                        {
+                            <MudTooltip Text="Mark as handled">
+                                <MudIconButton Icon="@Icons.Material.Outlined.TaskAlt" Size="Size.Small" aria-label="@($"Mark {context.Title} as handled")"
+                                               OnClick="@(() => HandleAsync(context))" />
+                            </MudTooltip>
+                        }
+                    </MudTd>
+                }
+            </RowTemplate>
+        </MudTable>
+    }
+}
+
+@code {
+    private AdvisoryPanel? _panel;
+
+    // The first load marks the advisories as seen; what was new keeps its mark until the page loads again.
+    protected override Task OnInitializedAsync() => LoadAsync(async caller => _panel = await AdvisorySvc.GetPanelAsync(caller, markSeen: true));
+
+    private async Task HandleAsync(AdvisoryView advisory)
+    {
+        var parameters = new DialogParameters<IncidentCommentDialog>
+        {
+            { d => d.Incident, advisory.Title },
+            { d => d.Title, "Mark the advisory as handled" },
+            { d => d.ActionLabel, "Mark as handled" },
+            { d => d.Explanation, "Every user of the dashboard sees that it was handled, by whom and with this comment." },
+            { d => d.Placeholder, "For example: clients with pgAdmin emailed, ticket 4711" },
+            { d => d.Caption, "Kept with the advisory on the dashboard." },
+            { d => d.OnSubmit, comment => RunAsync(caller => AdvisorySvc.HandleAsync(caller, advisory.Id, comment), "The advisory was marked as handled.") }
+        };
+        var dialog = await DialogService.ShowAsync<IncidentCommentDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            var seen = _panel?.Advisories.Where(a => a.IsNew).Select(a => a.Id).ToHashSet() ?? [];
+            await LoadAsync(async caller =>
+            {
+                var panel = await AdvisorySvc.GetPanelAsync(caller, markSeen: false);
+                _panel = panel is null ? null : panel with { Advisories = panel.Advisories.Select(a => a with { IsNew = seen.Contains(a.Id) }).ToList() };
+            });
+        }
+    }
+}

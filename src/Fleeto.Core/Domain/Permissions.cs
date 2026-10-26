@@ -29,6 +29,7 @@ public static class Permissions
     public const string RemoteGroup = "Remote sessions";
     public const string ScriptsGroup = "Scripts";
     public const string TemplatesGroup = "Templates";
+    public const string AdvisoriesGroup = "Security advisories";
     public const string AdministrationGroup = "Administration";
 
     public const string AlertsView = "alerts.view";
@@ -111,6 +112,8 @@ public static class Permissions
     public const string InstanceHealthView = "instancehealth.view";
     public const string PerformanceView = "performance.view";
     public const string PerformanceManage = "performance.manage";
+    public const string AdvisoriesView = "advisories.view";
+    public const string AdvisoriesHandle = "advisories.handle";
     public const string SecurityView = "security.view";
     public const string SecurityManage = "security.manage";
     public const string InstanceView = "instance.view";
@@ -191,6 +194,11 @@ public static class Permissions
         new(PatchPoliciesView, TemplatesGroup, "View patch policies", "The patch policies.", []),
         new(PatchPoliciesEdit, TemplatesGroup, "Edit patch policies", "Create, edit, copy and delete patch policies.", [PatchPoliciesView]),
 
+        // Not administration: an advisory belongs to no client, but it is public information, so a user limited to clients sees it too.
+        new(AdvisoriesView, AdvisoriesGroup, "View security advisories", "The security advisories of the CCB on the dashboard.", []),
+        new(AdvisoriesHandle, AdvisoriesGroup, "Handle security advisories", "Mark a security advisory as handled, with a comment.",
+            [AdvisoriesView]),
+
         new(UsersManage, AdministrationGroup, "Users", "Add, link, change and delete users, set passwords and reset two-factor authentication.", []),
         new(RolesManage, AdministrationGroup, "Roles", "Create, edit and delete roles.", []),
         new(GroupsManage, AdministrationGroup, "Groups", "Create, edit and delete groups of users.", []),
@@ -258,7 +266,7 @@ public static class BuiltInRoles
         Permissions.AlertsView, Permissions.ClientsView, Permissions.ChecksView, Permissions.SoftwareView, Permissions.NotesView,
         Permissions.JobsView, Permissions.PatchesView, Permissions.StorageView, Permissions.HistoryView, Permissions.ScriptsView,
         Permissions.ClientTemplatesView, Permissions.MonitoringTemplatesView, Permissions.PoliciesView, Permissions.PatchPoliciesView,
-        Permissions.TasksView,
+        Permissions.TasksView, Permissions.AdvisoriesView,
     ];
 
     public static readonly IReadOnlyList<string> TechnicianPermissions =
@@ -274,6 +282,7 @@ public static class BuiltInRoles
         Permissions.StorageScan, Permissions.RemoteControl, Permissions.RemoteBackground,
         Permissions.ScriptsEdit, Permissions.ScriptsRun, Permissions.TasksEdit, Permissions.TasksRun,
         Permissions.ClientTemplatesEdit, Permissions.MonitoringTemplatesEdit, Permissions.PoliciesEdit, Permissions.PatchPoliciesEdit,
+        Permissions.AdvisoriesHandle,
     ];
 
     public static readonly IReadOnlyList<string> AdminPermissions = [.. Permissions.All.Select(p => p.Key)];

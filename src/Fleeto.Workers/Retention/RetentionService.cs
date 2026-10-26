@@ -167,6 +167,12 @@ public sealed class RetentionService : WorkerLoop
           SELECT "Id" FROM "SecurityIncidents" WHERE "ResolvedAt" < @cutoff LIMIT 5000)
         """;
 
+    // Security advisories (0.8.0): kept 13 months after their publication; their handling goes with them by cascade.
+    private const string DeleteAdvisoriesSql = """
+        DELETE FROM "Advisories" WHERE "Id" IN (
+          SELECT "Id" FROM "Advisories" WHERE "PublishedAt" < @cutoff LIMIT 5000)
+        """;
+
     private const string DeleteSentEmailsSql = """
         DELETE FROM "OutboxEmails" WHERE "Id" IN (
           SELECT "Id" FROM "OutboxEmails" WHERE "SentAt" IS NOT NULL AND "SentAt" < @cutoff LIMIT 5000)
@@ -310,6 +316,7 @@ public sealed class RetentionService : WorkerLoop
             () => [new NpgsqlParameter("cutoff", now - SecurityMonitorRules.EndedBlockRetention)], cancellationToken);
         deleted["SecurityIncidents"] = await DeleteInBatchesAsync(DeleteSecurityIncidentsSql,
             () => [new NpgsqlParameter("cutoff", now - Security.SecurityMonitorService.ResolvedRetention)], cancellationToken);
+        deleted["Advisories"] = await DeleteInBatchesAsync(DeleteAdvisoriesSql, () => [new NpgsqlParameter("cutoff", now - AdvisorySources.Retention)], cancellationToken);
         deleted["UserSignInNetworks"] = await DeleteInBatchesAsync(DeleteSignInNetworksSql,
             () => [new NpgsqlParameter("cutoff", now - SecurityMonitorRules.SignInNetworkRetention)], cancellationToken);
         deleted["AgentCertificates"] = await DeleteInBatchesAsync(DeleteAgentCertificatesSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))], cancellationToken);

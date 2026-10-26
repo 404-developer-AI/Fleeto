@@ -9,6 +9,15 @@ When a third released version is added, the oldest entry moves to the top of
 
 ## [Unreleased]
 
+### Added
+
+- Security advisories on the dashboard (0.8.0 step 0): the warnings of the Centre for Cybersecurity Belgium (CCB) of the last 30
+  days, newest first, with their date and a link to the warning. A warning published since you last opened the dashboard is
+  marked new. Mark a warning as handled with a comment, for example which clients you informed; everybody sees who handled it,
+  when and with what comment. The workers read the RSS feed of the CCB every hour; it gives a title, a date and a link, no
+  summary and no CVE identifiers. A feed that cannot be fetched for 48 hours is an instance health problem.
+- Permissions View security advisories (every default role) and Handle security advisories (admin and technician).
+
 ## [0.7.0] — 2026-10-26
 
 The performance monitor: Settings, Performance shows where Fleeto itself is slow and why, with a report to hand to Claude Code,
