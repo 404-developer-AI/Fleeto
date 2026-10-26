@@ -480,3 +480,140 @@ document.addEventListener("click", function (event) {
     setTimeout(function () { button.textContent = original; }, 2000);
   });
 });
+
+// A table wider than its box scrolls sideways with a scrollbar under its last row, so on a long list the user had to scroll all
+// the way down first. While that scrollbar is out of view, a copy of it sticks to the bottom of the visible part of the table
+// (the window, or the box the table scrolls in) and moves the table with it. Works for every table without changes to a page.
+(function () {
+  var bar = null;
+  var inner = null;
+  var target = null;
+  var syncing = false;
+  var scheduled = false;
+
+  function clips(element) {
+    var style = window.getComputedStyle(element);
+    return style.overflowX !== "visible" || style.overflowY !== "visible";
+  }
+
+  // The element that scrolls the table sideways: its container, or a box around it (the endpoint list, deployments).
+  function scroller(container) {
+    for (var element = container; element && element !== document.body; element = element.parentElement) {
+      if (element.scrollWidth > element.clientWidth + 1 && clips(element)) {
+        return element;
+      }
+    }
+    return null;
+  }
+
+  // The part of the window in which the element can be seen: the viewport cut by every box around it that clips.
+  function visibleBox(element) {
+    var box = { top: 0, left: 0, bottom: window.innerHeight, right: document.documentElement.clientWidth };
+    for (var parent = element.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+      if (clips(parent)) {
+        var rect = parent.getBoundingClientRect();
+        box.top = Math.max(box.top, rect.top);
+        box.left = Math.max(box.left, rect.left);
+        box.bottom = Math.min(box.bottom, rect.top + parent.clientHeight);
+        box.right = Math.min(box.right, rect.right);
+      }
+    }
+    return box;
+  }
+
+  function create() {
+    bar = document.createElement("div");
+    bar.className = "fl-sticky-hscroll";
+    bar.setAttribute("aria-hidden", "true");
+    inner = document.createElement("div");
+    bar.appendChild(inner);
+    document.body.appendChild(bar);
+    bar.addEventListener("scroll", function () {
+      if (target && !syncing) {
+        syncing = true;
+        target.scrollLeft = bar.scrollLeft;
+        syncing = false;
+      }
+    });
+  }
+
+  function update() {
+    scheduled = false;
+    // With a dialog open only its own tables count: the bar would otherwise lie over the dialog.
+    var dialogs = document.querySelectorAll(".mud-dialog");
+    var root = dialogs.length ? dialogs[dialogs.length - 1] : document;
+    var containers = root.querySelectorAll(".mud-table-container");
+    var found = null;
+    var foundBox = null;
+    for (var i = 0; i < containers.length && !found; i++) {
+      var element = scroller(containers[i]);
+      if (!element) {
+        continue;
+      }
+      var rect = element.getBoundingClientRect();
+      var box = visibleBox(element);
+      var bottom = rect.top + element.clientHeight;
+      // Its own scrollbar is below the visible part, and enough of the table is in view to be worth scrolling.
+      if (rect.width > 0 && bottom > box.bottom + 1 && rect.top < box.bottom - 48 && rect.bottom > box.top) {
+        found = element;
+        foundBox = { top: box.top, bottom: box.bottom, left: Math.max(rect.left, box.left), right: Math.min(rect.right, box.right) };
+      }
+    }
+
+    if (!found) {
+      target = null;
+      if (bar) {
+        bar.style.display = "none";
+      }
+      return;
+    }
+
+    if (!bar) {
+      create();
+    }
+    target = found;
+    bar.style.display = "block";
+    bar.style.left = foundBox.left + "px";
+    bar.style.width = Math.max(0, foundBox.right - foundBox.left) + "px";
+    inner.style.width = (target.scrollWidth - target.clientWidth + bar.clientWidth) + "px";
+    bar.style.top = (foundBox.bottom - bar.offsetHeight) + "px";
+    if (Math.abs(bar.scrollLeft - target.scrollLeft) > 1) {
+      syncing = true;
+      bar.scrollLeft = target.scrollLeft;
+      syncing = false;
+    }
+  }
+
+  function schedule() {
+    if (!scheduled) {
+      scheduled = true;
+      window.requestAnimationFrame(update);
+    }
+  }
+
+  function start() {
+    // Scroll events of every box (capture), the window size, and every render of the circuit.
+    document.addEventListener("scroll", function (event) {
+      if (event.target !== bar) {
+        schedule();
+      }
+    }, true);
+    window.addEventListener("resize", schedule);
+    // Changes to the bar itself are left out, or every update would ask for the next one.
+    new MutationObserver(function (mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        if (mutations[i].target !== bar && mutations[i].target !== inner) {
+          schedule();
+          return;
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
+    schedule();
+  }
+
+  if (document.body) {
+    start();
+  } else {
+    document.addEventListener("DOMContentLoaded", start);
+  }
+})();

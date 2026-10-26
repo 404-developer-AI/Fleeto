@@ -138,6 +138,9 @@ html, body {
 .mud-table .mud-table-head .mud-table-cell { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--mud-palette-text-secondary); }
 .mud-table .mud-table-body .mud-table-row:hover { background: var(--fl-bg) !important; }
 .mud-table .mud-table-cell { background: transparent !important; }
+/* The sideways scrollbar of a wide table, kept at the bottom of the visible part while its own one is out of view (fleeto.js) */
+.fl-sticky-hscroll { display: none; position: fixed; overflow-x: scroll; overflow-y: hidden; z-index: calc(var(--mud-zindex-dialog, 1400) + 1); background: var(--fl-surface); border-top: 1px solid var(--fl-border); box-sizing: border-box; }
+.fl-sticky-hscroll > div { height: 1px; }
 
 /* Buttons, dialogs, chips, inputs */
 .mud-button-root { border-radius: var(--fl-radius) !important; text-transform: none !important; font-weight: 600; letter-spacing: 0; }

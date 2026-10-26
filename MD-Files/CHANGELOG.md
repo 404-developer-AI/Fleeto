@@ -155,6 +155,9 @@ allowed addresses, step 2: detection, security incidents and automatic blocking,
   runs of the organization (`automations/instances`), by its schedule link or by its id, which Action1 builds from the id of the
   automation and the start time; `last_instance` is also read when it comes as an object. When Action1 says the automation ran
   but no run is found, the workers log what Action1 sent, without secrets.
+- A table wider than its box could only be scrolled sideways with the scrollbar under its last row, so on a long list the user
+  first had to scroll all the way down. While that scrollbar is out of view, a copy of it now stays at the bottom of the visible
+  part of the table (the window, a dialog or the box the list scrolls in) and moves the table with it, on every table.
 
 ### Security
 
