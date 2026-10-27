@@ -486,6 +486,37 @@ public static class Ui
         StatusKind.Info => "status-info",
         _ => "status-neutral"
     };
+
+    /// <summary>The severity of a vulnerability (0.8.0): red for critical, amber for high, blue for medium.</summary>
+    public static StatusKind VulnerabilityKind(VulnerabilitySeverity severity) => severity switch
+    {
+        VulnerabilitySeverity.Critical => StatusKind.Error,
+        VulnerabilitySeverity.High => StatusKind.Warning,
+        VulnerabilitySeverity.Medium => StatusKind.Info,
+        _ => StatusKind.Neutral
+    };
+
+    public static string FixStateLabel(VulnerabilityFixState state) => state switch
+    {
+        VulnerabilityFixState.Fixable => "Fix available",
+        VulnerabilityFixState.NoFix => "No fix yet",
+        VulnerabilityFixState.ProOnly => "Fix only in Ubuntu Pro",
+        _ => "Not open"
+    };
+
+    /// <summary>"Ubuntu 22.04", "Debian 12", "AlmaLinux 9", or the distribution as the agent reported it.</summary>
+    public static string ReleaseLabel(string? distribution, string? release)
+    {
+        var name = distribution switch
+        {
+            Vulnerabilities.Ubuntu => "Ubuntu",
+            Vulnerabilities.Debian => "Debian",
+            Vulnerabilities.AlmaLinux => "AlmaLinux",
+            null or "" => "This distribution",
+            _ => distribution
+        };
+        return string.IsNullOrEmpty(release) ? name : $"{name} {release}";
+    }
 }
 
 /// <summary>Which app registration the set-up guide of Settings explains (0.5.0).</summary>

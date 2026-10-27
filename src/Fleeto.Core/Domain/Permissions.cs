@@ -114,6 +114,8 @@ public static class Permissions
     public const string PerformanceManage = "performance.manage";
     public const string AdvisoriesView = "advisories.view";
     public const string AdvisoriesHandle = "advisories.handle";
+    public const string VulnerabilitiesView = "vulnerabilities.view";
+    public const string VulnerabilitiesManage = "vulnerabilities.manage";
     public const string SecurityView = "security.view";
     public const string SecurityManage = "security.manage";
     public const string InstanceView = "instance.view";
@@ -167,6 +169,8 @@ public static class Permissions
             "Remove the Action1 agent, also when an endpoint is deleted or switched to agent-only.", [PatchesView]),
         new(StorageView, EndpointTabsGroup, "View storage", "The Storage tab.", [ClientsView]),
         new(StorageScan, EndpointTabsGroup, "Scan storage now", "Ask an endpoint to scan its drives now.", [StorageView]),
+        new(VulnerabilitiesView, EndpointTabsGroup, "View vulnerabilities",
+            "The Vulnerabilities tab of a Linux endpoint, the overview of vulnerabilities per client and site, and its dashboard tile.", [ClientsView]),
         new(HistoryView, EndpointTabsGroup, "View history", "The History tab: alerts, connections and the audit entries of an endpoint.",
             [ClientsView]),
 
@@ -217,6 +221,8 @@ public static class Permissions
         new(PerformanceView, AdministrationGroup, "Performance", "The performance monitor of Fleeto itself and its export for Claude Code.", []),
         new(PerformanceManage, AdministrationGroup, "Manage performance monitoring",
             "Change the level, collectors, thresholds and retention of the performance monitor.", [PerformanceView]),
+        new(VulnerabilitiesManage, AdministrationGroup, "Vulnerabilities",
+            "The state of the vulnerability feeds, a refresh of them, and how long ended findings are kept.", []),
         new(SecurityView, AdministrationGroup, "Security", "Security incidents, blocked and allowed addresses and blocklists of the instance.", []),
         new(SecurityManage, AdministrationGroup, "Manage security",
             "Acknowledge and resolve security incidents, block and allow addresses, and switch automatic blocking and blocklists.", [SecurityView]),
@@ -266,7 +272,7 @@ public static class BuiltInRoles
         Permissions.AlertsView, Permissions.ClientsView, Permissions.ChecksView, Permissions.SoftwareView, Permissions.NotesView,
         Permissions.JobsView, Permissions.PatchesView, Permissions.StorageView, Permissions.HistoryView, Permissions.ScriptsView,
         Permissions.ClientTemplatesView, Permissions.MonitoringTemplatesView, Permissions.PoliciesView, Permissions.PatchPoliciesView,
-        Permissions.TasksView, Permissions.AdvisoriesView,
+        Permissions.TasksView, Permissions.AdvisoriesView, Permissions.VulnerabilitiesView,
     ];
 
     public static readonly IReadOnlyList<string> TechnicianPermissions =

@@ -323,8 +323,10 @@ public sealed class RetentionService : WorkerLoop
         deleted["SecurityIncidents"] = await DeleteInBatchesAsync(DeleteSecurityIncidentsSql,
             () => [new NpgsqlParameter("cutoff", now - Security.SecurityMonitorService.ResolvedRetention)], cancellationToken);
         deleted["Advisories"] = await DeleteInBatchesAsync(DeleteAdvisoriesSql, () => [new NpgsqlParameter("cutoff", now - AdvisorySources.Retention)], cancellationToken);
+        var vulnerabilityMonths = Vulnerabilities.EndedRetentionMonths(
+            await _settings.GetStringAsync(SettingKeys.RetentionEndedVulnerabilitiesMonths, cancellationToken));
         deleted["EndpointVulnerabilities (ended)"] = await DeleteInBatchesAsync(DeleteEndedVulnerabilitiesSql,
-            () => [new NpgsqlParameter("cutoff", now - Vulnerabilities.EndedRetention)], cancellationToken);
+            () => [new NpgsqlParameter("cutoff", now.AddMonths(-vulnerabilityMonths))], cancellationToken);
         deleted["UserSignInNetworks"] = await DeleteInBatchesAsync(DeleteSignInNetworksSql,
             () => [new NpgsqlParameter("cutoff", now - SecurityMonitorRules.SignInNetworkRetention)], cancellationToken);
         deleted["AgentCertificates"] = await DeleteInBatchesAsync(DeleteAgentCertificatesSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))], cancellationToken);

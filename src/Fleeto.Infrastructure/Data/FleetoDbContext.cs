@@ -133,6 +133,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<VulnerabilityCve> VulnerabilityCves => Set<VulnerabilityCve>();
     public DbSet<EndpointVulnerability> EndpointVulnerabilities => Set<EndpointVulnerability>();
     public DbSet<EndpointVulnerabilitySummary> EndpointVulnerabilitySummaries => Set<EndpointVulnerabilitySummary>();
+    public DbSet<VulnerabilityCveCount> VulnerabilityCveCounts => Set<VulnerabilityCveCount>();
 
     // The performance monitor (0.7.0): instance-wide, no client, no personal data.
     public DbSet<PerfMinute> PerfMinutes => Set<PerfMinute>();
@@ -179,6 +180,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     private Guid[] ScopeClientIds => _scope.ClientIds as Guid[] ?? _scope.ClientIds.ToArray();
     private Guid[] ScopeFullClientIds => _scope.FullClientIds as Guid[] ?? _scope.FullClientIds.ToArray();
     private Guid[] ScopeSiteIds => _scope.SiteIds as Guid[] ?? _scope.SiteIds.ToArray();
+    private Guid[] ScopeFullSiteIds => _scope.FullSiteIds as Guid[] ?? _scope.FullSiteIds.ToArray();
     private Guid[] ScopeEndpointIds => _scope.EndpointIds as Guid[] ?? _scope.EndpointIds.ToArray();
     private string[] ScopeEndpointIdTexts => _scope.EndpointIds.Select(id => id.ToString()).ToArray();
 
@@ -1711,10 +1713,22 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             // At most one open finding per CVE and package of an endpoint, so a concurrent pass cannot open it twice.
             entity.HasIndex(v => new { v.EndpointId, v.Cve, v.Package }).IsUnique().HasFilter("\"EndedAt\" IS NULL")
                 .HasDatabaseName("IX_EndpointVulnerabilities_Open");
-            entity.HasIndex(v => new { v.ClientId, v.Cve }).HasFilter("\"EndedAt\" IS NULL").HasDatabaseName("IX_EndpointVulnerabilities_ClientCve");
+            // The endpoints one CVE affects, in every client or in one (step 2).
+            entity.HasIndex(v => new { v.Cve, v.ClientId }).HasFilter("\"EndedAt\" IS NULL").HasDatabaseName("IX_EndpointVulnerabilities_Cve");
             entity.HasIndex(v => v.EndedAt);
             EndpointChild(entity, v => new { v.EndpointId, v.ClientId });
             EndpointOwned(entity);
+        });
+
+        builder.Entity<VulnerabilityCveCount>(entity =>
+        {
+            entity.HasKey(c => new { c.ClientId, c.SiteId, c.Cve });
+            entity.Property(c => c.Cve).HasMaxLength(30);
+            entity.HasOne<Site>().WithMany()
+                .HasForeignKey(c => new { c.SiteId, c.ClientId })
+                .HasPrincipalKey(s => new { s.Id, s.ClientId })
+                .OnDelete(DeleteBehavior.Cascade);
+            WholeSiteOwned(entity);
         });
 
         builder.Entity<EndpointVulnerabilitySummary>(entity =>
@@ -1907,6 +1921,16 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     {
         entity.HasQueryFilter(e => ScopeAllClients || ScopeFullClientIds.Contains(EF.Property<Guid>(e, "ClientId")) ||
                                    ScopeSiteIds.Contains(EF.Property<Guid>(e, siteIdProperty)));
+    }
+
+    /// <summary>
+    /// A count over the endpoints of a site (0.8.0): visible only with the whole client or the whole site, never with part of it, so it
+    /// never counts endpoints the caller cannot see.
+    /// </summary>
+    private void WholeSiteOwned<T>(EntityTypeBuilder<T> entity) where T : class
+    {
+        entity.HasQueryFilter(e => ScopeAllClients || ScopeFullClientIds.Contains(EF.Property<Guid>(e, "ClientId")) ||
+                                   ScopeFullSiteIds.Contains(EF.Property<Guid>(e, "SiteId")));
     }
 
     /// <summary>A row of an endpoint (0.6.0): visible with the whole client, or with the endpoint.</summary>

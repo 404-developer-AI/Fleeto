@@ -37,6 +37,10 @@
             {
                 <MudNavLink Href="/alerts" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.NotificationsActive" title="Alerts">Alerts</MudNavLink>
             }
+            @if (_caller?.Has(Permissions.VulnerabilitiesView) == true)
+            {
+                <MudNavLink Href="/vulnerabilities" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.GppMaybe" title="Vulnerabilities">Vulnerabilities</MudNavLink>
+            }
         </MudNavMenu>
 
         <MudSpacer />

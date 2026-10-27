@@ -1,4 +1,5 @@
-@* Endpoint detail: header and the tabs Summary, Checks, Software, Notes, Jobs, Tasks, Patches, Storage and History. Used below the endpoint list in the
+@* Endpoint detail: header and the tabs Summary, Checks, Software, Notes, Jobs, Tasks, Patches, Vulnerabilities (Linux), Storage and History. Used below
+   the endpoint list in the
    clients workspace (Embedded) and on the full endpoint page. Only data of the visible tab is loaded. *@
 @inherits FleetoPageBase
 @inject EndpointService EndpointSvc
@@ -8,6 +9,7 @@
 @inject PatchService PatchSvc
 @inject ScriptService ScriptSvc
 @inject StorageService StorageSvc
+@inject VulnerabilityService VulnerabilitySvc
 @inject TaskService TaskSvc
 @inject MaintenanceService MaintenanceSvc
 @using System.Globalization
@@ -98,6 +100,12 @@
                         @Patches()
                     </MudTabPanel>
                 }
+                @if (VisibleTabs.Contains(VulnerabilitiesTab))
+                {
+                    <MudTabPanel Text="Vulnerabilities" Icon="@Icons.Material.Outlined.GppMaybe">
+                        @VulnerabilitiesContent()
+                    </MudTabPanel>
+                }
                 @if (VisibleTabs.Contains(StorageTab))
                 {
                     <MudTabPanel Text="Storage" Icon="@Icons.Material.Outlined.Storage">
@@ -128,6 +136,7 @@
     private const int StorageTab = 6;
     private const int HistoryTab = 7;
     private const int TasksTab = 8;
+    private const int VulnerabilitiesTab = 9;
 
     /// <summary>The tabs the roles of the user allow, in order (0.6.0); the summary always.</summary>
     private List<int> VisibleTabs
@@ -141,6 +150,12 @@
             AddIf(JobsTab, Permissions.JobsView);
             AddIf(TasksTab, Permissions.TasksView);
             AddIf(PatchesTab, Permissions.PatchesView);
+            // Linux only (0.8.0): Patches covers Windows.
+            if (_endpoint?.OsPlatform == "linux")
+            {
+                AddIf(VulnerabilitiesTab, Permissions.VulnerabilitiesView);
+            }
+
             AddIf(StorageTab, Permissions.StorageView);
             AddIf(HistoryTab, Permissions.HistoryView);
             return tabs;
@@ -196,6 +211,9 @@
     private string? _auditSearch;
     private string? _maintenanceSearch;
     private EndpointStorageView? _storage;
+    private EndpointVulnerabilityView? _vulnerabilities;
+    private string? _vulnerabilitySearch;
+    private readonly HashSet<string> _vulnerabilityExpanded = new(StringComparer.Ordinal);
     private string? _storageVolume;
     private readonly HashSet<string> _storageExpanded = new(StringComparer.OrdinalIgnoreCase);
     private bool _storageScanning;
@@ -233,6 +251,9 @@
         _inventory = null;
         _storage = null;
         _storageVolume = null;
+        _vulnerabilities = null;
+        _vulnerabilitySearch = null;
+        _vulnerabilityExpanded.Clear();
         _storageExpanded.Clear();
         Loading = _endpoint is null;
         await ReloadAsync();
@@ -318,6 +339,9 @@
                 _deployments = await PatchSvc.ListDeploymentsAsync(caller, EndpointId);
                 // An update that is no longer missing cannot stay chosen, or a deployment would name something that is gone.
                 _chosenUpdates = [.. _chosenUpdates.Where(u => _patches?.Missing.Any(m => m.Id == u.Id) == true)];
+                break;
+            case VulnerabilitiesTab:
+                _vulnerabilities = await VulnerabilitySvc.GetEndpointAsync(caller, EndpointId);
                 break;
             case StorageTab:
                 _storage = await StorageSvc.GetAsync(caller, EndpointId, _storageVolume);
@@ -1233,6 +1257,294 @@
                 <MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" />
             </PagerContent>
         </MudTable>
+    };
+
+    /// <summary>The package groups the search keeps: a group whose package, binaries or CVEs contain the text.</summary>
+    private IEnumerable<VulnerabilityPackageGroup> FilteredVulnerabilityGroups =>
+        _vulnerabilities is not { } view ? []
+        : string.IsNullOrWhiteSpace(_vulnerabilitySearch) ? view.Groups
+        : view.Groups.Where(g => MatchesVulnerabilitySearch(g.Package) || g.Binaries.Any(MatchesVulnerabilitySearch) ||
+                                 g.Findings.Any(f => MatchesVulnerabilitySearch(f.Cve)));
+
+    private bool MatchesVulnerabilitySearch(string text) => text.Contains(_vulnerabilitySearch!.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private void ToggleVulnerabilityGroup(VulnerabilityPackageGroup group)
+    {
+        var key = GroupKey(group);
+        if (!_vulnerabilityExpanded.Remove(key))
+        {
+            _vulnerabilityExpanded.Add(key);
+        }
+    }
+
+    private static string GroupKey(VulnerabilityPackageGroup group) => group.IsKernel ? "kernel:" + group.Package : group.Package;
+
+    private static string GroupCounts(VulnerabilityPackageGroup group)
+    {
+        var withoutFix = group.Findings.Count - group.Fixable;
+        return (group.Fixable, withoutFix) switch
+        {
+            (> 0, > 0) => $"{group.Fixable} fixable, {withoutFix} without a fix",
+            (> 0, _) => $"{group.Fixable} fixable",
+            _ => $"{withoutFix} without a fix"
+        };
+    }
+
+    private static string OriginLabel(string? origin) => origin switch
+    {
+        null or "" => "Unknown",
+        PackageInventory.LocalOrigin => "Installed from a file",
+        _ => origin
+    };
+
+    private RenderFragment VulnerabilitiesContent() => __builder =>
+    {
+        var view = _vulnerabilities;
+        if (view is null)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.GppMaybe" Title="Loading" Text="Reading the vulnerabilities of this endpoint." />
+            return;
+        }
+
+        if (!view.Managed)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.GppMaybe" Title="Vulnerability reporting needs a managed endpoint"
+                        Text="Switch this endpoint to managed to see which known vulnerabilities affect its packages." />
+            return;
+        }
+
+        if (view.Summary is not { } summary)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.GppMaybe" Title="Not matched yet"
+                        Text="Fleeto matches this endpoint once its agent reports its packages and the security data of its release is fetched. This takes a few minutes." />
+            return;
+        }
+
+        var release = Ui.ReleaseLabel(summary.Distribution, summary.Release);
+        var coverageText = summary.Coverage switch
+        {
+            VulnerabilityCoverage.DistributionNotCovered =>
+                $"Fleeto reports vulnerabilities on Ubuntu, Debian, Proxmox VE and AlmaLinux. {release} is not covered, so nothing is known about its packages.",
+            VulnerabilityCoverage.ReleaseNotSupported =>
+                $"{release} gets no security fixes any more{(summary.Distribution == Vulnerabilities.Ubuntu ? " without Ubuntu Pro" : "")}, so its packages are not checked. Upgrade to a supported release.",
+            VulnerabilityCoverage.FeedsPending =>
+                $"The security data of {release} has not been fetched yet. If this stays, an admin finds the reason in Settings, Vulnerabilities.",
+            _ => null
+        };
+        if (summary.Coverage == VulnerabilityCoverage.AgentTooOld)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.Update" Title="Update the agent to see vulnerabilities"
+                        Text="This agent does not report what vulnerability matching needs. Agent 0.8.0 or newer does; it updates through its update ring." />
+            return;
+        }
+
+        if (coverageText is not null)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.GppMaybe"
+                        Title="@(summary.Coverage switch { VulnerabilityCoverage.ReleaseNotSupported => "Release no longer supported", VulnerabilityCoverage.FeedsPending => "Security data not fetched yet", _ => "Not covered" })"
+                        Text="@coverageText" />
+            return;
+        }
+
+        var now = Clock.GetUtcNow().UtcDateTime;
+        <MudText Typo="Typo.body2" Class="muted mb-2">
+            @release · security data updated @(view.FeedsUpdatedAt is { } updated ? Time.Relative(updated) : "not yet") · matched @Time.Relative(summary.MatchedAt)
+        </MudText>
+        @if (summary.PackageLists is "missing" or "unreadable")
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                Package lists missing: run apt update on this endpoint, so Fleeto can tell which packages come from @(Ui.ReleaseLabel(summary.Distribution, null)).
+            </MudAlert>
+        }
+        else if (summary.PackageListsUpdatedAt is { } listsAt && now - listsAt > TimeSpan.FromDays(30))
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                The package lists were last updated @Time.Relative(listsAt). Run apt update so the endpoint knows the fixed versions as well.
+            </MudAlert>
+        }
+        @if (summary.RestartRequired)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">Restart required: updates installed since the last restart take effect after it.</MudAlert>
+        }
+        @if (summary.Distribution == Vulnerabilities.AlmaLinux)
+        {
+            <MudAlert Severity="Severity.Normal" Dense="true" Class="mb-2">Only security updates that AlmaLinux has released are shown.</MudAlert>
+        }
+
+        <div class="d-flex gap-2 flex-wrap align-center mb-3">
+            @if (summary.Fixable == 0)
+            {
+                <StatusChip Text="No fixable vulnerabilities" Kind="StatusKind.Ok" />
+            }
+            @foreach (var (severity, count) in new[] { (VulnerabilitySeverity.Critical, summary.Critical), (VulnerabilitySeverity.High, summary.High),
+                         (VulnerabilitySeverity.Medium, summary.Medium), (VulnerabilitySeverity.Low, summary.Low), (VulnerabilitySeverity.Unknown, summary.Unknown) })
+            {
+                @if (count > 0)
+                {
+                    <StatusChip Text="@($"{count} {severity.ToString().ToLowerInvariant()}")" Kind="@Ui.VulnerabilityKind(severity)" />
+                }
+            }
+            @if (summary.NoFix > 0)
+            {
+                <StatusChip Text="@($"{summary.NoFix} without a fix yet")" Kind="StatusKind.Neutral" />
+            }
+            @if (summary.ProOnly > 0)
+            {
+                <MudTooltip Text="Fixed in packages of Ubuntu Pro (Expanded Security Maintenance), which this endpoint does not have.">
+                    <StatusChip Text="@($"{summary.ProOnly} fixed only in Ubuntu Pro")" Kind="StatusKind.Neutral" />
+                </MudTooltip>
+            }
+            <MudSpacer />
+            <MudTextField T="string" @bind-Value="_vulnerabilitySearch" Placeholder="Search CVE or package" Immediate="true" DebounceInterval="200"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Outlined.Search" Style="max-width:320px" Clearable="true" />
+        </div>
+
+        @if (view.Groups.Count == 0)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.VerifiedUser" Title="No open vulnerabilities"
+                        Text="@($"The security data of {release} lists no open vulnerability for the packages of this endpoint.")" />
+        }
+        else
+        {
+            <MudTable T="VulnerabilityPackageGroup" Items="FilteredVulnerabilityGroups" Dense="true" Elevation="0" RowsPerPage="25" Hover="true"
+                      OnRowClick="@(args => ToggleVulnerabilityGroup(args.Item!))" RowStyle="cursor:pointer">
+                <HeaderContent>
+                    <MudTh Style="width:36px"></MudTh>
+                    <MudTh>Package</MudTh>
+                    <MudTh>Installed</MudTh>
+                    <MudTh>Severity</MudTh>
+                    <MudTh>Vulnerabilities</MudTh>
+                    <MudTh>Update to</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd>
+                        <MudIcon Size="Size.Small" Icon="@(_vulnerabilityExpanded.Contains(GroupKey(context)) ? Icons.Material.Outlined.ExpandLess : Icons.Material.Outlined.ExpandMore)" />
+                    </MudTd>
+                    <MudTd>
+                        <strong>@(context.IsKernel ? $"Running kernel ({context.Package})" : context.Package)</strong>
+                        @if (!context.IsKernel && !(context.Binaries.Count == 1 && context.Binaries[0] == context.Package) && context.Binaries.Count > 0)
+                        {
+                            <div class="muted" style="font-size:0.75rem">@string.Join(", ", context.Binaries)</div>
+                        }
+                    </MudTd>
+                    <MudTd><span class="mono">@context.InstalledVersion</span></MudTd>
+                    <MudTd><StatusChip Text="@context.Worst.ToString()" Kind="@Ui.VulnerabilityKind(context.Worst)" /></MudTd>
+                    <MudTd>@GroupCounts(context)</MudTd>
+                    <MudTd><span class="mono">@(context.UpgradeTo ?? "-")</span></MudTd>
+                </RowTemplate>
+                <ChildRowContent>
+                    @if (_vulnerabilityExpanded.Contains(GroupKey(context)))
+                    {
+                        <MudTr>
+                            <td colspan="6" class="pa-0">
+                                <MudSimpleTable Dense="true" Elevation="0">
+                                    <thead>
+                                        <tr><th>CVE</th><th>Severity</th><th>State</th><th>Fixed in</th><th>Advisory</th><th>First seen</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var finding in context.Findings)
+                                        {
+                                            <tr>
+                                                <td>@VulnerabilityLink(finding.Cve, finding.CveUrl)</td>
+                                                <td>
+                                                    <StatusChip Text="@finding.Severity.ToString()" Kind="@Ui.VulnerabilityKind(finding.Severity)" />
+                                                    @if (!string.IsNullOrEmpty(finding.SourceSeverity) && !string.Equals(finding.SourceSeverity, finding.Severity.ToString(), StringComparison.OrdinalIgnoreCase))
+                                                    {
+                                                        <span class="muted ml-1" style="font-size:0.75rem">@finding.SourceSeverity</span>
+                                                    }
+                                                </td>
+                                                <td>@Ui.FixStateLabel(finding.State)</td>
+                                                <td><span class="mono">@(finding.FixedVersion ?? "-")</span></td>
+                                                <td>@VulnerabilityLink(finding.Advisory, finding.AdvisoryUrl)</td>
+                                                <td><TimeText Value="finding.FirstSeenAt" /></td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </MudSimpleTable>
+                            </td>
+                        </MudTr>
+                    }
+                </ChildRowContent>
+                <PagerContent>
+                    <MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" />
+                </PagerContent>
+            </MudTable>
+        }
+
+        @if (view.NotOpen.Count > 0 || summary.NotCovered > 0)
+        {
+            <MudExpansionPanels Elevation="0" Class="mt-3" MultiExpansion="true">
+                @if (view.NotOpen.Count > 0)
+                {
+                    <MudExpansionPanel Text="@($"Not open ({view.NotOpen.Count})")">
+                        <MudText Typo="Typo.body2" Class="muted mb-2">
+                            Vulnerabilities the distribution does not count as open on this release: deferred, under investigation or not to be fixed.
+                        </MudText>
+                        <MudSimpleTable Dense="true" Elevation="0">
+                            <thead><tr><th>CVE</th><th>Package</th><th>Severity</th><th>Status</th></tr></thead>
+                            <tbody>
+                                @foreach (var finding in view.NotOpen)
+                                {
+                                    <tr>
+                                        <td>@VulnerabilityLink(finding.Cve, finding.CveUrl)</td>
+                                        <td>@finding.Package</td>
+                                        <td><StatusChip Text="@finding.Severity.ToString()" Kind="@Ui.VulnerabilityKind(finding.Severity)" /></td>
+                                        <td>@(finding.SourceSeverity ?? "-")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </MudExpansionPanel>
+                }
+                @if (summary.NotCovered > 0)
+                {
+                    <MudExpansionPanel Text="@($"Not covered ({summary.NotCovered})")">
+                        <MudText Typo="Typo.body2" Class="muted mb-2">
+                            Packages from other repositories or installed from a file, and on AlmaLinux packages of a module stream that is not known.
+                            The security data of @(Ui.ReleaseLabel(summary.Distribution, null)) does not cover them, so Fleeto does not judge them.
+                            @if (view.NotCovered.Count < summary.NotCovered)
+                            {
+                                <span>The first @view.NotCovered.Count by name are listed.</span>
+                            }
+                        </MudText>
+                        <MudSimpleTable Dense="true" Elevation="0">
+                            <thead><tr><th>Package</th><th>Version</th><th>Origin</th></tr></thead>
+                            <tbody>
+                                @foreach (var package in view.NotCovered)
+                                {
+                                    <tr>
+                                        <td>@package.Name</td>
+                                        <td><span class="mono">@package.Version</span></td>
+                                        <td>@OriginLabel(package.Origin)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </MudExpansionPanel>
+                }
+            </MudExpansionPanels>
+        }
+        <MudText Typo="Typo.caption" Class="muted mt-2 d-block">
+            Packages of the distribution only: container images, snaps, flatpaks and language packages (pip, npm) are not checked.
+        </MudText>
+    };
+
+    /// <summary>A CVE or advisory with the page of the distribution about it, when there is one; the text itself is never markup.</summary>
+    private static RenderFragment VulnerabilityLink(string? text, string? url) => __builder =>
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            <span class="muted">-</span>
+        }
+        else if (url is null)
+        {
+            <span>@text</span>
+        }
+        else
+        {
+            <MudLink Href="@url" Target="_blank" rel="noopener noreferrer">@text</MudLink>
+        }
     };
 
     private RenderFragment Patches() => __builder =>

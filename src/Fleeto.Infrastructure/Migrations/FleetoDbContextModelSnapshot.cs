@@ -2484,8 +2484,8 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.HasIndex("EndedAt");
 
-                    b.HasIndex("ClientId", "Cve")
-                        .HasDatabaseName("IX_EndpointVulnerabilities_ClientCve")
+                    b.HasIndex("Cve", "ClientId")
+                        .HasDatabaseName("IX_EndpointVulnerabilities_Cve")
                         .HasFilter("\"EndedAt\" IS NULL");
 
                     b.HasIndex("EndpointId", "ClientId");
@@ -2545,6 +2545,9 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.Property<int>("NotCovered")
                         .HasColumnType("integer");
+
+                    b.Property<string>("NotCoveredJson")
+                        .HasColumnType("text");
 
                     b.Property<int>("NotOpen")
                         .HasColumnType("integer");
@@ -6413,6 +6416,44 @@ namespace Fleeto.Infrastructure.Migrations
                     b.ToTable("VulnerabilityCves");
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.VulnerabilityCveCount", b =>
+                {
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SiteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Cve")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTime>("CountedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Endpoints")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("FixableEndpoints")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("FixableRank")
+                        .HasColumnType("integer");
+
+                    b.PrimitiveCollection<string[]>("Packages")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<int>("Rank")
+                        .HasColumnType("integer");
+
+                    b.HasKey("ClientId", "SiteId", "Cve");
+
+                    b.HasIndex("SiteId", "ClientId");
+
+                    b.ToTable("VulnerabilityCveCounts");
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.VulnerabilityFeed", b =>
                 {
                     b.Property<string>("Key")
@@ -6445,6 +6486,9 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.Property<int>("RecordCount")
                         .HasColumnType("integer");
+
+                    b.Property<DateTime?>("RefreshRequestedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Scope")
                         .HasMaxLength(4000)
@@ -7936,6 +7980,16 @@ namespace Fleeto.Infrastructure.Migrations
                     b.HasOne("Fleeto.Infrastructure.Identity.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.VulnerabilityCveCount", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Site", null)
+                        .WithMany()
+                        .HasForeignKey("SiteId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

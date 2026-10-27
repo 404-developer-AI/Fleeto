@@ -26,6 +26,17 @@ When a third released version is added, the oldest entry moves to the top of
   Debian, Proxmox VE and AlmaLinux endpoint inside the instance; nothing of an endpoint leaves it. A feed that cannot be fetched for
   48 hours is an instance health problem. Load-tested at 10,000 endpoints: 5 minutes for the first match, 80 seconds after a feed
   change.
+- Vulnerabilities tab on managed Linux endpoints (0.8.0 step 2): the open vulnerabilities per source package with the installed
+  version, the most severe one, how many have a fix and the version to update to, opening the CVEs with their severity (and the
+  distribution's own word), state, fixed version, advisory and when Fleeto first saw them. The running kernel is a group of its own;
+  vulnerabilities the distribution does not count as open and packages the security data does not cover are listed apart. The tab
+  says when the endpoint needs a newer agent, runs a release that gets no fixes any more, misses its package lists or needs a
+  restart. Links go to the pages of Ubuntu, Debian and AlmaLinux only.
+- Vulnerabilities in the sidebar: per CVE the managed Linux endpoints it affects, for every client, one client or one site, filtered on
+  severity, on having a fix to install and on CVE or package, opening the list of those endpoints. Windows endpoints are not in it.
+- Dashboard tile Vulnerabilities: Linux endpoints missing a critical fix, and those on a release no longer supported.
+- Settings, Vulnerabilities: the state of every feed in use, "Refresh now", and how many months ended findings are kept (default 13).
+- Permissions View vulnerabilities (every default role) and Vulnerabilities (administration).
 
 ## [0.7.0] — 2026-10-26
 

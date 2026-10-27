@@ -343,10 +343,11 @@ Each step is an alpha on the test VPS; the version is released as a whole with p
    dpkg and rpm version comparison with the reference test sets; the severity mapping and the release support table; the
    tables, migrations (expand only) and matching in the workers; the summary table; the instance health problem for a stale
    feed; a load test of matching at 10,000 endpoints.
-2. **UI**: the endpoint tab, the overview per client and site (with the Windows findings of Action1 if its API offers them,
-   §9), the dashboard tile, the permission, Settings, Vulnerabilities, and the API waiting list or API entries.
+2. **UI**, built 2026-10-26 without Windows (the developer chose to leave the Windows findings of Action1 out for now, §12): the
+   endpoint tab, the overview per client and site, the dashboard tile, the permissions, Settings, Vulnerabilities, and the API
+   waiting list entries (how it works: `ARCHITECTURE.md` §5; deviations below).
 3. **Exploitation and age**: KEV (with the EUVD fallback) and EPSS, sorting on them, the instance health problem for these two
-   feeds, the CVSS score on the advisories panel, retention of ended findings, and the History tab entries.
+   feeds, the CVSS score on the advisories panel, and the History tab entries.
 
 Deviations of step 1 from §6 to §8, decided while building:
 
@@ -367,10 +368,34 @@ Deviations of step 1 from §6 to §8, decided while building:
   125 µs a row, which stays (tenant separation). 3.1 million findings take 1.1 GB with their indexes and the feed records 35 MB.
 - The AlmaLinux zip is read from memory (about 7 MB, at most 256 MB), not from a file on a scratch volume.
 
+Deviations of step 2 from §9, decided while building:
+
+- **The overview is a page of its own** (`/vulnerabilities`, in the sidebar after Alerts) with a choice of all clients, a client or a
+  site, rather than a part of the clients workspace, whose tabs list endpoints. The dashboard tile opens it.
+- **The overview reads counts per site and CVE** (`VulnerabilityCveCounts`), which the workers rebuild after matching, at most every 2
+  minutes while endpoints change and every 10 minutes otherwise, so it can lag the tab of an endpoint by that much and says when it
+  was counted. Counting the endpoints per CVE over the findings took 3 seconds (only fixable) to 31 seconds (every finding) at 10,000
+  endpoints; the rebuild takes 23 seconds right after the first match (15 afterwards) and the overview then 70 ms. A count row is visible only with the whole client or the whole site;
+  a user whose groups give part of a site gets the endpoints it may see counted over the findings instead, so it never sees a count of
+  endpoints outside its groups. Two traps found in the load test: right after a large first match the findings have no statistics and
+  the planner chose nested loops (5.6 seconds for 16,000 findings, 0.2 after ANALYZE), so the rebuild analyzes them first through
+  `fleeto_perf_analyze`, which the workers may call as well now; and one CTE of the open findings used twice was materialized (67
+  seconds instead of 15 at 10,000 endpoints), so the query reads them twice.
+- **The tab lists source packages**, not single findings: per package the installed version, its most severe finding, how many are
+  fixable and the version to update to, opening its CVEs. The running kernel is a group of its own.
+- **Two permissions**: View vulnerabilities (every default role) for the tab, the overview and the tile, and Vulnerabilities in the
+  administration group for Settings, Vulnerabilities (admin).
+- **Retention of ended findings** is a setting (1 to 60 months, default 13) on Settings, Vulnerabilities, not a step 3 item.
+- **Links** go only to the advisory pages of the distribution (`ubuntu.com/security`, `security-tracker.debian.org`,
+  `errata.almalinux.org`) and only for identifiers that look like theirs; the Debian tracker gives no DSA per CVE, so a Debian finding
+  links to the CVE page of the tracker.
+
 ## 12. Open
 
 Every question was decided on 2026-10-26 (§2, §5, §7, §9, §10). What is left:
 
+- **Windows in the overview** (left out of step 2 by the developer, 2026-10-26): whether the Action1 API offers its vulnerability data
+  is still to be checked (§9); until then the overview is Linux only and says so.
 - **Step 1, real output of the other releases**: the parsers are tested on the real output of Ubuntu 24.04, Proxmox VE 8.4
   (Debian 12) and AlmaLinux 8.5 (captured 2026-10-26, `agent/internal/inventory/testdata`). On the Proxmox VE host every package
   is Debian's (613) or Proxmox's (103), none local, and the packages Proxmox rebuilt (`grub2`, `open-iscsi`, `smartmontools`, `frr`)
@@ -384,7 +409,6 @@ Every question was decided on 2026-10-26 (§2, §5, §7, §9, §10). What is lef
     disclaimer reserves copying a substantial part of the site to its prior written permission. The developer asks the CCB
     whether Fleeto may show the titles and links of the feed, and whether it offers the CVE identifiers in a feed Fleeto may
     fetch; until it answers, step 0 is built with the RSS items only (decided 2026-10-26).
-  - Step 2: whether the Action1 API offers its vulnerability data (§9).
 - **Later, not in 0.8.0**:
   - A check with an alert ("Vulnerabilities older than N days of severity X or KEV"), decided after the tab has been used on the
     test VPS; it would work like "Missing updates", evaluated by the workers after every match.

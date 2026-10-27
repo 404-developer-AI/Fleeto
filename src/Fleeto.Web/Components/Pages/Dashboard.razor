@@ -91,6 +91,21 @@
                     </div>
                 </MudItem>
             }
+            @if (data.Vulnerabilities is { } vulnerabilities)
+            {
+                <MudItem xs="12" sm="6" md="4" lg="2">
+                    <a href="/vulnerabilities" class="stat-card-link">
+                        <div class="stat-card fl-panel @(vulnerabilities.WithCritical > 0 ? "stat-error" : vulnerabilities.Unsupported > 0 ? "stat-warning" : "")">
+                            <div class="stat-label">Vulnerabilities</div>
+                            <div class="stat-number">@vulnerabilities.WithCritical</div>
+                            <div class="stat-detail">
+                                Linux endpoints missing a critical fix@(vulnerabilities.Unsupported > 0
+                                    ? $", {vulnerabilities.Unsupported} on a release no longer supported" : "")
+                            </div>
+                        </div>
+                    </a>
+                </MudItem>
+            }
             @if (data.License is { } license)
             {
                 <MudItem xs="12" sm="6" md="4" lg="2">

@@ -1890,8 +1890,22 @@ Which known vulnerabilities affect the distribution packages of a managed Linux 
   changed and ended ones and the summary; findings that stay the same are read without tracking. Measured at 10,000 endpoints: 5
   minutes for the first match, 80 seconds after a feed change (`VULNERABILITIES.md` §11). A finding is one CVE on one source package
   (`EndpointVulnerabilities`, at most one open per CVE and package); one that disappears ends as fixed, removed or withdrawn. The counts
-  go to `EndpointVulnerabilitySummaries`, which the UI of step 2 reads. An endpoint that is no longer a managed Linux endpoint loses its
-  findings and summary. Ended findings are kept 13 months.
+  go to `EndpointVulnerabilitySummaries` with the packages the feeds do not cover (at most 500 listed). An endpoint that is no longer a
+  managed Linux endpoint loses its findings and summary. Ended findings are kept 13 months, or what Settings, Vulnerabilities says (1 to
+  60, `retention.ended-vulnerabilities-months`).
+- **Counts per site and CVE** (`VulnerabilityCveCounts`, step 2): rebuilt by the matcher from the open findings in one transaction once
+  nothing is due, at most every 2 minutes while endpoints change and at least every 10 minutes, so a deleted or moved endpoint leaves
+  them too: first one row per endpoint and CVE, then per site, the packages grouped apart, each reading the findings itself (a shared
+  CTE is materialized); after an ANALYZE of the findings (`fleeto_perf_analyze`, granted to the workers as well), because a large
+  first match leaves them without statistics, and without nested loops. 23 seconds right after the first match (15 afterwards) at 10,000 endpoints with 3.1 million findings. Its query filter shows a row only with the whole client or the
+  whole site.
+- **UI** (`VulnerabilityService`, step 2): the Vulnerabilities tab of a managed Linux endpoint (findings per source package with the
+  version to update to, the running kernel apart, "Not open" and "Not covered" collapsed, links only to advisory pages of the
+  distribution for identifiers that look like theirs), the overview `/vulnerabilities` per client and site from the counts (a user with
+  part of a site gets its own endpoints counted over the findings), the dashboard tile, and Settings, Vulnerabilities (feeds, "Refresh
+  now" through `VulnerabilityFeeds.RefreshRequestedAt` and the trigger on `fleeto_vulnerability_feeds`, retention). Permissions
+  `vulnerabilities.view` (every default role) and `vulnerabilities.manage` (administration). The refresh and a change of the retention
+  are audited; viewing is not.
 
 ### Other controls
 

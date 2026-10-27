@@ -1,0 +1,135 @@
+@page "/settings/vulnerabilities"
+@attribute [RequirePermission(Permissions.VulnerabilitiesManage)]
+@inherits FleetoPageBase
+@inject VulnerabilityService VulnerabilitySvc
+
+<PageTitle>Vulnerabilities - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Vulnerabilities</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            The security data Fleeto matches the packages of managed Linux endpoints against. The workers fetch only the feeds the endpoints
+            of this instance need, every 6 hours; the inventory of an endpoint never leaves the instance.
+        </MudText>
+    </div>
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Refresh" Disabled="@(_refreshing || _view is not { Feeds.Count: > 0 })"
+               OnClick="RefreshAsync">Refresh now</MudButton>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_view is { } view)
+    {
+        @if (view.Feeds.Count == 0)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.GppMaybe" Title="No feed in use"
+                        Text="Fleeto fetches the security data of a release once a managed Ubuntu, Debian, Proxmox VE or AlmaLinux endpoint reports its packages." />
+        }
+        else
+        {
+            <MudTable Items="view.Feeds" Dense="true" Elevation="0" Class="mb-4">
+                <HeaderContent>
+                    <MudTh>Feed</MudTh>
+                    <MudTh>State</MudTh>
+                    <MudTh>Last fetched</MudTh>
+                    <MudTh>Last changed</MudTh>
+                    <MudTh>Records</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd><strong>@context.Name</strong></MudTd>
+                    <MudTd>
+                        @if (context.RefreshRequested)
+                        {
+                            <StatusChip Text="Refresh asked for" Kind="StatusKind.Active" />
+                        }
+                        else if (context.Problem is { } problem)
+                        {
+                            <StatusChip Text="@(context.LastSuccessAt is null ? "Never fetched" : "Failing")" Kind="StatusKind.Error" />
+                            <div class="muted mt-1" style="font-size:0.8125rem">
+                                @problem
+                                @if (context.FailingSince is { } since)
+                                {
+                                    <span> Failing since <TimeText Value="since" />.</span>
+                                }
+                            </div>
+                        }
+                        else if (context.LastSuccessAt is null)
+                        {
+                            <StatusChip Text="Waiting for the first fetch" Kind="StatusKind.Neutral" />
+                        }
+                        else
+                        {
+                            <StatusChip Text="Up to date" Kind="StatusKind.Ok" />
+                        }
+                    </MudTd>
+                    <MudTd>@if (context.LastSuccessAt is { } success) { <TimeText Value="success" /> } else { <span class="muted">Never</span> }</MudTd>
+                    <MudTd>@if (context.LastChangedAt is { } changed) { <TimeText Value="changed" /> } else { <span class="muted">-</span> }</MudTd>
+                    <MudTd>@context.RecordCount.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)</MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+
+        <div class="fl-panel pa-4" style="max-width:640px">
+            <MudText Typo="Typo.subtitle1">Ended findings</MudText>
+            <MudText Typo="Typo.body2" Class="muted mb-3">
+                A finding that was fixed, whose package was removed or that the distribution withdrew is kept for the history this many months,
+                then deleted. Open findings are kept as long as they are open.
+            </MudText>
+            <div class="d-flex align-center gap-3">
+                <MudNumericField T="int" @bind-Value="_months" Label="Months" Min="Core.Domain.Vulnerabilities.MinEndedRetentionMonths"
+                                 Max="Core.Domain.Vulnerabilities.MaxEndedRetentionMonths" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:140px" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_saving || _months == view.RetentionMonths)" OnClick="SaveRetentionAsync">
+                    Save
+                </MudButton>
+            </div>
+        </div>
+    }
+</LoadState>
+
+@code {
+    private VulnerabilitySettingsView? _view;
+    private int _months = Core.Domain.Vulnerabilities.DefaultEndedRetentionMonths;
+    private bool _refreshing;
+    private bool _saving;
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        _view = await VulnerabilitySvc.GetSettingsAsync(caller);
+        _months = _view.RetentionMonths;
+    });
+
+    private async Task RefreshAsync()
+    {
+        _refreshing = true;
+        try
+        {
+            if (await RunAsync(caller => VulnerabilitySvc.RefreshFeedsAsync(caller),
+                    "Asked the workers to fetch the feeds now. The table updates when you reload the page."))
+            {
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _refreshing = false;
+        }
+    }
+
+    private async Task SaveRetentionAsync()
+    {
+        _saving = true;
+        try
+        {
+            if (await RunAsync(caller => VulnerabilitySvc.SetRetentionAsync(caller, _months), "Saved."))
+            {
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

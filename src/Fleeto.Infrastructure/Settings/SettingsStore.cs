@@ -50,6 +50,9 @@ public static class SettingKeys
     /// <summary>Days of raw check results to keep when TimescaleDB is not installed. Default 30.</summary>
     public const string RetentionCheckResultsDays = "retention.check-results-days";
 
+    /// <summary>Months ended vulnerability findings are kept (0.8.0). A plain integer; missing means 13.</summary>
+    public const string RetentionEndedVulnerabilitiesMonths = "retention.ended-vulnerabilities-months";
+
     /// <summary>
     /// Endpoint count above which starting a script emails every admin (0.2.1). A plain integer; 0 never notifies.
     /// Missing means <see cref="Core.Entities.ScriptRules.DefaultAdminNoticeAbove"/>.

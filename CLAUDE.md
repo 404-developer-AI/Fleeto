@@ -188,8 +188,8 @@ the API and the database follows it.
 UI structure:
 
 - **Dashboard**: summary tiles (endpoints online/offline, open alerts by severity, patch
-  compliance, integration health, agents out of date, license usage, and for admins instance health), the open alert list,
-  recent jobs.
+  compliance, integration health, agents out of date, license usage, vulnerabilities on Linux endpoints (0.8.0), and for admins
+  instance health), the open alert list, recent jobs.
 - **Instance health** (0.6.0, decided 2026-09-28): the workers measure the VPS (disk, memory, CPU from /proc, shared by every
   instance on it), the database and the instance itself (stuck worker tasks, backups, notifications that do not go out)
   every 5 minutes. A problem states its cause and next step, shows on an admin-only dashboard tile and page in Settings,
@@ -201,10 +201,10 @@ UI structure:
   site) with tabs **Servers**, **Workstations** and **Mixed** (all endpoints together), search
   and filters. Selecting an endpoint shows its detail below the list (resizable split); the
   same detail opens as a full page with its own URL. Detail tabs grow with the features that
-  exist: Summary, Checks, Software, Notes, Jobs, Tasks (0.6.0), Patches, Storage (0.6.0) and History. The tier
-  switch lives in the right-click menu of the endpoint list.
+  exist: Summary, Checks, Software, Notes, Jobs, Tasks (0.6.0), Patches, Vulnerabilities (0.8.0, Linux only), Storage (0.6.0) and
+  History. The tier switch lives in the right-click menu of the endpoint list.
 - **Navigation**: a persistent sidebar that collapses to icons; the choice is remembered per
-  browser. It lists Dashboard, Clients and Alerts; its footer holds the settings, profile and
+  browser. It lists Dashboard, Clients, Alerts and Vulnerabilities (0.8.0); its footer holds the settings, profile and
   create buttons.
 - **No placeholder UI**: a feature that is not built has no button, tab or menu item, not even
   a disabled or hidden one.
@@ -212,7 +212,7 @@ UI structure:
   Clients: left, a settings panel; right, the selected page. Group **Templates** (client
   templates, monitoring templates, policies, patch policies, scripts, tasks) for every user, and the administration pages for
   admins: users and roles, groups, tags, licensing, API keys, integrations, notification channels, retention,
-  audit log, instance health, performance (0.7.0), security (0.7.0).
+  audit log, instance health, performance (0.7.0), security (0.7.0), vulnerabilities (0.8.0).
 
 ## Licensing: per endpoint, two tiers
 

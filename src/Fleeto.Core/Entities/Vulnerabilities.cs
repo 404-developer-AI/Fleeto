@@ -36,6 +36,9 @@ public class VulnerabilityFeed
     public string? Scope { get; set; }
 
     public long Version { get; set; }
+
+    /// <summary>An admin asked for a fetch now (Settings, Vulnerabilities); the workers fetch the feed and clear it.</summary>
+    public DateTime? RefreshRequestedAt { get; set; }
 }
 
 /// <summary>One statement of a feed: a CVE on one package of one release (<see cref="VulnerabilityRecord"/>). Replaced as a whole per feed.</summary>
@@ -97,6 +100,36 @@ public class EndpointVulnerability
 }
 
 /// <summary>
+/// One CVE in one site, counted over the open findings of its endpoints (0.8.0 step 2): what the overview per client and site reads,
+/// because counting endpoints per CVE over every finding of an instance takes seconds. The workers rebuild the table after matching,
+/// at most every few minutes, so it can lag the findings by that much; <see cref="CountedAt"/> says how much. A row is visible only
+/// to a caller that sees the whole site, so a user with part of a site never sees counts of endpoints it cannot see.
+/// </summary>
+public class VulnerabilityCveCount
+{
+    public Guid ClientId { get; set; }
+    public Guid SiteId { get; set; }
+    public string Cve { get; set; } = string.Empty;
+
+    /// <summary>The most severe finding of the CVE in the site, as a rank: 4 critical, 3 high, 2 medium, 1 low, 0 unknown.</summary>
+    public int Rank { get; set; }
+
+    /// <summary>The most severe finding with a fix the endpoint can install, as a rank; null when none has one.</summary>
+    public int? FixableRank { get; set; }
+
+    /// <summary>Endpoints with the CVE open (fixable, without a fix, or fixed only in Ubuntu Pro).</summary>
+    public int Endpoints { get; set; }
+
+    /// <summary>Endpoints on which a fix of the CVE can be installed.</summary>
+    public int FixableEndpoints { get; set; }
+
+    /// <summary>The source packages the CVE affects in the site.</summary>
+    public string[] Packages { get; set; } = [];
+
+    public DateTime CountedAt { get; set; }
+}
+
+/// <summary>
 /// The vulnerabilities of one endpoint in numbers (VULNERABILITIES.md §8): what the dashboard tile and the overview per client read,
 /// never the findings themselves. The counts per severity are of open findings with a fix the endpoint can install.
 /// </summary>
@@ -131,6 +164,10 @@ public class EndpointVulnerabilitySummary
     public string? PackageLists { get; set; }
 
     public DateTime? PackageListsUpdatedAt { get; set; }
+
+    /// <summary>The packages the feeds do not cover, as JSON (<see cref="Vulnerabilities.SerializeNotCovered"/>), at most
+    /// <see cref="Vulnerabilities.MaxNotCoveredListed"/> of them; <see cref="NotCovered"/> counts them all.</summary>
+    public string? NotCoveredJson { get; set; }
 
     /// <summary>The inventory and the feed versions this summary was matched from; a change of either matches the endpoint again.</summary>
     public string InventoryHash { get; set; } = string.Empty;

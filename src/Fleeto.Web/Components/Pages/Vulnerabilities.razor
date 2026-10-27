@@ -1,0 +1,268 @@
+@page "/vulnerabilities"
+@attribute [RequirePermission(Permissions.VulnerabilitiesView)]
+@inherits FleetoPageBase
+@inject VulnerabilityService VulnerabilitySvc
+@inject ClientService ClientSvc
+
+<PageTitle>Vulnerabilities - Fleeto</PageTitle>
+
+@* The overview per client and site (0.8.0 step 2, VULNERABILITIES.md §9): per CVE the managed Linux endpoints it affects, opening the list
+   of those endpoints. Windows endpoints are not in it; their missing updates are on the Patches tab. *@
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Vulnerabilities</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            Known vulnerabilities in the packages of managed Linux endpoints, per CVE. Windows endpoints are not included: their missing
+            updates are on the Patches tab of each endpoint.
+        </MudText>
+    </div>
+</div>
+
+<div class="d-flex gap-3 flex-wrap align-center mb-3">
+    <MudSelect T="string" Value="ScopeValue" ValueChanged="SetScopeAsync" Label="Clients" Variant="Variant.Outlined" Margin="Margin.Dense"
+               Style="min-width:260px;max-width:360px" Dense="true">
+        <MudSelectItem T="string" Value="@string.Empty">All clients</MudSelectItem>
+        @foreach (var client in _clients)
+        {
+            <MudSelectItem T="string" Value="@($"c:{client.Id}")">[@client.Code] @client.Name</MudSelectItem>
+            @if (client.Sites.Count > 1)
+            {
+                @foreach (var site in client.Sites)
+                {
+                    <MudSelectItem T="string" Value="@($"s:{site.Id}")"><span class="ml-4">@client.Code › @site.Name</span></MudSelectItem>
+                }
+            }
+        }
+    </MudSelect>
+    <MudSelect T="VulnerabilitySeverity?" Value="_minSeverity" ValueChanged="SetSeverityAsync" Label="Severity" Variant="Variant.Outlined"
+               Margin="Margin.Dense" Style="max-width:200px" Dense="true">
+        <MudSelectItem T="VulnerabilitySeverity?" Value="@((VulnerabilitySeverity?)null)">Every severity</MudSelectItem>
+        <MudSelectItem T="VulnerabilitySeverity?" Value="@((VulnerabilitySeverity?)VulnerabilitySeverity.Critical)">Critical</MudSelectItem>
+        <MudSelectItem T="VulnerabilitySeverity?" Value="@((VulnerabilitySeverity?)VulnerabilitySeverity.High)">High and above</MudSelectItem>
+        <MudSelectItem T="VulnerabilitySeverity?" Value="@((VulnerabilitySeverity?)VulnerabilitySeverity.Medium)">Medium and above</MudSelectItem>
+        <MudSelectItem T="VulnerabilitySeverity?" Value="@((VulnerabilitySeverity?)VulnerabilitySeverity.Low)">Low and above</MudSelectItem>
+    </MudSelect>
+    <MudSwitch T="bool" Value="_fixableOnly" ValueChanged="SetFixableOnlyAsync" Color="Color.Primary" Label="Only with a fix to install" />
+    <MudSpacer />
+    <MudTextField T="string" Value="_search" ValueChanged="SearchAsync" Placeholder="Search CVE or package" Immediate="true" DebounceInterval="300"
+                  Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search"
+                  Style="max-width:320px" Clearable="true" />
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_overview is { } overview)
+    {
+        var counts = overview.Counts;
+        <MudGrid Spacing="3" Class="mb-3">
+            <MudItem xs="6" sm="4" md="2">
+                <div class="stat-card fl-panel">
+                    <div class="stat-label">Linux endpoints</div>
+                    <div class="stat-number">@counts.Linux</div>
+                    <div class="stat-detail">@counts.Matched checked</div>
+                </div>
+            </MudItem>
+            <MudItem xs="6" sm="4" md="2">
+                <div class="stat-card fl-panel @(counts.WithCritical > 0 ? "stat-error" : "")">
+                    <div class="stat-label">Critical fix missing</div>
+                    <div class="stat-number">@counts.WithCritical</div>
+                    <div class="stat-detail">endpoints</div>
+                </div>
+            </MudItem>
+            <MudItem xs="6" sm="4" md="2">
+                <div class="stat-card fl-panel @(counts.Unsupported > 0 ? "stat-warning" : "")">
+                    <div class="stat-label">Release not supported</div>
+                    <div class="stat-number">@counts.Unsupported</div>
+                    <div class="stat-detail">endpoints get no fixes</div>
+                </div>
+            </MudItem>
+            @if (counts.AgentTooOld + counts.NotCovered > 0)
+            {
+                <MudItem xs="6" sm="4" md="2">
+                    <div class="stat-card fl-panel stat-warning">
+                        <div class="stat-label">Not checked</div>
+                        <div class="stat-number">@(counts.AgentTooOld + counts.NotCovered)</div>
+                        <div class="stat-detail">@counts.AgentTooOld need a newer agent · @counts.NotCovered not covered</div>
+                    </div>
+                </MudItem>
+            }
+        </MudGrid>
+
+        @if (overview.Rows.Count == 0)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.VerifiedUser" Title="No vulnerabilities found"
+                        Text="@(counts.Linux == 0 ? "No managed Linux endpoint in this selection reported its packages yet." : "No open vulnerability matches this selection. Change the filters to see more.")" />
+        }
+        else
+        {
+            <div class="fl-panel">
+                <MudTable T="VulnerabilityCveRow" Items="overview.Rows" Dense="true" Hover="true" Elevation="0" RowsPerPage="50"
+                          OnRowClick="@(args => ToggleAsync(args.Item!))" RowStyle="cursor:pointer">
+                    <HeaderContent>
+                        <MudTh Style="width:36px"></MudTh>
+                        <MudTh>CVE</MudTh>
+                        <MudTh>Severity</MudTh>
+                        <MudTh>Packages</MudTh>
+                        <MudTh>Endpoints</MudTh>
+                        <MudTh>With a fix to install</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd><MudIcon Size="Size.Small" Icon="@(_open == context.Cve ? Icons.Material.Outlined.ExpandLess : Icons.Material.Outlined.ExpandMore)" /></MudTd>
+                        <MudTd><strong>@context.Cve</strong></MudTd>
+                        <MudTd><StatusChip Text="@context.Severity.ToString()" Kind="@Ui.VulnerabilityKind(context.Severity)" /></MudTd>
+                        <MudTd>@string.Join(", ", context.Packages)</MudTd>
+                        <MudTd>@context.Endpoints</MudTd>
+                        <MudTd>@context.FixableEndpoints</MudTd>
+                    </RowTemplate>
+                    <ChildRowContent>
+                        @if (_open == context.Cve)
+                        {
+                            <MudTr>
+                                <td colspan="6" class="pa-0">
+                                    @if (_affected is null)
+                                    {
+                                        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                                    }
+                                    else
+                                    {
+                                        <MudSimpleTable Dense="true" Elevation="0">
+                                            <thead>
+                                                <tr><th>Endpoint</th><th>Client</th><th>Site</th><th>Package</th><th>Installed</th><th>Fixed in</th><th>State</th><th>Advisory</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var row in _affected)
+                                                {
+                                                    <tr>
+                                                        <td><MudLink Href="@($"/endpoints/{row.EndpointId}")">@row.Hostname</MudLink></td>
+                                                        <td>@row.ClientCode</td>
+                                                        <td>@row.SiteName</td>
+                                                        <td>@row.Package</td>
+                                                        <td><span class="mono">@row.InstalledVersion</span></td>
+                                                        <td><span class="mono">@(row.FixedVersion ?? "-")</span></td>
+                                                        <td>@Ui.FixStateLabel(row.State)</td>
+                                                        <td>
+                                                            @if (row.AdvisoryUrl is { } url)
+                                                            {
+                                                                <MudLink Href="@url" Target="_blank" rel="noopener noreferrer">Advisory</MudLink>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="muted">-</span>
+                                                            }
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </MudSimpleTable>
+                                        @if (_affected.Count >= VulnerabilityService.MaxAffectedEndpoints)
+                                        {
+                                            <MudText Typo="Typo.caption" Class="muted pa-2 d-block">
+                                                The first @VulnerabilityService.MaxAffectedEndpoints endpoints are listed. Choose a client or site to see the others.
+                                            </MudText>
+                                        }
+                                    }
+                                </td>
+                            </MudTr>
+                        }
+                    </ChildRowContent>
+                    <PagerContent>
+                        <MudTablePager PageSizeOptions="new[] { 50, 100, 200 }" />
+                    </PagerContent>
+                </MudTable>
+            </div>
+            <MudText Typo="Typo.caption" Class="muted mt-2 d-block">
+                @if (overview.Truncated)
+                {
+                    <span>The @VulnerabilityService.MaxOverviewRows most severe and widespread CVEs are listed; filter to see others. </span>
+                }
+                @if (overview.CountedAt is { } countedAt)
+                {
+                    <span>Counted @Time.Relative(countedAt); the Vulnerabilities tab of an endpoint shows its latest match.</span>
+                }
+            </MudText>
+        }
+    }
+</LoadState>
+
+@code {
+    [SupplyParameterFromQuery(Name = "client")]
+    public Guid? ClientId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "site")]
+    public Guid? SiteId { get; set; }
+
+    private IReadOnlyList<ClientTreeItem> _clients = [];
+    private VulnerabilityOverview? _overview;
+    private VulnerabilitySeverity? _minSeverity;
+    private bool _fixableOnly = true;
+    private string? _search;
+    private string? _open;
+    private IReadOnlyList<AffectedEndpointRow>? _affected;
+
+    private string ScopeValue => SiteId is { } site ? $"s:{site}" : ClientId is { } client ? $"c:{client}" : string.Empty;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync(async caller =>
+        {
+            if (_clients.Count == 0)
+            {
+                _clients = await ClientSvc.ListTreeAsync(caller);
+            }
+
+            await LoadOverviewAsync(caller);
+        });
+    }
+
+    private async Task LoadOverviewAsync(Caller caller)
+    {
+        // A site of a client the caller does not see gives nothing; the services scope every read anyway.
+        var clientId = SiteId is { } site ? _clients.FirstOrDefault(c => c.Sites.Any(s => s.Id == site))?.Id : ClientId;
+        _overview = await VulnerabilitySvc.GetOverviewAsync(caller, new VulnerabilityOverviewFilter(clientId, SiteId, _minSeverity, _fixableOnly, _search));
+        _open = null;
+        _affected = null;
+    }
+
+    private void SetScopeAsync(string value)
+    {
+        var query = value switch
+        {
+            _ when value.StartsWith("c:", StringComparison.Ordinal) => $"?client={value[2..]}",
+            _ when value.StartsWith("s:", StringComparison.Ordinal) => $"?site={value[2..]}",
+            _ => string.Empty
+        };
+        Navigation.NavigateTo("/vulnerabilities" + query);
+    }
+
+    private Task SetSeverityAsync(VulnerabilitySeverity? severity)
+    {
+        _minSeverity = severity;
+        return LoadAsync(LoadOverviewAsync);
+    }
+
+    private Task SetFixableOnlyAsync(bool value)
+    {
+        _fixableOnly = value;
+        return LoadAsync(LoadOverviewAsync);
+    }
+
+    private Task SearchAsync(string? value)
+    {
+        _search = value;
+        return LoadAsync(LoadOverviewAsync);
+    }
+
+    private async Task ToggleAsync(VulnerabilityCveRow row)
+    {
+        if (_open == row.Cve)
+        {
+            _open = null;
+            _affected = null;
+            return;
+        }
+
+        _open = row.Cve;
+        _affected = null;
+        var clientId = SiteId is { } site ? _clients.FirstOrDefault(c => c.Sites.Any(s => s.Id == site))?.Id : ClientId;
+        await LoadAsync(async caller => _affected = await VulnerabilitySvc.GetAffectedAsync(caller, row.Cve, clientId, SiteId));
+    }
+}

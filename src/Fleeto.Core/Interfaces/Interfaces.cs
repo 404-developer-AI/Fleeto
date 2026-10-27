@@ -188,6 +188,12 @@ public static class NotificationChannels
 
     /// <summary>Payload: the key of a blocklist. An admin asked for a refresh (0.7.0); raised by a database trigger, the workers fetch it.</summary>
     public const string IpFeeds = "fleeto_ip_feeds";
+
+    /// <summary>
+    /// Payload: the key of a vulnerability feed. An admin asked for a refresh (0.8.0); raised by a database trigger, the workers fetch
+    /// it.
+    /// </summary>
+    public const string VulnerabilityFeeds = "fleeto_vulnerability_feeds";
 }
 
 /// <summary>Writes audit entries. The table is append-only; there is no update or delete.</summary>
@@ -360,6 +366,12 @@ public static class AuditActions
 
     /// <summary>A security advisory marked as handled (0.8.0), with the length of the comment, never its text.</summary>
     public const string AdvisoryHandled = "advisory.handled";
+
+    /// <summary>An admin asked for a refresh of the vulnerability feeds (0.8.0).</summary>
+    public const string VulnerabilityFeedsRefreshRequested = "vulnerability_feeds.refresh_requested";
+
+    /// <summary>The settings of vulnerability reporting changed (0.8.0): the retention of ended findings.</summary>
+    public const string VulnerabilitySettingsChanged = "vulnerability.settings_changed";
 
     /// <summary>The settings of the security monitor changed (0.7.0): automatic blocking on or off.</summary>
     public const string SecuritySettingsChanged = "security.settings_changed";

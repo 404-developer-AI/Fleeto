@@ -18,7 +18,8 @@ public sealed record CredentialWarning(string Name, DateTime ExpiresAt, bool Exp
 
 public sealed record DashboardData(int EndpointsOnline, int EndpointsOffline, int OpenCritical, int OpenWarning, int AgentsOutOfDate,
     LicenseUsage? License, BackupTile Backups, IReadOnlyList<AlertView> OpenAlerts, IReadOnlyList<AuditEntryView> RecentActivity,
-    IReadOnlyList<CredentialWarning> CredentialWarnings, PatchCompliance? Patches, InstanceHealthTile? Health = null, SecurityTile? Security = null);
+    IReadOnlyList<CredentialWarning> CredentialWarnings, PatchCompliance? Patches, InstanceHealthTile? Health = null, SecurityTile? Security = null,
+    VulnerabilityTile? Vulnerabilities = null);
 
 /// <summary>
 /// Dashboard tiles, the open alert list and recent activity. Every user with a role opens the dashboard; each part follows the
@@ -33,11 +34,13 @@ public sealed class DashboardService
     private readonly PatchService _patches;
     private readonly InstanceHealthService _health;
     private readonly SecurityService _security;
+    private readonly VulnerabilityService _vulnerabilities;
     private readonly ILogger<DashboardService> _logger;
 
     public DashboardService(IFleetoDbContextFactory dbFactory, LicenseService licenses, SettingsStore settings, PatchService patches,
-        InstanceHealthService health, SecurityService security, TimeProvider time, ILogger<DashboardService> logger)
+        InstanceHealthService health, SecurityService security, VulnerabilityService vulnerabilities, TimeProvider time, ILogger<DashboardService> logger)
     {
+        _vulnerabilities = vulnerabilities;
         _health = health;
         _security = security;
         _dbFactory = dbFactory;
@@ -95,7 +98,7 @@ public sealed class DashboardService
         // Instance health (0.6.0) concerns the infrastructure: only with its permission.
         return new DashboardData(online, total - online, critical, warning, outOfDate, license, backups, openAlerts, activity,
             await GetCredentialWarningsAsync(now, cancellationToken), patches, await _health.GetTileAsync(caller, cancellationToken),
-            await _security.GetTileAsync(caller, cancellationToken));
+            await _security.GetTileAsync(caller, cancellationToken), await _vulnerabilities.GetTileAsync(caller, cancellationToken));
     }
 
     private async Task<IReadOnlyList<CredentialWarning>> GetCredentialWarningsAsync(DateTime now, CancellationToken cancellationToken)

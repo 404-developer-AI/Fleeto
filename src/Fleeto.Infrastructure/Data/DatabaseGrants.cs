@@ -239,12 +239,15 @@ public static class DatabaseGrants
             ["Advisories"] = Grants(web: Read, workers: ReadWrite),
             ["AdvisoryHandlings"] = Grants(web: "SELECT, INSERT", workers: Read),
             // Vulnerabilities on Linux endpoints (0.8.0): the workers fetch the feeds and match; web shows the findings and the state
-            // of the feeds. The records themselves stay with the workers.
-            ["VulnerabilityFeeds"] = Grants(web: Read, workers: ReadWrite),
+            // of the feeds, and asks for a refresh (RefreshRequestedAt, step 2), which a trigger turns into a notification for the
+            // workers. The records themselves stay with the workers.
+            ["VulnerabilityFeeds"] = Grants(web: "SELECT, UPDATE", workers: ReadWrite),
             ["VulnerabilityFeedRecords"] = Grants(workers: ReadWrite),
             ["VulnerabilityCves"] = Grants(workers: ReadWrite),
             ["EndpointVulnerabilities"] = Grants(web: Read, workers: ReadWrite),
             ["EndpointVulnerabilitySummaries"] = Grants(web: Read, workers: ReadWrite),
+            // The counts per site and CVE the overview reads (step 2); the workers rebuild them after matching.
+            ["VulnerabilityCveCounts"] = Grants(web: Read, workers: ReadWrite),
 
             // Key material: full access for the signer only; everyone else reads the public columns.
             ["InstanceSigningKeys"] = Grants(signer: "SELECT, INSERT, UPDATE"),
@@ -280,12 +283,14 @@ public static class DatabaseGrants
 
     /// <summary>
     /// Functions an application role may call. Every one is created with EXECUTE revoked from PUBLIC, so only these roles can.
-    /// The performance monitor (0.7.0 step 2): web runs ANALYZE on one table when an admin asks, and plans a stored statement.
+    /// The performance monitor (0.7.0 step 2): web runs ANALYZE on one table when an admin asks, and plans a stored statement. The
+    /// workers analyze the vulnerability findings before they count them per site (0.8.0 step 2).
     /// </summary>
     public static readonly IReadOnlyList<(string Function, string Role)> FunctionGrants =
     [
         ("fleeto_perf_analyze(text)", DatabaseRoles.Web),
         ("fleeto_perf_explain(text)", DatabaseRoles.Web),
+        ("fleeto_perf_analyze(text)", DatabaseRoles.Workers),
     ];
 
     /// <summary>SQL that resets and applies all grants. Idempotent; run as the migrator (table owner).</summary>

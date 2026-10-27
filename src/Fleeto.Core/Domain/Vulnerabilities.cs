@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace Fleeto.Core.Domain;
@@ -112,6 +113,9 @@ public sealed record VulnerabilityFinding(
     IReadOnlyList<string> Binaries,
     bool IsKernel);
 
+/// <summary>A package of an endpoint the feeds do not cover, as the Vulnerabilities tab lists it.</summary>
+public sealed record UncoveredPackage(string Name, string Version, string? Origin);
+
 /// <summary>The outcome of matching one endpoint.</summary>
 public sealed record VulnerabilityMatch(
     VulnerabilityCoverage Coverage,
@@ -192,8 +196,115 @@ public static partial class Vulnerabilities
     /// <summary>A feed that cannot be fetched for this long is an instance health problem; its findings stay and show their age.</summary>
     public static readonly TimeSpan FeedStaleAfter = TimeSpan.FromHours(48);
 
-    /// <summary>Ended findings are kept this long for the history.</summary>
-    public static readonly TimeSpan EndedRetention = TimeSpan.FromDays(395);
+    /// <summary>Months ended findings are kept for the history, unless Settings, Vulnerabilities says otherwise (0.8.0).</summary>
+    public const int DefaultEndedRetentionMonths = 13;
+
+    public const int MinEndedRetentionMonths = 1;
+    public const int MaxEndedRetentionMonths = 60;
+
+    /// <summary>The retention of ended findings from its setting: the default when it is missing or unreadable, within the bounds otherwise.</summary>
+    public static int EndedRetentionMonths(string? setting) =>
+        int.TryParse(setting, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var months)
+            ? Math.Clamp(months, MinEndedRetentionMonths, MaxEndedRetentionMonths)
+            : DefaultEndedRetentionMonths;
+
+    /// <summary>The name of a feed as Settings, Vulnerabilities shows it: "Ubuntu 22.04 (OVAL)".</summary>
+    public static string FeedName(string key) => key switch
+    {
+        "debian" => "Debian security tracker",
+        "almalinux" => "AlmaLinux errata (OSV)",
+        _ when key.StartsWith("ubuntu:", StringComparison.Ordinal) => $"Ubuntu {key["ubuntu:".Length..]} (OVAL)",
+        _ => key
+    };
+
+    /// <summary>The feeds an endpoint of a release is matched with: a Debian endpoint borrows the priorities of the Ubuntu feeds.</summary>
+    public static bool FeedServes(string key, string distribution, string release) => distribution switch
+    {
+        Ubuntu => key == $"ubuntu:{release}",
+        Debian => key == "debian" || key.StartsWith("ubuntu:", StringComparison.Ordinal),
+        AlmaLinux => key == "almalinux",
+        _ => false
+    };
+
+    /// <summary>The packages "not covered" lists on the Vulnerabilities tab; the summary counts every one of them.</summary>
+    public const int MaxNotCoveredListed = 500;
+
+    private static readonly JsonSerializerOptions NotCoveredJson = new(JsonSerializerDefaults.Web);
+
+    /// <summary>The packages a match left uncovered, by name, at most <see cref="MaxNotCoveredListed"/>; null when there are none.</summary>
+    public static string? SerializeNotCovered(IReadOnlyList<InstalledPackage> packages) =>
+        packages.Count == 0
+            ? null
+            : JsonSerializer.Serialize(packages.OrderBy(p => p.Name, StringComparer.Ordinal).Take(MaxNotCoveredListed)
+                .Select(p => new UncoveredPackage(Cap(p.Name), Cap(p.Version), p.Origin is null ? null : Cap(p.Origin))), NotCoveredJson);
+
+    public static IReadOnlyList<UncoveredPackage> ParseNotCovered(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<UncoveredPackage>>(json, NotCoveredJson) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static string Cap(string value) => value.Length <= 200 ? value : value[..200];
+
+    [GeneratedRegex(@"^USN-[0-9]{1,6}-[0-9]{1,3}$", RegexOptions.CultureInvariant)]
+    private static partial Regex UsnPattern();
+
+    [GeneratedRegex(@"^D[SL]A-[0-9]{1,6}-[0-9]{1,3}$", RegexOptions.CultureInvariant)]
+    private static partial Regex DebianAdvisoryPattern();
+
+    [GeneratedRegex(@"^ALSA-([0-9]{4}):([0-9]{1,7})$", RegexOptions.CultureInvariant)]
+    private static partial Regex AlsaPattern();
+
+    [GeneratedRegex(@"^CVE-[0-9]{4}-[0-9]{4,8}$", RegexOptions.CultureInvariant)]
+    private static partial Regex CvePattern();
+
+    /// <summary>
+    /// The page of the distribution about an advisory (USN, DSA, DLA, ALSA), or null when it does not look like one. Only these
+    /// fixed hosts: a feed is untrusted input and never chooses where a link goes.
+    /// </summary>
+    public static string? AdvisoryUrl(string distribution, string release, string? advisory)
+    {
+        if (advisory is null)
+        {
+            return null;
+        }
+
+        if (distribution == Ubuntu && UsnPattern().IsMatch(advisory))
+        {
+            return "https://ubuntu.com/security/notices/" + advisory;
+        }
+
+        if (distribution == Debian && DebianAdvisoryPattern().IsMatch(advisory))
+        {
+            return "https://security-tracker.debian.org/tracker/" + advisory;
+        }
+
+        return distribution == AlmaLinux && AlsaPattern().Match(advisory) is { Success: true } alsa && release.All(char.IsAsciiDigit) && release.Length is > 0 and < 4
+            ? $"https://errata.almalinux.org/{release}/ALSA-{alsa.Groups[1].Value}-{alsa.Groups[2].Value}.html"
+            : null;
+    }
+
+    /// <summary>The page of the distribution about a CVE, or null where it has none (AlmaLinux: its errata name the CVEs).</summary>
+    public static string? CveUrl(string distribution, string cve) =>
+        !CvePattern().IsMatch(cve)
+            ? null
+            : distribution switch
+            {
+                Ubuntu => "https://ubuntu.com/security/" + cve,
+                Debian => "https://security-tracker.debian.org/tracker/" + cve,
+                _ => null
+            };
 
     /// <summary>The instance health problems of the vulnerability feeds: one per feed that failed for 48 hours.</summary>
     public static IReadOnlyList<HealthFinding> HealthFindings(IEnumerable<(string Key, DateTime? LastSuccessAt, DateTime? FailingSince, string? Problem)> feeds,
