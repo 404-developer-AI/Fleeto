@@ -93,6 +93,8 @@ public static class WorkersServiceCollectionExtensions
         // Vulnerabilities on Linux endpoints (0.8.0): the feeds, and matching the endpoints against them.
         services.AddSingleton(sp => ActivatorUtilities.CreateInstance<VulnerabilityReporting.VulnerabilityFeedService>(sp));
         services.AddHostedService(sp => sp.GetRequiredService<VulnerabilityReporting.VulnerabilityFeedService>());
+        services.AddSingleton(sp => ActivatorUtilities.CreateInstance<VulnerabilityReporting.ExploitFeedService>(sp));
+        services.AddHostedService(sp => sp.GetRequiredService<VulnerabilityReporting.ExploitFeedService>());
         services.AddSingleton<VulnerabilityReporting.VulnerabilityMatchService>();
         services.AddHostedService(sp => sp.GetRequiredService<VulnerabilityReporting.VulnerabilityMatchService>());
         // The performance monitor (0.7.0): the VPS every minute, the database statistics, and rollup and retention.

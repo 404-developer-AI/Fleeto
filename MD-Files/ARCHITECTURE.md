@@ -1897,15 +1897,31 @@ Which known vulnerabilities affect the distribution packages of a managed Linux 
   nothing is due, at most every 2 minutes while endpoints change and at least every 10 minutes, so a deleted or moved endpoint leaves
   them too: first one row per endpoint and CVE, then per site, the packages grouped apart, each reading the findings itself (a shared
   CTE is materialized); after an ANALYZE of the findings (`fleeto_perf_analyze`, granted to the workers as well), because a large
-  first match leaves them without statistics, and without nested loops. 23 seconds right after the first match (15 afterwards) at 10,000 endpoints with 3.1 million findings. Its query filter shows a row only with the whole client or the
-  whole site.
-- **UI** (`VulnerabilityService`, step 2): the Vulnerabilities tab of a managed Linux endpoint (findings per source package with the
+  first match leaves them without statistics, and without nested loops. 23 seconds right after the first match (15 afterwards; measured before step 3 added the count of actively exploited findings) at 10,000 endpoints with 3.1 million findings. Its
+  query filter shows a row only with the whole client or the whole site. In the same transaction, before nested loops are switched off,
+  `EndpointVulnerabilitySummaries.Exploited` is counted again (step 3): the open findings of actively exploited CVEs, read through the
+  index on (Cve, ClientId) for the few exploited CVEs, and written only where it changed, so a change of the KEV list reaches the
+  summaries within minutes without matching an endpoint again.
+- **KEV and EPSS** (`ExploitFeedService`, step 3): while a managed Linux endpoint reports its packages, once a day (an hour after a
+  failure, at once on "Refresh now") CISA's KEV catalog (JSON, about 1,800 CVEs, conditional on its ETag) and the EPSS scores (gzip CSV,
+  about 395,000 CVEs; the current file redirects to the file of the day, and only that one hop on the same host is followed). When
+  CISA's catalog cannot be fetched, the exploited vulnerabilities of ENISA's EUVD stand in (`/api/search?exploited=true`, 100 a page,
+  about 18 pages, the CVE among its aliases), and the feed records that as a note instead of a failure. Both are written per CVE to
+  `VulnerabilityExploits` (temporary table, binary COPY, upsert of what changed, clearing what is no longer listed, deleting a row
+  neither says anything about), with the state in `VulnerabilityFeeds` under `kev` and `epss`; `VulnerabilityFeedService` leaves these
+  two rows alone, and no endpoint is matched again for them. A list that is empty or shorter than half of the one before, an EPSS file
+  with fewer than 100,000 scores, or a redirect to another host is refused and the previous data stays; 48 hours of failure is an
+  instance health problem. Web joins the table to the findings it shows, by CVE.
+- **UI** (`VulnerabilityService`, steps 2 and 3): the Vulnerabilities tab of a managed Linux endpoint (findings per source package with the
   version to update to, the running kernel apart, "Not open" and "Not covered" collapsed, links only to advisory pages of the
   distribution for identifiers that look like theirs), the overview `/vulnerabilities` per client and site from the counts (a user with
   part of a site gets its own endpoints counted over the findings), the dashboard tile, and Settings, Vulnerabilities (feeds, "Refresh
   now" through `VulnerabilityFeeds.RefreshRequestedAt` and the trigger on `fleeto_vulnerability_feeds`, retention). Permissions
   `vulnerabilities.view` (every default role) and `vulnerabilities.manage` (administration). The refresh and a change of the retention
-  are audited; viewing is not.
+  are audited; viewing is not. Step 3 orders the findings of the tab and the CVEs of the overview by fixable, actively exploited,
+  severity and EPSS, shows the CVSS score, KEV with its date and ransomware use and the EPSS score, filters the overview on actively
+  exploited CVEs, counts them on the tile, and lists the findings of an endpoint as they were found and ended in its History tab (newest
+  200, searched on CVE or package, findings that are not open left out).
 
 ### Other controls
 

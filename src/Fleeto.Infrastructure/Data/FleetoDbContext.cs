@@ -134,6 +134,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<EndpointVulnerability> EndpointVulnerabilities => Set<EndpointVulnerability>();
     public DbSet<EndpointVulnerabilitySummary> EndpointVulnerabilitySummaries => Set<EndpointVulnerabilitySummary>();
     public DbSet<VulnerabilityCveCount> VulnerabilityCveCounts => Set<VulnerabilityCveCount>();
+    public DbSet<VulnerabilityExploit> VulnerabilityExploits => Set<VulnerabilityExploit>();
 
     // The performance monitor (0.7.0): instance-wide, no client, no personal data.
     public DbSet<PerfMinute> PerfMinutes => Set<PerfMinute>();
@@ -1695,6 +1696,14 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasKey(c => c.Cve);
             entity.Property(c => c.Cve).HasMaxLength(30);
             entity.Property(c => c.UbuntuPriority).HasConversion<string>().HasMaxLength(20);
+        });
+
+        builder.Entity<VulnerabilityExploit>(entity =>
+        {
+            entity.HasKey(x => x.Cve);
+            entity.Property(x => x.Cve).HasMaxLength(30);
+            // The exploited CVEs are few (about 1,800 of 395,000), and the counts read them by this index.
+            entity.HasIndex(x => x.Cve).HasFilter("\"Exploited\"").HasDatabaseName("IX_VulnerabilityExploits_Exploited");
         });
 
         builder.Entity<EndpointVulnerability>(entity =>

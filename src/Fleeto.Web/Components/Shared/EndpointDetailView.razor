@@ -205,6 +205,8 @@
     private IReadOnlyList<AuditEntryView> _audit = [];
     private IReadOnlyDictionary<Guid, IReadOnlyList<AlertActivityView>> _alertActivities = new Dictionary<Guid, IReadOnlyList<AlertActivityView>>();
     private IReadOnlyList<MaintenanceRecordView> _maintenance = [];
+    private IReadOnlyList<VulnerabilityHistoryRow> _vulnerabilityHistory = [];
+    private string? _vulnerabilityHistorySearch;
     private string? _softwareSearch;
     private string? _alertSearch;
     private string? _eventSearch;
@@ -248,6 +250,7 @@
         _eventSearch = null;
         _auditSearch = null;
         _maintenanceSearch = null;
+        _vulnerabilityHistorySearch = null;
         _inventory = null;
         _storage = null;
         _storageVolume = null;
@@ -1371,7 +1374,13 @@
             <MudAlert Severity="Severity.Normal" Dense="true" Class="mb-2">Only security updates that AlmaLinux has released are shown.</MudAlert>
         }
 
+        var exploited = view.Groups.Sum(g => g.Exploited);
         <div class="d-flex gap-2 flex-wrap align-center mb-3">
+            @if (exploited > 0)
+            {
+                <StatusChip Text="@($"{exploited} actively exploited")" Kind="StatusKind.Error"
+                            Title="Vulnerabilities that CISA (or ENISA) lists as exploited in the wild. Fix these first." />
+            }
             @if (summary.Fixable == 0)
             {
                 <StatusChip Text="No fixable vulnerabilities" Kind="StatusKind.Ok" />
@@ -1429,7 +1438,15 @@
                         }
                     </MudTd>
                     <MudTd><span class="mono">@context.InstalledVersion</span></MudTd>
-                    <MudTd><StatusChip Text="@context.Worst.ToString()" Kind="@Ui.VulnerabilityKind(context.Worst)" /></MudTd>
+                    <MudTd>
+                        <span class="d-inline-flex align-center gap-1 flex-wrap">
+                            <StatusChip Text="@context.Worst.ToString()" Kind="@Ui.VulnerabilityKind(context.Worst)" />
+                            @if (context.Exploited > 0)
+                            {
+                                <StatusChip Text="Exploited" Kind="StatusKind.Error" Title="@($"{context.Exploited} of its vulnerabilities are actively exploited.")" />
+                            }
+                        </span>
+                    </MudTd>
                     <MudTd>@GroupCounts(context)</MudTd>
                     <MudTd><span class="mono">@(context.UpgradeTo ?? "-")</span></MudTd>
                 </RowTemplate>
@@ -1440,7 +1457,7 @@
                             <td colspan="6" class="pa-0">
                                 <MudSimpleTable Dense="true" Elevation="0">
                                     <thead>
-                                        <tr><th>CVE</th><th>Severity</th><th>State</th><th>Fixed in</th><th>Advisory</th><th>First seen</th></tr>
+                                        <tr><th>CVE</th><th>Severity</th><th>Exploitation</th><th>State</th><th>Fixed in</th><th>Advisory</th><th>First seen</th></tr>
                                     </thead>
                                     <tbody>
                                         @foreach (var finding in context.Findings)
@@ -1453,7 +1470,12 @@
                                                     {
                                                         <span class="muted ml-1" style="font-size:0.75rem">@finding.SourceSeverity</span>
                                                     }
+                                                    @if (finding.Cvss is { } cvss)
+                                                    {
+                                                        <span class="muted ml-1" style="font-size:0.75rem" title="CVSS base score">CVSS @cvss.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)</span>
+                                                    }
                                                 </td>
+                                                <td><ExploitBadges Exploit="finding.Exploit" /></td>
                                                 <td>@Ui.FixStateLabel(finding.State)</td>
                                                 <td><span class="mono">@(finding.FixedVersion ?? "-")</span></td>
                                                 <td>@VulnerabilityLink(finding.Advisory, finding.AdvisoryUrl)</td>
@@ -2447,8 +2469,12 @@
         Connections = 2,
         Audit = 4,
         Maintenance = 8,
-        All = Alerts | Connections | Audit | Maintenance
+        Vulnerabilities = 16,
+        All = Alerts | Connections | Audit | Maintenance | Vulnerabilities
     }
+
+    // Found and ended vulnerabilities (0.8.0 step 3) belong to the history of a Linux endpoint only, like the Vulnerabilities tab.
+    private bool ShowsVulnerabilityHistory => _endpoint?.OsPlatform == "linux" && Can(Permissions.VulnerabilitiesView);
 
     private async Task LoadHistoryAsync(Caller caller, HistorySection sections)
     {
@@ -2470,6 +2496,13 @@
             _events = await EndpointSvc.GetEventsAsync(caller, EndpointId, HistoryLimit, _eventSearch);
         }
 
+        if (sections.HasFlag(HistorySection.Vulnerabilities))
+        {
+            _vulnerabilityHistory = ShowsVulnerabilityHistory
+                ? await VulnerabilitySvc.GetHistoryAsync(caller, EndpointId, HistoryLimit, _vulnerabilityHistorySearch)
+                : [];
+        }
+
         if (sections.HasFlag(HistorySection.Audit))
         {
             _audit = await EndpointSvc.GetAuditAsync(caller, EndpointId, HistoryLimit, _auditSearch);
@@ -2487,6 +2520,20 @@
         _eventSearch = search;
         await LoadAsync(caller => LoadHistoryAsync(caller, HistorySection.Connections));
     }
+
+    private async Task SearchVulnerabilityHistoryAsync(string? search)
+    {
+        _vulnerabilityHistorySearch = search;
+        await LoadAsync(caller => LoadHistoryAsync(caller, HistorySection.Vulnerabilities));
+    }
+
+    private static (string Text, StatusKind Kind) HistoryKindChip(VulnerabilityHistoryKind kind) => kind switch
+    {
+        VulnerabilityHistoryKind.Found => ("Found", StatusKind.Warning),
+        VulnerabilityHistoryKind.Fixed => ("Fixed", StatusKind.Ok),
+        VulnerabilityHistoryKind.Removed => ("Package removed", StatusKind.Neutral),
+        _ => ("Withdrawn", StatusKind.Neutral)
+    };
 
     private async Task SearchAuditAsync(string? search)
     {
@@ -2630,6 +2677,52 @@
             </MudTable>
             @HistoryFooter(_alerts.Count, _alertSearch, "alerts")
             <div class="mb-5"></div>
+        }
+
+        @if (ShowsVulnerabilityHistory)
+        {
+            @HistoryHeader("Vulnerabilities", "Search CVE or package", _vulnerabilityHistorySearch, SearchVulnerabilityHistoryAsync)
+            @if (_vulnerabilityHistory.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted mb-5">
+                    @(string.IsNullOrWhiteSpace(_vulnerabilityHistorySearch)
+                        ? "Vulnerabilities found on this endpoint, and how they ended, appear here."
+                        : "No vulnerabilities match this search.")
+                </MudText>
+            }
+            else
+            {
+                <MudTable Items="_vulnerabilityHistory" Dense="true" Elevation="0" FixedHeader="true" Class="history-table">
+                    <HeaderContent>
+                        <MudTh>When</MudTh>
+                        <MudTh>Event</MudTh>
+                        <MudTh>CVE</MudTh>
+                        <MudTh>Package</MudTh>
+                        <MudTh>Severity</MudTh>
+                        <MudTh>Version</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        @{ var chip = HistoryKindChip(context.Kind); }
+                        <MudTd><TimeText Value="context.Time" /></MudTd>
+                        <MudTd>
+                            <StatusChip Text="@chip.Text" Kind="@chip.Kind"
+                                        Title="@(context.Kind == VulnerabilityHistoryKind.Withdrawn ? "The security data no longer lists it for this package, or the endpoint was no longer checked." : null)" />
+                        </MudTd>
+                        <MudTd>@context.Cve</MudTd>
+                        <MudTd>@(context.IsKernel ? $"Running kernel ({context.Package})" : context.Package)</MudTd>
+                        <MudTd><StatusChip Text="@context.Severity.ToString()" Kind="@Ui.VulnerabilityKind(context.Severity)" /></MudTd>
+                        <MudTd>
+                            <span class="mono">@context.InstalledVersion</span>
+                            @if (context.FixedVersion is { } fixedIn)
+                            {
+                                <div class="muted" style="font-size:0.75rem">Fixed in <span class="mono">@fixedIn</span></div>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+                @HistoryFooter(_vulnerabilityHistory.Count, _vulnerabilityHistorySearch, "vulnerability events")
+                <div class="mb-5"></div>
+            }
         }
 
         @HistoryHeader("Connections", "Search connections", _eventSearch, SearchEventsAsync)

@@ -346,8 +346,8 @@ Each step is an alpha on the test VPS; the version is released as a whole with p
 2. **UI**, built 2026-10-26 without Windows (the developer chose to leave the Windows findings of Action1 out for now, §12): the
    endpoint tab, the overview per client and site, the dashboard tile, the permissions, Settings, Vulnerabilities, and the API
    waiting list entries (how it works: `ARCHITECTURE.md` §5; deviations below).
-3. **Exploitation and age**: KEV (with the EUVD fallback) and EPSS, sorting on them, the instance health problem for these two
-   feeds, the CVSS score on the advisories panel, and the History tab entries.
+3. **Exploitation and age**, built 2026-10-27: KEV (with the EUVD fallback) and EPSS, sorting on them, the instance health problem for
+   these two feeds, the CVSS score, and the History tab entries (how it works: `ARCHITECTURE.md` §5; deviations below).
 
 Deviations of step 1 from §6 to §8, decided while building:
 
@@ -367,6 +367,27 @@ Deviations of step 1 from §6 to §8, decided while building:
   that stay the same are not tracked by EF Core. What is left is mostly the check of the composite foreign key to `Endpoints`, about
   125 µs a row, which stays (tenant separation). 3.1 million findings take 1.1 GB with their indexes and the feed records 35 MB.
 - The AlmaLinux zip is read from memory (about 7 MB, at most 256 MB), not from a file on a scratch volume.
+
+Deviations of step 3, decided while building (feeds checked 2026-10-27):
+
+- **The CVSS score is on the Vulnerabilities tab, not on the advisories panel.** The panel shows the warnings of the CCB, whose RSS
+  feed has no CVEs and no CVSS (§2), so there is no score to show there; the tab shows the score of every finding whose record has one
+  (Ubuntu's OVAL; Debian's tracker and AlmaLinux's errata carry none).
+- **The feeds**: KEV from `www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json` (1,758 CVEs, 1.8 MB, with an
+  ETag); EPSS from `epss.empiricalsecurity.com/epss_scores-current.csv.gz` (the host it moved to in 2025; the old one redirects there),
+  which redirects to the file of the day (395,000 CVEs, 2.8 MB); the EUVD fallback from
+  `euvdservices.enisa.europa.eu/api/search?exploited=true&size=100&page=N` (at most 100 a page, 1,774 items in 18 pages, of which 194 of
+  the first 200 CVEs are also in KEV). A loop of their own, `ExploitFeedService`, daily rather than every 6 hours.
+- **Table**: `VulnerabilityExploits` as in §8, per CVE whether it is exploited, since when, ransomware use, and the EPSS score and
+  percentile, for every CVE EPSS scores (not only the ones in the feeds of the instance), so a CVE a feed adds later has its score at
+  once.
+- **The summary counts actively exploited findings** (`Exploited`) when the counts per site and CVE are rebuilt, not when an endpoint is
+  matched, so a change of KEV reaches the tile within 10 minutes without matching anything again. The tile counts endpoints missing a
+  critical fix or with an actively exploited finding, fixable or not; the overview has a card for the second.
+- **Order**: findings with a fix first, as before (what a technician can act on); then actively exploited, severity, EPSS. The overview
+  orders the CVEs by actively exploited, severity, EPSS and number of endpoints, and filters on actively exploited.
+- **History tab**: a section Vulnerabilities on Linux endpoints, one row per finding found and per finding ended (fixed, package
+  removed, withdrawn), newest 200, searched on CVE or package; findings the distribution does not count as open are left out.
 
 Deviations of step 2 from §9, decided while building:
 
@@ -394,16 +415,15 @@ Deviations of step 2 from §9, decided while building:
 
 Every question was decided on 2026-10-26 (§2, §5, §7, §9, §10). What is left:
 
-- **Windows in the overview** (left out of step 2 by the developer, 2026-10-26): whether the Action1 API offers its vulnerability data
-  is still to be checked (§9); until then the overview is Linux only and says so.
+- **Windows in the overview**: moved to "Not yet scheduled" in `ROADMAP.md` by the developer (2026-10-27). Whether the Action1 API
+  offers its vulnerability data is still to be checked (§9); until then the overview is Linux only and says so.
 - **Step 1, real output of the other releases**: the parsers are tested on the real output of Ubuntu 24.04, Proxmox VE 8.4
   (Debian 12) and AlmaLinux 8.5 (captured 2026-10-26, `agent/internal/inventory/testdata`). On the Proxmox VE host every package
   is Debian's (613) or Proxmox's (103), none local, and the packages Proxmox rebuilt (`grub2`, `open-iscsi`, `smartmontools`, `frr`)
   go to Proxmox by their installed version. Ubuntu 22.04 and 26.04, a plain Debian 12 and 13, Proxmox VE 9 and AlmaLinux 9 and 10
-  still need a capture, and so does a real `/etc/dnf/modules.d` (its test uses the shape dnf writes). A plain Debian first: Ubuntu
-  keeps older kernel ABIs (`linux-image-6.8.0-53-generic`) in its lists, so the running kernel of the test endpoint is the
-  distribution's; whether Debian does too, or an older running kernel ends up "local" and not covered, is not known yet (the Proxmox
-  VE host runs the Proxmox kernel).
+  still need a capture, and so does a real `/etc/dnf/modules.d` (its test uses the shape dnf writes). Whether a plain Debian keeps an
+  older running kernel in its lists, or that kernel ends up "local" and not covered, is not known; parked by the developer on 2026-10-27
+  (it rarely happens, and there is no plain Debian machine to capture).
 - **To check before building**:
   - Step 0 (checked 2026-10-26, §2): the CCB publishes in English only, and only its RSS feed is reachable for Fleeto. Its
     disclaimer reserves copying a substantial part of the site to its prior written permission. The developer asks the CCB

@@ -73,6 +73,31 @@ public class VulnerabilityCve
 }
 
 /// <summary>
+/// How likely a CVE is to be exploited (0.8.0 step 3, VULNERABILITIES.md §5): whether it is actively exploited, from CISA's KEV catalog
+/// (or ENISA's EUVD while CISA's cannot be fetched), and its EPSS score. Per CVE, so it applies to every finding of the CVE at once; the
+/// workers replace it from the two feeds, the UI joins it when it shows findings. A row exists while either says something about the CVE.
+/// </summary>
+public class VulnerabilityExploit
+{
+    public string Cve { get; set; } = string.Empty;
+
+    /// <summary>Listed as actively exploited.</summary>
+    public bool Exploited { get; set; }
+
+    /// <summary>When the catalog added it (KEV) or since when it is exploited (EUVD).</summary>
+    public DateOnly? ExploitedSince { get; set; }
+
+    /// <summary>KEV says it is known to be used in ransomware campaigns.</summary>
+    public bool Ransomware { get; set; }
+
+    /// <summary>The probability of exploitation in the next 30 days, 0 to 1 (EPSS).</summary>
+    public float? Epss { get; set; }
+
+    /// <summary>The share of CVEs with a lower score, 0 to 1.</summary>
+    public float? EpssPercentile { get; set; }
+}
+
+/// <summary>
 /// A finding: one CVE on one source package of one endpoint (VULNERABILITIES.md §7). Open while <see cref="EndedAt"/> is null;
 /// an ended finding keeps how it ended, so the history never lies.
 /// </summary>
@@ -157,6 +182,10 @@ public class EndpointVulnerabilitySummary
 
     /// <summary>Packages from other repositories, which the feeds do not cover.</summary>
     public int NotCovered { get; set; }
+
+    /// <summary>Open findings of CVEs that are actively exploited, fixable or not (step 3). The workers count it with the counts per site and
+    /// CVE, so it follows the exploited list within minutes without a match.</summary>
+    public int Exploited { get; set; }
 
     public bool RestartRequired { get; set; }
 

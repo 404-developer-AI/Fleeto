@@ -248,6 +248,8 @@ public static class DatabaseGrants
             ["EndpointVulnerabilitySummaries"] = Grants(web: Read, workers: ReadWrite),
             // The counts per site and CVE the overview reads (step 2); the workers rebuild them after matching.
             ["VulnerabilityCveCounts"] = Grants(web: Read, workers: ReadWrite),
+            // KEV and EPSS per CVE (step 3): the workers replace them from the feeds, web joins them to the findings it shows.
+            ["VulnerabilityExploits"] = Grants(web: Read, workers: ReadWrite),
 
             // Key material: full access for the signer only; everyone else reads the public columns.
             ["InstanceSigningKeys"] = Grants(signer: "SELECT, INSERT, UPDATE"),

@@ -6,8 +6,8 @@
 
 <PageTitle>Vulnerabilities - Fleeto</PageTitle>
 
-@* The overview per client and site (0.8.0 step 2, VULNERABILITIES.md §9): per CVE the managed Linux endpoints it affects, opening the list
-   of those endpoints. Windows endpoints are not in it; their missing updates are on the Patches tab. *@
+@* The overview per client and site (0.8.0 step 2, VULNERABILITIES.md §9): per CVE the managed Linux endpoints it affects, actively exploited
+   CVEs first (step 3), opening the list of those endpoints. Windows endpoints are not in it; their missing updates are on the Patches tab. *@
 <div class="page-header">
     <div>
         <MudText Typo="Typo.h4" Class="page-title">Vulnerabilities</MudText>
@@ -43,6 +43,7 @@
         <MudSelectItem T="VulnerabilitySeverity?" Value="@((VulnerabilitySeverity?)VulnerabilitySeverity.Low)">Low and above</MudSelectItem>
     </MudSelect>
     <MudSwitch T="bool" Value="_fixableOnly" ValueChanged="SetFixableOnlyAsync" Color="Color.Primary" Label="Only with a fix to install" />
+    <MudSwitch T="bool" Value="_exploitedOnly" ValueChanged="SetExploitedOnlyAsync" Color="Color.Primary" Label="Only actively exploited" />
     <MudSpacer />
     <MudTextField T="string" Value="_search" ValueChanged="SearchAsync" Placeholder="Search CVE or package" Immediate="true" DebounceInterval="300"
                   Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search"
@@ -66,6 +67,13 @@
                     <div class="stat-label">Critical fix missing</div>
                     <div class="stat-number">@counts.WithCritical</div>
                     <div class="stat-detail">endpoints</div>
+                </div>
+            </MudItem>
+            <MudItem xs="6" sm="4" md="2">
+                <div class="stat-card fl-panel @(counts.WithExploited > 0 ? "stat-error" : "")">
+                    <div class="stat-label">Actively exploited</div>
+                    <div class="stat-number">@counts.WithExploited</div>
+                    <div class="stat-detail">endpoints, fix first</div>
                 </div>
             </MudItem>
             <MudItem xs="6" sm="4" md="2">
@@ -101,6 +109,7 @@
                         <MudTh Style="width:36px"></MudTh>
                         <MudTh>CVE</MudTh>
                         <MudTh>Severity</MudTh>
+                        <MudTh>Exploitation</MudTh>
                         <MudTh>Packages</MudTh>
                         <MudTh>Endpoints</MudTh>
                         <MudTh>With a fix to install</MudTh>
@@ -109,6 +118,7 @@
                         <MudTd><MudIcon Size="Size.Small" Icon="@(_open == context.Cve ? Icons.Material.Outlined.ExpandLess : Icons.Material.Outlined.ExpandMore)" /></MudTd>
                         <MudTd><strong>@context.Cve</strong></MudTd>
                         <MudTd><StatusChip Text="@context.Severity.ToString()" Kind="@Ui.VulnerabilityKind(context.Severity)" /></MudTd>
+                        <MudTd><ExploitBadges Exploit="context.Exploit" /></MudTd>
                         <MudTd>@string.Join(", ", context.Packages)</MudTd>
                         <MudTd>@context.Endpoints</MudTd>
                         <MudTd>@context.FixableEndpoints</MudTd>
@@ -117,7 +127,7 @@
                         @if (_open == context.Cve)
                         {
                             <MudTr>
-                                <td colspan="6" class="pa-0">
+                                <td colspan="7" class="pa-0">
                                     @if (_affected is null)
                                     {
                                         <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
@@ -172,12 +182,13 @@
             <MudText Typo="Typo.caption" Class="muted mt-2 d-block">
                 @if (overview.Truncated)
                 {
-                    <span>The @VulnerabilityService.MaxOverviewRows most severe and widespread CVEs are listed; filter to see others. </span>
+                    <span>The first @VulnerabilityService.MaxOverviewRows CVEs are listed: actively exploited, then most severe and widespread. Filter to see others. </span>
                 }
                 @if (overview.CountedAt is { } countedAt)
                 {
-                    <span>Counted @Time.Relative(countedAt); the Vulnerabilities tab of an endpoint shows its latest match.</span>
+                    <span>Counted @Time.Relative(countedAt); the Vulnerabilities tab of an endpoint shows its latest match. </span>
                 }
+                <span>Actively exploited: listed by CISA's catalog of known exploited vulnerabilities. EPSS: the probability of exploitation in the next 30 days.</span>
             </MudText>
         }
     }
@@ -194,6 +205,7 @@
     private VulnerabilityOverview? _overview;
     private VulnerabilitySeverity? _minSeverity;
     private bool _fixableOnly = true;
+    private bool _exploitedOnly;
     private string? _search;
     private string? _open;
     private IReadOnlyList<AffectedEndpointRow>? _affected;
@@ -217,7 +229,8 @@
     {
         // A site of a client the caller does not see gives nothing; the services scope every read anyway.
         var clientId = SiteId is { } site ? _clients.FirstOrDefault(c => c.Sites.Any(s => s.Id == site))?.Id : ClientId;
-        _overview = await VulnerabilitySvc.GetOverviewAsync(caller, new VulnerabilityOverviewFilter(clientId, SiteId, _minSeverity, _fixableOnly, _search));
+        _overview = await VulnerabilitySvc.GetOverviewAsync(caller,
+            new VulnerabilityOverviewFilter(clientId, SiteId, _minSeverity, _fixableOnly, _search, _exploitedOnly));
         _open = null;
         _affected = null;
     }
@@ -242,6 +255,12 @@
     private Task SetFixableOnlyAsync(bool value)
     {
         _fixableOnly = value;
+        return LoadAsync(LoadOverviewAsync);
+    }
+
+    private Task SetExploitedOnlyAsync(bool value)
+    {
+        _exploitedOnly = value;
         return LoadAsync(LoadOverviewAsync);
     }
 

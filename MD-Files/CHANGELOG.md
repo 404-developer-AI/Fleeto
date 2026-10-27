@@ -37,6 +37,16 @@ When a third released version is added, the oldest entry moves to the top of
 - Dashboard tile Vulnerabilities: Linux endpoints missing a critical fix, and those on a release no longer supported.
 - Settings, Vulnerabilities: the state of every feed in use, "Refresh now", and how many months ended findings are kept (default 13).
 - Permissions View vulnerabilities (every default role) and Vulnerabilities (administration).
+- Actively exploited vulnerabilities and exploit prediction (0.8.0 step 3): a CVE that CISA's catalog of known exploited
+  vulnerabilities lists is marked "Actively exploited" (with ransomware use when CISA knows it), and every CVE shows its EPSS score, the
+  probability of exploitation in the next 30 days. While CISA's catalog cannot be fetched, the exploited vulnerabilities of ENISA's EUVD
+  stand in, and Settings, Vulnerabilities says so. The workers fetch both once a day; a feed that cannot be fetched for 48 hours is an
+  instance health problem.
+- The Vulnerabilities tab lists actively exploited vulnerabilities first after the ones with a fix, then by severity and EPSS, and shows
+  the CVSS score where the distribution gives one. The overview lists actively exploited CVEs first, filters on them and counts the
+  endpoints that have one; the dashboard tile counts Linux endpoints missing a critical fix or with an actively exploited vulnerability.
+- History tab of Linux endpoints: the vulnerabilities as they were found, fixed, removed with their package or withdrawn, searchable on
+  CVE or package.
 
 ## [0.7.0] — 2026-10-26
 

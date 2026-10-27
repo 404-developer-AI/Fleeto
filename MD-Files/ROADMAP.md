@@ -30,8 +30,9 @@ discussed with the developer before anything is built.
 - [open] Vulnerability reporting (`VULNERABILITIES.md`): security advisories of the CCB on the dashboard, and the CVEs that
   affect the distribution packages of managed Ubuntu, Debian, AlmaLinux and Proxmox VE endpoints, matched inside the instance.
   Step 0, the security advisories on the dashboard, built 2026-10-26 (RSS feed of the CCB only: title, date and link). Step 1,
-  matching on Linux endpoints, and step 2, the Vulnerabilities tab, the overview, the dashboard tile and Settings, built 2026-10-26;
-  the Windows findings of Action1 are left out for now.
+  matching on Linux endpoints, and step 2, the Vulnerabilities tab, the overview, the dashboard tile and Settings, built 2026-10-26.
+  Step 3, actively exploited CVEs (CISA's KEV catalog, ENISA's EUVD as fallback) and EPSS scores, ordering and filtering on them, and
+  the vulnerabilities in the History tab, built 2026-10-27. The Windows findings of Action1 moved to "Not yet scheduled".
 - [open] Patch management on Linux (planned as 0.4.1, moved to "Not yet scheduled" on 2026-09-23, scheduled as 0.8.0 on
   2026-10-26). Until it is built a Linux endpoint shows no patch data at all and stays out of the compliance counts, because
   calling it uncovered would be untrue.
@@ -53,6 +54,11 @@ Wanted, but not in a version yet: the version is chosen once the open questions 
   detections), Veeam (backup job status), Proxmox VE and VMware vCenter (host and VM inventory and health), and
   integration health on the dashboard. The connector architecture and the rules they follow are in `CLAUDE.md`
   (Integrations) and `ARCHITECTURE.md` §11; Action1 is the worked example.
+
+- Windows endpoints in the vulnerability overview (left out of 0.8.0 by the developer on 2026-10-27): Action1 shows vulnerabilities
+  with their CVEs per organization in its console. Open question: whether its API offers them, and with which permission of the
+  credentials. If it does, the workers read them within the Action1 budget and the overview counts Windows and Linux endpoints per CVE
+  together (`VULNERABILITIES.md` §9); until then the overview is Linux only and says so.
 
 - Logs, search and retention (planned as 0.6.0, moved here on 2026-09-23): log and event collection by the agent with
   full-text search under a second at 10,000 endpoints, retention policies per data type with continuous aggregates for

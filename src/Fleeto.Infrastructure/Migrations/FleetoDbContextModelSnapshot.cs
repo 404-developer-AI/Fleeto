@@ -2518,6 +2518,9 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<int>("Exploited")
+                        .HasColumnType("integer");
+
                     b.Property<string>("FeedVersion")
                         .IsRequired()
                         .HasMaxLength(500)
@@ -6452,6 +6455,36 @@ namespace Fleeto.Infrastructure.Migrations
                     b.HasIndex("SiteId", "ClientId");
 
                     b.ToTable("VulnerabilityCveCounts");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.VulnerabilityExploit", b =>
+                {
+                    b.Property<string>("Cve")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<float?>("Epss")
+                        .HasColumnType("real");
+
+                    b.Property<float?>("EpssPercentile")
+                        .HasColumnType("real");
+
+                    b.Property<bool>("Exploited")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateOnly?>("ExploitedSince")
+                        .HasColumnType("date");
+
+                    b.Property<bool>("Ransomware")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Cve");
+
+                    b.HasIndex("Cve")
+                        .HasDatabaseName("IX_VulnerabilityExploits_Exploited")
+                        .HasFilter("\"Exploited\"");
+
+                    b.ToTable("VulnerabilityExploits");
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.VulnerabilityFeed", b =>

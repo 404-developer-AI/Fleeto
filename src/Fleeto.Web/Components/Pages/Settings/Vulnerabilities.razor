@@ -10,7 +10,8 @@
         <MudText Typo="Typo.h4" Class="page-title">Vulnerabilities</MudText>
         <MudText Typo="Typo.body2" Class="muted">
             The security data Fleeto matches the packages of managed Linux endpoints against. The workers fetch only the feeds the endpoints
-            of this instance need, every 6 hours; the inventory of an endpoint never leaves the instance.
+            of this instance need, every 6 hours, and once a day which vulnerabilities are actively exploited (CISA's catalog, or ENISA's EUVD
+            while CISA's cannot be fetched) and how likely each is to be exploited (EPSS). The inventory of an endpoint never leaves the instance.
         </MudText>
     </div>
     <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Refresh" Disabled="@(_refreshing || _view is not { Feeds.Count: > 0 })"
@@ -41,6 +42,12 @@
                         @if (context.RefreshRequested)
                         {
                             <StatusChip Text="Refresh asked for" Kind="StatusKind.Active" />
+                        }
+                        else if (context.Problem is { } note && context.FailingSince is null && context.LastSuccessAt is not null)
+                        {
+                            @* Fetched, with something to note: the EUVD stands in for CISA's catalog. *@
+                            <StatusChip Text="Up to date" Kind="StatusKind.Warning" />
+                            <div class="muted mt-1" style="font-size:0.8125rem">@note</div>
                         }
                         else if (context.Problem is { } problem)
                         {

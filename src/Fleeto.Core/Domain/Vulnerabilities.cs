@@ -208,11 +208,25 @@ public static partial class Vulnerabilities
             ? Math.Clamp(months, MinEndedRetentionMonths, MaxEndedRetentionMonths)
             : DefaultEndedRetentionMonths;
 
+    /// <summary>The feed of actively exploited CVEs (step 3): CISA's KEV catalog, or ENISA's EUVD while CISA's cannot be fetched.</summary>
+    public const string KevFeed = "kev";
+
+    /// <summary>The feed of EPSS scores (step 3).</summary>
+    public const string EpssFeed = "epss";
+
+    /// <summary>KEV and EPSS say something per CVE, whatever the distribution; they are not matched with, so no endpoint is matched again for them.</summary>
+    public static bool IsExploitFeed(string key) => key is KevFeed or EpssFeed;
+
+    /// <summary>A CVE identifier as the feeds write it ("CVE-2024-6387"); anything else from a feed is skipped or never linked.</summary>
+    public static bool IsCve(string? text) => text is not null && CvePattern().IsMatch(text);
+
     /// <summary>The name of a feed as Settings, Vulnerabilities shows it: "Ubuntu 22.04 (OVAL)".</summary>
     public static string FeedName(string key) => key switch
     {
         "debian" => "Debian security tracker",
         "almalinux" => "AlmaLinux errata (OSV)",
+        KevFeed => "Actively exploited (CISA KEV)",
+        EpssFeed => "Exploit prediction (EPSS)",
         _ when key.StartsWith("ubuntu:", StringComparison.Ordinal) => $"Ubuntu {key["ubuntu:".Length..]} (OVAL)",
         _ => key
     };
@@ -311,10 +325,14 @@ public static partial class Vulnerabilities
         DateTime now) =>
         feeds.Where(f => f.FailingSince is { } since && now - since >= FeedStaleAfter)
             .Select(f => new HealthFinding($"vulnerabilities:{f.Key}", Entities.HealthComponent.Vulnerabilities, Entities.AlertSeverity.Warning,
-                $"The vulnerability feed {f.Key} could not be fetched for 48 hours",
-                (f.LastSuccessAt is { } success
-                    ? $"The vulnerabilities of its endpoints date from {success:yyyy-MM-dd HH:mm} UTC. "
-                    : "Its endpoints show no vulnerabilities yet. ") +
+                $"The vulnerability feed {FeedName(f.Key)} could not be fetched for 48 hours",
+                (IsExploitFeed(f.Key)
+                    ? f.LastSuccessAt is { } fetched
+                        ? $"What it says of the vulnerabilities of endpoints dates from {fetched:yyyy-MM-dd HH:mm} UTC. "
+                        : "Vulnerabilities are shown without it. "
+                    : f.LastSuccessAt is { } success
+                        ? $"The vulnerabilities of its endpoints date from {success:yyyy-MM-dd HH:mm} UTC. "
+                        : "Its endpoints show no vulnerabilities yet. ") +
                 (f.Problem ?? "The feed could not be reached.") + " Check that the workers can reach the internet."))
             .ToList();
 
