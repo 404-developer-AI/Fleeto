@@ -57,7 +57,7 @@ RUN pkg=github.com/404-developer-AI/Fleeto/agent/internal/version \
         -o /out/windows-amd64/fleeto-connect.exe ./cmd/fleeto-connect \
     && GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags "-s -w -buildid= -X ${pkg}.Version=${FLEETO_VERSION}" \
         -o /tmp/connect/fleeto-connect ./cmd/fleeto-connect \
-    && packaging/fleeto-connect/build-deb.sh /tmp/connect/fleeto-connect "${FLEETO_VERSION}" /out/linux-amd64/fleeto-connect_amd64.deb \
+    && bash packaging/fleeto-connect/build-deb.sh /tmp/connect/fleeto-connect "${FLEETO_VERSION}" /out/linux-amd64/fleeto-connect_amd64.deb \
     && rm -rf /out/windows-arm64 /out/linux-arm64 /out/*/fleeto-agent* /out/*/fleeto-watchdog* /out/SHA256SUMS \
     && (cd /out && sha256sum windows-amd64/fleeto-connect.exe linux-amd64/fleeto-connect_amd64.deb > SHA256SUMS)
 
