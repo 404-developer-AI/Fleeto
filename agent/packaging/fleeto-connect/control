@@ -1,0 +1,12 @@
+Package: fleeto-connect
+Version: @VERSION@
+Section: net
+Priority: optional
+Architecture: amd64
+Maintainer: Steaan
+Depends: xdg-utils, desktop-file-utils
+Recommends: zenity
+Homepage: https://github.com/404-developer-AI/Fleeto
+Description: Fleeto Connect
+ Opens the web interface of a Proxmox VE host from Fleeto through an end-to-end
+ encrypted remote session. Fleeto starts it with a fleeto-connect: link.

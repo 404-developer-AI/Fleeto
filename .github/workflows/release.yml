@@ -74,6 +74,16 @@ jobs:
             --build-arg FLEETO_VERSION="$VERSION" --build-arg FLEETO_RELEASE_PUBLIC_KEYS="$RELEASE_KEYS" .
           (cd "$RUNNER_TEMP/agent-binaries" && sha256sum -c SHA256SUMS)
 
+      # Fleeto Connect (0.8.0, PROXMOX-WEB.md) for Windows and Ubuntu, from the connect stage of the web image; listed in the manifest as
+      # connectFiles and checked in the web image below.
+      - name: Fleeto Connect for the manifest
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          docker buildx build --target connect-files --output "type=local,dest=$RUNNER_TEMP/connect-files" -f src/Fleeto.Web/Dockerfile \
+            --build-arg FLEETO_VERSION="$VERSION" .
+          (cd "$RUNNER_TEMP/connect-files" && sha256sum -c SHA256SUMS)
+
       # One image manifest per component (provenance and SBOM attestations off), so the digest in the release
       # manifest is exactly what `docker pull <image>@<digest>` fetches on the VPS.
       - name: web
@@ -183,6 +193,18 @@ jobs:
           done
           cat "$RUNNER_TEMP/expected-binaries.txt"
 
+      - name: Check Fleeto Connect in the web image
+        env:
+          WEB_DIGEST: ${{ steps.web.outputs.digest }}
+        run: |
+          id="$(docker create "$REGISTRY/fleeto-web@$WEB_DIGEST")"
+          rm -rf "$RUNNER_TEMP/image-connect" && mkdir -p "$RUNNER_TEMP/image-connect"
+          docker cp "$id:/app/connect/." "$RUNNER_TEMP/image-connect/"
+          docker rm "$id" >/dev/null
+          diff -u "$RUNNER_TEMP/connect-files/SHA256SUMS" "$RUNNER_TEMP/image-connect/SHA256SUMS" \
+            || { echo "::error::Fleeto Connect in the web image differs from the files listed in the manifest (the build is not reproducible)"; exit 1; }
+          (cd "$RUNNER_TEMP/image-connect" && sha256sum -c SHA256SUMS)
+
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.x
@@ -209,6 +231,7 @@ jobs:
             --install-sh dist/releases/"$VERSION"/install.sh \
             --rollback "$ROLLBACK" \
             --agent-binaries "$RUNNER_TEMP/agent-binaries" \
+            --connect-files "$RUNNER_TEMP/connect-files" \
             --out dist/releases/"$VERSION"/manifest.json
           (cd dist && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
           cat dist/releases/"$VERSION"/manifest.json

@@ -100,6 +100,8 @@ Use these terms consistently in UI, docs and email; do not introduce synonyms.
 | **blocked address** | An address or network Fleeto refuses (0.7.0): "Block an address", "Lift the block". Never "ban", "blacklist" or "deny list" in UI text. |
 | **security incident** | Something the security monitor found (0.7.0): an attack, a sign-in from a new network, a change of who can do what. "Acknowledge", "Resolve". Not an alert: it belongs to no client. Never "threat", "breach" or "intrusion" in UI text. |
 | **allowed address** | An address or network that is never blocked (0.7.0): "Allow an address". Never "whitelist" in UI text. |
+| **Proxmox web interface** | The web interface of a Proxmox VE host, opened from Fleeto through Fleeto Connect (0.8.0). "Open web interface", "End session". Never "Proxmox console", "Proxmox GUI" or "PVE UI" in UI text. |
+| **Fleeto Connect** | The program on the technician's PC that opens the Proxmox web interface (0.8.0). Always the two words; never "helper", "client" or "launcher" in UI text. |
 | **remote terminal** | A command line on an endpoint from the browser (0.3.0). Never "remote shell", "SSH" or "console" in UI text. |
 | **job** | One execution of a script, patch run or task on an endpoint |
 | **task** | Library scripts that run by themselves as steps, linked to a client, site, endpoint or monitoring template (0.6.0): on a schedule, when an alert of a check opens, when an endpoint becomes managed, or with "Run now". One start is a "run", with a job per step on each endpoint. A step that restarts the endpoint is a "restart" ("Restart the endpoint"), never "reboot". Never "scheduled job", "automation" or "cron" in UI text. |

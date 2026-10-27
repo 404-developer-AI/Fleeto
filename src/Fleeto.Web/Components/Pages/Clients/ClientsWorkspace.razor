@@ -440,6 +440,10 @@
                                             {
                                                 <MudMenuItem Icon="@Icons.Material.Outlined.Terminal" OnClick="@(() => RemoteWindow.OpenBackgroundAsync(row.Id))">Remote background</MudMenuItem>
                                             }
+                                            @if (Can(Permissions.RemoteProxmox) && RemoteSessionRules.IsProxmox(row.OsPlatform, row.OsName))
+                                            {
+                                                <MudMenuItem Icon="@Icons.Material.Outlined.Web" OnClick="@(() => RemoteWindow.OpenProxmoxAsync(row.Id))">Proxmox web interface</MudMenuItem>
+                                            }
                                             @if (Can(Permissions.ScriptsRun))
                                             {
                                                 <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="@(() => RunScriptAsync(row))">Run script</MudMenuItem>

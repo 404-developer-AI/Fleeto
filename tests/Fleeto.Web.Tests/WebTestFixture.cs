@@ -71,6 +71,8 @@ public class WebFixtureBase : IAsyncLifetime
         services.AddSingleton<SettingsStore>();
         services.AddSingleton<Infrastructure.Performance.PerfSettingsCache>();
         services.AddSingleton(Database.DataSource);
+        // The host registers its configuration; the tests use an empty one (no relay address of a development setup).
+        services.AddSingleton<Microsoft.Extensions.Configuration.IConfiguration>(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         // The security monitor (0.7.0): signals are counted in memory and never flushed in tests.
         services.AddSingleton(new Infrastructure.Security.SecuritySignalRecorder("web", Database.Time));
         services.AddIdentityCore<ApplicationUser>(WebServiceRegistration.ConfigureIdentity)

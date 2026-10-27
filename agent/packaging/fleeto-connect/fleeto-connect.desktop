@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Fleeto Connect
+Comment=Opens the Proxmox web interface from Fleeto
+Exec=/usr/bin/fleeto-connect %u
+Terminal=false
+NoDisplay=true
+MimeType=x-scheme-handler/fleeto-connect;
+Categories=Network;

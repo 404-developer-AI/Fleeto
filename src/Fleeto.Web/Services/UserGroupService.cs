@@ -583,6 +583,5 @@ internal static class AccessChanges
     }
 
     /// <summary>The permission a kind of remote session needs.</summary>
-    public static string RemotePermission(RemoteSessionKind kind) =>
-        kind == RemoteSessionKind.RemoteControl ? Permissions.RemoteControl : Permissions.RemoteBackground;
+    public static string RemotePermission(RemoteSessionKind kind) => RemoteSessionRules.Permission(kind);
 }

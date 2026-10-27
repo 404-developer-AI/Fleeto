@@ -914,6 +914,9 @@ enum RemoteSessionKind {
   REMOTE_SESSION_KIND_UNSPECIFIED = 0;
   REMOTE_SESSION_KIND_REMOTE_CONTROL = 1;
   REMOTE_SESSION_KIND_REMOTE_BACKGROUND = 2;
+  // The web interface of Proxmox VE (0.8.0, PROXMOX-WEB.md), served by the agent: Fleeto Connect on the technician's PC carries its
+  // connections as tunnel channels, which the agent connects to 127.0.0.1:8006 and nothing else.
+  REMOTE_SESSION_KIND_PROXMOX_WEB = 3;
 }
 
 // The gateway asks the service to connect its side of the relay for a token the browser presented.

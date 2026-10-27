@@ -19,6 +19,49 @@ public static class RemoteSessionRules
     /// </summary>
     public const string MinimumLinuxAgentVersion = "0.3.0-alpha.16";
 
+    /// <summary>The first agent that serves the Proxmox web interface (0.8.0, PROXMOX-WEB.md); an older agent refuses the session.</summary>
+    public const string MinimumProxmoxAgentVersion = "0.8.0-alpha.6";
+
+    /// <summary>The oldest Fleeto Connect a claim is accepted from; an older one is refused with the download of the current one.</summary>
+    public const string MinimumConnectVersion = "0.8.0-alpha.6";
+
+    /// <summary>
+    /// How long the secret of a fleeto-connect: link can be claimed. Shorter than <see cref="MaxRequestAge"/> after the claim is written, so
+    /// the signer never sees a request older than it allows; a technician who installs Fleeto Connect first opens the web interface again.
+    /// </summary>
+    public static readonly TimeSpan ClaimValidity = TimeSpan.FromSeconds(50);
+
+    /// <summary>How long the window waits for Fleeto Connect before it proposes to install it.</summary>
+    public static readonly TimeSpan ConnectWait = TimeSpan.FromSeconds(8);
+
+    /// <summary>Bytes of the secret in a fleeto-connect: link (256 bits).</summary>
+    public const int ClaimSecretBytes = 32;
+
+    /// <summary>The prefix of the operating system name the agent reports for a Proxmox VE host ("Proxmox VE 8.4.1 (Debian ...)").</summary>
+    public const string ProxmoxOsPrefix = "Proxmox VE ";
+
+    /// <summary>The permission a kind of remote session needs.</summary>
+    public static string Permission(RemoteSessionKind kind) => kind switch
+    {
+        RemoteSessionKind.RemoteControl => Permissions.RemoteControl,
+        RemoteSessionKind.ProxmoxWeb => Permissions.RemoteProxmox,
+        _ => Permissions.RemoteBackground
+    };
+
+    /// <summary>True for a Linux endpoint whose agent reports Proxmox VE.</summary>
+    public static bool IsProxmox(string? osPlatform, string? osName) =>
+        osPlatform == "linux" && osName is not null && osName.StartsWith(ProxmoxOsPrefix, StringComparison.Ordinal);
+
+    /// <summary>True when the agent version serves the Proxmox web interface.</summary>
+    public static bool AgentSupportsProxmoxWeb(string? agentVersion) =>
+        SemanticVersion.TryParse(agentVersion, out _) && !SemanticVersion.IsOlder(agentVersion, MinimumProxmoxAgentVersion);
+
+    /// <summary>True when a claim of this Fleeto Connect version is accepted; a development build is accepted by a development instance only.</summary>
+    public static bool ConnectVersionAccepted(string? connectVersion, string instanceVersion) =>
+        SemanticVersion.TryParse(connectVersion, out _) &&
+        (!SemanticVersion.IsOlder(connectVersion, MinimumConnectVersion) ||
+         (connectVersion!.StartsWith("0.0.0-", StringComparison.Ordinal) && instanceVersion.StartsWith("0.0.0-", StringComparison.Ordinal)));
+
     /// <summary>The Windows session id that stands for the console session: whichever session is attached to the screen.</summary>
     public const int ConsoleWindowsSession = 0;
 

@@ -92,6 +92,23 @@ try {
             if ($LASTEXITCODE -ne 0) { throw "go build of fleeto-$component for $target failed with exit code $LASTEXITCODE." }
             $outFiles += $outFile
         }
+        # Fleeto Connect (0.8.0) in the layout of the web image (agent/dist/connect), for the download in the window of the Proxmox web
+        # interface: the Windows exe, and on Linux the .deb as well.
+        if ($target -in 'windows-amd64', 'linux-amd64' -and -not $Output) {
+            $connectDir = Join-Path $agentDir "dist/connect/$target"
+            New-Item -ItemType Directory -Force -Path $connectDir | Out-Null
+            $connectFlags = if ($goos -eq 'windows') { "$ldflags -H windowsgui" } else { $ldflags }
+            $connectFile = Join-Path $connectDir "fleeto-connect$suffix"
+            & $goExe build -trimpath -buildvcs=false -ldflags $connectFlags -o $connectFile './cmd/fleeto-connect'
+            if ($LASTEXITCODE -ne 0) { throw "go build of fleeto-connect for $target failed with exit code $LASTEXITCODE." }
+            $outFiles += $connectFile
+            if ($goos -eq 'linux' -and $IsLinux -and (Get-Command dpkg-deb -ErrorAction SilentlyContinue)) {
+                $deb = Join-Path $connectDir 'fleeto-connect_amd64.deb'
+                & bash (Join-Path $agentDir 'packaging/fleeto-connect/build-deb.sh') $connectFile $version $deb
+                if ($LASTEXITCODE -ne 0) { throw "Building the .deb of Fleeto Connect failed with exit code $LASTEXITCODE." }
+                $outFiles += $deb
+            }
+        }
     }
 }
 finally {

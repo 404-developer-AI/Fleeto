@@ -23,6 +23,22 @@ window.fleeto = {
     opened.focus();
     return true;
   },
+  // Starts Fleeto Connect (0.8.0) with its link. Only the fleeto-connect: scheme is followed; the system asks the user to open the program.
+  openConnectLink: function (link) {
+    if (typeof link !== "string" || link.indexOf("fleeto-connect://") !== 0) {
+      return false;
+    }
+    window.location.href = link;
+    return true;
+  },
+  // The operating system of this PC for the download of Fleeto Connect: "windows", "ubuntu" (any Linux) or "".
+  connectPlatform: function () {
+    var platform = ((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || "").toLowerCase();
+    if (platform.indexOf("win") >= 0) {
+      return "windows";
+    }
+    return platform.indexOf("linux") >= 0 && platform.indexOf("android") < 0 ? "ubuntu" : "";
+  },
   // Saves a small file produced by the server (a public certificate). The content arrives base64 over the circuit.
   saveFile: function (fileName, contentType, base64) {
     var bytes = Uint8Array.from(atob(base64), function (c) { return c.charCodeAt(0); });

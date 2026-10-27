@@ -380,4 +380,57 @@ public sealed class RemoteSessionTokenTests
             component: AgentComponent.Agent, windowsSessionId: 0));
         Assert.Equal(RemoteParticipantState.Signed, control.State);
     }
+
+    [Fact]
+    public async Task The_proxmox_web_interface_is_signed_for_the_agent_of_a_proxmox_host_only()
+    {
+        var (proxmox, technicianId) = await ScopeAsync(agentVersion: RemoteSessionRules.MinimumProxmoxAgentVersion);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.Endpoints.Where(e => e.Id == proxmox.Id).ExecuteUpdateAsync(s => s
+                .SetProperty(e => e.OsPlatform, "linux").SetProperty(e => e.OsName, "Proxmox VE 8.4.1 (Debian GNU/Linux 12)"));
+        }
+
+        var (request, signed) = await SignAsync(await CreateParticipantAsync(proxmox, technicianId, kind: RemoteSessionKind.ProxmoxWeb,
+            component: AgentComponent.Agent));
+        Assert.Equal(SigningRequestState.Completed, request.State);
+        var token = RemoteSessionToken.Parser.ParseFrom(signed.TokenPayload);
+        Assert.Equal((Protocol.Agent.V1.RemoteSessionKind.ProxmoxWeb, Component.Agent), (token.Kind, token.Component));
+
+        // Served by the agent only.
+        var (_, watchdog) = await SignAsync(await CreateParticipantAsync(proxmox, technicianId, kind: RemoteSessionKind.ProxmoxWeb,
+            component: AgentComponent.Watchdog));
+        Assert.Equal(RemoteSessionTokenHandler.KindReason, watchdog.EndReason);
+
+        // Not a Proxmox VE host.
+        var (debian, debianTechnician) = await ScopeAsync(agentVersion: RemoteSessionRules.MinimumProxmoxAgentVersion);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.Endpoints.Where(e => e.Id == debian.Id).ExecuteUpdateAsync(s => s
+                .SetProperty(e => e.OsPlatform, "linux").SetProperty(e => e.OsName, "Debian GNU/Linux 12"));
+        }
+
+        var (_, notProxmox) = await SignAsync(await CreateParticipantAsync(debian, debianTechnician, kind: RemoteSessionKind.ProxmoxWeb,
+            component: AgentComponent.Agent));
+        Assert.Equal(RemoteSessionTokenHandler.ProxmoxReason, notProxmox.EndReason);
+
+        // An agent that does not serve it yet.
+        var (old, oldTechnician) = await ScopeAsync(agentVersion: "0.8.0-alpha.5");
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.Endpoints.Where(e => e.Id == old.Id).ExecuteUpdateAsync(s => s
+                .SetProperty(e => e.OsPlatform, "linux").SetProperty(e => e.OsName, "Proxmox VE 8.4.1 (Debian GNU/Linux 12)"));
+        }
+
+        var (_, oldAgent) = await SignAsync(await CreateParticipantAsync(old, oldTechnician, kind: RemoteSessionKind.ProxmoxWeb,
+            component: AgentComponent.Agent));
+        Assert.Equal(RemoteSessionTokenHandler.ProxmoxAgentReason, oldAgent.EndReason);
+
+        // A role with remote background but without the Proxmox web interface.
+        var role = await _fixture.Database.CreateRoleAsync(Permissions.ClientsView, Permissions.RemoteBackground);
+        var background = await _fixture.Database.CreateUserAsync(role);
+        var (_, noPermission) = await SignAsync(await CreateParticipantAsync(proxmox, background.Id, kind: RemoteSessionKind.ProxmoxWeb,
+            component: AgentComponent.Agent));
+        Assert.Equal(RemoteSessionTokenHandler.UserReason, noPermission.EndReason);
+    }
 }

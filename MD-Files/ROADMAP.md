@@ -21,11 +21,12 @@ repository, with the images as private packages on ghcr.io (public since 2026-09
 
 Markers: [done] built and tested, [open] still to do.
 
-## 0.8.0 — Vulnerability reporting and patch management on Linux
+## 0.8.0 — Vulnerability reporting, the Proxmox web interface and patch management on Linux
 
-Replaces hardening as 0.8.0 (decided 2026-10-26; hardening was taken off the roadmap). Two parts, in this order (decided
-2026-10-26): vulnerability reporting, designed in `VULNERABILITIES.md`, then patch management on Linux, of which how and what is
-discussed with the developer before anything is built.
+Replaces hardening as 0.8.0 (decided 2026-10-26; hardening was taken off the roadmap). Three parts, in this order (decided
+2026-10-26, the Proxmox web interface added 2026-10-27): vulnerability reporting, designed in `VULNERABILITIES.md`, the Proxmox web
+interface, designed in `PROXMOX-WEB.md`, then patch management on Linux, of which how and what is discussed with the developer
+before anything is built.
 
 - [open] Vulnerability reporting (`VULNERABILITIES.md`): security advisories of the CCB on the dashboard, and the CVEs that
   affect the distribution packages of managed Ubuntu, Debian, AlmaLinux and Proxmox VE endpoints, matched inside the instance.
@@ -43,6 +44,13 @@ discussed with the developer before anything is built.
   components in one terminal); built, set up and run on 2026-10-27, in `v0.8.0-alpha.5`. Still to decide: `global.json` on
   `10.0.400`, because the `dotnet-sdk-10.0` package of Ubuntu (SDK 10.0.1xx) fails on the Razor components with 112 errors
   where the SDK of Microsoft (10.0.403, as in CI) builds them.
+- [open] Proxmox web interface (`PROXMOX-WEB.md`, decided 2026-10-27): the real web interface of a managed Proxmox VE host, opened
+  from the endpoint list through a tunnel in a remote session to `127.0.0.1:8006` on the host, with Fleeto Connect on the technician's
+  PC (Windows and Ubuntu desktop), proposed for download when it is missing. Tunnel, server and packaging built 2026-10-27 for
+  `v0.8.0-alpha.6`; to test on a real host with the developer (sign-in, consoles, an upload, the Secure cookie of Proxmox on
+  `*.localhost` in Edge, Chrome and Firefox, the first run on Windows and the `.deb` on Ubuntu).
+- [open] A code signing certificate for Fleeto Connect on Windows. Until Steaan has one, SmartScreen warns on its first run; its
+  integrity comes from the signed release manifest (decided 2026-10-27).
 - [open] Patch management on Linux (planned as 0.4.1, moved to "Not yet scheduled" on 2026-09-23, scheduled as 0.8.0 on
   2026-10-26). Until it is built a Linux endpoint shows no patch data at all and stays out of the compliance counts, because
   calling it uncovered would be untrue.

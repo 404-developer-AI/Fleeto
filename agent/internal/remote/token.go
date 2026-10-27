@@ -114,6 +114,7 @@ func VerifyToken(signed *agentv1.SignedRemoteSession, trust signedconfig.Trust, 
 	switch {
 	case component == agentv1.Component_COMPONENT_WATCHDOG && token.GetKind() == agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_REMOTE_BACKGROUND:
 	case component == agentv1.Component_COMPONENT_AGENT && token.GetKind() == agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_REMOTE_CONTROL:
+	case component == agentv1.Component_COMPONENT_AGENT && token.GetKind() == agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_PROXMOX_WEB:
 	default:
 		return nil, errors.New("this service does not serve this kind of remote session; update the agent")
 	}

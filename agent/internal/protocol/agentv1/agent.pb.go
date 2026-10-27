@@ -849,6 +849,9 @@ const (
 	RemoteSessionKind_REMOTE_SESSION_KIND_UNSPECIFIED       RemoteSessionKind = 0
 	RemoteSessionKind_REMOTE_SESSION_KIND_REMOTE_CONTROL    RemoteSessionKind = 1
 	RemoteSessionKind_REMOTE_SESSION_KIND_REMOTE_BACKGROUND RemoteSessionKind = 2
+	// The web interface of Proxmox VE (0.8.0, PROXMOX-WEB.md), served by the agent: Fleeto Connect on the technician's PC carries its
+	// connections as tunnel channels, which the agent connects to 127.0.0.1:8006 and nothing else.
+	RemoteSessionKind_REMOTE_SESSION_KIND_PROXMOX_WEB RemoteSessionKind = 3
 )
 
 // Enum value maps for RemoteSessionKind.
@@ -857,11 +860,13 @@ var (
 		0: "REMOTE_SESSION_KIND_UNSPECIFIED",
 		1: "REMOTE_SESSION_KIND_REMOTE_CONTROL",
 		2: "REMOTE_SESSION_KIND_REMOTE_BACKGROUND",
+		3: "REMOTE_SESSION_KIND_PROXMOX_WEB",
 	}
 	RemoteSessionKind_value = map[string]int32{
 		"REMOTE_SESSION_KIND_UNSPECIFIED":       0,
 		"REMOTE_SESSION_KIND_REMOTE_CONTROL":    1,
 		"REMOTE_SESSION_KIND_REMOTE_BACKGROUND": 2,
+		"REMOTE_SESSION_KIND_PROXMOX_WEB":       3,
 	}
 )
 
@@ -6631,11 +6636,12 @@ const file_agent_proto_rawDesc = "" +
 	"\x1fUPDATE_WAIT_REASON_NEXT_ATTEMPT\x10\x02\x12#\n" +
 	"\x1fUPDATE_WAIT_REASON_RANDOM_DELAY\x10\x03\x12'\n" +
 	"#UPDATE_WAIT_REASON_INSTALLER_UPDATE\x10\x04\x12\"\n" +
-	"\x1eUPDATE_WAIT_REASON_ROLLED_BACK\x10\x05*\x8b\x01\n" +
+	"\x1eUPDATE_WAIT_REASON_ROLLED_BACK\x10\x05*\xb0\x01\n" +
 	"\x11RemoteSessionKind\x12#\n" +
 	"\x1fREMOTE_SESSION_KIND_UNSPECIFIED\x10\x00\x12&\n" +
 	"\"REMOTE_SESSION_KIND_REMOTE_CONTROL\x10\x01\x12)\n" +
-	"%REMOTE_SESSION_KIND_REMOTE_BACKGROUND\x10\x02*\xde\x01\n" +
+	"%REMOTE_SESSION_KIND_REMOTE_BACKGROUND\x10\x02\x12#\n" +
+	"\x1fREMOTE_SESSION_KIND_PROXMOX_WEB\x10\x03*\xde\x01\n" +
 	"\x0eDisconnectCode\x12\x1f\n" +
 	"\x1bDISCONNECT_CODE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17DISCONNECT_CODE_REVOKED\x10\x01\x12&\n" +

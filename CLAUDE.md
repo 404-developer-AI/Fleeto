@@ -10,8 +10,8 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
   comments, commit messages, log messages and UI text are always in English.
 - **Current phase**: 0.7.0 (the performance monitor and the security monitor) is released (2026-10-26) and runs on the first
   test VPS, tested through `v0.7.0-alpha.1` to `alpha.13`. Next is 0.8.0 in `MD-Files/ROADMAP.md`: vulnerability reporting
-  (`MD-Files/VULNERABILITIES.md`) first, then patch management on Linux (decided 2026-10-26, how and what is still to be
-  discussed), in place of hardening, which was taken off the roadmap. The other integrations moved to "Not yet scheduled" on
+  (`MD-Files/VULNERABILITIES.md`) first, then the Proxmox web interface (`MD-Files/PROXMOX-WEB.md`, decided 2026-10-27), then
+  patch management on Linux (decided 2026-10-26, how and what is still to be discussed), in place of hardening, which was taken off the roadmap. The other integrations moved to "Not yet scheduled" on
   2026-09-23. Local development runs without Docker (see `README.md`); Docker is for the VPS and CI only.
 - **Git**: always ask before committing, pushing or tagging. No intermediate commits while a version is being built.
   Tag a version only after its commits are pushed and CI is green.
@@ -38,6 +38,7 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 | `MD-Files/performance-monitoring.md` | The generic spec of a built-in performance monitor, shared with other products; not edited for Fleeto. |
 | `MD-Files/PERFORMANCE.md` | The performance monitor of Fleeto (0.7.0): how the spec maps onto Fleeto, its data model and build plan. |
 | `MD-Files/VULNERABILITIES.md` | Vulnerability reporting (0.8.0): security advisories on the dashboard and CVEs on Linux endpoints, its sources, data model and build plan. |
+| `MD-Files/PROXMOX-WEB.md` | The Proxmox web interface (0.8.0): the tunnel through a remote session, Fleeto Connect, security and build plan. |
 
 ## Priorities (in this order)
 
@@ -280,6 +281,13 @@ Screen takeover is built into Fleeto: no external tool, no third-party account. 
   `MD-Files/ARCHITECTURE.md` §4 and §5.
 - Platforms: Windows 10 and Server 2016 or newer; Linux with X11 (Wayland shows that remote control is not supported, remote
   background works). macOS is not supported for now (decided 2026-09-15; possibly later when there is demand).
+- **Proxmox web interface** (decided 2026-10-27, 0.8.0, `MD-Files/PROXMOX-WEB.md`): a third kind of session, opened from the right-click
+  menu on a managed Proxmox VE host, that shows the real web interface of Proxmox in the technician's own browser. **Fleeto Connect** on the
+  technician's PC (Windows: a per-user exe; Ubuntu desktop: a `.deb`, both served by the instance and listed in the signed release manifest)
+  claims the session with its own key and carries the browser's connections as tunnel channels; the agent connects them to `127.0.0.1:8006`
+  and nothing else, and the TLS of pveproxy runs end to end, so Fleeto never sees the pages or the Proxmox password. The window proposes to
+  install Fleeto Connect when nothing claims its link. Permission "Proxmox web interface" (admins and technicians by default). Windows
+  builds are not Authenticode-signed until Steaan has a code signing certificate (open item on the roadmap).
 - **Only where there is a desktop** (decided 2026-09-25, 0.6.0): the agent reports whether the endpoint has a graphical desktop.
   Without one (a Linux server without display manager, graphical session or X server; Windows Server Core and Nano Server)
   remote control is not offered and only remote background is. An agent older than 0.6.0 reports nothing and keeps remote
@@ -656,7 +664,8 @@ home-grown patch engine. Note them, do not build them. (File transfer inside rem
 - **Fleeto is the only name**: namespaces, images, env vars, service names, database objects and user-visible text (decided
   2026-09-15; the internal name Fleetify was renamed in 0.2.1). The old name appears only in the migration code listed in
   `deploy/ci/branding-check.sh`. Run that check (`MD-Files/branding-fleeto.md` §7) before every release.
-- UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, patch policy, monitoring template, client template, integration, note, tag, task, remote control session, API key, role, permission, blocked address, allowed address, security incident, security advisory, vulnerability).
+- UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, patch policy, monitoring template, client template, integration, note, tag, task, remote control session, API key, role, permission, blocked address, allowed address, security incident, security advisory, vulnerability,
+  Proxmox web interface, Fleeto Connect).
 - Follow the Migrify codebase conventions where they exist (project layout, EF Core patterns, MudBlazor usage, email templates).
 - **Performance monitor** (0.7.0, `MD-Files/PERFORMANCE.md`): every workers loop derives from `WorkerLoop`, which measures
   each run; a loop that does not is a review finding. Metric keys never contain values: route templates, type names and fixed

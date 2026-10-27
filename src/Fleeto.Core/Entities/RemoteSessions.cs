@@ -1,13 +1,19 @@
 namespace Fleeto.Core.Entities;
 
-/// <summary>The two kinds of remote session (0.3.0). Stored by name.</summary>
+/// <summary>The kinds of remote session (0.3.0). Stored by name.</summary>
 public enum RemoteSessionKind
 {
     /// <summary>Take over the screen, served by the agent.</summary>
     RemoteControl,
 
     /// <summary>Terminal, files, services and processes without touching the screen, served by the watchdog.</summary>
-    RemoteBackground
+    RemoteBackground,
+
+    /// <summary>
+    /// The web interface of a Proxmox VE host (0.8.0, PROXMOX-WEB.md), served by the agent: Fleeto Connect on the technician's PC is the
+    /// participant, and the agent connects its tunnel channels to pveproxy on 127.0.0.1:8006 only.
+    /// </summary>
+    ProxmoxWeb
 }
 
 /// <summary>Where one technician's connection to a remote session stands. Stored by name.</summary>
@@ -108,6 +114,41 @@ public class RemoteSessionParticipant
     /// The gateway refuses the token from then on and ends the connection.
     /// </summary>
     public DateTime? RevokedAt { get; set; }
+}
+
+/// <summary>
+/// A session of the Proxmox web interface that waits for Fleeto Connect (0.8.0, PROXMOX-WEB.md §3). Web writes it when a technician opens the
+/// web interface; the secret travels in the fleeto-connect: link and is stored hashed. Fleeto Connect claims it once, within
+/// <see cref="Fleeto.Core.Domain.RemoteSessionRules.ClaimValidity"/>, with its own ephemeral key: only then are the session, its participant
+/// (with the id of the claim) and the signing request written, exactly as for a remote session opened in the browser.
+/// </summary>
+public class RemoteSessionClaim
+{
+    /// <summary>Also the id of the participant the claim becomes.</summary>
+    public Guid Id { get; set; }
+    public Guid ClientId { get; set; }
+    public Guid EndpointId { get; set; }
+    public Guid UserId { get; set; }
+    public string UserName { get; set; } = string.Empty;
+    public string? Reason { get; set; }
+
+    /// <summary>SHA-256 of the secret in the link.</summary>
+    public byte[] SecretHash { get; set; } = [];
+
+    public DateTime CreatedAt { get; set; }
+    public DateTime ExpiresAt { get; set; }
+
+    /// <summary>When Fleeto Connect claimed it; a claim is used once.</summary>
+    public DateTime? ClaimedAt { get; set; }
+
+    /// <summary>The address Fleeto Connect claimed from, as web saw it.</summary>
+    public string? ClaimedFrom { get; set; }
+
+    /// <summary>Fleeto Connect and its version, e.g. "Fleeto Connect 0.8.0 (windows/amd64)".</summary>
+    public string? ClaimedBy { get; set; }
+
+    /// <summary>Why the claim did not become a session, when web refused it after the claim (the endpoint went offline, for example).</summary>
+    public string? Problem { get; set; }
 }
 
 /// <summary>

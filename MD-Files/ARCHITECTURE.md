@@ -149,6 +149,7 @@ AuditEntry (append-only)
 | **ApiKey** | `Id`, `Name`, `SecretHash`, `AllClients`, `CreatedByUserId`, `CreatedByName`, `CreatedAt`, `ExpiresAt?`, `LastUsedAt?`, `RevokedAt?`, `RevokedByUserId?`, `RevokedByName?` | Public API key (0.2.1), read-only. The id is part of the token; only the SHA-256 of the secret is stored (check constraint: 64 hex characters) and the token is shown once. Limited to the clients in **ApiKeyClient** (`ApiKeyId`, `ClientId`, deleted with either side) when `AllClients` is false, so a key whose clients are all deleted sees nothing. Never deleted: revoked keys stay for the audit trail. Web only (grants). Format in §6. |
 | **RemoteSession** | `Id`, `ClientId`, `EndpointId`, `Kind` (`RemoteControl`/`RemoteBackground`), `Component` (`agent`/`watchdog`, the serving service), `StartedByUserId`, `StartedByName`, `Reason?`, `CreatedAt`, `StartedAt?`, `EndedAt?`, `EndReason?` | Every session (0.3.0), whether it connected or not. Kept 13 months, then removed with its participants and actions; the audit log keeps its own entries. |
 | **RemoteSessionParticipant** | `Id`, `SessionId`, `ClientId`, `EndpointId`, `UserId`, `UserName`, `Reason?`, `State` (`Requested`, `Signed`, `Connecting`, `Connected`, `Ended`, `Refused`, `Failed`), `BrowserPublicKey` (32 bytes, check constraint), `TokenPayload?`, `TokenSignature?`, `SigningKeyId?`, `SignedAt?`, `ValidUntil?`, `IpAddress?`, `CreatedAt`, `ConnectingAt?`, `ConnectedAt?`, `EndedAt?`, `EndReason?`, `RevokedAt?` | One technician's connection to a session, with its own single-use token (§4 Remote session). `ConnectingAt` needs a signature (check constraint). Web writes it, the signer signs it, the gateway claims, connects and ends it, the workers end what never connected. `RevokedAt` (0.6.0): web found that the user may no longer reach the endpoint (a group changed); the signer refuses it, the gateway no longer claims it and ends the connection. |
+| **RemoteSessionClaim** | `Id`, `ClientId`, `EndpointId`, `UserId`, `UserName`, `Reason?`, `SecretHash` (32 bytes), `CreatedAt`, `ExpiresAt`, `ClaimedAt?`, `ClaimedFrom?`, `ClaimedBy?`, `Problem?` | The Proxmox web interface (0.8.0, `PROXMOX-WEB.md`): a session that waits for Fleeto Connect. The secret of the fleeto-connect: link, stored as its SHA-256, is claimed once within 50 seconds; only then are the `RemoteSession` (kind `ProxmoxWeb`) and the participant, with the id of the claim and the key of Fleeto Connect, written. Web writes it; the workers remove it after a day. |
 | **RemoteSessionAction** | `Id`, `SessionId`, `ParticipantId?`, `ClientId`, `EndpointId`, `Time`, `Action`, `Target`, `Detail?` | An action inside a remote background session as the endpoint reports it (file, service or process action with its target; written from 0.3.0 step 2). Terminal content is never stored. |
 | **CheckResult** | `Time` (ingest), `ClientId`, `EndpointId`, `CheckDefinitionId`, `Status`, `Value`, `Payload`, `ProcessesJson?` | TimescaleDB hypertable, compressed, retention policy. Deduplicated per endpoint and agent batch sequence number. `ProcessesJson` (0.6.0): the process list of a CPU or memory usage result, null for every other result; a partial index covers the rows that have one. Holds user names (personal data), kept as long as the raw results. |
 | **Alert** | `Id`, `ClientId`, `EndpointId`, `CheckDefinitionId`, `Severity`, `State`, `AcknowledgedBy`, `HeldUntil?`, `HeldAt?`, `HeldBy?`, timestamps | Deduplicated per endpoint and check. On hold while `HeldUntil` is in the future (§4, Alert hold). |
@@ -1209,6 +1210,16 @@ connection. The flow for one technician (a participant):
    at its start the gateway ends every connection left from before. The workers end participants that never connected
    within 5 minutes.
 
+**Proxmox web interface (0.8.0, `PROXMOX-WEB.md`).** A third kind of remote session, `ProxmoxWeb`, served by the agent, whose participant is
+**Fleeto Connect** on the technician's PC instead of the browser. The window in web writes a claim and starts a `fleeto-connect:` link;
+Fleeto Connect posts the claim with its own ephemeral key to `/connect/v1/claim`, and web writes the session, the participant and the signing
+request as in step 1 above, so steps 2 to 9 are the same. Inside the session the frames are tunnel channels (`0x20` to `0x23`), which the
+agent connects to `127.0.0.1:8006` on the Proxmox VE host and nothing else; Fleeto Connect speaks TLS to pveproxy over them, pinned to the
+certificate the agent read from pveproxy, and serves the browser on `http://<name>.localhost:<port>/` behind a one-time cookie. The browser
+shows the pages of Proxmox itself; Fleeto sees none of them. When nothing claims the link within 8 seconds the window proposes to install
+Fleeto Connect (Windows: a per-user exe; Ubuntu: a `.deb`), served by web from `/app/connect` of the web image and listed in the release
+manifest as `connectFiles`. Ending it in the window marks the participant revoked, which the gateway ends.
+
 **Remote control (0.3.0 step 3, Windows).** Served by the agent, not the watchdog, because showing and using the screen needs a
 process in the Windows session. The token carries the Windows session to show (`windows_session_id`, 0 for the console). The
 session is the same in every way as remote background — token, relay, key exchange, AES-256-GCM frames, idle timeout — but it
@@ -1614,6 +1625,13 @@ on which endpoint. A compromised gateway that keeps a valid relay open is still 
 - **A script that runs as the signed-in user, accepted risk (0.2.1).** That user can read the script text while it runs:
   the interpreter has to open the file as them. The script is staged so that they can read it and not change it, and the
   run window says so before the run starts. A script that carries a secret must run as the agent's own account.
+- **Proxmox web interface (0.8.0).** The agent connects the tunnel of a `ProxmoxWeb` session to pveproxy on its own loopback interface only;
+  no frame names a host or port, so the session cannot become a way into the client's network. The token, relay, end-to-end encryption and
+  tier checks are those of the remote sessions, with Fleeto Connect holding the key the browser holds there, and the TLS of pveproxy runs
+  end to end between Fleeto Connect and the host, so the Proxmox password never reaches Fleeto. Fleeto Connect connects only to an instance
+  the technician allowed, accepts a relay on that instance's host only, and lets only the browser that used its one-time address in.
+  **Accepted risk**: the secret of the claim is on the command line of Fleeto Connect for the moment it takes to claim it (one use, 50
+  seconds, audited with the claiming address); another local user of a Linux PC could race for it, and would still need a Proxmox account.
 - **Remote terminal (0.3.0), accepted risk.** The interactive terminal (§3) is available to
   every user with the permission remote background (0.6.0; admins and technicians by default) on every managed endpoint, also
   where the policy requires script approval. On those endpoints script approval therefore only governs library scripts run as
@@ -2154,7 +2172,7 @@ run under the new names.
 /src/Fleeto.Signer/          signing service: instance signing key, internal CA, signing rules
 /src/Fleeto.Workers/         background jobs: config fan-out, check evaluation, alerts, email, license, backups, retention
 /src/Fleeto.Tools/           fleeto-tool: migrate, license, release and backup key utilities
-/agent/                        Go agent (one module, per-platform builds)
+/agent/                        Go agent (one module, per-platform builds); cmd/fleeto-connect is Fleeto Connect (0.8.0), packaging/ its .deb
 /tests/Fleeto.Testing/       shared test fixture: a real PostgreSQL database per test project
 /tests/Fleeto.*.Tests/       unit and integration tests per component, cross-client and tier enforcement tests
 /tests/Fleeto.LoadTest/      simulator for 10,000 agents

@@ -5433,6 +5433,67 @@ namespace Fleeto.Infrastructure.Migrations
                     b.ToTable("RemoteSessionActions");
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.RemoteSessionClaim", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ClaimedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ClaimedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ClaimedFrom")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Problem")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<byte[]>("SecretHash")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("EndpointId", "ClientId");
+
+                    b.ToTable("RemoteSessionClaims", t =>
+                        {
+                            t.HasCheckConstraint("CK_RemoteSessionClaims_SecretHash", "octet_length(\"SecretHash\") = 32");
+                        });
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.RemoteSessionParticipant", b =>
                 {
                     b.Property<Guid>("Id")
@@ -7822,6 +7883,16 @@ namespace Fleeto.Infrastructure.Migrations
                     b.HasOne("Fleeto.Core.Entities.RemoteSession", null)
                         .WithMany()
                         .HasForeignKey("SessionId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.RemoteSessionClaim", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
                         .HasPrincipalKey("Id", "ClientId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

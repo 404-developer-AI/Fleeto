@@ -25,11 +25,11 @@ $outDir = Join-Path $agentDir 'internal/protocol/agentv1'
 $goBin = 'C:\Program Files\Go\bin'
 if (Test-Path $goBin) { $env:PATH = "$goBin;$env:PATH" }
 $gopathBin = Join-Path (& go env GOPATH) 'bin'
-$env:PATH = "$gopathBin;$env:PATH"
+$env:PATH = "$gopathBin$([IO.Path]::PathSeparator)$env:PATH"
 
-$nuget = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $env:USERPROFILE '.nuget/packages' }
+$nuget = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.nuget/packages' }
 $toolsRoot = Join-Path $nuget "grpc.tools/$GrpcToolsVersion"
-$protoc = Join-Path $toolsRoot 'tools/windows_x64/protoc.exe'
+$protoc = if ($IsWindows) { Join-Path $toolsRoot 'tools/windows_x64/protoc.exe' } else { Join-Path $toolsRoot 'tools/linux_x64/protoc' }
 $include = Join-Path $toolsRoot 'build/native/include'
 if (-not (Test-Path $protoc)) {
     throw "protoc was not found at $protoc. Restore src/Fleeto.Protocol first (dotnet restore) and run this script again."

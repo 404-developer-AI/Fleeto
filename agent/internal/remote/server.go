@@ -51,6 +51,8 @@ type Server struct {
 	Report func(participantID, action, target, detail string)
 	// Screen serves remote control sessions (0.3.0 step 3); nil where this service does not serve them.
 	Screen ScreenFactory
+	// Tunnel gives the fixed target of the Proxmox web interface (0.8.0); nil where this service does not serve it.
+	Tunnel TunnelFactory
 	// Logger and Now are optional.
 	Logger *slog.Logger
 	Now    func() time.Time
@@ -91,6 +93,15 @@ func (s *Server) Offer(ctx context.Context, offer *agentv1.RemoteSessionOffer) (
 	participantID = token.GetParticipantId()
 	if token.GetKind() == agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_REMOTE_CONTROL && s.Screen == nil {
 		return participantID, "The endpoint refused the session: remote control is not supported on this platform yet."
+	}
+	var tunnel *Tunnel
+	if token.GetKind() == agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_PROXMOX_WEB {
+		if s.Tunnel == nil {
+			return participantID, "The endpoint refused the session: this agent does not serve the Proxmox web interface. Update the agent."
+		}
+		if tunnel, err = s.Tunnel(ctx); err != nil {
+			return participantID, "The endpoint refused the session: " + err.Error()
+		}
 	}
 	// Tier enforcement, layer 4.
 	if !s.Managed() {
@@ -142,7 +153,7 @@ func (s *Server) Offer(ctx context.Context, offer *agentv1.RemoteSessionOffer) (
 		report = func(action, target, detail string) { s.Report(participantID, action, target, detail) }
 	}
 	session, err := NewSession(SessionOptions{
-		Token: token, Keys: handshake.Keys, Transport: transport, Hello: s.Hello(), Open: s.Open, OpenScript: s.OpenScript, Report: report, Screen: s.Screen, Logger: logger, Now: now,
+		Token: token, Keys: handshake.Keys, Transport: transport, Hello: s.Hello(), Open: s.Open, OpenScript: s.OpenScript, Report: report, Screen: s.Screen, Tunnel: tunnel, Logger: logger, Now: now,
 	})
 	if err != nil {
 		s.active.Add(-1)

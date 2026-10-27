@@ -1,0 +1,292 @@
+@page "/remote/proxmox/{EndpointId:guid}"
+@attribute [RequirePermission(Permissions.RemoteProxmox)]
+@layout RemoteLayout
+@inherits FleetoPageBase
+@implements IAsyncDisposable
+@inject RemoteSessionService RemoteSvc
+@inject IJSRuntime JS
+@inject IConfiguration Configuration
+@inject IWebHostEnvironment Environment
+@using Fleeto.Web.Account
+@inject ILogger<ProxmoxWeb> Logger
+
+@* The Proxmox web interface (0.8.0, PROXMOX-WEB.md): this window starts Fleeto Connect with a fleeto-connect: link and follows the session
+   it opens. The pages of Proxmox never pass through Fleeto: Fleeto Connect shows them in the browser from a local address, end-to-end
+   encrypted to the host. When nothing claims the link, the window proposes to install Fleeto Connect. *@
+<PageTitle>@(_target is null ? "Proxmox web interface" : $"{_target.Hostname} - Proxmox web interface") - Fleeto</PageTitle>
+
+<div class="remote-header">
+    <FleetoMark Size="24" />
+    <div class="remote-title">
+        <span class="remote-hostname">@(_target?.Hostname ?? "Proxmox web interface")</span>
+        <span class="muted">Proxmox web interface@(_target is null ? "" : $" · [{_target.ClientCode}] · {_target.OsName}")</span>
+    </div>
+    <StatusChip Text="@StateLabel" Kind="@StateKind" Dot="true" />
+    <MudSpacer />
+    @if (_claimId is not null && _progress?.State is ProxmoxProgressState.Connecting or ProxmoxProgressState.Connected or ProxmoxProgressState.WaitingForConnect)
+    {
+        <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Outlined.Close" OnClick="EndAsync">End session</MudButton>
+    }
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed" NotFound="_notFound" What="endpoint">
+    @if (_target is { } target)
+    {
+        <div class="remote-start">
+            @if (target.Problem is not null)
+            {
+                <MudAlert Severity="Severity.Warning">@target.Problem</MudAlert>
+            }
+            else if (_claimId is null || _progress?.State is ProxmoxProgressState.Ended or ProxmoxProgressState.Failed)
+            {
+                @if (_progress is { State: ProxmoxProgressState.Ended or ProxmoxProgressState.Failed } ended)
+                {
+                    <MudAlert Severity="@(ended.State == ProxmoxProgressState.Failed ? Severity.Error : Severity.Info)" Class="mb-3" Dense="true">
+                        @(ended.Message ?? (ended.State == ProxmoxProgressState.Failed ? "The session did not start." : "The session ended."))
+                    </MudAlert>
+                }
+                <MudText Typo="Typo.body1" Class="mb-3">
+                    Open the web interface of @target.Hostname as Proxmox serves it, in your own browser. Fleeto Connect on this PC carries it through an
+                    end-to-end encrypted session to the host; Fleeto never sees the pages or your Proxmox password. You sign in with your Proxmox account.
+                    The session is recorded in the audit log.
+                </MudText>
+                <MudTextField T="string" @bind-Value="_reason" Label="Reason (optional)" Variant="Variant.Outlined" MaxLength="@RemoteSessionRules.MaxReasonLength"
+                              HelperText="Stored with the session in the audit log." Class="mb-4" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Web" Disabled="_starting" OnClick="StartAsync">
+                    Open web interface
+                </MudButton>
+            }
+            else if (_progress?.State == ProxmoxProgressState.Connected)
+            {
+                <MudAlert Severity="Severity.Success" Class="mb-3">
+                    The web interface of @target.Hostname is open in your browser. Fleeto Connect keeps the session open until you end it here, close
+                    this window, or nothing is done in it for the idle time of the policy.
+                </MudAlert>
+                <MudText Typo="Typo.body2" Class="muted">
+                    @(_progress.ClaimedBy) · connected @Time.Relative(_progress.ConnectedAt)
+                </MudText>
+            }
+            else if (ShowInstall)
+            {
+                <MudAlert Severity="Severity.Info" Class="mb-3">
+                    Fleeto Connect did not start. Install it on this PC, then choose Try again. If it is installed, allow the browser to open it
+                    when it asks.
+                </MudAlert>
+                @foreach (var file in DownloadsInOrder)
+                {
+                    var path = ConnectEndpoints.FilePath(Configuration, Environment, file);
+                    <MudPaper Outlined="true" Class="pa-4 mb-3">
+                        <MudText Typo="Typo.subtitle1">Fleeto Connect for @file.Label</MudText>
+                        @if (path is null)
+                        {
+                            <MudText Typo="Typo.body2" Class="muted">Not available on this server (a development build). Build it with tools/dev/build-agent.ps1.</MudText>
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.body2" Class="mb-2">
+                                @if (file.Platform == "windows")
+                                {
+                                    <span>Download it and run it once: it installs itself for your Windows account, without an administrator. Windows SmartScreen
+                                        may warn that it does not know the program; choose More info and Run anyway after you checked the SHA-256 below.</span>
+                                }
+                                else
+                                {
+                                    <span>Download it and install it with <code>sudo apt install ./@(file.DownloadName.Replace("{version}", FleetoVersion.Current))</code>.</span>
+                                }
+                            </MudText>
+                            <MudText Typo="Typo.caption" Class="muted d-block mb-2">SHA-256 @ConnectEndpoints.Sha256(path)</MudText>
+                            <MudButton Variant="@(file.Platform == _platform ? Variant.Filled : Variant.Outlined)" Color="Color.Primary" Size="Size.Small"
+                                       StartIcon="@Icons.Material.Outlined.Download" Href="@($"/connect/download/{file.Platform}")" Target="_blank">Download</MudButton>
+                        }
+                    </MudPaper>
+                }
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Refresh" Disabled="_starting" OnClick="StartAsync">Try again</MudButton>
+            }
+            else
+            {
+                <div class="d-flex align-center gap-3">
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                    <MudText Typo="Typo.body1">
+                        @(_progress?.State == ProxmoxProgressState.Connecting
+                            ? $"{_progress.ClaimedBy} is connecting to {target.Hostname}."
+                            : "Starting Fleeto Connect. If the browser asks whether to open Fleeto Connect, allow it.")
+                    </MudText>
+                </div>
+            }
+        </div>
+    }
+</LoadState>
+
+@code {
+    [Parameter]
+    public Guid EndpointId { get; set; }
+
+    private ProxmoxTarget? _target;
+    private bool _notFound;
+    private string? _reason;
+    private bool _starting;
+    private Guid? _claimId;
+    private DateTime _startedAt;
+    private ProxmoxProgress? _progress;
+    private string _platform = string.Empty;
+    private PeriodicTimer? _timer;
+    private CancellationTokenSource? _polling;
+
+    private bool ShowInstall => _progress?.State == ProxmoxProgressState.NotClaimed ||
+                                (_progress?.State == ProxmoxProgressState.WaitingForConnect && DateTime.UtcNow - _startedAt >= RemoteSessionRules.ConnectWait);
+
+    private IEnumerable<ConnectDownloads.File> DownloadsInOrder => ConnectDownloads.Files.OrderBy(f => f.Platform == _platform ? 0 : 1);
+
+    private string StateLabel => _progress?.State switch
+    {
+        ProxmoxProgressState.Connected => "Connected",
+        ProxmoxProgressState.Connecting or ProxmoxProgressState.WaitingForConnect when !ShowInstall => "Connecting",
+        ProxmoxProgressState.Ended => "Ended",
+        _ => "Not connected"
+    };
+
+    private StatusKind StateKind => _progress?.State switch
+    {
+        ProxmoxProgressState.Connected => StatusKind.Ok,
+        ProxmoxProgressState.Connecting or ProxmoxProgressState.WaitingForConnect when !ShowInstall => StatusKind.Warning,
+        ProxmoxProgressState.Failed => StatusKind.Error,
+        _ => StatusKind.Neutral
+    };
+
+    protected override Task OnParametersSetAsync() => LoadAsync(async caller =>
+    {
+        _target = await RemoteSvc.GetProxmoxTargetAsync(caller, EndpointId);
+        _notFound = _target is null;
+    });
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            _platform = await JS.InvokeAsync<string>("fleeto.connectPlatform");
+            StateHasChanged();
+        }
+        catch (JSException)
+        {
+            _platform = string.Empty;
+        }
+    }
+
+    private async Task StartAsync()
+    {
+        if (_target?.Problem is not null || _starting)
+        {
+            return;
+        }
+
+        _starting = true;
+        try
+        {
+            var result = await RunForValueAsync(caller => RemoteSvc.StartProxmoxAsync(caller, EndpointId, _reason), null);
+            if (result is not { Success: true, Value: { } start })
+            {
+                return;
+            }
+
+            _claimId = start.ClaimId;
+            _startedAt = DateTime.UtcNow;
+            _progress = new ProxmoxProgress(ProxmoxProgressState.WaitingForConnect, null, null, null);
+            StateHasChanged();
+            await JS.InvokeAsync<bool>("fleeto.openConnectLink", start.Link);
+            StartPolling();
+        }
+        finally
+        {
+            _starting = false;
+        }
+    }
+
+    /// <summary>Follows the session every second until it is connected, then every 5 seconds until it ends.</summary>
+    private void StartPolling()
+    {
+        _polling?.Cancel();
+        _timer?.Dispose();
+        _polling = new CancellationTokenSource();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        var token = _polling.Token;
+        var timer = _timer;
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                var ticks = 0;
+                while (await timer.WaitForNextTickAsync(token))
+                {
+                    ticks++;
+                    if (_progress?.State == ProxmoxProgressState.Connected && ticks % 5 != 0)
+                    {
+                        continue;
+                    }
+
+                    await RefreshAsync(token);
+                    if (_progress?.State is ProxmoxProgressState.Ended or ProxmoxProgressState.Failed or ProxmoxProgressState.NotClaimed)
+                    {
+                        return;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Following the Proxmox web interface session of endpoint {EndpointId} stopped", EndpointId);
+            }
+        });
+    }
+
+    private async Task RefreshAsync(CancellationToken cancellationToken)
+    {
+        if (_claimId is not { } claimId)
+        {
+            return;
+        }
+
+        var caller = await CurrentUser.GetAsync(cancellationToken);
+        _progress = await RemoteSvc.GetProxmoxProgressAsync(caller, claimId, cancellationToken) ?? _progress;
+        StateHasChanged();
+    }
+
+    private async Task EndAsync()
+    {
+        if (_claimId is not { } claimId)
+        {
+            return;
+        }
+
+        await RemoteSvc.EndProxmoxAsync(await CurrentUser.GetAsync(), claimId);
+        await RefreshAsync(CancellationToken.None);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _polling?.Cancel();
+        _timer?.Dispose();
+        try
+        {
+            // Closing the window ends the session (PROXMOX-WEB.md §3, step 10).
+            if (_claimId is { } claimId && _progress?.State is ProxmoxProgressState.Connecting or ProxmoxProgressState.Connected or ProxmoxProgressState.WaitingForConnect)
+            {
+                await RemoteSvc.EndProxmoxAsync(await CurrentUser.GetAsync(), claimId);
+            }
+        }
+        catch (Exception ex) when (ex is AccessDeniedException or OperationCanceledException or ObjectDisposedException)
+        {
+        }
+        finally
+        {
+            _polling?.Dispose();
+            Dispose();
+        }
+    }
+}

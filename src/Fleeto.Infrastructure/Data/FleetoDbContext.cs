@@ -76,6 +76,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<RemoteSession> RemoteSessions => Set<RemoteSession>();
     public DbSet<RemoteSessionParticipant> RemoteSessionParticipants => Set<RemoteSessionParticipant>();
     public DbSet<RemoteSessionAction> RemoteSessionActions => Set<RemoteSessionAction>();
+    public DbSet<RemoteSessionClaim> RemoteSessionClaims => Set<RemoteSessionClaim>();
     public DbSet<ClientTemplate> ClientTemplates => Set<ClientTemplate>();
     public DbSet<ClientTemplateSite> ClientTemplateSites => Set<ClientTemplateSite>();
     public DbSet<ClientTemplateSiteMonitoringTemplate> ClientTemplateSiteMonitoringTemplates => Set<ClientTemplateSiteMonitoringTemplate>();
@@ -1048,6 +1049,20 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 // The relay only opens with a signed token.
                 t.HasCheckConstraint("CK_RemoteSessionParticipants_Signed", "\"ConnectingAt\" IS NULL OR \"TokenSignature\" IS NOT NULL");
             });
+            EndpointOwned(entity);
+        });
+
+        // The Proxmox web interface (0.8.0): a session that waits for Fleeto Connect to claim it.
+        builder.Entity<RemoteSessionClaim>(entity =>
+        {
+            entity.Property(c => c.UserName).HasMaxLength(200);
+            entity.Property(c => c.Reason).HasMaxLength(RemoteSessionRules.MaxReasonLength);
+            entity.Property(c => c.ClaimedFrom).HasMaxLength(64);
+            entity.Property(c => c.ClaimedBy).HasMaxLength(100);
+            entity.Property(c => c.Problem).HasMaxLength(500);
+            EndpointChild(entity, c => new { c.EndpointId, c.ClientId });
+            entity.HasIndex(c => c.CreatedAt);
+            entity.ToTable(t => t.HasCheckConstraint("CK_RemoteSessionClaims_SecretHash", "octet_length(\"SecretHash\") = 32"));
             EndpointOwned(entity);
         });
 

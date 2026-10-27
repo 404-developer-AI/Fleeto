@@ -85,23 +85,25 @@ public sealed partial class RemoteRelayTests
     private sealed record SignedParticipant(Guid ParticipantId, Guid SessionId, byte[] Payload, byte[] Signature);
 
     private async Task<SignedParticipant> SignedParticipantAsync(Endpoint endpoint, Action<RemoteSessionToken>? edit = null, byte[]? storedPayload = null,
-        byte[]? signingKey = null, bool remoteControl = false)
+        byte[]? signingKey = null, bool remoteControl = false, bool proxmoxWeb = false)
     {
         var now = _fixture.Database.Time.GetUtcNow().UtcDateTime;
+        var byAgent = remoteControl || proxmoxWeb;
         var user = await _fixture.Database.CreateUserAsync(FleetoRoles.Technician, displayName: "Tess Tech");
         var session = new RemoteSession
         {
             Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id,
-            Kind = remoteControl ? RemoteSessionKind.RemoteControl : RemoteSessionKind.RemoteBackground,
-            Component = remoteControl ? AgentComponent.Agent : AgentComponent.Watchdog, WindowsSessionId = remoteControl ? 0 : null, StartedByUserId = user.Id, StartedByName = "Tess Tech", CreatedAt = now
+            Kind = proxmoxWeb ? RemoteSessionKind.ProxmoxWeb : remoteControl ? RemoteSessionKind.RemoteControl : RemoteSessionKind.RemoteBackground,
+            Component = byAgent ? AgentComponent.Agent : AgentComponent.Watchdog, WindowsSessionId = remoteControl ? 0 : null, StartedByUserId = user.Id, StartedByName = "Tess Tech", CreatedAt = now
         };
         var participantId = Guid.NewGuid();
         var token = new RemoteSessionToken
         {
             ParticipantId = participantId.ToString("D"), SessionId = session.Id.ToString("D"), InstanceId = _fixture.Database.InstanceId.ToString("D"),
             EndpointId = endpoint.Id.ToString("D"),
-            Kind = remoteControl ? Protocol.Agent.V1.RemoteSessionKind.RemoteControl : Protocol.Agent.V1.RemoteSessionKind.RemoteBackground,
-            Component = remoteControl ? Component.Agent : Component.Watchdog,
+            Kind = proxmoxWeb ? Protocol.Agent.V1.RemoteSessionKind.ProxmoxWeb
+                : remoteControl ? Protocol.Agent.V1.RemoteSessionKind.RemoteControl : Protocol.Agent.V1.RemoteSessionKind.RemoteBackground,
+            Component = byAgent ? Component.Agent : Component.Watchdog,
             TechnicianId = user.Id.ToString("D"), TechnicianName = "Tess Tech", BrowserPublicKey = ByteString.CopyFrom(RandomNumberGenerator.GetBytes(32)),
             IssuedAt = Timestamp.FromDateTime(now), ValidUntil = Timestamp.FromDateTime(now.AddSeconds(60)), IdleTimeoutSeconds = 1800
         };
@@ -353,6 +355,25 @@ public sealed partial class RemoteRelayTests
     }
 
     [Fact]
+    public async Task The_proxmox_web_interface_is_offered_to_the_agent_only()
+    {
+        await using var scope = await ScopeAsync();
+        var agent = await _fixture.IssueAsync(scope.Endpoint);
+        Assert.True(await scope.Harness.AllowList.ReloadAsync(CancellationToken.None));
+        var agentControl = scope.Harness.NewSession(agent.Identity(scope.Endpoint.Id));
+        Assert.True(await scope.Harness.Manager.OpenAsync(agentControl, new Hello { AgentVersion = "0.8.0", Hostname = "PVE-01", Component = Component.Agent },
+            CancellationToken.None));
+
+        var participant = await SignedParticipantAsync(scope.Endpoint, proxmoxWeb: true);
+        var browser = StartBrowser(scope, participant.ParticipantId);
+        await browser.SendHelloAsync(participant);
+        var offer = await GatewayHarness.ReadUntilAsync(agentControl, ServerMessage.BodyOneofCase.RemoteSessionOffer);
+        Assert.Equal(participant.Payload, offer.RemoteSessionOffer.Session.Payload.ToByteArray());
+        Assert.False(scope.Relay.IsWaitingFor(participant.ParticipantId, scope.WatchdogIdentity));
+        Assert.True(scope.Relay.IsWaitingFor(participant.ParticipantId, agent.Identity(scope.Endpoint.Id)));
+    }
+
+    [Fact]
     public async Task Remote_control_without_a_connected_agent_is_refused()
     {
         await using var scope = await ScopeAsync();
@@ -424,7 +445,7 @@ public sealed partial class RemoteRelayTests
 
         await scope.Relay.CloseRevokedAsync(CancellationToken.None);
         await browser.Relay.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.Equal("Your access to this endpoint was removed.", (await ReadParticipantAsync(participant.ParticipantId)).EndReason);
+        Assert.Equal(RemoteRelay.RevokedReason, (await ReadParticipantAsync(participant.ParticipantId)).EndReason);
 
         // A token signed before the revocation no longer opens the relay.
         var later = await SignedParticipantAsync(scope.Endpoint);

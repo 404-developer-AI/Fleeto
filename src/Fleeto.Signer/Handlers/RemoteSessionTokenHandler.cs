@@ -19,7 +19,8 @@ namespace Fleeto.Signer.Handlers;
 /// Signs the single-use token of one remote session participant (0.3.0, ARCHITECTURE.md §4, Remote session and §5, Remote control).
 /// Decided from the database, independently of web: the participant is still waiting for its token and was requested within the last
 /// minute; its user exists, has two-factor authentication, is not locked out and is an admin or technician; the endpoint exists in the
-/// participant's client and is managed (license included); the browser key is a usable X25519 key. The token carries the effective
+/// participant's client and is managed (license included); the browser key is a usable X25519 key (for the Proxmox web interface, 0.8.0, the key
+/// of Fleeto Connect, on a Proxmox VE host with an agent that serves it). The token carries the effective
 /// policy's idle timeout and file size cap, for remote control the consent prompt, banner and clipboard as they apply to the endpoint's
 /// class, and is valid for 60 seconds.
 /// </summary>
@@ -37,6 +38,10 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
     public const string AgentVersionReason =
         "The agent of this endpoint is too old for remote control. It needs Fleeto 0.3.0 or later (on Linux 0.3.0-alpha.16 or later); the agent updates with its update ring.";
     public const string LinuxSessionReason = "Remote control on Linux shows the screen of the endpoint only.";
+    public const string ProxmoxReason = "The Proxmox web interface is only available on a Proxmox VE host whose agent reports it.";
+    public const string ProxmoxAgentReason =
+        "The agent of this endpoint is too old for the Proxmox web interface. It needs Fleeto " + RemoteSessionRules.MinimumProxmoxAgentVersion +
+        " or later; the agent updates with its update ring.";
     public const string BindingReason =
         "The remote session request was changed after it was made, so it was not signed. Open the session again, and tell an administrator if it happens again.";
 
@@ -94,6 +99,8 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
         {
             RemoteSessionKind.RemoteBackground when session.Component == AgentComponent.Watchdog && session.WindowsSessionId is null => Component.Watchdog,
             RemoteSessionKind.RemoteControl when session.Component == AgentComponent.Agent && session.WindowsSessionId >= 0 => Component.Agent,
+            // The Proxmox web interface (0.8.0) is served by the agent, which connects its tunnel to pveproxy on the host only.
+            RemoteSessionKind.ProxmoxWeb when session.Component == AgentComponent.Agent && session.WindowsSessionId is null => Component.Agent,
             _ => Component.Unspecified
         };
         if (servedBy == Component.Unspecified)
@@ -115,7 +122,7 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
             return SigningOutcome.Refused(BrowserKeyReason);
         }
 
-        var permission = session.Kind == RemoteSessionKind.RemoteControl ? Permissions.RemoteControl : Permissions.RemoteBackground;
+        var permission = RemoteSessionRules.Permission(session.Kind);
         if (!await ScriptCheckResolver.UserHasPermissionAsync(db, participant.UserId, now, permission, cancellationToken))
         {
             return SigningOutcome.Refused(UserReason);
@@ -123,7 +130,7 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
 
         var endpoint = await db.Endpoints.IgnoreQueryFilters().AsNoTracking()
             .Where(e => e.Id == participant.EndpointId && e.ClientId == participant.ClientId)
-            .Select(e => new { e.Id, e.SiteId, e.Tier, e.Hostname, e.OsPlatform, e.AgentVersion, Class = e.ClassOverride ?? e.DetectedClass })
+            .Select(e => new { e.Id, e.SiteId, e.Tier, e.Hostname, e.OsPlatform, e.OsName, e.AgentVersion, Class = e.ClassOverride ?? e.DetectedClass })
             .SingleOrDefaultAsync(cancellationToken);
         if (endpoint is null)
         {
@@ -155,6 +162,16 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
             return SigningOutcome.Refused(AgentVersionReason);
         }
 
+        if (session.Kind == RemoteSessionKind.ProxmoxWeb && !RemoteSessionRules.IsProxmox(endpoint.OsPlatform, endpoint.OsName))
+        {
+            return SigningOutcome.Refused(ProxmoxReason);
+        }
+
+        if (session.Kind == RemoteSessionKind.ProxmoxWeb && !RemoteSessionRules.AgentSupportsProxmoxWeb(endpoint.AgentVersion))
+        {
+            return SigningOutcome.Refused(ProxmoxAgentReason);
+        }
+
         // Tier enforcement, layer 2 (the signer): the stored tier and the license must both allow managed behaviour.
         var license = await _licenses.GetStatusAsync(db, cancellationToken);
         if (TierRules.EffectiveTier(endpoint.Tier, license) != EndpointTier.Managed)
@@ -179,9 +196,12 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
             SessionId = session.Id.ToString("D"),
             InstanceId = _keyRing.InstanceId.ToString("D"),
             EndpointId = endpoint.Id.ToString("D"),
-            Kind = session.Kind == RemoteSessionKind.RemoteControl
-                ? Protocol.Agent.V1.RemoteSessionKind.RemoteControl
-                : Protocol.Agent.V1.RemoteSessionKind.RemoteBackground,
+            Kind = session.Kind switch
+            {
+                RemoteSessionKind.RemoteControl => Protocol.Agent.V1.RemoteSessionKind.RemoteControl,
+                RemoteSessionKind.ProxmoxWeb => Protocol.Agent.V1.RemoteSessionKind.ProxmoxWeb,
+                _ => Protocol.Agent.V1.RemoteSessionKind.RemoteBackground
+            },
             Component = servedBy,
             WindowsSessionId = (uint)(session.WindowsSessionId ?? 0),
             TechnicianId = participant.UserId.ToString("D"),

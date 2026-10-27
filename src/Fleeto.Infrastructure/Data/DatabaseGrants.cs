@@ -129,6 +129,8 @@ public static class DatabaseGrants
             ["RemoteSessionParticipants"] = Grants(web: "SELECT, INSERT, UPDATE", gateway: "SELECT, UPDATE", signer: "SELECT, UPDATE",
                 workers: "SELECT, UPDATE, DELETE"),
             ["RemoteSessionActions"] = Grants(web: Read, gateway: "SELECT, INSERT", workers: "SELECT, DELETE"),
+            // Only web takes a claim of Fleeto Connect (0.8.0); the workers remove old ones.
+            ["RemoteSessionClaims"] = Grants(web: "SELECT, INSERT, UPDATE", workers: "SELECT, DELETE"),
 
             // Who may request which kind is also enforced by trigger TR_SigningRequests_Origin (migration SigningRequestOrigin).
             // Web requests job signatures (0.2.0), the gateway certificates, the workers configurations.

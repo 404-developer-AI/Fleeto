@@ -319,6 +319,12 @@ jobs:
             /app/agent/linux-amd64/fleeto-agent /app/agent/linux-arm64/fleeto-agent \
             /app/agent/linux-amd64/fleeto-watchdog
 
+      - name: Fleeto Connect is present
+        if: matrix.image == 'web'
+        run: |
+          docker run --rm --entrypoint ls "fleeto-web:ci" -l \
+            /app/connect/windows-amd64/fleeto-connect.exe /app/connect/linux-amd64/fleeto-connect_amd64.deb /app/connect/SHA256SUMS
+
       - name: Caddyfile and Compose validation with the built proxy image
         if: matrix.image == 'caddy'
         run: bash deploy/ci/test-deploy.sh --caddy-image fleeto-caddy:ci

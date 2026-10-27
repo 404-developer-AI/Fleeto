@@ -38,7 +38,7 @@ public sealed record RemoteTicket(Guid SessionId, Guid ParticipantId, string Tok
 /// waits for fleeto-signer to sign the single-use token. Web checks what it can for
 /// a clear answer; the signer, the gateway and the endpoint decide again.
 /// </summary>
-public sealed class RemoteSessionService
+public sealed partial class RemoteSessionService
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
 
@@ -60,10 +60,12 @@ public sealed class RemoteSessionService
     private readonly INotificationBus _bus;
     private readonly TimeProvider _time;
     private readonly ILogger<RemoteSessionService> _logger;
+    private readonly IConfiguration _configuration;
 
     public RemoteSessionService(IFleetoDbContextFactory dbFactory, LicenseService licenses, INotificationBus bus, TimeProvider time,
-        ILogger<RemoteSessionService> logger)
+        ILogger<RemoteSessionService> logger, IConfiguration configuration)
     {
+        _configuration = configuration;
         _dbFactory = dbFactory;
         _licenses = licenses;
         _bus = bus;
@@ -255,9 +257,10 @@ public sealed class RemoteSessionService
 
     private async Task<ServiceResult<RemoteTicket>> OpenAsync(Caller caller, Guid endpointId, string hostname, RemoteSessionKind kind,
         AgentComponent component, int? windowsSessionId, byte[] browserPublicKey, string? reason, CancellationToken cancellationToken,
-        Guid? joinSessionId = null)
+        Guid? joinSessionId = null, Guid? participantId = null, object? claimedAudit = null)
     {
-        if (!TryTakeRequest(caller.UserId))
+        // A claim of Fleeto Connect (0.8.0) took its request when the technician opened the web interface.
+        if (claimedAudit is null && !TryTakeRequest(caller.UserId))
         {
             return ServiceResult<RemoteTicket>.Fail("You opened many remote sessions in the last minute. Wait a minute and try again.");
         }
@@ -276,7 +279,7 @@ public sealed class RemoteSessionService
         };
         var participant = new RemoteSessionParticipant
         {
-            Id = Guid.NewGuid(), SessionId = session.Id, ClientId = clientId, EndpointId = endpointId, UserId = caller.UserId, UserName = name,
+            Id = participantId ?? Guid.NewGuid(), SessionId = session.Id, ClientId = clientId, EndpointId = endpointId, UserId = caller.UserId, UserName = name,
             Reason = reason, BrowserPublicKey = browserPublicKey, State = RemoteParticipantState.Requested, CreatedAt = now
         };
         var request = new SigningRequest
@@ -284,7 +287,7 @@ public sealed class RemoteSessionService
             // What is to be signed, where no other container can change it (security review of 0.3.0 step 7).
             Id = Guid.NewGuid(), ClientId = clientId, Kind = SigningRequestKind.RemoteSessionToken, SubjectId = participant.Id,
             Payload = RemoteSessionBinding.Of(session, participant).ToPayload(),
-            RequestedBy = "web:" + (caller.IpAddress ?? "unknown"), CreatedAt = now
+            RequestedBy = (claimedAudit is null ? "web:" : "connect:") + (caller.IpAddress ?? "unknown"), CreatedAt = now
         };
         if (joined is null)
         {
@@ -293,11 +296,13 @@ public sealed class RemoteSessionService
 
         db.RemoteSessionParticipants.Add(participant);
         db.SigningRequests.Add(request);
-        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.RemoteSessionRequested, "RemoteSession", session.Id.ToString(), clientId, new
-        {
-            Hostname = hostname, EndpointId = endpointId, ParticipantId = participant.Id, Kind = session.Kind.ToString(), WindowsSessionId = windowsSessionId,
-            Reason = reason, JoinsRunningSession = joined is not null
-        }), now));
+        db.AuditEntries.Add(AuditLog.ToEntry(claimedAudit is not null
+            ? caller.Audit(AuditActions.RemoteSessionClaimed, "RemoteSession", session.Id.ToString(), clientId, claimedAudit)
+            : caller.Audit(AuditActions.RemoteSessionRequested, "RemoteSession", session.Id.ToString(), clientId, new
+            {
+                Hostname = hostname, EndpointId = endpointId, ParticipantId = participant.Id, Kind = session.Kind.ToString(), WindowsSessionId = windowsSessionId,
+                Reason = reason, JoinsRunningSession = joined is not null
+            }), now));
         await db.SaveChangesAsync(cancellationToken);
 
         var outcome = await WaitForTokenAsync(caller, participant.Id, request.Id, cancellationToken);

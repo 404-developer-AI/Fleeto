@@ -9,7 +9,8 @@ namespace Fleeto.Workers.Remote;
 
 /// <summary>
 /// Ends remote session rows nobody will finish (0.3.0), every minute: a participant that was requested or signed but never connected
-/// within 5 minutes (the browser was closed, the signer was down, the token expired), and a session without an active participant. A
+/// within 5 minutes (the browser was closed, the signer was down, the token expired), and a session without an active participant. Claims of
+/// Fleeto Connect (0.8.0) are removed a day after they were made: what they led to is in the session and the audit log. A
 /// connected participant is ended only by the gateway, which resets them all when it starts. Every statement is conditional on the state it
 /// changes, so it never overwrites what the gateway stored meanwhile.
 /// </summary>
@@ -17,6 +18,9 @@ public sealed class RemoteSessionMaintenanceService : WorkerLoop
 {
     public const string NotConnectedReason = "The session was not connected in time.";
     public const string NoParticipantReason = "Nobody is connected to the session any more.";
+
+    /// <summary>How long a claim of Fleeto Connect is kept.</summary>
+    public static readonly TimeSpan ClaimRetention = TimeSpan.FromDays(1);
 
     private readonly IFleetoDbContextFactory _dbFactory;
 
@@ -59,6 +63,9 @@ public sealed class RemoteSessionMaintenanceService : WorkerLoop
             .ExecuteUpdateAsync(s => s
                 .SetProperty(r => r.EndedAt, now)
                 .SetProperty(r => r.EndReason, NoParticipantReason), cancellationToken);
+
+        // A claim is used within 50 seconds or never; after a day it holds nothing anybody reads.
+        changed += await db.RemoteSessionClaims.Where(c => c.CreatedAt < now - ClaimRetention).ExecuteDeleteAsync(cancellationToken);
 
         if (changed > 0)
         {

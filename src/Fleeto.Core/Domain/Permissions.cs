@@ -77,6 +77,7 @@ public static class Permissions
 
     public const string RemoteControl = "remote.control";
     public const string RemoteBackground = "remote.background";
+    public const string RemoteProxmox = "remote.proxmox";
 
     public const string ScriptsView = "scripts.view";
     public const string ScriptsEdit = "scripts.edit";
@@ -177,6 +178,9 @@ public static class Permissions
         new(RemoteControl, RemoteGroup, "Remote control", "Start or join a remote control session.", [ClientsView]),
         new(RemoteBackground, RemoteGroup, "Remote background",
             "Start a remote background session: terminal as SYSTEM or root, files, services and processes.", [ClientsView]),
+        new(RemoteProxmox, RemoteGroup, "Proxmox web interface",
+            "Open the web interface of a managed Proxmox VE host through Fleeto Connect. Signing in to Proxmox still needs a Proxmox account.",
+            [ClientsView]),
 
         new(ScriptsView, ScriptsGroup, "View scripts", "The script library and the versions of a script.", []),
         new(ScriptsEdit, ScriptsGroup, "Edit scripts", "Create, edit and delete scripts, and save new versions.", [ScriptsView]),
@@ -285,7 +289,7 @@ public static class BuiltInRoles
         Permissions.EndpointsRevoke, Permissions.EndpointsDelete, Permissions.EndpointsRestart,
         Permissions.ChecksEdit, Permissions.ChecksRun, Permissions.NotesCreate, Permissions.JobsCancel,
         Permissions.PatchesSync, Permissions.PatchesDeploy, Permissions.Action1AgentInstall, Permissions.Action1AgentRemove,
-        Permissions.StorageScan, Permissions.RemoteControl, Permissions.RemoteBackground,
+        Permissions.StorageScan, Permissions.RemoteControl, Permissions.RemoteBackground, Permissions.RemoteProxmox,
         Permissions.ScriptsEdit, Permissions.ScriptsRun, Permissions.TasksEdit, Permissions.TasksRun,
         Permissions.ClientTemplatesEdit, Permissions.MonitoringTemplatesEdit, Permissions.PoliciesEdit, Permissions.PatchPoliciesEdit,
         Permissions.AdvisoriesHandle,

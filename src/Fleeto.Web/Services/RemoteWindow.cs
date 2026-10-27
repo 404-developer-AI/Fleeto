@@ -35,6 +35,18 @@ public sealed class RemoteWindow
         }
     }
 
+    public static string ProxmoxUrl(Guid endpointId) => $"/remote/proxmox/{endpointId:D}";
+
+    /// <summary>Opens the window of the Proxmox web interface (0.8.0): one per endpoint, brought to the front when it is open.</summary>
+    public async Task OpenProxmoxAsync(Guid endpointId)
+    {
+        var opened = await _js.InvokeAsync<bool>("fleeto.openWindow", ProxmoxUrl(endpointId), "fleeto-proxmox-" + endpointId.ToString("N"));
+        if (!opened)
+        {
+            _snackbar.Add("The browser blocked the window of the Proxmox web interface. Allow pop-ups for this site, then try again.", Severity.Warning);
+        }
+    }
+
     /// <summary>Opens a new Remote background window, next to the ones already open for this endpoint.</summary>
     public async Task OpenBackgroundAsync(Guid endpointId)
     {

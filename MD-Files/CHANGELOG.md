@@ -48,6 +48,16 @@ When a third released version is added, the oldest entry moves to the top of
 - History tab of Linux endpoints: the vulnerabilities as they were found, fixed, removed with their package or withdrawn, searchable on
   CVE or package.
 
+- Proxmox web interface (0.8.0): on a managed Proxmox VE host, "Proxmox web interface" in the right-click menu of the endpoint list opens
+  the real web interface of Proxmox in your own browser, with every console, upload and setting, without a VPN or an open port. Fleeto
+  Connect on your PC carries it through an end-to-end encrypted remote session; the agent connects to the web interface on the host itself
+  (`127.0.0.1:8006`) and nothing else, and the TLS of Proxmox runs from Fleeto Connect to the host, pinned to the certificate the agent read,
+  so Fleeto never sees the pages or your Proxmox password. You sign in with your Proxmox account. The window proposes to install Fleeto
+  Connect when it does not start: for Windows 10 and 11 a program that installs itself for your account (not signed with Authenticode yet,
+  so SmartScreen warns on its first run), for Ubuntu desktop a `.deb`, both with their SHA-256 and listed in the signed release manifest.
+  Fleeto Connect asks once per instance whether it may connect to it. Audited as a remote session, with the claim of Fleeto Connect.
+- Permission Proxmox web interface (admin and technician).
+
 ### Fixed
 
 - Vulnerability feeds were never fetched: the workers could not create the temporary tables their import uses, and the failure

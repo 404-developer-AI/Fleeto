@@ -442,6 +442,9 @@ public static class AuditActions
     public const string RemoteSessionLeft = "remote_session.left";
     public const string RemoteSessionRefused = "remote_session.refused";
 
+    /// <summary>Fleeto Connect claimed a session of the Proxmox web interface (0.8.0) with its key, its version and the address it came from.</summary>
+    public const string RemoteSessionClaimed = "remote_session.claimed";
+
     /// <summary>A library script was sent to run in a remote background terminal (0.6.0): the script, its version and hash, never its body.</summary>
     public const string RemoteSessionScript = "remote_session.script";
 }

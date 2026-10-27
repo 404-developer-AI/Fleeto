@@ -46,6 +46,25 @@ RUN pkg=github.com/404-developer-AI/Fleeto/agent/internal/version \
 FROM scratch AS agent-binaries
 COPY --from=agent /out/ /
 
+# Fleeto Connect (0.8.0, MD-Files/PROXMOX-WEB.md): the program on the technician's PC that opens the Proxmox web interface, for Windows x64
+# (one per-user exe without a console) and Ubuntu desktop x64 (a .deb), served by web to signed-in users. Reproducible like the agent; the
+# release workflow lists both files with their SHA-256 in the signed manifest (connectFiles) and checks the web image against them.
+FROM agent AS connect
+ARG FLEETO_VERSION=0.0.0-dev
+RUN pkg=github.com/404-developer-AI/Fleeto/agent/internal/version \
+    && mkdir -p /out/windows-amd64 /out/linux-amd64 /tmp/connect \
+    && GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags "-s -w -buildid= -H windowsgui -X ${pkg}.Version=${FLEETO_VERSION}" \
+        -o /out/windows-amd64/fleeto-connect.exe ./cmd/fleeto-connect \
+    && GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags "-s -w -buildid= -X ${pkg}.Version=${FLEETO_VERSION}" \
+        -o /tmp/connect/fleeto-connect ./cmd/fleeto-connect \
+    && packaging/fleeto-connect/build-deb.sh /tmp/connect/fleeto-connect "${FLEETO_VERSION}" /out/linux-amd64/fleeto-connect_amd64.deb \
+    && rm -rf /out/windows-arm64 /out/linux-arm64 /out/*/fleeto-agent* /out/*/fleeto-watchdog* /out/SHA256SUMS \
+    && (cd /out && sha256sum windows-amd64/fleeto-connect.exe linux-amd64/fleeto-connect_amd64.deb > SHA256SUMS)
+
+# Only the files of Fleeto Connect, for the release workflow: docker buildx build --target connect-files --output type=local,dest=<dir>.
+FROM scratch AS connect-files
+COPY --from=connect /out/ /
+
 # ---------------------------------------------------------------------------------------------------------------
 FROM ${DOTNET_SDK_IMAGE} AS build
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -88,6 +107,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=build --chown=root:root /app/ /app/
 COPY --from=agent --chown=root:root /out/ /app/agent/
+COPY --from=connect --chown=root:root /out/ /app/connect/
 
 ENV ASPNETCORE_ENVIRONMENT=Production \
     DOTNET_ENVIRONMENT=Production \
@@ -95,7 +115,8 @@ ENV ASPNETCORE_ENVIRONMENT=Production \
     ASPNETCORE_HTTP_PORTS=8080 \
     Fleeto__Database__Host=postgres \
     Fleeto__Database__Name=fleeto \
-    Agent__BinariesDirectory=/app/agent
+    Agent__BinariesDirectory=/app/agent \
+    Connect__FilesDirectory=/app/connect
 
 USER 10001:10001
 EXPOSE 8080

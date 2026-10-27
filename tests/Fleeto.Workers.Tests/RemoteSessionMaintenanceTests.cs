@@ -69,4 +69,31 @@ public sealed class RemoteSessionMaintenanceTests
         Assert.Equal(RemoteParticipantState.Ended, (await db.RemoteSessionParticipants.AsNoTracking().SingleAsync(p => p.Id == stuck.Participant.Id)).State);
         Assert.NotNull((await db.RemoteSessions.AsNoTracking().SingleAsync(s => s.Id == stuck.Session.Id)).EndedAt);
     }
+
+    [Fact]
+    public async Task Claims_of_fleeto_connect_are_removed_after_a_day()
+    {
+        var (_, site) = await _fixture.CreateClientAndSiteAsync();
+        var endpoint = await _fixture.Db.CreateEndpointAsync(site, EndpointTier.Managed, "PVE-01");
+        RemoteSessionClaim Claim(TimeSpan age) => new()
+        {
+            Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, UserId = Guid.NewGuid(), UserName = "Tech",
+            SecretHash = new byte[32], CreatedAt = _fixture.Now - age, ExpiresAt = _fixture.Now - age + TimeSpan.FromSeconds(50)
+        };
+        var old = Claim(TimeSpan.FromDays(1) + TimeSpan.FromMinutes(1));
+        var recent = Claim(TimeSpan.FromHours(2));
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            db.RemoteSessionClaims.AddRange(old, recent);
+            await db.SaveChangesAsync();
+        }
+
+        var service = new RemoteSessionMaintenanceService(_fixture.Db.DbFactory, _fixture.Heartbeat(), _fixture.Db.Time,
+            NullLogger<RemoteSessionMaintenanceService>.Instance);
+        await service.RunAsync(CancellationToken.None);
+
+        await using var check = _fixture.Db.DbFactory.CreateSystem();
+        Assert.False(await check.RemoteSessionClaims.AnyAsync(c => c.Id == old.Id));
+        Assert.True(await check.RemoteSessionClaims.AnyAsync(c => c.Id == recent.Id));
+    }
 }

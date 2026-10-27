@@ -79,6 +79,10 @@ foreach ($image in $manifest.images.PSObject.Properties) { Write-Host ("  {0,-8}
 if ($manifest.PSObject.Properties.Name -contains 'agentBinaries') {
     foreach ($binary in $manifest.agentBinaries) { Write-Host ("  {0,-8} {1} {2}" -f $binary.component, $binary.file, $binary.sha256) }
 }
+# Fleeto Connect (0.8.0): the files web offers technicians for download, with the hash the download page shows.
+if ($manifest.PSObject.Properties.Name -contains 'connectFiles') {
+    foreach ($file in $manifest.connectFiles) { Write-Host ("  {0,-8} {1} {2}" -f 'connect', $file.file, $file.sha256) }
+}
 if (-not ($manifest.PSObject.Properties.Name -contains 'agentBinaries') -or @($manifest.agentBinaries).Count -eq 0) {
     Fail 'The manifest lists no agent binaries, so agents of this release could not be updated.' 'Do not sign it: rerun the Release workflow.'
 }

@@ -114,6 +114,11 @@ func TestTokensThatDoNotBelongHereAreRefused(t *testing.T) {
 		"the agent instead of the watchdog": func() *agentv1.SignedRemoteSession {
 			return f.sign(t, f.token(func(tk *agentv1.RemoteSessionToken) { tk.Component = agentv1.Component_COMPONENT_AGENT }))
 		},
+		"the Proxmox web interface at the watchdog": func() *agentv1.SignedRemoteSession {
+			return f.sign(t, f.token(func(tk *agentv1.RemoteSessionToken) {
+				tk.Kind = agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_PROXMOX_WEB
+			}))
+		},
 		"remote control at the watchdog": func() *agentv1.SignedRemoteSession {
 			return f.sign(t, f.token(func(tk *agentv1.RemoteSessionToken) {
 				tk.Kind = agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_REMOTE_CONTROL

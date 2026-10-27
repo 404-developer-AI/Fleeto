@@ -123,6 +123,9 @@ builder.Services.AddRateLimiter(options =>
     options.AddPolicy(AccountEndpoints.DownloadRateLimitPolicy, context => RateLimitPartition.GetFixedWindowLimiter(
         EndpointExtensions.ClientPartitionKey(context),
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 30, Window = TimeSpan.FromMinutes(10), QueueLimit = 0 }));
+
+    // Claims of Fleeto Connect (0.8.0): one per opened web interface; enough for a team behind one address, too few to guess a secret.
+    options.AddPolicy(ConnectEndpoints.ClaimRateLimitPolicy, ConnectEndpoints.ClaimLimit);
 });
 
 // After AddRateLimiter: API rejections are answered as problem details, everything else as above.
@@ -208,6 +211,7 @@ app.MapStaticAssets();
 app.MapAccountEndpoints();
 app.MapEntraSignInEndpoints();
 app.MapOperationalEndpoints();
+app.MapConnectEndpoints();
 app.MapFleetoPublicApi();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

@@ -180,9 +180,13 @@ var agentBinariesOption = new Option<DirectoryInfo?>("--agent-binaries")
 {
     Description = "Directory with the agent binaries laid out as <platform>-<architecture>/fleeto-{agent,watchdog}[.exe] (0.2.1)."
 };
+var connectFilesOption = new Option<DirectoryInfo?>("--connect-files")
+{
+    Description = "Directory with the files of Fleeto Connect (0.8.0): windows-amd64/fleeto-connect.exe and linux-amd64/fleeto-connect_amd64.deb."
+};
 var releaseManifest = new Command("manifest", "Write a release manifest with image digests and agent binaries. Sign it with 'release sign'.")
 {
-    versionOption, imageOption, installShOption, rollbackOption, manifestOutOption, agentBinariesOption
+    versionOption, imageOption, installShOption, rollbackOption, manifestOutOption, agentBinariesOption, connectFilesOption
 };
 releaseManifest.SetAction(parse =>
 {
@@ -207,6 +211,7 @@ releaseManifest.SetAction(parse =>
     }
 
     var agentBinaries = parse.GetValue(agentBinariesOption) is { } binariesDirectory ? AgentBinaries(binariesDirectory) : [];
+    var connectFiles = parse.GetValue(connectFilesOption) is { } connectDirectory ? ConnectFiles(connectDirectory) : [];
     var manifest = new
     {
         formatVersion = 1,
@@ -214,7 +219,9 @@ releaseManifest.SetAction(parse =>
         images,
         installShSha256 = KeyIds.Sha256Hex(File.ReadAllBytes(parse.GetValue(installShOption)!.FullName)),
         rollback,
-        agentBinaries
+        agentBinaries,
+        // Read by people and the download page, never by an agent: older parsers ignore the field.
+        connectFiles
     };
     var output = parse.GetValue(manifestOutOption)!;
     File.WriteAllText(output.FullName, JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }) + "\n");
@@ -351,6 +358,25 @@ static List<object> AgentBinaries(DirectoryInfo directory)
     }
 
     return binaries;
+}
+
+// The files of Fleeto Connect (0.8.0, PROXMOX-WEB.md) of a release directory, in a stable order.
+static List<object> ConnectFiles(DirectoryInfo directory)
+{
+    var files = new List<object>();
+    foreach (var file in Fleeto.Core.Domain.ConnectDownloads.Files)
+    {
+        var path = Path.Combine(directory.FullName, file.Path);
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException($"Fleeto Connect file {file.Path} is missing from {directory.FullName}.", path);
+        }
+
+        var bytes = File.ReadAllBytes(path);
+        files.Add(new { platform = file.Platform, file = file.Path, sha256 = KeyIds.Sha256Hex(bytes), size = (long)bytes.Length });
+    }
+
+    return files;
 }
 
 // Key files made before the rename to Fleeto (0.2.1) carry the legacy prefix; they are read as they are and never rewritten.

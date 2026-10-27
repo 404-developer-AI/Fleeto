@@ -249,6 +249,7 @@ public sealed class RemoteRelay : BackgroundService
                 _sessions.TryGetWatchdogSession(participant.EndpointId, out control);
                 break;
             case (RemoteSessionKind.RemoteControl, AgentComponent.Agent):
+            case (RemoteSessionKind.ProxmoxWeb, AgentComponent.Agent):
                 _sessions.TryGetSession(participant.EndpointId, out control);
                 break;
             default:
@@ -260,7 +261,7 @@ public sealed class RemoteRelay : BackgroundService
         {
             await RefuseAsync(browser, participant, address, participant.Component == AgentComponent.Watchdog
                 ? "The watchdog of this endpoint is not connected. Remote background needs the Fleeto watchdog to be online. Try again when it is."
-                : "The agent of this endpoint is not connected. Remote control needs the endpoint to be online. Try again when it is.");
+                : "The agent of this endpoint is not connected. The session needs the endpoint to be online. Try again when it is.");
             return;
         }
 
@@ -760,6 +761,9 @@ public sealed class RemoteRelay : BackgroundService
         }
     }
 
+    /// <summary>Why a revoked connection ended: the access was removed, or the technician ended a Proxmox web interface session in Fleeto (0.8.0).</summary>
+    public const string RevokedReason = "The session was ended in Fleeto, or your access to this endpoint was removed.";
+
     private Task OnUserAccessAsync(string payload, CancellationToken cancellationToken) =>
         payload == NotificationBusEvents.Resync || (Guid.TryParse(payload, out var userId) && _pairings.Values.Any(p => p.Participant.UserId == userId))
             ? CloseRevokedAsync(cancellationToken)
@@ -792,7 +796,7 @@ public sealed class RemoteRelay : BackgroundService
         {
             if (_pairings.TryGetValue(participantId, out var pairing))
             {
-                pairing.Close("Your access to this endpoint was removed.");
+                pairing.Close(RevokedReason);
             }
         }
     }

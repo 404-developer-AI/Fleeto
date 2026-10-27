@@ -102,6 +102,8 @@ type Hello struct {
 	Clipboard bool `json:"clipboard,omitempty"`
 	// Scripts reports whether a library script can run in a terminal (0.6.0). Set by Run.
 	Scripts bool `json:"scripts,omitempty"`
+	// TunnelCertificate is the SHA-256 of the certificate the Proxmox web interface serves (0.8.0). Set by Run.
+	TunnelCertificate string `json:"tunnelCertificate,omitempty"`
 }
 
 // ScreenHandler serves the screen of a remote control session for one technician (internal/screen.Participant).
@@ -171,6 +173,8 @@ type SessionOptions struct {
 	Report func(action, target, detail string)
 	// Screen serves remote control sessions; nil where remote control is not served.
 	Screen ScreenFactory
+	// Tunnel is the fixed target of a Proxmox web interface session (0.8.0); nil for the other kinds.
+	Tunnel *Tunnel
 	Logger *slog.Logger
 	Now    func() time.Time
 	// Tick is how often the idle timeout is checked; tests shorten it.
@@ -190,6 +194,7 @@ type Session struct {
 	warned     bool
 	background *background
 	screen     ScreenHandler
+	tunnels    *tunnels
 }
 
 // NewSession prepares a session with the derived keys.
@@ -213,6 +218,7 @@ func NewSession(opts SessionOptions) (*Session, error) {
 	}
 	s := &Session{opts: opts, recv: recv, send: send, terminals: map[uint16]Terminal{}, lastInput: opts.Now()}
 	s.background = newBackground(s)
+	s.tunnels = newTunnels(s)
 	return s, nil
 }
 
@@ -227,8 +233,21 @@ func (s *Session) Run(ctx context.Context) (reason string) {
 	hello.IdleTimeoutSeconds = int(s.opts.Token.IdleTimeout() / time.Second)
 	hello.MaxFileBytes = s.opts.Token.MaxFileBytes()
 	hello.Kind = "remote_background"
-	hello.Scripts = s.opts.OpenScript != nil && !s.remoteControl()
-	if s.remoteControl() {
+	hello.Scripts = s.opts.OpenScript != nil && !s.remoteControl() && !s.proxmoxWeb()
+	if s.proxmoxWeb() {
+		// Tunnel channels only: no terminal, file, service, process or screen frame, whatever Fleeto Connect sends.
+		if s.opts.Tunnel == nil {
+			s.end("This endpoint does not serve the Proxmox web interface. Update the agent.")
+			return "the Proxmox web interface is not served here"
+		}
+		hello.Kind = "proxmox_web"
+		hello.Shells = nil
+		hello.TunnelCertificate = s.opts.Tunnel.Certificate
+		defer s.tunnels.closeAll()
+		if err := s.sendJSON(ctx, FrameHello, hello); err != nil {
+			return "the relay closed before the session started: " + err.Error()
+		}
+	} else if s.remoteControl() {
 		hello.Kind = "remote_control"
 		hello.WindowsSession = s.opts.Token.GetWindowsSessionId()
 		hello.Clipboard = s.opts.Token.GetClipboardEnabled()
@@ -308,6 +327,20 @@ func (s *Session) handle(ctx context.Context, frame []byte) (done bool, reason s
 		return false, ""
 	}
 	body := frame[1:]
+	if s.proxmoxWeb() {
+		switch frame[0] {
+		case FrameTunnelOpen, FrameTunnelData, FrameTunnelClose:
+			// A request of the browser counts as activity; the Proxmox page polls while it is open (PROXMOX-WEB.md §3).
+			s.touch()
+			s.tunnels.handle(ctx, frame[0], body)
+		case FrameActivity:
+			s.touch()
+		case FrameEnd:
+			_ = s.opts.Transport.Close("ended by the technician")
+			return true, "ended by the technician"
+		}
+		return false, ""
+	}
 	if s.remoteControl() {
 		// A remote control session carries the screen and the files of its clipboard only: no terminal, file explorer, services or
 		// processes, whatever the browser sends.
@@ -483,6 +516,10 @@ func (s *Session) report(action, target, detail string) {
 
 func (s *Session) remoteControl() bool {
 	return s.opts.Token.GetKind() == agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_REMOTE_CONTROL
+}
+
+func (s *Session) proxmoxWeb() bool {
+	return s.opts.Token.GetKind() == agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_PROXMOX_WEB
 }
 
 func (s *Session) end(reason string) {

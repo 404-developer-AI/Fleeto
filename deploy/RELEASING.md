@@ -66,6 +66,16 @@ with `gh release edit vX.Y.Z --draft=false`.
 
 Then run `install.sh --check` on a test VPS, update a test instance, and only then update the customer instances.
 
+## Fleeto Connect (0.8.0)
+
+Fleeto Connect, the program that opens the Proxmox web interface on a technician's PC (`MD-Files/PROXMOX-WEB.md`), is built in the `connect`
+stage of `src/Fleeto.Web/Dockerfile`: `windows-amd64/fleeto-connect.exe` (per-user install, no console) and
+`linux-amd64/fleeto-connect_amd64.deb` (built by `agent/packaging/fleeto-connect/build-deb.sh`), reproducibly like the agent. The Release
+workflow exports the stage, lists both files with SHA-256 and size under `connectFiles` in the signed manifest (agents and install.sh ignore
+the field), and checks `/app/connect` of the web image against them. `sign-release.ps1` shows them with the other hashes. Web serves them at
+`/connect/download/windows` and `/connect/download/ubuntu`, with the SHA-256 on the download page. The Windows exe is not
+Authenticode-signed until Steaan has a code signing certificate.
+
 ## Agent binaries
 
 The Windows agent and watchdog are built with the release public keys and the version compiled in, reproducibly
