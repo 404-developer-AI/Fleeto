@@ -1,0 +1,51 @@
+@* Client status (0.8.0): a cell per client colored by its worst state, as the clients panel colors it: critical over warning over
+   maintenance, offline when none of its endpoints is connected. When the scope holds one client, its sites. *@
+
+@if (Clients.Count == 0)
+{
+    <EmptyState Icon="@Icons.Material.Outlined.Business" Title="No clients in this scope" />
+}
+else
+{
+    <div class="status-grid">
+        @if (Clients.Count == 1)
+        {
+            var client = Clients[0];
+            @foreach (var site in client.Sites)
+            {
+                @Cell($"/sites/{site.Id}", site.Name, client.Code, State(site.WorstAlert, site.MaintenanceActive, site.EndpointCount, site.OnlineCount),
+                    site.OpenAlertCount, site.OnlineCount, site.EndpointCount)
+            }
+        }
+        else
+        {
+            @foreach (var client in Clients)
+            {
+                @Cell($"/clients/{client.Id}", client.Code, client.Name, State(client.WorstAlert, client.MaintenanceActive, client.EndpointCount, client.OnlineCount),
+                    client.OpenAlertCount, client.OnlineCount, client.EndpointCount)
+            }
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<ClientTreeItem> Clients { get; set; } = [];
+    [Parameter] public bool Designing { get; set; }
+
+    private static (string Css, string Text) State(AlertSeverity? worst, bool maintenance, int endpoints, int online) =>
+        maintenance ? ("status-maintenance", "In maintenance")
+        : worst == AlertSeverity.Critical ? ("status-critical", "Critical")
+        : worst == AlertSeverity.Warning ? ("status-warn", "Warning")
+        : endpoints > 0 && online == 0 ? ("status-offline", "Offline")
+        : ("status-ok", "OK");
+
+    private RenderFragment Cell(string href, string name, string detail, (string Css, string Text) state, int alerts, int online, int endpoints) => __builder =>
+    {
+        <a class="status-cell @state.Css" href="@(Designing ? null : href)"
+           title="@($"{name}: {state.Text}, {Ui.Count(alerts, "open alert")}, {online} of {endpoints} online")">
+            <span class="status-cell-name">@name</span>
+            <span class="status-cell-detail">@detail</span>
+            <span class="status-cell-state">@state.Text@(alerts > 0 ? $" · {alerts}" : "")</span>
+        </a>
+    };
+}

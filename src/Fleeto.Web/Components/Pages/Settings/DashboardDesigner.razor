@@ -1,0 +1,588 @@
+@page "/settings/dashboards/{DashboardId:guid}"
+@layout MainLayout
+@attribute [RequirePermission(Permissions.DashboardsManage)]
+@inherits FleetoPageBase
+@implements IAsyncDisposable
+@inject DashboardDesignService DashboardSvc
+@inject IDialogService DialogService
+@inject IJSRuntime JS
+
+@* The dashboard designer (0.8.0, DASHBOARDS.md §5), full width: the tile types on the left, the grid in the middle, the settings of the
+   selected tile (or of the dashboard) on the right. Every change is placed by DashboardGrid on the server and saved as the draft; users
+   keep seeing the published version until somebody publishes. *@
+
+<PageTitle>@(_detail?.Name ?? "Dashboard") - Design - Fleeto</PageTitle>
+
+<LoadState Loading="Loading" Failed="LoadFailed" NotFound="_notFound" What="dashboard">
+    @if (_detail is { } detail)
+    {
+        <div class="page-header">
+            <div>
+                <MudLink Href="/settings/dashboards" Typo="Typo.body2">Dashboards</MudLink>
+                <MudText Typo="Typo.h4" Class="page-title">@detail.Name</MudText>
+                <div class="designer-state">
+                    @if (_saving)
+                    {
+                        <span>Saving…</span>
+                    }
+                    else if (_hasDraft)
+                    {
+                        <span>Unpublished changes, saved as a draft. Users see @(detail.PublishedVersion == 0 ? "nothing of this dashboard yet" : $"version {detail.PublishedVersion}").</span>
+                    }
+                    else if (detail.PublishedVersion > 0)
+                    {
+                        <span>Version @detail.PublishedVersion is published.</span>
+                    }
+                    @if (_rolesText is { } roles)
+                    {
+                        <span> @roles</span>
+                    }
+                </div>
+            </div>
+            <div class="designer-toolbar">
+                <MudTooltip Text="Undo (Ctrl+Z)">
+                    <MudIconButton Icon="@Icons.Material.Outlined.Undo" aria-label="Undo" Disabled="@(_undo.Count == 0 || _previewing)" OnClick="Undo" />
+                </MudTooltip>
+                <MudTooltip Text="Redo (Ctrl+Y)">
+                    <MudIconButton Icon="@Icons.Material.Outlined.Redo" aria-label="Redo" Disabled="@(_redo.Count == 0 || _previewing)" OnClick="Redo" />
+                </MudTooltip>
+                <MudSelect T="Guid?" Value="_previewRoleId" ValueChanged="SetPreviewAsync" Label="Preview as" Dense="true" Variant="Variant.Outlined"
+                           Style="min-width:180px" Clearable="true">
+                    @foreach (var role in _previewRoles)
+                    {
+                        <MudSelectItem T="Guid?" Value="@role.Id">@role.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.History" OnClick="HistoryAsync">History</MudButton>
+                <MudButton Variant="Variant.Outlined" OnClick="DiscardAsync" Disabled="@(!_hasDraft || detail.PublishedVersion == 0)">Discard draft</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Publish" OnClick="PublishAsync"
+                           Disabled="@(!_hasDraft || _saving || _problem is not null)">Publish</MudButton>
+            </div>
+        </div>
+
+        @if (_problem is { } problem)
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-3">@problem</MudAlert>
+        }
+
+        <div class="designer">
+            <aside class="designer-side fl-panel" @ref="_paletteElement" aria-label="Tile types">
+                <MudTextField @bind-Value="_search" Placeholder="Search tiles" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" Clearable="true" />
+                @foreach (var group in DashboardTiles.Groups)
+                {
+                    var types = DashboardTiles.All.Where(t => t.Group == group && Matches(t)).ToList();
+                    if (types.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    <div class="designer-palette-group">@group</div>
+                    @foreach (var type in types)
+                    {
+                        var hiddenFor = HiddenFor(type);
+                        <button type="button" class="palette-item" draggable="true" data-tile-type="@type.Key" disabled="@_previewing"
+                                title="Drag onto the grid, or click to add at the first free place" @onclick="() => AddAsync(type)">
+                            <span class="palette-item-name">@type.Name</span>
+                            <span class="palette-item-description">@type.Description</span>
+                            @if (hiddenFor is not null)
+                            {
+                                <span class="palette-item-hidden">Not shown to @hiddenFor</span>
+                            }
+                        </button>
+                    }
+                }
+            </aside>
+
+            <section>
+                @if (_previewing && _previewPermissions is not null)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                        As a user with the role @_previewRoles.First(r => r.Id == _previewRoleId).Name sees it, with your own data. Close the preview to go on designing.
+                    </MudAlert>
+                    <DashboardView Layout="_layout" Permissions="_previewPermissions" />
+                }
+                else
+                {
+                    <div class="designer-canvas" @ref="_canvasElement">
+                        @{
+                            var tiles = _preview ?? _layout.Tiles;
+                            var rows = Math.Max(DashboardGrid.Rows(tiles) + 3, 8);
+                        }
+                        <div class="dash-grid" style="--rows:@rows; grid-template-rows: repeat(@rows, 64px)">
+                            @foreach (var tile in tiles)
+                            {
+                                var shown = _dragMoving && tile.Id == _dragId ? _layout.Find(tile.Id) ?? tile : tile;
+                                var type = DashboardTiles.Find(tile.Type);
+                                var hiddenFor = type is null ? null : HiddenFor(type);
+                                <div class="dash-tile @(tile.Id == _selectedId ? "selected" : "") @(hiddenFor is null ? "" : "dash-hidden-for-role")" @key="tile.Id"
+                                     data-tile-id="@tile.Id" data-x="@shown.X" data-y="@shown.Y" data-w="@shown.W" data-h="@shown.H" tabindex="0"
+                                     role="button" aria-label="@($"{tile.Settings.Title ?? type?.Name ?? tile.Type}, column {shown.X + 1}, row {shown.Y + 1}, {shown.W} by {shown.H}. Arrows move, Shift and arrows resize, Delete removes.")"
+                                     title="@(hiddenFor is null ? null : $"Not shown to {hiddenFor}")"
+                                     style="--x:@shown.X;--y:@shown.Y;--w:@shown.W;--h:@shown.H">
+                                    <DashboardTileView Tile="tile" Type="type" Designing="true" Loaded="true" />
+                                    <span class="dash-resize" data-resize aria-hidden="true"></span>
+                                </div>
+                            }
+                            @if (_dragMoving && _dragId is { } dragged && tiles.FirstOrDefault(t => t.Id == dragged) is { } target)
+                            {
+                                <div class="dash-ghost" style="--x:@target.X;--y:@target.Y;--w:@target.W;--h:@target.H"></div>
+                            }
+                        </div>
+                        @if (_layout.Tiles.Count == 0)
+                        {
+                            <EmptyState Icon="@Icons.Material.Outlined.DashboardCustomize" Title="An empty dashboard"
+                                        Text="Drag a tile type from the left onto the grid, or click it to add it." />
+                        }
+                    </div>
+                }
+            </section>
+
+            <aside class="designer-side fl-panel" aria-label="Settings">
+                @if (_selectedId is { } selectedId && _layout.Find(selectedId) is { } selected)
+                {
+                    <DashboardTileSettings Tile="selected" Choices="_choices" OnChange="ChangeTileAsync" OnRemove="() => RemoveTile(selected.Id)"
+                                           OnDuplicate="() => DuplicateAsync(selected)" OnClose="() => SelectTile(null)" />
+                }
+                else
+                {
+                    <MudText Typo="Typo.subtitle2" Class="mb-2">Dashboard</MudText>
+                    <MudText Typo="Typo.body2" Class="muted mb-3">Select a tile to change it. These settings are of the dashboard as a whole.</MudText>
+                    <MudSwitch T="bool" Value="_layout.PullUp" ValueChanged="SetPullUpAsync" Color="Color.Primary" Label="Pull tiles up" />
+                    <MudText Typo="Typo.caption" Class="muted d-block mb-3">After every change each tile moves up as far as it can, so no holes remain.</MudText>
+                    <DashboardScopeEditor Scope="_layout.Scope" Choices="_choices" OnDashboard="true" ShowClass="true" ScopeChanged="SetScopeAsync" />
+                    <MudText Typo="Typo.caption" Class="muted d-block mt-2">
+                        Every tile that reads data of clients follows this scope, unless it has its own. A scope only narrows: users never see more than their groups give.
+                    </MudText>
+                    <MudButton Variant="Variant.Text" Href="/settings/dashboards" Class="mt-3">Name, description and roles</MudButton>
+                }
+            </aside>
+        </div>
+    }
+</LoadState>
+
+@code {
+    [Parameter] public Guid DashboardId { get; set; }
+
+    private const int MaxUndo = 50;
+
+    private DashboardDetail? _detail;
+    private DashboardLayout _layout = DashboardLayout.Empty;
+    private IReadOnlyList<DashboardTile>? _preview;
+    private string? _dragId;
+    private bool _dragMoving;
+    private string? _selectedId;
+    private readonly Stack<DashboardLayout> _undo = new();
+    private readonly Stack<DashboardLayout> _redo = new();
+    private bool _hasDraft;
+    private bool _saving;
+    private bool _notFound;
+    private string? _problem;
+    private string? _search;
+    private string? _rolesText;
+    private DashboardScopeChoices _choices = new([], [], []);
+    private IReadOnlyList<DashboardPreviewRole> _previewRoles = [];
+    private Guid? _previewRoleId;
+    private IReadOnlySet<string>? _previewPermissions;
+    private bool _previewing;
+    private ElementReference _canvasElement;
+    private ElementReference _paletteElement;
+    private IJSObjectReference? _module;
+    private IJSObjectReference? _grid;
+    private DotNetObjectReference<DashboardDesigner>? _self;
+    private bool _attached;
+    private CancellationTokenSource? _saveDelay;
+
+    protected override Task OnInitializedAsync() => LoadAsync(async caller =>
+    {
+        _detail = await DashboardSvc.GetAsync(caller, DashboardId);
+        _notFound = _detail is null;
+        if (_detail is null)
+        {
+            return;
+        }
+
+        _layout = _detail.Layout;
+        _hasDraft = _detail.HasDraft;
+        _choices = await DashboardSvc.GetScopeChoicesAsync(caller);
+        _previewRoles = await DashboardSvc.ListPreviewRolesAsync(caller);
+        var linked = _previewRoles.Where(r => _detail.RoleIds.Contains(r.Id)).Select(r => r.Name).ToList();
+        _rolesText = linked.Count == 0 ? "Linked to no role yet: nobody sees it." : $"For {string.Join(", ", linked)}.";
+    });
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+        if (_detail is not null && !_previewing && !_attached && _canvasElement.Context is not null)
+        {
+            _attached = true;
+            _self ??= DotNetObjectReference.Create(this);
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dashboard-grid.mjs");
+            _grid = await _module.InvokeAsync<IJSObjectReference>("attach", _canvasElement, _paletteElement, _self);
+        }
+    }
+
+    private bool Matches(TileType type) =>
+        string.IsNullOrWhiteSpace(_search) || type.Name.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase) ||
+        type.Description.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The linked roles that cannot see a tile type, or null when all of them can.</summary>
+    private string? HiddenFor(TileType type)
+    {
+        if (type.ForEveryone || _detail is null)
+        {
+            return null;
+        }
+
+        var names = _previewRoles.Where(r => _detail.RoleIds.Contains(r.Id) && !DashboardTiles.CanSee(type, r.Permissions.Contains))
+            .Select(r => r.Name).ToList();
+        return names.Count == 0 ? null : string.Join(", ", names);
+    }
+
+    // Called by dashboard-grid.mjs while a tile is dragged or resized: where every tile would go, not saved.
+    [JSInvokable]
+    public void PreviewPlace(string id, int x, int y, int w, int h, bool resizing)
+    {
+        _dragId = id;
+        _dragMoving = !resizing;
+        _preview = DashboardGrid.Move(_layout.Tiles, id, new GridRect(x, y, w, h), _layout.PullUp);
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task CommitPlace(string id, int x, int y, int w, int h)
+    {
+        var tiles = DashboardGrid.Move(_layout.Tiles, id, new GridRect(x, y, w, h), _layout.PullUp);
+        _preview = null;
+        _dragId = null;
+        _dragMoving = false;
+        _selectedId = id;
+        await ApplyAsync(_layout.WithTiles(tiles));
+    }
+
+    [JSInvokable]
+    public void CancelPlace()
+    {
+        _preview = null;
+        _dragId = null;
+        _dragMoving = false;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void SelectTile(string? id)
+    {
+        _selectedId = id;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task KeyPlace(string id, int dx, int dy, bool resize)
+    {
+        if (_layout.Find(id) is not { } tile)
+        {
+            return;
+        }
+
+        var rect = resize ? tile.Rect with { W = tile.W + dx, H = tile.H + dy } : tile.Rect with { X = tile.X + dx, Y = tile.Y + dy };
+        _selectedId = id;
+        await ApplyAsync(_layout.WithTiles(DashboardGrid.Move(_layout.Tiles, id, rect, _layout.PullUp)));
+    }
+
+    [JSInvokable]
+    public async Task RemoveTile(string id)
+    {
+        if (_layout.Find(id) is null)
+        {
+            return;
+        }
+
+        var rest = _layout.Tiles.Where(t => t.Id != id);
+        _selectedId = _selectedId == id ? null : _selectedId;
+        await ApplyAsync(_layout.WithTiles(_layout.PullUp ? DashboardGrid.Compact(rest) : rest.ToList()));
+    }
+
+    [JSInvokable]
+    public async Task DropType(string key, int x, int y)
+    {
+        if (DashboardTiles.Find(key) is not { } type || _previewing)
+        {
+            return;
+        }
+
+        if (_layout.Tiles.Count >= DashboardGrid.MaxTiles)
+        {
+            TooMany();
+            return;
+        }
+
+        var tile = NewTile(type);
+        var placed = DashboardGrid.Move([.. _layout.Tiles, tile], tile.Id, new GridRect(x, y, type.Default.W, type.Default.H), _layout.PullUp);
+        _selectedId = tile.Id;
+        await ApplyAsync(_layout.WithTiles(placed));
+    }
+
+    [JSInvokable]
+    public async Task Undo()
+    {
+        if (_undo.Count == 0 || _previewing)
+        {
+            return;
+        }
+
+        _redo.Push(_layout);
+        await SaveAsync(_undo.Pop());
+    }
+
+    [JSInvokable]
+    public async Task Redo()
+    {
+        if (_redo.Count == 0 || _previewing)
+        {
+            return;
+        }
+
+        _undo.Push(_layout);
+        await SaveAsync(_redo.Pop());
+    }
+
+    private async Task AddAsync(TileType type)
+    {
+        if (_layout.Tiles.Count >= DashboardGrid.MaxTiles)
+        {
+            TooMany();
+            return;
+        }
+
+        var tile = NewTile(type);
+        _selectedId = tile.Id;
+        await ApplyAsync(_layout.WithTiles(DashboardGrid.Add(_layout.Tiles, tile, _layout.PullUp)));
+    }
+
+    private void TooMany() => Snackbar.Add($"A dashboard holds at most {DashboardGrid.MaxTiles} tiles. Remove a tile first.", Severity.Warning);
+
+    private DashboardTile NewTile(TileType type) => new()
+    {
+        Id = DashboardGrid.NewTileId(_layout.Tiles),
+        Type = type.Key,
+        W = type.Default.W,
+        H = type.Default.H,
+        Settings = DashboardRules.Clean(type, new TileSettings()).Settings!
+    };
+
+    private async Task DuplicateAsync(DashboardTile tile)
+    {
+        if (_layout.Tiles.Count >= DashboardGrid.MaxTiles)
+        {
+            TooMany();
+            return;
+        }
+
+        var copy = tile with { Id = DashboardGrid.NewTileId(_layout.Tiles) };
+        var placed = DashboardGrid.Move([.. _layout.Tiles, copy], copy.Id, tile.Rect with { Y = tile.Y + tile.H }, _layout.PullUp);
+        _selectedId = copy.Id;
+        await ApplyAsync(_layout.WithTiles(placed));
+    }
+
+    /// <summary>A change of the settings or size of a tile; text fields are saved after a short pause.</summary>
+    private async Task ChangeTileAsync(DashboardTile changed)
+    {
+        if (_layout.Find(changed.Id) is not { } current)
+        {
+            return;
+        }
+
+        var tiles = current.Rect == changed.Rect
+            ? _layout.Tiles.Select(t => t.Id == changed.Id ? changed : t).ToList()
+            : DashboardGrid.Move(_layout.Tiles.Select(t => t.Id == changed.Id ? changed with { X = current.X, Y = current.Y, W = current.W, H = current.H } : t).ToList(),
+                changed.Id, changed.Rect, _layout.PullUp);
+        await ApplyAsync(_layout.WithTiles(tiles), delay: true);
+    }
+
+    private Task SetPullUpAsync(bool on) =>
+        ApplyAsync(_layout with { PullUp = on, Tiles = on ? DashboardGrid.Compact(_layout.Tiles) : _layout.Tiles });
+
+    private Task SetScopeAsync(TileScope scope) => ApplyAsync(_layout with { Scope = scope });
+
+    /// <summary>Applies a change: checked here first, so a layout that cannot be saved is shown with its problem rather than lost.</summary>
+    private async Task ApplyAsync(DashboardLayout next, bool delay = false)
+    {
+        if (_undo.Count == 0 || !ReferenceEquals(_undo.Peek(), _layout))
+        {
+            _undo.Push(_layout);
+            while (_undo.Count > MaxUndo)
+            {
+                var kept = _undo.Reverse().Skip(1).ToList();
+                _undo.Clear();
+                kept.ForEach(_undo.Push);
+            }
+        }
+
+        _redo.Clear();
+        await SaveAsync(next, delay);
+    }
+
+    private async Task SaveAsync(DashboardLayout next, bool delay = false)
+    {
+        _layout = next;
+        _hasDraft = true;
+        var (_, problem) = DashboardRules.Validate(next, allowUnknown: true);
+        _problem = problem;
+        StateHasChanged();
+        if (problem is not null)
+        {
+            return;
+        }
+
+        _saveDelay?.Cancel();
+        if (delay)
+        {
+            var wait = _saveDelay = new CancellationTokenSource();
+            try
+            {
+                await Task.Delay(700, wait.Token);
+            }
+            catch (TaskCanceledException)
+            {
+                return;
+            }
+        }
+
+        _saving = true;
+        StateHasChanged();
+        var saved = await RunForValueAsync(caller => DashboardSvc.SaveDraftAsync(caller, DashboardId, _layout), null);
+        _saving = false;
+        if (saved?.Value is { } stored && ReferenceEquals(next, _layout) && !ScopesEqual(stored, _layout))
+        {
+            // A client, site or tag of a scope no longer exists: show what was stored.
+            _layout = stored;
+        }
+
+        StateHasChanged();
+    }
+
+    private static bool ScopesEqual(DashboardLayout a, DashboardLayout b) =>
+        a.Scope.Key() == b.Scope.Key() && a.Tiles.Select(t => t.Settings.Scope?.Key()).SequenceEqual(b.Tiles.Select(t => t.Settings.Scope?.Key()));
+
+    private async Task PublishAsync()
+    {
+        _saveDelay?.Cancel();
+        if (_saving)
+        {
+            return;
+        }
+
+        var saved = await RunForValueAsync(caller => DashboardSvc.SaveDraftAsync(caller, DashboardId, _layout), null);
+        if (saved is not null && await RunAsync(caller => DashboardSvc.PublishAsync(caller, DashboardId), "The dashboard was published."))
+        {
+            await ReloadDetailAsync();
+        }
+    }
+
+    private async Task DiscardAsync()
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, "Discard the draft" },
+            { d => d.Message, $"The dashboard goes back to version {_detail!.PublishedVersion}, as users see it now. Your changes are lost." },
+            { d => d.ConfirmText, "Discard" }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => DashboardSvc.DiscardDraftAsync(caller, DashboardId), "The draft was discarded."))
+        {
+            _undo.Clear();
+            _redo.Clear();
+            await ReloadDetailAsync();
+        }
+    }
+
+    private async Task HistoryAsync()
+    {
+        var versions = await RunForValueAsync(async caller => ServiceResult<IReadOnlyList<DashboardVersionView>>.Ok(
+            await DashboardSvc.ListVersionsAsync(caller, DashboardId)), null);
+        if (versions?.Value is not { } list)
+        {
+            return;
+        }
+
+        var parameters = new DialogParameters<DashboardHistoryDialog>
+        {
+            { d => d.Versions, list },
+            { d => d.OnRestore, version => RunAsync(caller => DashboardSvc.RestoreVersionAsync(caller, DashboardId, version),
+                $"Version {version} is now the draft. Publish it to show it again.") }
+        };
+        var dialog = await DialogService.ShowAsync<DashboardHistoryDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            _undo.Push(_layout);
+            await ReloadDetailAsync();
+        }
+    }
+
+    private async Task ReloadDetailAsync()
+    {
+        await LoadAsync(async caller =>
+        {
+            _detail = await DashboardSvc.GetAsync(caller, DashboardId);
+            _notFound = _detail is null;
+            if (_detail is not null)
+            {
+                _layout = _detail.Layout;
+                _hasDraft = _detail.HasDraft;
+                _problem = null;
+            }
+        });
+    }
+
+    private async Task SetPreviewAsync(Guid? roleId)
+    {
+        _previewRoleId = roleId;
+        _previewPermissions = _previewRoles.FirstOrDefault(r => r.Id == roleId)?.Permissions;
+        _previewing = _previewPermissions is not null;
+        if (_previewing)
+        {
+            // The grid script is attached again to the new canvas when the preview closes.
+            await DetachAsync();
+        }
+    }
+
+    private async Task DetachAsync()
+    {
+        if (_grid is not null)
+        {
+            try
+            {
+                await _grid.InvokeVoidAsync("dispose");
+                await _grid.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+
+            _grid = null;
+        }
+
+        _attached = false;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            _saveDelay?.Cancel();
+            await DetachAsync();
+            if (_module is not null)
+            {
+                await _module.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        finally
+        {
+            _self?.Dispose();
+            Dispose();
+        }
+    }
+}

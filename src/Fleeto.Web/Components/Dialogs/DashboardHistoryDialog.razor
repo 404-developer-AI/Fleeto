@@ -1,0 +1,60 @@
+@* The published versions of a dashboard (0.8.0): one can be made the draft again, to look at and publish. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">History</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (Versions.Count == 0)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.History" Title="Not published yet" Text="Each publish keeps a version here; the last 20 are kept." />
+        }
+        else
+        {
+            <MudTable Items="Versions" Dense="true" Elevation="0">
+                <HeaderContent>
+                    <MudTh>Version</MudTh>
+                    <MudTh>Published</MudTh>
+                    <MudTh>Tiles</MudTh>
+                    <MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd>@context.Version</MudTd>
+                    <MudTd><TimeText Value="context.PublishedAt" /> by @context.PublishedBy</MudTd>
+                    <MudTd>@context.TileCount</MudTd>
+                    <MudTd><MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => RestoreAsync(context.Version))" Disabled="_busy">Make draft</MudButton></MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public IReadOnlyList<DashboardVersionView> Versions { get; set; } = [];
+    [Parameter] public Func<int, Task<bool>> OnRestore { get; set; } = _ => Task.FromResult(true);
+
+    private bool _busy;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task RestoreAsync(int version)
+    {
+        _busy = true;
+        try
+        {
+            if (await OnRestore(version))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -1,0 +1,254 @@
+@page "/settings/dashboards"
+@attribute [RequirePermission(Permissions.DashboardsManage)]
+@inherits FleetoPageBase
+@inject DashboardDesignService DashboardSvc
+@inject IDialogService DialogService
+@inject IJSRuntime JS
+
+<PageTitle>Dashboards - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Dashboards</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            A user sees the first published dashboard in this list that is linked to one of its roles, and the default dashboard when none is.
+            Tiles follow the permissions and groups of the user: a dashboard never shows more than the user may see.
+        </MudText>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <MudFileUpload T="IBrowserFile" Accept=".json" MaximumFileCount="1" FilesChanged="ImportAsync">
+            <CustomContent>
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.UploadFile" OnClick="@context.OpenFilePickerAsync">Import</MudButton>
+            </CustomContent>
+        </MudFileUpload>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="CreateAsync">New dashboard</MudButton>
+    </div>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (!_allClients)
+    {
+        <EmptyState Icon="@Icons.Material.Outlined.Dashboard" Title="Dashboards are designed by an admin for all clients"
+                    Text="Your account is limited to some clients, and a dashboard is shared by the whole instance. Ask an admin without that limit." />
+    }
+    else if (_overview is { } overview)
+    {
+        <MudTable Items="overview.Dashboards" Hover="true" Elevation="0" Class="mb-6">
+            <HeaderContent>
+                <MudTh Style="width:64px">Order</MudTh>
+                <MudTh>Dashboard</MudTh>
+                <MudTh>Roles</MudTh>
+                <MudTh>Published</MudTh>
+                <MudTh Style="width:220px"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd Style="white-space:nowrap">
+                    <MudTooltip Text="Earlier in the order: wins from the dashboards below">
+                        <MudIconButton Icon="@Icons.Material.Outlined.ArrowUpward" Size="Size.Small" aria-label="@($"Move {context.Name} up")"
+                                       Disabled="@(context.Priority == overview.Dashboards[0].Priority)" OnClick="@(() => MoveAsync(context, true))" />
+                    </MudTooltip>
+                    <MudTooltip Text="Later in the order">
+                        <MudIconButton Icon="@Icons.Material.Outlined.ArrowDownward" Size="Size.Small" aria-label="@($"Move {context.Name} down")"
+                                       Disabled="@(context.Priority == overview.Dashboards[^1].Priority)" OnClick="@(() => MoveAsync(context, false))" />
+                    </MudTooltip>
+                </MudTd>
+                <MudTd>
+                    <MudLink Href="@($"/settings/dashboards/{context.Id}")"><strong>@context.Name</strong></MudLink>
+                    @if (context.Description is { } description)
+                    {
+                        <div class="muted" style="font-size:0.8125rem">@description</div>
+                    }
+                    <div class="muted" style="font-size:0.75rem">@Ui.Count(context.TileCount, "tile")</div>
+                </MudTd>
+                <MudTd>
+                    @if (context.Roles.Count == 0)
+                    {
+                        <span class="muted">No role</span>
+                    }
+                    else
+                    {
+                        @string.Join(", ", context.Roles.Select(r => r.Name))
+                    }
+                </MudTd>
+                <MudTd>
+                    @if (context.PublishedAt is { } at)
+                    {
+                        <span>Version @context.PublishedVersion, <TimeText Value="at" /> by @context.PublishedBy</span>
+                    }
+                    else
+                    {
+                        <StatusChip Text="Not published" Kind="StatusKind.Neutral" />
+                    }
+                    @if (context.HasDraft)
+                    {
+                        <div><StatusChip Text="Unpublished changes" Kind="StatusKind.Warning" /></div>
+                    }
+                </MudTd>
+                <MudTd Style="white-space:nowrap">
+                    <MudTooltip Text="Design"><MudIconButton Icon="@Icons.Material.Outlined.DashboardCustomize" Size="Size.Small" aria-label="@($"Design {context.Name}")" Href="@($"/settings/dashboards/{context.Id}")" /></MudTooltip>
+                    <MudTooltip Text="Name, description and roles"><MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" aria-label="@($"Edit {context.Name}")" OnClick="@(() => EditAsync(context))" /></MudTooltip>
+                    <MudTooltip Text="Copy"><MudIconButton Icon="@Icons.Material.Outlined.ContentCopy" Size="Size.Small" aria-label="@($"Copy {context.Name}")" OnClick="@(() => CreateAsync(context.Id.ToString()))" /></MudTooltip>
+                    <MudTooltip Text="Export as a file"><MudIconButton Icon="@Icons.Material.Outlined.Download" Size="Size.Small" aria-label="@($"Export {context.Name}")" OnClick="@(() => ExportAsync(context))" /></MudTooltip>
+                    <MudTooltip Text="Delete"><MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" aria-label="@($"Delete {context.Name}")" OnClick="@(() => DeleteAsync(context))" /></MudTooltip>
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <EmptyState Icon="@Icons.Material.Outlined.Dashboard" Title="No dashboards yet"
+                            Text="Every user sees the default dashboard. Create a dashboard, start from the default one, link it to roles and publish it." />
+            </NoRecordsContent>
+        </MudTable>
+
+        <MudText Typo="Typo.h6" Class="section-title mb-2">What each role sees</MudText>
+        <MudTable Items="overview.Roles" Dense="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>Role</MudTh>
+                <MudTh>Dashboard</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.RoleName</MudTd>
+                <MudTd>
+                    @if (context.DashboardId is { } id)
+                    {
+                        <MudLink Href="@($"/settings/dashboards/{id}")">@context.DashboardName</MudLink>
+                    }
+                    else
+                    {
+                        <span class="muted">@DefaultDashboard.Name (built in)</span>
+                    }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+        <MudText Typo="Typo.body2" Class="muted mt-2">A user with several roles sees the dashboard that is highest in the list among those of its roles.</MudText>
+    }
+</LoadState>
+
+@code {
+    private DashboardOverview? _overview;
+    private IReadOnlyList<DashboardRoleView> _roles = [];
+    private bool _allClients = true;
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private Task ReloadAsync() => LoadAsync(async caller =>
+    {
+        _allClients = caller.Scope.AllClients;
+        if (_allClients)
+        {
+            _overview = await DashboardSvc.ListAsync(caller);
+            _roles = await DashboardSvc.ListRolesAsync(caller);
+        }
+    });
+
+    private async Task CreateAsync() => await CreateAsync("default");
+
+    private async Task CreateAsync(string start)
+    {
+        Guid? created = null;
+        var copyOf = _overview?.Dashboards.FirstOrDefault(d => d.Id.ToString() == start);
+        var parameters = new DialogParameters<DashboardDialog>
+        {
+            { d => d.Creating, true },
+            { d => d.InitialName, copyOf is null ? string.Empty : $"{copyOf.Name} (copy)" },
+            { d => d.Existing, _overview?.Dashboards ?? [] },
+            { d => d.InitialStart, start },
+            {
+                d => d.OnSubmit, async (name, description, _, from) =>
+                {
+                    var result = await RunForValueAsync(caller => DashboardSvc.CreateAsync(caller, name, description, from), "The dashboard was created.");
+                    created = result?.Value;
+                    return result is not null;
+                }
+            }
+        };
+        var dialog = await DialogService.ShowAsync<DashboardDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled && created is { } id)
+        {
+            Navigation.NavigateTo($"/settings/dashboards/{id}");
+        }
+    }
+
+    private async Task EditAsync(DashboardListItem dashboard)
+    {
+        var parameters = new DialogParameters<DashboardDialog>
+        {
+            { d => d.InitialName, dashboard.Name },
+            { d => d.InitialDescription, dashboard.Description },
+            { d => d.InitialRoles, dashboard.Roles.Select(r => r.Id).ToList() },
+            { d => d.Roles, _roles },
+            {
+                d => d.OnSubmit, (name, description, roles, _) =>
+                    RunAsync(caller => DashboardSvc.UpdateAsync(caller, dashboard.Id, name, description, roles), "The dashboard was saved.")
+            }
+        };
+        var dialog = await DialogService.ShowAsync<DashboardDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task MoveAsync(DashboardListItem dashboard, bool up)
+    {
+        if (await RunAsync(caller => DashboardSvc.MoveAsync(caller, dashboard.Id, up), null))
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task ExportAsync(DashboardListItem dashboard)
+    {
+        var export = await RunForValueAsync(caller => DashboardSvc.ExportAsync(caller, dashboard.Id), null);
+        if (export?.Value is { } json)
+        {
+            var fileName = string.Concat(dashboard.Name.Select(c => char.IsLetterOrDigit(c) ? c : '-')).Trim('-') + ".fleeto-dashboard.json";
+            await JS.InvokeVoidAsync("fleeto.saveFile", fileName, "application/json", Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(json)));
+        }
+    }
+
+    private async Task ImportAsync(IBrowserFile? file)
+    {
+        if (file is null)
+        {
+            return;
+        }
+
+        string json;
+        try
+        {
+            await using var stream = file.OpenReadStream(maxAllowedSize: DashboardRules.MaxImportBytes);
+            using var reader = new StreamReader(stream);
+            json = await reader.ReadToEndAsync();
+        }
+        catch (IOException)
+        {
+            Snackbar.Add($"The file could not be read. A dashboard file is at most {DashboardRules.MaxImportBytes / 1024} KB.", Severity.Warning);
+            return;
+        }
+
+        var imported = await RunForValueAsync(caller => DashboardSvc.ImportAsync(caller, json), "The dashboard was imported as a draft.");
+        if (imported?.Value is { } value)
+        {
+            if (value.Note is { } note)
+            {
+                Snackbar.Add(note, Severity.Info);
+            }
+
+            Navigation.NavigateTo($"/settings/dashboards/{value.Id}");
+        }
+    }
+
+    private async Task DeleteAsync(DashboardListItem dashboard)
+    {
+        var roles = dashboard.Roles.Count > 0 ? $"Users of {string.Join(", ", dashboard.Roles.Select(r => r.Name))} then see the next dashboard of their roles, or the default. " : string.Empty;
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Delete dashboard {dashboard.Name}" },
+            { d => d.Message, roles + "This cannot be undone." }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => DashboardSvc.DeleteAsync(caller, dashboard.Id), "The dashboard was deleted."))
+        {
+            await ReloadAsync();
+        }
+    }
+}

@@ -120,6 +120,7 @@ public static class Permissions
     public const string SecurityView = "security.view";
     public const string SecurityManage = "security.manage";
     public const string InstanceView = "instance.view";
+    public const string DashboardsManage = "dashboards.manage";
 
     /// <summary>Every permission, in the order the role editor shows them.</summary>
     public static readonly IReadOnlyList<PermissionInfo> All =
@@ -231,6 +232,8 @@ public static class Permissions
         new(SecurityManage, AdministrationGroup, "Manage security",
             "Acknowledge and resolve security incidents, block and allow addresses, and switch automatic blocking and blocklists.", [SecurityView]),
         new(InstanceView, AdministrationGroup, "Instance", "The instance identity: FQDN, CA and signing key.", []),
+        new(DashboardsManage, AdministrationGroup, "Dashboards",
+            "Design dashboards, publish them and choose the roles that see them.", []),
     ];
 
     private static readonly Dictionary<string, PermissionInfo> ByKey = All.ToDictionary(p => p.Key, StringComparer.Ordinal);

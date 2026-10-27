@@ -1,0 +1,429 @@
+@* One tile of a dashboard (0.8.0, DASHBOARDS.md §3): its frame, its state and its body, by the type of the catalog. Every value is plain
+   text that Blazor encodes; the only markup is the text tile, rendered by the sanitizing markdown of notes. *@
+@inject TimeDisplay Time
+
+@if (Type is null)
+{
+    <div class="dash-card fl-panel dash-unknown">
+        <div class="dash-card-head"><span class="dash-card-title">Tile of a newer version</span></div>
+        <div class="dash-card-body muted">This tile (@Tile.Type) comes from a newer version of Fleeto. It is kept, and shows again after the update.</div>
+    </div>
+}
+else if (Type.Kind == TileKind.Counter)
+{
+    var counter = Counter();
+    @if (counter.Href is { } href && !Designing)
+    {
+        <a href="@href" class="stat-card-link">@CounterCard(counter)</a>
+    }
+    else
+    {
+        @CounterCard(counter)
+    }
+}
+else if (Type.Key == DashboardTiles.Heading)
+{
+    <div class="dash-heading @AccentClass"><span>@Title</span></div>
+}
+else if (Type.Key == DashboardTiles.Link)
+{
+    var url = Tile.Settings.Url ?? "/";
+    var external = DashboardRules.IsExternal(url);
+    <a class="dash-card fl-panel dash-link-tile @AccentClass" href="@(Designing ? null : url)" target="@(external ? "_blank" : null)"
+       rel="@(external ? "noopener noreferrer nofollow" : null)">
+        <MudIcon Icon="@(external ? Icons.Material.Outlined.OpenInNew : Icons.Material.Outlined.ArrowForward)" Size="Size.Small" />
+        <span class="dash-link-text">@Title</span>
+    </a>
+}
+else
+{
+    <div class="dash-card fl-panel @AccentClass">
+        <div class="dash-card-head">
+            <span class="dash-card-title">@Title</span>
+            @if (MoreLink() is { } more && !Designing)
+            {
+                <MudLink Href="@more.Href" Typo="Typo.body2">@more.Text</MudLink>
+            }
+        </div>
+        <div class="dash-card-body">
+            @if (Failed)
+            {
+                <div class="dash-problem">
+                    <span>Could not load this tile. The cause is in the web log.</span>
+                    @if (OnRetry.HasDelegate)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="OnRetry">Try again</MudButton>
+                    }
+                </div>
+            }
+            else if (Designing && Type.Key != DashboardTiles.Text)
+            {
+                <div class="muted" style="font-size:0.8125rem">@Type.Description</div>
+            }
+            else if (!Loaded && Type.Source is not null)
+            {
+                <MudSkeleton Height="100%" SkeletonType="SkeletonType.Rectangle" />
+            }
+            else
+            {
+                @Body()
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public DashboardTile Tile { get; set; } = default!;
+
+    /// <summary>Null for a tile type this release does not know.</summary>
+    [Parameter] public TileType? Type { get; set; }
+
+    [Parameter] public object? Data { get; set; }
+    [Parameter] public bool Loaded { get; set; }
+    [Parameter] public bool Failed { get; set; }
+    [Parameter] public Caller? Caller { get; set; }
+
+    /// <summary>In the designer: links do not navigate and list actions are not offered.</summary>
+    [Parameter] public bool Designing { get; set; }
+
+    [Parameter] public EventCallback OnRetry { get; set; }
+
+    /// <summary>Raised after an action in the tile (an alert acknowledged), so the dashboard reloads what it shows.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private string Title => Tile.Settings.Title ?? (Type?.Key == DashboardTiles.Link ? Tile.Settings.Url : null) ?? Type?.Name ?? Tile.Type;
+
+    private string AccentClass => Tile.Settings.Accent is { } accent ? "dash-accent dash-accent-" + accent.ToString().ToLowerInvariant() : string.Empty;
+
+    private int Rows => DashboardTileRows.For(Tile);
+
+    private sealed record CounterValue(string Number, string? Detail, string State, string? Href = null, bool Words = false, bool NumberPrimary = false);
+
+    private RenderFragment CounterCard(CounterValue counter) => __builder =>
+    {
+        <div class="stat-card fl-panel @counter.State @AccentClass">
+            <div class="stat-label">@Title</div>
+            @if (Failed)
+            {
+                <div class="stat-detail" style="margin-top:0">Could not load. The cause is in the web log.</div>
+                @if (OnRetry.HasDelegate)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="OnRetry" Class="mt-1">Try again</MudButton>
+                }
+            }
+            else if (Designing)
+            {
+                <div class="stat-number" style="color:var(--fl-text-muted)">123</div>
+                <div class="stat-detail">@Type!.Description</div>
+            }
+            else if (!Loaded && Type!.Source is not null)
+            {
+                <MudSkeleton Width="60%" Height="36px" />
+            }
+            else
+            {
+                <div class="stat-number" style="@NumberStyle(counter)">@counter.Number</div>
+                @if (counter.Detail is not null)
+                {
+                    <div class="stat-detail">@counter.Detail</div>
+                }
+            }
+        </div>
+    };
+
+    private static string? NumberStyle(CounterValue counter) =>
+        (counter.Words ? "font-size:1.125rem;margin-top:10px;" : "") + (counter.NumberPrimary ? "color:var(--fl-primary)" : "") is { Length: > 0 } style
+            ? style
+            : null;
+
+    /// <summary>The state class of a counter: its thresholds when set, otherwise the state of what it shows.</summary>
+    private string State(int value, string fallback)
+    {
+        var settings = Tile.Settings;
+        if (settings.Warning is null && settings.Critical is null)
+        {
+            return fallback;
+        }
+
+        var below = Type!.Has(TileOptions.ThresholdsBelow);
+        bool Reached(int? threshold) => threshold is { } t && (below ? value <= t : value >= t);
+        return Reached(settings.Critical) ? "stat-error" : Reached(settings.Warning) ? "stat-warning" : string.Empty;
+    }
+
+    private CounterValue Counter()
+    {
+        switch (Type!.Key)
+        {
+            case DashboardTiles.EndpointsOnline when Data is EndpointCounts c:
+                return new(c.Online.ToString(), $"of {c.Total} endpoints", State(c.Online, string.Empty), NumberPrimary: true);
+            case DashboardTiles.EndpointsOffline when Data is EndpointCounts c:
+                return new(c.Offline.ToString(), c.Offline == 0 ? "Every endpoint is connected" : "Not connected to the gateway",
+                    State(c.Offline, c.Offline > 0 ? "stat-error" : string.Empty));
+            case DashboardTiles.EndpointsTotal when Data is EndpointCounts c:
+                return Tile.Settings.Tier switch
+                {
+                    EndpointTier.Managed => new(c.Managed.ToString(), $"managed, of {c.Total} endpoints", string.Empty),
+                    EndpointTier.AgentOnly => new(c.AgentOnly.ToString(), $"agent-only, of {c.Total} endpoints", string.Empty),
+                    _ => new(c.Total.ToString(), $"{c.Managed} managed · {c.AgentOnly} agent-only", string.Empty)
+                };
+            case DashboardTiles.EndpointsInMaintenance when Data is EndpointCounts c:
+                return new(c.InMaintenance.ToString(), $"of {c.Total} endpoints", State(c.InMaintenance, string.Empty));
+            case DashboardTiles.AgentsOutOfDate when Data is EndpointCounts c:
+                return new(c.OutOfDate.ToString(), $"Current version {c.CurrentVersion}", State(c.OutOfDate, c.OutOfDate > 0 ? "stat-warning" : string.Empty));
+            case DashboardTiles.AlertsOpen when Data is AlertCounts c:
+            {
+                var value = Tile.Settings.Severity switch
+                {
+                    AlertSeverity.Critical => c.Critical,
+                    AlertSeverity.Warning => c.Warning,
+                    _ => c.Critical + c.Warning
+                };
+                var fallback = c.Critical > 0 && Tile.Settings.Severity != AlertSeverity.Warning ? "stat-error"
+                    : c.Warning > 0 && Tile.Settings.Severity != AlertSeverity.Critical ? "stat-warning" : string.Empty;
+                return new(value.ToString(), $"{c.Critical} critical · {c.Warning} warning", State(value, fallback), "/alerts");
+            }
+            case DashboardTiles.AlertsOnHold when Data is AlertCounts c:
+                return new(c.OnHold.ToString(), "Counted again when their hold ends", State(c.OnHold, string.Empty), "/alerts");
+            case DashboardTiles.PatchCompliance when Data is PatchCompliance p:
+                return p.Covered == 0
+                    ? new("None", "No endpoints are covered by patch management", string.Empty, Words: true)
+                    : new($"{p.Percentage}%", $"{p.Compliant} of {p.Covered} up to date" +
+                                              (p.MissingCritical > 0 ? $", {p.MissingCritical} missing critical" : "") +
+                                              (p.NotPatched > 0 ? $", {p.NotPatched} not patched" : ""),
+                        State(p.Percentage ?? 0, p.NotPatched > 0 || p.MissingCritical > 0 ? "stat-warning" : string.Empty));
+            case DashboardTiles.Vulnerabilities:
+                return Data is VulnerabilityTile v
+                    ? new(v.Urgent.ToString(), "Linux endpoints missing a critical fix or with an actively exploited vulnerability" +
+                                               (v.WithExploited > 0 ? $" ({v.WithExploited} exploited)" : "") +
+                                               (v.Unsupported > 0 ? $", {v.Unsupported} on a release no longer supported" : ""),
+                        State(v.Urgent, v.Urgent > 0 ? "stat-error" : v.Unsupported > 0 ? "stat-warning" : string.Empty), "/vulnerabilities")
+                    : new("None", "No managed Linux endpoints", string.Empty, Words: true);
+            case DashboardTiles.Licenses when Data is Fleeto.Infrastructure.Licensing.LicenseUsage l:
+                return new(l.ManagedInUse.ToString(), LicenseDetail(l),
+                    l.Status.State is LicenseState.Missing or LicenseState.Expired ? "stat-warning" : string.Empty, "/settings/licensing");
+            case DashboardTiles.LicensesFree when Data is Fleeto.Infrastructure.Licensing.LicenseUsage l:
+                return new(l.Available.ToString(), $"of {l.Status.Capacity} managed licenses", State(l.Available,
+                    l.Status.Capacity > 0 && l.Available == 0 ? "stat-warning" : string.Empty), "/settings/licensing");
+            case DashboardTiles.InstanceHealth when Data is InstanceHealthTile h:
+                return new(h.Status switch
+                    {
+                        HealthStatus.Ok => "Healthy",
+                        HealthStatus.Unknown => "Unknown",
+                        _ => h.OpenIssues == 1 ? "1 problem" : $"{h.OpenIssues} problems"
+                    }, h.Text,
+                    h.Status switch { HealthStatus.Critical => "stat-error", HealthStatus.Warning or HealthStatus.Unknown => "stat-warning", _ => "" },
+                    "/settings/instance-health", Words: true);
+            case DashboardTiles.Security when Data is SecurityTile s:
+                return new(s.OpenIncidents switch { 0 => "No incidents", 1 => "1 incident", _ => $"{s.OpenIncidents} incidents" },
+                    s.Latest ?? (s.BlockedAddresses == 1 ? "1 blocked address" : $"{s.BlockedAddresses} blocked addresses"),
+                    s.Critical > 0 ? "stat-error" : s.OpenIncidents > 0 ? "stat-warning" : string.Empty, "/settings/security", Words: true);
+            case DashboardTiles.Backups when Data is BackupTile b:
+                if (b.ExternalDescription is { } external)
+                {
+                    return new("Outside Fleeto", external, string.Empty, Words: true);
+                }
+
+                if (!b.DestinationConfigured)
+                {
+                    return new("Not configured", "No backup destination is configured, so backups exist on this server only.", "stat-warning",
+                        Caller?.Has(Permissions.BackupsManage) == true ? "/settings/backups" : null, Words: true);
+                }
+
+                return new(b.LastSucceededAt is { } at ? Time.Relative(at) : "No backup yet",
+                    b.LastRunFailed ? "The last backup failed. Check Settings, Backups." : "Last successful backup",
+                    b.LastRunFailed ? "stat-warning" : string.Empty, Words: true);
+            default:
+                return Data is null && Loaded
+                    ? new("–", "Your roles do not show this.", string.Empty, Words: true)
+                    : new("–", null, string.Empty, Words: true);
+        }
+    }
+
+    private string LicenseDetail(Fleeto.Infrastructure.Licensing.LicenseUsage usage) => usage.Status.State switch
+    {
+        LicenseState.Missing => "No license loaded",
+        LicenseState.Expired => "The license has expired",
+        LicenseState.GracePeriod => $"{usage.ManagedInUse} of {usage.Status.ManagedEndpointCount} licenses in use · grace period until {Time.Absolute(usage.Status.GraceEndsAt)}",
+        LicenseState.ExpiringSoon => $"{usage.ManagedInUse} of {usage.Status.Capacity} licenses in use · expires {Time.Absolute(usage.Status.ExpiresAt)}",
+        _ => $"{usage.ManagedInUse} of {usage.Status.Capacity} licenses in use"
+    };
+
+    private (string Href, string Text)? MoreLink() => Type!.Key switch
+    {
+        DashboardTiles.AlertList => ("/alerts", "All alerts"),
+        DashboardTiles.TopClients => ("/alerts", "All alerts"),
+        DashboardTiles.ClientStatus or DashboardTiles.OfflineList or DashboardTiles.OutOfDateList => ("/clients", "Clients"),
+        DashboardTiles.Advisories => null,
+        _ => null
+    };
+
+    private RenderFragment Body() => __builder =>
+    {
+        switch (Type!.Key)
+        {
+            case DashboardTiles.AlertList:
+                var alerts = Data as IReadOnlyList<AlertView> ?? [];
+                if (alerts.Count == 0)
+                {
+                    <EmptyState Icon="@Icons.Material.Outlined.CheckCircle" Title="No open alerts"
+                                Text="Alerts appear here when a check on a managed endpoint crosses its threshold." />
+                }
+                else
+                {
+                    <table class="dash-table">
+                        <thead><tr><th>Severity</th><th>Alert</th><th>Endpoint</th><th>Opened</th>@if (!Designing && AlertActions.AnyAction(Caller)) { <th></th> }</tr></thead>
+                        <tbody>
+                            @foreach (var alert in alerts)
+                            {
+                                <tr>
+                                    <td><StatusChip Text="@alert.Severity.ToString()" Kind="@Ui.SeverityKind(alert.Severity)" /></td>
+                                    <td class="dash-wrap">@alert.Title</td>
+                                    <td><a href="@($"/endpoints/{alert.EndpointId}")">@alert.ClientCode / @alert.Hostname</a></td>
+                                    <td class="dash-nowrap"><TimeText Value="alert.OpenedAt" /></td>
+                                    @if (!Designing && AlertActions.AnyAction(Caller))
+                                    {
+                                        <td><AlertActions Alert="alert" OnChanged="OnChanged" /></td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+
+                break;
+            case DashboardTiles.RecentActivity:
+                var activity = Data as IReadOnlyList<AuditEntryView> ?? [];
+                if (activity.Count == 0)
+                {
+                    <EmptyState Icon="@Icons.Material.Outlined.History" Title="No activity yet" Text="Changes by users and the system appear here." />
+                }
+                else
+                {
+                    <table class="dash-table">
+                        <thead><tr><th>When</th><th>Who</th><th>What</th></tr></thead>
+                        <tbody>
+                            @foreach (var entry in activity)
+                            {
+                                <tr><td class="dash-nowrap"><TimeText Value="entry.Time" /></td><td>@entry.ActorName</td><td><span class="mono">@entry.Action</span></td></tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+
+                break;
+            case DashboardTiles.RecentJobs:
+                var jobs = Data as IReadOnlyList<JobListItem> ?? [];
+                if (jobs.Count == 0)
+                {
+                    <EmptyState Icon="@Icons.Material.Outlined.Terminal" Title="@(Tile.Settings.FailedOnly ? "No failed jobs" : "No jobs yet")"
+                                Text="Scripts started on endpoints appear here." />
+                }
+                else
+                {
+                    <table class="dash-table">
+                        <thead><tr><th>Started</th><th>Script</th><th>Endpoint</th><th>Result</th></tr></thead>
+                        <tbody>
+                            @foreach (var job in jobs)
+                            {
+                                <tr>
+                                    <td class="dash-nowrap"><TimeText Value="job.StartedAt ?? job.CreatedAt" /></td>
+                                    <td>@job.ScriptName</td>
+                                    <td><a href="@($"/endpoints/{job.EndpointId}")">@job.ClientCode / @job.Hostname</a></td>
+                                    <td><StatusChip Text="@Ui.JobStateLabel(job.State, job.Result, job.ExitStatus)" Kind="@Ui.JobStateKind(job.State, job.ExitStatus)" /></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+
+                break;
+            case DashboardTiles.Advisories:
+                @if (Designing)
+                {
+                    <div class="muted">The security advisories of the last 30 days.</div>
+                }
+                else
+                {
+                    <AdvisoriesPanel ShowTitle="false" />
+                }
+
+                break;
+            case DashboardTiles.OfflineList or DashboardTiles.OutOfDateList:
+                var endpoints = Data as IReadOnlyList<DashboardEndpointRow> ?? [];
+                var offline = Type.Key == DashboardTiles.OfflineList;
+                if (endpoints.Count == 0)
+                {
+                    <EmptyState Icon="@Icons.Material.Outlined.CheckCircle" Title="@(offline ? "Every endpoint is connected" : "Every agent is up to date")" />
+                }
+                else
+                {
+                    <table class="dash-table">
+                        <thead><tr><th>Endpoint</th><th>@(offline ? "Last seen" : "Agent")</th></tr></thead>
+                        <tbody>
+                            @foreach (var endpoint in endpoints)
+                            {
+                                <tr>
+                                    <td><a href="@($"/endpoints/{endpoint.Id}")">@endpoint.ClientCode / @endpoint.Hostname</a></td>
+                                    <td class="dash-nowrap">
+                                        @if (offline)
+                                        {
+                                            <TimeText Value="endpoint.LastSeenAt" Never="Never" />
+                                        }
+                                        else
+                                        {
+                                            <span class="mono">@endpoint.AgentVersion</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+
+                break;
+            case DashboardTiles.TaskRuns:
+                var runs = Data as IReadOnlyList<DashboardTaskRunRow> ?? [];
+                if (runs.Count == 0)
+                {
+                    <EmptyState Icon="@Icons.Material.Outlined.EventRepeat" Title="@(Tile.Settings.FailedOnly ? "No failed task runs" : "No running or failed task runs")" />
+                }
+                else
+                {
+                    <table class="dash-table">
+                        <thead><tr><th>Task</th><th>Endpoint</th><th>State</th></tr></thead>
+                        <tbody>
+                            @foreach (var run in runs)
+                            {
+                                <tr>
+                                    <td><a href="@($"/settings/tasks/{run.TaskId}")">@run.TaskName</a></td>
+                                    <td><a href="@($"/endpoints/{run.EndpointId}")">@run.ClientCode / @run.Hostname</a></td>
+                                    <td class="dash-nowrap">
+                                        <StatusChip Text="@(run.Failed ? "Failed" : "Running")" Kind="@(run.Failed ? StatusKind.Error : StatusKind.Active)" />
+                                        <span class="muted"> <TimeText Value="run.When" /></span>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+
+                break;
+            case DashboardTiles.ClientStatus:
+                <ClientStatusGrid Clients="@(Data as IReadOnlyList<ClientTreeItem> ?? [])" Designing="Designing" />
+                break;
+            case DashboardTiles.AlertsPerDay:
+                <AlertsPerDayChart Days="@(Data as IReadOnlyList<DailyAlerts> ?? [])" />
+                break;
+            case DashboardTiles.EndpointsChart:
+                <BarList Bars="@(Data as IReadOnlyList<ChartBar> ?? [])" Unit="endpoint" Empty="No endpoints in this scope" />
+                break;
+            case DashboardTiles.TopClients:
+                <BarList Bars="@(Data as IReadOnlyList<ChartBar> ?? [])" Unit="open alert" Severity="true" Empty="No open alerts"
+                         Href="@(Designing ? null : bar => bar.Id is { } id ? $"/clients/{id}" : null)" />
+                break;
+            case DashboardTiles.Text:
+                <div class="note-body dash-text">@NoteMarkdown.ToHtml(Tile.Settings.Text)</div>
+                break;
+        }
+    };
+}

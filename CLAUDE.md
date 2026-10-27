@@ -10,7 +10,8 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
   comments, commit messages, log messages and UI text are always in English.
 - **Current phase**: 0.7.0 (the performance monitor and the security monitor) is released (2026-10-26) and runs on the first
   test VPS, tested through `v0.7.0-alpha.1` to `alpha.13`. Next is 0.8.0 in `MD-Files/ROADMAP.md`: vulnerability reporting
-  (`MD-Files/VULNERABILITIES.md`) first, then the Proxmox web interface (`MD-Files/PROXMOX-WEB.md`, decided 2026-10-27), then
+  (`MD-Files/VULNERABILITIES.md`) first, then the Proxmox web interface (`MD-Files/PROXMOX-WEB.md`, decided 2026-10-27), then the
+  dashboard designer (`MD-Files/DASHBOARDS.md`, decided 2026-10-27, built before the rest of 0.8.0), then
   patch management on Linux (decided 2026-10-26, how and what is still to be discussed), in place of hardening, which was taken off the roadmap. The other integrations moved to "Not yet scheduled" on
   2026-09-23. Local development runs without Docker (see `README.md`); Docker is for the VPS and CI only.
 - **Git**: always ask before committing, pushing or tagging. No intermediate commits while a version is being built.
@@ -39,6 +40,7 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 | `MD-Files/PERFORMANCE.md` | The performance monitor of Fleeto (0.7.0): how the spec maps onto Fleeto, its data model and build plan. |
 | `MD-Files/VULNERABILITIES.md` | Vulnerability reporting (0.8.0): security advisories on the dashboard and CVEs on Linux endpoints, its sources, data model and build plan. |
 | `MD-Files/PROXMOX-WEB.md` | The Proxmox web interface (0.8.0): the tunnel through a remote session, Fleeto Connect, security and build plan. |
+| `MD-Files/DASHBOARDS.md` | The dashboard designer (0.8.0): dashboards linked to roles, the tile catalog, the grid, the designer and build plan. |
 
 ## Priorities (in this order)
 
@@ -190,7 +192,10 @@ UI structure:
 
 - **Dashboard**: summary tiles (endpoints online/offline, open alerts by severity, patch
   compliance, integration health, agents out of date, license usage, vulnerabilities on Linux endpoints (0.8.0), and for admins
-  instance health), the open alert list, recent jobs.
+  instance health), the open alert list, recent jobs. From 0.8.0 (decided 2026-10-27, `MD-Files/DASHBOARDS.md`) an admin designs
+  dashboards in Settings (tiles, size, place, settings per tile) and links them to roles; a user sees the first dashboard in
+  priority order linked to one of its roles, otherwise the built-in default dashboard. Tiles follow permissions and groups; a
+  dashboard never grants anything.
 - **Instance health** (0.6.0, decided 2026-09-28): the workers measure the VPS (disk, memory, CPU from /proc, shared by every
   instance on it), the database and the instance itself (stuck worker tasks, backups, notifications that do not go out)
   every 5 minutes. A problem states its cause and next step, shows on an admin-only dashboard tile and page in Settings,
@@ -213,7 +218,7 @@ UI structure:
   Clients: left, a settings panel; right, the selected page. Group **Templates** (client
   templates, monitoring templates, policies, patch policies, scripts, tasks) for every user, and the administration pages for
   admins: users and roles, groups, tags, licensing, API keys, integrations, notification channels, retention,
-  audit log, instance health, performance (0.7.0), security (0.7.0), vulnerabilities (0.8.0).
+  audit log, instance health, performance (0.7.0), security (0.7.0), vulnerabilities (0.8.0), dashboards (0.8.0).
 
 ## Licensing: per endpoint, two tiers
 
@@ -665,12 +670,16 @@ home-grown patch engine. Note them, do not build them. (File transfer inside rem
   2026-09-15; the internal name Fleetify was renamed in 0.2.1). The old name appears only in the migration code listed in
   `deploy/ci/branding-check.sh`. Run that check (`MD-Files/branding-fleeto.md` §7) before every release.
 - UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, patch policy, monitoring template, client template, integration, note, tag, task, remote control session, API key, role, permission, blocked address, allowed address, security incident, security advisory, vulnerability,
-  Proxmox web interface, Fleeto Connect).
+  Proxmox web interface, Fleeto Connect, dashboard, tile).
 - Follow the Migrify codebase conventions where they exist (project layout, EF Core patterns, MudBlazor usage, email templates).
 - **Performance monitor** (0.7.0, `MD-Files/PERFORMANCE.md`): every workers loop derives from `WorkerLoop`, which measures
   each run; a loop that does not is a review finding. Metric keys never contain values: route templates, type names and fixed
   names only, never an id, client code, host name, user, address, path or payload. Never a database write per request: record
   into `PerfRecorder`, which writes once a minute.
+- **Dashboard tiles** (0.8.0, `MD-Files/DASHBOARDS.md` §3): everything shown on the dashboard is a tile type in the catalog
+  `DashboardTiles` with its permission, sizes, settings, data source and live events, never markup in a page. A feature that adds a
+  tile decides whether `DefaultDashboard` shows it; dashboards of the instance get it only when somebody adds it. A tile reads only
+  through its own `IDashboardTileSource`, from summaries, never raw tables.
 - Tests: unit tests for domain logic, integration tests against real PostgreSQL in CI, the cross-client tests from Security, license-tier enforcement tests, signer rule tests (refused roles, tiers, unapproved scripts, expired jobs), certificate revocation tests, and the load-test scenario. New features without tests are not done, and neither are new features
   that are not in `MD-Files/API.md` or on `MD-Files/API-WAITLIST.md` (see Public API).
 - CI on GitHub Actions: build, tests, vulnerability scan, secret scan, the Fleeto grep check. A release is a tagged commit that passes CI.

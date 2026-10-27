@@ -1,0 +1,243 @@
+@* A dashboard on the screen (0.8.0, DASHBOARDS.md §4 and §6). Tiles the user may not see are left out and the rest moves up; only the
+   sources of the visible tiles are read, tiles with the same source and scope once, at most four at a time; a tile that fails shows that
+   on its own. A tile reloads only on its own live events. The grid has 12 columns, 6 on a narrower container and one below 600 pixels. *@
+@inherits FleetoPageBase
+@inject DashboardTileSources Sources
+@inject DashboardScopes Scopes
+@inject LiveUpdates Live
+@inject ILogger<DashboardView> Log
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_visible.Count == 0)
+    {
+        <EmptyState Icon="@Icons.Material.Outlined.Dashboard" Title="Nothing to show"
+                    Text="This dashboard holds no tile your roles may see. Ask an admin to change the dashboard of your role." />
+    }
+    else
+    {
+        <div class="dash-container">
+            <div class="dash-grid">
+                @foreach (var placed in _visible)
+                {
+                    var type = DashboardTiles.Find(placed.Wide.Type);
+                    var state = _states.GetValueOrDefault(placed.Wide.Id);
+                    <div class="dash-tile @(placed.Wide.Settings.HideOnSmallScreens ? "dash-hide-small" : "")" style="@Position(placed)" @key="placed.Wide.Id">
+                        <DashboardTileView Tile="placed.Wide" Type="type" Data="state?.Data" Loaded="state is { Loaded: true }" Failed="state is { Failed: true }"
+                                           Caller="Caller" OnRetry="@(() => ReloadTilesAsync(t => t.Id == placed.Wide.Id))"
+                                           OnChanged="@(() => ReloadTilesAsync(t => (DashboardTiles.Find(t.Type)?.LiveEvents ?? 0).HasFlag(TileLiveEvents.Alerts)))" />
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</LoadState>
+
+@code {
+    /// <summary>The layout to show.</summary>
+    [Parameter, EditorRequired] public DashboardLayout Layout { get; set; } = DashboardLayout.Empty;
+
+    /// <summary>The permissions to decide which tiles show; null uses those of the signed-in user. The designer previews a role with it.</summary>
+    [Parameter] public IReadOnlySet<string>? Permissions { get; set; }
+
+    private sealed record Placed(DashboardTile Wide, DashboardTile Medium, int Order);
+
+    private sealed record TileState(object? Data, bool Loaded, bool Failed);
+
+    private DashboardLayout? _shownLayout;
+    private IReadOnlySet<string>? _shownPermissions;
+    private List<DashboardTile> _candidates = [];
+    private List<Placed> _visible = [];
+    private readonly Dictionary<string, TileState> _states = new(StringComparer.Ordinal);
+    private DebouncedRefresh? _refresh;
+    private TileLiveEvents _pending;
+    private TileLiveEvents _listening;
+    private CancellationTokenSource _cancel = new();
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        _refresh = new DebouncedRefresh(() => InvokeAsync(async () =>
+        {
+            var events = _pending;
+            _pending = TileLiveEvents.None;
+            await ReloadTilesAsync(t => ((DashboardTiles.Find(t.Type)?.LiveEvents ?? 0) & events) != 0);
+        }));
+        Live.EndpointStatusChanged += OnEndpointStatus;
+        Live.AlertChanged += OnAlert;
+        Live.JobsChanged += OnJobs;
+        Live.TasksChanged += OnTasks;
+        Live.PatchDeploymentsChanged += OnPatches;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (ReferenceEquals(Layout, _shownLayout) && ReferenceEquals(Permissions, _shownPermissions))
+        {
+            return;
+        }
+
+        _shownLayout = Layout;
+        _shownPermissions = Permissions;
+        await LoadAsync(async caller =>
+        {
+            bool Has(string permission) => Permissions?.Contains(permission) ?? caller.Has(permission);
+            _candidates = Layout.Tiles
+                .Where(t => DashboardTiles.Find(t.Type) is { } type && (type.ForEveryone || DashboardTiles.CanSee(type, Has)))
+                .ToList();
+            _listening = _candidates.Aggregate(TileLiveEvents.None, (all, t) => all | DashboardTiles.Find(t.Type)!.LiveEvents);
+            _states.Clear();
+            Arrange();
+            await Task.CompletedTask;
+        });
+
+        // The grid shows at once with a skeleton per tile; each tile fills in when its source has been read.
+        if (Caller is { } signedIn && !LoadFailed)
+        {
+            StateHasChanged();
+            await RunTilesAsync(signedIn, _candidates);
+        }
+    }
+
+    /// <summary>Places the tiles that show: without the hidden and the empty ones that hide, moved up into their place.</summary>
+    private void Arrange()
+    {
+        var shown = _candidates.Where(t => !HiddenWhenEmpty(t)).ToList();
+        var wide = shown.Count == Layout.Tiles.Count ? shown : DashboardGrid.Compact(shown).ToList();
+        var medium = DashboardGrid.Narrow(wide, DashboardGrid.MediumColumns).ToDictionary(t => t.Id, StringComparer.Ordinal);
+        var order = 0;
+        _visible = wide.OrderBy(t => t.Y).ThenBy(t => t.X).Select(t => new Placed(t, medium[t.Id], order++)).ToList();
+    }
+
+    private bool HiddenWhenEmpty(DashboardTile tile)
+    {
+        if (!tile.Settings.HideWhenEmpty || _states.GetValueOrDefault(tile.Id) is not { Loaded: true } state)
+        {
+            return false;
+        }
+
+        return state.Data switch
+        {
+            null => true,
+            PatchCompliance p => p.Covered == 0,
+            System.Collections.ICollection c => c.Count == 0,
+            _ => false
+        };
+    }
+
+    private Task ReloadTilesAsync(Func<DashboardTile, bool> which) => Caller is null
+        ? Task.CompletedTask
+        : RunTilesAsync(Caller, _candidates.Where(which).ToList());
+
+    private async Task RunTilesAsync(Caller caller, List<DashboardTile> tiles)
+    {
+        if (tiles.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await LoadTilesAsync(caller, tiles);
+        }
+        catch (OperationCanceledException) when (_cancel.IsCancellationRequested)
+        {
+            // The page was left while tiles were loading.
+            return;
+        }
+        catch (Exception ex)
+        {
+            Log.LogError(ex, "Reloading dashboard tiles failed");
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task LoadTilesAsync(Caller caller, List<DashboardTile> tiles)
+    {
+        var token = _cancel.Token;
+        var resolve = await Scopes.ResolverAsync(caller, Layout.Scope, token);
+        var instance = new TileReadScope(caller, null, "instance");
+        var requests = new List<(DashboardTile Tile, TileRequest Request)>();
+        foreach (var tile in tiles)
+        {
+            var type = DashboardTiles.Find(tile.Type)!;
+            if (type.Source is null || Sources.Find(type.Source) is null)
+            {
+                _states[tile.Id] = new TileState(null, true, false);
+                continue;
+            }
+
+            var scope = type.InstanceWide ? instance : await resolve(DashboardScopes.Effective(Layout.Scope, tile.Settings));
+            requests.Add((tile, new TileRequest(type, tile.Settings, scope, DashboardTileRows.For(tile))));
+        }
+
+        using var gate = new SemaphoreSlim(4);
+        var reads = requests.GroupBy(r => Sources.ReadKey(r.Request)).Select(async group =>
+        {
+            await gate.WaitAsync(token);
+            TileState state;
+            try
+            {
+                state = new TileState(await Sources.LoadAsync(group.First().Request, token), true, false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                Log.LogError(ex, "The dashboard tile source {Source} failed", group.First().Request.Type.Source);
+                state = new TileState(null, true, true);
+            }
+            finally
+            {
+                gate.Release();
+            }
+
+            await InvokeAsync(() =>
+            {
+                foreach (var (tile, _) in group)
+                {
+                    _states[tile.Id] = state;
+                }
+
+                StateHasChanged();
+            });
+        }).ToList();
+        await Task.WhenAll(reads);
+        Arrange();
+    }
+
+    private static string Position(Placed placed) =>
+        $"--x:{placed.Wide.X};--y:{placed.Wide.Y};--w:{placed.Wide.W};--h:{placed.Wide.H};" +
+        $"--mx:{placed.Medium.X};--my:{placed.Medium.Y};--mw:{placed.Medium.W};--mh:{placed.Medium.H};--order:{placed.Order}";
+
+    private void Notify(TileLiveEvents events)
+    {
+        if ((_listening & events) == 0)
+        {
+            return;
+        }
+
+        _pending |= events;
+        _refresh?.Trigger();
+    }
+
+    private void OnEndpointStatus(Guid _) => Notify(TileLiveEvents.EndpointStatus);
+    private void OnAlert(Guid _) => Notify(TileLiveEvents.Alerts);
+    private void OnJobs(Guid _) => Notify(TileLiveEvents.Jobs);
+    private void OnTasks(Guid _) => Notify(TileLiveEvents.Tasks);
+    private void OnPatches(Guid _) => Notify(TileLiveEvents.PatchDeployments);
+
+    public override void Dispose()
+    {
+        Live.EndpointStatusChanged -= OnEndpointStatus;
+        Live.AlertChanged -= OnAlert;
+        Live.JobsChanged -= OnJobs;
+        Live.TasksChanged -= OnTasks;
+        Live.PatchDeploymentsChanged -= OnPatches;
+        _cancel.Cancel();
+        _refresh?.Dispose();
+        base.Dispose();
+    }
+}

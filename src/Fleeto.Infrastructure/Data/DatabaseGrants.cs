@@ -43,6 +43,12 @@ public static class DatabaseGrants
             ["UserGroupRules"] = Grants(web: ReadWrite, signer: Read),
 
             ["Clients"] = Grants(web: ReadWrite, signer: Read, workers: Read),
+
+            // Dashboards (0.8.0): designed and shown by web only. The workers count alerts per client and day for the charts.
+            ["Dashboards"] = Grants(web: ReadWrite),
+            ["DashboardRoles"] = Grants(web: ReadWrite),
+            ["DashboardVersions"] = Grants(web: ReadWrite),
+            ["DashboardDailyCounts"] = Grants(web: Read, workers: ReadWrite),
             // Tags on clients (0.6.0): only the UI and the public API read them.
             ["Tags"] = Grants(web: ReadWrite),
             ["ClientTags"] = Grants(web: ReadWrite),

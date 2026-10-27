@@ -68,6 +68,9 @@ public static class WebServiceRegistration
         services.AddScoped<SetupService>();
 
         services.AddSingleton<DashboardService>();
+        services.AddSingleton<DashboardTileSources>();
+        services.AddSingleton<DashboardScopes>();
+        services.AddSingleton<DashboardDesignService>();
         services.AddSingleton<InstanceHealthService>();
         services.AddSingleton<ClientService>();
         services.AddSingleton<TagService>();

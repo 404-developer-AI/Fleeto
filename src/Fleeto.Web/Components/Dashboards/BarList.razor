@@ -1,0 +1,66 @@
+@* A horizontal bar chart of one measure (0.8.0): a label, a bar on one scale from zero, and the value as text. With Severity the bar is
+   split into its critical and warning part, in the status colors, with a legend. Each bar carries its numbers as a tooltip. *@
+
+@if (Bars.Count == 0)
+{
+    <EmptyState Icon="@Icons.Material.Outlined.BarChart" Title="@Empty" />
+}
+else
+{
+    var max = Math.Max(1, Bars.Max(b => b.Value));
+    @if (Severity)
+    {
+        <div class="chart-legend">
+            <span><i class="chart-swatch chart-critical"></i>Critical</span>
+            <span><i class="chart-swatch chart-warning"></i>Warning</span>
+        </div>
+    }
+    <div class="bar-list" role="table" aria-label="@Unit counts">
+        @foreach (var bar in Bars)
+        {
+            var href = Href?.Invoke(bar);
+            var tip = Severity ? $"{bar.Label}: {bar.Critical} critical, {bar.Value - bar.Critical} warning" : $"{bar.Label}: {Ui.Count(bar.Value, Unit)}";
+            <div class="bar-row" role="row" title="@tip">
+                <span class="bar-label" role="cell">
+                    @if (href is not null)
+                    {
+                        <a href="@href">@bar.Label</a>
+                    }
+                    else
+                    {
+                        @bar.Label
+                    }
+                </span>
+                <span class="bar-track" role="cell">
+                    @if (Severity)
+                    {
+                        @if (bar.Critical > 0)
+                        {
+                            <span class="bar-fill chart-critical" style="width:@Percent(bar.Critical, max)"></span>
+                        }
+                        @if (bar.Value - bar.Critical > 0)
+                        {
+                            <span class="bar-fill chart-warning" style="width:@Percent(bar.Value - bar.Critical, max)"></span>
+                        }
+                    }
+                    else
+                    {
+                        <span class="bar-fill chart-primary" style="width:@Percent(bar.Value, max)"></span>
+                    }
+                </span>
+                <span class="bar-value" role="cell">@bar.Value</span>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<ChartBar> Bars { get; set; } = [];
+    [Parameter, EditorRequired] public string Unit { get; set; } = string.Empty;
+    [Parameter] public bool Severity { get; set; }
+    [Parameter] public string Empty { get; set; } = "Nothing to show";
+    [Parameter] public Func<ChartBar, string?>? Href { get; set; }
+
+    private static string Percent(int value, int max) =>
+        (value * 100d / max).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "%";
+}

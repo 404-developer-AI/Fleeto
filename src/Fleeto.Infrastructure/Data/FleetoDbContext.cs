@@ -176,6 +176,10 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
 
     /// <summary>The permissions of every role (0.6.0).</summary>
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
+    public DbSet<Dashboard> Dashboards => Set<Dashboard>();
+    public DbSet<DashboardRole> DashboardRoles => Set<DashboardRole>();
+    public DbSet<DashboardVersion> DashboardVersions => Set<DashboardVersion>();
+    public DbSet<DashboardDailyCount> DashboardDailyCounts => Set<DashboardDailyCount>();
 
     // Evaluated per query by EF Core (context members become query parameters).
     private bool ScopeAllClients => _scope.AllClients;
@@ -222,6 +226,44 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasOne<ApplicationRole>().WithMany().HasForeignKey(p => p.RoleId).OnDelete(DeleteBehavior.Cascade);
             // The signer asks which users hold a permission.
             entity.HasIndex(p => p.Permission);
+        });
+
+        // Dashboards (0.8.0): of the instance, linked to roles; the layout holds no data of a client.
+        builder.Entity<Dashboard>(entity =>
+        {
+            entity.Property(d => d.Name).HasMaxLength(Core.Dashboards.DashboardRules.MaxNameLength);
+            entity.Property(d => d.Description).HasMaxLength(Core.Dashboards.DashboardRules.MaxDescriptionLength);
+            entity.Property(d => d.PublishedLayout).HasColumnType("jsonb");
+            entity.Property(d => d.DraftLayout).HasColumnType("jsonb");
+            entity.Property(d => d.PublishedBy).HasMaxLength(200);
+            entity.Property(d => d.UpdatedBy).HasMaxLength(200);
+            entity.HasIndex(d => d.Name).IsUnique();
+            entity.HasIndex(d => d.Priority).IsUnique();
+            entity.HasMany(d => d.Roles).WithOne().HasForeignKey(r => r.DashboardId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<DashboardRole>(entity =>
+        {
+            entity.HasKey(r => new { r.DashboardId, r.RoleId });
+            entity.HasOne<ApplicationRole>().WithMany().HasForeignKey(r => r.RoleId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(r => r.RoleId);
+        });
+
+        builder.Entity<DashboardVersion>(entity =>
+        {
+            entity.HasKey(v => new { v.DashboardId, v.Version });
+            entity.Property(v => v.Layout).HasColumnType("jsonb");
+            entity.Property(v => v.PublishedBy).HasMaxLength(200);
+            entity.HasOne<Dashboard>().WithMany().HasForeignKey(v => v.DashboardId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Alerts opened per client and day (0.8.0), counted by the workers for the dashboard charts.
+        builder.Entity<DashboardDailyCount>(entity =>
+        {
+            entity.HasKey(c => new { c.ClientId, c.Day });
+            entity.HasOne<Client>().WithMany().HasForeignKey(c => c.ClientId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(c => c.Day);
+            ClientOwned(entity);
         });
 
         // Groups of users (0.6.0): instance-wide, managed by admins, never filtered by the scope they define.

@@ -1,0 +1,78 @@
+@* The scope of a dashboard or a tile (0.8.0, DASHBOARDS.md §3): every client, chosen clients, chosen sites or clients with a tag, and
+   optionally only servers or workstations. A scope only narrows what the groups of the user give. *@
+
+<MudSelect T="TileScopeMode" Value="Scope.Mode" ValueChanged="SetModeAsync" Label="Scope" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2">
+    @if (!OnDashboard)
+    {
+        <MudSelectItem T="TileScopeMode" Value="TileScopeMode.Dashboard">Follow the dashboard</MudSelectItem>
+    }
+    <MudSelectItem T="TileScopeMode" Value="TileScopeMode.All">Every client</MudSelectItem>
+    <MudSelectItem T="TileScopeMode" Value="TileScopeMode.Clients">Chosen clients</MudSelectItem>
+    <MudSelectItem T="TileScopeMode" Value="TileScopeMode.Sites">Chosen sites</MudSelectItem>
+    <MudSelectItem T="TileScopeMode" Value="TileScopeMode.Tags">Clients with a tag</MudSelectItem>
+</MudSelect>
+
+@switch (Scope.Mode)
+{
+    case TileScopeMode.Clients:
+        <MudSelect T="Guid" MultiSelection="true" SelectedValues="Scope.ClientIds" SelectedValuesChanged="@(ids => SetIdsAsync(ids, null, null))"
+                   Label="Clients" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2" ToStringFunc="@ClientName">
+            @foreach (var client in Choices.Clients)
+            {
+                <MudSelectItem T="Guid" Value="client.Id">@client.Code · @client.Name</MudSelectItem>
+            }
+        </MudSelect>
+        break;
+    case TileScopeMode.Sites:
+        <MudSelect T="Guid" MultiSelection="true" SelectedValues="Scope.SiteIds" SelectedValuesChanged="@(ids => SetIdsAsync(null, ids, null))"
+                   Label="Sites" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2" ToStringFunc="@SiteName">
+            @foreach (var site in Choices.Sites)
+            {
+                <MudSelectItem T="Guid" Value="site.Id">@ClientCode(site.ClientId) · @site.Name</MudSelectItem>
+            }
+        </MudSelect>
+        break;
+    case TileScopeMode.Tags:
+        <MudSelect T="Guid" MultiSelection="true" SelectedValues="Scope.TagIds" SelectedValuesChanged="@(ids => SetIdsAsync(null, null, ids))"
+                   Label="Tags" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2" ToStringFunc="@TagName">
+            @foreach (var tag in Choices.Tags)
+            {
+                <MudSelectItem T="Guid" Value="tag.Id">@tag.Name</MudSelectItem>
+            }
+        </MudSelect>
+        break;
+}
+
+@if (ShowClass)
+{
+    <MudSelect T="EndpointClass?" Value="Scope.Class" ValueChanged="SetClassAsync" Label="Endpoints" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2">
+        <MudSelectItem T="EndpointClass?" Value="null">@(Scope.Mode == TileScopeMode.Dashboard ? "As the dashboard" : "Servers and workstations")</MudSelectItem>
+        <MudSelectItem T="EndpointClass?" Value="EndpointClass.Server">Servers only</MudSelectItem>
+        <MudSelectItem T="EndpointClass?" Value="EndpointClass.Workstation">Workstations only</MudSelectItem>
+    </MudSelect>
+}
+
+@code {
+    [Parameter, EditorRequired] public TileScope Scope { get; set; } = TileScope.Everything;
+    [Parameter, EditorRequired] public DashboardScopeChoices Choices { get; set; } = new([], [], []);
+    [Parameter] public bool OnDashboard { get; set; }
+    [Parameter] public bool ShowClass { get; set; }
+    [Parameter] public EventCallback<TileScope> ScopeChanged { get; set; }
+
+    private Task SetModeAsync(TileScopeMode mode) => ScopeChanged.InvokeAsync(Scope with { Mode = mode });
+
+    private Task SetClassAsync(EndpointClass? cls) => ScopeChanged.InvokeAsync(Scope with { Class = cls });
+
+    private Task SetIdsAsync(IEnumerable<Guid>? clients, IEnumerable<Guid>? sites, IEnumerable<Guid>? tags) =>
+        ScopeChanged.InvokeAsync(Scope with
+        {
+            ClientIds = clients?.ToList() ?? Scope.ClientIds,
+            SiteIds = sites?.ToList() ?? Scope.SiteIds,
+            TagIds = tags?.ToList() ?? Scope.TagIds
+        });
+
+    private string ClientCode(Guid id) => Choices.Clients.FirstOrDefault(c => c.Id == id)?.Code ?? "?";
+    private string ClientName(Guid id) => Choices.Clients.FirstOrDefault(c => c.Id == id) is { } c ? c.Code : "A deleted client";
+    private string SiteName(Guid id) => Choices.Sites.FirstOrDefault(s => s.Id == id) is { Name: not null } s ? $"{ClientCode(s.ClientId)} · {s.Name}" : "A deleted site";
+    private string TagName(Guid id) => Choices.Tags.FirstOrDefault(t => t.Id == id)?.Name ?? "A deleted tag";
+}

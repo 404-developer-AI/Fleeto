@@ -150,6 +150,10 @@ AuditEntry (append-only)
 | **RemoteSession** | `Id`, `ClientId`, `EndpointId`, `Kind` (`RemoteControl`/`RemoteBackground`), `Component` (`agent`/`watchdog`, the serving service), `StartedByUserId`, `StartedByName`, `Reason?`, `CreatedAt`, `StartedAt?`, `EndedAt?`, `EndReason?` | Every session (0.3.0), whether it connected or not. Kept 13 months, then removed with its participants and actions; the audit log keeps its own entries. |
 | **RemoteSessionParticipant** | `Id`, `SessionId`, `ClientId`, `EndpointId`, `UserId`, `UserName`, `Reason?`, `State` (`Requested`, `Signed`, `Connecting`, `Connected`, `Ended`, `Refused`, `Failed`), `BrowserPublicKey` (32 bytes, check constraint), `TokenPayload?`, `TokenSignature?`, `SigningKeyId?`, `SignedAt?`, `ValidUntil?`, `IpAddress?`, `CreatedAt`, `ConnectingAt?`, `ConnectedAt?`, `EndedAt?`, `EndReason?`, `RevokedAt?` | One technician's connection to a session, with its own single-use token (§4 Remote session). `ConnectingAt` needs a signature (check constraint). Web writes it, the signer signs it, the gateway claims, connects and ends it, the workers end what never connected. `RevokedAt` (0.6.0): web found that the user may no longer reach the endpoint (a group changed); the signer refuses it, the gateway no longer claims it and ends the connection. |
 | **RemoteSessionClaim** | `Id`, `ClientId`, `EndpointId`, `UserId`, `UserName`, `Reason?`, `SecretHash` (32 bytes), `CreatedAt`, `ExpiresAt`, `ClaimedAt?`, `ClaimedFrom?`, `ClaimedBy?`, `Problem?` | The Proxmox web interface (0.8.0, `PROXMOX-WEB.md`): a session that waits for Fleeto Connect. The secret of the fleeto-connect: link, stored as its SHA-256, is claimed once within 50 seconds; only then are the `RemoteSession` (kind `ProxmoxWeb`) and the participant, with the id of the claim and the key of Fleeto Connect, written. Web writes it; the workers remove it after a day. |
+| **Dashboard** | `Id`, `Name` (unique), `Description?`, `Priority` (unique), `PublishedLayout?` (jsonb), `DraftLayout?` (jsonb), `PublishedVersion`, `PublishedAt?`, `PublishedBy?`, `CreatedAt`, `UpdatedAt`, `UpdatedBy?` | A dashboard of the instance (0.8.0, `DASHBOARDS.md`), designed in Settings. The layout holds tiles of the catalog and their settings, never data; tile scopes name clients, sites and tags by id. Only web reads and writes it. |
+| **DashboardRole** | `DashboardId`, `RoleId` | A role whose users see the dashboard; the first published dashboard in priority order linked to one of a user's roles is the one it sees (`DashboardRules.Pick`). |
+| **DashboardVersion** | `DashboardId`, `Version`, `Layout` (jsonb), `PublishedAt`, `PublishedBy` | A published layout; web keeps the last 20, so one can be made the draft again. |
+| **DashboardDailyCount** | `ClientId`, `Day` (UTC date), `Warning`, `Critical`, `CountedAt` | Alerts opened per client and day for the dashboard charts, counted by the workers every 10 minutes (`DashboardCountService`) and kept 400 days, also after the alerts are gone. Client-owned. |
 | **RemoteSessionAction** | `Id`, `SessionId`, `ParticipantId?`, `ClientId`, `EndpointId`, `Time`, `Action`, `Target`, `Detail?` | An action inside a remote background session as the endpoint reports it (file, service or process action with its target; written from 0.3.0 step 2). Terminal content is never stored. |
 | **CheckResult** | `Time` (ingest), `ClientId`, `EndpointId`, `CheckDefinitionId`, `Status`, `Value`, `Payload`, `ProcessesJson?` | TimescaleDB hypertable, compressed, retention policy. Deduplicated per endpoint and agent batch sequence number. `ProcessesJson` (0.6.0): the process list of a CPU or memory usage result, null for every other result; a partial index covers the rows that have one. Holds user names (personal data), kept as long as the raw results. |
 | **Alert** | `Id`, `ClientId`, `EndpointId`, `CheckDefinitionId`, `Severity`, `State`, `AcknowledgedBy`, `HeldUntil?`, `HeldAt?`, `HeldBy?`, timestamps | Deduplicated per endpoint and check. On hold while `HeldUntil` is in the future (§4, Alert hold). |
@@ -1881,6 +1885,31 @@ in `VULNERABILITIES.md` §2). Instance-wide, never matched to endpoints.
   advisory); the audit entry `advisory.handled` holds the length of the comment, never its text.
 - **Retention**: 13 months after publication, the handling with it. Web reads the advisories and their sources and inserts a
   handling; only the workers write the rest.
+
+### Dashboards (0.8.0)
+
+Dashboards an admin designs and links to roles (design, decisions and build plan in `DASHBOARDS.md`). A dashboard is a layout, not a
+permission: it decides how a role's users see things laid out, never what they may see.
+
+- **Catalog** (`Fleeto.Core.Dashboards.DashboardTiles`): every tile type with its key, the permissions it needs, its sizes, the settings it
+  offers, its data source and the live events after which it reloads. The built-in default dashboard is code (`DefaultDashboard`).
+- **Placement** (`DashboardGrid`): 12 columns, no overlap, push down and pull up; the designer script (`wwwroot/js/dashboard-grid.mjs`)
+  only proposes a cell, the server places the tile and renders every position. The medium (6 columns) layout is computed by the same
+  class; the small layout stacks the tiles in reading order with CSS.
+- **Validation** (`DashboardRules.Validate`) on every save, publish and import: known tile types (an unknown one is kept on save and
+  skipped on screen, so an image rollback loses nothing; an import refuses it), sizes and places inside the grid, no overlap, at most
+  60 tiles, settings of the right type and range (cleared when the type does not offer them), link tiles to a path of Fleeto or an
+  https address only, text tiles of at most 4,000 characters rendered through the sanitizing markdown of notes. Scopes keep only
+  clients, sites and tags that exist (`KeepExistingAsync`).
+- **Showing** (`DashboardView`): tiles the viewer's permissions do not allow are left out and the rest pulled up; each visible tile
+  asks its source (`DashboardTileSources`), with the caller's own scope narrowed by the tile scope (`DashboardScopes`, an
+  `AccessScope` intersected with the groups), so every query filter applies as for any page. Tiles with the same source and scope share
+  one read, at most four reads run at once, a failing tile shows that on its own, and each read is measured by the performance monitor
+  as `tile:<source>`. Instance-wide tiles (licenses, instance health, security, backups) ignore scopes and need their own
+  administration permission, except Backups, which every user sees as before.
+- **Designing** needs `dashboards.manage` (administration, so only for a user whose groups give every client). Changes are a draft
+  until published; creating, changing, publishing, importing, deleting and reordering are audited, never the text of a text tile.
+  The expiring-credential warnings stay above every dashboard and are not a tile.
 
 ### Vulnerabilities on Linux endpoints (0.8.0)
 

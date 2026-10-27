@@ -21,6 +21,7 @@ public static class SettingsPages
         new("/settings/users", Icons.Material.Outlined.People, "Users", Permissions.UsersManage, true),
         new("/settings/roles", Icons.Material.Outlined.Badge, "Roles", Permissions.RolesManage, true),
         new("/settings/groups", Icons.Material.Outlined.Groups, "Groups", Permissions.GroupsManage, true),
+        new("/settings/dashboards", Icons.Material.Outlined.Dashboard, "Dashboards", Permissions.DashboardsManage, true),
         new("/settings/sign-in", Icons.Material.Outlined.Login, "Sign-in", Permissions.SignInManage, true),
         new("/settings/tags", Icons.Material.Outlined.Sell, "Tags", Permissions.TagsManage, true),
         new("/settings/licensing", Icons.Material.Outlined.WorkspacePremium, "Licensing", Permissions.LicensingManage, true),

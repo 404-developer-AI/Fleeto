@@ -23,9 +23,10 @@ Markers: [done] built and tested, [open] still to do.
 
 ## 0.8.0 — Vulnerability reporting, the Proxmox web interface and patch management on Linux
 
-Replaces hardening as 0.8.0 (decided 2026-10-26; hardening was taken off the roadmap). Three parts, in this order (decided
-2026-10-26, the Proxmox web interface added 2026-10-27): vulnerability reporting, designed in `VULNERABILITIES.md`, the Proxmox web
-interface, designed in `PROXMOX-WEB.md`, then patch management on Linux, of which how and what is discussed with the developer
+Replaces hardening as 0.8.0 (decided 2026-10-26; hardening was taken off the roadmap). Four parts, in this order (decided
+2026-10-26, the Proxmox web interface and the dashboard designer added 2026-10-27): vulnerability reporting, designed in
+`VULNERABILITIES.md`, the Proxmox web interface, designed in `PROXMOX-WEB.md`, the dashboard designer, designed in `DASHBOARDS.md`,
+then patch management on Linux, of which how and what is discussed with the developer
 before anything is built.
 
 - [open] Vulnerability reporting (`VULNERABILITIES.md`): security advisories of the CCB on the dashboard, and the CVEs that
@@ -51,6 +52,10 @@ before anything is built.
   Firefox, a VM console and an ISO upload (`PROXMOX-WEB.md` §7).
 - [open] A code signing certificate for Fleeto Connect on Windows. Until Steaan has one, SmartScreen warns on its first run; its
   integrity comes from the signed release manifest (decided 2026-10-27).
+- [open] Dashboard designer (`DASHBOARDS.md`, decided 2026-10-27, built before the rest of 0.8.0): dashboards an admin designs
+  in Settings, with tiles of a catalog in code, their size, place and settings, linked to roles; a user sees the first dashboard in
+  priority order linked to one of its roles, otherwise the built-in default dashboard. Built 2026-10-27 for `v0.8.0-alpha.7`; still to
+  test in a browser on the test VPS (`DASHBOARDS.md` §9 step 7).
 - [open] Patch management on Linux (planned as 0.4.1, moved to "Not yet scheduled" on 2026-09-23, scheduled as 0.8.0 on
   2026-10-26). Until it is built a Linux endpoint shows no patch data at all and stays out of the compliance counts, because
   calling it uncovered would be untrue.

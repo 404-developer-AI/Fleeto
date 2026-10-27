@@ -1,0 +1,180 @@
+@* The settings of one tile in the designer (0.8.0, DASHBOARDS.md §3): only those its type offers (TileOptions). Every change is sent as
+   a new tile; the designer checks and saves it. *@
+
+@{
+    var type = DashboardTiles.Find(Tile.Type);
+    var s = Tile.Settings;
+}
+<div class="d-flex align-center justify-space-between mb-1">
+    <MudText Typo="Typo.subtitle2">@(type?.Name ?? "Tile of a newer version")</MudText>
+    <MudIconButton Icon="@Icons.Material.Outlined.Close" Size="Size.Small" aria-label="Close the settings of the tile" OnClick="OnClose" />
+</div>
+@if (type is null)
+{
+    <MudText Typo="Typo.body2" Class="muted mb-3">This tile comes from a newer version of Fleeto. It is kept as it is; you can move or remove it.</MudText>
+}
+else
+{
+    <MudText Typo="Typo.body2" Class="muted mb-3">@type.Description</MudText>
+
+    @if (type.Key != DashboardTiles.Text)
+    {
+        <MudTextField T="string" Value="s.Title" ValueChanged="@(v => Set(s with { Title = v }))" Label="@(type.Key == DashboardTiles.Heading ? "Heading" : "Title")"
+                      Placeholder="@(type.Key == DashboardTiles.Link ? "The address" : type.Name)" MaxLength="DashboardRules.MaxTitleLength"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2" />
+    }
+
+    <div class="d-flex gap-2 mb-2">
+        <MudNumericField T="int" Value="Tile.W" ValueChanged="@(w => Resize(w, Tile.H))" Label="Width" Min="type.Min.W" Max="Math.Min(type.Max.W, DashboardGrid.Columns)"
+                         Variant="Variant.Outlined" Margin="Margin.Dense" HelperText="@($"{type.Min.W} to {Math.Min(type.Max.W, DashboardGrid.Columns)} columns")" />
+        <MudNumericField T="int" Value="Tile.H" ValueChanged="@(h => Resize(Tile.W, h))" Label="Height" Min="type.Min.H" Max="type.Max.H"
+                         Variant="Variant.Outlined" Margin="Margin.Dense" HelperText="@($"{type.Min.H} to {type.Max.H} rows")" />
+    </div>
+
+    @if (type.Has(TileOptions.Url))
+    {
+        <MudTextField T="string" Value="s.Url" ValueChanged="@(v => Set(s with { Url = v }))" Label="Address" Placeholder="/alerts or https://…"
+                      HelperText="A page of Fleeto, such as /alerts, or an https address (opens in a new tab)." MaxLength="DashboardRules.MaxUrlLength"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2" />
+    }
+
+    @if (type.Has(TileOptions.Text))
+    {
+        <MudTextField T="string" Value="s.Text" ValueChanged="@(v => Set(s with { Text = v }))" Label="Text" Lines="8" MaxLength="DashboardRules.MaxTextLength"
+                      HelperText="Markdown: headings, lists, links and tables. No HTML and no images." Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2" />
+    }
+
+    @if (type.Has(TileOptions.Severity))
+    {
+        <MudSelect T="AlertSeverity?" Value="s.Severity" ValueChanged="@(v => Set(s with { Severity = v }))" Label="Severity" Variant="Variant.Outlined"
+                   Margin="Margin.Dense" Class="mb-2">
+            <MudSelectItem T="AlertSeverity?" Value="null">Critical and warning</MudSelectItem>
+            <MudSelectItem T="AlertSeverity?" Value="AlertSeverity.Critical">Critical only</MudSelectItem>
+            <MudSelectItem T="AlertSeverity?" Value="AlertSeverity.Warning">Warning only</MudSelectItem>
+        </MudSelect>
+    }
+
+    @if (type.Has(TileOptions.AlertKinds))
+    {
+        <MudSelect T="AlertKind" MultiSelection="true" SelectedValues="@(s.AlertKinds ?? [])" Label="Kinds of alert" Placeholder="Every kind"
+                   SelectedValuesChanged="@(v => Set(s with { AlertKinds = v.ToList() }))" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2"
+                   ToStringFunc="@KindName">
+            @foreach (var kind in Enum.GetValues<AlertKind>())
+            {
+                <MudSelectItem T="AlertKind" Value="kind">@KindName(kind)</MudSelectItem>
+            }
+        </MudSelect>
+    }
+
+    @if (type.Has(TileOptions.IncludeHeld))
+    {
+        <MudSwitch T="bool" Value="s.IncludeHeld" ValueChanged="@(v => Set(s with { IncludeHeld = v }))" Color="Color.Primary" Label="Include alerts on hold" />
+    }
+
+    @if (type.Has(TileOptions.Tier))
+    {
+        <MudSelect T="EndpointTier?" Value="s.Tier" ValueChanged="@(v => Set(s with { Tier = v }))" Label="Tier" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2">
+            <MudSelectItem T="EndpointTier?" Value="null">Managed and agent-only</MudSelectItem>
+            <MudSelectItem T="EndpointTier?" Value="EndpointTier.Managed">Managed only</MudSelectItem>
+            <MudSelectItem T="EndpointTier?" Value="EndpointTier.AgentOnly">Agent-only only</MudSelectItem>
+        </MudSelect>
+    }
+
+    @if (type.Has(TileOptions.FailedOnly))
+    {
+        <MudSwitch T="bool" Value="s.FailedOnly" ValueChanged="@(v => Set(s with { FailedOnly = v }))" Color="Color.Primary" Label="Failed only" />
+    }
+
+    @if (type.Has(TileOptions.Days))
+    {
+        <MudSelect T="int?" Value="s.Days" ValueChanged="@(v => Set(s with { Days = v }))" Label="Period" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2">
+            @foreach (var days in DashboardRules.ChartDays)
+            {
+                <MudSelectItem T="int?" Value="days">Last @days days</MudSelectItem>
+            }
+        </MudSelect>
+    }
+
+    @if (type.Has(TileOptions.Grouping))
+    {
+        <MudSelect T="EndpointGrouping?" Value="s.Grouping" ValueChanged="@(v => Set(s with { Grouping = v }))" Label="Group by" Variant="Variant.Outlined"
+                   Margin="Margin.Dense" Class="mb-2">
+            <MudSelectItem T="EndpointGrouping?" Value="EndpointGrouping.OperatingSystem">Operating system</MudSelectItem>
+            <MudSelectItem T="EndpointGrouping?" Value="EndpointGrouping.Class">Server or workstation</MudSelectItem>
+            <MudSelectItem T="EndpointGrouping?" Value="EndpointGrouping.Tier">Managed or agent-only</MudSelectItem>
+        </MudSelect>
+    }
+
+    @if (type.Has(TileOptions.ThresholdsAbove) || type.Has(TileOptions.ThresholdsBelow))
+    {
+        var below = type.Has(TileOptions.ThresholdsBelow);
+        <MudText Typo="Typo.caption" Class="muted d-block mt-2 mb-1">
+            @(below ? "The tile turns warning or critical at this value or lower." : "The tile turns warning or critical from this value.") Empty uses the state of what it shows.
+        </MudText>
+        <div class="d-flex gap-2 mb-2">
+            <MudNumericField T="int?" Value="s.Warning" ValueChanged="@(v => Set(s with { Warning = v }))" Label="Warning" Min="0" Max="DashboardRules.MaxThreshold"
+                             Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" />
+            <MudNumericField T="int?" Value="s.Critical" ValueChanged="@(v => Set(s with { Critical = v }))" Label="Critical" Min="0" Max="DashboardRules.MaxThreshold"
+                             Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" />
+        </div>
+    }
+
+    @if (type.Has(TileOptions.Scope))
+    {
+        <MudText Typo="Typo.subtitle2" Class="mt-3 mb-2">Scope</MudText>
+        <DashboardScopeEditor Scope="@(s.Scope ?? TileScope.FollowDashboard)" Choices="Choices" ShowClass="type.Has(TileOptions.Class)"
+                              ScopeChanged="@(v => Set(s with { Scope = v }))" />
+    }
+    else if (type.Kind != TileKind.Content)
+    {
+        <MudText Typo="Typo.caption" Class="muted d-block mt-2">This tile is of the instance as a whole: it has no scope.</MudText>
+    }
+
+    <MudText Typo="Typo.subtitle2" Class="mt-3 mb-2">Look</MudText>
+    <div class="tag-list mb-2" role="radiogroup" aria-label="Accent">
+        <TagChip Name="None" Color="TagColor.Gray" Active="@(s.Accent is null)" Title="No accent" OnClick="() => Set(s with { Accent = null })" />
+        @foreach (var color in TagRules.Palette)
+        {
+            <TagChip Name="@color.ToString()" Color="color" Active="@(s.Accent == color)" Title="@($"Accent {color.ToString().ToLowerInvariant()}")"
+                     OnClick="() => Set(s with { Accent = color })" />
+        }
+    </div>
+    @if (type.Has(TileOptions.HideWhenEmpty))
+    {
+        <MudSwitch T="bool" Value="s.HideWhenEmpty" ValueChanged="@(v => Set(s with { HideWhenEmpty = v }))" Color="Color.Primary" Label="Hide while there is nothing to show" />
+    }
+    <MudSwitch T="bool" Value="s.HideOnSmallScreens" ValueChanged="@(v => Set(s with { HideOnSmallScreens = v }))" Color="Color.Primary" Label="Hide on small screens" />
+}
+
+<div class="d-flex gap-2 mt-4">
+    @if (type is not null)
+    {
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.ContentCopy" OnClick="OnDuplicate" Size="Size.Small">Duplicate</MudButton>
+    }
+    <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Outlined.Delete" OnClick="OnRemove" Size="Size.Small">Remove</MudButton>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public DashboardTile Tile { get; set; } = default!;
+    [Parameter, EditorRequired] public DashboardScopeChoices Choices { get; set; } = new([], [], []);
+    [Parameter] public EventCallback<DashboardTile> OnChange { get; set; }
+    [Parameter] public EventCallback OnRemove { get; set; }
+    [Parameter] public EventCallback OnDuplicate { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private Task Set(TileSettings settings) => OnChange.InvokeAsync(Tile with { Settings = settings });
+
+    private Task Resize(int w, int h) => OnChange.InvokeAsync(Tile with { W = w, H = h });
+
+    private static string KindName(AlertKind kind) => kind switch
+    {
+        AlertKind.Check => "Checks",
+        AlertKind.Offline => "Offline",
+        AlertKind.DuplicateIdentity => "Duplicate identity",
+        AlertKind.AgentStopped => "Agent stopped",
+        AlertKind.WatchdogStopped => "Watchdog stopped",
+        AlertKind.PatchState => "Patch state",
+        AlertKind.Task => "Tasks",
+        _ => kind.ToString()
+    };
+}

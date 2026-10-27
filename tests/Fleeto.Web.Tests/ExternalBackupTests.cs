@@ -33,7 +33,7 @@ public sealed class ExternalBackupTests
             Assert.True(_fixture.Database.Bus.PayloadsFor(NotificationChannels.InstanceHealth).Count > measured);
 
             Assert.Equal("Veeam, daily image of the VPS", (await settings.GetBackupAsync(admin)).ExternalDescription);
-            Assert.Equal("Veeam, daily image of the VPS", (await dashboard.GetAsync(admin)).Backups.ExternalDescription);
+            Assert.Equal("Veeam, daily image of the VPS", (await dashboard.GetBackupsAsync()).ExternalDescription);
             var now = await settings.RequestBackupNowAsync(admin);
             Assert.False(now.Success);
             Assert.Contains("outside Fleeto", now.Problem);
@@ -47,6 +47,6 @@ public sealed class ExternalBackupTests
         }
 
         Assert.Null((await settings.GetBackupAsync(admin)).ExternalDescription);
-        Assert.Null((await dashboard.GetAsync(admin)).Backups.ExternalDescription);
+        Assert.Null((await dashboard.GetBackupsAsync()).ExternalDescription);
     }
 }

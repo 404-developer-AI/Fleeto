@@ -71,6 +71,7 @@ public static class WorkersServiceCollectionExtensions
         services.AddHostedService<AutomationTaskService>();
         services.AddHostedService<RemoteSessionMaintenanceService>();
         services.AddHostedService<AlertHoldService>();
+        services.AddHostedService<Dashboards.DashboardCountService>();
         services.AddHostedService<EndpointHealthService>();
         services.AddHostedService<EndpointEventService>();
         services.AddHostedService<MaintenanceExpiryService>();

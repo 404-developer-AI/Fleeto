@@ -1,0 +1,39 @@
+@* Alerts opened per day (0.8.0): one column per day from a zero baseline, critical stacked on warning in the status colors, with a legend
+   and the numbers of each day as a tooltip. The first and last day are labeled below. *@
+
+@if (Days.Count == 0 || Days.All(d => d.Warning + d.Critical == 0))
+{
+    <EmptyState Icon="@Icons.Material.Outlined.StackedBarChart" Title="No alerts opened in this period" />
+}
+else
+{
+    var max = Math.Max(1, Days.Max(d => d.Warning + d.Critical));
+    <div class="chart-legend">
+        <span><i class="chart-swatch chart-critical"></i>Critical</span>
+        <span><i class="chart-swatch chart-warning"></i>Warning</span>
+        <span class="muted">most on one day: @max</span>
+    </div>
+    <div class="day-chart" role="img" aria-label="@($"Alerts opened per day over {Days.Count} days, at most {max} on one day")">
+        @foreach (var day in Days)
+        {
+            <div class="day-column" title="@($"{day.Day:d MMM yyyy}: {day.Critical} critical, {day.Warning} warning")">
+                @if (day.Critical > 0)
+                {
+                    <span class="day-fill chart-critical" style="height:@Percent(day.Critical, max)"></span>
+                }
+                @if (day.Warning > 0)
+                {
+                    <span class="day-fill chart-warning" style="height:@Percent(day.Warning, max)"></span>
+                }
+            </div>
+        }
+    </div>
+    <div class="day-axis"><span>@Days[0].Day.ToString("d MMM")</span><span>@Days[^1].Day.ToString("d MMM")</span></div>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<DailyAlerts> Days { get; set; } = [];
+
+    private static string Percent(int value, int max) =>
+        (value * 100d / max).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "%";
+}

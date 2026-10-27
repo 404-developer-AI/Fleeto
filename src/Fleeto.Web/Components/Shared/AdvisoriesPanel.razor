@@ -5,7 +5,10 @@
 @inject AdvisoryService AdvisorySvc
 @inject IDialogService DialogService
 
-<MudText Typo="Typo.h6" Class="section-title mb-2">Security advisories</MudText>
+@if (ShowTitle)
+{
+    <MudText Typo="Typo.h6" Class="section-title mb-2">Security advisories</MudText>
+}
 @if (_panel is { } panel)
 {
     @foreach (var source in panel.Sources.Where(s => s.Problem is not null || s.LastSuccessAt is null))
@@ -88,6 +91,10 @@
 }
 
 @code {
+    /// <summary>False inside a dashboard tile, which shows its own title.</summary>
+    [Parameter]
+    public bool ShowTitle { get; set; } = true;
+
     private AdvisoryPanel? _panel;
 
     // The first load marks the advisories as seen; what was new keeps its mark until the page loads again.

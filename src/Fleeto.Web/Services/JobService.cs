@@ -350,12 +350,19 @@ public sealed class JobService
             .ToListAsync(cancellationToken);
     }
 
-    /// <summary>The most recent jobs the caller can see, for the dashboard.</summary>
-    public async Task<IReadOnlyList<JobListItem>> ListRecentAsync(Caller caller, int limit = 10, CancellationToken cancellationToken = default)
+    /// <summary>The most recent jobs the caller can see, for the dashboard; with <paramref name="failedOnly"/> only those that failed (0.8.0).</summary>
+    public async Task<IReadOnlyList<JobListItem>> ListRecentAsync(Caller caller, int limit = 10, CancellationToken cancellationToken = default,
+        bool failedOnly = false)
     {
         caller.Ensure(Permissions.JobsView);
         await using var db = _dbFactory.Create(caller.Scope);
-        return await Project(db, db.Jobs.AsNoTracking().OrderByDescending(j => j.CreatedAt).Take(Math.Clamp(limit, 1, 50))).ToListAsync(cancellationToken);
+        var jobs = db.Jobs.AsNoTracking();
+        if (failedOnly)
+        {
+            jobs = jobs.Where(j => j.State == JobState.Failed || j.State == JobState.Refused || j.State == JobState.Lost);
+        }
+
+        return await Project(db, jobs.OrderByDescending(j => j.CreatedAt).Take(Math.Clamp(limit, 1, 50))).ToListAsync(cancellationToken);
     }
 
     public async Task<JobOutputView?> GetOutputAsync(Caller caller, Guid jobId, CancellationToken cancellationToken = default)

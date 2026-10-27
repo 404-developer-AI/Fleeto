@@ -1,0 +1,104 @@
+@* Create a dashboard or change its name, description and roles (0.8.0). A new one starts empty, from the default dashboard or as a copy
+   of another; it is linked to no role, so nobody sees it until it is linked and published. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(Creating ? "New dashboard" : $"Edit dashboard {InitialName}")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" MaxLength="DashboardRules.MaxNameLength" AutoFocus="true" Class="mb-3" />
+        <MudTextField @bind-Value="_description" Label="Description (optional)" Variant="Variant.Outlined" Lines="2"
+                      MaxLength="DashboardRules.MaxDescriptionLength" Class="mb-3" />
+        @if (Creating)
+        {
+            <MudSelect T="string" @bind-Value="_start" Label="Start from" Variant="Variant.Outlined" Class="mb-3">
+                <MudSelectItem T="string" Value="@("empty")">An empty dashboard</MudSelectItem>
+                <MudSelectItem T="string" Value="@("default")">The default dashboard</MudSelectItem>
+                @foreach (var dashboard in Existing)
+                {
+                    <MudSelectItem T="string" Value="@dashboard.Id.ToString()">A copy of @dashboard.Name</MudSelectItem>
+                }
+            </MudSelect>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="muted mb-2">
+                Users of these roles see this dashboard, unless a dashboard higher in the list is linked to one of their roles as well.
+            </MudText>
+            @foreach (var role in Roles)
+            {
+                <MudCheckBox T="bool" Value="@_roles.Contains(role.Id)" ValueChanged="@(on => Toggle(role.Id, on))" Label="@role.Name" Dense="true" />
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">@(Creating ? "Create" : "Save")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public bool Creating { get; set; }
+    [Parameter] public string InitialName { get; set; } = string.Empty;
+    [Parameter] public string? InitialDescription { get; set; }
+    [Parameter] public IReadOnlyList<Guid> InitialRoles { get; set; } = [];
+    [Parameter] public IReadOnlyList<DashboardRoleView> Roles { get; set; } = [];
+    [Parameter] public IReadOnlyList<DashboardListItem> Existing { get; set; } = [];
+    [Parameter] public string InitialStart { get; set; } = "default";
+
+    /// <summary>Name, description, roles, and where a new one starts from: null empty, <see cref="Guid.Empty"/> the default, or a dashboard.</summary>
+    [Parameter] public Func<string?, string?, IReadOnlyCollection<Guid>, Guid?, Task<bool>> OnSubmit { get; set; } =
+        (_, _, _, _) => Task.FromResult(true);
+
+    private string? _name;
+    private string? _description;
+    private string _start = "default";
+    private HashSet<Guid> _roles = [];
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        _name = InitialName;
+        _description = InitialDescription;
+        _roles = [.. InitialRoles];
+        _start = InitialStart;
+    }
+
+    private void Toggle(Guid role, bool on)
+    {
+        if (on)
+        {
+            _roles.Add(role);
+        }
+        else
+        {
+            _roles.Remove(role);
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            Guid? start = _start switch
+            {
+                "empty" => null,
+                "default" => Guid.Empty,
+                var id => Guid.Parse(id)
+            };
+            if (await OnSubmit(_name, _description, _roles, start))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

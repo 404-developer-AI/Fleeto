@@ -2,19 +2,30 @@
 @attribute [Authorize(Policy = FleetoPolicies.Viewer)]
 @inherits FleetoPageBase
 @inject DashboardService DashboardData
-@inject LiveUpdates Live
-@inject JobService JobSvc
+@inject DashboardDesignService Dashboards
 
 <PageTitle>Dashboard - Fleeto</PageTitle>
 
 <div class="page-header">
-    <MudText Typo="Typo.h4" Class="page-title">Dashboard</MudText>
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Dashboard</MudText>
+        @if (_dashboard.Id is not null)
+        {
+            <MudText Typo="Typo.body2" Class="muted">@_dashboard.Name</MudText>
+        }
+    </div>
+    @* The dashboard of the instance is designed in Settings (0.8.0); the link only for who may design it. *@
+    @if (Can(Permissions.DashboardsManage))
+    {
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.DashboardCustomize"
+                   Href="@(_dashboard.Id is { } id ? $"/settings/dashboards/{id}" : "/settings/dashboards")">Design dashboards</MudButton>
+    }
 </div>
 
 <LoadState Loading="Loading" Failed="LoadFailed">
-    @if (_data is { } data)
+    @if (_credentials is { } credentials)
     {
-        @foreach (var credential in data.CredentialWarnings)
+        @foreach (var credential in credentials)
         {
             <MudAlert Severity="@(credential.Expired ? Severity.Error : Severity.Warning)" Class="mb-3">
                 @if (credential.Expired)
@@ -38,244 +49,7 @@
                 }
             </MudAlert>
         }
-        <MudGrid Spacing="3" Class="mb-4">
-            @* Every tile follows the permission of what it shows (0.6.0). *@
-            @if (Can(Permissions.ClientsView))
-            {
-            <MudItem xs="12" sm="6" md="4" lg="2">
-                <div class="stat-card fl-panel">
-                    <div class="stat-label">Endpoints online</div>
-                    <div class="stat-number" style="color:var(--fl-primary)">@data.EndpointsOnline</div>
-                    <div class="stat-detail">of @(data.EndpointsOnline + data.EndpointsOffline) endpoints</div>
-                </div>
-            </MudItem>
-            <MudItem xs="12" sm="6" md="4" lg="2">
-                <div class="stat-card fl-panel @(data.EndpointsOffline > 0 ? "stat-error" : "")">
-                    <div class="stat-label">Endpoints offline</div>
-                    <div class="stat-number">@data.EndpointsOffline</div>
-                    <div class="stat-detail">@(data.EndpointsOffline == 0 ? "Every endpoint is connected" : "Not connected to the gateway")</div>
-                </div>
-            </MudItem>
-            }
-            @if (Can(Permissions.AlertsView))
-            {
-            <MudItem xs="12" sm="6" md="4" lg="2">
-                <div class="stat-card fl-panel @(data.OpenCritical > 0 ? "stat-error" : data.OpenWarning > 0 ? "stat-warning" : "")">
-                    <div class="stat-label">Open alerts</div>
-                    <div class="stat-number">@(data.OpenCritical + data.OpenWarning)</div>
-                    <div class="stat-detail">@data.OpenCritical critical · @data.OpenWarning warning</div>
-                </div>
-            </MudItem>
-            }
-            @if (Can(Permissions.ClientsView))
-            {
-            <MudItem xs="12" sm="6" md="4" lg="2">
-                <div class="stat-card fl-panel @(data.AgentsOutOfDate > 0 ? "stat-warning" : "")">
-                    <div class="stat-label">Agents out of date</div>
-                    <div class="stat-number">@data.AgentsOutOfDate</div>
-                    <div class="stat-detail">Current version @FleetoVersion.Current</div>
-                </div>
-            </MudItem>
-            }
-            @if (data.Patches is { Covered: > 0 } patches)
-            {
-                <MudItem xs="12" sm="6" md="4" lg="2">
-                    <div class="stat-card fl-panel @(patches.NotPatched > 0 || patches.MissingCritical > 0 ? "stat-warning" : "")">
-                        <div class="stat-label">Patch compliance</div>
-                        <div class="stat-number">@patches.Percentage%</div>
-                        <div class="stat-detail">
-                            @patches.Compliant of @patches.Covered up to date@(patches.MissingCritical > 0
-                                ? $", {patches.MissingCritical} missing critical" : "")@(patches.NotPatched > 0
-                                ? $", {patches.NotPatched} not patched" : "")
-                        </div>
-                    </div>
-                </MudItem>
-            }
-            @if (data.Vulnerabilities is { } vulnerabilities)
-            {
-                <MudItem xs="12" sm="6" md="4" lg="2">
-                    <a href="/vulnerabilities" class="stat-card-link">
-                        <div class="stat-card fl-panel @(vulnerabilities.Urgent > 0 ? "stat-error" : vulnerabilities.Unsupported > 0 ? "stat-warning" : "")">
-                            <div class="stat-label">Vulnerabilities</div>
-                            <div class="stat-number">@vulnerabilities.Urgent</div>
-                            <div class="stat-detail">
-                                Linux endpoints missing a critical fix or with an actively exploited vulnerability@(vulnerabilities.WithExploited > 0
-                                    ? $" ({vulnerabilities.WithExploited} exploited)" : "")@(vulnerabilities.Unsupported > 0
-                                    ? $", {vulnerabilities.Unsupported} on a release no longer supported" : "")
-                            </div>
-                        </div>
-                    </a>
-                </MudItem>
-            }
-            @if (data.License is { } license)
-            {
-                <MudItem xs="12" sm="6" md="4" lg="2">
-                    <div class="stat-card fl-panel @(license.Status.State is LicenseState.Missing or LicenseState.Expired ? "stat-warning" : "")">
-                        <div class="stat-label">Licenses</div>
-                        <div class="stat-number">@license.ManagedInUse</div>
-                        <div class="stat-detail">@LicenseDetail(license)</div>
-                    </div>
-                </MudItem>
-            }
-            @if (data.Health is { } health)
-            {
-                <MudItem xs="12" sm="6" md="4" lg="2">
-                    <a href="/settings/instance-health" class="stat-card-link">
-                        <div class="stat-card fl-panel @(health.Status switch { HealthStatus.Critical => "stat-error", HealthStatus.Warning or HealthStatus.Unknown => "stat-warning", _ => "" })">
-                            <div class="stat-label">Instance health</div>
-                            <div class="stat-number" style="font-size:1.125rem;margin-top:10px;">
-                                @(health.Status switch
-                                {
-                                    HealthStatus.Ok => "Healthy",
-                                    HealthStatus.Unknown => "Unknown",
-                                    _ => health.OpenIssues == 1 ? "1 problem" : $"{health.OpenIssues} problems"
-                                })
-                            </div>
-                            <div class="stat-detail">@health.Text</div>
-                        </div>
-                    </a>
-                </MudItem>
-            }
-            @if (data.Security is { } security)
-            {
-                <MudItem xs="12" sm="6" md="4" lg="2">
-                    <a href="/settings/security" class="stat-card-link">
-                        <div class="stat-card fl-panel @(security.Critical > 0 ? "stat-error" : security.OpenIncidents > 0 ? "stat-warning" : "")">
-                            <div class="stat-label">Security</div>
-                            <div class="stat-number" style="font-size:1.125rem;margin-top:10px;">
-                                @(security.OpenIncidents switch { 0 => "No incidents", 1 => "1 incident", _ => $"{security.OpenIncidents} incidents" })
-                            </div>
-                            <div class="stat-detail">
-                                @(security.Latest ?? (security.BlockedAddresses == 1 ? "1 blocked address" : $"{security.BlockedAddresses} blocked addresses"))
-                            </div>
-                        </div>
-                    </a>
-                </MudItem>
-            }
-            <MudItem xs="12" sm="6" md="4" lg="2">
-                <div class="stat-card fl-panel @(data.Backups.ExternalDescription is null && (!data.Backups.DestinationConfigured || data.Backups.LastRunFailed) ? "stat-warning" : "")">
-                    <div class="stat-label">Backups</div>
-                    @if (data.Backups.ExternalDescription is { } external)
-                    {
-                        <div class="stat-number" style="font-size:1.125rem;margin-top:10px;">Outside Fleeto</div>
-                        <div class="stat-detail">@external</div>
-                    }
-                    else if (!data.Backups.DestinationConfigured)
-                    {
-                        <div class="stat-detail" style="margin-top:0">
-                            No backup destination is configured, so backups exist on this server only.
-                            @if (Can(Permissions.BackupsManage))
-                            {
-                                <MudLink Href="/settings/backups" Typo="Typo.body2">Configure backups</MudLink>
-                            }
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="stat-number" style="font-size:1.125rem;margin-top:10px;"><TimeText Value="data.Backups.LastSucceededAt" Never="No backup yet" /></div>
-                        <div class="stat-detail">
-                            @(data.Backups.LastRunFailed ? "The last backup failed. Check Settings, Backups." : "Last successful backup")
-                        </div>
-                    }
-                </div>
-            </MudItem>
-        </MudGrid>
-
-        <MudGrid Spacing="3">
-            @if (Can(Permissions.AlertsView))
-            {
-            <MudItem xs="12" lg="7">
-                <MudText Typo="Typo.h6" Class="section-title mb-2">Open alerts</MudText>
-                @if (data.OpenAlerts.Count == 0)
-                {
-                    <EmptyState Icon="@Icons.Material.Outlined.CheckCircle" Title="No open alerts"
-                                Text="Alerts appear here when a check on a managed endpoint crosses its threshold." />
-                }
-                else
-                {
-                    <MudTable Items="data.OpenAlerts" Hover="true" Dense="true" Elevation="0">
-                        <HeaderContent>
-                            <MudTh>Severity</MudTh>
-                            <MudTh>Alert</MudTh>
-                            <MudTh>Endpoint</MudTh>
-                            <MudTh>Opened</MudTh>
-                            @if (AlertActions.AnyAction(Caller))
-                            {
-                                <MudTh Style="width:52px"></MudTh>
-                            }
-                        </HeaderContent>
-                        <RowTemplate>
-                            <MudTd><StatusChip Text="@context.Severity.ToString()" Kind="@Ui.SeverityKind(context.Severity)" /></MudTd>
-                            <MudTd>@context.Title</MudTd>
-                            <MudTd><MudLink Href="@($"/endpoints/{context.EndpointId}")">@context.ClientCode / @context.Hostname</MudLink></MudTd>
-                            <MudTd><TimeText Value="context.OpenedAt" /></MudTd>
-                            @if (AlertActions.AnyAction(Caller))
-                            {
-                                <MudTd><AlertActions Alert="context" OnChanged="ReloadAsync" /></MudTd>
-                            }
-                        </RowTemplate>
-                    </MudTable>
-                    <MudLink Href="/alerts" Typo="Typo.body2" Class="mt-2 d-inline-block">All alerts</MudLink>
-                }
-            </MudItem>
-            }
-            <MudItem xs="12" lg="5">
-                @if (Can(Permissions.AdvisoriesView))
-                {
-                    <div class="mb-4"><AdvisoriesPanel /></div>
-                }
-                @if (Can(Permissions.ClientsView))
-                {
-                <MudText Typo="Typo.h6" Class="section-title mb-2">Recent activity</MudText>
-                @if (data.RecentActivity.Count == 0)
-                {
-                    <EmptyState Icon="@Icons.Material.Outlined.History" Title="No activity yet" Text="Changes by users and the system appear here." />
-                }
-                else
-                {
-                    <MudTable Items="data.RecentActivity" Dense="true" Elevation="0">
-                        <HeaderContent>
-                            <MudTh>When</MudTh>
-                            <MudTh>Who</MudTh>
-                            <MudTh>What</MudTh>
-                        </HeaderContent>
-                        <RowTemplate>
-                            <MudTd><TimeText Value="context.Time" /></MudTd>
-                            <MudTd>@context.ActorName</MudTd>
-                            <MudTd><span class="mono">@context.Action</span></MudTd>
-                        </RowTemplate>
-                    </MudTable>
-                }
-
-                }
-
-                @if (Can(Permissions.JobsView))
-                {
-                <MudText Typo="Typo.h6" Class="section-title mb-2 mt-4">Recent jobs</MudText>
-                @if (_jobs.Count == 0)
-                {
-                    <EmptyState Icon="@Icons.Material.Outlined.Terminal" Title="No jobs yet" Text="Scripts started on endpoints appear here." />
-                }
-                else
-                {
-                    <MudTable Items="_jobs" Dense="true" Elevation="0">
-                        <HeaderContent>
-                            <MudTh>Started</MudTh>
-                            <MudTh>Script</MudTh>
-                            <MudTh>Endpoint</MudTh>
-                            <MudTh>Result</MudTh>
-                        </HeaderContent>
-                        <RowTemplate>
-                            <MudTd><TimeText Value="context.StartedAt ?? context.CreatedAt" /></MudTd>
-                            <MudTd>@context.ScriptName</MudTd>
-                            <MudTd><MudLink Href="@($"/endpoints/{context.EndpointId}")">@context.ClientCode / @context.Hostname</MudLink></MudTd>
-                            <MudTd><StatusChip Text="@Ui.JobStateLabel(context.State, context.Result, context.ExitStatus)" Kind="@Ui.JobStateKind(context.State, context.ExitStatus)" /></MudTd>
-                        </RowTemplate>
-                    </MudTable>
-                }
-                }
-            </MudItem>
-        </MudGrid>
+        <DashboardView Layout="_dashboard.Layout" />
     }
 </LoadState>
 
@@ -285,46 +59,13 @@
     private bool CanOpen(string path) =>
         SettingsPages.All.FirstOrDefault(p => path.StartsWith(p.Href, StringComparison.OrdinalIgnoreCase)) is { } page && Can(page.Permission);
 
-    private DashboardData? _data;
-    private IReadOnlyList<JobListItem> _jobs = [];
-    private DebouncedRefresh? _refresh;
+    // The expiring-credential warnings stay above every dashboard, not as a tile, so no layout can hide them (DASHBOARDS.md §2).
+    private IReadOnlyList<CredentialWarning>? _credentials;
+    private UserDashboard _dashboard = DashboardDesignService.Default;
 
-    protected override async Task OnInitializedAsync()
+    protected override Task OnInitializedAsync() => LoadAsync(async caller =>
     {
-        _refresh = new DebouncedRefresh(() => InvokeAsync(async () =>
-        {
-            await ReloadAsync();
-            StateHasChanged();
-        }));
-        Live.EndpointStatusChanged += OnChange;
-        Live.AlertChanged += OnChange;
-        Live.JobsChanged += OnChange;
-        await ReloadAsync();
-    }
-
-    private void OnChange(Guid _) => _refresh?.Trigger();
-
-    private Task ReloadAsync() => LoadAsync(async caller =>
-    {
-        _data = await DashboardData.GetAsync(caller);
-        _jobs = caller.Has(Permissions.JobsView) ? await JobSvc.ListRecentAsync(caller, 8) : [];
+        _dashboard = await Dashboards.GetForUserAsync(caller);
+        _credentials = await DashboardData.GetCredentialWarningsAsync();
     });
-
-    private string LicenseDetail(Fleeto.Infrastructure.Licensing.LicenseUsage usage) => usage.Status.State switch
-    {
-        LicenseState.Missing => "No license loaded",
-        LicenseState.Expired => "The license has expired",
-        LicenseState.GracePeriod => $"{usage.ManagedInUse} of {usage.Status.ManagedEndpointCount} licenses in use · grace period until {Time.Absolute(usage.Status.GraceEndsAt)}",
-        LicenseState.ExpiringSoon => $"{usage.ManagedInUse} of {usage.Status.Capacity} licenses in use · expires {Time.Absolute(usage.Status.ExpiresAt)}",
-        _ => $"{usage.ManagedInUse} of {usage.Status.Capacity} licenses in use"
-    };
-
-    public override void Dispose()
-    {
-        Live.EndpointStatusChanged -= OnChange;
-        Live.AlertChanged -= OnChange;
-        Live.JobsChanged -= OnChange;
-        _refresh?.Dispose();
-        base.Dispose();
-    }
 }

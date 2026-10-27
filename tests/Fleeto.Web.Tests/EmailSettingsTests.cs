@@ -127,17 +127,17 @@ public sealed class EmailSettingsTests
         {
             Assert.True((await Settings.SaveGraphAsync(admin, new GraphInput("contoso.onmicrosoft.com", ClientId, "fleeto@contoso.com",
                 GraphCredentialType.ClientSecret, "secret", Today.AddDays(10)))).Success);
-            Assert.Empty((await dashboard.GetAsync(admin)).CredentialWarnings);
+            Assert.Empty(await dashboard.GetCredentialWarningsAsync());
 
             Assert.True((await Settings.SaveProviderAsync(admin, EmailProvider.MicrosoftGraph)).Success);
-            var warning = Assert.Single((await dashboard.GetAsync(WebFixture.Technician())).CredentialWarnings);
+            var warning = Assert.Single(await dashboard.GetCredentialWarningsAsync());
             Assert.False(warning.Expired);
             Assert.Equal("/settings/email", warning.SettingsPath);
             Assert.False(warning.FallbackInUse);
 
             // The fake clock only moves forward; every other test works relative to it.
             _fixture.Database.Time.Advance(TimeSpan.FromDays(12));
-            Assert.True(Assert.Single((await dashboard.GetAsync(admin)).CredentialWarnings).Expired);
+            Assert.True(Assert.Single(await dashboard.GetCredentialWarningsAsync()).Expired);
         }
         finally
         {

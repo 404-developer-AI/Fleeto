@@ -57,6 +57,27 @@ When a third released version is added, the oldest entry moves to the top of
   so SmartScreen warns on its first run), for Ubuntu desktop a `.deb`, both with their SHA-256 and listed in the signed release manifest.
   Fleeto Connect asks once per instance whether it may connect to it. Audited as a remote session, with the claim of Fleeto Connect.
 - Permission Proxmox web interface (admin and technician).
+- Dashboard designer (0.8.0, `DASHBOARDS.md`): design dashboards in Settings, Dashboards and link them to roles. A user sees the first
+  published dashboard in the list that is linked to one of its roles, otherwise the built-in default dashboard, which looks as the
+  dashboard did before. The designer has the tile types on the left, the grid in the middle and the settings of the selected tile
+  on the right: drag a tile onto the grid or click it, move and resize it with the mouse or with the arrow keys (Shift to resize),
+  remove it with Delete, undo and redo with Ctrl+Z and Ctrl+Y. The grid has 12 columns; tiles never overlap, the tiles below move
+  down and, with "Pull tiles up", back up. On a narrower screen the tiles flow over 6 columns, on a phone they stand under each
+  other. Changes are kept as a draft until you publish; the last 20 published versions can be made the draft again. "Preview as"
+  shows the dashboard as a user of a role sees it. Copy a dashboard (also the default one), export it as a file and import it on
+  another instance; clients, sites and tags the other instance does not have are left out.
+- Tile settings: a title of its own, a scope (chosen clients, chosen sites, clients with a tag, servers or workstations, or the
+  scope of the dashboard), an accent color, thresholds from which a counter turns warning or critical, filters per tile type
+  (severity and kind of alert, alerts on hold, tier, failed only, period, grouping), hiding on small screens and hiding while there
+  is nothing to show. A scope only narrows: a tile never shows more than the groups of the user give.
+- New tiles: Endpoints (all, managed or agent-only), Endpoints in maintenance, Alerts on hold, Licenses free, Endpoints offline
+  list, Agents out of date list, Task runs (running and failed), Client status (a cell per client, or per site when the scope holds
+  one client, colored by its worst state), the charts Alerts opened per day, Endpoints by group and Top clients by open alerts, and
+  the content tiles Heading, Text (markdown) and Link. The workers count the alerts opened per client and day every 10 minutes for
+  the chart, kept 400 days.
+- The dashboard reads only the tiles it shows, each on its own: a tile that fails says so and can be tried again, and a tile
+  reloads only on its own live events. Each read is measured by the performance monitor.
+- Permission Dashboards (administration, admin only), and the button "Design dashboards" on the dashboard for who holds it.
 
 ### Fixed
 

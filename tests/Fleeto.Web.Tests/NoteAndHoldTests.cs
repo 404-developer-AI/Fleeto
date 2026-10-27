@@ -157,8 +157,9 @@ public sealed class NoteAndHoldTests
         Assert.DoesNotContain((await Alerts.ListAsync(tech, new AlertQuery(AlertStateFilter.Open, null, endpoint.ClientId))).Items, a => a.Id == alertId);
         var held = Assert.Single((await Alerts.ListAsync(tech, new AlertQuery(AlertStateFilter.OnHold, null, endpoint.ClientId))).Items);
         Assert.True(held.IsHeld(Now));
-        var dashboard = await _fixture.Services.GetRequiredService<DashboardService>().GetAsync(tech);
-        Assert.DoesNotContain(dashboard.OpenAlerts, a => a.Id == alertId);
+        var dashboard = _fixture.Services.GetRequiredService<DashboardService>();
+        Assert.DoesNotContain(await dashboard.GetOpenAlertsAsync(tech, null, null, null, false, 50), a => a.Id == alertId);
+        Assert.Contains(await dashboard.GetOpenAlertsAsync(tech, null, null, null, true, 50), a => a.Id == alertId);
 
         // A hold whose time passed counts as ended even before the workers clear it.
         _fixture.Database.Time.Advance(TimeSpan.FromHours(5));

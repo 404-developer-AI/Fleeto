@@ -1774,6 +1774,125 @@ namespace Fleeto.Infrastructure.Migrations
                     b.ToTable("ConfigChangeEvents");
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.Dashboard", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("DraftLayout")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PublishedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("PublishedLayout")
+                        .HasColumnType("jsonb");
+
+                    b.Property<int>("PublishedVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.HasIndex("Priority")
+                        .IsUnique();
+
+                    b.ToTable("Dashboards");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.DashboardDailyCount", b =>
+                {
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("Day")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime>("CountedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Critical")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Warning")
+                        .HasColumnType("integer");
+
+                    b.HasKey("ClientId", "Day");
+
+                    b.HasIndex("Day");
+
+                    b.ToTable("DashboardDailyCounts");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.DashboardRole", b =>
+                {
+                    b.Property<Guid>("DashboardId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RoleId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("DashboardId", "RoleId");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("DashboardRoles");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.DashboardVersion", b =>
+                {
+                    b.Property<Guid>("DashboardId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Layout")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTime>("PublishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PublishedBy")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("DashboardId", "Version");
+
+                    b.ToTable("DashboardVersions");
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.DataKey", b =>
                 {
                     b.Property<Guid>("Id")
@@ -7388,6 +7507,39 @@ namespace Fleeto.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.DashboardDailyCount", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Client", null)
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.DashboardRole", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Dashboard", null)
+                        .WithMany("Roles")
+                        .HasForeignKey("DashboardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleeto.Infrastructure.Identity.ApplicationRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.DashboardVersion", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Dashboard", null)
+                        .WithMany()
+                        .HasForeignKey("DashboardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.Endpoint", b =>
                 {
                     b.HasOne("Fleeto.Core.Entities.Site", "Site")
@@ -8193,6 +8345,11 @@ namespace Fleeto.Infrastructure.Migrations
             modelBuilder.Entity("Fleeto.Core.Entities.ClientTemplateSite", b =>
                 {
                     b.Navigation("MonitoringTemplates");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.Dashboard", b =>
+                {
+                    b.Navigation("Roles");
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.Endpoint", b =>

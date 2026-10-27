@@ -254,6 +254,17 @@ public static class AuditActions
     public const string ClientLinksChanged = "client.links_changed";
     public const string TagUpdated = "tag.updated";
     public const string TagDeleted = "tag.deleted";
+
+    /// <summary>
+    /// Dashboards (0.8.0): created (also as a copy or an import), changed (name, description or roles), published, deleted, and the
+    /// order of the dashboards. Never the text of a text tile.
+    /// </summary>
+    public const string DashboardCreated = "dashboard.created";
+    public const string DashboardUpdated = "dashboard.updated";
+    public const string DashboardPublished = "dashboard.published";
+    public const string DashboardDeleted = "dashboard.deleted";
+    public const string DashboardImported = "dashboard.imported";
+    public const string DashboardOrderChanged = "dashboard.order_changed";
     public const string SiteCreated = "site.created";
     public const string SiteUpdated = "site.updated";
     public const string SiteDeleted = "site.deleted";
