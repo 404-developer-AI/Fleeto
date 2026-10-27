@@ -88,7 +88,8 @@ if ($answer -notmatch '^[Yy]') { Fail 'Signing cancelled: the digests were not c
 
 # 3. The key must be the one the builds trust.
 $publicKeyValue = (Get-Content $PublicKey -Raw).Trim()
-$trusted = (gh variable get FLEETO_RELEASE_PUBLIC_KEYS --repo $Repository)
+# Through the REST API: `gh variable get` is missing in older gh releases (2.46 of Ubuntu 26.04).
+$trusted = (gh api "repos/$Repository/actions/variables/FLEETO_RELEASE_PUBLIC_KEYS" --jq .value)
 if ($LASTEXITCODE -ne 0) { Fail 'Could not read the repository variable FLEETO_RELEASE_PUBLIC_KEYS.' 'Check gh auth status and your access to the repository.' }
 if (($trusted.Trim() -split ';')[0].Trim() -ne $publicKeyValue) {
     Fail 'This release key is not the first key in FLEETO_RELEASE_PUBLIC_KEYS, so install.sh would reject the signatures.' 'Use the matching release key, or set the variable and build a new release.'
