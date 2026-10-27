@@ -33,6 +33,16 @@ discussed with the developer before anything is built.
   matching on Linux endpoints, and step 2, the Vulnerabilities tab, the overview, the dashboard tile and Settings, built 2026-10-26.
   Step 3, actively exploited CVEs (CISA's KEV catalog, ENISA's EUVD as fallback) and EPSS scores, ordering and filtering on them, and
   the vulnerabilities in the History tab, built 2026-10-27. The Windows findings of Action1 moved to "Not yet scheduled".
+- [open] Fix: vulnerability feeds are never fetched (found on the test VPS with `v0.8.0-alpha.4`, 2026-10-27). The workers role
+  may not create the temporary tables the Ubuntu and KEV imports use, and the `PostgresException` stops every feed without a
+  reason on the page. Cause, workaround and fix (grant `TEMPORARY` to `fleeto_workers` in `10-fleeto-roles.sh` and
+  `DatabaseGrants`, contain a failure to its own feed, tests, changelog) in `FIX-VULNERABILITY-FEEDS-TEMP-TABLES.md`. Built
+  2026-10-27, to be tested on the VPS with the next alpha.
+- [open] Local development on Linux (the developer moved from Windows to Ubuntu 26.04 on 2026-10-27). `setup-dev.ps1`,
+  `start-dev.ps1`, `build-agent.ps1` and `README.md` work on Linux (secrets in `~/.local/share/Fleeto/dev`, the four
+  components in one terminal); built, set up and run on 2026-10-27, in `v0.8.0-alpha.5`. Still to decide: `global.json` on
+  `10.0.400`, because the `dotnet-sdk-10.0` package of Ubuntu (SDK 10.0.1xx) fails on the Razor components with 112 errors
+  where the SDK of Microsoft (10.0.403, as in CI) builds them.
 - [open] Patch management on Linux (planned as 0.4.1, moved to "Not yet scheduled" on 2026-09-23, scheduled as 0.8.0 on
   2026-10-26). Until it is built a Linux endpoint shows no patch data at all and stays out of the compliance counts, because
   calling it uncovered would be untrue.

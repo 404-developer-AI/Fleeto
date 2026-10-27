@@ -1,4 +1,6 @@
 using Fleeto.Core.Entities;
+using Fleeto.Infrastructure.Data;
+using Fleeto.Infrastructure.Hosting;
 using Fleeto.Infrastructure.Identity;
 using Fleeto.Infrastructure.Settings;
 using Fleeto.Testing;
@@ -44,6 +46,30 @@ public sealed class WorkersFixture : IAsyncLifetime
     }
 
     public DateTime Now => Db.Time.GetUtcNow().UtcDateTime;
+
+    /// <summary>
+    /// A data source whose sessions run as the workers role, with the grants of <see cref="DatabaseGrants"/> and the database privileges
+    /// <c>10-fleeto-roles.sh</c> leaves: nothing for PUBLIC, so a privilege the workers lack fails the test as it fails on a VPS.
+    /// <paramref name="withTemporary"/> false takes TEMPORARY from the workers too, as on an instance before the workers were given it.
+    /// </summary>
+    public async Task<NpgsqlDataSource> WorkersRoleAsync(bool withTemporary = true)
+    {
+        var roles = string.Join('\n', DatabaseRoles.Application.Select(r =>
+            $"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{r}') THEN CREATE ROLE {r} NOLOGIN; END IF; END $$;"));
+        var revoke = withTemporary ? "" : $"EXECUTE format('REVOKE TEMPORARY ON DATABASE %I FROM {DatabaseRoles.Workers}', current_database());";
+        await using (var command = Db.DataSource.CreateCommand($"""
+                         {roles}
+                         {DatabaseGrants.BuildSql()}
+                         DO $$ BEGIN EXECUTE format('REVOKE ALL ON DATABASE %I FROM PUBLIC', current_database()); {revoke} END $$;
+                         """))
+        {
+            await command.ExecuteNonQueryAsync();
+        }
+
+        // The superuser connects and every session runs as the workers role.
+        var builder = new NpgsqlConnectionStringBuilder(Db.ConnectionString) { Options = "-c role=" + DatabaseRoles.Workers };
+        return new NpgsqlDataSourceBuilder(builder.ConnectionString).Build();
+    }
 
     public SettingsStore Settings() => new(Db.DbFactory, Db.SecretProtector, Db.Time);
 

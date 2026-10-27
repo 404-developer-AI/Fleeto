@@ -1,14 +1,14 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-    Sets up a local Fleeto development instance on Windows without Docker.
+    Sets up a local Fleeto development instance on Windows or Linux without Docker.
 
 .DESCRIPTION
     Idempotent; safe to run again after pulling new code (it applies new migrations). A setup from before the internal rename
     to Fleeto (0.2.1) is moved: %LOCALAPPDATA%\Fleetify\dev becomes %LOCALAPPDATA%\Fleeto\dev, and the database fleetify_dev
     and the fleetify_* roles are renamed, so the local instance keeps its data and keys.
-      1. Creates %LOCALAPPDATA%\Fleeto\dev with secrets (root key, signer key, database passwords) readable only
-         by the current user. Nothing is written to the repository except Directory.Build.local.props, which holds
+      1. Creates %LOCALAPPDATA%\Fleeto\dev (~/.local/share/Fleeto/dev on Linux) with secrets (root key, signer key,
+         database passwords) readable only by the current user. Nothing is written to the repository except Directory.Build.local.props, which holds
          public keys only and is gitignored.
       2. Creates the PostgreSQL roles and the database (needs the PostgreSQL superuser once).
       3. Creates development license and release signing keys and a development license for the local FQDN.
@@ -32,7 +32,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$devRoot = Join-Path $env:LOCALAPPDATA 'Fleeto\dev'
+# %LOCALAPPDATA% on Windows, ~/.local/share on Linux: the folder .NET uses for LocalApplicationData.
+$localAppData = [Environment]::GetFolderPath('LocalApplicationData')
+$devRoot = Join-Path $localAppData 'Fleeto/dev'
 $secrets = Join-Path $devRoot 'secrets'
 $keys = Join-Path $devRoot 'keys'
 
@@ -56,7 +58,7 @@ function Invoke-Psql([string]$db, [string]$sql, [switch]$Scalar) {
 
 # ---------------------------------------------------------------------------------------------------------------
 # A development setup from before the rename to Fleeto (0.2.1) keeps its secrets and keys: the folder moves.
-$legacyDevRoot = Join-Path $env:LOCALAPPDATA 'Fleetify\dev'
+$legacyDevRoot = Join-Path $localAppData 'Fleetify/dev'
 if ((Test-Path $legacyDevRoot) -and -not (Test-Path $devRoot)) {
     Write-Step "Moving $legacyDevRoot to $devRoot"
     New-Item -ItemType Directory -Force (Split-Path $devRoot) | Out-Null
@@ -70,7 +72,13 @@ if ((Test-Path $legacyDevRoot) -and -not (Test-Path $devRoot)) {
 Write-Step "Secrets in $secrets"
 New-Item -ItemType Directory -Force $secrets, $keys | Out-Null
 # Only the current user may read the development secrets.
-icacls $devRoot /inheritance:r /grant:r "$($env:USERNAME):(OI)(CI)F" | Out-Null
+if ($IsWindows) {
+    icacls $devRoot /inheritance:r /grant:r "$($env:USERNAME):(OI)(CI)F" | Out-Null
+}
+else {
+    chmod -R go-rwx $devRoot
+    if ($LASTEXITCODE -ne 0) { throw "chmod of $devRoot failed" }
+}
 
 New-SecretFile (Join-Path $secrets 'root.key') { [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)) }
 New-SecretFile (Join-Path $secrets 'signer.key') { [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)) }
@@ -94,7 +102,7 @@ if (-not $script:psql) {
         Sort-Object { [int]($_.Directory.Parent.Name -replace '\D', '') } -Descending |
         Select-Object -First 1 -ExpandProperty FullName
 }
-if (-not $script:psql) { throw 'psql.exe was not found. Install PostgreSQL 17 or add its bin folder to PATH.' }
+if (-not $script:psql) { throw 'psql was not found. Install PostgreSQL 17 or add its bin folder to PATH.' }
 
 if (-not $PgSuperPassword) {
     $PgSuperPassword = $env:PGPASSWORD
@@ -198,6 +206,8 @@ try {
     $env:Fleeto__Database__Name = $Database
     $env:Fleeto__Database__Host = $PgHost
     $env:Fleeto__Database__Port = "$PgPort"
+    # Outside Windows the secrets are not found by default (the containers read /run/secrets).
+    $env:FLEETO_SECRETS_DIR = $secrets
     dotnet run --project src/Fleeto.Tools --no-build -- migrate --fqdn $Fqdn --agent-host $Fqdn --agent-port $AgentPort --web-url "https://$($Fqdn):$WebPort" | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'migrate failed' }
 }
@@ -209,5 +219,5 @@ Write-Host ''
 Write-Host 'Done. Next steps:' -ForegroundColor Cyan
 Write-Host '  1. Start the server:      pwsh tools/dev/start-dev.ps1'
 Write-Host '  2. Open the setup link printed above and create the first admin.'
-Write-Host "  3. Load the development license from $devRoot\dev-license.txt in Settings, Licensing."
+Write-Host "  3. Load the development license from $(Join-Path $devRoot 'dev-license.txt') in Settings, Licensing."
 Write-Host '  4. Build the agent:       pwsh tools/dev/build-agent.ps1'

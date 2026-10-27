@@ -1950,7 +1950,10 @@ Which known vulnerabilities affect the distribution packages of a managed Linux 
   webhook cannot reach the database, other containers or the host, also not through DNS rebinding.
   Webhook URLs and signing secrets are write-only and never written to the audit log.
 - One database role per container with the minimum grants; the gateway has no access to
-  encrypted secrets and does not mount the root key.
+  encrypted secrets and does not mount the root key. On the database itself PUBLIC has nothing:
+  every role gets `CONNECT`, and only `fleeto_workers` also `TEMPORARY`, because the imports of
+  the vulnerability feeds stage their rows in temporary tables (granted by `10-fleeto-roles.sh` and
+  again by `DatabaseGrants` on every update, for `current_database()`).
 - Every privileged action writes an `AuditEntry`; the table has no update or delete path.
   Audit details never copy personal free text such as note bodies (only ids and lengths), so
   deleting an endpoint really removes that data.

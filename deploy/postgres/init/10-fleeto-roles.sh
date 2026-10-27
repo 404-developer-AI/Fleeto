@@ -46,6 +46,8 @@ REVOKE ALL ON DATABASE fleeto FROM PUBLIC;
 REVOKE ALL ON DATABASE postgres FROM PUBLIC;
 REVOKE ALL ON DATABASE template1 FROM PUBLIC;
 GRANT CONNECT ON DATABASE fleeto TO fleeto_migrator, fleeto_web, fleeto_gateway, fleeto_signer, fleeto_workers, fleeto_backup;
+-- The workers stage feed imports in temporary tables (DatabaseGrants grants it again on every migration run).
+GRANT TEMPORARY ON DATABASE fleeto TO fleeto_workers;
 
 \connect fleeto
 ALTER SCHEMA public OWNER TO fleeto_migrator;

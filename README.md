@@ -24,13 +24,14 @@ Source-available, not open source: see [License](#license).
 | [`deploy/README.md`](deploy/README.md) | VPS installation, updates, backups and restore. |
 | [`deploy/RELEASING.md`](deploy/RELEASING.md) | Building, signing and publishing a release. |
 
-## Local development on Windows (no Docker)
+## Local development on Windows or Linux (no Docker)
 
 Docker is only used on the VPS and in CI. Locally every component runs as a plain .NET process.
 
 ### Prerequisites
 
-- .NET SDK 10.0
+- .NET SDK 10.0 from Microsoft (the `dotnet-sdk-10.0` package of Ubuntu 26.04, SDK 10.0.1xx, fails to compile the Razor
+  components; install the current SDK with `dotnet-install.sh --channel 10.0`)
 - PostgreSQL 17 running on `localhost:5432` (TimescaleDB optional)
 - Go 1.27 (for the agent)
 - PowerShell 7 (`pwsh`)
@@ -42,7 +43,8 @@ Docker is only used on the VPS and in CI. Locally every component runs as a plai
 pwsh tools/dev/setup-dev.ps1          # asks for the password of the PostgreSQL user 'postgres'
 ```
 
-The script is idempotent. It creates, outside the repository, `%LOCALAPPDATA%\Fleeto\dev` with the root key,
+The script is idempotent. It creates, outside the repository, `%LOCALAPPDATA%\Fleeto\dev` (on Linux
+`~/.local/share/Fleeto/dev`; below, `%LOCALAPPDATA%` stands for either) with the root key,
 signer key and database passwords (readable only by you), the PostgreSQL roles and the database `fleeto_dev`,
 development license and release signing keys, a development license for `localhost`, and
 `Directory.Build.local.props` (public keys only, gitignored). It then builds the solution, applies the migrations and
@@ -57,6 +59,8 @@ longer used and can be dropped.
 ```powershell
 pwsh tools/dev/start-dev.ps1          # builds, migrates, starts signer, gateway, workers and web in separate windows
 ```
+
+On Linux the four components run in the same terminal, every log line prefixed with its component; Ctrl+C stops them all.
 
 | URL | What |
 |---|---|

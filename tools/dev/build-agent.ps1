@@ -108,7 +108,7 @@ foreach ($outFile in $outFiles) {
 if ($Sign) {
     # The manifest describes <platform>-<architecture>/<file> relative to its own directory, the layout the gateway serves.
     $distDir = if ($Output) { Split-Path -Parent (Resolve-Path $Output) } else { Join-Path $agentDir 'dist' }
-    $key = Join-Path $env:LOCALAPPDATA 'Fleeto/dev/keys/release-signing.key'
+    $key = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Fleeto/dev/keys/release-signing.key'
     if (-not (Test-Path $key)) { throw "The development release key $key does not exist. Run tools/dev/setup-dev.ps1 first." }
     $manifest = Join-Path $distDir 'manifest.json'
     Push-Location $repoRoot

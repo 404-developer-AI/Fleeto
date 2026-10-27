@@ -335,6 +335,13 @@ public static class DatabaseGrants
             sql.AppendLine($"GRANT EXECUTE ON FUNCTION {function} TO {role};");
         }
 
+        // The workers stage the vulnerability feed imports in temporary tables (0.8.0). The role script revokes everything on the
+        // database from PUBLIC, TEMPORARY included, and only runs on a fresh database, so the grant is applied here on every update.
+        // current_database() so the restore database of install.sh gets it too. The other roles keep CONNECT only.
+        sql.AppendLine($"""
+            DO $$ BEGIN EXECUTE format('GRANT TEMPORARY ON DATABASE %I TO {DatabaseRoles.Workers}', current_database()); END $$;
+            """);
+
         // The backup role (member of pg_read_all_data) is granted by a superuser in install.sh and setup-dev.ps1;
         // the migrator is not allowed to grant predefined roles.
         return sql.ToString();

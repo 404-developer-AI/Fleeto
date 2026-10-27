@@ -48,6 +48,13 @@ When a third released version is added, the oldest entry moves to the top of
 - History tab of Linux endpoints: the vulnerabilities as they were found, fixed, removed with their package or withdrawn, searchable on
   CVE or package.
 
+### Fixed
+
+- Vulnerability feeds were never fetched: the workers could not create the temporary tables their import uses, and the failure
+  stopped every feed without showing a reason. The workers now get `TEMPORARY` on the instance database (also on existing
+  instances, at the update), and a feed that cannot be stored shows as failing with its reason while the other feeds are still
+  fetched.
+
 ## [0.7.0] — 2026-10-26
 
 The performance monitor: Settings, Performance shows where Fleeto itself is slow and why, with a report to hand to Claude Code,
