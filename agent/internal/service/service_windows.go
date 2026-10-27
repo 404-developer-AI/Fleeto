@@ -145,6 +145,12 @@ func Install(ctx context.Context, opts InstallOptions, out io.Writer) (err error
 		}
 	})
 	fmt.Fprintf(out, "Installed %s\n", exePath)
+	// An uninstall before this install, without a restart in between, left the deletion of the program folder for the next restart.
+	if removed, err := platform.CancelPendingDeletes(programDir); err != nil {
+		fmt.Fprintf(out, "Warning: could not check the deletions waiting for the next restart: %v\n", err)
+	} else if len(removed) > 0 {
+		fmt.Fprintf(out, "Cancelled %d deletion(s) an earlier uninstall left for the next restart\n", len(removed))
+	}
 
 	// 2. State directory, SYSTEM and Administrators only.
 	stateDir := platform.DefaultStateDir()

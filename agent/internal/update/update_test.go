@@ -664,3 +664,33 @@ func TestUpdaterRetriesATransientFailureSoonWithBackoff(t *testing.T) {
 		t.Fatalf("the backoff must start again after a refusal, got %s", wait)
 	}
 }
+
+func TestSupervisorPutsThePreviousBinaryBackWhenTheBinaryIsMissing(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "fleeto-agent.exe")
+	if err := os.WriteFile(exe+".previous", []byte("previous"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	controller := &fakeController{state: svcctl.StateStopped}
+	s := &Supervisor{Controller: controller, Service: "fleeto-agent", Exe: exe, Logger: discard(),
+		Probe: func(context.Context, string) (string, error) { return "0.8.0-alpha.4", nil }}
+
+	s.Check(context.Background())
+	if data, err := os.ReadFile(exe); err != nil || string(data) != "previous" || controller.starts != 1 {
+		t.Fatalf("the previous binary must be back before the start (err %v, starts %d)", err, controller.starts)
+	}
+	if _, err := os.Stat(exe + ".previous"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("the previous binary must be moved, not copied")
+	}
+
+	// A present binary is never replaced by the previous one.
+	if err := os.WriteFile(exe+".previous", []byte("older"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	controller.state = svcctl.StateStopped
+	s.nextStart = time.Time{}
+	s.Check(context.Background())
+	if data, _ := os.ReadFile(exe); string(data) != "previous" {
+		t.Fatal("an installed binary was replaced")
+	}
+}

@@ -46,9 +46,9 @@ before anything is built.
   where the SDK of Microsoft (10.0.403, as in CI) builds them.
 - [open] Proxmox web interface (`PROXMOX-WEB.md`, decided 2026-10-27): the real web interface of a managed Proxmox VE host, opened
   from the endpoint list through a tunnel in a remote session to `127.0.0.1:8006` on the host, with Fleeto Connect on the technician's
-  PC (Windows and Ubuntu desktop), proposed for download when it is missing. Tunnel, server and packaging built 2026-10-27 for
-  `v0.8.0-alpha.6`; to test on a real host with the developer (sign-in, consoles, an upload, the Secure cookie of Proxmox on
-  `*.localhost` in Edge, Chrome and Firefox, the first run on Windows and the `.deb` on Ubuntu).
+  PC (Windows and Ubuntu desktop), proposed for download when it is missing. Built 2026-10-27 for `v0.8.0-alpha.6`; tested the same
+  day on Ubuntu with Chrome (install proposal, `.deb`, sign-in, an upgrade of the host with its shell). Still to test: Windows, Edge and
+  Firefox, a VM console and an ISO upload (`PROXMOX-WEB.md` §7).
 - [open] A code signing certificate for Fleeto Connect on Windows. Until Steaan has one, SmartScreen warns on its first run; its
   integrity comes from the signed release manifest (decided 2026-10-27).
 - [open] Patch management on Linux (planned as 0.4.1, moved to "Not yet scheduled" on 2026-09-23, scheduled as 0.8.0 on

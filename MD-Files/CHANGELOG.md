@@ -60,6 +60,10 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- An agent installed again on Windows after an uninstall, without a restart in between, lost its binary at the next restart: the uninstall
+  had left the deletion of its own running binary to Windows for that restart, by path. Installing the agent and every start of the agent
+  and the watchdog now cancel such deletions in the program folder, and a watchdog or agent that finds the binary of the other service
+  missing puts its previous version back, after which the update ring installs the current one again.
 - Vulnerability feeds were never fetched: the workers could not create the temporary tables their import uses, and the failure
   stopped every feed without showing a reason. The workers now get `TEMPORARY` on the instance database (also on existing
   instances, at the update), and a feed that cannot be stored shows as failing with its reason while the other feeds are still

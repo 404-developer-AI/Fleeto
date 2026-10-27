@@ -250,6 +250,7 @@ func (w *Watchdog) Close() error { return w.key.Close() }
 // but not the supervision: the agent gives the watchdog a new identity and restarts it.
 func (w *Watchdog) Run(ctx context.Context) error {
 	update.Recover(w.store.Dir(), w.logger)
+	update.CancelPendingUninstall(w.logger)
 	safego.Go(w.logger, "agent updater", func() { w.updater.Run(ctx) })
 	safego.Go(w.logger, "agent supervisor", func() { w.supervise(ctx) })
 	defer w.writeHealth(false)

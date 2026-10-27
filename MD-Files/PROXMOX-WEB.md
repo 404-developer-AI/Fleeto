@@ -136,6 +136,9 @@ Built 2026-10-27 for the test build `v0.8.0-alpha.6`.
 2. [done] **Server**: the session kind, the claim table and endpoint, the signer rule, the permission, gateway and version gates, the window
    with the install proposal, audit, and tests (signer, web claim flow, workers clean-up).
 3. [done] **Packaging**: per-user install on Windows, the `.deb`, the Release workflow and manifest, the downloads.
-4. [open] **On a real host with the developer**: sign-in, a VM console (noVNC), a shell (xterm.js), an ISO upload, and that the Secure cookie
-   of Proxmox is kept on `http://<name>.localhost` in Edge, Chrome and Firefox. If it is not, Fleeto Connect serves HTTPS on loopback with a
-   certificate of its own instead, and this file changes first. Also the first run on Windows (SmartScreen) and the `.deb` on Ubuntu 24.04.
+4. **On a real host with the developer.** Tested 2026-10-27 with `v0.8.0-alpha.6` on Ubuntu desktop and Chrome: the install proposal, the
+   `.deb`, the sign-in to Proxmox (the Secure cookie is kept on `http://<name>.localhost`), and an upgrade of the host from the web
+   interface, whose shell (xterm.js) opened without problems.
+   [open] Still to test: Windows (the first run with SmartScreen, the per-user install), Edge and Firefox (also how Firefox handles the
+   `fleeto-connect:` link), a VM console (noVNC) and an ISO upload. If a browser does not keep the cookie, Fleeto Connect serves HTTPS on
+   loopback with a certificate of its own instead, and this file changes first.

@@ -181,6 +181,23 @@ func Recover(dir string, logger *slog.Logger) {
 	_ = os.Remove(j.Exe + ".new")
 }
 
+// CancelPendingUninstall cancels the deletions an earlier uninstall left for the next restart in the program folder, unless an uninstall
+// runs now. Without it, an agent installed again after an uninstall and before a restart loses its binary at that restart, and nothing is
+// left to start it (Windows; found on a test endpoint with 0.8.0-alpha.6).
+func CancelPendingUninstall(logger *slog.Logger) {
+	if UninstallInProgress() {
+		return
+	}
+	removed, err := platform.CancelPendingDeletes(platform.ProgramDir())
+	if err != nil {
+		logger.Warn("could not check the deletions waiting for the next restart", "error", err)
+		return
+	}
+	if len(removed) > 0 {
+		logger.Warn("cancelled deletions of an earlier uninstall that waited for the next restart", "paths", removed)
+	}
+}
+
 func writeJournal(dir string, access platform.Access, j Journal) error {
 	data, err := json.Marshal(j)
 	if err != nil {

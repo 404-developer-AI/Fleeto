@@ -52,6 +52,29 @@ func (s *Supervisor) Pause(paused bool) {
 	s.paused = paused
 }
 
+// restorePrevious puts the previous binary back when the binary of the service is missing and the previous one is there (it was deleted
+// outside an update, for example by a deletion an uninstall left for the next restart). The service then runs the version before, and the
+// update ring installs the current one again. Never during a replacement: Check does not start the service while paused.
+func (s *Supervisor) restorePrevious() {
+	if s.Exe == "" {
+		return
+	}
+	previous := s.Exe + ".previous"
+	if _, err := os.Stat(s.Exe); !errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if _, err := os.Stat(previous); err != nil {
+		return
+	}
+	if err := os.Rename(previous, s.Exe); err != nil {
+		s.Logger.Error("the binary of the service is missing and the previous one could not be put back", "service", s.Service, "error", err)
+		return
+	}
+	s.version = ""
+	s.Logger.Warn("the binary of the service was missing; the previous version is back and the update ring installs the current one again",
+		"service", s.Service, "exe", s.Exe)
+}
+
 // Check queries the service, starts it when it is stopped, and returns its status for the heartbeat.
 func (s *Supervisor) Check(ctx context.Context) *agentv1.PeerStatus {
 	now := time.Now()
@@ -92,6 +115,7 @@ func (s *Supervisor) Check(ctx context.Context) *agentv1.PeerStatus {
 		s.lastError = ""
 	case svcctl.StateStopped:
 		if !s.paused && !UninstallInProgress() && !now.Before(s.nextStart) {
+			s.restorePrevious()
 			s.Logger.Warn("the service is stopped; starting it", "service", s.Service)
 			if err := s.Controller.Start(s.Service); err != nil {
 				s.failures++

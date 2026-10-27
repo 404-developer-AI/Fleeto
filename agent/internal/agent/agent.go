@@ -343,6 +343,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	if a.watchdog != nil {
 		// A replacement of the watchdog binary that a crash interrupted is undone first.
 		update.Recover(a.store.Dir(), a.logger)
+		update.CancelPendingUninstall(a.logger)
 		watchdogCtx, stopWatchdog := context.WithCancel(ctx)
 		defer stopWatchdog()
 		safego.Go(a.logger, "watchdog manager", func() { a.watchdog.run(watchdogCtx) })
