@@ -391,23 +391,42 @@ public sealed class InstanceHealthService : WorkerLoop
 
     /// <summary>
     /// Reads the costliest statements and stores them for the diagnostics; a missing extension is stored as the reason. The same
-    /// reader as the performance monitor (0.7.0), so both name the same statements.
+    /// reader as the performance monitor (0.7.0), so both name the same statements. They are ranked by what they did over
+    /// <see cref="InstanceHealthRules.StatementWindow"/>, counted from the statement snapshot of the performance monitor at its start;
+    /// without one (the monitor keeps none, or the statistics were reset since) by everything since the reset.
     /// </summary>
     public async Task<QueryStatistics> ReadQueryStatisticsAsync(CancellationToken cancellationToken)
     {
         var now = Time.GetUtcNow().UtcDateTime;
         StatementRead read;
+        DateTime? from = null;
+        Dictionary<long, StatementTotals>? baseline = null;
         await using (var db = _dbFactory.CreateSystem())
         {
             read = await StatementStatisticsReader.ReadAsync(db, cancellationToken);
+            if (read.Problem is null)
+            {
+                var start = now - InstanceHealthRules.StatementWindow;
+                var earliest = start - InstanceHealthRules.StatementBaselineSlack;
+                if (read.ResetAt is { } reset && reset > earliest)
+                {
+                    earliest = reset;
+                }
+
+                from = await db.PerfStatementSnapshots.Where(s => s.Time <= start && s.Time > earliest)
+                    .MaxAsync(s => (DateTime?)s.Time, cancellationToken);
+                if (from is { } at)
+                {
+                    baseline = (await db.PerfStatementSnapshots.AsNoTracking().Where(s => s.Time == at).ToListAsync(cancellationToken))
+                        .GroupBy(s => s.QueryId)
+                        .ToDictionary(g => g.Key, g => g.Select(s => new StatementTotals(s.QueryId, s.Query, s.Calls, s.TotalMs, s.Rows)).First());
+                }
+            }
         }
 
-        var statistics = new QueryStatistics(now, read.Problem, read.Statements
-            .OrderByDescending(q => q.TotalMs)
-            .Take(10)
-            .Select(q => new SlowQuery(q.Query.Length <= 400 ? q.Query : q.Query[..400], q.Calls, Math.Round(q.TotalMs, 1),
-                Math.Round(q.Calls == 0 ? 0 : q.TotalMs / q.Calls, 2), q.Rows))
-            .ToList());
+        var queries = InstanceHealthRules.Costliest(
+            read.Statements.Select(q => new StatementTotals(q.QueryId, q.Query, q.Calls, q.TotalMs, q.Rows)), baseline);
+        var statistics = new QueryStatistics(now, read.Problem, queries, from, read.ResetAt);
         await _settings.SetAsync(SettingKeys.InstanceHealthQueries, statistics, encrypted: false, userId: null, cancellationToken);
         return statistics;
     }

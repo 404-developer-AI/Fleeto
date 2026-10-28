@@ -132,6 +132,26 @@ public sealed class PerformanceRuleTests
         Assert.NotNull(finding);
         Assert.Contains("429", finding.Title);
         Assert.Null(Find(data, "code-external-errors:graph.microsoft.com"));
+        Assert.Contains("Action1: 20 a minute", finding.Action);
+    }
+
+    [Fact]
+    public void One_refused_fetch_of_a_list_is_a_warning_with_advice_for_that_list()
+    {
+        // The CrowdSec blocklist is fetched every 6 hours: one 429 is all its calls of the hour, and 100% of them failed.
+        var data = Data([Series(PerfKind.External, "admin.api.crowdsec.net", "429", 1, 300, errors: 1, component: "workers")]);
+
+        var finding = Find(data, "code-external-errors:admin.api.crowdsec.net");
+        Assert.NotNull(finding);
+        Assert.Equal(PerfSeverity.Warning, finding.Severity);
+        Assert.Contains("CrowdSec", finding.Action);
+        Assert.DoesNotContain("Action1", finding.Action);
+        Assert.Empty(PerformanceHealth.Problems([finding], new HashSet<string>()));
+
+        // Enough calls that fail is still critical, and reaches instance health.
+        var failing = Find(Data([Series(PerfKind.External, "app.eu.action1.com", "429", 100, 300, errors: 100, component: "workers")]),
+            "code-external-errors:app.eu.action1.com");
+        Assert.Equal(PerfSeverity.Critical, failing!.Severity);
     }
 
     [Fact]

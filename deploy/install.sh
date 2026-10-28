@@ -650,6 +650,40 @@ pull_image() {
     die "Could not pull $ref." "Check that this VPS can reach ${ref%%/*} and try again. Nothing was changed."
 }
 
+# remove_unused_release_images: removes the Fleeto release images that no container uses and that no instance, no previous
+# configuration of an instance (the images a rollback returns to) and not the host proxy refers to. Every update pulls a full set
+# by digest, so without this the disk of a VPS fills with a set per release. Never fails the update: an image Docker refuses to
+# remove stays.
+remove_unused_release_images() {
+    local -A keep=()
+    local file ref id repository removed=0
+    for file in "$INSTANCES_ROOT"/*/instance.conf "$INSTANCES_ROOT"/*/state/previous/instance.conf "$CADDY_DIR/caddy.conf" \
+        "$LEGACY_ROOT"/*/*.conf; do
+        [[ -f "$file" ]] || continue
+        while IFS= read -r ref; do
+            if [[ -n "$ref" ]] && id="$(docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null)" && [[ -n "$id" ]]; then
+                keep[$id]=1
+            fi
+        done < <(sed -n 's/^[A-Z_]*IMAGE=//p' "$file")
+    done
+    while IFS= read -r id; do
+        if [[ -n "$id" ]]; then
+            keep[$id]=1
+        fi
+    done < <(docker ps --all --quiet --no-trunc | xargs -r docker inspect --format '{{.Image}}' 2>/dev/null)
+    while read -r repository id; do
+        [[ "$repository" == "$REGISTRY/fleeto-"* && -n "$id" && -z "${keep[$id]:-}" ]] || continue
+        # Once per image, also when it is listed under several names.
+        keep[$id]=1
+        if docker image rm "$id" >/dev/null 2>&1; then
+            removed=$((removed + 1))
+        fi
+    done < <(docker image ls --no-trunc --format '{{.Repository}} {{.ID}}')
+    if ((removed > 0)); then
+        info "removed $removed image(s) of earlier releases"
+    fi
+}
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Host bootstrap: packages, Docker, host proxy
 # ---------------------------------------------------------------------------------------------------------------------
@@ -2058,6 +2092,7 @@ update_instance() {
     remove_wal_archiving "$dir"
     update_caddy_routes
     append_history "$instance" "updated $installed_version -> $version"
+    remove_unused_release_images
     ok "$fqdn runs Fleeto $version"
 }
 

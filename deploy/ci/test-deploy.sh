@@ -384,6 +384,41 @@ for case in restored failed unreadable unhealthy space rollback; do
 done
 pass "install.sh checks disk space before an update and replaces the database only after a complete restore"
 
+# --- 3f. Images of earlier releases ---------------------------------------------------------------------------------
+# Docker is a script on PATH (xargs calls the binary, not a function); every removal goes to $CALLS. Only a Fleeto image that no
+# instance, previous configuration, host proxy or container refers to is removed, once.
+mkdir -p "$work/prune/bin" "$work/prune/fleeto/rmm-a-example/state/previous" "$work/prune/fleeto/caddy"
+cat >"$work/prune/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+registry="ghcr.io/404-developer-ai"
+case "$*" in
+    "image inspect --format {{.Id}} $registry/fleeto-web@sha256:new") echo sha256:web-new ;;
+    "image inspect --format {{.Id}} $registry/fleeto-web@sha256:old") echo sha256:web-old ;;
+    "image inspect --format {{.Id}} $registry/fleeto-caddy@sha256:one") echo sha256:caddy-one ;;
+    "image inspect "*) exit 1 ;;
+    "ps --all --quiet --no-trunc") echo container-1 ;;
+    "inspect --format {{.Image}} container-1") echo sha256:workers-running ;;
+    "image ls --no-trunc --format "*)
+        printf '%s\n' "$registry/fleeto-web sha256:web-new" "$registry/fleeto-web sha256:web-old" "$registry/fleeto-web sha256:web-older" \
+            "$registry/fleeto-web sha256:web-older" "$registry/fleeto-workers sha256:workers-running" "$registry/fleeto-caddy sha256:caddy-one" \
+            "timescale/timescaledb sha256:postgres" "example/other sha256:other" ;;
+    "image rm "*) echo "$*" >>"$CALLS" ;;
+esac
+exit 0
+EOF
+chmod +x "$work/prune/bin/docker"
+printf 'WEB_IMAGE=ghcr.io/404-developer-ai/fleeto-web@sha256:new\nPOSTGRES_IMAGE=timescale/timescaledb:2.30.0-pg17@sha256:pg\n' \
+    >"$work/prune/fleeto/rmm-a-example/instance.conf"
+printf 'WEB_IMAGE=ghcr.io/404-developer-ai/fleeto-web@sha256:old\n' >"$work/prune/fleeto/rmm-a-example/state/previous/instance.conf"
+printf 'CADDY_RELEASE=9.9.9\nCADDY_IMAGE=ghcr.io/404-developer-ai/fleeto-caddy@sha256:one\n' >"$work/prune/fleeto/caddy/caddy.conf"
+: >"$work/prune/calls"
+PATH="$work/prune/bin:$PATH" FLEETO_ROOT="$work/prune/fleeto" FLEETO_LEGACY_ROOT="$work/prune/fleetify" CALLS="$work/prune/calls" \
+    REPO="$repo_root" bash -c 'source "$REPO/deploy/install.sh"; remove_unused_release_images' </dev/null >/dev/null \
+    || fail "removing images of earlier releases failed (exit $?)"
+[[ "$(cat "$work/prune/calls")" == "image rm sha256:web-older" ]] \
+    || fail "removing images of earlier releases removed: $(tr '\n' ' ' <"$work/prune/calls")"
+pass "install.sh removes only the release images nothing refers to any more"
+
 # --- 4. Caddyfile generation -----------------------------------------------------------------------------------------
 mkdir -p "$work/root/rmm-a-example" "$work/root/rmm-b-example" "$work/empty" "$work/caddy-two" "$work/caddy-empty"
 printf 'FLEETO_INSTANCE=rmm-a-example\nFLEETO_FQDN=rmm.a.example\nWEB_PORT=20000\nAGENT_PORT=20001\nRELAY_PORT=29999\n' >"$work/root/rmm-a-example/instance.conf"

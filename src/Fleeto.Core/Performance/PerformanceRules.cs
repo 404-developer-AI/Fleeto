@@ -1,4 +1,5 @@
 using System.Globalization;
+using Fleeto.Core.Domain;
 
 namespace Fleeto.Core.Performance;
 
@@ -316,17 +317,20 @@ public static class PerformanceRules
             var errors = host.Sum(s => s.Errors);
             var limited = host.Where(s => s.SubKey == "429").Sum(s => s.Count);
             var errorShare = calls == 0 ? 0 : 100d * errors / calls;
-            if (calls >= minSamples && errorShare >= settings.Threshold(PerfThresholds.ExternalErrors) || limited > 0)
+            var enough = calls >= minSamples;
+            if (enough && errorShare >= settings.Threshold(PerfThresholds.ExternalErrors) || limited > 0)
             {
+                // Only a share of enough calls is critical, and only critical reaches instance health: a list fetched every few
+                // hours that is refused once fails 100% of its one call, and is simply fetched again at its next attempt.
                 findings.Add(new PerfFinding(
-                    $"code-external-errors:{host.Key}", PerfCategory.Code, errorShare >= 25 ? PerfSeverity.Critical : PerfSeverity.Warning,
+                    $"code-external-errors:{host.Key}", PerfCategory.Code, enough && errorShare >= 25 ? PerfSeverity.Critical : PerfSeverity.Warning,
                     limited > 0 ? $"{host.Key} answered {Count(limited)} calls with 429 Too Many Requests" : $"{Pct(errorShare)} of the calls to {host.Key} failed",
                     "Failed and rate-limited calls are retried with backoff, so the work behind them waits.",
                     [new("Calls", Count(calls)), new("Failed", Count(errors)), new("Rate limited (429)", Count(limited)),
                         new("95th percentile", Ms(Merge(host).P95))],
                     limited > 0 ? "More calls than the external product allows." : "The external product is unavailable or refuses the calls.",
                     limited > 0
-                        ? "Check the request budget of the connector (Action1: 20 a minute for the instance) and what calls it most."
+                        ? RateLimitAction(host.Key)
                         : "Check the integration in Settings, Integrations, and the workers log for the reason.",
                     [new("host", host.Key)],
                     null));
@@ -519,6 +523,17 @@ public static class PerformanceRules
         flow.DbShare >= dbShareLimit ? "Check the queries behind it under Database queries: a missing index, a query per item, or more rows than shown."
         : flow.ExternalShare >= 0.5 ? "Move the external call to the workers, or cache its answer."
         : "Look for work in loops, large lists rendered at once, or synchronous waits in the code behind it.";
+
+    private static readonly string CrowdSecHost = new Uri(IpFeeds.CrowdSecContentUrl).Host;
+
+    /// <summary>What to check for a host that answered 429: the budget of the connector that calls it, never another one's.</summary>
+    private static string RateLimitAction(string host) =>
+        host.EndsWith("action1.com", StringComparison.OrdinalIgnoreCase)
+            ? "Check the request budget of the connector (Action1: 20 a minute for the instance) and what calls it most."
+            : string.Equals(host, CrowdSecHost, StringComparison.OrdinalIgnoreCase)
+                ? "Fleeto fetches the CrowdSec blocklist every 6 hours, and an hour after a failure; the list before stays in use. If it " +
+                  "keeps happening, check in the CrowdSec Console whether something else pulls the same integration."
+                : $"Check in Settings, Performance what calls {host} and how often; a refused call is tried again at its next attempt.";
 
     private static bool IsDownload(string route) =>
         route.Contains("download", StringComparison.OrdinalIgnoreCase) || route.Contains("export", StringComparison.OrdinalIgnoreCase) ||

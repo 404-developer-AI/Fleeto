@@ -670,7 +670,9 @@ flap. Every transition is queued in the same transaction for the notification ch
 `.escalated`, `.resolved`). It is deliberately not an `Alert`: alerts belong to a client and an endpoint, with client scope,
 maintenance and hold. Once an hour the workers read the ten costliest statements from pg_stat_statements (normalized by
 `SqlFingerprint`, through `StatementStatisticsReader`, the reader the performance monitor uses as well) into the setting
-`instance-health.queries`; the compose command preloads the library and install.sh creates the extension and grants
+`instance-health.queries`, ranked by what they did in the last 24 hours: counted from the `PerfStatementSnapshots` row set of a
+day ago (at most 2 hours older, never from before `pg_stat_statements_info.stats_reset`), else everything since that reset, which
+the report then says (0.8.0); the compose command preloads the library and install.sh creates the extension and grants
 `pg_monitor` to `fleeto_workers` (0.7.0; `pg_read_all_stats` before) as the superuser over the local socket, a failure being
 a warning only. Web measures nothing: the admin-only dashboard tile and the page Settings, Instance health read the samples
 and issues, show 7-day hourly trends with the check history chart, and say so when no sample is younger than 15 minutes

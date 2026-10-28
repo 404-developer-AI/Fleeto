@@ -89,6 +89,17 @@ When a third released version is added, the oldest entry moves to the top of
   stopped every feed without showing a reason. The workers now get `TEMPORARY` on the instance database (also on existing
   instances, at the update), and a feed that cannot be stored shows as failing with its reason while the other feeds are still
   fetched.
+- The diagnostics report of Instance health named statements by everything since pg_stat_statements was last reset, which can be
+  weeks: a loop fixed long ago stayed on top with millions of calls. It now ranks them by what they did in the last 24 hours,
+  counted from the statement snapshot the performance monitor took a day ago, states the period, when the statistics were last
+  reset and the calls an hour of every statement. Without a snapshot of a day ago it says the totals reach back to the reset.
+- One refused fetch of a blocklist (a 429 of the CrowdSec Console, fetched every 6 hours) opened an instance health problem: its
+  one call of the hour failed 100%. A host is now critical, and an instance health problem, only when enough of its calls fail;
+  a single 429 is a warning on Settings, Performance. The advice names what calls the host instead of always the Action1 budget.
+- The diagnostics report said "last success never" for backups made outside Fleeto; it now says Fleeto makes none itself.
+- Every update pulled a new set of images and install.sh never removed the old ones, so the disk of a VPS filled with a set per
+  release. After a successful update install.sh removes the Fleeto images that no container uses and that no instance, no previous
+  configuration of an instance (what a rollback returns to) and not the host proxy refers to.
 
 ## [0.7.0] — 2026-10-26
 

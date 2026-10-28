@@ -132,4 +132,32 @@ public sealed class InstanceHealthRuleTests
         Assert.Equal(["retention"], parsed.Fleeto.StaleLoops);
         Assert.Same(InstanceHealthDetail.Empty, InstanceHealthRules.ParseDetail("{broken"));
     }
+
+    [Fact]
+    public void The_costliest_statements_count_from_the_start_of_the_window()
+    {
+        // A loop that ran millions of times before it was fixed, and a statement that is busy now.
+        StatementTotals[] current =
+        [
+            new(1, "SELECT old", 8_000_000, 1_270_000, 47_000_000),
+            new(2, "SELECT busy", 50_000, 9_000, 50_000),
+            new(3, "SELECT new", 10, 500, 10),
+            new(4, "SELECT readded", 5, 40, 5)
+        ];
+        var baseline = new Dictionary<long, StatementTotals>
+        {
+            [1] = new(1, "SELECT old", 7_999_000, 1_269_900, 46_999_000),
+            [2] = new(2, "SELECT busy", 2_000, 400, 2_000),
+            [4] = new(4, "SELECT readded", 900, 3_000, 900)
+        };
+
+        var since = InstanceHealthRules.Costliest(current, baseline);
+        Assert.Equal(["SELECT busy", "SELECT new", "SELECT old", "SELECT readded"], since.Select(q => q.Query));
+        Assert.Equal((48_000L, 8_600d, 0.18), (since[0].Calls, since[0].TotalMs, since[0].MeanMs));
+        // Dropped and added again by PostgreSQL: counted lower than at the start, so everything it has counts.
+        Assert.Equal(5, since[3].Calls);
+
+        // Without a baseline: everything since the reset, the old loop on top.
+        Assert.Equal("SELECT old", InstanceHealthRules.Costliest(current, null)[0].Query);
+    }
 }

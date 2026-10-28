@@ -48,11 +48,19 @@ public sealed record InstanceHealthDetail(IReadOnlyList<TableSize> Tables, Fleet
     public static readonly InstanceHealthDetail Empty = new([], FleetoHealth.Empty);
 }
 
+/// <summary>A statement as pg_stat_statements counts it, cumulative since the statistics were reset or the statement was first seen.</summary>
+public sealed record StatementTotals(long QueryId, string Query, long Calls, double TotalMs, long Rows);
+
 /// <summary>A statement from pg_stat_statements: normalized text (literals replaced), how often it ran and how long it took.</summary>
 public sealed record SlowQuery(string Query, long Calls, double TotalMs, double MeanMs, long Rows);
 
-/// <summary>The statements that cost the database the most, as the workers last read them; <see cref="Problem"/> says why there are none.</summary>
-public sealed record QueryStatistics(DateTime ReadAt, string? Problem, IReadOnlyList<SlowQuery> Queries);
+/// <summary>
+/// The statements that cost the database the most, as the workers last read them; <see cref="Problem"/> says why there are none.
+/// With <see cref="From"/> the values are what the statements did between <see cref="From"/> and <see cref="ReadAt"/>; without it
+/// they are everything since the statistics were reset at <see cref="ResetAt"/>, which can be weeks and hide what changed since.
+/// </summary>
+public sealed record QueryStatistics(DateTime ReadAt, string? Problem, IReadOnlyList<SlowQuery> Queries, DateTime? From = null,
+    DateTime? ResetAt = null);
 
 /// <summary>One sample as the rules judge it.</summary>
 public sealed record HealthSnapshot(DateTime Time, HostHealth Host, long DatabaseBytes, int Connections, int MaxConnections,
@@ -102,6 +110,42 @@ public static class InstanceHealthRules
     public static readonly TimeSpan BackupWarningAge = TimeSpan.FromHours(36);
     public static readonly TimeSpan OutboxWarningAge = TimeSpan.FromMinutes(30);
     public static readonly TimeSpan EventsWarningAge = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// The diagnostics name the statements that cost most over this window, not since the statistics were reset: pg_stat_statements
+    /// is never reset from Fleeto, so its totals can span weeks and keep a loop that was fixed long ago on top.
+    /// </summary>
+    public static readonly TimeSpan StatementWindow = TimeSpan.FromDays(1);
+
+    /// <summary>A snapshot of the performance monitor up to this long before the window still serves as its start.</summary>
+    public static readonly TimeSpan StatementBaselineSlack = TimeSpan.FromHours(2);
+
+    public const int ListedStatements = 10;
+
+    /// <summary>
+    /// The costliest statements, by total time. With a <paramref name="baseline"/> (the counts at the start of the window) each
+    /// statement counts what it did since: one missing from the baseline, or counted lower than there because PostgreSQL dropped and
+    /// re-added it, counts everything it has. Without one every statement counts everything since the reset.
+    /// </summary>
+    public static IReadOnlyList<SlowQuery> Costliest(IEnumerable<StatementTotals> current, IReadOnlyDictionary<long, StatementTotals>? baseline) =>
+        current
+            .Select(c => baseline is null ? c : Since(c, baseline.GetValueOrDefault(c.QueryId)))
+            .Where(c => c.Calls > 0)
+            .OrderByDescending(c => c.TotalMs)
+            .Take(ListedStatements)
+            .Select(c => new SlowQuery(c.Query.Length <= 400 ? c.Query : c.Query[..400], c.Calls, Math.Round(c.TotalMs, 1),
+                Math.Round(c.TotalMs / c.Calls, 2), c.Rows))
+            .ToList();
+
+    private static StatementTotals Since(StatementTotals current, StatementTotals? before) =>
+        before is null || current.Calls < before.Calls || current.TotalMs < before.TotalMs
+            ? current
+            : current with
+            {
+                Calls = current.Calls - before.Calls,
+                TotalMs = current.TotalMs - before.TotalMs,
+                Rows = Math.Max(0, current.Rows - before.Rows)
+            };
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 

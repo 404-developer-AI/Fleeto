@@ -101,7 +101,9 @@ types from `Fleeto.Protocol`, never an endpoint.
   today and every loop added later: duration, items (from the returned `more` and a counter the loop may set), errors, database
   time as `worker:<Name>`. Idle runs (under 25 ms, no queries) are dropped. Overlap with interactions is a finding (§6).
 - External HTTP through the `HttpClient` metrics: per host (Action1, Microsoft, webhooks, Slack, Teams, S3), status class,
-  429s; the circuit breaker opening counts too.
+  429s; the circuit breaker opening counts too. A 429 is always a finding, but a host is critical (and so an instance health
+  problem) only when at least the minimum samples of its calls fail: a blocklist fetched every 6 hours that is refused once has
+  failed its one call of the hour, and is a warning (0.8.0). The advice names the budget of the connector behind the host.
 - The notification bus: notifications sent and received per channel, the lag between them.
 
 ### 4.6 Runtime and host

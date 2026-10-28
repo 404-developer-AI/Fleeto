@@ -332,11 +332,24 @@ public sealed class InstanceHealthService
         }
         else
         {
-            Line($"Read {Utc(queries.ReadAt)}.");
+            var reset = queries.ResetAt is { } resetAt ? Utc(resetAt) : "at an unknown time";
+            if (queries.From is { } from)
+            {
+                Line($"What each statement did from {Utc(from)} to {Utc(queries.ReadAt)}. The statistics were last reset {reset}.");
+            }
+            else
+            {
+                Line($"Read {Utc(queries.ReadAt)}. Everything since the statistics were last reset, {reset}: the performance monitor kept " +
+                     "no statement snapshot of a day ago, so a statement on top may have stopped costing anything long ago.");
+            }
+
+            // Calls an hour make a loop that runs too often stand out, whatever the length of the period.
+            var hours = (queries.ReadAt - (queries.From ?? queries.ResetAt ?? queries.ReadAt)).TotalHours;
             Line();
             foreach (var (query, index) in queries.Queries.Select((q, i) => (q, i + 1)))
             {
-                Line($"{index}. {query.Calls.ToString("N0", CultureInfo.InvariantCulture)} calls, total {F(query.TotalMs / 1000)} s, " +
+                var rate = hours >= 1 ? $" ({(query.Calls / hours).ToString("N0", CultureInfo.InvariantCulture)} an hour)" : string.Empty;
+                Line($"{index}. {query.Calls.ToString("N0", CultureInfo.InvariantCulture)} calls{rate}, total {F(query.TotalMs / 1000)} s, " +
                      $"mean {F(query.MeanMs, "0.##")} ms, {query.Rows.ToString("N0", CultureInfo.InvariantCulture)} rows");
                 Line();
                 Line("   ```sql");
@@ -354,8 +367,11 @@ public sealed class InstanceHealthService
         Line($"- Endpoint events waiting: {fleeto.UnprocessedEvents}{(fleeto.OldestUnprocessedEvent is { } e ? $", oldest {Utc(e)}" : "")}");
         Line($"- Emails waiting: {fleeto.OutboxEmails}{(fleeto.OldestOutboxEmail is { } m ? $", oldest {Utc(m)}" : "")}");
         Line($"- Webhooks waiting: {fleeto.OutboxWebhooks}{(fleeto.OldestOutboxWebhook is { } w ? $", oldest {Utc(w)}" : "")}");
-        Line($"- Backups: {(fleeto.ExternalBackups is not null ? "made outside Fleeto" : fleeto.BackupConfigured ? "destination configured" : "no destination")}, last success {(fleeto.LastBackupAt is { } b ? Utc(b) : "never")}" +
-             $"{(fleeto.LastBackupFailed ? ", last run failed" : "")}");
+        // Backups made outside Fleeto have no run Fleeto knows of; "last success never" would read as a problem that is not there.
+        Line(fleeto.ExternalBackups is not null
+            ? "- Backups: made outside Fleeto, so Fleeto makes none itself"
+            : $"- Backups: {(fleeto.BackupConfigured ? "destination configured" : "no destination")}, last success {(fleeto.LastBackupAt is { } b ? Utc(b) : "never")}" +
+              $"{(fleeto.LastBackupFailed ? ", last run failed" : "")}");
         return md.ToString();
     }
 

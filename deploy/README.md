@@ -163,7 +163,9 @@ An update verifies the new manifest (and switches to the install.sh listed in it
 database to `backups/`, runs the migrator, restarts the stack and runs the health check (container health, web
 `/health`, a TLS handshake with the gateway). When anything fails it rolls back to the previous images; for a release
 marked `rollback: restore` it first restores the pre-update dump, and it asks for confirmation (or `--yes`) before
-such an update starts. install.sh never downgrades an instance.
+such an update starts. install.sh never downgrades an instance. After a successful update it removes the Fleeto images that no
+container uses and that no instance, no previous configuration of an instance (what a rollback returns to) and not the host proxy
+refers to, so a VPS keeps at most the current and the previous release of each instance.
 
 Before anything changes, an update checks free disk space: the pre-update dump, a second copy of the database for a
 rollback and the new images, plus 2 GB. A rollback restores the dump into a separate database and replaces the

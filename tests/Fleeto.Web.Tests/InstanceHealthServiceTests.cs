@@ -92,6 +92,28 @@ public sealed class InstanceHealthServiceTests
     }
 
     [Fact]
+    public async Task The_costliest_statements_state_their_period_and_calls_an_hour()
+    {
+        var settings = _fixture.Services.GetRequiredService<Fleeto.Infrastructure.Settings.SettingsStore>();
+        var read = new DateTime(2026, 10, 28, 20, 25, 0, DateTimeKind.Utc);
+        await settings.SetAsync(Fleeto.Infrastructure.Settings.SettingKeys.InstanceHealthQueries,
+            new QueryStatistics(read, null, [new SlowQuery("SELECT 1", 48_000, 1200, 0.03, 48_000)], read.AddDays(-1), read.AddDays(-25)),
+            encrypted: false, userId: null);
+
+        var report = (await Health.ExportDiagnosticsAsync(WebFixture.Admin(), "copied")).Value!;
+        Assert.Contains("What each statement did from 2026-10-27 20:25 UTC to 2026-10-28 20:25 UTC. The statistics were last reset 2026-10-03 20:25 UTC.", report);
+        Assert.Contains("1. 48,000 calls (2,000 an hour), total 1.2 s", report);
+
+        // Without a snapshot of a day ago the report says the totals reach back to the reset.
+        await settings.SetAsync(Fleeto.Infrastructure.Settings.SettingKeys.InstanceHealthQueries,
+            new QueryStatistics(read, null, [new SlowQuery("SELECT 1", 48_000, 1200, 0.03, 48_000)], null, read.AddDays(-2)),
+            encrypted: false, userId: null);
+        report = (await Health.ExportDiagnosticsAsync(WebFixture.Admin(), "copied")).Value!;
+        Assert.Contains("Everything since the statistics were last reset, 2026-10-26 20:25 UTC", report);
+        Assert.Contains("1. 48,000 calls (1,000 an hour)", report);
+    }
+
+    [Fact]
     public async Task A_channel_chooses_instance_health()
     {
         var channels = _fixture.Services.GetRequiredService<NotificationChannelService>();

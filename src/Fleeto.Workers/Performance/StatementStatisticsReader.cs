@@ -9,8 +9,11 @@ namespace Fleeto.Workers.Performance;
 public sealed record StatementRow(long QueryId, string Query, long Calls, double TotalMs, long Rows, long SharedBlocksHit, long SharedBlocksRead,
     long TempBlocksWritten);
 
-/// <summary>The statements of one read, or why there are none.</summary>
-public sealed record StatementRead(IReadOnlyList<StatementRow> Statements, string? Problem);
+/// <summary>
+/// The statements of one read, or why there are none, and when pg_stat_statements was last reset: every count is since then. Null
+/// when the extension does not say (before PostgreSQL 14) or was not read.
+/// </summary>
+public sealed record StatementRead(IReadOnlyList<StatementRow> Statements, string? Problem, DateTime? ResetAt = null);
 
 /// <summary>
 /// Reads pg_stat_statements for instance health (0.6.0) and the performance monitor (0.7.0), so both see the same statements: the
@@ -22,6 +25,8 @@ public static class StatementStatisticsReader
     public const string NotInstalled = "pg_stat_statements is not installed in this database. install.sh switches it on with the next update.";
 
     private const string InstalledSql = """SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements') AS "Value" """;
+
+    private const string ResetSql = """SELECT stats_reset AS "Value" FROM pg_stat_statements_info""";
 
     private const string StatementsSql = """
         WITH s AS (
@@ -47,13 +52,27 @@ public static class StatementStatisticsReader
             }
 
             var rows = await db.Database.SqlQueryRaw<Row>(StatementsSql).ToListAsync(cancellationToken);
+            var resetAt = await ReadResetAsync(db, cancellationToken);
             return new StatementRead(rows
                 .Select(r => new StatementRow(r.QueryId, SqlFingerprint.Normalize(r.Query), r.Calls, r.TotalMs, r.Rows, r.Hit, r.Read, r.Temp))
-                .ToList(), null);
+                .ToList(), null, resetAt);
         }
         catch (PostgresException ex)
         {
             return new StatementRead([], $"Query statistics could not be read: {ex.MessageText}");
+        }
+    }
+
+    // The statements stand without it: a database that cannot say when they were reset loses only that line of the diagnostics.
+    private static async Task<DateTime?> ReadResetAsync(FleetoDbContext db, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await db.Database.SqlQueryRaw<DateTime?>(ResetSql).SingleOrDefaultAsync(cancellationToken);
+        }
+        catch (PostgresException)
+        {
+            return null;
         }
     }
 
