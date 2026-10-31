@@ -42,6 +42,12 @@ func OSInfo(ctx context.Context) *agentv1.OsInfo {
 			info.Name = strings.TrimSpace("Proxmox VE " + version + " (" + info.Name + ")")
 		}
 		if info.Name == "" {
+			// Synology DSM has no os-release; name it as DSM does.
+			if content, err := os.ReadFile(DSMVersionFile); err == nil {
+				info.Name = DSMName(string(content))
+			}
+		}
+		if info.Name == "" {
 			info.Name = "Linux"
 		}
 		if h, err := host.InfoWithContext(ctx); err == nil {

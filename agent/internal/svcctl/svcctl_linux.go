@@ -27,6 +27,21 @@ func New() Controller { return Systemd{} }
 // unitName is the unit of a service name, e.g. fleeto-agent.service.
 func unitName(name string) string { return name + ".service" }
 
+// StartedBy reports whether systemd started this process as the unit of the service name. The parent must be the service
+// manager itself, because every child inherits the environment and the control group of the unit: a script the agent runs never
+// counts as the service. INVOCATION_ID exists only from systemd 232, so on older versions (systemd 219 on Synology DSM 7 and
+// CentOS 7) the control group of the process names the unit instead.
+func StartedBy(name string) bool {
+	if os.Getppid() != 1 {
+		return false
+	}
+	if os.Getenv("INVOCATION_ID") != "" {
+		return true
+	}
+	content, err := os.ReadFile("/proc/self/cgroup")
+	return err == nil && InUnitCgroup(string(content), name)
+}
+
 // systemctl runs systemctl with the given arguments and returns its standard output.
 func systemctl(ctx context.Context, args ...string) (string, error) {
 	path, err := exec.LookPath("systemctl")

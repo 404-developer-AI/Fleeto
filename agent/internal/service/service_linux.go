@@ -25,10 +25,9 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/update"
 )
 
-// IsService reports whether systemd started this process. INVOCATION_ID is inherited by every child, so the parent must be the
-// service manager itself: a script the agent runs never counts as the service.
+// IsService reports whether systemd started this process as the agent unit; a script the agent runs never counts as the service.
 func IsService() bool {
-	return os.Getenv("INVOCATION_ID") != "" && os.Getppid() == 1
+	return svcctl.StartedBy(Name)
 }
 
 // Run is the service entry point: it runs the agent until systemd stops the unit.

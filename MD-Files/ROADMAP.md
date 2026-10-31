@@ -118,6 +118,37 @@ Wanted, but not in a version yet: the version is chosen once the open questions 
 - Authenticode code signing of the Windows agent and watchdog binaries (decided 2026-09-15, 0.2.1); it comes next to
   the release manifest check, not instead of it.
 - Wayland support on Linux. (File transfer moved into 0.3.0 on 2026-09-16.)
+- Synology DSM as an endpoint platform (asked 2026-10-31): the Fleeto agent on a Synology NAS, chosen over an integration
+  through the DSM Web API or SNMP because those need a port on the NAS reachable from the VPS and a DSM admin credential in
+  Fleeto, while the agent only connects outbound. Findings on a NAS with DSM 7.1.1-42962 Update 8 (x86_64): systemd 219 runs
+  the unit Fleeto writes, but `/opt` does not exist (the install command needs `mkdir /opt` first), `/etc/os-release` is
+  missing (the OS name comes from `/etc.defaults/VERSION`), the system partition is 2.3 GB, and `dpkg` exists without the
+  packages of DSM. The 0.8.0 agent installed and enrolled there on 2026-11-01 after `mkdir /opt`, but the service then
+  exited at every start, because the agent recognised a start by systemd only by `INVOCATION_ID`, which systemd sets from 232
+  (fixed for the next build, see `CHANGELOG.md`). With a drop-in that sets `INVOCATION_ID` the agent and the watchdog run there,
+  in `/system.slice/fleeto-agent.service` and `/system.slice/fleeto-watchdog.service`; the endpoint is online as a Linux server
+  with the right host name, CPU, memory and storage. Synology itself offers only a Package Center package (`.spk`), which since DSM 7.0 runs as its own
+  unprivileged user unless Synology signs it; the agent needs root, so it stays an install outside Package Center, which
+  Synology does not support. What it would take:
+  - install without SSH, as a root script in the DSM Task Scheduler, with the install command creating `/opt` itself;
+  - DSM recognised in the inventory from `/etc.defaults/VERSION` (name, version, update), shown as a server: built for 0.8.0
+    (the operating system "Synology DSM 7.1.1-42962 Update 8"), which the DSM web interface can recognise like `Proxmox VE `;
+  - units in `/usr/local/lib/systemd/system`, where Package Center puts the units of packages, and program and state
+    files where a DSM update leaves them; open question, to be tested first on a NAS with an agent through a DSM update:
+    which of `/etc/systemd/system`, `/usr/local`, `/opt`, `/var/lib` and `/volume1` survive it;
+  - checks for what a NAS is watched for, read locally by the agent: RAID state (`/proc/mdstat`), SMART of the disks,
+    volumes and temperature;
+  - only x86_64 and arm64 models; 32-bit ARM models get no agent;
+  - the **DSM web interface** in the technician's own browser, exactly like the Proxmox web interface (`PROXMOX-WEB.md`, asked
+    2026-11-01): opened from the right-click menu on a managed endpoint whose agent reports DSM, carried by Fleeto Connect as tunnel
+    channels through a remote session, the agent connecting to one fixed target on the NAS itself and the TLS of DSM running end to
+    end, so Fleeto never sees the pages or a DSM password and the technician signs in with their own DSM account (with its own 2-step
+    verification). Decided with the developer on 2026-11-01: the one fixed target is `127.0.0.1:5001` (then `[::1]:5001`), the default
+    HTTPS port of DSM, never port 5000 and never a port read from the NAS or named by the server; when nothing answers there, the
+    window states that the DSM web interface only works on its default HTTPS port 5001. Its own permission "Synology web interface"
+    in the Remote group. Found out while building it on a test NAS: whether DSM accepts the `Host`, `Origin` and `Referer` of
+    `127.0.0.1` as `pveproxy` does, and what its auto block, firewall and IP check of a session do with sign-ins that all come from
+    `127.0.0.1` (a block of `127.0.0.1` would lock every technician out, a trusted `127.0.0.1` would bypass the auto block).
 - Whitelabel beyond the FQDN: customer logo and product name in UI and email.
 - Steaan management server: central issue, renewal and revocation of licenses, fetched by
   instances over an API; later also an overview of all instances and their versions.

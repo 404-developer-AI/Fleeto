@@ -14,7 +14,14 @@ func startDetached(agentExe string) error {
 	if runner, err := exec.LookPath("systemd-run"); err == nil {
 		unit := fmt.Sprintf("fleeto-uninstall-%d", time.Now().Unix())
 		// #nosec G204 -- fixed tool and arguments, the installed agent program.
-		return exec.Command(runner, "--quiet", "--collect", "--unit="+unit, agentExe, "uninstall").Run()
+		err := exec.Command(runner, "--quiet", "--collect", "--unit="+unit, agentExe, "uninstall").Run()
+		if err == nil {
+			return nil
+		}
+		// systemd older than 236 (219 on Synology DSM 7 and CentOS 7) refuses --collect before it starts anything, so the
+		// second attempt leaves out every option an older systemd-run may not know; a successful transient unit is unloaded without --collect anyway.
+		// #nosec G204 -- fixed tool and arguments, the installed agent program.
+		return exec.Command(runner, "--unit="+unit+"-legacy", agentExe, "uninstall").Run()
 	}
 	cmd := exec.Command(agentExe, "uninstall") // #nosec G204 -- the installed agent program, a fixed argument.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

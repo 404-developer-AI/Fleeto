@@ -5,6 +5,7 @@ package svcctl
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1"
@@ -85,4 +86,20 @@ func (s State) String() string {
 	default:
 		return "unknown"
 	}
+}
+
+// InUnitCgroup reports whether /proc/self/cgroup content places the process in the control group of the unit of the service name,
+// in the systemd hierarchy (cgroup v1, name=systemd) or the unified one (cgroup v2). Exported for tests.
+func InUnitCgroup(content, name string) bool {
+	suffix := "/" + name + ".service"
+	for _, line := range strings.Split(content, "\n") {
+		parts := strings.SplitN(strings.TrimSpace(line), ":", 3)
+		if len(parts) != 3 || (parts[1] != "name=systemd" && !(parts[0] == "0" && parts[1] == "")) {
+			continue
+		}
+		if strings.HasSuffix(parts[2], suffix) {
+			return true
+		}
+	}
+	return false
 }

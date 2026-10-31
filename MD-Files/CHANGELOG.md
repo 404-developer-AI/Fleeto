@@ -78,6 +78,8 @@ When a third released version is added, the oldest entry moves to the top of
 - The dashboard reads only the tiles it shows, each on its own: a tile that fails says so and can be tried again, and a tile
   reloads only on its own live events. Each read is measured by the performance monitor.
 - Permission Dashboards (administration, admin only), and the button "Design dashboards" on the dashboard for who holds it.
+- A Synology NAS, which has no `/etc/os-release`, shows its operating system as DSM names itself, such as "Synology DSM
+  7.1.1-42962 Update 8", read from `/etc.defaults/VERSION`, instead of "Linux".
 
 ### Fixed
 
@@ -100,6 +102,11 @@ When a third released version is added, the oldest entry moves to the top of
 - Every update pulled a new set of images and install.sh never removed the old ones, so the disk of a VPS filled with a set per
   release. After a successful update install.sh removes the Fleeto images that no container uses and that no instance, no previous
   configuration of an instance (what a rollback returns to) and not the host proxy refers to.
+- On Linux with a systemd older than 232 (219 on Synology DSM 7 and CentOS 7) the agent installed and enrolled, then exited at
+  every start with "'run' is started by the service manager", so the watchdog was never installed: it recognised a start by
+  systemd only by `INVOCATION_ID`, which those versions do not set. The agent and the watchdog now also recognise their unit in the
+  control group of the process. An uninstall started from Fleeto on such a version, which refused `systemd-run --collect`, now
+  tries again without the options an older systemd-run does not know.
 
 ## [0.7.0] — 2026-10-26
 

@@ -5,19 +5,18 @@ package watchdog
 import (
 	"context"
 	"log/slog"
-	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 
 	"github.com/404-developer-AI/Fleeto/agent/internal/logging"
 	"github.com/404-developer-AI/Fleeto/agent/internal/platform"
+	"github.com/404-developer-AI/Fleeto/agent/internal/svcctl"
 )
 
-// IsService reports whether systemd started this process. INVOCATION_ID is inherited by every child, so the parent must be the
-// service manager itself.
+// IsService reports whether systemd started this process as the watchdog unit; a process it starts never counts as the service.
 func IsService() bool {
-	return os.Getenv("INVOCATION_ID") != "" && os.Getppid() == 1
+	return svcctl.StartedBy(ServiceName)
 }
 
 // Serve is the service entry point of fleeto-watchdog: it supervises the agent until systemd stops the unit.
