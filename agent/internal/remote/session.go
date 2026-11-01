@@ -102,7 +102,7 @@ type Hello struct {
 	Clipboard bool `json:"clipboard,omitempty"`
 	// Scripts reports whether a library script can run in a terminal (0.6.0). Set by Run.
 	Scripts bool `json:"scripts,omitempty"`
-	// TunnelCertificate is the SHA-256 of the certificate the Proxmox web interface serves (0.8.0). Set by Run.
+	// TunnelCertificate is the SHA-256 of the certificate the web interface serves (0.8.0). Set by Run.
 	TunnelCertificate string `json:"tunnelCertificate,omitempty"`
 }
 
@@ -173,7 +173,7 @@ type SessionOptions struct {
 	Report func(action, target, detail string)
 	// Screen serves remote control sessions; nil where remote control is not served.
 	Screen ScreenFactory
-	// Tunnel is the fixed target of a Proxmox web interface session (0.8.0); nil for the other kinds.
+	// Tunnel is the fixed target of a web interface session (0.8.0); nil for the other kinds.
 	Tunnel *Tunnel
 	Logger *slog.Logger
 	Now    func() time.Time
@@ -233,14 +233,15 @@ func (s *Session) Run(ctx context.Context) (reason string) {
 	hello.IdleTimeoutSeconds = int(s.opts.Token.IdleTimeout() / time.Second)
 	hello.MaxFileBytes = s.opts.Token.MaxFileBytes()
 	hello.Kind = "remote_background"
-	hello.Scripts = s.opts.OpenScript != nil && !s.remoteControl() && !s.proxmoxWeb()
-	if s.proxmoxWeb() {
+	hello.Scripts = s.opts.OpenScript != nil && !s.remoteControl() && !s.webInterface()
+	if s.webInterface() {
 		// Tunnel channels only: no terminal, file, service, process or screen frame, whatever Fleeto Connect sends.
 		if s.opts.Tunnel == nil {
-			s.end("This endpoint does not serve the Proxmox web interface. Update the agent.")
-			return "the Proxmox web interface is not served here"
+			web := WebInterface(s.opts.Token.GetKind())
+			s.end("This endpoint does not serve " + web + ". Update the agent.")
+			return web + " is not served here"
 		}
-		hello.Kind = "proxmox_web"
+		hello.Kind = webHelloKind(s.opts.Token.GetKind())
 		hello.Shells = nil
 		hello.TunnelCertificate = s.opts.Tunnel.Certificate
 		defer s.tunnels.closeAll()
@@ -327,10 +328,10 @@ func (s *Session) handle(ctx context.Context, frame []byte) (done bool, reason s
 		return false, ""
 	}
 	body := frame[1:]
-	if s.proxmoxWeb() {
+	if s.webInterface() {
 		switch frame[0] {
 		case FrameTunnelOpen, FrameTunnelData, FrameTunnelClose:
-			// A request of the browser counts as activity; the Proxmox page polls while it is open (PROXMOX-WEB.md §3).
+			// A request of the browser counts as activity; the page of the web interface polls while it is open (PROXMOX-WEB.md §3).
 			s.touch()
 			s.tunnels.handle(ctx, frame[0], body)
 		case FrameActivity:
@@ -518,8 +519,9 @@ func (s *Session) remoteControl() bool {
 	return s.opts.Token.GetKind() == agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_REMOTE_CONTROL
 }
 
-func (s *Session) proxmoxWeb() bool {
-	return s.opts.Token.GetKind() == agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_PROXMOX_WEB
+// webInterface is true for a session of the Proxmox or the Synology web interface: tunnel channels only.
+func (s *Session) webInterface() bool {
+	return WebInterface(s.opts.Token.GetKind()) != ""
 }
 
 func (s *Session) end(reason string) {

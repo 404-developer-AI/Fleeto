@@ -78,6 +78,7 @@ public static class Permissions
     public const string RemoteControl = "remote.control";
     public const string RemoteBackground = "remote.background";
     public const string RemoteProxmox = "remote.proxmox";
+    public const string RemoteSynology = "remote.synology";
 
     public const string ScriptsView = "scripts.view";
     public const string ScriptsEdit = "scripts.edit";
@@ -181,6 +182,9 @@ public static class Permissions
             "Start a remote background session: terminal as SYSTEM or root, files, services and processes.", [ClientsView]),
         new(RemoteProxmox, RemoteGroup, "Proxmox web interface",
             "Open the web interface of a managed Proxmox VE host through Fleeto Connect. Signing in to Proxmox still needs a Proxmox account.",
+            [ClientsView]),
+        new(RemoteSynology, RemoteGroup, "Synology web interface",
+            "Open the web interface of DSM on a managed Synology NAS through Fleeto Connect. Signing in to DSM still needs a DSM account.",
             [ClientsView]),
 
         new(ScriptsView, ScriptsGroup, "View scripts", "The script library and the versions of a script.", []),
@@ -293,6 +297,7 @@ public static class BuiltInRoles
         Permissions.ChecksEdit, Permissions.ChecksRun, Permissions.NotesCreate, Permissions.JobsCancel,
         Permissions.PatchesSync, Permissions.PatchesDeploy, Permissions.Action1AgentInstall, Permissions.Action1AgentRemove,
         Permissions.StorageScan, Permissions.RemoteControl, Permissions.RemoteBackground, Permissions.RemoteProxmox,
+        Permissions.RemoteSynology,
         Permissions.ScriptsEdit, Permissions.ScriptsRun, Permissions.TasksEdit, Permissions.TasksRun,
         Permissions.ClientTemplatesEdit, Permissions.MonitoringTemplatesEdit, Permissions.PoliciesEdit, Permissions.PatchPoliciesEdit,
         Permissions.AdvisoriesHandle,

@@ -20,6 +20,12 @@ public static class FleetoPolicies
     /// <summary>Prefix of the policy that requires one permission: the key of the permission follows it.</summary>
     public const string PermissionPrefix = "fleeto.permission:";
 
+    /// <summary>Separates the permissions of a policy that requires any one of them (0.8.0), e.g. the download of Fleeto Connect.</summary>
+    public const char AnySeparator = '|';
+
+    /// <summary>The policy that requires any one of the permissions.</summary>
+    public static string AnyPermission(params string[] permissions) => PermissionPrefix + string.Join(AnySeparator, permissions);
+
     public static AuthorizationBuilder AddFleetoPolicies(this AuthorizationBuilder builder)
     {
         builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
@@ -41,8 +47,8 @@ public sealed class RequirePermissionAttribute : AuthorizeAttribute
     public string Permission { get; }
 }
 
-/// <summary>The user holds <see cref="Permission"/>, or any role when it is null.</summary>
-public sealed record PermissionRequirement(string? Permission) : IAuthorizationRequirement;
+/// <summary>The user holds <see cref="Permission"/>, or any role when it is null; with <see cref="AnyOf"/>, one of those permissions.</summary>
+public sealed record PermissionRequirement(string? Permission, IReadOnlyList<string>? AnyOf = null) : IAuthorizationRequirement;
 
 /// <summary>Builds the policy of a <see cref="RequirePermissionAttribute"/> from its name.</summary>
 public sealed class PermissionPolicyProvider : DefaultAuthorizationPolicyProvider
@@ -56,13 +62,17 @@ public sealed class PermissionPolicyProvider : DefaultAuthorizationPolicyProvide
     {
         if (policyName.StartsWith(FleetoPolicies.PermissionPrefix, StringComparison.Ordinal))
         {
-            var permission = policyName[FleetoPolicies.PermissionPrefix.Length..];
-            if (!Permissions.IsKnown(permission))
+            var permissions = policyName[FleetoPolicies.PermissionPrefix.Length..].Split(FleetoPolicies.AnySeparator);
+            foreach (var permission in permissions)
             {
-                throw new InvalidOperationException($"Unknown permission {permission}.");
+                if (!Permissions.IsKnown(permission))
+                {
+                    throw new InvalidOperationException($"Unknown permission {permission}.");
+                }
             }
 
-            return new AuthorizationPolicyBuilder().RequireAuthenticatedUser().AddRequirements(new PermissionRequirement(permission)).Build();
+            var requirement = permissions.Length == 1 ? new PermissionRequirement(permissions[0]) : new PermissionRequirement(null, permissions);
+            return new AuthorizationPolicyBuilder().RequireAuthenticatedUser().AddRequirements(requirement).Build();
         }
 
         return await base.GetPolicyAsync(policyName);
@@ -93,13 +103,24 @@ public sealed class PermissionHandler : AuthorizationHandler<PermissionRequireme
             return;
         }
 
-        if (requirement.Permission is { } permission)
+        IReadOnlyList<string>? wanted = requirement.AnyOf ?? (requirement.Permission is { } one ? [one] : null);
+        if (wanted is not null)
         {
-            var scope = granted.Contains(permission) && Permissions.Find(permission) is { InstanceWide: true }
-                ? await UserAccessResolver.ScopeOfAsync(db, userId, CancellationToken.None)
-                : Infrastructure.Data.SystemClientScope.Instance;
-            var caller = new Caller(userId, string.Empty, string.Empty, roles, scope, Granted: granted);
-            if (!caller.Has(permission))
+            var held = false;
+            foreach (var permission in wanted)
+            {
+                var scope = granted.Contains(permission) && Permissions.Find(permission) is { InstanceWide: true }
+                    ? await UserAccessResolver.ScopeOfAsync(db, userId, CancellationToken.None)
+                    : Infrastructure.Data.SystemClientScope.Instance;
+                var caller = new Caller(userId, string.Empty, string.Empty, roles, scope, Granted: granted);
+                if (caller.Has(permission))
+                {
+                    held = true;
+                    break;
+                }
+            }
+
+            if (!held)
             {
                 return;
             }

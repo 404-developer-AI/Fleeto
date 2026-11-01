@@ -130,22 +130,23 @@ Wanted, but not in a version yet: the version is chosen once the open questions 
   with the right host name, CPU, memory and storage. Synology itself offers only a Package Center package (`.spk`), which since DSM 7.0 runs as its own
   unprivileged user unless Synology signs it; the agent needs root, so it stays an install outside Package Center, which
   Synology does not support. What it would take:
-  - install without SSH, as a root script in the DSM Task Scheduler, with the install command creating `/opt` itself;
+  - install without SSH, as a root script in the DSM Task Scheduler, with the install command creating `/opt` itself: built for
+    0.8.0 (the install dialog explains the Task Scheduler);
   - DSM recognised in the inventory from `/etc.defaults/VERSION` (name, version, update), shown as a server: built for 0.8.0
-    (the operating system "Synology DSM 7.1.1-42962 Update 8"), which the DSM web interface can recognise like `Proxmox VE `;
+    (the operating system "Synology DSM 7.1.1-42962 Update 8"), which the Synology web interface recognises like `Proxmox VE `;
   - units in `/usr/local/lib/systemd/system`, where Package Center puts the units of packages, and program and state
     files where a DSM update leaves them; open question, to be tested first on a NAS with an agent through a DSM update:
     which of `/etc/systemd/system`, `/usr/local`, `/opt`, `/var/lib` and `/volume1` survive it;
   - checks for what a NAS is watched for, read locally by the agent: RAID state (`/proc/mdstat`), SMART of the disks,
     volumes and temperature;
   - only x86_64 and arm64 models; 32-bit ARM models get no agent;
-  - the **DSM web interface** in the technician's own browser, exactly like the Proxmox web interface (`PROXMOX-WEB.md`, asked
-    2026-11-01): opened from the right-click menu on a managed endpoint whose agent reports DSM, carried by Fleeto Connect as tunnel
+  - the **Synology web interface** in the technician's own browser, exactly like the Proxmox web interface (`PROXMOX-WEB.md` §8, asked
+    2026-11-01, built for 0.8.0; to test on the NAS of the developer): opened from the right-click menu on a managed endpoint whose agent reports DSM, carried by Fleeto Connect as tunnel
     channels through a remote session, the agent connecting to one fixed target on the NAS itself and the TLS of DSM running end to
     end, so Fleeto never sees the pages or a DSM password and the technician signs in with their own DSM account (with its own 2-step
     verification). Decided with the developer on 2026-11-01: the one fixed target is `127.0.0.1:5001` (then `[::1]:5001`), the default
     HTTPS port of DSM, never port 5000 and never a port read from the NAS or named by the server; when nothing answers there, the
-    window states that the DSM web interface only works on its default HTTPS port 5001. Its own permission "Synology web interface"
+    window states that the Synology web interface only works on the default HTTPS port of DSM, 5001. Its own permission "Synology web interface"
     in the Remote group. Found out while building it on a test NAS: whether DSM accepts the `Host`, `Origin` and `Referer` of
     `127.0.0.1` as `pveproxy` does, and what its auto block, firewall and IP check of a session do with sign-ins that all come from
     `127.0.0.1` (a block of `127.0.0.1` would lock every technician out, a trusted `127.0.0.1` would bypass the auto block).

@@ -11,18 +11,19 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Fleeto.Web.Tests;
 
 /// <summary>
-/// The Proxmox web interface in web (0.8.0, PROXMOX-WEB.md §3): only for a managed Proxmox VE host with a new enough agent and the permission;
+/// The Proxmox and the Synology web interface in web (0.8.0, PROXMOX-WEB.md §3 and §11): only for a managed Proxmox VE host or Synology NAS
+/// with a new enough agent and the permission of its kind;
 /// opening it writes a claim and a fleeto-connect: link; Fleeto Connect claims it once, within 50 seconds, with its own key and a current
 /// version, and only then are the session, the participant and the signing request written; ending it in Fleeto stops the link and marks the
 /// connection revoked.
 /// </summary>
 [Collection(WebCollection.Name)]
-public sealed class ProxmoxWebServiceTests
+public sealed class WebInterfaceServiceTests
 {
     private const string Connect = "0.8.0-alpha.6";
     private readonly WebFixture _fixture;
 
-    public ProxmoxWebServiceTests(WebFixture fixture)
+    public WebInterfaceServiceTests(WebFixture fixture)
     {
         _fixture = fixture;
     }
@@ -85,15 +86,15 @@ public sealed class ProxmoxWebServiceTests
     public async Task A_claim_of_fleeto_connect_becomes_the_session_with_its_key_once()
     {
         var (endpoint, technician) = await ProxmoxAsync();
-        var start = await Service.StartProxmoxAsync(technician, endpoint.Id, "Storage of the cluster");
+        var start = await Service.StartWebInterfaceAsync(technician, endpoint.Id, RemoteSessionKind.ProxmoxWeb, "Storage of the cluster");
         Assert.True(start.Success, start.Problem);
         Assert.StartsWith($"fleeto-connect://open?instance=rmm.test.example&claim={start.Value!.ClaimId:D}.", start.Value.Link);
-        Assert.Equal(ProxmoxProgressState.WaitingForConnect, (await Service.GetProxmoxProgressAsync(technician, start.Value.ClaimId))!.State);
+        Assert.Equal(WebInterfaceProgressState.WaitingForConnect, (await Service.GetWebInterfaceProgressAsync(technician, start.Value.ClaimId))!.State);
 
         var claim = ClaimOf(start.Value.Link);
         var key = RandomNumberGenerator.GetBytes(32);
         var signer = SignAsync(start.Value.ClaimId);
-        var ticket = await Service.ClaimProxmoxAsync(claim, key, Connect, "windows/amd64", "198.51.100.8");
+        var ticket = await Service.ClaimWebInterfaceAsync(claim, key, Connect, "windows/amd64", "198.51.100.8");
         await signer;
 
         Assert.True(ticket.Success, ticket.Problem);
@@ -114,10 +115,10 @@ public sealed class ProxmoxWebServiceTests
             Assert.Equal(("198.51.100.8", "Fleeto Connect 0.8.0-alpha.6 (windows/amd64)"), (stored.ClaimedFrom, stored.ClaimedBy));
         }
 
-        Assert.Equal(ProxmoxProgressState.Connecting, (await Service.GetProxmoxProgressAsync(technician, start.Value.ClaimId))!.State);
+        Assert.Equal(WebInterfaceProgressState.Connecting, (await Service.GetWebInterfaceProgressAsync(technician, start.Value.ClaimId))!.State);
 
         // A link opens one session only.
-        var again = await Service.ClaimProxmoxAsync(claim, RandomNumberGenerator.GetBytes(32), Connect, "windows/amd64", "203.0.113.9");
+        var again = await Service.ClaimWebInterfaceAsync(claim, RandomNumberGenerator.GetBytes(32), Connect, "windows/amd64", "203.0.113.9");
         Assert.Equal(RemoteSessionService.ClaimProblem, again.Problem);
     }
 
@@ -125,22 +126,22 @@ public sealed class ProxmoxWebServiceTests
     public async Task A_wrong_secret_a_late_claim_and_an_old_fleeto_connect_are_refused()
     {
         var (endpoint, technician) = await ProxmoxAsync();
-        var start = (await Service.StartProxmoxAsync(technician, endpoint.Id, null)).Value!;
+        var start = (await Service.StartWebInterfaceAsync(technician, endpoint.Id, RemoteSessionKind.ProxmoxWeb, null)).Value!;
         var claim = ClaimOf(start.Link);
         var key = RandomNumberGenerator.GetBytes(32);
 
         var wrong = claim[..^4] + (claim.EndsWith("AAAA", StringComparison.Ordinal) ? "BBBB" : "AAAA");
-        Assert.Equal(RemoteSessionService.ClaimProblem, (await Service.ClaimProxmoxAsync(wrong, key, Connect, "linux/amd64", null)).Problem);
-        Assert.Equal(RemoteSessionService.ClaimProblem, (await Service.ClaimProxmoxAsync("not-a-claim", key, Connect, "linux/amd64", null)).Problem);
+        Assert.Equal(RemoteSessionService.ClaimProblem, (await Service.ClaimWebInterfaceAsync(wrong, key, Connect, "linux/amd64", null)).Problem);
+        Assert.Equal(RemoteSessionService.ClaimProblem, (await Service.ClaimWebInterfaceAsync("not-a-claim", key, Connect, "linux/amd64", null)).Problem);
 
         // Too old a Fleeto Connect: refused with the way out, and the link still works for the current one.
-        var old = await Service.ClaimProxmoxAsync(claim, key, "0.8.0-alpha.5", "linux/amd64", null);
+        var old = await Service.ClaimWebInterfaceAsync(claim, key, "0.8.0-alpha.5", "linux/amd64", null);
         Assert.Contains("too old", old.Problem);
-        Assert.Contains("invalid session key", (await Service.ClaimProxmoxAsync(claim, new byte[32], Connect, "linux/amd64", null)).Problem);
+        Assert.Contains("invalid session key", (await Service.ClaimWebInterfaceAsync(claim, new byte[32], Connect, "linux/amd64", null)).Problem);
 
         _fixture.Database.Time.Advance(RemoteSessionRules.ClaimValidity + TimeSpan.FromSeconds(1));
-        Assert.Equal(RemoteSessionService.ClaimProblem, (await Service.ClaimProxmoxAsync(claim, key, Connect, "linux/amd64", null)).Problem);
-        Assert.Equal(ProxmoxProgressState.NotClaimed, (await Service.GetProxmoxProgressAsync(technician, start.ClaimId))!.State);
+        Assert.Equal(RemoteSessionService.ClaimProblem, (await Service.ClaimWebInterfaceAsync(claim, key, Connect, "linux/amd64", null)).Problem);
+        Assert.Equal(WebInterfaceProgressState.NotClaimed, (await Service.GetWebInterfaceProgressAsync(technician, start.ClaimId))!.State);
         await using var db = _fixture.Database.DbFactory.CreateSystem();
         Assert.False(await db.RemoteSessionParticipants.AnyAsync(p => p.Id == start.ClaimId));
     }
@@ -149,47 +150,93 @@ public sealed class ProxmoxWebServiceTests
     public async Task Only_a_managed_proxmox_host_with_a_current_agent_and_the_permission()
     {
         var (debian, technician) = await ProxmoxAsync(osName: "Debian GNU/Linux 12 (bookworm)");
-        Assert.Contains("Proxmox VE host", (await Service.StartProxmoxAsync(technician, debian.Id, null)).Problem);
+        Assert.Contains("Proxmox VE host", (await Service.StartWebInterfaceAsync(technician, debian.Id, RemoteSessionKind.ProxmoxWeb, null)).Problem);
 
         var (old, oldTechnician) = await ProxmoxAsync(agentVersion: "0.8.0-alpha.5");
-        Assert.Contains("needs Fleeto " + RemoteSessionRules.MinimumProxmoxAgentVersion, (await Service.StartProxmoxAsync(oldTechnician, old.Id, null)).Problem);
+        Assert.Contains("needs Fleeto " + RemoteSessionRules.MinimumProxmoxAgentVersion, (await Service.StartWebInterfaceAsync(oldTechnician, old.Id, RemoteSessionKind.ProxmoxWeb, null)).Problem);
 
         var (proxmox, _) = await ProxmoxAsync();
         var readOnly = WebFixtureBase.CallerWith(SystemClientScope.Instance, FleetoRoles.ReadOnly);
-        Assert.Equal(ServiceResult.ForbiddenProblem, (await Service.StartProxmoxAsync(readOnly, proxmox.Id, null)).Problem);
-        Assert.Null(await Service.GetProxmoxTargetAsync(readOnly, proxmox.Id));
+        Assert.Equal(ServiceResult.ForbiddenProblem, (await Service.StartWebInterfaceAsync(readOnly, proxmox.Id, RemoteSessionKind.ProxmoxWeb, null)).Problem);
+        Assert.Null(await Service.GetWebInterfaceTargetAsync(readOnly, proxmox.Id, RemoteSessionKind.ProxmoxWeb));
 
         // A user whose groups do not give the client does not see the endpoint.
         var elsewhere = WebFixtureBase.CallerWith(new RestrictedClientScope([Guid.NewGuid()]), FleetoRoles.Technician);
-        Assert.Null(await Service.GetProxmoxTargetAsync(elsewhere, proxmox.Id));
+        Assert.Null(await Service.GetWebInterfaceTargetAsync(elsewhere, proxmox.Id, RemoteSessionKind.ProxmoxWeb));
     }
 
     [Fact]
     public async Task Ending_in_fleeto_stops_the_link_and_revokes_the_connection()
     {
         var (endpoint, technician) = await ProxmoxAsync();
-        var unclaimed = (await Service.StartProxmoxAsync(technician, endpoint.Id, null)).Value!;
-        await Service.EndProxmoxAsync(technician, unclaimed.ClaimId);
+        var unclaimed = (await Service.StartWebInterfaceAsync(technician, endpoint.Id, RemoteSessionKind.ProxmoxWeb, null)).Value!;
+        await Service.EndWebInterfaceAsync(technician, unclaimed.ClaimId);
         Assert.Equal(RemoteSessionService.ClaimProblem,
-            (await Service.ClaimProxmoxAsync(ClaimOf(unclaimed.Link), RandomNumberGenerator.GetBytes(32), Connect, "linux/amd64", null)).Problem);
+            (await Service.ClaimWebInterfaceAsync(ClaimOf(unclaimed.Link), RandomNumberGenerator.GetBytes(32), Connect, "linux/amd64", null)).Problem);
 
-        var start = (await Service.StartProxmoxAsync(technician, endpoint.Id, null)).Value!;
+        var start = (await Service.StartWebInterfaceAsync(technician, endpoint.Id, RemoteSessionKind.ProxmoxWeb, null)).Value!;
         var signer = SignAsync(start.ClaimId);
-        Assert.True((await Service.ClaimProxmoxAsync(ClaimOf(start.Link), RandomNumberGenerator.GetBytes(32), Connect, "linux/amd64", null)).Success);
+        Assert.True((await Service.ClaimWebInterfaceAsync(ClaimOf(start.Link), RandomNumberGenerator.GetBytes(32), Connect, "linux/amd64", null)).Success);
         await signer;
 
         // Somebody else cannot end it.
-        await Service.EndProxmoxAsync(WebFixtureBase.Technician(), start.ClaimId);
+        await Service.EndWebInterfaceAsync(WebFixtureBase.Technician(), start.ClaimId);
         await using (var db = _fixture.Database.DbFactory.CreateSystem())
         {
             Assert.Null((await db.RemoteSessionParticipants.AsNoTracking().SingleAsync(p => p.Id == start.ClaimId)).RevokedAt);
         }
 
-        await Service.EndProxmoxAsync(technician, start.ClaimId);
+        await Service.EndWebInterfaceAsync(technician, start.ClaimId);
         await using (var db = _fixture.Database.DbFactory.CreateSystem())
         {
             Assert.NotNull((await db.RemoteSessionParticipants.AsNoTracking().SingleAsync(p => p.Id == start.ClaimId)).RevokedAt);
         }
+    }
+
+    [Fact]
+    public async Task The_synology_web_interface_is_its_own_kind_with_its_own_permission()
+    {
+        // The same claim of Fleeto Connect, for a Synology NAS: the session it becomes is of the Synology web interface.
+        var (nas, technician) = await ProxmoxAsync(osName: "Synology DSM 7.1.1-42962 Update 8", agentVersion: RemoteSessionRules.MinimumSynologyAgentVersion);
+        var start = await Service.StartWebInterfaceAsync(technician, nas.Id, RemoteSessionKind.SynologyWeb, null);
+        Assert.True(start.Success, start.Problem);
+        var target = await Service.GetWebInterfaceTargetAsync(technician, nas.Id, RemoteSessionKind.SynologyWeb);
+        Assert.Equal(("Synology web interface", "DSM"), (target!.Name, target.Product));
+
+        // A Fleeto Connect that knows only the Proxmox web interface is refused with the way out.
+        var claim = ClaimOf(start.Value!.Link);
+        Assert.Contains("too old for the Synology web interface",
+            (await Service.ClaimWebInterfaceAsync(claim, RandomNumberGenerator.GetBytes(32), Connect, "windows/amd64", null)).Problem);
+
+        var signer = SignAsync(start.Value.ClaimId);
+        var ticket = await Service.ClaimWebInterfaceAsync(claim, RandomNumberGenerator.GetBytes(32), RemoteSessionRules.MinimumSynologyConnectVersion,
+            "windows/amd64", null);
+        await signer;
+        Assert.True(ticket.Success, ticket.Problem);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            var participant = await db.RemoteSessionParticipants.AsNoTracking().SingleAsync(p => p.Id == start.Value.ClaimId);
+            var session = await db.RemoteSessions.AsNoTracking().SingleAsync(s => s.Id == participant.SessionId);
+            Assert.Equal((RemoteSessionKind.SynologyWeb, AgentComponent.Agent), (session.Kind, session.Component));
+            Assert.Equal(RemoteSessionKind.SynologyWeb, (await db.RemoteSessionClaims.AsNoTracking().SingleAsync(c => c.Id == start.Value.ClaimId)).Kind);
+        }
+
+        // The kind and the endpoint must match: no Proxmox web interface on a NAS, no Synology web interface on a Proxmox VE host.
+        Assert.Contains("Proxmox VE host", (await Service.StartWebInterfaceAsync(technician, nas.Id, RemoteSessionKind.ProxmoxWeb, null)).Problem);
+        var (proxmox, proxmoxTechnician) = await ProxmoxAsync(agentVersion: RemoteSessionRules.MinimumSynologyAgentVersion);
+        Assert.Contains("Synology NAS", (await Service.StartWebInterfaceAsync(proxmoxTechnician, proxmox.Id, RemoteSessionKind.SynologyWeb, null)).Problem);
+
+        // An agent older than the Synology web interface is told to update.
+        var (old, oldTechnician) = await ProxmoxAsync(osName: "Synology DSM 7.2-64570", agentVersion: "0.8.0-alpha.8");
+        Assert.Contains("needs Fleeto " + RemoteSessionRules.MinimumSynologyAgentVersion,
+            (await Service.StartWebInterfaceAsync(oldTechnician, old.Id, RemoteSessionKind.SynologyWeb, null)).Problem);
+
+        // The permission of one web interface does not open the other, and a kind that is no web interface opens nothing.
+        var proxmoxOnly = new Caller(technician.UserId, "Tess Tech", "tess@example.com", ["custom"], SystemClientScope.Instance,
+            Granted: new HashSet<string>([Permissions.ClientsView, Permissions.RemoteProxmox]));
+        Assert.Equal(ServiceResult.ForbiddenProblem, (await Service.StartWebInterfaceAsync(proxmoxOnly, nas.Id, RemoteSessionKind.SynologyWeb, null)).Problem);
+        Assert.Null(await Service.GetWebInterfaceTargetAsync(proxmoxOnly, nas.Id, RemoteSessionKind.SynologyWeb));
+        Assert.Equal(ServiceResult.ForbiddenProblem, (await Service.StartWebInterfaceAsync(technician, nas.Id, RemoteSessionKind.RemoteBackground, null)).Problem);
     }
 
     [Fact]

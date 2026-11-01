@@ -80,6 +80,14 @@ When a third released version is added, the oldest entry moves to the top of
 - Permission Dashboards (administration, admin only), and the button "Design dashboards" on the dashboard for who holds it.
 - A Synology NAS, which has no `/etc/os-release`, shows its operating system as DSM names itself, such as "Synology DSM
   7.1.1-42962 Update 8", read from `/etc.defaults/VERSION`, instead of "Linux".
+- The Synology web interface (`PROXMOX-WEB.md` §8): the web interface of DSM on a managed Synology NAS, opened from the right-click menu
+  of the endpoint list and shown in the technician's own browser through Fleeto Connect, like the Proxmox web interface. A remote
+  session kind of its own (`SynologyWeb`) with its own permission "Synology web interface" (admin and technician); the agent connects it
+  to the default HTTPS port of DSM, `127.0.0.1:5001`, and nothing else, and says so when nothing answers there. The claim of Fleeto
+  Connect records which web interface it opens (migration `SynologyWebInterface`, expand only). Needs agent and Fleeto Connect
+  0.8.0-alpha.9 or later; the download of Fleeto Connect needs either permission.
+- The Linux install command creates `/opt` when it is missing (Synology DSM has none), and the install dialog explains how to run it as
+  root in the Task Scheduler of DSM, so SSH can stay off on a NAS.
 
 ### Fixed
 

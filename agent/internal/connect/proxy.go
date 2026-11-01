@@ -26,7 +26,32 @@ const (
 	cookieName = "fleeto_connect"
 	// upstreamHost is what pveproxy sees as Host and Origin: the connection arrives on its loopback address.
 	upstreamHost = "127.0.0.1:8006"
+	// synologyUpstreamHost is what DSM sees as Host and Origin: its default HTTPS port on its loopback address.
+	synologyUpstreamHost = "127.0.0.1:5001"
 )
+
+// Target is the web interface one session shows: what the server behind the tunnel sees as Host and Origin, and its name for messages.
+type Target struct {
+	// Upstream is the address the agent connects the tunnel to, as the web interface sees it in Host, Origin and Referer.
+	Upstream string
+	// Product names the web interface in messages, e.g. "the Proxmox web interface".
+	Product string
+	// Label is the host name below localhost when the endpoint has no usable name.
+	Label string
+}
+
+// TargetOf is the web interface of the kind the endpoint named in its Hello; false for a kind Fleeto Connect does not show. The address is
+// fixed here as in the agent, never taken from the endpoint or the server.
+func TargetOf(kind string) (Target, bool) {
+	switch kind {
+	case "proxmox_web":
+		return Target{Upstream: upstreamHost, Product: "the Proxmox web interface", Label: "proxmox"}, true
+	case "synology_web":
+		return Target{Upstream: synologyUpstreamHost, Product: "the Synology web interface", Label: "synology"}, true
+	default:
+		return Target{}, false
+	}
+}
 
 // Dialer opens one raw connection to pveproxy through the session.
 type Dialer func(ctx context.Context) (net.Conn, error)
@@ -44,25 +69,27 @@ type Proxy struct {
 	cookie    string
 	gateMu    sync.Mutex
 	gateUsed  bool
+	product   string
 	logger    *slog.Logger
 }
 
 // NewProxy listens on 127.0.0.1 with a port the system chooses, under a host name of the endpoint below localhost (the browser resolves
 // *.localhost to loopback, treats it as a secure context and keeps the cookies of every host name apart), and forwards to pveproxy over
 // TLS that accepts only the certificate with the given SHA-256.
-func NewProxy(dial Dialer, certificate, hostLabel string, logger *slog.Logger) (*Proxy, error) {
+func NewProxy(dial Dialer, certificate, hostLabel string, target Target, logger *slog.Logger) (*Proxy, error) {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
 	pin, err := hex.DecodeString(certificate)
 	if err != nil || len(pin) != sha256.Size {
-		return nil, errors.New("the endpoint reported no valid certificate of the Proxmox web interface")
+		return nil, errors.New("the endpoint reported no valid certificate of " + target.Product)
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("Fleeto Connect could not open a local address: %w", err)
 	}
-	p := &Proxy{listeners: []net.Listener{listener}, gate: randomToken(), cookie: randomToken(), logger: logger}
+	p := &Proxy{listeners: []net.Listener{listener}, gate: randomToken(), cookie: randomToken(), product: target.Product, logger: logger}
+	upstream := target.Upstream
 	port := listener.Addr().(*net.TCPAddr).Port
 	// Browsers try ::1 first for a name below localhost; without IPv6 they use 127.0.0.1 alone.
 	if v6, err := net.Listen("tcp", fmt.Sprintf("[::1]:%d", port)); err == nil {
@@ -80,16 +107,16 @@ func NewProxy(dial Dialer, certificate, hostLabel string, logger *slog.Logger) (
 			}
 			conn := tls.Client(raw, &tls.Config{
 				MinVersion: tls.VersionTLS12,
-				// pveproxy usually serves a certificate of the cluster's own CA or a self-signed one; it is accepted by its exact hash, which
-				// the agent read from pveproxy on the host itself, and nothing else.
+				// pveproxy and DSM usually serve a certificate of their own CA or a self-signed one; it is accepted by its exact hash, which
+				// the agent read from the web interface on the endpoint itself, and nothing else.
 				InsecureSkipVerify: true, //nolint:gosec // verified by VerifyConnection below
 				VerifyConnection: func(state tls.ConnectionState) error {
 					if len(state.PeerCertificates) == 0 {
-						return errors.New("pveproxy presented no certificate")
+						return errors.New("the web interface presented no certificate")
 					}
 					sum := sha256.Sum256(state.PeerCertificates[0].Raw)
 					if subtle.ConstantTimeCompare(sum[:], pin) != 1 {
-						return errors.New("pveproxy presented another certificate than the endpoint reported")
+						return errors.New("the web interface presented another certificate than the endpoint reported")
 					}
 					return nil
 				},
@@ -110,17 +137,17 @@ func NewProxy(dial Dialer, certificate, hostLabel string, logger *slog.Logger) (
 	reverse := &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.Out.URL.Scheme = "https"
-			r.Out.URL.Host = upstreamHost
-			r.Out.Host = upstreamHost
+			r.Out.URL.Host = upstream
+			r.Out.Host = upstream
 			removeCookie(r.Out)
 			if r.Out.Header.Get("Origin") != "" {
-				r.Out.Header.Set("Origin", "https://"+upstreamHost)
+				r.Out.Header.Set("Origin", "https://"+upstream)
 			}
 			if referer := r.Out.Header.Get("Referer"); referer != "" {
 				if i := strings.Index(referer, "://"); i >= 0 {
 					rest := referer[i+3:]
 					if j := strings.IndexByte(rest, '/'); j >= 0 {
-						r.Out.Header.Set("Referer", "https://"+upstreamHost+rest[j:])
+						r.Out.Header.Set("Referer", "https://"+upstream+rest[j:])
 					}
 				}
 			}
@@ -129,8 +156,8 @@ func NewProxy(dial Dialer, certificate, hostLabel string, logger *slog.Logger) (
 		Transport:     transport,
 		FlushInterval: -1,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			p.logger.Warn("a request to the Proxmox web interface failed", "error", err)
-			http.Error(w, "Fleeto Connect could not reach the Proxmox web interface: "+err.Error(), http.StatusBadGateway)
+			p.logger.Warn("a request to the web interface failed", "error", err)
+			http.Error(w, "Fleeto Connect could not reach "+target.Product+": "+err.Error(), http.StatusBadGateway)
 		},
 	}
 	p.server = &http.Server{Handler: p.guard(reverse), ReadHeaderTimeout: 30 * time.Second}
@@ -167,7 +194,7 @@ func (p *Proxy) guard(next http.Handler) http.Handler {
 		}
 		cookie, err := r.Cookie(cookieName)
 		if err != nil || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(p.cookie)) != 1 {
-			http.Error(w, "This address belongs to a Fleeto Connect session of another browser. Open the Proxmox web interface from Fleeto.",
+			http.Error(w, "This address belongs to a Fleeto Connect session of another browser. Open "+p.product+" from Fleeto.",
 				http.StatusForbidden)
 			return
 		}
@@ -184,7 +211,7 @@ func (p *Proxy) open(w http.ResponseWriter, r *http.Request) {
 	}
 	p.gateMu.Unlock()
 	if !ok {
-		http.Error(w, "This link of Fleeto Connect was used before. Open the Proxmox web interface from Fleeto again.", http.StatusForbidden)
+		http.Error(w, "This link of Fleeto Connect was used before. Open "+p.product+" from Fleeto again.", http.StatusForbidden)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: p.cookie, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
@@ -218,8 +245,8 @@ func randomToken() string {
 }
 
 // HostLabel is the host name of an endpoint below localhost: its name made safe, then a part of its id, so two endpoints with the same
-// name never share the cookies of their sign-in.
-func HostLabel(hostname, endpointID string) string {
+// name never share the cookies of their sign-in. fallback is the name used when the endpoint has no usable one.
+func HostLabel(hostname, endpointID, fallback string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(hostname) {
 		switch {
@@ -234,7 +261,7 @@ func HostLabel(hostname, endpointID string) string {
 	}
 	label := strings.Trim(b.String(), "-")
 	if label == "" {
-		label = "proxmox"
+		label = fallback
 	}
 	id := strings.ToLower(strings.ReplaceAll(endpointID, "-", ""))
 	if len(id) > 8 {

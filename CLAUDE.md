@@ -293,6 +293,9 @@ Screen takeover is built into Fleeto: no external tool, no third-party account. 
   and nothing else, and the TLS of pveproxy runs end to end, so Fleeto never sees the pages or the Proxmox password. The window proposes to
   install Fleeto Connect when nothing claims its link. Permission "Proxmox web interface" (admins and technicians by default). Windows
   builds are not Authenticode-signed until Steaan has a code signing certificate (open item on the roadmap).
+- **Synology web interface** (decided 2026-11-01, 0.8.0, `MD-Files/PROXMOX-WEB.md` §8): the same for the web interface of DSM on a managed
+  Synology NAS, a fourth kind of session with its own permission "Synology web interface" (admins and technicians by default). The agent
+  connects it to the default HTTPS port of DSM, `127.0.0.1:5001`, and nothing else; another port is not supported and says so.
 - **Only where there is a desktop** (decided 2026-09-25, 0.6.0): the agent reports whether the endpoint has a graphical desktop.
   Without one (a Linux server without display manager, graphical session or X server; Windows Server Core and Nano Server)
   remote control is not offered and only remote background is. An agent older than 0.6.0 reports nothing and keeps remote
@@ -670,7 +673,7 @@ home-grown patch engine. Note them, do not build them. (File transfer inside rem
   2026-09-15; the internal name Fleetify was renamed in 0.2.1). The old name appears only in the migration code listed in
   `deploy/ci/branding-check.sh`. Run that check (`MD-Files/branding-fleeto.md` §7) before every release.
 - UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, patch policy, monitoring template, client template, integration, note, tag, task, remote control session, API key, role, permission, blocked address, allowed address, security incident, security advisory, vulnerability,
-  Proxmox web interface, Fleeto Connect, dashboard, tile).
+  Proxmox web interface, Synology web interface, Fleeto Connect, dashboard, tile).
 - Follow the Migrify codebase conventions where they exist (project layout, EF Core patterns, MudBlazor usage, email templates).
 - **Performance monitor** (0.7.0, `MD-Files/PERFORMANCE.md`): every workers loop derives from `WorkerLoop`, which measures
   each run; a loop that does not is a review finding. Metric keys never contain values: route templates, type names and fixed

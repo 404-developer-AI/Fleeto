@@ -13,7 +13,13 @@ public enum RemoteSessionKind
     /// The web interface of a Proxmox VE host (0.8.0, PROXMOX-WEB.md), served by the agent: Fleeto Connect on the technician's PC is the
     /// participant, and the agent connects its tunnel channels to pveproxy on 127.0.0.1:8006 only.
     /// </summary>
-    ProxmoxWeb
+    ProxmoxWeb,
+
+    /// <summary>
+    /// The web interface of DSM on a Synology NAS (0.8.0, PROXMOX-WEB.md §8), served by the agent like <see cref="ProxmoxWeb"/>: the agent
+    /// connects its tunnel channels to the default HTTPS port of DSM on 127.0.0.1:5001 only.
+    /// </summary>
+    SynologyWeb
 }
 
 /// <summary>Where one technician's connection to a remote session stands. Stored by name.</summary>
@@ -117,7 +123,7 @@ public class RemoteSessionParticipant
 }
 
 /// <summary>
-/// A session of the Proxmox web interface that waits for Fleeto Connect (0.8.0, PROXMOX-WEB.md §3). Web writes it when a technician opens the
+/// A session of the Proxmox or the Synology web interface that waits for Fleeto Connect (0.8.0, PROXMOX-WEB.md §3). Web writes it when a technician opens the
 /// web interface; the secret travels in the fleeto-connect: link and is stored hashed. Fleeto Connect claims it once, within
 /// <see cref="Fleeto.Core.Domain.RemoteSessionRules.ClaimValidity"/>, with its own ephemeral key: only then are the session, its participant
 /// (with the id of the claim) and the signing request written, exactly as for a remote session opened in the browser.
@@ -131,6 +137,9 @@ public class RemoteSessionClaim
     public Guid UserId { get; set; }
     public string UserName { get; set; } = string.Empty;
     public string? Reason { get; set; }
+
+    /// <summary>The web interface the claim opens: <see cref="RemoteSessionKind.ProxmoxWeb"/> or <see cref="RemoteSessionKind.SynologyWeb"/>.</summary>
+    public RemoteSessionKind Kind { get; set; } = RemoteSessionKind.ProxmoxWeb;
 
     /// <summary>SHA-256 of the secret in the link.</summary>
     public byte[] SecretHash { get; set; } = [];

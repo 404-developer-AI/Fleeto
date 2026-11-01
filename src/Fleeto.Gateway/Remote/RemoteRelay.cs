@@ -250,6 +250,7 @@ public sealed class RemoteRelay : BackgroundService
                 break;
             case (RemoteSessionKind.RemoteControl, AgentComponent.Agent):
             case (RemoteSessionKind.ProxmoxWeb, AgentComponent.Agent):
+            case (RemoteSessionKind.SynologyWeb, AgentComponent.Agent):
                 _sessions.TryGetSession(participant.EndpointId, out control);
                 break;
             default:

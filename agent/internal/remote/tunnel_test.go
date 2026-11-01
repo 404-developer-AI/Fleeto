@@ -179,8 +179,49 @@ func TestTheWebInterfaceIsServedByTheAgentOnly(t *testing.T) {
 	if _, refusal := server.Offer(context.Background(), offer); !strings.Contains(refusal, "does not serve the Proxmox web interface") {
 		t.Fatalf("without a tunnel: %q", refusal)
 	}
-	server.Tunnel = func(context.Context) (*Tunnel, error) { return nil, ErrNoTunnel }
+	server.Tunnel = func(context.Context, agentv1.RemoteSessionKind) (*Tunnel, error) { return nil, ErrNoTunnel }
 	if _, refusal := server.Offer(context.Background(), offer); !strings.Contains(refusal, "not a Proxmox VE host") {
 		t.Fatalf("not a Proxmox VE host: %q", refusal)
+	}
+}
+
+// The Synology web interface (0.8.0) is a session of the agent like the Proxmox one, and the kind of the signed token chooses the target.
+func TestTheSynologyWebInterfaceIsATunnelSessionOfItsOwnKind(t *testing.T) {
+	tunnel, _ := echoTarget(t)
+	var terminals atomic.Int32
+	_, hello := startTunnelSession(t, agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_SYNOLOGY_WEB, agentv1.Component_COMPONENT_AGENT, tunnel, &terminals)
+	if hello.Kind != "synology_web" || hello.TunnelCertificate != tunnel.Certificate || len(hello.Shells) != 0 || hello.Scripts {
+		t.Fatalf("hello = %+v", hello)
+	}
+
+	f := newFixture(t)
+	if _, err := VerifyToken(f.sign(t, f.token(func(tk *agentv1.RemoteSessionToken) {
+		tk.Kind = agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_SYNOLOGY_WEB
+	})), f.trust, agentv1.Component_COMPONENT_WATCHDOG, f.now); err == nil {
+		t.Fatal("the watchdog accepted a token of the Synology web interface")
+	}
+	offer := &agentv1.RemoteSessionOffer{Session: f.sign(t, f.token(func(tk *agentv1.RemoteSessionToken) {
+		tk.Kind = agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_SYNOLOGY_WEB
+		tk.Component = agentv1.Component_COMPONENT_AGENT
+	}))}
+	var asked agentv1.RemoteSessionKind
+	server := &Server{
+		Component: agentv1.Component_COMPONENT_AGENT,
+		Trust:     func() (signedconfig.Trust, error) { return f.trust, nil },
+		Managed:   func() bool { return true },
+		Now:       func() time.Time { return f.now },
+	}
+	if _, refusal := server.Offer(context.Background(), offer); !strings.Contains(refusal, "does not serve the Synology web interface") {
+		t.Fatalf("without a tunnel: %q", refusal)
+	}
+	server.Tunnel = func(_ context.Context, kind agentv1.RemoteSessionKind) (*Tunnel, error) {
+		asked = kind
+		return nil, ErrNoSynologyTunnel
+	}
+	if _, refusal := server.Offer(context.Background(), offer); !strings.Contains(refusal, "not a Synology NAS with DSM") {
+		t.Fatalf("not a Synology NAS: %q", refusal)
+	}
+	if asked != agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_SYNOLOGY_WEB {
+		t.Fatalf("the tunnel was asked for %v", asked)
 	}
 }

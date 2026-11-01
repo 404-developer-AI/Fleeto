@@ -10,13 +10,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1"
 	"github.com/404-developer-AI/Fleeto/agent/internal/safego"
 )
 
-// The Proxmox web interface (0.8.0, PROXMOX-WEB.md): Fleeto Connect on the technician's PC carries every connection of the browser as a
-// tunnel channel, and the endpoint connects each channel to the one fixed target its Tunnel names (127.0.0.1:8006 on a Proxmox VE host).
-// Nothing in a frame names a host or port. The bytes are the TLS of pveproxy, end to end between Fleeto Connect and the host, inside the
-// encryption of the session.
+// The Proxmox web interface and the Synology web interface (0.8.0, PROXMOX-WEB.md): Fleeto Connect on the technician's PC carries every
+// connection of the browser as a tunnel channel, and the endpoint connects each channel to the one fixed target its Tunnel names
+// (127.0.0.1:8006 on a Proxmox VE host, 127.0.0.1:5001 on a Synology NAS). Nothing in a frame names a host or port. The bytes are the TLS of
+// the web interface, end to end between Fleeto Connect and the endpoint, inside the encryption of the session.
 const (
 	// FrameTunnelOpen (Fleeto Connect to endpoint): connect a channel to the target. Body {channel}.
 	FrameTunnelOpen byte = 0x20
@@ -39,7 +40,7 @@ const (
 	tunnelWriteLimit = time.Minute
 )
 
-// Tunnel is the fixed target of the Proxmox web interface on this endpoint.
+// Tunnel is the fixed target of a web interface on this endpoint.
 type Tunnel struct {
 	// Dial connects one channel to the target.
 	Dial func(ctx context.Context) (net.Conn, error)
@@ -48,9 +49,30 @@ type Tunnel struct {
 	Certificate string
 }
 
-// TunnelFactory returns the tunnel of the endpoint, or an error that says why it serves none (not a Proxmox VE host, pveproxy not
-// listening). Called for every offer of the Proxmox web interface.
-type TunnelFactory func(ctx context.Context) (*Tunnel, error)
+// TunnelFactory returns the tunnel of the endpoint for a kind of web interface session, or an error that says why it serves none (not a
+// Proxmox VE host, pveproxy not listening, nothing on the HTTPS port of DSM). Called for every offer of a web interface. The kind comes from
+// the signed token, so the target is chosen by the kind fleeto-signer signed and by the agent, never by a frame.
+type TunnelFactory func(ctx context.Context, kind agentv1.RemoteSessionKind) (*Tunnel, error)
+
+// WebInterface names the web interface a kind of remote session tunnels to, for messages; "" for a kind that is no web interface.
+func WebInterface(kind agentv1.RemoteSessionKind) string {
+	switch kind {
+	case agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_PROXMOX_WEB:
+		return "the Proxmox web interface"
+	case agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_SYNOLOGY_WEB:
+		return "the Synology web interface"
+	default:
+		return ""
+	}
+}
+
+// webHelloKind is the kind a web interface session names in its Hello, which Fleeto Connect maps to the address it forwards to.
+func webHelloKind(kind agentv1.RemoteSessionKind) string {
+	if kind == agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_SYNOLOGY_WEB {
+		return "synology_web"
+	}
+	return "proxmox_web"
+}
 
 type tunnelBody struct {
 	Channel int    `json:"channel"`
@@ -82,7 +104,7 @@ type tunnels struct {
 
 func newTunnels(s *Session) *tunnels { return &tunnels{s: s, channels: map[uint16]*tunnelChannel{}} }
 
-// handle takes one frame of a Proxmox web interface session.
+// handle takes one frame of a web interface session.
 func (t *tunnels) handle(ctx context.Context, kind byte, body []byte) {
 	switch kind {
 	case FrameTunnelOpen:
@@ -146,7 +168,7 @@ func (t *tunnels) open(ctx context.Context, channel uint16) {
 		}
 		t.mu.Unlock()
 		if err != nil {
-			reply.Error = "The endpoint could not connect to the Proxmox web interface: " + err.Error()
+			reply.Error = "The endpoint could not connect to " + WebInterface(t.s.opts.Token.GetKind()) + ": " + err.Error()
 			_ = t.s.sendJSON(ctx, FrameTunnelOpened, reply)
 			return
 		}
@@ -223,5 +245,8 @@ func (t *tunnels) closeAll() {
 	}
 }
 
-// ErrNoTunnel is returned by a TunnelFactory on an endpoint that is not a Proxmox VE host.
+// ErrNoTunnel is returned by a TunnelFactory for the Proxmox web interface on an endpoint that is not a Proxmox VE host.
 var ErrNoTunnel = errors.New("this endpoint is not a Proxmox VE host")
+
+// ErrNoSynologyTunnel is returned by a TunnelFactory for the Synology web interface on an endpoint that is not a Synology NAS with DSM.
+var ErrNoSynologyTunnel = errors.New("this endpoint is not a Synology NAS with DSM")

@@ -51,7 +51,7 @@ type Server struct {
 	Report func(participantID, action, target, detail string)
 	// Screen serves remote control sessions (0.3.0 step 3); nil where this service does not serve them.
 	Screen ScreenFactory
-	// Tunnel gives the fixed target of the Proxmox web interface (0.8.0); nil where this service does not serve it.
+	// Tunnel gives the fixed target of the Proxmox and the Synology web interface (0.8.0); nil where this service does not serve them.
 	Tunnel TunnelFactory
 	// Logger and Now are optional.
 	Logger *slog.Logger
@@ -95,11 +95,11 @@ func (s *Server) Offer(ctx context.Context, offer *agentv1.RemoteSessionOffer) (
 		return participantID, "The endpoint refused the session: remote control is not supported on this platform yet."
 	}
 	var tunnel *Tunnel
-	if token.GetKind() == agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_PROXMOX_WEB {
+	if web := WebInterface(token.GetKind()); web != "" {
 		if s.Tunnel == nil {
-			return participantID, "The endpoint refused the session: this agent does not serve the Proxmox web interface. Update the agent."
+			return participantID, "The endpoint refused the session: this agent does not serve " + web + ". Update the agent."
 		}
-		if tunnel, err = s.Tunnel(ctx); err != nil {
+		if tunnel, err = s.Tunnel(ctx, token.GetKind()); err != nil {
 			return participantID, "The endpoint refused the session: " + err.Error()
 		}
 	}

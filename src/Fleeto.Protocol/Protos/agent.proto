@@ -917,6 +917,9 @@ enum RemoteSessionKind {
   // The web interface of Proxmox VE (0.8.0, PROXMOX-WEB.md), served by the agent: Fleeto Connect on the technician's PC carries its
   // connections as tunnel channels, which the agent connects to 127.0.0.1:8006 and nothing else.
   REMOTE_SESSION_KIND_PROXMOX_WEB = 3;
+  // The web interface of Synology DSM (0.8.0, PROXMOX-WEB.md §8), served by the agent in the same way: the agent connects the tunnel
+  // channels to 127.0.0.1:5001, the default HTTPS port of DSM, and nothing else.
+  REMOTE_SESSION_KIND_SYNOLOGY_WEB = 4;
 }
 
 // The gateway asks the service to connect its side of the relay for a token the browser presented.

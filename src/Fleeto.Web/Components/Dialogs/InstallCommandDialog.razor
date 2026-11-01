@@ -20,6 +20,8 @@
                 <MudTabPanel Text="Linux">
                     <MudText Typo="Typo.body2" Class="mt-3 mb-2">
                         Run in a shell on the endpoint. It uses sudo where sudo is installed, and runs as it is in a root shell without sudo, such as on Proxmox VE.
+                        On a Synology NAS, run it as root in DSM instead, so SSH can stay off: Control Panel, Task Scheduler, Create, Scheduled Task,
+                        User-defined script, user root, the command as the script, then Run.
                     </MudText>
                     <div class="command-box mb-3">@commands.Linux</div>
                     <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.ContentCopy"

@@ -433,4 +433,51 @@ public sealed class RemoteSessionTokenTests
             component: AgentComponent.Agent));
         Assert.Equal(RemoteSessionTokenHandler.UserReason, noPermission.EndReason);
     }
+
+    private async Task<(Endpoint Endpoint, Guid TechnicianId)> NasAsync(string osName, string agentVersion)
+    {
+        var (endpoint, technicianId) = await ScopeAsync(agentVersion: agentVersion);
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        await db.Endpoints.Where(e => e.Id == endpoint.Id).ExecuteUpdateAsync(s => s
+            .SetProperty(e => e.OsPlatform, "linux").SetProperty(e => e.OsName, osName));
+        return (endpoint, technicianId);
+    }
+
+    [Fact]
+    public async Task The_synology_web_interface_is_signed_for_the_agent_of_a_synology_nas_only()
+    {
+        var (nas, technicianId) = await NasAsync("Synology DSM 7.1.1-42962 Update 8", RemoteSessionRules.MinimumSynologyAgentVersion);
+        var (request, signed) = await SignAsync(await CreateParticipantAsync(nas, technicianId, kind: RemoteSessionKind.SynologyWeb,
+            component: AgentComponent.Agent));
+        Assert.Equal(SigningRequestState.Completed, request.State);
+        var token = RemoteSessionToken.Parser.ParseFrom(signed.TokenPayload);
+        Assert.Equal((Protocol.Agent.V1.RemoteSessionKind.SynologyWeb, Component.Agent), (token.Kind, token.Component));
+
+        // Served by the agent only.
+        var (_, watchdog) = await SignAsync(await CreateParticipantAsync(nas, technicianId, kind: RemoteSessionKind.SynologyWeb,
+            component: AgentComponent.Watchdog));
+        Assert.Equal(RemoteSessionTokenHandler.KindReason, watchdog.EndReason);
+
+        // Not a Synology NAS, here a Proxmox VE host: each web interface only where it belongs.
+        var (proxmox, proxmoxTechnician) = await NasAsync("Proxmox VE 8.4.1 (Debian GNU/Linux 12)", RemoteSessionRules.MinimumSynologyAgentVersion);
+        var (_, notSynology) = await SignAsync(await CreateParticipantAsync(proxmox, proxmoxTechnician, kind: RemoteSessionKind.SynologyWeb,
+            component: AgentComponent.Agent));
+        Assert.Equal(RemoteSessionTokenHandler.SynologyReason, notSynology.EndReason);
+        var (_, proxmoxOnNas) = await SignAsync(await CreateParticipantAsync(nas, technicianId, kind: RemoteSessionKind.ProxmoxWeb,
+            component: AgentComponent.Agent));
+        Assert.Equal(RemoteSessionTokenHandler.ProxmoxReason, proxmoxOnNas.EndReason);
+
+        // An agent that does not serve it yet.
+        var (old, oldTechnician) = await NasAsync("Synology DSM 7.1.1-42962 Update 8", "0.8.0-alpha.8");
+        var (_, oldAgent) = await SignAsync(await CreateParticipantAsync(old, oldTechnician, kind: RemoteSessionKind.SynologyWeb,
+            component: AgentComponent.Agent));
+        Assert.Equal(RemoteSessionTokenHandler.SynologyAgentReason, oldAgent.EndReason);
+
+        // A role with the Proxmox web interface but without the Synology one.
+        var role = await _fixture.Database.CreateRoleAsync(Permissions.ClientsView, Permissions.RemoteProxmox);
+        var proxmoxOnly = await _fixture.Database.CreateUserAsync(role);
+        var (_, noPermission) = await SignAsync(await CreateParticipantAsync(nas, proxmoxOnly.Id, kind: RemoteSessionKind.SynologyWeb,
+            component: AgentComponent.Agent));
+        Assert.Equal(RemoteSessionTokenHandler.UserReason, noPermission.EndReason);
+    }
 }

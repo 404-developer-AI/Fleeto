@@ -1,0 +1,11 @@
+@page "/remote/synology/{EndpointId:guid}"
+@attribute [RequirePermission(Permissions.RemoteSynology)]
+@layout RemoteLayout
+
+@* The Synology web interface (0.8.0, PROXMOX-WEB.md §8): the web interface of DSM on a Synology NAS, in the window of the Proxmox one. *@
+<WebInterfaceWindow EndpointId="EndpointId" Kind="RemoteSessionKind.SynologyWeb" />
+
+@code {
+    [Parameter]
+    public Guid EndpointId { get; set; }
+}

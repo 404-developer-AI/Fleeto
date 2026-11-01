@@ -307,6 +307,8 @@ public static partial class InstallCommand
             "if [ \"$(id -u)\" != 0 ]; then echo \"Run this as root or with sudo.\" >&2; exit 1; fi; " +
             "case \"$(uname -m)\" in x86_64) a=amd64;; aarch64|arm64) a=arm64;; *) " +
             "echo \"Fleeto has no Linux agent for $(uname -m).\" >&2; exit 1;; esac; " +
+            // Synology DSM has no /opt (0.8.0); everywhere else it exists already.
+            "mkdir -p /opt; " +
             "d=$(mktemp -d /opt/.fleeto-install.XXXXXX); " +
             "trap \"rm -rf $d\" EXIT; " +
             "u=\"" + downloadBase + "linux-$a\"; " +

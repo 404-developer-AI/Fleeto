@@ -265,7 +265,7 @@ func browser(t *testing.T) *http.Client {
 
 func serve(t *testing.T, h *harness, certificate string) *Proxy {
 	t.Helper()
-	proxy, err := NewProxy(h.session.Dial, certificate, HostLabel("PVE-01.lab", endpointID), nil)
+	proxy, err := NewProxy(h.session.Dial, certificate, HostLabel("PVE-01.lab", endpointID, "proxmox"), mustTarget(t, "proxmox_web"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,3 +454,42 @@ func TestAnInstanceIsUsedOnlyAfterTheTechnicianAllowedIt(t *testing.T) {
 }
 
 func nilLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
+
+func mustTarget(t *testing.T, kind string) Target {
+	t.Helper()
+	target, ok := TargetOf(kind)
+	if !ok {
+		t.Fatalf("no target for %s", kind)
+	}
+	return target
+}
+
+// The Synology web interface (0.8.0): Fleeto Connect shows it like the Proxmox one, and DSM sees its own default HTTPS address.
+func TestTheSynologyWebInterfaceReachesDSMOnItsDefaultHTTPSAddress(t *testing.T) {
+	h, err := start(t, agentv1.RemoteSessionKind_REMOTE_SESSION_KIND_SYNOLOGY_WEB, pveTunnel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.session.Hello.Kind != "synology_web" {
+		t.Fatalf("hello = %+v", h.session.Hello)
+	}
+	target := mustTarget(t, h.session.Hello.Kind)
+	proxy, err := NewProxy(h.session.Dial, h.session.Hello.TunnelCertificate, HostLabel("", endpointID, target.Label), target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = proxy.Serve() }()
+	t.Cleanup(func() { _ = proxy.Close() })
+	if !strings.HasPrefix(proxy.Base, "http://synology-0b6a4e2c.localhost:") {
+		t.Fatalf("base = %s", proxy.Base)
+	}
+	if code, _ := get(t, browser(t), proxy.URL); code != http.StatusOK {
+		t.Fatalf("open: %d", code)
+	}
+	if seen := h.pve.last(); seen.Host != "127.0.0.1:5001" {
+		t.Fatalf("DSM saw host %q", seen.Host)
+	}
+	if _, ok := TargetOf("remote_background"); ok {
+		t.Fatal("a kind that is no web interface has a target")
+	}
+}

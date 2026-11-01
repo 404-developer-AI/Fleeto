@@ -23,7 +23,7 @@ type UI interface {
 // ErrDeclined is returned when the technician did not allow an instance.
 var ErrDeclined = errors.New("the technician did not allow the instance")
 
-// App opens the Proxmox web interface for one link.
+// App opens the web interface of an endpoint (Proxmox VE or Synology DSM) for one link.
 type App struct {
 	Version  string
 	Platform string
@@ -38,8 +38,8 @@ type App struct {
 func (a *App) Open(ctx context.Context, raw string) error {
 	err := a.open(ctx, raw)
 	if err != nil && !errors.Is(err, ErrDeclined) {
-		a.Logger.Warn("the Proxmox web interface could not be opened", "error", err)
-		a.UI.Error("Fleeto Connect", "The Proxmox web interface could not be opened.\n\n"+err.Error())
+		a.Logger.Warn("the web interface could not be opened", "error", err)
+		a.UI.Error("Fleeto Connect", "The web interface could not be opened.\n\n"+err.Error())
 	}
 	return err
 }
@@ -55,7 +55,7 @@ func (a *App) open(ctx context.Context, raw string) error {
 		return err
 	}
 	if !allowed {
-		if !a.UI.Confirm("Fleeto Connect", fmt.Sprintf("%s wants to open the web interface of a Proxmox VE host through Fleeto Connect.\n\n"+
+		if !a.UI.Confirm("Fleeto Connect", fmt.Sprintf("%s wants to open the web interface of an endpoint (a Proxmox VE host or a Synology NAS) through Fleeto Connect.\n\n"+
 			"Allow Fleeto Connect to connect to %s? Allow only the Fleeto instance of your organisation.", link.Instance, link.Instance)) {
 			return ErrDeclined
 		}
@@ -78,7 +78,8 @@ func (a *App) open(ctx context.Context, raw string) error {
 		_ = transport.Close("handshake failed")
 		return err
 	}
-	proxy, err := NewProxy(session.Dial, session.Hello.TunnelCertificate, HostLabel(ticket.Endpoint, ticket.EndpointID), a.Logger)
+	target, _ := TargetOf(session.Hello.Kind)
+	proxy, err := NewProxy(session.Dial, session.Hello.TunnelCertificate, HostLabel(ticket.Endpoint, ticket.EndpointID, target.Label), target, a.Logger)
 	if err != nil {
 		session.End("Fleeto Connect could not open a local address.")
 		return err

@@ -39,7 +39,7 @@ public static class ConnectEndpoints
                 return Problem(RemoteSessionService.ClaimProblem);
             }
 
-            var result = await remote.ClaimProxmoxAsync(claim, key, request.Version, request.Platform, http.RemoteIp(), cancellationToken);
+            var result = await remote.ClaimWebInterfaceAsync(claim, key, request.Version, request.Platform, http.RemoteIp(), cancellationToken);
             return result is { Success: true, Value: { } ticket }
                 ? Results.Ok(new
                 {
@@ -62,7 +62,8 @@ public static class ConnectEndpoints
 
             return Results.File(path, file.ContentType, file.DownloadName.Replace("{version}", FleetoVersion.Current, StringComparison.Ordinal),
                 enableRangeProcessing: true);
-        }).RequireAuthorization(FleetoPolicies.PermissionPrefix + Permissions.RemoteProxmox).RequireRateLimiting(AccountEndpoints.DownloadRateLimitPolicy);
+        }).RequireAuthorization(FleetoPolicies.AnyPermission(Permissions.RemoteProxmox, Permissions.RemoteSynology))
+            .RequireRateLimiting(AccountEndpoints.DownloadRateLimitPolicy);
 
         return app;
     }

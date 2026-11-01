@@ -142,3 +142,36 @@ Built 2026-10-27 for the test build `v0.8.0-alpha.6`.
    [open] Still to test: Windows (the first run with SmartScreen, the per-user install), Edge and Firefox (also how Firefox handles the
    `fleeto-connect:` link), a VM console (noVNC) and an ISO upload. If a browser does not keep the cookie, Fleeto Connect serves HTTPS on
    loopback with a certificate of its own instead, and this file changes first.
+
+## 8. The Synology web interface (0.8.0)
+
+The web interface of DSM on a Synology NAS, opened in the same way (asked and decided with the developer on 2026-11-01, as part of Synology
+DSM as an endpoint platform in `MD-Files/ROADMAP.md`). Everything in this file holds for it, with these differences:
+
+- **Its own kind and permission.** The remote session kind `SynologyWeb` (protocol `REMOTE_SESSION_KIND_SYNOLOGY_WEB`) and the permission
+  `remote.synology` ("Synology web interface"), in the Remote group, admin and technician by default. The permission of one web interface
+  never opens the other: web checks it per kind, fleeto-signer again from `RemoteSessionRules.Permission`.
+- **Only on a Synology NAS.** The agent reports the operating system of DSM as DSM names itself ("Synology DSM 7.1.1-42962 Update 8", from
+  `/etc.defaults/VERSION`, because DSM has no `/etc/os-release`); the menu item, web and the signer offer it only to an endpoint whose
+  operating system starts with `Synology DSM `, and the agent only where `/etc.defaults/VERSION` is that of DSM. Agent 0.8.0-alpha.9 or
+  later.
+- **One fixed target: `127.0.0.1:5001`** (then `[::1]:5001`), the default HTTPS port of DSM. Never port 5000 (HTTP: the TLS of DSM is what
+  runs end to end), never a port read from the configuration of the NAS and never one the server names (decided 2026-11-01). On a NAS whose
+  admin moved DSM to another port or switched HTTPS off, the session ends with "the Synology web interface only works on the default HTTPS
+  port of DSM, 5001".
+- **The kind chooses the target, never a frame.** The signed token carries the kind; the agent maps it to its fixed target, and Fleeto
+  Connect maps the kind the endpoint names in its Hello (`synology_web`) to the address DSM sees in `Host`, `Origin` and `Referer`
+  (`127.0.0.1:5001`). A token of the Proxmox web interface cannot reach port 5001, nor one of the Synology web interface port 8006.
+- **The claim records its kind.** `RemoteSessionClaim.Kind` (`ProxmoxWeb` or `SynologyWeb`, a check constraint, `ProxmoxWeb` for the rows
+  written before it), so the session a claim becomes is of the web interface the window opened.
+- **Fleeto Connect 0.8.0-alpha.9 or later.** An older one knows only the Proxmox web interface: its claim of a Synology web interface is
+  refused with the download of the current one. The download of Fleeto Connect needs either permission.
+- **The window** is the one of the Proxmox web interface (`WebInterfaceWindow`), shown by its own page `/remote/synology/{endpoint}`; the
+  text names DSM and the DSM account.
+- The technician signs in with their own DSM account and the 2-step verification of DSM. Fleeto never stores, sends or fills in a DSM
+  credential.
+
+**To find out on a NAS** (open, tested with the developer on their own NAS): whether DSM accepts the `Host`, `Origin` and `Referer` of
+`127.0.0.1:5001`, whether its session cookie is kept on `http://<name>.localhost`, and what the auto block, the firewall and the IP check
+of a DSM session do with sign-ins that all come from `127.0.0.1` (a block of `127.0.0.1` would lock every technician out, a trusted
+`127.0.0.1` would bypass the auto block). This section changes first when it does not work as written.

@@ -37,6 +37,8 @@ public sealed class RemoteWindow
 
     public static string ProxmoxUrl(Guid endpointId) => $"/remote/proxmox/{endpointId:D}";
 
+    public static string SynologyUrl(Guid endpointId) => $"/remote/synology/{endpointId:D}";
+
     /// <summary>Opens the window of the Proxmox web interface (0.8.0): one per endpoint, brought to the front when it is open.</summary>
     public async Task OpenProxmoxAsync(Guid endpointId)
     {
@@ -44,6 +46,16 @@ public sealed class RemoteWindow
         if (!opened)
         {
             _snackbar.Add("The browser blocked the window of the Proxmox web interface. Allow pop-ups for this site, then try again.", Severity.Warning);
+        }
+    }
+
+    /// <summary>Opens the window of the Synology web interface (0.8.0): one per endpoint, brought to the front when it is open.</summary>
+    public async Task OpenSynologyAsync(Guid endpointId)
+    {
+        var opened = await _js.InvokeAsync<bool>("fleeto.openWindow", SynologyUrl(endpointId), "fleeto-synology-" + endpointId.ToString("N"));
+        if (!opened)
+        {
+            _snackbar.Add("The browser blocked the window of the Synology web interface. Allow pop-ups for this site, then try again.", Severity.Warning);
         }
     }
 

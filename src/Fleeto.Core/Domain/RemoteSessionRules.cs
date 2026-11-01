@@ -22,8 +22,14 @@ public static class RemoteSessionRules
     /// <summary>The first agent that serves the Proxmox web interface (0.8.0, PROXMOX-WEB.md); an older agent refuses the session.</summary>
     public const string MinimumProxmoxAgentVersion = "0.8.0-alpha.6";
 
+    /// <summary>The first agent that serves the Synology web interface (0.8.0, PROXMOX-WEB.md §8); an older agent refuses the session.</summary>
+    public const string MinimumSynologyAgentVersion = "0.8.0-alpha.9";
+
     /// <summary>The oldest Fleeto Connect a claim is accepted from; an older one is refused with the download of the current one.</summary>
     public const string MinimumConnectVersion = "0.8.0-alpha.6";
+
+    /// <summary>The oldest Fleeto Connect that shows the Synology web interface: an older one knows only the Proxmox web interface.</summary>
+    public const string MinimumSynologyConnectVersion = "0.8.0-alpha.9";
 
     /// <summary>
     /// How long the secret of a fleeto-connect: link can be claimed. Shorter than <see cref="MaxRequestAge"/> after the claim is written, so
@@ -40,11 +46,43 @@ public static class RemoteSessionRules
     /// <summary>The prefix of the operating system name the agent reports for a Proxmox VE host ("Proxmox VE 8.4.1 (Debian ...)").</summary>
     public const string ProxmoxOsPrefix = "Proxmox VE ";
 
+    /// <summary>The prefix of the operating system name the agent reports for a Synology NAS ("Synology DSM 7.1.1-42962 Update 8").</summary>
+    public const string SynologyOsPrefix = "Synology DSM ";
+
+    /// <summary>True for the kinds of remote session that show a web interface of the endpoint through Fleeto Connect.</summary>
+    public static bool IsWebInterface(RemoteSessionKind kind) => kind is RemoteSessionKind.ProxmoxWeb or RemoteSessionKind.SynologyWeb;
+
+    /// <summary>The name of a web interface as the UI shows it: "Proxmox web interface" or "Synology web interface".</summary>
+    public static string WebInterfaceName(RemoteSessionKind kind) => kind == RemoteSessionKind.SynologyWeb ? "Synology web interface" : "Proxmox web interface";
+
+    /// <summary>The product whose account the technician signs in with: "Proxmox" or "DSM".</summary>
+    public static string WebInterfaceProduct(RemoteSessionKind kind) => kind == RemoteSessionKind.SynologyWeb ? "DSM" : "Proxmox";
+
+    /// <summary>What the web interface is available on, for messages: "a Proxmox VE host" or "a Synology NAS with DSM".</summary>
+    public static string WebInterfaceHost(RemoteSessionKind kind) => kind == RemoteSessionKind.SynologyWeb ? "a Synology NAS with DSM" : "a Proxmox VE host";
+
+    /// <summary>True when the endpoint is what a web interface is for: a Proxmox VE host, or a Synology NAS.</summary>
+    public static bool IsWebInterfaceHost(RemoteSessionKind kind, string? osPlatform, string? osName) => kind switch
+    {
+        RemoteSessionKind.ProxmoxWeb => IsProxmox(osPlatform, osName),
+        RemoteSessionKind.SynologyWeb => IsSynology(osPlatform, osName),
+        _ => false
+    };
+
+    /// <summary>The first agent that serves a web interface.</summary>
+    public static string MinimumWebInterfaceAgentVersion(RemoteSessionKind kind) =>
+        kind == RemoteSessionKind.SynologyWeb ? MinimumSynologyAgentVersion : MinimumProxmoxAgentVersion;
+
+    /// <summary>True when the agent version serves the web interface.</summary>
+    public static bool AgentSupportsWebInterface(RemoteSessionKind kind, string? agentVersion) =>
+        SemanticVersion.TryParse(agentVersion, out _) && !SemanticVersion.IsOlder(agentVersion, MinimumWebInterfaceAgentVersion(kind));
+
     /// <summary>The permission a kind of remote session needs.</summary>
     public static string Permission(RemoteSessionKind kind) => kind switch
     {
         RemoteSessionKind.RemoteControl => Permissions.RemoteControl,
         RemoteSessionKind.ProxmoxWeb => Permissions.RemoteProxmox,
+        RemoteSessionKind.SynologyWeb => Permissions.RemoteSynology,
         _ => Permissions.RemoteBackground
     };
 
@@ -52,14 +90,25 @@ public static class RemoteSessionRules
     public static bool IsProxmox(string? osPlatform, string? osName) =>
         osPlatform == "linux" && osName is not null && osName.StartsWith(ProxmoxOsPrefix, StringComparison.Ordinal);
 
+    /// <summary>True for a Linux endpoint whose agent reports Synology DSM (0.8.0).</summary>
+    public static bool IsSynology(string? osPlatform, string? osName) =>
+        osPlatform == "linux" && osName is not null && osName.StartsWith(SynologyOsPrefix, StringComparison.Ordinal);
+
     /// <summary>True when the agent version serves the Proxmox web interface.</summary>
     public static bool AgentSupportsProxmoxWeb(string? agentVersion) =>
         SemanticVersion.TryParse(agentVersion, out _) && !SemanticVersion.IsOlder(agentVersion, MinimumProxmoxAgentVersion);
 
     /// <summary>True when a claim of this Fleeto Connect version is accepted; a development build is accepted by a development instance only.</summary>
     public static bool ConnectVersionAccepted(string? connectVersion, string instanceVersion) =>
+        ConnectVersionAccepted(connectVersion, instanceVersion, RemoteSessionKind.ProxmoxWeb);
+
+    /// <summary>
+    /// True when a claim of this Fleeto Connect version is accepted for a web interface: the Synology web interface needs a Fleeto Connect that
+    /// knows it. A development build is accepted by a development instance only.
+    /// </summary>
+    public static bool ConnectVersionAccepted(string? connectVersion, string instanceVersion, RemoteSessionKind kind) =>
         SemanticVersion.TryParse(connectVersion, out _) &&
-        (!SemanticVersion.IsOlder(connectVersion, MinimumConnectVersion) ||
+        (!SemanticVersion.IsOlder(connectVersion, kind == RemoteSessionKind.SynologyWeb ? MinimumSynologyConnectVersion : MinimumConnectVersion) ||
          (connectVersion!.StartsWith("0.0.0-", StringComparison.Ordinal) && instanceVersion.StartsWith("0.0.0-", StringComparison.Ordinal)));
 
     /// <summary>The Windows session id that stands for the console session: whichever session is attached to the screen.</summary>

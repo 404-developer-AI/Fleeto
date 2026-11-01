@@ -5581,6 +5581,13 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<DateTime>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasDefaultValue("ProxmoxWeb");
+
                     b.Property<string>("Problem")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -5609,6 +5616,8 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.ToTable("RemoteSessionClaims", t =>
                         {
+                            t.HasCheckConstraint("CK_RemoteSessionClaims_Kind", "\"Kind\" IN ('ProxmoxWeb', 'SynologyWeb')");
+
                             t.HasCheckConstraint("CK_RemoteSessionClaims_SecretHash", "octet_length(\"SecretHash\") = 32");
                         });
                 });

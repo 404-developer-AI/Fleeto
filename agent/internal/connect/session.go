@@ -92,7 +92,7 @@ type Hello struct {
 	TunnelCertificate  string `json:"tunnelCertificate"`
 }
 
-// Session is the Fleeto Connect side of a Proxmox web interface session.
+// Session is the Fleeto Connect side of a session of the Proxmox or the Synology web interface.
 type Session struct {
 	transport Transport
 	send      *remote.Cipher
@@ -109,7 +109,7 @@ type Session struct {
 }
 
 // Open performs the handshake on a relay connection: the token as the first message, the endpoint's key accepted only by a fingerprint
-// web gave, then the Hello, which must be of a Proxmox web interface session with a certificate to pin.
+// web gave, then the Hello, which must be of a web interface session Fleeto Connect knows, with a certificate to pin.
 func Open(ctx context.Context, transport Transport, ticket *Ticket, private *ecdh.PrivateKey) (*Session, error) {
 	payload, err := base64.StdEncoding.DecodeString(ticket.Token)
 	if err != nil {
@@ -171,8 +171,11 @@ func Open(ctx context.Context, transport Transport, ticket *Ticket, private *ecd
 		return nil, errors.New(endReason(frame[1:]))
 	case len(frame) == 0 || frame[0] != remote.FrameHello || json.Unmarshal(frame[1:], &s.Hello) != nil:
 		return nil, errors.New("the endpoint did not start the session")
-	case s.Hello.Kind != "proxmox_web" || len(s.Hello.TunnelCertificate) != 64:
-		return nil, errors.New("the endpoint did not offer the Proxmox web interface; update the agent")
+	case len(s.Hello.TunnelCertificate) != 64:
+		return nil, errors.New("the endpoint did not offer a web interface; update the agent")
+	}
+	if _, ok := TargetOf(s.Hello.Kind); !ok {
+		return nil, errors.New("the endpoint offered a web interface this Fleeto Connect does not know; install the current Fleeto Connect")
 	}
 	return s, nil
 }
@@ -236,7 +239,7 @@ func (s *Session) Run(ctx context.Context) string {
 				}
 			}
 		case remote.FrameIdleWarning:
-			// Only a request of the browser counts as activity; the Proxmox page polls while it is open.
+			// Only a request of the browser counts as activity; the page of the web interface polls while it is open.
 		case remote.FrameEnd:
 			s.finish(endReason(body))
 			_ = s.transport.Close("ended by the endpoint")
@@ -328,7 +331,7 @@ func (s *Session) Dial(ctx context.Context) (net.Conn, error) {
 	case <-ctx.Done():
 		s.remove(id)
 		_ = s.sendJSON(context.Background(), remote.FrameTunnelClose, map[string]int{"channel": int(id)})
-		return nil, errors.New("the endpoint did not connect to the Proxmox web interface in time")
+		return nil, errors.New("the endpoint did not connect to the web interface in time")
 	}
 }
 

@@ -42,6 +42,10 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
     public const string ProxmoxAgentReason =
         "The agent of this endpoint is too old for the Proxmox web interface. It needs Fleeto " + RemoteSessionRules.MinimumProxmoxAgentVersion +
         " or later; the agent updates with its update ring.";
+    public const string SynologyReason = "The Synology web interface is only available on a Synology NAS whose agent reports DSM.";
+    public const string SynologyAgentReason =
+        "The agent of this endpoint is too old for the Synology web interface. It needs Fleeto " + RemoteSessionRules.MinimumSynologyAgentVersion +
+        " or later; the agent updates with its update ring.";
     public const string BindingReason =
         "The remote session request was changed after it was made, so it was not signed. Open the session again, and tell an administrator if it happens again.";
 
@@ -101,6 +105,8 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
             RemoteSessionKind.RemoteControl when session.Component == AgentComponent.Agent && session.WindowsSessionId >= 0 => Component.Agent,
             // The Proxmox web interface (0.8.0) is served by the agent, which connects its tunnel to pveproxy on the host only.
             RemoteSessionKind.ProxmoxWeb when session.Component == AgentComponent.Agent && session.WindowsSessionId is null => Component.Agent,
+            // The Synology web interface (0.8.0) likewise, to the default HTTPS port of DSM on the NAS only.
+            RemoteSessionKind.SynologyWeb when session.Component == AgentComponent.Agent && session.WindowsSessionId is null => Component.Agent,
             _ => Component.Unspecified
         };
         if (servedBy == Component.Unspecified)
@@ -172,6 +178,16 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
             return SigningOutcome.Refused(ProxmoxAgentReason);
         }
 
+        if (session.Kind == RemoteSessionKind.SynologyWeb && !RemoteSessionRules.IsSynology(endpoint.OsPlatform, endpoint.OsName))
+        {
+            return SigningOutcome.Refused(SynologyReason);
+        }
+
+        if (session.Kind == RemoteSessionKind.SynologyWeb && !RemoteSessionRules.AgentSupportsWebInterface(RemoteSessionKind.SynologyWeb, endpoint.AgentVersion))
+        {
+            return SigningOutcome.Refused(SynologyAgentReason);
+        }
+
         // Tier enforcement, layer 2 (the signer): the stored tier and the license must both allow managed behaviour.
         var license = await _licenses.GetStatusAsync(db, cancellationToken);
         if (TierRules.EffectiveTier(endpoint.Tier, license) != EndpointTier.Managed)
@@ -200,6 +216,7 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
             {
                 RemoteSessionKind.RemoteControl => Protocol.Agent.V1.RemoteSessionKind.RemoteControl,
                 RemoteSessionKind.ProxmoxWeb => Protocol.Agent.V1.RemoteSessionKind.ProxmoxWeb,
+                RemoteSessionKind.SynologyWeb => Protocol.Agent.V1.RemoteSessionKind.SynologyWeb,
                 _ => Protocol.Agent.V1.RemoteSessionKind.RemoteBackground
             },
             Component = servedBy,

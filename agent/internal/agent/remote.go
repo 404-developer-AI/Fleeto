@@ -54,7 +54,7 @@ func (a *Agent) newRemoteServer() *remote.Server {
 			return remote.Hello{Hostname: inventory.Hostname(), Platform: runtime.GOOS, Version: version.Version}
 		},
 		Report: a.reportRemoteAction,
-		Tunnel: proxmoxTunnel,
+		Tunnel: webTunnel,
 		Logger: a.logger,
 		Now:    a.opts.Now,
 	}

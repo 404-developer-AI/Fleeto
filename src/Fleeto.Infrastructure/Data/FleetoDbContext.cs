@@ -1094,9 +1094,11 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             EndpointOwned(entity);
         });
 
-        // The Proxmox web interface (0.8.0): a session that waits for Fleeto Connect to claim it.
+        // The Proxmox and the Synology web interface (0.8.0): a session that waits for Fleeto Connect to claim it.
         builder.Entity<RemoteSessionClaim>(entity =>
         {
+            // Rows written before the Synology web interface are all of the Proxmox web interface.
+            entity.Property(c => c.Kind).HasConversion<string>().HasMaxLength(30).HasDefaultValue(RemoteSessionKind.ProxmoxWeb).HasSentinel((RemoteSessionKind)(-1));
             entity.Property(c => c.UserName).HasMaxLength(200);
             entity.Property(c => c.Reason).HasMaxLength(RemoteSessionRules.MaxReasonLength);
             entity.Property(c => c.ClaimedFrom).HasMaxLength(64);
@@ -1104,7 +1106,12 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(c => c.Problem).HasMaxLength(500);
             EndpointChild(entity, c => new { c.EndpointId, c.ClientId });
             entity.HasIndex(c => c.CreatedAt);
-            entity.ToTable(t => t.HasCheckConstraint("CK_RemoteSessionClaims_SecretHash", "octet_length(\"SecretHash\") = 32"));
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_RemoteSessionClaims_SecretHash", "octet_length(\"SecretHash\") = 32");
+                // Only a web interface is opened through a claim of Fleeto Connect.
+                t.HasCheckConstraint("CK_RemoteSessionClaims_Kind", "\"Kind\" IN ('ProxmoxWeb', 'SynologyWeb')");
+            });
             EndpointOwned(entity);
         });
 

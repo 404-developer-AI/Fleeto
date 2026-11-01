@@ -58,6 +58,9 @@ public class EnrollmentTests
         Assert.Contains("https://rmm.example.com/agent/download/linux-$a", command);
         // /tmp is mounted without exec permission on hardened endpoints, so the installer runs from /opt.
         Assert.Contains("mktemp -d /opt/.fleeto-install.", command);
+        // Synology DSM has no /opt; the command creates it before it needs it.
+        Assert.True(command.IndexOf("mkdir -p /opt;", StringComparison.Ordinal) is >= 0 and var mkdir &&
+            mkdir < command.IndexOf("mktemp -d /opt/", StringComparison.Ordinal));
         Assert.Contains("curl -fsS", command);
         Assert.Contains("wget -q", command);
         Assert.Contains($"install --server agents.rmm.example.com:443 --token {token} --ca-fingerprint {Fingerprint}", command);
