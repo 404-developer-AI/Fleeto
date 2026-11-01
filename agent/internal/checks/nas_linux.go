@@ -67,8 +67,8 @@ func diskReports(ctx context.Context, disk string) (map[string]SmartReport, []Me
 	if disk != "*" && !DiskName.MatchString(disk) {
 		return nil, []Measurement{{Error: "the disk parameter must be * or a disk name such as sda, sata1 or nvme0n1"}}
 	}
-	tool, err := exec.LookPath("smartctl")
-	if err != nil {
+	tool := findSmartctl()
+	if tool == "" {
 		return nil, []Measurement{{Target: disk, Error: "smartctl was not found on this endpoint; install smartmontools to read the disks"}}
 	}
 	disks := []string{disk}
@@ -117,6 +117,21 @@ func diskTemperature(ctx context.Context, disk string) []Measurement {
 		}
 	}
 	return out
+}
+
+// smartctlPaths are where smartctl lives when the PATH of the service does not hold it, as on Synology DSM.
+var smartctlPaths = []string{"/usr/sbin/smartctl", "/usr/bin/smartctl", "/usr/syno/bin/smartctl", "/usr/local/sbin/smartctl"}
+
+func findSmartctl() string {
+	if tool, err := exec.LookPath("smartctl"); err == nil {
+		return tool
+	}
+	for _, path := range smartctlPaths {
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+			return path
+		}
+	}
+	return ""
 }
 
 func sortedKeys(m map[string]SmartReport) []string {
