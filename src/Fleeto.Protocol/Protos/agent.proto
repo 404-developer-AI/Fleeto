@@ -579,6 +579,8 @@ message CheckSpec {
   //   CHECK_TYPE_SECURITY_CENTER: "component" (antivirus, firewall).
   //   CHECK_TYPE_SCRIPT: "script" (script id), "timeout_seconds" (5-300, at most the interval); the script itself is in `script`.
   //     Without `script` the check cannot run and "unavailable" says why (deleted, not approved, another client).
+  //   CHECK_TYPE_RAID_STATE: "array" ("*" or an md array such as md2).
+  //   CHECK_TYPE_DISK_HEALTH and CHECK_TYPE_DISK_TEMPERATURE: "disk" ("*" or a disk such as sda, sata1 or nvme0n1).
   map<string, string> parameters = 4;
   // CHECK_TYPE_SCRIPT only: the library script version to run, covered by the configuration signature (0.2.0).
   ScriptJob script = 5;
@@ -622,6 +624,16 @@ enum CheckType {
   // value: the exit code of the script (0 OK, 1 warning, other critical, judged by the server). detail: the first line of output.
   // error when the script timed out, could not start or is unavailable (0.2.0).
   CHECK_TYPE_SCRIPT = 15;
+  // Linux only (0.8.0). value: 0 healthy, 1 rebuilding (recovery, resync or reshape), 2 degraded (inactive, a member failed or missing).
+  // One result per md array of /proc/mdstat, target = array; with "*" on Synology DSM not md0 and md1 (a slot per bay). detail: level,
+  // working and total disks, progress.
+  CHECK_TYPE_RAID_STATE = 16;
+  // Linux only (0.8.0). value: 0 healthy, 1 warning (reallocated, pending or uncorrectable sectors, NVMe media errors), 2 failing
+  // (SMART FAILED, an attribute failing now, an NVMe critical warning). One result per disk, read with smartctl; a disk in standby is
+  // not woken and gets no result. target = disk.
+  CHECK_TYPE_DISK_HEALTH = 17;
+  // Linux only (0.8.0). value: the temperature of the disk in °C from SMART. One result per disk, as CHECK_TYPE_DISK_HEALTH.
+  CHECK_TYPE_DISK_TEMPERATURE = 18;
 }
 
 message ConfigApplied {

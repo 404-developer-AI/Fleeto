@@ -169,6 +169,9 @@ public sealed class AgentConfigBuilder
         Core.Entities.CheckType.EventLog => ProtoCheckType.EventLog,
         Core.Entities.CheckType.SecurityCenter => ProtoCheckType.SecurityCenter,
         Core.Entities.CheckType.Script => ProtoCheckType.Script,
+        Core.Entities.CheckType.RaidState => ProtoCheckType.RaidState,
+        Core.Entities.CheckType.DiskHealth => ProtoCheckType.DiskHealth,
+        Core.Entities.CheckType.DiskTemperature => ProtoCheckType.DiskTemperature,
         _ => ProtoCheckType.Unspecified
     };
 

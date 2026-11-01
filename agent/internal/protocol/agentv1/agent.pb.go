@@ -323,6 +323,16 @@ const (
 	// value: the exit code of the script (0 OK, 1 warning, other critical, judged by the server). detail: the first line of output.
 	// error when the script timed out, could not start or is unavailable (0.2.0).
 	CheckType_CHECK_TYPE_SCRIPT CheckType = 15
+	// Linux only (0.8.0). value: 0 healthy, 1 rebuilding (recovery, resync or reshape), 2 degraded (inactive, a member failed or missing).
+	// One result per md array of /proc/mdstat, target = array; with "*" on Synology DSM not md0 and md1 (a slot per bay). detail: level,
+	// working and total disks, progress.
+	CheckType_CHECK_TYPE_RAID_STATE CheckType = 16
+	// Linux only (0.8.0). value: 0 healthy, 1 warning (reallocated, pending or uncorrectable sectors, NVMe media errors), 2 failing
+	// (SMART FAILED, an attribute failing now, an NVMe critical warning). One result per disk, read with smartctl; a disk in standby is
+	// not woken and gets no result. target = disk.
+	CheckType_CHECK_TYPE_DISK_HEALTH CheckType = 17
+	// Linux only (0.8.0). value: the temperature of the disk in °C from SMART. One result per disk, as CHECK_TYPE_DISK_HEALTH.
+	CheckType_CHECK_TYPE_DISK_TEMPERATURE CheckType = 18
 )
 
 // Enum value maps for CheckType.
@@ -344,6 +354,9 @@ var (
 		13: "CHECK_TYPE_EVENT_LOG",
 		14: "CHECK_TYPE_SECURITY_CENTER",
 		15: "CHECK_TYPE_SCRIPT",
+		16: "CHECK_TYPE_RAID_STATE",
+		17: "CHECK_TYPE_DISK_HEALTH",
+		18: "CHECK_TYPE_DISK_TEMPERATURE",
 	}
 	CheckType_value = map[string]int32{
 		"CHECK_TYPE_UNSPECIFIED":        0,
@@ -362,6 +375,9 @@ var (
 		"CHECK_TYPE_EVENT_LOG":          13,
 		"CHECK_TYPE_SECURITY_CENTER":    14,
 		"CHECK_TYPE_SCRIPT":             15,
+		"CHECK_TYPE_RAID_STATE":         16,
+		"CHECK_TYPE_DISK_HEALTH":        17,
+		"CHECK_TYPE_DISK_TEMPERATURE":   18,
 	}
 )
 
@@ -4278,6 +4294,8 @@ type CheckSpec struct {
 	//   CHECK_TYPE_SECURITY_CENTER: "component" (antivirus, firewall).
 	//   CHECK_TYPE_SCRIPT: "script" (script id), "timeout_seconds" (5-300, at most the interval); the script itself is in `script`.
 	//     Without `script` the check cannot run and "unavailable" says why (deleted, not approved, another client).
+	//   CHECK_TYPE_RAID_STATE: "array" ("*" or an md array such as md2).
+	//   CHECK_TYPE_DISK_HEALTH and CHECK_TYPE_DISK_TEMPERATURE: "disk" ("*" or a disk such as sda, sata1 or nvme0n1).
 	Parameters map[string]string `protobuf:"bytes,4,rep,name=parameters,proto3" json:"parameters,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// CHECK_TYPE_SCRIPT only: the library script version to run, covered by the configuration signature (0.2.0).
 	Script        *ScriptJob `protobuf:"bytes,5,opt,name=script,proto3" json:"script,omitempty"`
@@ -6577,7 +6595,7 @@ const file_agent_proto_rawDesc = "" +
 	"\x04Tier\x12\x14\n" +
 	"\x10TIER_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fTIER_AGENT_ONLY\x10\x01\x12\x10\n" +
-	"\fTIER_MANAGED\x10\x02*\xba\x03\n" +
+	"\fTIER_MANAGED\x10\x02*\x92\x04\n" +
 	"\tCheckType\x12\x1a\n" +
 	"\x16CHECK_TYPE_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14CHECK_TYPE_CPU_USAGE\x10\x01\x12\x1b\n" +
@@ -6595,7 +6613,10 @@ const file_agent_proto_rawDesc = "" +
 	"\x1dCHECK_TYPE_CERTIFICATE_EXPIRY\x10\f\x12\x18\n" +
 	"\x14CHECK_TYPE_EVENT_LOG\x10\r\x12\x1e\n" +
 	"\x1aCHECK_TYPE_SECURITY_CENTER\x10\x0e\x12\x15\n" +
-	"\x11CHECK_TYPE_SCRIPT\x10\x0f*]\n" +
+	"\x11CHECK_TYPE_SCRIPT\x10\x0f\x12\x19\n" +
+	"\x15CHECK_TYPE_RAID_STATE\x10\x10\x12\x1a\n" +
+	"\x16CHECK_TYPE_DISK_HEALTH\x10\x11\x12\x1f\n" +
+	"\x1bCHECK_TYPE_DISK_TEMPERATURE\x10\x12*]\n" +
 	"\bJobRunAs\x12\x1a\n" +
 	"\x16JOB_RUN_AS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_RUN_AS_SERVICE\x10\x01\x12\x1d\n" +

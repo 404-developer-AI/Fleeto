@@ -318,7 +318,30 @@ public static partial class CheckCatalog
             CheckPlatforms.Windows, [],
             FleetoEvaluatedIntervalSeconds, null, null, _ => ThresholdKind.Flag, _ => string.Empty, string.Empty,
             "Report a missing Action1 agent as a warning instead of critical",
-            EvaluatedWhen: "while Fleeto installs the Action1 agent and every 4 hours")
+            EvaluatedWhen: "while Fleeto installs the Action1 agent and every 4 hours"),
+        new CheckTypeInfo(CheckType.RaidState, "RAID state",
+            "The state of every software RAID array (Linux md, which Synology DSM and mdadm use): healthy, rebuilding or degraded. " +
+            "On Synology DSM, * leaves out md0 and md1, the system and swap partitions DSM puts on every disk with a slot for every bay.",
+            CheckPlatforms.Linux,
+            [new("array", "Array", ParameterKind.Text, Required: true, Default: "*", MaxLength: 20,
+                Help: "* for every array, or the name of one, for example md2.", Validate: RaidArray)],
+            300, 1, 2, _ => ThresholdKind.HigherIsWorse, _ => string.Empty,
+            "0 is healthy, 1 rebuilding and 2 degraded. By default a rebuild is a warning and a degraded array critical."),
+        new CheckTypeInfo(CheckType.DiskHealth, "Disk health",
+            "The SMART health of every disk, read by smartctl (package smartmontools; Synology DSM has it): failing when SMART says so, " +
+            "a warning when sectors were reallocated, wait to be or could not be read. A disk in standby is not woken.",
+            CheckPlatforms.Linux,
+            [new("disk", "Disk", ParameterKind.Text, Required: true, Default: "*", MaxLength: 20,
+                Help: "* for every disk, or one, for example sda, sata1 or nvme0n1.", Validate: DiskName)],
+            3600, 1, 2, _ => ThresholdKind.HigherIsWorse, _ => string.Empty,
+            "0 is healthy, 1 a warning sign and 2 failing. By default a warning sign is a warning and a failing disk critical."),
+        new CheckTypeInfo(CheckType.DiskTemperature, "Disk temperature",
+            "The temperature of every disk from SMART, read by smartctl. A disk in standby is not woken.",
+            CheckPlatforms.Linux,
+            [new("disk", "Disk", ParameterKind.Text, Required: true, Default: "*", MaxLength: 20,
+                Help: "* for every disk, or one, for example sda, sata1 or nvme0n1.", Validate: DiskName)],
+            900, 50, 60, _ => ThresholdKind.HigherIsWorse, _ => "°C",
+            "Alert when a disk reaches or exceeds these temperatures in °C.")
     }.ToDictionary(t => t.Type);
 
     /// <summary>Parameter of a script check holding the script id.</summary>
@@ -471,6 +494,12 @@ public static partial class CheckCatalog
             ? "Enter the process name only, without a folder or wildcards, for example sqlservr.exe."
             : null;
 
+    private static string? RaidArray(string value) =>
+        value == "*" || RaidArrayPattern().IsMatch(value) ? null : "Enter * or the name of an md array, for example md2.";
+
+    private static string? DiskName(string value) =>
+        value == "*" || DiskNamePattern().IsMatch(value) ? null : "Enter * or a disk name such as sda, sata1 or nvme0n1, without /dev/.";
+
     private static string? HostName(string value) =>
         HostPattern().IsMatch(value) && !value.StartsWith('-') ? null : "Enter a host name or IP address, without a scheme, path or port.";
 
@@ -560,4 +589,11 @@ public static partial class CheckCatalog
 
     [GeneratedRegex(@"^\d{1,5}(,\d{1,5}){0,19}$")]
     private static partial Regex EventIdsPattern();
+
+    // The same patterns as the agent (checks.ArrayName, checks.DiskName), which checks them again.
+    [GeneratedRegex(@"^md[a-z0-9_]{1,16}$")]
+    private static partial Regex RaidArrayPattern();
+
+    [GeneratedRegex(@"^(sd[a-z]{1,3}|sata\d{1,3}|nvme\d{1,3}n\d{1,3})$")]
+    private static partial Regex DiskNamePattern();
 }

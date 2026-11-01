@@ -131,6 +131,13 @@ public static class CheckEvaluator
             CheckType.SecurityCenter => P("component") == "firewall"
                 ? $"The firewall is off on {hostname}{(string.IsNullOrEmpty(target) ? string.Empty : $" ({target})")}. Turn it on."
                 : $"Antivirus protection is off or out of date on {hostname}. Check the antivirus software.",
+            CheckType.RaidState => value >= 2
+                ? $"RAID array {target} on {hostname} is degraded. Replace the failed disk and repair the array; see the detail on the endpoint page."
+                : $"RAID array {target} on {hostname} is rebuilding. Its redundancy returns when the rebuild ends.",
+            CheckType.DiskHealth => value >= 2
+                ? $"Disk {target} on {hostname} is failing according to SMART. Back up its data and replace the disk."
+                : $"Disk {target} on {hostname} shows signs of wear in SMART. Plan to replace it; see the detail on the endpoint page.",
+            CheckType.DiskTemperature => $"Disk {target} on {hostname} is {v} °C, above the {t} °C threshold. Check the fans and the airflow.",
             _ => $"{hostname}: check \"{definition.Name}\" is {status.ToString().ToLowerInvariant()}."
         };
     }

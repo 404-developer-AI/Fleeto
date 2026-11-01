@@ -88,6 +88,12 @@ When a third released version is added, the oldest entry moves to the top of
   0.8.0-alpha.9 or later; the download of Fleeto Connect needs either permission.
 - The Linux install command creates `/opt` when it is missing (Synology DSM has none), and the install dialog explains how to run it as
   root in the Task Scheduler of DSM, so SSH can stay off on a NAS.
+- Three checks for what a NAS is watched for, on Linux endpoints, read by the agent on the endpoint itself: **RAID state** (every software
+  RAID array of `/proc/mdstat`: healthy, rebuilding as a warning, degraded or inactive as critical; data scrubbing is healthy; with `*`
+  on Synology DSM not `md0` and `md1`, which have a slot for every bay), **Disk health** (SMART read by smartctl: failing as critical,
+  reallocated, pending or uncorrectable sectors and NVMe media errors as a warning) and **Disk temperature** (°C from SMART, 50 and 60 by
+  default). smartctl runs with `-n standby`, so a sleeping disk is never woken and keeps its last result; the serial number of a disk is
+  never sent. In the public API as `raid_state`, `disk_health` and `disk_temperature`. An older agent reports that it does not know them.
 
 ### Fixed
 

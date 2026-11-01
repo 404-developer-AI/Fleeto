@@ -96,6 +96,10 @@ public sealed class CheckCatalogTests
     [InlineData(CheckType.EventLog, "source", "Service]", "not allowed")]
     [InlineData(CheckType.ProcessRunning, "process", @"C:\Windows\explorer.exe", "without a folder")]
     [InlineData(CheckType.CertificateExpiry, "store", @"CurrentUser\My", "LocalMachine")]
+    [InlineData(CheckType.RaidState, "array", "../../etc/passwd", "md array")]
+    [InlineData(CheckType.RaidState, "array", "md2; reboot", "md array")]
+    [InlineData(CheckType.DiskHealth, "disk", "/dev/sda", "without /dev/")]
+    [InlineData(CheckType.DiskTemperature, "disk", "sda -d sat", "disk name")]
     public void Unsafe_or_invalid_parameters_are_refused(CheckType type, string name, string value, string expected)
     {
         var info = CheckCatalog.Get(type);
@@ -138,6 +142,13 @@ public sealed class CheckCatalogTests
     [InlineData(CheckType.EventLog, "", 2, 1d, 10d, CheckStatus.Warning)]
     [InlineData(CheckType.EventLog, "", 0, 1d, 10d, CheckStatus.Ok)]
     [InlineData(CheckType.SecurityCenter, "Microsoft Defender Antivirus", 0, null, null, CheckStatus.Critical)]
+    [InlineData(CheckType.RaidState, "md2", 0, 1d, 2d, CheckStatus.Ok)]
+    [InlineData(CheckType.RaidState, "md2", 1, 1d, 2d, CheckStatus.Warning)]
+    [InlineData(CheckType.RaidState, "md2", 2, 1d, 2d, CheckStatus.Critical)]
+    [InlineData(CheckType.DiskHealth, "sda", 1, 1d, 2d, CheckStatus.Warning)]
+    [InlineData(CheckType.DiskHealth, "sda", 2, 1d, 2d, CheckStatus.Critical)]
+    [InlineData(CheckType.DiskTemperature, "sda", 19, 50d, 60d, CheckStatus.Ok)]
+    [InlineData(CheckType.DiskTemperature, "sda", 55, 50d, 60d, CheckStatus.Warning)]
     public void Values_are_judged_by_the_threshold_kind_of_their_type(CheckType type, string target, double value, double? warning, double? critical,
         CheckStatus expected)
     {
@@ -159,6 +170,27 @@ public sealed class CheckCatalogTests
             CheckEvaluator.AlertTitle("SRV-DB", age, "/var/backups/db.dump", CheckStatus.Warning, 30, null));
         Assert.Contains("does not answer ping", CheckEvaluator.AlertTitle("WS-01", Definition(CheckType.Ping, P(("host", "10.0.0.1"))), "10.0.0.1",
             CheckStatus.Critical, -1, null));
+    }
+
+    [Fact]
+    public void The_checks_of_a_nas_run_on_linux_and_name_the_array_or_disk_in_their_alert()
+    {
+        foreach (var type in new[] { CheckType.RaidState, CheckType.DiskHealth, CheckType.DiskTemperature })
+        {
+            Assert.Equal(CheckPlatforms.Linux, CheckCatalog.Get(type).Platforms);
+            Assert.True(CheckCatalog.Get(type).RunsOnAgent);
+        }
+
+        Assert.Equal("RAID array md2 on NAS-00 is degraded. Replace the failed disk and repair the array; see the detail on the endpoint page.",
+            CheckEvaluator.AlertTitle("NAS-00", Definition(CheckType.RaidState, P(("array", "*")), 1, 2), "md2", CheckStatus.Critical, 2, null));
+        Assert.Contains("is rebuilding",
+            CheckEvaluator.AlertTitle("NAS-00", Definition(CheckType.RaidState, P(("array", "*")), 1, 2), "md2", CheckStatus.Warning, 1, null));
+        Assert.Contains("Disk sda on NAS-00 is failing",
+            CheckEvaluator.AlertTitle("NAS-00", Definition(CheckType.DiskHealth, P(("disk", "*")), 1, 2), "sda", CheckStatus.Critical, 2, null));
+        Assert.Equal("Disk sda on NAS-00 is 55 °C, above the 50 °C threshold. Check the fans and the airflow.",
+            CheckEvaluator.AlertTitle("NAS-00", Definition(CheckType.DiskTemperature, P(("disk", "*")), 50, 60), "sda", CheckStatus.Warning, 55, null));
+        Assert.Empty(CheckParameters.Validate(Definition(CheckType.RaidState, P(("array", "md127")), 1, 2)));
+        Assert.Empty(CheckParameters.Validate(Definition(CheckType.DiskHealth, P(("disk", "nvme0n1")), 1, 2)));
     }
 
     [Fact]

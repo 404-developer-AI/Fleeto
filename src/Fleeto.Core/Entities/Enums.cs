@@ -76,7 +76,19 @@ public enum CheckType
     /// 1 when Action1 reports the endpoint, 0 when its agent is missing or an installation failed, with the reason (0.6.0).
     /// Evaluated by the workers with the automatic installation of the Action1 agent, never sent to the agent.
     /// </summary>
-    Action1Agent
+    Action1Agent,
+    /// <summary>
+    /// Linux: 0 healthy, 1 rebuilding, 2 degraded, per software RAID array (md) of /proc/mdstat (0.8.0); with * on Synology DSM not
+    /// md0 and md1, which have a slot per bay.
+    /// </summary>
+    RaidState,
+    /// <summary>
+    /// Linux: 0 healthy, 1 warning (reallocated, pending or uncorrectable sectors, NVMe media errors), 2 failing, per disk from
+    /// SMART read by smartctl (0.8.0). A disk in standby is not woken and keeps its last result.
+    /// </summary>
+    DiskHealth,
+    /// <summary>Linux: the temperature of a disk in °C from SMART, per disk (0.8.0).</summary>
+    DiskTemperature
 }
 
 /// <summary>Which endpoint class a check definition applies to.</summary>

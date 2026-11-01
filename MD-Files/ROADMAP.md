@@ -137,8 +137,9 @@ Wanted, but not in a version yet: the version is chosen once the open questions 
   - units in `/usr/local/lib/systemd/system`, where Package Center puts the units of packages, and program and state
     files where a DSM update leaves them; open question, to be tested first on a NAS with an agent through a DSM update:
     which of `/etc/systemd/system`, `/usr/local`, `/opt`, `/var/lib` and `/volume1` survive it;
-  - checks for what a NAS is watched for, read locally by the agent: RAID state (`/proc/mdstat`), SMART of the disks,
-    volumes and temperature;
+  - checks for what a NAS is watched for, read locally by the agent: built for 0.8.0 as RAID state (`/proc/mdstat`, without
+    `md0` and `md1` on DSM), Disk health and Disk temperature (smartctl 6.5 on DSM, text output, never waking a disk in standby);
+    volumes are the existing Free disk space check;
   - only x86_64 and arm64 models; 32-bit ARM models get no agent;
   - the **Synology web interface** in the technician's own browser, exactly like the Proxmox web interface (`PROXMOX-WEB.md` §8, asked
     2026-11-01, built for 0.8.0; to test on the NAS of the developer): opened from the right-click menu on a managed endpoint whose agent reports DSM, carried by Fleeto Connect as tunnel

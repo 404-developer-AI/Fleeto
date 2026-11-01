@@ -234,6 +234,16 @@ public static class Ui
             return number;
         }
 
+        if (type == CheckType.RaidState)
+        {
+            return v switch { <= 0 => "Healthy", < 2 => "Rebuilding", _ => "Degraded" };
+        }
+
+        if (type == CheckType.DiskHealth)
+        {
+            return v switch { <= 0 => "Healthy", < 2 => "Warning signs", _ => "Failing" };
+        }
+
         return CheckCatalog.ThresholdKindOf(type, parameters) switch
         {
             ThresholdKind.Flag => FlagText(type, parameters, v >= 1, v),

@@ -68,6 +68,12 @@ func (c SystemCollector) Collect(ctx context.Context, spec *agentv1.CheckSpec) [
 		return []Measurement{securityCenterCheck(ctx, spec.GetParameters()["component"])}
 	case agentv1.CheckType_CHECK_TYPE_SCRIPT:
 		return []Measurement{c.scriptCheck(ctx, spec)}
+	case agentv1.CheckType_CHECK_TYPE_RAID_STATE:
+		return raidState(spec.GetParameters()["array"])
+	case agentv1.CheckType_CHECK_TYPE_DISK_HEALTH:
+		return diskHealth(ctx, spec.GetParameters()["disk"])
+	case agentv1.CheckType_CHECK_TYPE_DISK_TEMPERATURE:
+		return diskTemperature(ctx, spec.GetParameters()["disk"])
 	default:
 		return []Measurement{{Error: fmt.Sprintf("check type %s is not supported by this agent version; update the agent", spec.GetType())}}
 	}
