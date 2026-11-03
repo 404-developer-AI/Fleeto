@@ -171,7 +171,8 @@ DSM as an endpoint platform in `MD-Files/ROADMAP.md`). Everything in this file h
 - The technician signs in with their own DSM account and the 2-step verification of DSM. Fleeto never stores, sends or fills in a DSM
   credential.
 
-**To find out on a NAS** (open, tested with the developer on their own NAS): whether DSM accepts the `Host`, `Origin` and `Referer` of
-`127.0.0.1:5001`, whether its session cookie is kept on `http://<name>.localhost`, and what the auto block, the firewall and the IP check
-of a DSM session do with sign-ins that all come from `127.0.0.1` (a block of `127.0.0.1` would lock every technician out, a trusted
-`127.0.0.1` would bypass the auto block). This section changes first when it does not work as written.
+**Tested on a NAS** (`0.8.0-alpha.9`, 2026-11-01, DSM 7.1.1-42962 Update 8 on the NAS of the developer): DSM accepts the `Host`, `Origin`
+and `Referer` of `127.0.0.1:5001`, keeps its session cookie on `http://<name>.localhost` (also after reloading the page) and signs in
+without a warning from its IP check. Not tested yet: what the auto block of DSM does after failed sign-ins, which all come from `127.0.0.1`
+(a block of `127.0.0.1` would lock every technician out until it expires or is lifted in DSM, a trusted `127.0.0.1` would bypass the auto
+block). This section changes first when it does not work as written.

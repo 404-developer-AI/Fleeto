@@ -137,20 +137,19 @@ Wanted, but not in a version yet: the version is chosen once the open questions 
   - units in `/usr/local/lib/systemd/system`, where Package Center puts the units of packages, and program and state
     files where a DSM update leaves them; open question, to be tested first on a NAS with an agent through a DSM update:
     which of `/etc/systemd/system`, `/usr/local`, `/opt`, `/var/lib` and `/volume1` survive it;
-  - checks for what a NAS is watched for, read locally by the agent: built for 0.8.0 as RAID state (`/proc/mdstat`, without
+  - checks for what a NAS is watched for, read locally by the agent: built for 0.8.0 and tested on the NAS of the developer, as RAID state (`/proc/mdstat`, without
     `md0` and `md1` on DSM), Disk health and Disk temperature (smartctl 6.5 on DSM, text output, never waking a disk in standby);
     volumes are the existing Free disk space check;
   - only x86_64 and arm64 models; 32-bit ARM models get no agent;
   - the **Synology web interface** in the technician's own browser, exactly like the Proxmox web interface (`PROXMOX-WEB.md` §8, asked
-    2026-11-01, built for 0.8.0; to test on the NAS of the developer): opened from the right-click menu on a managed endpoint whose agent reports DSM, carried by Fleeto Connect as tunnel
+    2026-11-01, built for 0.8.0, works on the NAS of the developer with `0.8.0-alpha.9`): opened from the right-click menu on a managed endpoint whose agent reports DSM, carried by Fleeto Connect as tunnel
     channels through a remote session, the agent connecting to one fixed target on the NAS itself and the TLS of DSM running end to
     end, so Fleeto never sees the pages or a DSM password and the technician signs in with their own DSM account (with its own 2-step
     verification). Decided with the developer on 2026-11-01: the one fixed target is `127.0.0.1:5001` (then `[::1]:5001`), the default
     HTTPS port of DSM, never port 5000 and never a port read from the NAS or named by the server; when nothing answers there, the
     window states that the Synology web interface only works on the default HTTPS port of DSM, 5001. Its own permission "Synology web interface"
-    in the Remote group. Found out while building it on a test NAS: whether DSM accepts the `Host`, `Origin` and `Referer` of
-    `127.0.0.1` as `pveproxy` does, and what its auto block, firewall and IP check of a session do with sign-ins that all come from
-    `127.0.0.1` (a block of `127.0.0.1` would lock every technician out, a trusted `127.0.0.1` would bypass the auto block).
+    in the Remote group. Tested 2026-11-01: DSM accepts the `Host`, `Origin` and `Referer` of `127.0.0.1:5001` as `pveproxy` does and
+    keeps its cookie; still to test is what its auto block does after failed sign-ins, which all come from `127.0.0.1`.
 - Whitelabel beyond the FQDN: customer logo and product name in UI and email.
 - Steaan management server: central issue, renewal and revocation of licenses, fetched by
   instances over an API; later also an overview of all instances and their versions.
