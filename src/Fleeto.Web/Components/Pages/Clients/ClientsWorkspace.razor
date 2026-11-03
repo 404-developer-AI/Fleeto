@@ -392,20 +392,22 @@
                         </MudTable>
                         @if (HasRowMenu)
                         {
-                            <MudMenu @ref="_endpointMenu" PositionAtCursor="true" aria-label="Endpoint actions">
+                            @* Pinned to the corner of the window: MudBlazor places a popover only while the anchor of its menu is in view, also
+                               at the cursor, and after a long list the anchor is scrolled out of the list, so the menu stayed invisible. *@
+                            <MudMenu @ref="_endpointMenu" PositionAtCursor="true" aria-label="Endpoint actions" Class="endpoint-menu-anchor">
                                 <ActivatorContent></ActivatorContent>
                                 <ChildContent>
                                     @if (_selected.Count > 1)
                                     {
                                         @if (Can(Permissions.ScriptsRun))
                                         {
-                                            <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="@(() => FromEndpointMenuAsync(RunScriptOnSelectionAsync))">
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="RunScriptOnSelectionAsync">
                                                 Run script on @Ui.Count(_selected.Count, "endpoint")
                                             </MudMenuItem>
                                         }
                                         @if (Can(Permissions.PatchesDeploy))
                                         {
-                                            <MudMenuItem Icon="@Icons.Material.Outlined.SystemUpdateAlt" OnClick="@(() => FromEndpointMenuAsync(DeployUpdatesOnSelectionAsync))">
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.SystemUpdateAlt" OnClick="DeployUpdatesOnSelectionAsync">
                                                 Deploy updates on @Ui.Count(_selected.Count, "endpoint")
                                             </MudMenuItem>
                                         }
@@ -416,19 +418,19 @@
                                     {
                                         @if (Can(Permissions.EndpointsEdit) || Can(Permissions.EndpointsMove))
                                         {
-                                            <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="@(() => FromEndpointMenuAsync(() => EditEndpointAsync(row)))">Edit</MudMenuItem>
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="@(() => EditEndpointAsync(row))">Edit</MudMenuItem>
                                         }
                                         @if (Can(Permissions.LinksEdit))
                                         {
-                                            <MudMenuItem Icon="@Icons.Material.Outlined.Tune" OnClick="@(() => FromEndpointMenuAsync(() => EditEndpointLinksAsync(row.Id, row.Hostname)))">Policies</MudMenuItem>
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.Tune" OnClick="@(() => EditEndpointLinksAsync(row.Id, row.Hostname))">Policies</MudMenuItem>
                                         }
                                         @if (Can(Permissions.EndpointsTier) && row.Tier == EndpointTier.AgentOnly)
                                         {
-                                            <MudMenuItem Icon="@Icons.Material.Outlined.Verified" Disabled="_busy" OnClick="@(() => FromEndpointMenuAsync(() => SetTierAsync(row, EndpointTier.Managed)))">Switch to managed</MudMenuItem>
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.Verified" Disabled="_busy" OnClick="@(() => SetTierAsync(row, EndpointTier.Managed))">Switch to managed</MudMenuItem>
                                         }
                                         else if (Can(Permissions.EndpointsTier))
                                         {
-                                            <MudMenuItem Icon="@Icons.Material.Outlined.RemoveModerator" Disabled="_busy" OnClick="@(() => FromEndpointMenuAsync(() => SetTierAsync(row, EndpointTier.AgentOnly)))">Switch to agent-only</MudMenuItem>
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.RemoveModerator" Disabled="_busy" OnClick="@(() => SetTierAsync(row, EndpointTier.AgentOnly))">Switch to agent-only</MudMenuItem>
                                         }
                                         @if (row.Tier == EndpointTier.Managed)
                                         {
@@ -450,30 +452,30 @@
                                             }
                                             @if (Can(Permissions.ScriptsRun))
                                             {
-                                                <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="@(() => FromEndpointMenuAsync(() => RunScriptAsync(row)))">Run script</MudMenuItem>
+                                                <MudMenuItem Icon="@Icons.Material.Outlined.PlayArrow" OnClick="@(() => RunScriptAsync(row))">Run script</MudMenuItem>
                                             }
                                             @if (Can(Permissions.PatchesDeploy))
                                             {
-                                                <MudMenuItem Icon="@Icons.Material.Outlined.SystemUpdateAlt" OnClick="@(() => FromEndpointMenuAsync(() => DeployUpdatesAsync([row.Id], row.Hostname)))">Deploy updates</MudMenuItem>
+                                                <MudMenuItem Icon="@Icons.Material.Outlined.SystemUpdateAlt" OnClick="@(() => DeployUpdatesAsync([row.Id], row.Hostname))">Deploy updates</MudMenuItem>
                                             }
-                                            @MaintenanceMenuItems(MaintenanceTarget.Endpoint, row.Id, row.Hostname, false, row.OwnMaintenanceActive ? row.OwnMaintenance : null, _endpointMenu)
+                                            @MaintenanceMenuItems(MaintenanceTarget.Endpoint, row.Id, row.Hostname, false, row.OwnMaintenanceActive ? row.OwnMaintenance : null)
                                         }
                                         @if (Can(Permissions.AccessView))
                                         {
-                                            <MudMenuItem Icon="@Icons.Material.Outlined.Groups" OnClick="@(() => FromEndpointMenuAsync(() => ShowAccessAsync(AccessTargetKind.Endpoint, row.Id, row.Hostname)))">Who has access</MudMenuItem>
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.Groups" OnClick="@(() => ShowAccessAsync(AccessTargetKind.Endpoint, row.Id, row.Hostname))">Who has access</MudMenuItem>
                                         }
                                         @if (Can(Permissions.EndpointsEnroll))
                                         {
-                                            <MudMenuItem Icon="@Icons.Material.Outlined.Replay" OnClick="@(() => FromEndpointMenuAsync(() => EnrollAgainAsync(row)))">Enroll again</MudMenuItem>
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.Replay" OnClick="@(() => EnrollAgainAsync(row))">Enroll again</MudMenuItem>
                                         }
                                         @if (Can(Permissions.EndpointsRevoke))
                                         {
-                                            <MudMenuItem Icon="@Icons.Material.Outlined.GppBad" OnClick="@(() => FromEndpointMenuAsync(() => RevokeEndpointAsync(row)))">Revoke agent</MudMenuItem>
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.GppBad" OnClick="@(() => RevokeEndpointAsync(row))">Revoke agent</MudMenuItem>
                                         }
                                         @if (Can(Permissions.EndpointsDelete))
                                         {
                                             <MudDivider />
-                                            <MudMenuItem Icon="@Icons.Material.Outlined.Delete" IconColor="Color.Error" OnClick="@(() => FromEndpointMenuAsync(() => DeleteEndpointAsync(row)))">Delete endpoint</MudMenuItem>
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.Delete" IconColor="Color.Error" OnClick="@(() => DeleteEndpointAsync(row))">Delete endpoint</MudMenuItem>
                                         }
                                     }
                                 </ChildContent>
@@ -928,16 +930,12 @@
             return;
         }
 
+        // Opening a menu that is still open changes nothing, also not its place: close it first, so a right-click always
+        // shows the menu at the cursor, whatever state it was left in.
+        await _endpointMenu.CloseMenuAsync();
         _menuRow = row;
         await _endpointMenu.OpenMenuAsync(args);
     }
-
-    /// <summary>
-    /// Closes the endpoint menu, then runs the action chosen in it. MudMenuItem awaits its OnClick before it closes the menu,
-    /// so an action with a dialog kept the menu open, with its invisible overlay over the list, for as long as the action ran;
-    /// a menu still open after it then swallowed the next right-click on a row.
-    /// </summary>
-    private Task FromEndpointMenuAsync(Func<Task> action) => CloseThenAsync(_endpointMenu, action);
 
     /// <summary>Refreshes the list, and the detail below it when the changed endpoint is the one shown there.</summary>
     private async Task AfterEndpointActionAsync(Guid endpointId)
@@ -1393,9 +1391,7 @@
     };
 
     /// <param name="current">The active maintenance of the target itself, or null when it has none.</param>
-    /// <param name="menu">The menu to close before the action runs (see FromEndpointMenuAsync), or null to leave that to MudMenuItem.</param>
-    private RenderFragment MaintenanceMenuItems(MaintenanceTarget target, Guid id, string label, bool coversEndpoints, MaintenancePeriod? current,
-        MudMenu? menu = null) => __builder =>
+    private RenderFragment MaintenanceMenuItems(MaintenanceTarget target, Guid id, string label, bool coversEndpoints, MaintenancePeriod? current) => __builder =>
     {
         if (!Can(Permissions.MaintenanceManage))
         {
@@ -1403,24 +1399,14 @@
         }
 
         var active = current?.IsActive(Clock.GetUtcNow().UtcDateTime) == true;
-        <MudMenuItem Icon="@Icons.Material.Outlined.Construction" OnClick="@(() => CloseThenAsync(menu, () => StartMaintenanceAsync(target, id, label, coversEndpoints, active ? current : null)))">
+        <MudMenuItem Icon="@Icons.Material.Outlined.Construction" OnClick="@(() => StartMaintenanceAsync(target, id, label, coversEndpoints, active ? current : null))">
             @(active ? "Change maintenance" : "Start maintenance")
         </MudMenuItem>
         @if (active)
         {
-            <MudMenuItem Icon="@Icons.Material.Outlined.PlayCircle" OnClick="@(() => CloseThenAsync(menu, () => EndMaintenanceAsync(target, id, label)))">End maintenance</MudMenuItem>
+            <MudMenuItem Icon="@Icons.Material.Outlined.PlayCircle" OnClick="@(() => EndMaintenanceAsync(target, id, label))">End maintenance</MudMenuItem>
         }
     };
-
-    private static async Task CloseThenAsync(MudMenu? menu, Func<Task> action)
-    {
-        if (menu is not null)
-        {
-            await menu.CloseMenuAsync();
-        }
-
-        await action();
-    }
 
     private async Task StartMaintenanceAsync(MaintenanceTarget target, Guid id, string label, bool coversEndpoints, MaintenancePeriod? current)
     {

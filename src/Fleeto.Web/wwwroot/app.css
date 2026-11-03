@@ -283,6 +283,8 @@ button.tag-chip:focus-visible { outline: 2px solid var(--fl-primary); outline-of
 .workspace-main.fill-list > .endpoint-list { flex: 1; min-height: 240px; display: flex; flex-direction: column; }
 .workspace-main.fill-list .endpoint-table-scroll { flex: 1; min-height: 0; max-height: none !important; }
 .endpoint-table-scroll .mud-table { border: none; border-radius: 0 !important; box-shadow: none; }
+/* The endpoint menu opens at the cursor, but MudBlazor places it only while the anchor of the menu is in view (ClientsWorkspace). */
+.mud-menu.endpoint-menu-anchor { position: fixed; top: 0; left: 0; width: 1px; height: 1px; }
 .endpoint-table .mud-table-row { cursor: pointer; }
 .endpoint-table .mud-table-row.row-selected { background: var(--fl-primary-tint) !important; }
 .endpoint-table .mud-table-row.row-selected .mud-table-cell:first-child { box-shadow: inset 3px 0 0 var(--fl-primary); }

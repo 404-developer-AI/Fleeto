@@ -121,9 +121,11 @@ When a third released version is added, the oldest entry moves to the top of
   systemd only by `INVOCATION_ID`, which those versions do not set. The agent and the watchdog now also recognise their unit in the
   control group of the process. An uninstall started from Fleeto on such a version, which refused `systemd-run --collect`, now
   tries again without the options an older systemd-run does not know.
-- A right-click on an endpoint in the list sometimes did nothing, for example on the next endpoint after one was moved to another site
-  with Edit: the menu stayed open, with its invisible overlay over the list, for as long as the action chosen in it ran, dialog
-  included. The endpoint menu now closes before its action starts.
+- A right-click on an endpoint in a long list sometimes did nothing, for example on the next endpoint after one was moved to another
+  site with Edit: MudBlazor places a menu only while its anchor is in view, also a menu that opens at the cursor, and the anchor of
+  the endpoint menu sat below the list, scrolled out of view. The menu then opened invisibly and stayed open, so every later
+  right-click changed nothing. Its anchor is now pinned to the window, and a right-click closes a menu left open before it opens it
+  at the cursor. (The change of 0.8.0-alpha.10, closing the menu before its action, did not help and is undone.)
 
 ## [0.7.0] — 2026-10-26
 
