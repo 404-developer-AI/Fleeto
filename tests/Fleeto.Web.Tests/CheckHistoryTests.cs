@@ -64,8 +64,10 @@ public sealed class CheckHistoryTests
     {
         var (_, endpoint, check) = await SetupAsync(CheckType.TcpPort, """{"host":"db","port":"5432"}""", 100);
         var now = _fixture.Database.Time.GetUtcNow().UtcDateTime;
-        await ResultAsync(endpoint, check, now.AddMinutes(-10), 20);
-        await ResultAsync(endpoint, check, now.AddMinutes(-10).AddSeconds(1), 40);
+        // Both at the start of one minute: one second after a time at hh:mm:59 is the next bucket (failed in CI on 2026-11-03).
+        var minute = new DateTime(now.Ticks - now.Ticks % TimeSpan.TicksPerMinute, DateTimeKind.Utc).AddMinutes(-10);
+        await ResultAsync(endpoint, check, minute, 20);
+        await ResultAsync(endpoint, check, minute.AddSeconds(1), 40);
         await ResultAsync(endpoint, check, now.AddMinutes(-5), -1);
         await ResultAsync(endpoint, check, now.AddMinutes(-4), 0, "timeout");
         await ResultAsync(endpoint, check, now.AddHours(-3), 999);
