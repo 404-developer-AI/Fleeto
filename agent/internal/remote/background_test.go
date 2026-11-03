@@ -24,6 +24,24 @@ type backgroundSession struct {
 	done    chan string
 	actions chan action
 	nextID  int
+	// early holds the frames request read while it waited for its response, in order: the endpoint may start a transfer
+	// before it answers the request that started it, as the browser allows (keepEarly in remote-transfers.mjs).
+	early []earlyFrame
+}
+
+type earlyFrame struct {
+	kind    byte
+	payload []byte
+}
+
+// read returns the next frame from the endpoint: first the frames request kept, then new ones.
+func (bs *backgroundSession) read() (byte, []byte) {
+	if len(bs.early) > 0 {
+		f := bs.early[0]
+		bs.early = bs.early[1:]
+		return f.kind, f.payload
+	}
+	return bs.browser.read()
 }
 
 func startBackground(t *testing.T) *backgroundSession {
@@ -59,7 +77,7 @@ func startBackground(t *testing.T) *backgroundSession {
 	return bs
 }
 
-// request sends a FrameRequest and returns the FrameResponse body, skipping frames of other kinds and other request ids.
+// request sends a FrameRequest and returns the FrameResponse body; frames of other kinds and other request ids stay for read.
 func (bs *backgroundSession) request(op string, params map[string]any) map[string]any {
 	bs.t.Helper()
 	bs.nextID++
@@ -77,17 +95,18 @@ func (bs *backgroundSession) request(op string, params map[string]any) map[strin
 			bs.t.Fatalf("no response to %s", op)
 		default:
 		}
+		// Only new frames: a kept one is never the response to a request sent after it.
 		kind, payload := bs.browser.read()
-		if kind != FrameResponse {
-			continue
+		if kind == FrameResponse {
+			var result map[string]any
+			if err := json.Unmarshal(payload, &result); err != nil {
+				bs.t.Fatal(err)
+			}
+			if result["id"] == id {
+				return result
+			}
 		}
-		var result map[string]any
-		if err := json.Unmarshal(payload, &result); err != nil {
-			bs.t.Fatal(err)
-		}
-		if result["id"] == id {
-			return result
-		}
+		bs.early = append(bs.early, earlyFrame{kind, payload})
 	}
 }
 
@@ -182,7 +201,7 @@ func TestDownloadRoundTrip(t *testing.T) {
 
 	received := bytes.Buffer{}
 	for {
-		kind, payload := bs.browser.read()
+		kind, payload := bs.read()
 		switch kind {
 		case FrameChunk:
 			if binary.BigEndian.Uint32(payload[:4]) == transfer {
@@ -229,7 +248,7 @@ func TestUploadRoundTrip(t *testing.T) {
 
 	// Wait for the endpoint's end acknowledgement.
 	for {
-		kind, payload := bs.browser.read()
+		kind, payload := bs.read()
 		if kind != FrameTransfer {
 			continue
 		}
@@ -267,7 +286,7 @@ func (bs *backgroundSession) uploadWhole(t *testing.T, dir, name string, data []
 	bs.browser.write(FrameChunk, append(frame, data...))
 	bs.browser.write(FrameTransfer, mustJSON(transferBody{Transfer: transfer, Kind: "end"}))
 	for {
-		kind, payload := bs.browser.read()
+		kind, payload := bs.read()
 		if kind != FrameTransfer {
 			continue
 		}
@@ -332,7 +351,7 @@ func TestAnIncompleteUploadNeverReplacesTheFile(t *testing.T) {
 	bs.browser.write(FrameChunk, append(frame, []byte("only part")...))
 	bs.browser.write(FrameTransfer, mustJSON(transferBody{Transfer: transfer, Kind: "end"}))
 	for {
-		kind, payload := bs.browser.read()
+		kind, payload := bs.read()
 		var tb transferBody
 		if kind != FrameTransfer || json.Unmarshal(payload, &tb) != nil || tb.Transfer != transfer {
 			continue
@@ -419,7 +438,7 @@ func TestDownloadGivesUpWhenTheBrowserStopsAcknowledging(t *testing.T) {
 			t.Fatal("the stalled download never gave up")
 		default:
 		}
-		kind, payload := bs.browser.read()
+		kind, payload := bs.read()
 		if kind != FrameTransfer {
 			continue // chunks are ignored: this browser never acknowledges
 		}

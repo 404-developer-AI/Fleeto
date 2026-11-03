@@ -281,7 +281,7 @@ func TestClipboardFilesArePastedIntoTheStagingFolderAndCopiedFilesDownloaded(t *
 	id := uint32(download["transfer"].(float64))
 	var received []byte
 	for {
-		kind, payload := bs.browser.read()
+		kind, payload := bs.read()
 		if kind == FrameChunk && binary.BigEndian.Uint32(payload[:4]) == id {
 			received = append(received, payload[4:]...)
 		}
