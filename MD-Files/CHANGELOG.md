@@ -121,6 +121,9 @@ When a third released version is added, the oldest entry moves to the top of
   systemd only by `INVOCATION_ID`, which those versions do not set. The agent and the watchdog now also recognise their unit in the
   control group of the process. An uninstall started from Fleeto on such a version, which refused `systemd-run --collect`, now
   tries again without the options an older systemd-run does not know.
+- A right-click on an endpoint in the list sometimes did nothing, for example on the next endpoint after one was moved to another site
+  with Edit: the menu stayed open, with its invisible overlay over the list, for as long as the action chosen in it ran, dialog
+  included. The endpoint menu now closes before its action starts.
 
 ## [0.7.0] — 2026-10-26
 
