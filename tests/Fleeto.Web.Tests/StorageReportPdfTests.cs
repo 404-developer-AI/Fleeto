@@ -82,7 +82,7 @@ public sealed partial class StorageReportPdfTests
             123_456, 7_890);
         var detail = new StorageVolumeDetail(summary, folders, files, null, null, null);
         var report = new StorageReport("SRV-01", "ACME", "Acme Corp", "Main office", detail, StorageService.TopFolders(folders),
-            StorageService.TopFiles(files), "Christiaan | Datawolk", Now);
+            StorageService.TopFiles(files), "Jan | Contoso", Now);
 
         var bytes = StorageReportPdf.Render(report, t => t.ToString("yyyy-MM-dd HH:mm"));
         var pages = Contents(bytes);

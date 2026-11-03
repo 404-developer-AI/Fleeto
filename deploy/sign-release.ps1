@@ -11,7 +11,7 @@
       4. signs both files, verifies the signatures, uploads them and, after confirmation, publishes the release.
 
 .EXAMPLE
-    pwsh deploy/sign-release.ps1 -Version 0.2.0-alpha.2 -Key C:/Users/christiaan/FleetoKeys/test-release/release-signing.key
+    pwsh deploy/sign-release.ps1 -Version 0.2.0-alpha.2 -Key <path-to-keys>/test-release/release-signing.key
 #>
 [CmdletBinding()]
 param(

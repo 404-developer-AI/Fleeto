@@ -381,7 +381,7 @@ public sealed partial class RemoteRelayTests
         var agent = await _fixture.IssueAsync(scope.Endpoint);
         Assert.True(await scope.Harness.AllowList.ReloadAsync(CancellationToken.None));
         var agentControl = scope.Harness.NewSession(agent.Identity(scope.Endpoint.Id));
-        Assert.True(await scope.Harness.Manager.OpenAsync(agentControl, new Hello { AgentVersion = "0.8.0", Hostname = "NAS-00", Component = Component.Agent },
+        Assert.True(await scope.Harness.Manager.OpenAsync(agentControl, new Hello { AgentVersion = "0.8.0", Hostname = "NAS-01", Component = Component.Agent },
             CancellationToken.None));
 
         var participant = await SignedParticipantAsync(scope.Endpoint, synologyWeb: true);

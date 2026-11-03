@@ -181,14 +181,14 @@ public sealed class CheckCatalogTests
             Assert.True(CheckCatalog.Get(type).RunsOnAgent);
         }
 
-        Assert.Equal("RAID array md2 on NAS-00 is degraded. Replace the failed disk and repair the array; see the detail on the endpoint page.",
-            CheckEvaluator.AlertTitle("NAS-00", Definition(CheckType.RaidState, P(("array", "*")), 1, 2), "md2", CheckStatus.Critical, 2, null));
+        Assert.Equal("RAID array md2 on NAS-01 is degraded. Replace the failed disk and repair the array; see the detail on the endpoint page.",
+            CheckEvaluator.AlertTitle("NAS-01", Definition(CheckType.RaidState, P(("array", "*")), 1, 2), "md2", CheckStatus.Critical, 2, null));
         Assert.Contains("is rebuilding",
-            CheckEvaluator.AlertTitle("NAS-00", Definition(CheckType.RaidState, P(("array", "*")), 1, 2), "md2", CheckStatus.Warning, 1, null));
-        Assert.Contains("Disk sda on NAS-00 is failing",
-            CheckEvaluator.AlertTitle("NAS-00", Definition(CheckType.DiskHealth, P(("disk", "*")), 1, 2), "sda", CheckStatus.Critical, 2, null));
-        Assert.Equal("Disk sda on NAS-00 is 55 °C, above the 50 °C threshold. Check the fans and the airflow.",
-            CheckEvaluator.AlertTitle("NAS-00", Definition(CheckType.DiskTemperature, P(("disk", "*")), 50, 60), "sda", CheckStatus.Warning, 55, null));
+            CheckEvaluator.AlertTitle("NAS-01", Definition(CheckType.RaidState, P(("array", "*")), 1, 2), "md2", CheckStatus.Warning, 1, null));
+        Assert.Contains("Disk sda on NAS-01 is failing",
+            CheckEvaluator.AlertTitle("NAS-01", Definition(CheckType.DiskHealth, P(("disk", "*")), 1, 2), "sda", CheckStatus.Critical, 2, null));
+        Assert.Equal("Disk sda on NAS-01 is 55 °C, above the 50 °C threshold. Check the fans and the airflow.",
+            CheckEvaluator.AlertTitle("NAS-01", Definition(CheckType.DiskTemperature, P(("disk", "*")), 50, 60), "sda", CheckStatus.Warning, 55, null));
         Assert.Empty(CheckParameters.Validate(Definition(CheckType.RaidState, P(("array", "md127")), 1, 2)));
         Assert.Empty(CheckParameters.Validate(Definition(CheckType.DiskHealth, P(("disk", "nvme0n1")), 1, 2)));
     }
