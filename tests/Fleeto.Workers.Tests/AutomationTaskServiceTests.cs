@@ -134,6 +134,62 @@ public sealed class AutomationTaskServiceTests : IAsyncLifetime
         Assert.True(AutomationTasks.IsOccurrence(task, run.OccurrenceAt));
     }
 
+    private async Task<AutomationTaskState> StateAsync(Guid taskId)
+    {
+        await using var db = _fixture.Db.DbFactory.CreateSystem();
+        return await db.AutomationTaskStates.AsNoTracking().SingleAsync(s => s.AutomationTaskId == taskId);
+    }
+
+    [Fact]
+    public async Task A_pass_without_news_leaves_the_state_alone_so_its_notification_cannot_wake_the_loop_again()
+    {
+        // Found in 0.8.0-alpha.12: an ended schedule and an alert still inside the lookback touched the state every pass, and
+        // the notification of that change woke the loop at once, about 45 passes a second.
+        var (client, site, endpoint) = await SeedAsync("QUIET");
+        var checkId = Guid.NewGuid();
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var template = new MonitoringTemplate { Id = Guid.NewGuid(), Name = "Quiet " + checkId, CreatedAt = Now, UpdatedAt = Now };
+            db.MonitoringTemplates.Add(template);
+            db.CheckDefinitions.Add(new CheckDefinition
+            {
+                Id = checkId, MonitoringTemplateId = template.Id, Name = "Print spooler", Type = CheckType.ServiceRunning,
+                ParametersJson = """{"service":"Spooler"}""", CreatedAt = Now, UpdatedAt = Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var (ended, _, _) = await _fixture.Db.CreateTaskAsync(site, EveryQuarter(t => t.EndDate = t.StartDate));
+        var (onAlert, _, _) = await _fixture.Db.CreateTaskAsync(site, t => t.TriggerCheckIds = [checkId]);
+        var service = Service();
+        await PassAsync(service);
+
+        _fixture.Db.Time.Advance(TimeSpan.FromMinutes(1));
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            db.Alerts.Add(new Alert
+            {
+                Id = Guid.NewGuid(), ClientId = client.Id, EndpointId = endpoint.Id, Kind = AlertKind.Check, CheckDefinitionId = checkId,
+                Target = Guid.NewGuid().ToString(), Severity = AlertSeverity.Critical, Title = "Print spooler is stopped", OpenedAt = Now, UpdatedAt = Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await PassAsync(service);
+        var (endedBefore, alertBefore) = (await StateAsync(ended.Id), await StateAsync(onAlert.Id));
+        Assert.Null(endedBefore.NextOccurrenceAt);
+
+        // Within the lookback of the alert: the next passes find nothing new and write nothing.
+        _fixture.Db.Time.Advance(TimeSpan.FromSeconds(30));
+        Assert.Equal(0, await service.StartRunsAsync(CancellationToken.None));
+        _fixture.Db.Time.Advance(TimeSpan.FromSeconds(30));
+        Assert.Equal(0, await service.StartRunsAsync(CancellationToken.None));
+
+        Assert.Equal(endedBefore.UpdatedAt, (await StateAsync(ended.Id)).UpdatedAt);
+        Assert.Equal(alertBefore.UpdatedAt, (await StateAsync(onAlert.Id)).UpdatedAt);
+        Assert.Single(await JobsAsync(endpoint.Id));
+    }
+
     [Fact]
     public async Task An_endpoint_where_the_previous_run_still_runs_is_skipped_or_waits_as_the_task_says()
     {

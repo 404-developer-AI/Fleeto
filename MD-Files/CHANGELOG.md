@@ -138,6 +138,11 @@ When a third released version is added, the oldest entry moves to the top of
 - The performance report counted about 39,000 exceptions a week in every component that were not failures: the database
   notification listener ends a quiet wait with a timeout Npgsql throws and catches itself. Those are no longer counted; a timeout
   anywhere else still is.
+- The tasks loop of the workers ran without rest, about 45 passes a second, once a task had a schedule that ended (a task that runs
+  once, after its run, or one past its end date) or for two minutes after an alert of one of its checks: every pass wrote the time
+  into the state of the task, and the notification of that change woke the loop again at once. On the test instance that was 16 million
+  database commands in six hours and 16% CPU of the workers on average. A pass now writes the state only when something in it
+  changed.
 
 ## [0.7.0] — 2026-10-26
 

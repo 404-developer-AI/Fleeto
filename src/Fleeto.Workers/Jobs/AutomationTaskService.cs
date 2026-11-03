@@ -180,10 +180,16 @@ public sealed class AutomationTaskService : WorkerLoop
         var occurrences = AutomationTasks.Occurrences(task, state.LastOccurrenceAt ?? now, now);
         if (occurrences.Count == 0)
         {
+            // Only a real change is written: a schedule that ended has no next occurrence, and touching its state every pass
+            // would notify the tasks channel, which wakes this loop again at once (found in 0.8.0-alpha.12: a loop without rest).
             if (state.NextOccurrenceAt is null || state.NextOccurrenceAt <= now)
             {
-                state.NextOccurrenceAt = AutomationTasks.Next(task, now);
-                state.UpdatedAt = now;
+                var next = AutomationTasks.Next(task, now);
+                if (next != state.NextOccurrenceAt)
+                {
+                    state.NextOccurrenceAt = next;
+                    state.UpdatedAt = now;
+                }
             }
 
             return 0;
@@ -226,8 +232,14 @@ public sealed class AutomationTaskService : WorkerLoop
             return 0;
         }
 
-        state.AlertsSeenUntil = alerts.Count == BatchSize ? alerts[^1].OpenedAt : Max(state.AlertsSeenUntil, alerts[^1].OpenedAt);
-        state.UpdatedAt = now;
+        // The lookback finds the same alerts again for a few passes; only a later point is a change (see StartScheduledAsync).
+        var alertsSeen = alerts.Count == BatchSize ? alerts[^1].OpenedAt : Max(state.AlertsSeenUntil, alerts[^1].OpenedAt);
+        if (alertsSeen != state.AlertsSeenUntil)
+        {
+            state.AlertsSeenUntil = alertsSeen;
+            state.UpdatedAt = now;
+        }
+
         var names = await db.CheckDefinitions.AsNoTracking().Where(c => checkIds.Contains(c.Id)).ToDictionaryAsync(c => c.Id, c => c.Name, cancellationToken);
         var written = 0;
         foreach (var alert in alerts)
@@ -274,8 +286,12 @@ public sealed class AutomationTaskService : WorkerLoop
             return 0;
         }
 
-        state.ManagedSeenUntil = switched.Count == BatchSize ? switched[^1].ManagedSince : Max(state.ManagedSeenUntil, switched[^1].ManagedSince);
-        state.UpdatedAt = now;
+        var managedSeen = switched.Count == BatchSize ? switched[^1].ManagedSince : Max(state.ManagedSeenUntil, switched[^1].ManagedSince);
+        if (managedSeen != state.ManagedSeenUntil)
+        {
+            state.ManagedSeenUntil = managedSeen;
+            state.UpdatedAt = now;
+        }
         var written = 0;
         foreach (var endpoint in switched)
         {
