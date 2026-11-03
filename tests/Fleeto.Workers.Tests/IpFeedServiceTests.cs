@@ -111,7 +111,7 @@ public sealed class IpFeedServiceTests
         await _fixture.Settings().SetAsync(SettingKeys.CrowdSecFeed, new CrowdSecFeedSettings("abc-123", "fleeto", "s3cret"), encrypted: true, userId: null);
         var url = "https://admin.api.crowdsec.net/v1/integrations/abc-123/content";
         handler.Responses[url] = (HttpStatusCode.Unauthorized, "");
-        _fixture.Db.Time.Advance(IpFeeds.RetryInterval);
+        _fixture.Db.Time.Advance(IpFeeds.CrowdSecInterval);
         await service.RefreshDueAsync(CancellationToken.None);
 
         var request = Assert.Single(handler.Requests);
@@ -134,5 +134,40 @@ public sealed class IpFeedServiceTests
             var feed = await db.IpFeeds.SingleAsync(f => f.Key == IpFeeds.CrowdSec);
             Assert.Equal((30, (string?)null, (DateTime?)null), (feed.EntryCount, feed.Problem, feed.RefreshRequestedAt));
         }
+    }
+
+    [Fact]
+    public async Task CrowdSec_is_fetched_once_a_day_and_a_429_waits_a_day_too()
+    {
+        // The community plan of CrowdSec allows one pull of an integration a day and answers 429 to every pull before that.
+        await ResetAsync(IpFeeds.CrowdSec);
+        await _fixture.Settings().SetAsync(SettingKeys.CrowdSecFeed, new CrowdSecFeedSettings("abc-123", "fleeto", "s3cret"), encrypted: true, userId: null);
+        var url = "https://admin.api.crowdsec.net/v1/integrations/abc-123/content";
+        var handler = new FakeHandler();
+        handler.Responses[url] = (HttpStatusCode.OK, Lines(30));
+        var service = Service(handler);
+
+        Assert.Equal([IpFeeds.CrowdSec], await service.RefreshDueAsync(CancellationToken.None));
+
+        // Not after 6 hours, as the other lists, but after a day.
+        _fixture.Db.Time.Advance(IpFeeds.RefreshInterval);
+        Assert.Empty(await service.RefreshDueAsync(CancellationToken.None));
+        _fixture.Db.Time.Advance(IpFeeds.CrowdSecInterval - IpFeeds.RefreshInterval);
+        handler.Responses[url] = (HttpStatusCode.TooManyRequests, "");
+        Assert.Equal([IpFeeds.CrowdSec], await service.RefreshDueAsync(CancellationToken.None));
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var feed = await db.IpFeeds.SingleAsync(f => f.Key == IpFeeds.CrowdSec);
+            Assert.Contains("one pull of an integration a day", feed.Problem);
+            Assert.Equal(30, feed.EntryCount);
+        }
+
+        // A refused pull is not tried again an hour later, only a day later.
+        _fixture.Db.Time.Advance(IpFeeds.RetryInterval);
+        Assert.Empty(await service.RefreshDueAsync(CancellationToken.None));
+        _fixture.Db.Time.Advance(IpFeeds.CrowdSecInterval - IpFeeds.RetryInterval);
+        handler.Responses[url] = (HttpStatusCode.OK, Lines(30));
+        Assert.Equal([IpFeeds.CrowdSec], await service.RefreshDueAsync(CancellationToken.None));
+        Assert.Equal(3, handler.Requests.Count);
     }
 }

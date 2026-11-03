@@ -126,6 +126,18 @@ When a third released version is added, the oldest entry moves to the top of
   the endpoint menu sat below the list, scrolled out of view. The menu then opened invisibly and stayed open, so every later
   right-click changed nothing. Its anchor is now pinned to the window, and a right-click closes a menu left open before it opens it
   at the cursor. (The change of 0.8.0-alpha.10, closing the menu before its action, did not help and is undone.)
+- The CrowdSec blocklist was hardly ever refreshed: its community plan allows one pull of an integration a day and answered 429 to
+  50 of the 62 pulls in a week, because Fleeto fetched it every 6 hours and an hour after every failure. It is now fetched once a
+  day, also after a failure; saving the integration in Settings, Security still fetches it at once.
+- The counts per site and CVE of the vulnerability overview were rebuilt every 10 minutes whether or not anything had changed, with
+  an ANALYZE of the findings each time: about 40% of all database time of the test instance. Without a match they are now rebuilt
+  only when a managed Linux endpoint was deleted, moved to another site or client, or left managed, or a feed changed.
+- A vulnerability feed whose file changed only outside the releases in use (most changes) was still replaced in full and raised its
+  version, so every endpoint was matched again: 183 full replacements in a week, 23% of the database time. The workers now keep a
+  hash of the records they made of a download and replace nothing when it is the same. Migration: `VulnerabilityFeeds.ContentHash`.
+- The performance report counted about 39,000 exceptions a week in every component that were not failures: the database
+  notification listener ends a quiet wait with a timeout Npgsql throws and catches itself. Those are no longer counted; a timeout
+  anywhere else still is.
 
 ## [0.7.0] — 2026-10-26
 

@@ -32,6 +32,14 @@ public class VulnerabilityFeed
 
     public string? LastModified { get; set; }
 
+    /// <summary>
+    /// SHA-256 of the records Fleeto made of the last download (with Ubuntu's priorities), so a download whose relevant part did not change
+    /// replaces nothing and does not raise <see cref="Version"/>: the feeds change their files several times a day, mostly outside the
+    /// releases in use, and every new version matched every endpoint again (0.8.0, found in the performance report of 0.8.0-alpha.9).
+    /// Null for a feed stored before, which is then replaced once.
+    /// </summary>
+    public string? ContentHash { get; set; }
+
     /// <summary>What the records were made for (the releases, the kernel flavours); a change fetches the feed again.</summary>
     public string? Scope { get; set; }
 

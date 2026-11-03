@@ -67,6 +67,8 @@ public sealed class PostgresNotificationBus : BackgroundService, INotificationBu
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // A quiet WaitAsync ends with a timeout Npgsql throws and catches itself: not an exception for the performance monitor.
+        Performance.PerfMeterListener.ExpectNpgsqlTimeouts();
         var delay = TimeSpan.FromSeconds(1);
         var firstConnection = true;
 

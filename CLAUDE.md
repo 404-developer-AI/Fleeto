@@ -364,7 +364,8 @@ of finding it in the audit log afterwards. Decisions of 2026-10-22:
   `install.sh --fqdn <name> --unblock` lifts every block for an admin who blocked themselves out.
 - **Blocklists (step 3)**: public lists fetched by the workers every 6 hours (Spamhaus DROP, abuse.ch Feodo Tracker, FireHOL
   level1 on by default, blocklist.de optional), cleaned of reserved ranges and refused when they look broken, and CrowdSec
-  through a firewall integration of the Console (Basic Auth, only at `admin.api.crowdsec.net`). **No sharing with CrowdSec**
+  through a firewall integration of the Console (Basic Auth, only at `admin.api.crowdsec.net`), fetched once a day, also after a failure,
+  because its community plan answers 429 to more (decided 2026-11-03). **No sharing with CrowdSec**
   (checked 2026-10-23): its community blocklist in exchange for signals is only for its own Security Engine with unmodified Hub
   scenarios, so signals of Fleeto would not count; the developer had asked for sharing.
 

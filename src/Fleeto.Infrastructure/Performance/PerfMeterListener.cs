@@ -1,5 +1,6 @@
 using System.Diagnostics.Metrics;
 using Fleeto.Core.Performance;
+using Npgsql;
 
 namespace Fleeto.Infrastructure.Performance;
 
@@ -17,6 +18,17 @@ public sealed class PerfMeterListener : IDisposable
     private const string HttpDuration = "http.client.request.duration";
 
     [ThreadStatic] private static bool _inException;
+
+    /// <summary>Set for the async flow of the notification listener, see <see cref="ExpectNpgsqlTimeouts"/>.</summary>
+    private static readonly AsyncLocal<bool> NpgsqlTimeoutsExpected = new();
+
+    /// <summary>
+    /// Marks the rest of the calling async flow as one where Npgsql reports a quiet wait with a timeout it throws and catches itself:
+    /// <c>NpgsqlConnection.WaitAsync(timeout)</c> of the notification listener, and its keepalive rounds. Such a timeout is how the wait
+    /// ends, not a failure; counting it reported about 39,000 exceptions a week in every component (performance report of
+    /// 0.8.0-alpha.9). Only there: a timeout of a command anywhere else still counts.
+    /// </summary>
+    public static void ExpectNpgsqlTimeouts() => NpgsqlTimeoutsExpected.Value = true;
 
     private readonly PerfRecorder _recorder;
     private readonly MeterListener _listener = new();
@@ -117,7 +129,7 @@ public sealed class PerfMeterListener : IDisposable
         // Recording must never throw into the code that threw, nor recurse when it does. Cancellation is how .NET ends a wait (every
         // loop of the workers cancels its timer on each pass), not a failure: counting it would report thousands of "exceptions"
         // that cost nothing worth fixing (found on the dev server on 2026-10-18).
-        if (_inException || e.Exception is OperationCanceledException)
+        if (_inException || !Counts(e.Exception))
         {
             return;
         }
@@ -139,6 +151,11 @@ public sealed class PerfMeterListener : IDisposable
             _inException = false;
         }
     }
+
+    /// <summary>Whether a thrown exception counts: not a cancellation, and not a timeout Npgsql catches itself where one is expected.</summary>
+    internal static bool Counts(Exception exception) =>
+        exception is not OperationCanceledException &&
+        !(exception is NpgsqlException { InnerException: TimeoutException } && NpgsqlTimeoutsExpected.Value);
 
     /// <summary>The class whose method threw, with compiler-generated classes (async methods, lambdas) turned back into their own.</summary>
     internal static string Thrower(Exception exception)

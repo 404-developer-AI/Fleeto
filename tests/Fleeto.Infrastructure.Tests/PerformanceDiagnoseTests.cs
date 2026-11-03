@@ -164,6 +164,27 @@ public sealed class PerformanceDiagnoseTests
         Assert.Equal("other", PerfMeterListener.SourceKind("other"));
     }
 
+    [Fact]
+    public async Task A_timeout_Npgsql_catches_itself_counts_only_outside_the_notification_listener()
+    {
+        // NpgsqlConnection.WaitAsync(timeout) ends a quiet wait with a timeout it throws and catches itself: about 39,000 "exceptions" a
+        // week in every component (performance report of 0.8.0-alpha.9). Only the flow of the listener expects it.
+        var timeout = new Npgsql.NpgsqlException("Exception while reading from stream", new TimeoutException());
+        var broken = new Npgsql.NpgsqlException("Exception while reading from stream", new IOException());
+        Assert.True(PerfMeterListener.Counts(timeout));
+        Assert.False(PerfMeterListener.Counts(new OperationCanceledException()));
+
+        var inListener = await Task.Run(() =>
+        {
+            PerfMeterListener.ExpectNpgsqlTimeouts();
+            return (Timeout: PerfMeterListener.Counts(timeout), Broken: PerfMeterListener.Counts(broken));
+        });
+        Assert.Equal((false, true), inListener);
+
+        // The flow that marked itself does not mark the rest of the process.
+        Assert.True(PerfMeterListener.Counts(timeout));
+    }
+
     // ---------------------------------------------------------------------------------------------------------------
     // Rules
     // ---------------------------------------------------------------------------------------------------------------

@@ -138,7 +138,7 @@ public sealed class PerformanceRuleTests
     [Fact]
     public void One_refused_fetch_of_a_list_is_a_warning_with_advice_for_that_list()
     {
-        // The CrowdSec blocklist is fetched every 6 hours: one 429 is all its calls of the hour, and 100% of them failed.
+        // The CrowdSec blocklist is fetched once a day: one 429 is all its calls of the hour, and 100% of them failed.
         var data = Data([Series(PerfKind.External, "admin.api.crowdsec.net", "429", 1, 300, errors: 1, component: "workers")]);
 
         var finding = Find(data, "code-external-errors:admin.api.crowdsec.net");

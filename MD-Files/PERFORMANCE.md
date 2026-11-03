@@ -109,7 +109,8 @@ types from `Fleeto.Protocol`, never an endpoint.
 ### 4.6 Runtime and host
 
 - Every component every 10 seconds from the `System.Runtime` meter: CPU, working set, GC pause share, heap, allocations, thread
-  pool threads and queue, lock contention, exceptions by type name.
+  pool threads and queue, lock contention, exceptions by type name (every thrown exception, also a caught one, except a cancellation
+  and the timeout with which Npgsql ends a quiet wait of the notification listener: neither is a failure).
 - Host from workers: Instance health reads `/proc` every 5 minutes; for performance the same reader runs every minute and
   adds steal, iowait, load against cores, disk latency and cgroup throttling. Shared by every instance on the VPS: the page
   says so.

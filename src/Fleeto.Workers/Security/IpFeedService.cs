@@ -17,7 +17,7 @@ namespace Fleeto.Workers.Security;
 
 /// <summary>
 /// Fetches the blocklists an admin switched on (0.7.0, security monitor step 3, ARCHITECTURE.md §5): every 6 hours, an hour after
-/// a failure, and at once when an admin asks. Only the workers reach the internet, as for every external product. A list is
+/// a failure (CrowdSec once a day, also after a failure: <see cref="IpFeeds.CrowdSecInterval"/>), and at once when an admin asks. Only the workers reach the internet, as for every external product. A list is
 /// cleaned of what may never be blocked (<see cref="IpFeedParser"/>), refused when it looks broken (too large, or shrunk to less
 /// than half), and otherwise replaces the one before in one transaction, after which web and the gateway load it. A failed or
 /// refused fetch keeps the previous list and states why on Settings, Security. A switched-off list is emptied.
@@ -96,7 +96,7 @@ public sealed class IpFeedService : WorkerLoop
 
     internal static bool IsDue(IpFeed feed, DateTime now) =>
         feed.RefreshRequestedAt is not null || feed.LastAttemptAt is null ||
-        now - feed.LastAttemptAt >= (feed.Problem is null ? IpFeeds.RefreshInterval : IpFeeds.RetryInterval);
+        now - feed.LastAttemptAt >= IpFeeds.IntervalOf(feed.Key, failed: feed.Problem is not null);
 
     private async Task RefreshAsync(IpFeed feed, CancellationToken cancellationToken)
     {
@@ -147,13 +147,17 @@ public sealed class IpFeedService : WorkerLoop
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or InvalidDataException)
         {
             breaker.RecordFailure();
+            var retry = IpFeeds.RetryText(feed.Key);
             var problem = ex switch
             {
                 HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden } =>
                     "The list refused the credentials. For CrowdSec, regenerate the credentials of the integration in the Console and enter them again.",
-                HttpRequestException { StatusCode: { } status } => $"The list answered {(int)status}. Fleeto tries again in an hour; the previous list stays in use.",
+                HttpRequestException { StatusCode: System.Net.HttpStatusCode.TooManyRequests } when feed.Key == IpFeeds.CrowdSec =>
+                    "CrowdSec answered 429: its community plan allows one pull of an integration a day. Fleeto tries again in 24 hours; the " +
+                    "previous list stays in use. If it keeps happening, check in the CrowdSec Console whether something else pulls the same integration.",
+                HttpRequestException { StatusCode: { } status } => $"The list answered {(int)status}. Fleeto tries again {retry}; the previous list stays in use.",
                 InvalidDataException => ex.Message,
-                _ => "The list could not be reached in time. Fleeto tries again in an hour; the previous list stays in use."
+                _ => $"The list could not be reached in time. Fleeto tries again {retry}; the previous list stays in use."
             };
             await WriteStateAsync(feed.Key, now, success: false, problem, cancellationToken);
             Logger.LogWarning("The blocklist {Feed} could not be fetched: {Message}", feed.Key, ex.Message);

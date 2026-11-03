@@ -1731,6 +1731,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(f => f.ETag).HasMaxLength(200);
             entity.Property(f => f.LastModified).HasMaxLength(100);
             entity.Property(f => f.Scope).HasMaxLength(4000);
+            entity.Property(f => f.ContentHash).HasMaxLength(64);
         });
 
         builder.Entity<VulnerabilityFeedRecord>(entity =>

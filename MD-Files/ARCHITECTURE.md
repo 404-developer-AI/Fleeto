@@ -1851,7 +1851,8 @@ hand, step 2 detection, incidents and automatic blocking, step 3 blocklists.
   with the security monitor as actor. Web acknowledges and resolves incidents (`SELECT, UPDATE`); only the workers write them.
 - **Blocklists** (`IpFeeds`, `IpFeedEntries`, `IpFeedService`, step 3): the catalog (`Fleeto.Core.Domain.IpFeeds`) names each
   list, its addresses and format; a row per list holds whether an admin switched it on and the state of the last fetch. Only the
-  workers fetch, every 6 hours, an hour after a failure, at once on `fleeto_ip_feeds` (raised by a trigger when web sets
+  workers fetch, every 6 hours, an hour after a failure (CrowdSec once a day, also after a failure: its community plan allows one
+  pull of an integration a day and answers 429 to more), at once on `fleeto_ip_feeds` (raised by a trigger when web sets
   `RefreshRequestedAt`), with a 60-second timeout, a 64 MB ceiling and a circuit breaker per list. `IpFeedParser` keeps only
   networks Fleeto may block (no reserved range, nothing wider than /8 or /19); a list of more than 500,000 networks, or one that
   shrank below half of a list of at least 100, is refused and the previous list stays. A good list replaces its entries with a
@@ -1930,7 +1931,9 @@ Which known vulnerabilities affect the distribution packages of a managed Linux 
   `uname -r` pattern of the file), the newest Ubuntu LTS when a Debian endpoint borrows its priorities, the Debian security tracker
   JSON and the AlmaLinux OSV zip (read in memory, about 7 MB). Every 6 hours, an hour after a failure, at once when the releases or
   kernel flavours in use change; conditional requests, no redirects, at most 256 MB, a circuit breaker. A feed that shrinks below half
-  is refused. Its records replace the previous ones in `VulnerabilityFeedRecords` in one transaction (DELETE and binary COPY), Ubuntu's
+  is refused. A download whose records (with Ubuntu's priorities, in a fixed order) hash to the stored `VulnerabilityFeeds.ContentHash`
+  changes nothing but the state of the fetch: the files change several times a day, mostly outside the releases in use. Otherwise its
+  records replace the previous ones in `VulnerabilityFeedRecords` in one transaction (DELETE and binary COPY), Ubuntu's
   priorities are upserted into `VulnerabilityCves`, and `VulnerabilityFeeds.Version` rises. A feed failing for 48 hours is an instance
   health problem of the component Vulnerability feeds.
 - **Matching** (`VulnerabilityMatchService`, rules in `Fleeto.Core.Domain.Vulnerabilities`, versions in `PackageVersions`): every minute,
@@ -1943,8 +1946,9 @@ Which known vulnerabilities affect the distribution packages of a managed Linux 
   managed Linux endpoint loses its findings and summary. Ended findings are kept 13 months, or what Settings, Vulnerabilities says (1 to
   60, `retention.ended-vulnerabilities-months`).
 - **Counts per site and CVE** (`VulnerabilityCveCounts`, step 2): rebuilt by the matcher from the open findings in one transaction once
-  nothing is due, at most every 2 minutes while endpoints change and at least every 10 minutes, so a deleted or moved endpoint leaves
-  them too: first one row per endpoint and CVE, then per site, the packages grouped apart, each reading the findings itself (a shared
+  nothing is due, at most every 2 minutes while endpoints change, and otherwise every 10 minutes only when a fingerprint of the managed
+  Linux endpoints (id, client, site) and the versions of the feeds changed, so a deleted or moved endpoint or a new list of exploited
+  CVEs leaves them too (rebuilding regardless took about 40% of the database time of the test instance): first one row per endpoint and CVE, then per site, the packages grouped apart, each reading the findings itself (a shared
   CTE is materialized); after an ANALYZE of the findings (`fleeto_perf_analyze`, granted to the workers as well), because a large
   first match leaves them without statistics, and without nested loops. 23 seconds right after the first match (15 afterwards; measured before step 3 added the count of actively exploited findings) at 10,000 endpoints with 3.1 million findings. Its
   query filter shows a row only with the whole client or the whole site. In the same transaction, before nested loops are switched off,

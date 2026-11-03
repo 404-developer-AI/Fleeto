@@ -531,7 +531,8 @@ public static class PerformanceRules
         host.EndsWith("action1.com", StringComparison.OrdinalIgnoreCase)
             ? "Check the request budget of the connector (Action1: 20 a minute for the instance) and what calls it most."
             : string.Equals(host, CrowdSecHost, StringComparison.OrdinalIgnoreCase)
-                ? "Fleeto fetches the CrowdSec blocklist every 6 hours, and an hour after a failure; the list before stays in use. If it " +
+                ? "Fleeto fetches the CrowdSec blocklist once a day, also after a failure, as its community plan allows; the list before " +
+                  "stays in use. If it " +
                   "keeps happening, check in the CrowdSec Console whether something else pulls the same integration."
                 : $"Check in Settings, Performance what calls {host} and how often; a refused call is tried again at its next attempt.";
 

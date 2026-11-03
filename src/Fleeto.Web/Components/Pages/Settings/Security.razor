@@ -164,7 +164,7 @@
         </MudTabPanel>
         <MudTabPanel Text="@($"Blocklists ({_feeds.Count(f => f.Enabled)})")" Icon="@Icons.Material.Outlined.Shield">
             <MudText Typo="Typo.body2" Class="muted mb-3">
-                Public lists of addresses that serve nothing but attacks, fetched by the workers every 6 hours. A listed address gets no page, no API
+                Public lists of addresses that serve nothing but attacks, fetched by the workers every 6 hours, CrowdSec once a day. A listed address gets no page, no API
                 and no enrollment; an agent with a valid certificate always connects, and an allowed address is never blocked by a list.
             </MudText>
             <MudTable Items="_feeds" Hover="true" Elevation="0">

@@ -36,6 +36,20 @@ public static class IpFeeds
     /// <summary>How long after a failure the next attempt waits.</summary>
     public static readonly TimeSpan RetryInterval = TimeSpan.FromHours(1);
 
+    /// <summary>
+    /// How often, and how long after a failure, the CrowdSec blocklist is fetched: the community plan of CrowdSec allows one pull of an
+    /// integration a day and answers 429 to every pull before that (found in the performance report of 0.8.0-alpha.9, where 50 of 62
+    /// pulls were refused). A failed pull also waits a day, because an hour later the day is still not over.
+    /// </summary>
+    public static readonly TimeSpan CrowdSecInterval = TimeSpan.FromHours(24);
+
+    /// <summary>How long after the last attempt a list is fetched again: after a success, or after a failure.</summary>
+    public static TimeSpan IntervalOf(string key, bool failed) =>
+        key == CrowdSec ? CrowdSecInterval : failed ? RetryInterval : RefreshInterval;
+
+    /// <summary>"in an hour" or "in 24 hours": when the next attempt after a failure comes, for the problem text.</summary>
+    public static string RetryText(string key) => key == CrowdSec ? "in 24 hours" : "in an hour";
+
     /// <summary>The most networks one list may hold; a larger list is refused as broken.</summary>
     public const int MaxEntries = 500_000;
 

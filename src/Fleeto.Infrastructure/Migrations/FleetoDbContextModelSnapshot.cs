@@ -6682,6 +6682,10 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("ETag")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
