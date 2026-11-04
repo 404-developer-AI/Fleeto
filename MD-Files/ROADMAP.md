@@ -56,6 +56,9 @@ before anything is built.
   in Settings, with tiles of a catalog in code, their size, place and settings, linked to roles; a user sees the first dashboard in
   priority order linked to one of its roles, otherwise the built-in default dashboard. Built 2026-10-27 for `v0.8.0-alpha.7`; still to
   test in a browser on the test VPS (`DASHBOARDS.md` §9 step 7).
+- [open] Endpoint description and column layouts (decided 2026-11-04): a description per endpoint, set in Edit with the permission
+  Edit endpoints and shown as a column of the endpoint list; column layouts an admin makes in Settings, Column layouts (columns and
+  their order) and links to roles, picked like dashboards. Built 2026-11-04; still to test in a browser on the test VPS.
 - [open] Patch management on Linux (planned as 0.4.1, moved to "Not yet scheduled" on 2026-09-23, scheduled as 0.8.0 on
   2026-10-26). Until it is built a Linux endpoint shows no patch data at all and stays out of the compliance counts, because
   calling it uncovered would be untrue.

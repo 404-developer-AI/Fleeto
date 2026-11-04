@@ -51,6 +51,39 @@ public class DashboardVersion
 }
 
 /// <summary>
+/// A column layout of the endpoint list (0.8.0, decided 2026-11-04): which columns show and in which order, linked to roles. A user sees
+/// the first layout in priority order linked to one of its roles, otherwise the built-in default. Of the instance as a whole; it holds no
+/// data, and a column never shows what the permissions of the viewer do not give.
+/// </summary>
+public class ColumnLayout
+{
+    public Guid Id { get; set; }
+
+    public string Name { get; set; } = string.Empty;
+
+    public string? Description { get; set; }
+
+    /// <summary>The order: a user sees the first layout linked to one of its roles. Unique.</summary>
+    public int Priority { get; set; }
+
+    /// <summary>Keys of <see cref="Domain.EndpointColumns"/>, in the order they show.</summary>
+    public List<string> Columns { get; set; } = [];
+
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public string? UpdatedBy { get; set; }
+
+    public ICollection<ColumnLayoutRole> Roles { get; set; } = new List<ColumnLayoutRole>();
+}
+
+/// <summary>A role whose users see the column layout; the order of the layouts decides between several.</summary>
+public class ColumnLayoutRole
+{
+    public Guid LayoutId { get; set; }
+    public Guid RoleId { get; set; }
+}
+
+/// <summary>
 /// Alerts opened per client, day and severity, counted by the workers (0.8.0), so a chart over 90 days never scans the alerts.
 /// The day is a UTC date.
 /// </summary>

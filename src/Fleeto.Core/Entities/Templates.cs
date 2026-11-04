@@ -60,6 +60,19 @@ public class Policy
     /// <summary>Remote control on workstations (0.3.0): a banner naming the technicians while a session runs. On by default; servers never show it.</summary>
     public bool RemoteBannerVisible { get; set; } = true;
 
+    /// <summary>
+    /// The texts of the consent prompt (0.8.0, <see cref="Domain.ConsentTexts"/>): title, message and the labels of the two buttons. Null is
+    /// the agent's own English default.
+    /// </summary>
+    public string? RemoteConsentTitle { get; set; }
+
+    public string? RemoteConsentMessage { get; set; }
+    public string? RemoteConsentAllowLabel { get; set; }
+    public string? RemoteConsentDenyLabel { get; set; }
+
+    public Domain.ConsentTexts RemoteConsentTexts =>
+        new(RemoteConsentTitle, RemoteConsentMessage, RemoteConsentAllowLabel, RemoteConsentDenyLabel);
+
     /// <summary>Remote control (0.3.0): clipboard synchronisation between technician and endpoint.</summary>
     public bool RemoteClipboardEnabled { get; set; } = true;
 

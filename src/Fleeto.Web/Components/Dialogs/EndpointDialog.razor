@@ -1,10 +1,13 @@
-@* Edit an endpoint: its class and its site. Opened from the endpoint menu of the clients workspace. *@
+@* Edit an endpoint: its description, class and site. Opened from the endpoint menu of the clients workspace. *@
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">Edit endpoint · @Endpoint.Hostname</MudText>
     </TitleContent>
     <DialogContent>
         <MudText Typo="Typo.subtitle2" Class="mb-3">Management</MudText>
+        <MudTextField T="string" @bind-Value="_description" Variant="Variant.Outlined" Label="Description" Margin="Margin.Dense" Class="mb-4"
+                      Disabled="@(!CanChangeClass)" MaxLength="EndpointDescriptionRules.MaxLength" Counter="EndpointDescriptionRules.MaxLength" Immediate="true"
+                      HelperText="Shown in the endpoint list, for example what the endpoint is for or where it stands. Never changed by the agent." />
         <MudSelect T="string" @bind-Value="_class" Variant="Variant.Outlined" Label="Endpoint class" Margin="Margin.Dense" Class="mb-4" Disabled="@(!CanChangeClass)"
                    HelperText="Detected from the OS edition. Override it when the detection does not fit.">
             <MudSelectItem T="string" Value="@("detected")">Detected (@Ui.ClassLabel(Endpoint.DetectedClass))</MudSelectItem>
@@ -31,23 +34,25 @@
 
     [Parameter, EditorRequired] public EndpointDetail Endpoint { get; set; } = default!;
 
-    /// <summary>The class may be overridden (0.6.0).</summary>
+    /// <summary>The class may be overridden and the description changed (0.6.0, description 0.8.0).</summary>
     [Parameter] public bool CanChangeClass { get; set; } = true;
 
     /// <summary>The endpoint may move to another site (0.6.0).</summary>
     [Parameter] public bool CanMove { get; set; } = true;
 
-    /// <summary>Saves the class override (when changed) and the site (when changed). Returns true when everything saved.</summary>
-    [Parameter] public Func<EndpointClass?, bool, Guid, bool, Task<bool>> OnSubmit { get; set; } = (_, _, _, _) => Task.FromResult(true);
+    /// <summary>Saves what changed: the class override, the site and the description. Returns true when everything saved.</summary>
+    [Parameter] public Func<EndpointEdit, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
 
     private string _class = "detected";
     private Guid _siteId;
+    private string? _description;
     private bool _busy;
 
     private EndpointClass? ClassOverride => _class switch { "workstation" => EndpointClass.Workstation, "server" => EndpointClass.Server, _ => null };
     private bool ClassChanged => ClassOverride != Endpoint.ClassOverride;
     private bool SiteChanged => _siteId != Endpoint.SiteId;
-    private bool Changed => ClassChanged || SiteChanged;
+    private bool DescriptionChanged => (EndpointDescriptionRules.Clean(_description).Value ?? string.Empty) != (Endpoint.Description ?? string.Empty);
+    private bool Changed => ClassChanged || SiteChanged || DescriptionChanged;
 
     protected override void OnInitialized()
     {
@@ -58,6 +63,7 @@
             _ => "detected"
         };
         _siteId = Endpoint.SiteId;
+        _description = Endpoint.Description;
     }
 
     private void Cancel() => MudDialog.Cancel();
@@ -67,7 +73,7 @@
         _busy = true;
         try
         {
-            if (await OnSubmit(ClassOverride, ClassChanged, _siteId, SiteChanged))
+            if (await OnSubmit(new EndpointEdit(ClassOverride, ClassChanged, _siteId, SiteChanged, _description, DescriptionChanged)))
             {
                 MudDialog.Close(DialogResult.Ok(true));
             }

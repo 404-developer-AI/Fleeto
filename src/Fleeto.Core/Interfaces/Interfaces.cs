@@ -265,6 +265,12 @@ public static class AuditActions
     public const string DashboardDeleted = "dashboard.deleted";
     public const string DashboardImported = "dashboard.imported";
     public const string DashboardOrderChanged = "dashboard.order_changed";
+
+    /// <summary>Column layouts of the endpoint list (0.8.0): created, changed (name, description, columns or roles), deleted, and their order.</summary>
+    public const string ColumnLayoutCreated = "column_layout.created";
+    public const string ColumnLayoutUpdated = "column_layout.updated";
+    public const string ColumnLayoutDeleted = "column_layout.deleted";
+    public const string ColumnLayoutOrderChanged = "column_layout.order_changed";
     public const string SiteCreated = "site.created";
     public const string SiteUpdated = "site.updated";
     public const string SiteDeleted = "site.deleted";
@@ -275,6 +281,8 @@ public static class AuditActions
     public const string EndpointEnrolled = "endpoint.enrolled";
     public const string EndpointTierChanged = "endpoint.tier_changed";
     public const string EndpointClassChanged = "endpoint.class_changed";
+    /// <summary>The description of an endpoint changed (0.8.0); the audit entry holds its length, never its text.</summary>
+    public const string EndpointDescriptionChanged = "endpoint.description_changed";
     public const string EndpointMoved = "endpoint.moved";
     public const string EndpointDeleted = "endpoint.deleted";
     public const string EndpointChecksChanged = "endpoint.checks_changed";

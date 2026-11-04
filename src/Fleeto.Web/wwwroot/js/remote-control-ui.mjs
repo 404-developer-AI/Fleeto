@@ -124,7 +124,21 @@ export class Viewer {
     this.canvas = el("canvas", "remote-canvas");
     this.ctx = this.canvas.getContext("2d", { alpha: false });
     this.peerLayer = el("div", "remote-peers");
-    this.surface.append(this.canvas, this.peerLayer);
+    // While the person at the endpoint is asked to allow the session (0.8.0): a card over the screen with who is asked and the seconds
+    // left, so the technician sees what the session waits for. Text only, never markup from the endpoint.
+    this.consentCard = el("div", "remote-consent");
+    this.consentCard.style.display = "none";
+    this.consentTitle = el("div", "remote-consent-title");
+    this.consentTitle.textContent = "Waiting for consent";
+    this.consentText = el("div", "remote-consent-text");
+    this.consentBar = el("div", "remote-consent-bar");
+    this.consentFill = el("div", "remote-consent-fill");
+    this.consentBar.append(this.consentFill);
+    this.consentLeft = el("div", "remote-consent-left");
+    this.consentNote = el("div", "remote-consent-note");
+    this.consentNote.textContent = "The person at the endpoint sees a prompt. A refusal ends the session; without an answer, access is granted when the time is up.";
+    this.consentCard.append(this.consentTitle, this.consentText, this.consentBar, this.consentLeft, this.consentNote);
+    this.surface.append(this.canvas, this.peerLayer, this.consentCard);
 
     this.root.append(toolbar, this.status, this.hintBar, this.clipboardBar, this.surface);
     this.bindInput();
@@ -354,9 +368,17 @@ export class Viewer {
     clearInterval(this.consentTimer);
     this.consentTimer = null;
     if (consent.state === "waiting") {
-      let left = consent.secondsLeft || 0;
+      const total = consent.secondsLeft || 0;
+      let left = total;
+      this.consentText.textContent = consent.user
+        ? `Waiting for ${consent.user} to allow the session.`
+        : "Waiting for the person at the endpoint to allow the session.";
+      this.consentCard.style.display = "";
       const show = () => {
         this.status.textContent = left > 0 ? `${consent.message} ${left} s left.` : consent.message;
+        this.consentLeft.textContent = left > 0 ? `${left} s left` : "";
+        this.consentBar.style.display = total > 0 ? "" : "none";
+        this.consentFill.style.width = total > 0 ? `${Math.round(left / total * 100)}%` : "0%";
       };
       show();
       if (left > 0) {
@@ -371,6 +393,7 @@ export class Viewer {
       }
       return;
     }
+    this.consentCard.style.display = "none";
     this.status.textContent = consent.message || "";
   }
 

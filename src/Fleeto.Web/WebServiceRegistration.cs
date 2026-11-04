@@ -71,6 +71,7 @@ public static class WebServiceRegistration
         services.AddSingleton<DashboardTileSources>();
         services.AddSingleton<DashboardScopes>();
         services.AddSingleton<DashboardDesignService>();
+        services.AddSingleton<ColumnLayoutService>();
         services.AddSingleton<InstanceHealthService>();
         services.AddSingleton<ClientService>();
         services.AddSingleton<TagService>();

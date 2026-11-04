@@ -1,0 +1,150 @@
+@* Create or change a column layout of the endpoint list (0.8.0): name, description, the roles that see it, and its columns in order.
+   The host name is in every layout; a column the viewer's permissions do not give stays hidden for that viewer. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(Creating ? "New column layout" : $"Edit column layout {InitialName}")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" MaxLength="ColumnLayoutRules.MaxNameLength" AutoFocus="true" Class="mb-3" />
+        <MudTextField @bind-Value="_description" Label="Description (optional)" Variant="Variant.Outlined" Lines="2"
+                      MaxLength="ColumnLayoutRules.MaxDescriptionLength" Class="mb-4" />
+
+        <div class="column-layout-editor mb-4">
+            <div>
+                <MudText Typo="Typo.subtitle2" Class="mb-1">Columns shown, in this order</MudText>
+                <MudText Typo="Typo.body2" Class="muted mb-2">Left to right in the endpoint list, after the status icon.</MudText>
+                <div class="column-layout-list">
+                    @for (var i = 0; i < _columns.Count; i++)
+                    {
+                        var index = i;
+                        var column = EndpointColumns.Find(_columns[index])!;
+                        <div class="column-layout-item">
+                            <span class="column-layout-name" title="@column.Description">@column.Name</span>
+                            <MudIconButton Icon="@Icons.Material.Outlined.ArrowUpward" Size="Size.Small" aria-label="@($"Move {column.Name} up")"
+                                           Disabled="@(index == 0)" OnClick="@(() => Move(index, -1))" />
+                            <MudIconButton Icon="@Icons.Material.Outlined.ArrowDownward" Size="Size.Small" aria-label="@($"Move {column.Name} down")"
+                                           Disabled="@(index == _columns.Count - 1)" OnClick="@(() => Move(index, 1))" />
+                            <MudIconButton Icon="@Icons.Material.Outlined.RemoveCircleOutline" Size="Size.Small" aria-label="@($"Remove {column.Name}")"
+                                           Disabled="@column.Required" OnClick="@(() => _columns.RemoveAt(index))" />
+                        </div>
+                    }
+                </div>
+            </div>
+            <div>
+                <MudText Typo="Typo.subtitle2" Class="mb-1">Other columns</MudText>
+                <MudText Typo="Typo.body2" Class="muted mb-2">Added at the end; move them where they belong.</MudText>
+                @if (Available.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Class="muted">Every column is shown.</MudText>
+                }
+                @foreach (var column in Available)
+                {
+                    <div class="column-layout-item">
+                        <span class="column-layout-name" title="@column.Description">
+                            @column.Name
+                            @if (column.Permission is { } permission)
+                            {
+                                <span class="muted" style="font-size:0.75rem"> · needs @(Permissions.Find(permission)?.Label ?? permission)</span>
+                            }
+                        </span>
+                        <MudIconButton Icon="@Icons.Material.Outlined.AddCircleOutline" Size="Size.Small" aria-label="@($"Add {column.Name}")"
+                                       OnClick="@(() => _columns.Add(column.Key))" />
+                    </div>
+                }
+            </div>
+        </div>
+
+        <MudText Typo="Typo.subtitle2" Class="mb-1">Roles</MudText>
+        <MudText Typo="Typo.body2" Class="muted mb-2">
+            Users of these roles see this layout, unless a layout higher in the list is linked to one of their roles as well.
+        </MudText>
+        @foreach (var role in Roles)
+        {
+            <MudCheckBox T="bool" Value="@_roles.Contains(role.Id)" ValueChanged="@(on => Toggle(role.Id, on))" Label="@role.Name" Dense="true" />
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="@(() => _columns = [.. EndpointColumns.Default])">Default columns</MudButton>
+        <MudSpacer />
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_busy">@(Creating ? "Create" : "Save")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public bool Creating { get; set; }
+    [Parameter] public string InitialName { get; set; } = string.Empty;
+    [Parameter] public string? InitialDescription { get; set; }
+    [Parameter] public IReadOnlyList<string> InitialColumns { get; set; } = EndpointColumns.Default;
+    [Parameter] public IReadOnlyList<Guid> InitialRoles { get; set; } = [];
+    [Parameter] public IReadOnlyList<ColumnLayoutRoleView> Roles { get; set; } = [];
+
+    /// <summary>Saves the layout. Returns true when it was saved.</summary>
+    [Parameter] public Func<ColumnLayoutInput, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+
+    private string? _name;
+    private string? _description;
+    private List<string> _columns = [];
+    private HashSet<Guid> _roles = [];
+    private bool _busy;
+
+    private List<EndpointColumnInfo> Available => EndpointColumns.All.Where(c => !_columns.Contains(c.Key)).ToList();
+
+    protected override void OnInitialized()
+    {
+        _name = InitialName;
+        _description = InitialDescription;
+        // A column a newer release wrote is unknown here: it is left out, and saving drops it.
+        _columns = InitialColumns.Where(c => EndpointColumns.Find(c) is not null).Distinct().ToList();
+        if (!_columns.Contains(EndpointColumns.Hostname))
+        {
+            _columns.Insert(0, EndpointColumns.Hostname);
+        }
+
+        _roles = [.. InitialRoles];
+    }
+
+    private void Move(int index, int step)
+    {
+        var target = index + step;
+        if (target < 0 || target >= _columns.Count)
+        {
+            return;
+        }
+
+        (_columns[index], _columns[target]) = (_columns[target], _columns[index]);
+    }
+
+    private void Toggle(Guid role, bool on)
+    {
+        if (on)
+        {
+            _roles.Add(role);
+        }
+        else
+        {
+            _roles.Remove(role);
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnSubmit(new ColumnLayoutInput(_name, _description, _columns.ToList(), _roles.ToList())))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

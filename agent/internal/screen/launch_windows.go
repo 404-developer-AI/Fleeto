@@ -31,7 +31,8 @@ const HelperCommand = "remote-helper"
 // ClipboardCommand is the argument of fleeto-agent that serves the clipboard of a Windows session as the user signed in on it.
 const ClipboardCommand = "remote-clipboard"
 
-// ConsentCommand runs the consent prompt of a Linux endpoint; on Windows the agent service asks through WTSSendMessage.
+// ConsentCommand runs the consent prompt (0.8.0 on Windows): started by the agent service as the user signed in on the Windows session,
+// on its default desktop, because the service in session 0 cannot draw there (consent_window_windows.go).
 const ConsentCommand = "remote-consent"
 
 // batchMode is the mode of a folder of pasted files; on Windows the folder's access list decides who reads it.
@@ -45,9 +46,6 @@ func DefaultClipboardLauncher(logger *slog.Logger) Launcher { return UserLaunche
 
 // GrantFiles does nothing on Windows: the staging folder already lets the user of the session read the files.
 func GrantFiles([]string, uint32) error { return nil }
-
-// RunConsent is not used on Windows.
-func RunConsent(context.Context, io.Reader, io.Writer, *slog.Logger) error { return ErrNotSupported }
 
 // helperDesktop is where the helper starts; it attaches itself to the input desktop right away.
 const helperDesktop = `winsta0\default`
@@ -86,26 +84,32 @@ func WindowsLauncher(logger *slog.Logger) Launcher {
 // nothing but the clipboard of the session; the screen, mouse and keyboard stay with the helper that runs as SYSTEM.
 func UserLauncher(logger *slog.Logger) Launcher {
 	return func(_ context.Context, sessionID uint32) (Helper, error) {
-		if err := sessionExists(sessionID); err != nil {
-			return nil, err
-		}
-		var user windows.Token
-		if err := windows.WTSQueryUserToken(sessionID, &user); err != nil {
-			return nil, fmt.Errorf("nobody is signed in on Windows session %d, so the clipboard of that session cannot be used: %w", sessionID, err)
-		}
-		defer user.Close()
-		var primary windows.Token
-		if err := windows.DuplicateTokenEx(user, windows.MAXIMUM_ALLOWED, nil, windows.SecurityImpersonation, windows.TokenPrimary, &primary); err != nil {
-			return nil, fmt.Errorf("duplicate the token of the signed-in user: %w", err)
-		}
-		defer primary.Close()
-		environment, release, err := userEnvironment(primary)
-		if err != nil {
-			return nil, err
-		}
-		defer release()
-		return spawnChild(logger, sessionID, ClipboardCommand, "remote clipboard", primary, environment)
+		return spawnAsSessionUser(logger, sessionID, ClipboardCommand, "remote clipboard")
 	}
+}
+
+// spawnAsSessionUser starts one command of the agent binary as the user signed in on a Windows session, in that session, on its default
+// desktop: the clipboard (above) and the consent prompt (0.8.0).
+func spawnAsSessionUser(logger *slog.Logger, sessionID uint32, command, label string) (Helper, error) {
+	if err := sessionExists(sessionID); err != nil {
+		return nil, err
+	}
+	var user windows.Token
+	if err := windows.WTSQueryUserToken(sessionID, &user); err != nil {
+		return nil, fmt.Errorf("nobody is signed in on Windows session %d, so the %s cannot run there: %w", sessionID, label, err)
+	}
+	defer user.Close()
+	var primary windows.Token
+	if err := windows.DuplicateTokenEx(user, windows.MAXIMUM_ALLOWED, nil, windows.SecurityImpersonation, windows.TokenPrimary, &primary); err != nil {
+		return nil, fmt.Errorf("duplicate the token of the signed-in user: %w", err)
+	}
+	defer primary.Close()
+	environment, release, err := userEnvironment(primary)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return spawnChild(logger, sessionID, command, label, primary, environment)
 }
 
 // spawnChild starts one command of the agent binary in a Windows session with the given token. It talks over anonymous pipes that only it

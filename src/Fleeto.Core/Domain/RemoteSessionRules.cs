@@ -232,12 +232,15 @@ public static class RemoteSessionRules
     /// What the policy means for one remote control session (0.3.0 step 4, decided 2026-09-16): the consent prompt and the banner apply to
     /// workstations only, a server never asks and shows no banner; the clipboard switch applies to every endpoint.
     /// </summary>
+    /// <param name="consentTexts">The texts of the consent prompt (0.8.0); cleaned again here, so a stored value beyond the limits never reaches
+    /// an endpoint, and dropped when the prompt is not shown.</param>
     public static RemoteControlRules EffectiveControlRules(EndpointClass endpointClass, bool consentRequired, int consentTimeoutSeconds, bool bannerVisible,
-        bool clipboardEnabled)
+        bool clipboardEnabled, ConsentTexts? consentTexts = null)
     {
         var workstation = endpointClass == EndpointClass.Workstation;
-        return new RemoteControlRules(workstation && consentRequired, ConsentTimeoutSeconds(consentTimeoutSeconds), workstation && bannerVisible,
-            clipboardEnabled);
+        var asks = workstation && consentRequired;
+        var texts = asks ? ConsentTextRules.Clean(consentTexts).Texts ?? ConsentTexts.Default : ConsentTexts.Default;
+        return new RemoteControlRules(asks, ConsentTimeoutSeconds(consentTimeoutSeconds), workstation && bannerVisible, clipboardEnabled, texts);
     }
 
     /// <summary>The consent timeout a policy may set, held inside the bounds.</summary>
@@ -289,7 +292,8 @@ public sealed record RemoteSessionBinding(Guid ParticipantId, Guid SessionId, Gu
 }
 
 /// <summary>The rules one remote control session follows on the endpoint (0.3.0 step 4), carried in its signed token.</summary>
-public sealed record RemoteControlRules(bool ConsentRequired, int ConsentTimeoutSeconds, bool BannerVisible, bool ClipboardEnabled);
+public sealed record RemoteControlRules(bool ConsentRequired, int ConsentTimeoutSeconds, bool BannerVisible, bool ClipboardEnabled,
+    ConsentTexts? ConsentTexts = null);
 
 /// <summary>A Windows session a remote control session can show (0.3.0).</summary>
 /// <param name="Id">0 for the console, otherwise the Windows session number.</param>

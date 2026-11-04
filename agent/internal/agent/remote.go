@@ -73,6 +73,7 @@ func (a *Agent) newRemoteServer() *remote.Server {
 			a.logger.Warn("files cannot be pasted into remote control sessions: their folder could not be prepared", "folder", staging, "error", err)
 			staging = ""
 		}
+		screen.SetConsentLogger(a.logger)
 		sessions := screen.NewSessions(screen.SessionsOptions{
 			Launch: launch, ClipboardLaunch: clipboard, ConsoleSession: screen.ConsoleSession, SessionExists: screen.SessionExists,
 			SecureAttention: screen.SecureAttention, SessionUser: screen.SessionUser,
@@ -87,6 +88,8 @@ func (a *Agent) newRemoteServer() *remote.Server {
 				SessionID: token.GetSessionId(), ParticipantID: token.GetParticipantId(), Technician: token.GetTechnicianName(),
 				WindowsSession: token.GetWindowsSessionId(), ConsentRequired: token.GetConsentRequired(),
 				ConsentTimeout: consentTimeout(token.GetConsentTimeoutSeconds()), BannerVisible: token.GetBannerVisible(),
+				ConsentTexts: screen.ConsentTexts{Title: token.GetConsentTitle(), Message: token.GetConsentMessage(),
+					Allow: token.GetConsentAllowLabel(), Deny: token.GetConsentDenyLabel()},
 				ClipboardEnabled: token.GetClipboardEnabled(), Send: peer.Send, End: peer.End, Report: peer.Report,
 			})
 		}

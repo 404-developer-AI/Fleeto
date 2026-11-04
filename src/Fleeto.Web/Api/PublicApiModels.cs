@@ -262,7 +262,8 @@ public sealed record ApiEndpoint(
     int HeldAlertCount,
     ApiEndpointMaintenance? Maintenance,
     DateTime CreatedAt,
-    DateTime UpdatedAt);
+    DateTime UpdatedAt,
+    string? Description);
 
 public sealed record ApiCpu(string Model, int Cores, int LogicalProcessors);
 

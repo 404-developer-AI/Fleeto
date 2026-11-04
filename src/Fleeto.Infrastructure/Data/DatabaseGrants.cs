@@ -49,6 +49,9 @@ public static class DatabaseGrants
             ["DashboardRoles"] = Grants(web: ReadWrite),
             ["DashboardVersions"] = Grants(web: ReadWrite),
             ["DashboardDailyCounts"] = Grants(web: Read, workers: ReadWrite),
+            // Column layouts of the endpoint list (0.8.0): web only.
+            ["ColumnLayouts"] = Grants(web: ReadWrite),
+            ["ColumnLayoutRoles"] = Grants(web: ReadWrite),
             // Tags on clients (0.6.0): only the UI and the public API read them.
             ["Tags"] = Grants(web: ReadWrite),
             ["ClientTags"] = Grants(web: ReadWrite),

@@ -94,9 +94,34 @@ When a third released version is added, the oldest entry moves to the top of
   reallocated, pending or uncorrectable sectors and NVMe media errors as a warning) and **Disk temperature** (°C from SMART, 50 and 60 by
   default). smartctl runs with `-n standby`, so a sleeping disk is never woken and keeps its last result; the serial number of a disk is
   never sent. In the public API as `raid_state`, `disk_health` and `disk_temperature`. An older agent reports that it does not know them.
+- Endpoint description (decided 2026-11-04): give an endpoint a description of at most 200 characters in Edit in the right-click menu
+  of the endpoint list, for example what it is for or where it stands. The list shows it in its own column after the host name, the
+  search of the list finds it, and the Summary tab shows it. Changing it needs the permission Edit endpoints (formerly "Change the
+  endpoint class"; admin and technician); the agent never changes it. Audited with its length, never its text. In the public API as
+  `description` of an endpoint (migration `EndpointColumnLayouts`, expand only).
+- Column layouts of the endpoint list (decided 2026-11-04): in Settings, Column layouts an admin chooses which columns the endpoint
+  list shows and in which order, and links the layout to roles. A user sees the first layout in the list that is linked to one of its
+  roles, otherwise the default columns (the list as before, with Description after Hostname). Users cannot change their own columns.
+  Besides the columns of before and Description: IP address, Public IP address, Agent version, Open alerts, Patches, CPU, Memory,
+  Disk free (the fullest drive) and Uptime. A column never shows more than the permissions of the viewer give (Open alerts needs View
+  alerts, Patches needs View patches), and the inventory and patch data are read only for a layout that shows them. Creating,
+  changing, reordering and deleting a layout are audited.
+- Permission Column layouts (administration, admin only).
+- The consent prompt of remote control in your own words (decided 2026-11-04): a policy sets the title, the message and the labels of the
+  Allow and Deny buttons, for example in the language of the people at the endpoints; an empty field keeps the default. The prompt
+  always names the technician and shows the seconds left itself, so a policy cannot hide who is asking, and Deny stays the default
+  button. The signer puts the texts in the session token only when the workstation asks for consent (migration `PolicyConsentTexts`,
+  expand only).
+- A new consent prompt in the style of Fleeto, drawn by the agent on Windows and on Linux with X11: the title, the technician, the
+  message, a teal bar that counts down and the buttons Deny and Allow. Needs agent 0.8.0; older agents keep the plain prompt.
+- While the person at the endpoint is asked, the remote control window shows a card over the screen with who is asked and a bar with
+  the seconds left, instead of only a line of text above the screen.
 
 ### Fixed
 
+- On a screen wider than 1920 pixels the pages stood centred, far from the sidebar. They now start beside the sidebar, and the Clients
+  and Settings workspaces use the whole width.
+- Editing a task showed the id of the script of a step in its dropdown instead of the name of the script.
 - An agent installed again on Windows after an uninstall, without a restart in between, lost its binary at the next restart: the uninstall
   had left the deletion of its own running binary to Windows for that restart, by path. Installing the agent and every start of the agent
   and the watchdog now cancel such deletions in the program folder, and a watchdog or agent that finds the binary of the other service

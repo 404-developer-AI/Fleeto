@@ -433,6 +433,10 @@
                         <MudText Typo="Typo.h6" Class="section-title mb-2">Status</MudText>
                         <MudSimpleTable Dense="true" Elevation="0" Class="detail-table">
                             <tbody>
+                                @if (!string.IsNullOrEmpty(e.Description))
+                                {
+                                    <tr><td class="muted">Description</td><td>@e.Description</td></tr>
+                                }
                                 <tr><td class="muted">Connection</td><td>@(e.IsOnline ? "Online" : "Offline") · last seen <TimeText Value="e.LastSeenAt" /></td></tr>
                                 @if (e.Maintenance is { } maintenance)
                                 {

@@ -101,6 +101,8 @@ type X11Body struct {
 type ConsentAskBody struct {
 	Technician string `json:"technician"`
 	Seconds    int    `json:"seconds"`
+	// Texts of the policy (0.8.0); empty texts are the defaults.
+	Texts ConsentTexts `json:"texts"`
 }
 
 // ConsentAnswerBody is the body of FrameConsentAnswer.

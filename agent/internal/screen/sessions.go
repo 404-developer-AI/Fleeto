@@ -66,7 +66,7 @@ type SessionsOptions struct {
 	// SessionUser returns the account signed in on a Windows session, "" when nobody is.
 	SessionUser func(session uint32) string
 	// Consent asks the person signed in on a Windows session to allow a technician; it blocks until the answer or the timeout.
-	Consent func(ctx context.Context, session uint32, technician string, timeout time.Duration) (ConsentAnswer, error)
+	Consent func(ctx context.Context, session uint32, technician string, texts ConsentTexts, timeout time.Duration) (ConsentAnswer, error)
 	// StagingRoot is where files pasted into a session are kept while it runs; "" where files cannot be pasted.
 	StagingRoot string
 	// Stage creates a folder for pasted files that only the system, administrators and the user of the Windows session can read.
@@ -121,7 +121,9 @@ type JoinOptions struct {
 	// ConsentRequired, ConsentTimeout and BannerVisible come from the token; only the first technician's count for the session.
 	ConsentRequired bool
 	ConsentTimeout  time.Duration
-	BannerVisible   bool
+	// ConsentTexts are the words of the consent prompt of the policy (0.8.0); empty texts are the defaults.
+	ConsentTexts  ConsentTexts
+	BannerVisible bool
 	// ClipboardEnabled comes from the technician's own token.
 	ClipboardEnabled bool
 	// Send passes a frame to this technician's browser over their encrypted session.
@@ -438,7 +440,7 @@ func (h *hub) askConsent(first *Participant) {
 		h.mu.Unlock()
 		broadcast(waiting, jsonFrame(FrameConsent, ConsentBody{State: "waiting", User: user, SecondsLeft: int(timeout / time.Second),
 			Message: fmt.Sprintf("Waiting for %s to allow the session. Access is granted after %d seconds without an answer.", user, int(timeout/time.Second))}))
-		answer, err := h.s.opts.Consent(h.ctx, session, first.opts.Technician, timeout)
+		answer, err := h.s.opts.Consent(h.ctx, session, first.opts.Technician, first.opts.ConsentTexts, timeout)
 		switch {
 		case err != nil:
 			h.s.opts.Logger.Warn("could not ask for remote control consent", "session", session, "error", err)
@@ -903,13 +905,9 @@ func sanitizeID(id string) string {
 	return string(out)
 }
 
-// ConsentMessage is the text of the consent prompt.
+// ConsentMessage is the text of the consent prompt with the default texts, as one text.
 func ConsentMessage(technician string, seconds int) string {
-	if technician == "" {
-		technician = "A technician"
-	}
-	return fmt.Sprintf("%s wants to view and control this computer through Fleeto remote control.\n\n"+
-		"Allow the session?\n\nWithout an answer within %d seconds, access is granted.", technician, seconds)
+	return ConsentPlainText(technician, ConsentTexts{}, seconds)
 }
 
 // CleanStaging deletes files pasted into sessions that did not end cleanly (the agent stopped); called when the agent service starts.

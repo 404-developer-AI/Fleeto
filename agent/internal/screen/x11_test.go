@@ -200,7 +200,7 @@ func TestTheConsentTextIsWrapped(t *testing.T) {
 			t.Fatalf("line %q is longer than 40 characters", l)
 		}
 	}
-	if lines[0] != "Anna Admin wants to view and control" || lines[3] != "" || lines[4] != "Allow the session?" {
+	if lines[0] != "Anna Admin wants to view and control" || lines[3] != "" || lines[4] != "Without an answer within 30 seconds," {
 		t.Fatalf("lines %q", lines)
 	}
 }

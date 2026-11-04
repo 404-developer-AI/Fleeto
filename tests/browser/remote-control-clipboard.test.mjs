@@ -203,11 +203,17 @@ test("copied files are offered for download and folders are counted", async () =
 test("the consent prompt counts down and the answer replaces it", async () => {
   installDom();
   const viewer = await newViewer(fakeSession());
-  viewer.onConsent({ state: "waiting", secondsLeft: 30, message: "Waiting for ACME\\anna to allow the session." });
+  viewer.onConsent({ state: "waiting", user: "ACME\\anna", secondsLeft: 30, message: "Waiting for ACME\\anna to allow the session." });
   assert.match(viewer.status.textContent, /30 s left/);
+  // The card over the screen says who is asked and how long is left (0.8.0).
+  assert.equal(viewer.consentCard.style.display, "");
+  assert.equal(viewer.consentText.textContent, "Waiting for ACME\\anna to allow the session.");
+  assert.equal(viewer.consentLeft.textContent, "30 s left");
+  assert.equal(viewer.consentFill.style.width, "100%");
   viewer.onConsent({ state: "granted", message: "ACME\\anna allowed the session." });
   assert.equal(viewer.status.textContent, "ACME\\anna allowed the session.");
   assert.equal(viewer.consentTimer, null);
+  assert.equal(viewer.consentCard.style.display, "none");
 });
 
 test("text copied on the endpoint lands on this computer's clipboard and is never sent back", async () => {

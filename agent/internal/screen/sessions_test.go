@@ -48,7 +48,7 @@ func newSessionsHarness(t *testing.T, configure func(*SessionsOptions)) *session
 		ConsoleSession:  func() uint32 { return 1 },
 		SecureAttention: func() error { return nil },
 		SessionUser:     func(uint32) string { return h.user.Load().(string) },
-		Consent: func(ctx context.Context, session uint32, technician string, timeout time.Duration) (ConsentAnswer, error) {
+		Consent: func(ctx context.Context, session uint32, technician string, _ ConsentTexts, timeout time.Duration) (ConsentAnswer, error) {
 			return h.consent(ctx, session, technician, timeout)
 		},
 		StagingRoot: h.root,

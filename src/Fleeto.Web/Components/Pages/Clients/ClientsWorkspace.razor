@@ -9,6 +9,7 @@
 @inject SiteService SiteSvc
 @inject LinkService LinkSvc
 @inject EndpointService EndpointSvc
+@inject ColumnLayoutService ColumnLayouts
 @inject PatchService PatchSvc
 @inject EnrollmentService EnrollmentSvc
 @inject JobService JobSvc
@@ -341,20 +342,11 @@
                                     </MudTh>
                                 }
                                 <MudTh Style="width:36px"></MudTh>
-                                <MudTh>Hostname</MudTh>
-                                @if (IsAllScope)
+                                @* The columns of the layout that applies to the user (0.8.0), chosen by an admin in Settings, Column layouts. *@
+                                @foreach (var column in Columns)
                                 {
-                                    <MudTh>Client</MudTh>
+                                    <MudTh>@column.Name</MudTh>
                                 }
-                                @if (SiteId is null)
-                                {
-                                    <MudTh>Site</MudTh>
-                                }
-                                <MudTh>Operating system</MudTh>
-                                <MudTh>User</MudTh>
-                                <MudTh>Tier</MudTh>
-                                <MudTh>Status</MudTh>
-                                <MudTh>Last seen</MudTh>
                             </HeaderContent>
                             @* Every cell opens the endpoint menu on right-click (see RowMenu): MudTable has no row-level context menu event. *@
                             <RowTemplate>
@@ -371,23 +363,77 @@
                                     <MudIcon Icon="@(context.EffectiveClass == EndpointClass.Server ? Icons.Material.Outlined.Dns : Icons.Material.Outlined.Computer)"
                                              Size="Size.Small" Class="@EndpointHealthClass(context)" title="@EndpointHealthTitle(context)" />
                                 </MudTd>
-                                <MudTd @attributes="RowMenu(context)"><strong>@context.Hostname</strong></MudTd>
-                                @if (IsAllScope)
+                                @foreach (var column in Columns)
                                 {
-                                    <MudTd @attributes="RowMenu(context)">[@context.ClientCode] @context.ClientName</MudTd>
+                                    <MudTd @attributes="RowMenu(context)">
+                                        @switch (column.Key)
+                                        {
+                                            case EndpointColumns.Hostname:
+                                                <strong>@context.Hostname</strong>
+                                                break;
+                                            case EndpointColumns.Description:
+                                                <span class="endpoint-description" title="@context.Description">@(context.Description ?? "-")</span>
+                                                break;
+                                            case EndpointColumns.Client:
+                                                <text>[@context.ClientCode] @context.ClientName</text>
+                                                break;
+                                            case EndpointColumns.Site:
+                                                @context.SiteName
+                                                break;
+                                            case EndpointColumns.OperatingSystem:
+                                                @context.OsName
+                                                break;
+                                            case EndpointColumns.User:
+                                                @(string.IsNullOrEmpty(context.LoggedOnUser) ? "-" : context.LoggedOnUser)
+                                                break;
+                                            case EndpointColumns.Tier:
+                                                <StatusChip Text="@Ui.TierLabel(context.Tier)" Kind="@Ui.TierKind(context.Tier)" />
+                                                break;
+                                            case EndpointColumns.Status:
+                                                @* Alerts and maintenance show in the color of the endpoint icon, see EndpointHealthClass. *@
+                                                <StatusChip Text="@(context.IsOnline ? "Online" : "Offline")" Kind="@(context.IsOnline ? StatusKind.Ok : StatusKind.Error)" Dot="true" />
+                                                break;
+                                            case EndpointColumns.LastSeen:
+                                                <TimeText Value="context.LastSeenAt" />
+                                                break;
+                                            case EndpointColumns.IpAddress:
+                                                <span title="@string.Join(", ", context.Extras?.IpAddresses ?? [])">@(context.Extras?.IpAddresses.FirstOrDefault() ?? "-")</span>
+                                                break;
+                                            case EndpointColumns.PublicIpAddress:
+                                                @(context.PublicIpAddress ?? "-")
+                                                break;
+                                            case EndpointColumns.AgentVersion:
+                                                @(string.IsNullOrEmpty(context.AgentVersion) ? "-" : context.AgentVersion)
+                                                break;
+                                            case EndpointColumns.OpenAlerts:
+                                                @if (context.OpenAlertCount > 0)
+                                                {
+                                                    <StatusChip Text="@context.OpenAlertCount.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                                                                Kind="@(context.HasCriticalAlert ? StatusKind.Error : StatusKind.Warning)" />
+                                                }
+                                                else
+                                                {
+                                                    <span class="muted">0</span>
+                                                }
+                                                break;
+                                            case EndpointColumns.Patches:
+                                                @PatchesCell(context)
+                                                break;
+                                            case EndpointColumns.Cpu:
+                                                <span class="endpoint-description" title="@context.Extras?.CpuModel">@CpuText(context)</span>
+                                                break;
+                                            case EndpointColumns.Memory:
+                                                @(context.Extras is { MemoryTotalBytes: > 0 } memory ? Ui.Bytes(memory.MemoryTotalBytes) : "-")
+                                                break;
+                                            case EndpointColumns.DiskFree:
+                                                @DiskFreeCell(context)
+                                                break;
+                                            case EndpointColumns.Uptime:
+                                                @(context.IsOnline && context.Extras?.BootTime is { } boot ? Ui.Duration(Clock.GetUtcNow().UtcDateTime - boot) : "-")
+                                                break;
+                                        }
+                                    </MudTd>
                                 }
-                                @if (SiteId is null)
-                                {
-                                    <MudTd @attributes="RowMenu(context)">@context.SiteName</MudTd>
-                                }
-                                <MudTd @attributes="RowMenu(context)">@context.OsName</MudTd>
-                                <MudTd @attributes="RowMenu(context)">@(string.IsNullOrEmpty(context.LoggedOnUser) ? "-" : context.LoggedOnUser)</MudTd>
-                                <MudTd @attributes="RowMenu(context)"><StatusChip Text="@Ui.TierLabel(context.Tier)" Kind="@Ui.TierKind(context.Tier)" /></MudTd>
-                                <MudTd @attributes="RowMenu(context)">
-                                    @* Alerts and maintenance show in the color of the endpoint icon, see EndpointHealthClass. *@
-                                    <StatusChip Text="@(context.IsOnline ? "Online" : "Offline")" Kind="@(context.IsOnline ? StatusKind.Ok : StatusKind.Error)" Dot="true" />
-                                </MudTd>
-                                <MudTd @attributes="RowMenu(context)"><TimeText Value="context.LastSeenAt" /></MudTd>
                             </RowTemplate>
                         </MudTable>
                         @if (HasRowMenu)
@@ -553,6 +599,37 @@
     private DebouncedRefresh? _refresh;
 
     private bool IsAllScope => ClientId is null && SiteId is null;
+
+    /// <summary>The column layout that applies to the user (0.8.0), read once per visit of the workspace.</summary>
+    private UserColumnLayout _layout = ColumnLayoutService.Default;
+
+    /// <summary>The columns of the layout the user sees here: within its permissions, and Client and Site only where they say something.</summary>
+    private IReadOnlyList<EndpointColumnInfo> Columns => EndpointColumns.Visible(_layout.Columns, Can, IsAllScope, SiteId is not null);
+
+    private static string CpuText(EndpointRow row) => row.Extras is { CpuModel: { Length: > 0 } model } extras
+        ? extras.CpuCores > 0 ? $"{model} ({Ui.Count(extras.CpuCores, "core")})" : model
+        : "-";
+
+    private static RenderFragment PatchesCell(EndpointRow row) => row.Extras?.Patches switch
+    {
+        null => @<span class="muted" title="Action1 reports no patch state for this endpoint.">-</span>,
+        { Coverage: PatchCoverage.Inactive } => @<StatusChip Text="Not patched" Kind="StatusKind.Warning" />,
+        { MissingCritical: 0, MissingOther: 0 } p => @<StatusChip Text="@(p.RebootRequired ? "Up to date, restart" : "Up to date")" Kind="StatusKind.Ok" />,
+        { } p => @<StatusChip Text="@($"{p.MissingCritical + p.MissingOther} missing" + (p.RebootRequired ? ", restart" : string.Empty))"
+                              Kind="@(p.MissingCritical > 0 ? StatusKind.Error : StatusKind.Warning)" />
+    };
+
+    private static RenderFragment DiskFreeCell(EndpointRow row)
+    {
+        if (row.Extras?.FullestDrive is not { } disk)
+        {
+            return @<span>-</span>;
+        }
+
+        var percent = (int)Math.Round(100.0 * disk.FreeBytes / disk.TotalBytes);
+        var title = $"{Ui.Bytes(disk.FreeBytes)} free of {Ui.Bytes(disk.TotalBytes)} on {disk.Mount}";
+        return @<span title="@title">@percent% (@disk.Mount)</span>;
+    }
     private bool FiltersActive => _status != EndpointStatusFilter.All || _tier is not null;
 
     private string PageTitleText => _site is not null ? _site.Name : _client is not null ? _client.Code : "Clients";
@@ -656,7 +733,7 @@
 
         if (firstLoad)
         {
-            await LoadTreeAsync();
+            await Task.WhenAll(LoadTreeAsync(), LoadAsync(async caller => _layout = await ColumnLayouts.GetForUserAsync(caller)));
         }
 
         await LoadScopeAsync();
@@ -754,7 +831,8 @@
 
         var endpointClass = _tab switch { ServersTab => EndpointClass.Server, WorkstationsTab => (EndpointClass?)EndpointClass.Workstation, _ => null };
         var query = new EndpointListQuery(SiteId is null ? ClientId : null, SiteId, endpointClass, _endpointSearch, _status, _tier);
-        await LoadAsync(async caller => _page = await EndpointSvc.ListAsync(caller, query));
+        var columns = Columns.Select(c => c.Key).ToList();
+        await LoadAsync(async caller => _page = await EndpointSvc.ListAsync(caller, query, columns));
         _rowsLoading = false;
         if (_page is { } page)
         {
@@ -957,7 +1035,7 @@
             return;
         }
 
-        // Class and site save separately: refresh after the dialog even when only the first save succeeded.
+        // Description, class and site save separately: refresh after the dialog even when only the first save succeeded.
         var saved = false;
         var parameters = new DialogParameters<EndpointDialog>
         {
@@ -965,21 +1043,29 @@
             { d => d.CanChangeClass, Can(Permissions.EndpointsEdit) },
             { d => d.CanMove, Can(Permissions.EndpointsMove) },
             {
-                d => d.OnSubmit, async (classOverride, classChanged, siteId, siteChanged) =>
+                d => d.OnSubmit, async edit =>
                 {
-                    if (classChanged && !await RunAsync(caller => EndpointSvc.SetClassOverrideAsync(caller, row.Id, classOverride), null))
+                    if (edit.DescriptionChanged && !await RunAsync(caller => EndpointSvc.SetDescriptionAsync(caller, row.Id, edit.Description), null))
                     {
                         return false;
                     }
 
-                    saved |= classChanged;
-                    if (siteChanged && !await RunAsync(caller => EndpointSvc.MoveAsync(caller, row.Id, siteId), null))
+                    saved |= edit.DescriptionChanged;
+                    if (edit.ClassChanged && !await RunAsync(caller => EndpointSvc.SetClassOverrideAsync(caller, row.Id, edit.ClassOverride), null))
+                    {
+                        return false;
+                    }
+
+                    saved |= edit.ClassChanged;
+                    if (edit.SiteChanged && !await RunAsync(caller => EndpointSvc.MoveAsync(caller, row.Id, edit.SiteId), null))
                     {
                         return false;
                     }
 
                     saved = true;
-                    Snackbar.Add($"{row.Hostname} was saved. It receives its new configuration shortly.", Severity.Success);
+                    Snackbar.Add(edit.ClassChanged || edit.SiteChanged
+                        ? $"{row.Hostname} was saved. It receives its new configuration shortly."
+                        : $"{row.Hostname} was saved.", Severity.Success);
                     return true;
                 }
             }

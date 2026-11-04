@@ -50,10 +50,11 @@
                 </div>
                 @if (step.Kind == TaskStepKind.Script)
                 {
-                    <MudSelect T="Guid" @bind-Value="step.ScriptId" Label="Script from the library" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2">
+                    <MudSelect T="Guid" @bind-Value="step.ScriptId" Label="Script from the library" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2"
+                               ToStringFunc="ScriptLabel">
                         @foreach (var script in _scripts)
                         {
-                            <MudSelectItem T="Guid" Value="script.Id">@script.Name (@ScriptLanguages.Label(script.Language)@(script.ClientCode is null ? "" : $", {script.ClientCode}"))</MudSelectItem>
+                            <MudSelectItem T="Guid" Value="script.Id">@ScriptLabel(script.Id)</MudSelectItem>
                         }
                         @if (step.ScriptId != Guid.Empty && _scripts.All(s => s.Id != step.ScriptId))
                         {
@@ -342,6 +343,13 @@
 
         (_m.Steps[index], _m.Steps[other]) = (_m.Steps[other], _m.Steps[index]);
     }
+
+    /// <summary>The text of a script in the step's dropdown, also for the chosen one: without it MudSelect shows the id of a saved step.</summary>
+    private string ScriptLabel(Guid id) => id == Guid.Empty
+        ? string.Empty
+        : _scripts.FirstOrDefault(s => s.Id == id) is { } script
+            ? $"{script.Name} ({ScriptLanguages.Label(script.Language)}{(script.ClientCode is null ? string.Empty : $", {script.ClientCode}")})"
+            : "Script not available";
 
     private string CheckLabel(Guid id) => _checks.FirstOrDefault(c => c.Id == id) is { } check ? check.Name : string.Empty;
 

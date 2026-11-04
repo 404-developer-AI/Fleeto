@@ -93,6 +93,22 @@
         {
             <MudNumericField T="int" @bind-Value="_remoteConsentSeconds" Label="Consent timeout (seconds)" Variant="Variant.Outlined" Class="mb-3"
                              Min="@RemoteSessionRules.MinConsentTimeoutSeconds" Max="@RemoteSessionRules.MaxConsentTimeoutSeconds" />
+            <MudText Typo="Typo.subtitle2" Class="mb-1">Consent prompt</MudText>
+            <MudText Typo="Typo.caption" Class="muted d-block mb-2">
+                The words the person at the endpoint sees, for example in their own language. Leave a field empty for the default. The prompt
+                always names the technician and shows the seconds left; Deny is the default button. Needs agent 0.8.0 or later.
+            </MudText>
+            <MudTextField T="string" @bind-Value="_consentTitle" Label="Title" Placeholder="@ConsentTextRules.DefaultTitle" Variant="Variant.Outlined"
+                          Margin="Margin.Dense" MaxLength="ConsentTextRules.MaxTitleLength" Class="mb-2" />
+            <MudTextField T="string" @bind-Value="_consentMessage" Label="Message" Placeholder="@ConsentTextRules.DefaultMessage" Variant="Variant.Outlined"
+                          Margin="Margin.Dense" Lines="3" MaxLength="ConsentTextRules.MaxMessageLength" Class="mb-2"
+                          HelperText="Shown right after the name of the technician, so it reads as one sentence. Write it in the language of the people at the endpoints, and say that access is granted when nobody answers in time: under your own message the prompt shows only the seconds left." />
+            <div class="d-flex gap-2 mb-3">
+                <MudTextField T="string" @bind-Value="_consentAllow" Label="Allow button" Placeholder="@ConsentTextRules.DefaultAllowLabel" Variant="Variant.Outlined"
+                              Margin="Margin.Dense" MaxLength="ConsentTextRules.MaxLabelLength" />
+                <MudTextField T="string" @bind-Value="_consentDeny" Label="Deny button" Placeholder="@ConsentTextRules.DefaultDenyLabel" Variant="Variant.Outlined"
+                              Margin="Margin.Dense" MaxLength="ConsentTextRules.MaxLabelLength" />
+            </div>
         }
         <MaintenanceWindowEditor Windows="_windows" DefaultTimeZone="@TimeZoneOptions.IanaId(Time.Zone)" />
     </DialogContent>
@@ -131,6 +147,10 @@
     private bool _remoteBanner = true;
     private bool _remoteConsent;
     private int _remoteConsentSeconds = RemoteSessionRules.DefaultConsentTimeoutSeconds;
+    private string? _consentTitle;
+    private string? _consentMessage;
+    private string? _consentAllow;
+    private string? _consentDeny;
     private int _storageScanHours = StorageRules.DefaultScanIntervalHours;
     private bool _busy;
 
@@ -155,6 +175,10 @@
             _remoteBanner = p.RemoteBannerVisible;
             _remoteConsent = p.RemoteConsentRequired;
             _remoteConsentSeconds = p.RemoteConsentTimeoutSeconds;
+            _consentTitle = p.RemoteConsentTexts?.Title;
+            _consentMessage = p.RemoteConsentTexts?.Message;
+            _consentAllow = p.RemoteConsentTexts?.AllowLabel;
+            _consentDeny = p.RemoteConsentTexts?.DenyLabel;
             _storageScanHours = p.StorageScanIntervalHours;
         }
     }
@@ -169,7 +193,7 @@
             var input = new PolicyInput(_name, _description, _heartbeat, _inventoryMinutes * 60, _offlineMinutes, _offlineSeverity,
                 _windows.Select(w => w.ToWindow()).ToList(), _scriptApproval, _updateRing, _outputMegabytes * ScriptRules.Mebibyte, _remoteIdleMinutes,
                 _remoteConsent, _remoteConsentSeconds, _remoteBanner, _remoteClipboard, _remoteFileMegabytes * ScriptRules.Mebibyte, _appliesTo,
-                _storageScanHours);
+                _storageScanHours, new ConsentTexts(_consentTitle, _consentMessage, _consentAllow, _consentDeny));
             if (await OnSubmit(_clientId, input))
             {
                 MudDialog.Close(DialogResult.Ok(true));

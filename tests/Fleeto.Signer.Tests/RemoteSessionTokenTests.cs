@@ -328,6 +328,36 @@ public sealed class RemoteSessionTokenTests
     }
 
     [Fact]
+    public async Task The_texts_of_the_consent_prompt_travel_only_when_the_prompt_is_shown_and_never_beyond_their_limits()
+    {
+        void Dutch(Policy p)
+        {
+            p.RemoteConsentRequired = true;
+            p.RemoteConsentTitle = "Verzoek tot overname";
+            p.RemoteConsentMessage = "wil uw computer bekijken en bedienen.\nStaat u dit toe?";
+            p.RemoteConsentAllowLabel = "Toestaan";
+            p.RemoteConsentDenyLabel = "Weigeren";
+        }
+
+        var (workstation, technicianId) = await ScopeAsync(endpointClass: EndpointClass.Workstation, configure: Dutch);
+        var (_, signed) = await SignAsync(await CreateParticipantAsync(workstation, technicianId, kind: RemoteSessionKind.RemoteControl,
+            component: AgentComponent.Agent, windowsSessionId: 0));
+        var token = RemoteSessionToken.Parser.ParseFrom(signed.TokenPayload);
+        Assert.Equal("Verzoek tot overname", token.ConsentTitle);
+        Assert.Equal("wil uw computer bekijken en bedienen.\nStaat u dit toe?", token.ConsentMessage);
+        Assert.Equal("Toestaan", token.ConsentAllowLabel);
+        Assert.Equal("Weigeren", token.ConsentDenyLabel);
+
+        // A server never asks, so it gets no texts either.
+        var (server, serverTechnician) = await ScopeAsync(endpointClass: EndpointClass.Server, configure: Dutch);
+        var (_, serverSigned) = await SignAsync(await CreateParticipantAsync(server, serverTechnician, kind: RemoteSessionKind.RemoteControl,
+            component: AgentComponent.Agent, windowsSessionId: 0));
+        var serverToken = RemoteSessionToken.Parser.ParseFrom(serverSigned.TokenPayload);
+        Assert.Equal(string.Empty, serverToken.ConsentTitle);
+        Assert.Equal(string.Empty, serverToken.ConsentMessage);
+    }
+
+    [Fact]
     public async Task Remote_control_is_refused_for_an_agent_that_would_ignore_consent_and_banner()
     {
         var (endpoint, technicianId) = await ScopeAsync(endpointClass: EndpointClass.Workstation, agentVersion: "0.3.0-alpha.6");

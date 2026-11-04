@@ -81,6 +81,12 @@ public class Endpoint
 
     public string Hostname { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Free text a technician gives the endpoint (0.8.0), one line of at most 200 characters, shown in the endpoint list. Only users
+    /// with "Edit endpoints" change it; the agent never does.
+    /// </summary>
+    public string? Description { get; set; }
+
     /// <summary>Class derived from the OS (server edition or not).</summary>
     public EndpointClass DetectedClass { get; set; }
 

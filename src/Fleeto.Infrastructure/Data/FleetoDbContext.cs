@@ -180,6 +180,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<DashboardRole> DashboardRoles => Set<DashboardRole>();
     public DbSet<DashboardVersion> DashboardVersions => Set<DashboardVersion>();
     public DbSet<DashboardDailyCount> DashboardDailyCounts => Set<DashboardDailyCount>();
+    public DbSet<ColumnLayout> ColumnLayouts => Set<ColumnLayout>();
+    public DbSet<ColumnLayoutRole> ColumnLayoutRoles => Set<ColumnLayoutRole>();
 
     // Evaluated per query by EF Core (context members become query parameters).
     private bool ScopeAllClients => _scope.AllClients;
@@ -255,6 +257,24 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(v => v.Layout).HasColumnType("jsonb");
             entity.Property(v => v.PublishedBy).HasMaxLength(200);
             entity.HasOne<Dashboard>().WithMany().HasForeignKey(v => v.DashboardId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Column layouts of the endpoint list (0.8.0): instance-wide, managed by admins, linked to roles like dashboards.
+        builder.Entity<ColumnLayout>(entity =>
+        {
+            entity.Property(l => l.Name).HasMaxLength(Core.Domain.ColumnLayoutRules.MaxNameLength);
+            entity.Property(l => l.Description).HasMaxLength(Core.Domain.ColumnLayoutRules.MaxDescriptionLength);
+            entity.Property(l => l.UpdatedBy).HasMaxLength(200);
+            entity.HasIndex(l => l.Name).IsUnique();
+            entity.HasIndex(l => l.Priority).IsUnique();
+            entity.HasMany(l => l.Roles).WithOne().HasForeignKey(r => r.LayoutId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ColumnLayoutRole>(entity =>
+        {
+            entity.HasKey(r => new { r.LayoutId, r.RoleId });
+            entity.HasOne<ApplicationRole>().WithMany().HasForeignKey(r => r.RoleId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(r => r.RoleId);
         });
 
         // Alerts opened per client and day (0.8.0), counted by the workers for the dashboard charts.
@@ -343,6 +363,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
         builder.Entity<Endpoint>(entity =>
         {
             entity.Property(e => e.Hostname).HasMaxLength(255);
+            entity.Property(e => e.Description).HasMaxLength(Core.Domain.EndpointDescriptionRules.MaxLength);
             entity.Property(e => e.OsPlatform).HasMaxLength(20);
             entity.Property(e => e.OsName).HasMaxLength(200);
             entity.Property(e => e.OsVersion).HasMaxLength(100);
@@ -447,6 +468,11 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             // The booleans have no database default in the model (a default of true would swallow false); migration RemoteSessions
             // fills existing rows with the defaults.
             entity.Property(p => p.RemoteConsentTimeoutSeconds).HasDefaultValue(RemoteSessionRules.DefaultConsentTimeoutSeconds).HasSentinel(0);
+            entity.Property(p => p.RemoteConsentTitle).HasMaxLength(ConsentTextRules.MaxTitleLength);
+            entity.Property(p => p.RemoteConsentMessage).HasMaxLength(ConsentTextRules.MaxMessageLength);
+            entity.Property(p => p.RemoteConsentAllowLabel).HasMaxLength(ConsentTextRules.MaxLabelLength);
+            entity.Property(p => p.RemoteConsentDenyLabel).HasMaxLength(ConsentTextRules.MaxLabelLength);
+            entity.Ignore(p => p.RemoteConsentTexts);
             entity.Property(p => p.RemoteIdleTimeoutMinutes).HasDefaultValue(RemoteSessionRules.DefaultIdleTimeoutMinutes).HasSentinel(0);
             entity.Property(p => p.RemoteMaxFileBytes).HasDefaultValue(RemoteSessionRules.DefaultMaxFileBytes).HasSentinel(0L);
             // Storage scans (0.6.0): 0 is a valid value (no scheduled scans), so the sentinel is -1.

@@ -5490,8 +5490,15 @@ type RemoteSessionToken struct {
 	BannerVisible bool `protobuf:"varint,17,opt,name=banner_visible,json=bannerVisible,proto3" json:"banner_visible,omitempty"`
 	// Synchronise the clipboard (text both ways, files to the endpoint, copied files offered for download). Missing means off.
 	ClipboardEnabled bool `protobuf:"varint,18,opt,name=clipboard_enabled,json=clipboardEnabled,proto3" json:"clipboard_enabled,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The texts of the consent prompt (0.8.0), from the effective policy, only when consent_required: plain text, empty means the agent's
+	// own English default. The prompt names the technician and shows the seconds left itself, outside these texts. At most 60 characters
+	// for the title, 400 characters on at most 8 lines for the message and 20 characters per button; the agent cuts longer texts.
+	ConsentTitle      string `protobuf:"bytes,19,opt,name=consent_title,json=consentTitle,proto3" json:"consent_title,omitempty"`
+	ConsentMessage    string `protobuf:"bytes,20,opt,name=consent_message,json=consentMessage,proto3" json:"consent_message,omitempty"`
+	ConsentAllowLabel string `protobuf:"bytes,21,opt,name=consent_allow_label,json=consentAllowLabel,proto3" json:"consent_allow_label,omitempty"`
+	ConsentDenyLabel  string `protobuf:"bytes,22,opt,name=consent_deny_label,json=consentDenyLabel,proto3" json:"consent_deny_label,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *RemoteSessionToken) Reset() {
@@ -5648,6 +5655,34 @@ func (x *RemoteSessionToken) GetClipboardEnabled() bool {
 		return x.ClipboardEnabled
 	}
 	return false
+}
+
+func (x *RemoteSessionToken) GetConsentTitle() string {
+	if x != nil {
+		return x.ConsentTitle
+	}
+	return ""
+}
+
+func (x *RemoteSessionToken) GetConsentMessage() string {
+	if x != nil {
+		return x.ConsentMessage
+	}
+	return ""
+}
+
+func (x *RemoteSessionToken) GetConsentAllowLabel() string {
+	if x != nil {
+		return x.ConsentAllowLabel
+	}
+	return ""
+}
+
+func (x *RemoteSessionToken) GetConsentDenyLabel() string {
+	if x != nil {
+		return x.ConsentDenyLabel
+	}
+	return ""
 }
 
 // The gateway asks the service to connect its side of the relay for a token the browser presented.
@@ -6516,7 +6551,7 @@ const file_agent_proto_rawDesc = "" +
 	"\x13SignedRemoteSession\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\fR\tsignature\x12\x15\n" +
-	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\xbd\x06\n" +
+	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\xe9\a\n" +
 	"\x12RemoteSessionToken\x12%\n" +
 	"\x0eparticipant_id\x18\x01 \x01(\tR\rparticipantId\x12\x1d\n" +
 	"\n" +
@@ -6540,7 +6575,11 @@ const file_agent_proto_rawDesc = "" +
 	"\x10consent_required\x18\x0f \x01(\bR\x0fconsentRequired\x126\n" +
 	"\x17consent_timeout_seconds\x18\x10 \x01(\rR\x15consentTimeoutSeconds\x12%\n" +
 	"\x0ebanner_visible\x18\x11 \x01(\bR\rbannerVisible\x12+\n" +
-	"\x11clipboard_enabled\x18\x12 \x01(\bR\x10clipboardEnabled\"T\n" +
+	"\x11clipboard_enabled\x18\x12 \x01(\bR\x10clipboardEnabled\x12#\n" +
+	"\rconsent_title\x18\x13 \x01(\tR\fconsentTitle\x12'\n" +
+	"\x0fconsent_message\x18\x14 \x01(\tR\x0econsentMessage\x12.\n" +
+	"\x13consent_allow_label\x18\x15 \x01(\tR\x11consentAllowLabel\x12,\n" +
+	"\x12consent_deny_label\x18\x16 \x01(\tR\x10consentDenyLabel\"T\n" +
 	"\x12RemoteSessionOffer\x12>\n" +
 	"\asession\x18\x01 \x01(\v2$.fleeto.agent.v1.SignedRemoteSessionR\asession\"S\n" +
 	"\x14RemoteSessionRefused\x12%\n" +

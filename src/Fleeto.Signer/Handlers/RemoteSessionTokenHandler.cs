@@ -202,7 +202,7 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
         var control = session.Kind == RemoteSessionKind.RemoteControl
             ? RemoteSessionRules.EffectiveControlRules(endpoint.Class, policy?.RemoteConsentRequired ?? false,
                 policy?.RemoteConsentTimeoutSeconds ?? RemoteSessionRules.DefaultConsentTimeoutSeconds, policy?.RemoteBannerVisible ?? true,
-                policy?.RemoteClipboardEnabled ?? true)
+                policy?.RemoteClipboardEnabled ?? true, policy?.RemoteConsentTexts)
             : null;
 
         var validUntil = now + RemoteSessionRules.TokenValidity;
@@ -231,7 +231,11 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
             ConsentRequired = control?.ConsentRequired ?? false,
             ConsentTimeoutSeconds = (uint)(control?.ConsentTimeoutSeconds ?? 0),
             BannerVisible = control?.BannerVisible ?? false,
-            ClipboardEnabled = control?.ClipboardEnabled ?? false
+            ClipboardEnabled = control?.ClipboardEnabled ?? false,
+            ConsentTitle = control?.ConsentTexts?.Title ?? string.Empty,
+            ConsentMessage = control?.ConsentTexts?.Message ?? string.Empty,
+            ConsentAllowLabel = control?.ConsentTexts?.AllowLabel ?? string.Empty,
+            ConsentDenyLabel = control?.ConsentTexts?.DenyLabel ?? string.Empty
         }.ToByteArray();
 
         participant.TokenPayload = payload;
@@ -254,6 +258,7 @@ public sealed class RemoteSessionTokenHandler : ISigningRequestHandler
                 validUntil,
                 IdleTimeoutMinutes = idleMinutes,
                 ConsentRequired = control?.ConsentRequired,
+                OwnConsentTexts = control?.ConsentTexts is { IsDefault: false },
                 BannerVisible = control?.BannerVisible,
                 ClipboardEnabled = control?.ClipboardEnabled
             }), now, cancellationToken);

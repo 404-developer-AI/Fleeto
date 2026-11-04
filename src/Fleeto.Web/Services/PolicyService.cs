@@ -16,7 +16,8 @@ public sealed record PolicyListItem(Guid Id, string Name, string? Description, G
     int RemoteIdleTimeoutMinutes = RemoteSessionRules.DefaultIdleTimeoutMinutes, bool RemoteConsentRequired = false,
     int RemoteConsentTimeoutSeconds = RemoteSessionRules.DefaultConsentTimeoutSeconds, bool RemoteBannerVisible = true, bool RemoteClipboardEnabled = true,
     long RemoteMaxFileBytes = RemoteSessionRules.DefaultMaxFileBytes, int ClientCount = 0, int EndpointCount = 0,
-    CheckAppliesTo AppliesTo = CheckAppliesTo.All, int StorageScanIntervalHours = StorageRules.DefaultScanIntervalHours);
+    CheckAppliesTo AppliesTo = CheckAppliesTo.All, int StorageScanIntervalHours = StorageRules.DefaultScanIntervalHours,
+    ConsentTexts? RemoteConsentTexts = null);
 
 /// <param name="MaintenanceWindows">Recurring maintenance windows (0.2.0). Null keeps the current windows when updating, none when creating.</param>
 /// <param name="RemoteIdleTimeoutMinutes">Minutes a remote session may go without input (0.3.0). Null keeps the current value.</param>
@@ -27,11 +28,12 @@ public sealed record PolicyListItem(Guid Id, string Name, string? Description, G
 /// <param name="RemoteMaxFileBytes">The largest file one remote session transfer may carry. Null keeps the current value.</param>
 /// <param name="AppliesTo">The endpoints the policy is for (0.6.0). Null keeps the current value; the default policy is for every endpoint.</param>
 /// <param name="StorageScanIntervalHours">Hours between scheduled storage scans, 0 for none (0.6.0). Null keeps the current value.</param>
+/// <param name="RemoteConsentTexts">The texts of the consent prompt (0.8.0); an empty text is the default. Null keeps the current texts.</param>
 public sealed record PolicyInput(string? Name, string? Description, int HeartbeatIntervalSeconds, int InventoryIntervalSeconds,
     int OfflineAlertAfterMinutes, AlertSeverity OfflineAlertSeverity, IReadOnlyList<MaintenanceWindow>? MaintenanceWindows = null,
     bool? ScriptApprovalRequired = null, UpdateRing? UpdateRing = null, long? MaxOutputBytes = null, int? RemoteIdleTimeoutMinutes = null,
     bool? RemoteConsentRequired = null, int? RemoteConsentTimeoutSeconds = null, bool? RemoteBannerVisible = null, bool? RemoteClipboardEnabled = null,
-    long? RemoteMaxFileBytes = null, CheckAppliesTo? AppliesTo = null, int? StorageScanIntervalHours = null);
+    long? RemoteMaxFileBytes = null, CheckAppliesTo? AppliesTo = null, int? StorageScanIntervalHours = null, ConsentTexts? RemoteConsentTexts = null);
 
 /// <summary>Policies (global or per client). Linked, not copied: a change applies at once to every site that uses the policy.</summary>
 public sealed class PolicyService
@@ -76,7 +78,8 @@ public sealed class PolicyService
                     p.MaxOutputBytes, p.RemoteIdleTimeoutMinutes, p.RemoteConsentRequired, p.RemoteConsentTimeoutSeconds, p.RemoteBannerVisible,
                     p.RemoteClipboardEnabled, p.RemoteMaxFileBytes,
                     db.ClientPolicies.Count(l => l.PolicyId == p.Id), db.EndpointPolicies.Count(l => l.PolicyId == p.Id), p.AppliesTo,
-                    p.StorageScanIntervalHours),
+                    p.StorageScanIntervalHours,
+                    new ConsentTexts(p.RemoteConsentTitle, p.RemoteConsentMessage, p.RemoteConsentAllowLabel, p.RemoteConsentDenyLabel)),
                 p.MaintenanceWindowsJson
             })
             .ToListAsync(cancellationToken);
@@ -206,7 +209,7 @@ public sealed class PolicyService
             source.OfflineAlertAfterMinutes, source.OfflineAlertSeverity, MaintenanceWindowSchedule.Parse(source.MaintenanceWindowsJson),
             source.ScriptApprovalRequired, source.UpdateRing, source.MaxOutputBytes, source.RemoteIdleTimeoutMinutes, source.RemoteConsentRequired,
             source.RemoteConsentTimeoutSeconds, source.RemoteBannerVisible, source.RemoteClipboardEnabled, source.RemoteMaxFileBytes,
-            source.IsDefault ? CheckAppliesTo.All : source.AppliesTo, source.StorageScanIntervalHours);
+            source.IsDefault ? CheckAppliesTo.All : source.AppliesTo, source.StorageScanIntervalHours, source.RemoteConsentTexts);
         var created = await CreateAsync(caller, targetClientId, input, cancellationToken);
         if (created.Success)
         {
@@ -338,6 +341,14 @@ public sealed class PolicyService
             policy.AppliesTo = appliesTo;
         }
 
+        if (input.RemoteConsentTexts is not null && ConsentTextRules.Clean(input.RemoteConsentTexts).Texts is { } texts)
+        {
+            policy.RemoteConsentTitle = texts.Title;
+            policy.RemoteConsentMessage = texts.Message;
+            policy.RemoteConsentAllowLabel = texts.AllowLabel;
+            policy.RemoteConsentDenyLabel = texts.DenyLabel;
+        }
+
         if (input.StorageScanIntervalHours is { } scanHours)
         {
             policy.StorageScanIntervalHours = scanHours;
@@ -364,11 +375,20 @@ public sealed class PolicyService
         policy.RemoteClipboardEnabled,
         policy.RemoteMaxFileBytes,
         policy.StorageScanIntervalHours,
+        policy.RemoteConsentTitle,
+        policy.RemoteConsentMessage,
+        policy.RemoteConsentAllowLabel,
+        policy.RemoteConsentDenyLabel,
         MaintenanceWindows =MaintenanceWindowSchedule.Parse(policy.MaintenanceWindowsJson).Select(MaintenanceWindows.Describe).ToList()
     };
 
     internal static string? Validate(PolicyInput input)
     {
+        if (input.RemoteConsentTexts is not null && ConsentTextRules.Clean(input.RemoteConsentTexts).Problem is { } consentProblem)
+        {
+            return consentProblem;
+        }
+
         if (input.UpdateRing is { } ring && !Enum.IsDefined(ring))
         {
             return "Choose the Preview, Standard or Delayed update ring.";

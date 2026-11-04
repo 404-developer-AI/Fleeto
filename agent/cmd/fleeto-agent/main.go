@@ -366,8 +366,9 @@ func cmdRemoteClipboard(stderr io.Writer) int {
 	return exitOK
 }
 
-// cmdRemoteConsent asks the person at the screen of a Linux endpoint to allow a remote control session (0.3.0 step 6). The agent starts
-// it as root; it drops to the user of the session before it opens the display.
+// cmdRemoteConsent asks the person at the screen to allow a remote control session: on Linux (0.3.0 step 6) the agent starts it as root
+// and it drops to the user of the session before it opens the display; on Windows (0.8.0) the agent service starts it as the user signed
+// in on the Windows session, on its default desktop.
 func cmdRemoteConsent(stderr io.Writer) int {
 	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)

@@ -122,6 +122,7 @@ public static class Permissions
     public const string SecurityManage = "security.manage";
     public const string InstanceView = "instance.view";
     public const string DashboardsManage = "dashboards.manage";
+    public const string ColumnLayoutsManage = "columnlayouts.manage";
 
     /// <summary>Every permission, in the order the role editor shows them.</summary>
     public static readonly IReadOnlyList<PermissionInfo> All =
@@ -146,7 +147,8 @@ public static class Permissions
         new(AccessView, ClientsGroup, "See who has access", "Who has access to a client, site or endpoint.", [ClientsView]),
 
         new(EndpointsEnroll, EndpointsGroup, "Add endpoints", "Create and revoke enrollment tokens, and enroll an endpoint again.", [ClientsView]),
-        new(EndpointsEdit, EndpointsGroup, "Change the endpoint class", "Override whether an endpoint is a server or a workstation.", [ClientsView]),
+        new(EndpointsEdit, EndpointsGroup, "Edit endpoints",
+            "Override whether an endpoint is a server or a workstation, and give it a description.", [ClientsView]),
         new(EndpointsMove, EndpointsGroup, "Move endpoints", "Move an endpoint to another site of its client.", [ClientsView]),
         new(EndpointsTier, EndpointsGroup, "Switch the license tier", "Switch an endpoint to managed or agent-only.", [ClientsView]),
         new(EndpointsRevoke, EndpointsGroup, "Revoke agents", "Revoke the certificate of an agent.", [ClientsView]),
@@ -238,6 +240,8 @@ public static class Permissions
         new(InstanceView, AdministrationGroup, "Instance", "The instance identity: FQDN, CA and signing key.", []),
         new(DashboardsManage, AdministrationGroup, "Dashboards",
             "Design dashboards, publish them and choose the roles that see them.", []),
+        new(ColumnLayoutsManage, AdministrationGroup, "Column layouts",
+            "Choose and order the columns of the endpoint list, and the roles that see each layout.", []),
     ];
 
     private static readonly Dictionary<string, PermissionInfo> ByKey = All.ToDictionary(p => p.Key, StringComparer.Ordinal);

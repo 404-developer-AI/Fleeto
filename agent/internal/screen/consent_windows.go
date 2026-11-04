@@ -5,6 +5,7 @@ package screen
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 	"unsafe"
 
@@ -58,12 +59,35 @@ func querySessionString(session uint32, class uintptr) string {
 	return windows.UTF16PtrToString(buffer)
 }
 
-// AskConsent shows the consent prompt on a Windows session and waits for the answer or the timeout. The default button is No, so a
-// stray Enter never allows a session.
-func AskConsent(_ context.Context, session uint32, technician string, timeout time.Duration) (ConsentAnswer, error) {
-	title := "Remote control request"
+// AskConsent shows the consent prompt on a Windows session and waits for the answer or the timeout (0.8.0): the window of Fleeto, drawn
+// by "fleeto-agent remote-consent" as the user signed in on the session, and the plain message box of Windows when that process cannot
+// start or show the window. Deny is the default in both, so a stray Enter never allows a session.
+func AskConsent(ctx context.Context, session uint32, technician string, texts ConsentTexts, timeout time.Duration) (ConsentAnswer, error) {
+	texts = texts.Effective()
+	answer, err := askConsentWindow(ctx, session, technician, texts, timeout)
+	if err == nil || ctx.Err() != nil {
+		return answer, err
+	}
+	consentLog().Warn("the consent window could not be shown; asking with the message box of Windows", "session", session, "error", err)
+	return askConsentMessageBox(session, technician, texts, timeout)
+}
+
+// askConsentWindow starts the consent process in the Windows session and waits for its answer.
+func askConsentWindow(ctx context.Context, session uint32, technician string, texts ConsentTexts, timeout time.Duration) (ConsentAnswer, error) {
+	child, err := spawnAsSessionUser(slog.New(slog.DiscardHandler), session, ConsentCommand, "remote consent")
+	if err != nil {
+		return ConsentRefused, err
+	}
+	defer child.Close()
+	return askConsentChild(ctx, child, ConsentAskBody{Technician: technician, Seconds: int(timeout / time.Second), Texts: texts}, timeout)
+}
+
+// askConsentMessageBox asks with the message box of Windows (WTSSendMessage), shown by the service in any session. It has only Yes and
+// No, so the question holds the technician, the message of the policy and what happens without an answer.
+func askConsentMessageBox(session uint32, technician string, texts ConsentTexts, timeout time.Duration) (ConsentAnswer, error) {
+	title := texts.Title
 	seconds := int(timeout / time.Second)
-	message := ConsentMessage(technician, seconds)
+	message := ConsentPlainText(technician, texts, seconds)
 	titleUTF16, err := windows.UTF16FromString(title)
 	if err != nil {
 		return ConsentRefused, err

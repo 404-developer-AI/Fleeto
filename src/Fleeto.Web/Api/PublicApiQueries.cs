@@ -253,7 +253,8 @@ public sealed class PublicApiQueries
             return new ApiEndpoint(e.Id, e.ClientId, e.SiteId, e.Hostname, Map(e.EffectiveClass), Map(e.DetectedClass), e.ClassOverride is not null,
                 Map(e.Tier), Map(TierRules.EffectiveTier(e.Tier, license)), Map(e.Source), e.IsOnline, UtcOrNull(e.LastSeenAt),
                 new ApiOperatingSystem(e.OsPlatform, e.OsName, e.OsVersion), e.Architecture, e.AgentVersion, Utc(e.EnrolledAt), e.PublicIpAddress,
-                UtcOrNull(e.PublicIpSeenAt), r.OpenAlerts, r.HeldAlerts, maintenance is null ? null : Map(maintenance), Utc(e.CreatedAt), Utc(e.UpdatedAt));
+                UtcOrNull(e.PublicIpSeenAt), r.OpenAlerts, r.HeldAlerts, maintenance is null ? null : Map(maintenance), Utc(e.CreatedAt), Utc(e.UpdatedAt),
+                e.Description);
         }).ToList();
     }
 

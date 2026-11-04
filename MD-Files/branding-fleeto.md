@@ -117,6 +117,7 @@ Use these terms consistently in UI, docs and email; do not introduce synonyms.
 | **permission** | One thing a role allows, such as "Remote control" or "Deploy updates" (0.6.0). Never "right" or "privilege" in UI text. |
 | **security advisory** | A warning a national CSIRT or a vendor publishes, shown on the dashboard (0.8.0). "Security advisories", "Mark as handled". Never "bulletin", "notice" or "alert" in UI text: an alert belongs to an endpoint. |
 | **dashboard** | The start page, laid out by an admin and linked to roles (0.8.0). "Design dashboards", "Publish", "Preview as". Never "home", "board" or "overview page" in UI text. |
+| **column layout** | Which columns the endpoint list shows and in which order, made by an admin and linked to roles (0.8.0). "Column layouts", "Default columns". Never "view", "template" or "column set" in UI text: a template is linked to clients, sites and endpoints. |
 | **tile** | One block of a dashboard, such as Open alerts or a Text tile (0.8.0). "Add a tile", "Remove". Never "widget", "card" or "panel" in UI text. |
 | **vulnerability** | A known weakness (a CVE) in software. Used from 0.8.0; the findings on endpoints follow in a later step. Never "exploit" or "threat" for it in UI text. |
 

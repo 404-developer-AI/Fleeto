@@ -1,0 +1,173 @@
+@page "/settings/column-layouts"
+@attribute [RequirePermission(Permissions.ColumnLayoutsManage)]
+@inherits FleetoPageBase
+@inject ColumnLayoutService ColumnLayoutSvc
+@inject IDialogService DialogService
+
+<PageTitle>Column layouts - Fleeto</PageTitle>
+
+<div class="page-header">
+    <div>
+        <MudText Typo="Typo.h4" Class="page-title">Column layouts</MudText>
+        <MudText Typo="Typo.body2" Class="muted">
+            Which columns the endpoint list shows, and in which order. A user sees the first layout in this list that is linked to one of its
+            roles, and the default columns when none is. Users cannot change their own columns, and a column never shows more than their
+            permissions give.
+        </MudText>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="CreateAsync">New column layout</MudButton>
+    </div>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_overview is { } overview)
+    {
+        <MudTable Items="overview.Layouts" Hover="true" Elevation="0" Class="mb-6">
+            <HeaderContent>
+                <MudTh Style="width:64px">Order</MudTh>
+                <MudTh>Column layout</MudTh>
+                <MudTh>Columns</MudTh>
+                <MudTh>Roles</MudTh>
+                <MudTh Style="width:140px"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd Style="white-space:nowrap">
+                    <MudTooltip Text="Earlier in the order: wins from the layouts below">
+                        <MudIconButton Icon="@Icons.Material.Outlined.ArrowUpward" Size="Size.Small" aria-label="@($"Move {context.Name} up")"
+                                       Disabled="@(context.Priority == overview.Layouts[0].Priority)" OnClick="@(() => MoveAsync(context, true))" />
+                    </MudTooltip>
+                    <MudTooltip Text="Later in the order">
+                        <MudIconButton Icon="@Icons.Material.Outlined.ArrowDownward" Size="Size.Small" aria-label="@($"Move {context.Name} down")"
+                                       Disabled="@(context.Priority == overview.Layouts[^1].Priority)" OnClick="@(() => MoveAsync(context, false))" />
+                    </MudTooltip>
+                </MudTd>
+                <MudTd>
+                    <strong>@context.Name</strong>
+                    @if (context.Description is { } description)
+                    {
+                        <div class="muted" style="font-size:0.8125rem">@description</div>
+                    }
+                    <div class="muted" style="font-size:0.75rem">Changed <TimeText Value="context.UpdatedAt" /> by @context.UpdatedBy</div>
+                </MudTd>
+                <MudTd>@ColumnNames(context.Columns)</MudTd>
+                <MudTd>
+                    @if (context.Roles.Count == 0)
+                    {
+                        <span class="muted">No role</span>
+                    }
+                    else
+                    {
+                        @string.Join(", ", context.Roles.Select(r => r.Name))
+                    }
+                </MudTd>
+                <MudTd Style="white-space:nowrap">
+                    <MudTooltip Text="Edit"><MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" aria-label="@($"Edit {context.Name}")" OnClick="@(() => EditAsync(context))" /></MudTooltip>
+                    <MudTooltip Text="Copy"><MudIconButton Icon="@Icons.Material.Outlined.ContentCopy" Size="Size.Small" aria-label="@($"Copy {context.Name}")" OnClick="@(() => CreateAsync(context))" /></MudTooltip>
+                    <MudTooltip Text="Delete"><MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" aria-label="@($"Delete {context.Name}")" OnClick="@(() => DeleteAsync(context))" /></MudTooltip>
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <EmptyState Icon="@Icons.Material.Outlined.ViewColumn" Title="No column layouts yet"
+                            Text="Every user sees the default columns. Create a column layout, choose its columns and link it to roles." />
+            </NoRecordsContent>
+        </MudTable>
+
+        <MudText Typo="Typo.h6" Class="section-title mb-2">What each role sees</MudText>
+        <MudTable Items="overview.Roles" Dense="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>Role</MudTh>
+                <MudTh>Column layout</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.RoleName</MudTd>
+                <MudTd>
+                    @if (context.LayoutId is null)
+                    {
+                        <span class="muted">Default (built in): @ColumnNames(EndpointColumns.Default)</span>
+                    }
+                    else
+                    {
+                        @context.LayoutName
+                    }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+        <MudText Typo="Typo.body2" Class="muted mt-2">A user with several roles sees the layout that is highest in the list among those of its roles.</MudText>
+    }
+</LoadState>
+
+@code {
+    private ColumnLayoutOverview? _overview;
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private Task ReloadAsync() => LoadAsync(async caller => _overview = await ColumnLayoutSvc.ListAsync(caller));
+
+    private static string ColumnNames(IEnumerable<string> columns) =>
+        string.Join(", ", columns.Select(EndpointColumns.Find).OfType<EndpointColumnInfo>().Select(c => c.Name));
+
+    private async Task CreateAsync() => await CreateAsync(null);
+
+    private async Task CreateAsync(ColumnLayoutListItem? copyOf)
+    {
+        var parameters = new DialogParameters<ColumnLayoutDialog>
+        {
+            { d => d.Creating, true },
+            { d => d.InitialName, copyOf is null ? string.Empty : $"{copyOf.Name} (copy)" },
+            { d => d.InitialDescription, copyOf?.Description },
+            { d => d.InitialColumns, copyOf?.Columns ?? EndpointColumns.Default },
+            { d => d.Roles, _overview?.AllRoles ?? [] },
+            { d => d.OnSubmit, input => RunAsync(caller => ColumnLayoutSvc.CreateAsync(caller, input), "The column layout was created.") }
+        };
+        await ShowAsync(parameters);
+    }
+
+    private async Task EditAsync(ColumnLayoutListItem layout)
+    {
+        var parameters = new DialogParameters<ColumnLayoutDialog>
+        {
+            { d => d.InitialName, layout.Name },
+            { d => d.InitialDescription, layout.Description },
+            { d => d.InitialColumns, layout.Columns },
+            { d => d.InitialRoles, layout.Roles.Select(r => r.Id).ToList() },
+            { d => d.Roles, _overview?.AllRoles ?? [] },
+            { d => d.OnSubmit, input => RunAsync(caller => ColumnLayoutSvc.UpdateAsync(caller, layout.Id, input), "The column layout was saved.") }
+        };
+        await ShowAsync(parameters);
+    }
+
+    private async Task ShowAsync(DialogParameters<ColumnLayoutDialog> parameters)
+    {
+        var dialog = await DialogService.ShowAsync<ColumnLayoutDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        if (!(await dialog.Result)!.Canceled)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task MoveAsync(ColumnLayoutListItem layout, bool up)
+    {
+        if (await RunAsync(caller => ColumnLayoutSvc.MoveAsync(caller, layout.Id, up), null))
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(ColumnLayoutListItem layout)
+    {
+        var roles = layout.Roles.Count > 0
+            ? $"Users of {string.Join(", ", layout.Roles.Select(r => r.Name))} then see the next layout of their roles, or the default columns. "
+            : string.Empty;
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Delete column layout {layout.Name}" },
+            { d => d.Message, roles + "This cannot be undone." }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled && await RunAsync(caller => ColumnLayoutSvc.DeleteAsync(caller, layout.Id), "The column layout was deleted."))
+        {
+            await ReloadAsync();
+        }
+    }
+}

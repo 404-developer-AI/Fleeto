@@ -57,6 +57,10 @@ html, body {
 .mud-drawer--left { top: 0 !important; height: 100vh !important; }
 .mud-main-content { padding-top: 0 !important; min-height: 100vh; background: var(--fl-bg); }
 .content-area { padding: 28px 36px; }
+/* On a wide screen pages start beside the sidebar instead of centred, and the Clients and Settings workspaces use the whole width
+   (found on a 3840 px screen, 2026-11-04: the content stood a third of the screen away from the sidebar). */
+.app-container { margin-left: 0 !important; }
+.app-container:has(.clients-workspace, .settings-workspace) { max-width: none !important; }
 
 /* Sidebar */
 .app-sidebar { background: var(--fl-surface) !important; border-right: 1px solid var(--fl-border) !important; }
@@ -286,6 +290,8 @@ button.tag-chip:focus-visible { outline: 2px solid var(--fl-primary); outline-of
 /* The endpoint menu opens at the cursor, but MudBlazor places it only while the anchor of the menu is in view (ClientsWorkspace). */
 .mud-menu.endpoint-menu-anchor { position: fixed; top: 0; left: 0; width: 1px; height: 1px; }
 .endpoint-table .mud-table-row { cursor: pointer; }
+/* Long values of the optional columns (0.8.0): one line, the whole text on hover. */
+.endpoint-table .endpoint-description { display: inline-block; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 .endpoint-table .mud-table-row.row-selected { background: var(--fl-primary-tint) !important; }
 .endpoint-table .mud-table-row.row-selected .mud-table-cell:first-child { box-shadow: inset 3px 0 0 var(--fl-primary); }
 .split-handle { height: 14px; display: flex; align-items: center; justify-content: center; cursor: row-resize; touch-action: none; margin: 2px 0; }
@@ -465,6 +471,16 @@ button.tag-chip:focus-visible { outline: 2px solid var(--fl-primary); outline-of
 .remote-stats { font-size: 0.8rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .remote-screen { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: flex-start; justify-content: center; background: #0b1220; position: relative; }
 .remote-screen.remote-drop { outline: 2px dashed var(--mud-palette-primary); outline-offset: -4px; }
+/* The consent card over the screen (0.8.0) while the person at the endpoint is asked to allow the session. */
+.remote-consent { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100% - 32px)); box-sizing: border-box;
+    background: var(--fl-surface); color: var(--fl-text); border-radius: var(--fl-radius-lg); box-shadow: var(--fl-shadow-lg); padding: 20px 22px; z-index: 3;
+    border-top: 4px solid var(--fl-primary); }
+.remote-consent-title { font-weight: 600; font-size: 1rem; margin-bottom: 6px; }
+.remote-consent-text { font-size: 0.875rem; margin-bottom: 14px; overflow-wrap: anywhere; }
+.remote-consent-bar { height: 6px; border-radius: 3px; background: var(--fl-primary-tint-strong); overflow: hidden; }
+.remote-consent-fill { height: 100%; background: var(--fl-primary); transition: width 1s linear; }
+.remote-consent-left { font-size: 0.8125rem; color: var(--fl-text-secondary); margin: 6px 0 10px; font-variant-numeric: tabular-nums; }
+.remote-consent-note { font-size: 0.75rem; color: var(--fl-text-secondary); }
 .remote-participants { display: flex; gap: 6px; flex-wrap: wrap; }
 .remote-participant { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border: 1px solid var(--mud-palette-lines-default); border-radius: 999px; font-size: 0.8rem; white-space: nowrap; }
 .remote-participant-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
@@ -597,3 +613,9 @@ a.dash-link-tile:hover { border-color: var(--fl-primary); }
 .dash-ghost { grid-column: calc(var(--x) + 1) / span var(--w); grid-row: calc(var(--y) + 1) / span var(--h); border: 2px dashed var(--fl-primary); border-radius: var(--fl-radius-lg); background: var(--fl-primary-tint); pointer-events: none; }
 .designer-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
 .designer-state { font-size: 0.8125rem; color: var(--fl-text-secondary); }
+
+/* Column layout editor (0.8.0): the chosen columns in order, and the others to add. */
+.column-layout-editor { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+@media (max-width: 700px) { .column-layout-editor { grid-template-columns: 1fr; } }
+.column-layout-item { display: flex; align-items: center; gap: 2px; padding: 2px 0 2px 8px; border-bottom: 1px solid var(--mud-palette-lines-default); }
+.column-layout-name { flex: 1; min-width: 0; }

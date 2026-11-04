@@ -19,7 +19,12 @@ public sealed record EndpointDetail(
     int ActiveCertificates, DateTime? CertificateExpiresAt, int OpenAlertCount, int HeldAlertCount, IReadOnlyList<SiteOption> ClientSites,
     string? PublicIpAddress, DateTime? PublicIpSeenAt, EffectiveMaintenance? Maintenance, bool OwnMaintenanceActive,
     bool WatchdogOnline = false, string WatchdogVersion = "", DateTime? WatchdogLastSeenAt = null,
-    IReadOnlyList<EndpointComponentView>? Components = null, string? ReleaseVersion = null, ReleaseRingTiming? ReleaseRing = null);
+    IReadOnlyList<EndpointComponentView>? Components = null, string? ReleaseVersion = null, ReleaseRingTiming? ReleaseRing = null,
+    string? Description = null);
+
+/// <summary>What the Edit dialog of an endpoint saves; each part only when it changed.</summary>
+public sealed record EndpointEdit(EndpointClass? ClassOverride, bool ClassChanged, Guid SiteId, bool SiteChanged, string? Description,
+    bool DescriptionChanged);
 
 /// <summary>When the update ring of an endpoint gets the current release (0.2.2): its ring, the moment the ring reaches it, whether it is paused.</summary>
 public sealed record ReleaseRingTiming(UpdateRing Ring, DateTime AvailableAt, bool Paused);
@@ -49,7 +54,20 @@ public sealed record EndpointListQuery(Guid? ClientId, Guid? SiteId, EndpointCla
 public sealed record EndpointRow(Guid Id, string Hostname, Guid ClientId, string ClientCode, string ClientName, Guid SiteId, string SiteName,
     bool IsOnline, EndpointTier Tier, EndpointClass EffectiveClass, string OsName, string OsVersion, string AgentVersion, string LoggedOnUser,
     DateTime? LastSeenAt, int OpenAlertCount, bool HasCriticalAlert, EffectiveMaintenance? Maintenance = null, bool OwnMaintenanceActive = false,
-    MaintenancePeriod? OwnMaintenance = null, string OsPlatform = "", string Desktop = "", DateTime? HeldUntil = null);
+    MaintenancePeriod? OwnMaintenance = null, string OsPlatform = "", string Desktop = "", DateTime? HeldUntil = null, string? Description = null,
+    string? PublicIpAddress = null, EndpointRowExtras? Extras = null);
+
+/// <summary>
+/// Data of the optional columns of the endpoint list (0.8.0) that come from the inventory and the patch state, read only when the
+/// layout of the viewer shows one of them.
+/// </summary>
+/// <param name="IpAddresses">The IPv4 addresses of the network interfaces, the first one shown; empty without an inventory.</param>
+/// <param name="FullestDrive">The drive with the least free space by percentage, or null without disks.</param>
+/// <param name="Patches">The patch state, or null when Action1 reports none for the endpoint.</param>
+public sealed record EndpointRowExtras(IReadOnlyList<string> IpAddresses, string? CpuModel, int CpuCores, long MemoryTotalBytes, DiskInfo? FullestDrive,
+    DateTime? BootTime, EndpointRowPatches? Patches);
+
+public sealed record EndpointRowPatches(PatchCoverage Coverage, int MissingCritical, int MissingOther, bool RebootRequired);
 
 /// <summary>
 /// One page of the endpoint list. Counts cover the whole scope and filters; <see cref="Rows"/> holds at most
@@ -134,7 +152,9 @@ public sealed class EndpointService
     /// The endpoint list of the clients workspace: all clients, one client or one site, filtered and searched in the
     /// database. Class counts ignore the class filter so the tabs show their totals.
     /// </summary>
-    public async Task<EndpointListPage> ListAsync(Caller caller, EndpointListQuery query, CancellationToken cancellationToken = default)
+    /// <param name="columns">The columns the viewer sees (0.8.0); inventory and patch data are read only for a layout that shows them.</param>
+    public async Task<EndpointListPage> ListAsync(Caller caller, EndpointListQuery query, IReadOnlyCollection<string>? columns = null,
+        CancellationToken cancellationToken = default)
     {
         caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
@@ -155,6 +175,7 @@ public sealed class EndpointService
         {
             var pattern = ServiceSupport.LikePattern(term);
             endpoints = endpoints.Where(e => EF.Functions.ILike(e.Hostname, pattern, ServiceSupport.LikeEscape) ||
+                                             (e.Description != null && EF.Functions.ILike(e.Description, pattern, ServiceSupport.LikeEscape)) ||
                                              EF.Functions.ILike(e.OsName, pattern, ServiceSupport.LikeEscape) ||
                                              (e.Inventory != null && EF.Functions.ILike(e.Inventory.LoggedOnUser, pattern, ServiceSupport.LikeEscape)));
         }
@@ -212,7 +233,9 @@ public sealed class EndpointService
                                    a.Severity == AlertSeverity.Critical), null, false, null, e.OsPlatform,
                 e.Inventory != null ? e.Inventory.Desktop : string.Empty,
                 db.Alerts.Where(a => a.EndpointId == e.Id && a.State != AlertState.Resolved && a.HeldUntil != null && a.HeldUntil > now)
-                    .Max(a => a.HeldUntil)),
+                    .Max(a => a.HeldUntil),
+                e.Description,
+                e.PublicIpAddress),
                 Own = new MaintenancePeriod(e.MaintenanceStartedAt, e.MaintenanceEndsAt, e.MaintenanceStartedByName, e.MaintenanceReason),
                 Site = new MaintenancePeriod(e.Site.MaintenanceStartedAt, e.Site.MaintenanceEndsAt, e.Site.MaintenanceStartedByName, e.Site.MaintenanceReason),
                 Client = new MaintenancePeriod(e.Site.Client!.MaintenanceStartedAt, e.Site.Client.MaintenanceEndsAt, e.Site.Client.MaintenanceStartedByName,
@@ -221,14 +244,113 @@ public sealed class EndpointService
             .ToListAsync(cancellationToken);
 
         var truncated = rows.Count > ListLimit;
-        var windows = await MaintenanceWindowSchedule.RunningByEndpointAsync(db, rows.Take(ListLimit).Select(r => r.Row.Id).ToList(), now, cancellationToken);
+        var ids = rows.Take(ListLimit).Select(r => r.Row.Id).ToList();
+        var windows = await MaintenanceWindowSchedule.RunningByEndpointAsync(db, ids, now, cancellationToken);
+        var extras = await LoadExtrasAsync(db, ids, columns, cancellationToken);
         var page = rows.Take(ListLimit).Select(r => r.Row with
         {
+            Extras = extras.GetValueOrDefault(r.Row.Id),
             Maintenance = MaintenanceRules.Effective(r.Own, r.Site, r.Client, now, MaintenanceWindowSchedule.PeriodFor(windows, r.Row.Id, r.Row.EffectiveClass)),
             OwnMaintenanceActive = r.Own.IsActive(now),
             OwnMaintenance = r.Own
         }).ToList();
         return new EndpointListPage(page, serverCount, workstationCount, truncated);
+    }
+
+    /// <summary>Columns whose data <see cref="LoadExtrasAsync"/> reads from the inventory.</summary>
+    private static readonly HashSet<string> InventoryColumns =
+        [EndpointColumns.IpAddress, EndpointColumns.Cpu, EndpointColumns.Memory, EndpointColumns.DiskFree, EndpointColumns.Uptime];
+
+    /// <summary>
+    /// The inventory and patch data of the optional columns (0.8.0) for one page of the list: one query each for the whole page, and
+    /// only for the columns the viewer sees, so the default layout reads nothing more than before.
+    /// </summary>
+    private async Task<Dictionary<Guid, EndpointRowExtras>> LoadExtrasAsync(FleetoDbContext db, IReadOnlyList<Guid> ids,
+        IReadOnlyCollection<string>? columns, CancellationToken cancellationToken)
+    {
+        var inventory = columns is not null && columns.Any(InventoryColumns.Contains);
+        var patches = columns is not null && columns.Contains(EndpointColumns.Patches);
+        if (ids.Count == 0 || (!inventory && !patches))
+        {
+            return [];
+        }
+
+        var snapshots = inventory
+            ? await db.InventorySnapshots.AsNoTracking().Where(i => ids.Contains(i.EndpointId))
+                .Select(i => new InventoryColumnsData(i.EndpointId, i.CpuModel, i.CpuCores, i.MemoryTotalBytes, i.BootTime, i.DisksJson,
+                    i.NetworkInterfacesJson))
+                .ToDictionaryAsync(i => i.EndpointId, cancellationToken)
+            : [];
+        var states = patches
+            ? await db.EndpointPatchStates.AsNoTracking().Where(p => ids.Contains(p.EndpointId))
+                .Select(p => new { p.EndpointId, p.Coverage, p.MissingCritical, p.MissingOther, p.RebootRequired })
+                .ToDictionaryAsync(p => p.EndpointId, p => new EndpointRowPatches(p.Coverage, p.MissingCritical, p.MissingOther, p.RebootRequired),
+                    cancellationToken)
+            : [];
+        var result = new Dictionary<Guid, EndpointRowExtras>();
+        foreach (var id in ids)
+        {
+            var snapshot = snapshots.GetValueOrDefault(id);
+            result[id] = new EndpointRowExtras(
+                snapshot is null ? [] : Ipv4Addresses(ParseList<NetworkInterfaceInfo>(snapshot.NetworkInterfacesJson, id)),
+                snapshot?.CpuModel,
+                snapshot?.CpuCores ?? 0,
+                snapshot?.MemoryTotalBytes ?? 0,
+                snapshot is null ? null : ParseList<DiskInfo>(snapshot.DisksJson, id).Where(d => d.TotalBytes > 0).MinBy(d => (double)d.FreeBytes / d.TotalBytes),
+                snapshot?.BootTime,
+                states.GetValueOrDefault(id));
+        }
+
+        return result;
+    }
+
+    private sealed record InventoryColumnsData(Guid EndpointId, string CpuModel, int CpuCores, long MemoryTotalBytes, DateTime? BootTime,
+        string DisksJson, string NetworkInterfacesJson);
+
+    /// <summary>The IPv4 addresses of the interfaces, without loopback and link-local ones, in the order the agent reported them.</summary>
+    internal static IReadOnlyList<string> Ipv4Addresses(IEnumerable<NetworkInterfaceInfo> interfaces) =>
+        interfaces.SelectMany(n => n.IpAddresses)
+            .Select(a => a.Split('/')[0])
+            .Where(a => System.Net.IPAddress.TryParse(a, out var ip) && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
+                        !System.Net.IPAddress.IsLoopback(ip) && !a.StartsWith("169.254.", StringComparison.Ordinal))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+    /// <summary>Changes the description of an endpoint (0.8.0); empty clears it. The audit entry holds its length, never its text.</summary>
+    public async Task<ServiceResult> SetDescriptionAsync(Caller caller, Guid endpointId, string? description, CancellationToken cancellationToken = default)
+    {
+        if (!caller.Has(Permissions.EndpointsEdit))
+        {
+            return ServiceResult.Forbidden();
+        }
+
+        var (value, problem) = EndpointDescriptionRules.Clean(description);
+        if (problem is not null)
+        {
+            return ServiceResult.Fail(problem);
+        }
+
+        await using var db = _dbFactory.Create(caller.Scope);
+        var endpoint = await db.Endpoints.SingleOrDefaultAsync(e => e.Id == endpointId, cancellationToken);
+        if (endpoint is null)
+        {
+            return ServiceResult.NotFound("endpoint");
+        }
+
+        if (endpoint.Description == value)
+        {
+            return ServiceResult.Ok();
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        var previousLength = endpoint.Description?.Length ?? 0;
+        endpoint.Description = value;
+        endpoint.UpdatedAt = now;
+        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.EndpointDescriptionChanged, "Endpoint", endpoint.Id.ToString(), endpoint.ClientId,
+            new { endpoint.Hostname, FromLength = previousLength, ToLength = value?.Length ?? 0 }), now));
+        await db.SaveChangesAsync(cancellationToken);
+        await PublishStatusAsync(endpoint.Id, cancellationToken);
+        return ServiceResult.Ok();
     }
 
     public async Task<EndpointDetail?> GetAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
@@ -282,7 +404,8 @@ public sealed class EndpointService
             e.AgentVersion, e.EnrolledAt, e.LastSeenAt, e.ConfigVersion, e.AppliedConfigVersion, endpoint.ActiveCertificates,
             endpoint.CertificateExpiresAt, endpoint.OpenAlerts, endpoint.HeldAlerts, sites, e.PublicIpAddress, e.PublicIpSeenAt,
             MaintenanceRules.Effective(e.Maintenance, endpoint.Site, endpoint.Client, now, MaintenanceWindowSchedule.PeriodFor(windows, e.Id, e.EffectiveClass)),
-            e.Maintenance.IsActive(now), e.WatchdogOnline, e.WatchdogVersion, e.WatchdogLastSeenAt, components, release?.Version, releaseRing);
+            e.Maintenance.IsActive(now), e.WatchdogOnline, e.WatchdogVersion, e.WatchdogLastSeenAt, components, release?.Version, releaseRing,
+            e.Description);
     }
 
     public async Task<InventoryView?> GetInventoryAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)

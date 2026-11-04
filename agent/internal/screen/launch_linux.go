@@ -527,7 +527,7 @@ func GrantFiles(paths []string, _ uint32) error {
 }
 
 // AskConsent shows the consent prompt on the screen as the user of the session and waits for the answer or the timeout.
-func AskConsent(ctx context.Context, _ uint32, technician string, timeout time.Duration) (ConsentAnswer, error) {
+func AskConsent(ctx context.Context, _ uint32, technician string, texts ConsentTexts, timeout time.Duration) (ConsentAnswer, error) {
 	console, err := findConsole(ctx)
 	if err != nil {
 		return ConsentRefused, err
@@ -541,35 +541,7 @@ func AskConsent(ctx context.Context, _ uint32, technician string, timeout time.D
 		return ConsentRefused, err
 	}
 	defer child.Close()
-	ask, _ := json.Marshal(ConsentAskBody{Technician: technician, Seconds: int(timeout / time.Second)})
-	if err := WriteFrame(child.In(), append([]byte{FrameConsentAsk}, ask...)); err != nil {
-		return ConsentRefused, err
-	}
-	answers := make(chan ConsentAnswerBody, 1)
-	go func() {
-		frame, err := ReadFrame(child.Out())
-		var answer ConsentAnswerBody
-		if err == nil && frame[0] == FrameConsentAnswer {
-			_ = json.Unmarshal(frame[1:], &answer)
-		}
-		answers <- answer
-	}()
-	select {
-	case <-ctx.Done():
-		return ConsentRefused, ctx.Err()
-	case <-time.After(timeout + 10*time.Second):
-		return ConsentRefused, errors.New("the consent prompt did not answer")
-	case answer := <-answers:
-		switch answer.Answer {
-		case "allowed":
-			return ConsentAllowed, nil
-		case "timeout":
-			return ConsentTimedOut, nil
-		case "refused":
-			return ConsentRefused, nil
-		}
-		return ConsentRefused, errors.New("the consent prompt could not be shown on the screen")
-	}
+	return askConsentChild(ctx, child, ConsentAskBody{Technician: technician, Seconds: int(timeout / time.Second), Texts: texts.Effective()}, timeout)
 }
 
 // Wording of the session shown, for the technician: Linux shows the console only, so no session numbers.

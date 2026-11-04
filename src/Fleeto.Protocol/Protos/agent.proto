@@ -920,6 +920,13 @@ message RemoteSessionToken {
   bool banner_visible = 17;
   // Synchronise the clipboard (text both ways, files to the endpoint, copied files offered for download). Missing means off.
   bool clipboard_enabled = 18;
+  // The texts of the consent prompt (0.8.0), from the effective policy, only when consent_required: plain text, empty means the agent's
+  // own English default. The prompt names the technician and shows the seconds left itself, outside these texts. At most 60 characters
+  // for the title, 400 characters on at most 8 lines for the message and 20 characters per button; the agent cuts longer texts.
+  string consent_title = 19;
+  string consent_message = 20;
+  string consent_allow_label = 21;
+  string consent_deny_label = 22;
 }
 
 enum RemoteSessionKind {

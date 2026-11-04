@@ -128,6 +128,14 @@ the API and the database follows it.
   `server`, derived from the OS edition and overridable by hand, and a **license tier**
   (see Licensing). Hypervisor hosts and VMs discovered through Proxmox or vCenter appear as
   endpoints without an agent.
+- **Endpoint description** (decided 2026-11-04, 0.8.0): free text of at most 200 characters on one line that a user with the permission
+  Edit endpoints gives an endpoint in Edit; shown in the endpoint list, searched by it and shown on the Summary tab. The agent never
+  changes it. Audited with its length, never its text.
+- **Column layout** (decided 2026-11-04, 0.8.0): which columns the endpoint list shows and in which order, from the catalog
+  `EndpointColumns` (also IP address, public IP address, agent version, open alerts, patches, CPU, memory, disk free and uptime).
+  An admin makes layouts in Settings, Column layouts (permission Column layouts) and links them to roles; a user sees the first in
+  priority order linked to one of its roles, otherwise the default columns, like dashboards. Users never change their own columns, and
+  a column never shows more than the user's permissions give.
 - **Policy**: agent behaviour pushed to the endpoints it applies to (at most one per client, site and endpoint;
   without one on any level the instance default policy applies): check intervals, update ring, script permissions,
   remote control rules, maintenance windows.
@@ -205,7 +213,8 @@ UI structure:
 - **Clients**: one workspace. Left, a clients panel with search: All clients, and every client
   expandable to its sites. Right, the endpoints of the selection (all clients, a client or a
   site) with tabs **Servers**, **Workstations** and **Mixed** (all endpoints together), search
-  and filters. Selecting an endpoint shows its detail below the list (resizable split); the
+  and filters. The columns of the list follow the column layout of the user's roles (0.8.0, below). Selecting an endpoint shows its
+  detail below the list (resizable split); the
   same detail opens as a full page with its own URL. Detail tabs grow with the features that
   exist: Summary, Checks, Software, Notes, Jobs, Tasks (0.6.0), Patches, Vulnerabilities (0.8.0, Linux only), Storage (0.6.0) and
   History. The tier switch lives in the right-click menu of the endpoint list.
@@ -218,7 +227,7 @@ UI structure:
   Clients: left, a settings panel; right, the selected page. Group **Templates** (client
   templates, monitoring templates, policies, patch policies, scripts, tasks) for every user, and the administration pages for
   admins: users and roles, groups, tags, licensing, API keys, integrations, notification channels, retention,
-  audit log, instance health, performance (0.7.0), security (0.7.0), vulnerabilities (0.8.0), dashboards (0.8.0).
+  audit log, instance health, performance (0.7.0), security (0.7.0), vulnerabilities (0.8.0), dashboards (0.8.0), column layouts (0.8.0).
 
 ## Licensing: per endpoint, two tiers
 
@@ -273,7 +282,9 @@ Screen takeover is built into Fleeto: no external tool, no third-party account. 
 - **Consent and banner**: servers never prompt and show no banner. Workstations follow the policy: consent prompt on/off
   (default off, access granted after a timeout of 30 seconds, an explicit refusal ends the session; only the first technician of a
   session is asked, and with nobody signed in access is granted at once) and a banner naming the technicians on/off (default on).
-  Remote background never prompts.
+  Remote background never prompts. The title, message and button labels of the prompt are set per policy (decided 2026-11-04, 0.8.0;
+  empty is the English default); the prompt itself, drawn by the agent in the style of Fleeto, always names the technician and shows
+  the seconds left, and Deny stays the default button. The technician's window shows a card with who is asked and the time left.
 - **Remote background**: terminal as SYSTEM or root (a library script can run in it, as SYSTEM, root or the signed-in user,
   interactively; it follows the approval of the policy, 0.6.0), file explorer (streamed, resumable, never stored on the server, at most
   10 GB per file by policy), services and processes. Audited per session, participant and action; never terminal content.
@@ -674,7 +685,7 @@ home-grown patch engine. Note them, do not build them. (File transfer inside rem
   2026-09-15; the internal name Fleetify was renamed in 0.2.1). The old name appears only in the migration code listed in
   `deploy/ci/branding-check.sh`. Run that check (`MD-Files/branding-fleeto.md` §7) before every release.
 - UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, patch policy, monitoring template, client template, integration, note, tag, task, remote control session, API key, role, permission, blocked address, allowed address, security incident, security advisory, vulnerability,
-  Proxmox web interface, Synology web interface, Fleeto Connect, dashboard, tile).
+  Proxmox web interface, Synology web interface, Fleeto Connect, dashboard, tile, column layout).
 - Follow the Migrify codebase conventions where they exist (project layout, EF Core patterns, MudBlazor usage, email templates).
 - **Performance monitor** (0.7.0, `MD-Files/PERFORMANCE.md`): every workers loop derives from `WorkerLoop`, which measures
   each run; a loop that does not is a review finding. Metric keys never contain values: route templates, type names and fixed

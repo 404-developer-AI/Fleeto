@@ -466,6 +466,27 @@ public static class Ui
         return size.ToString(unit == 0 ? "0" : "0.#", CultureInfo.InvariantCulture) + " " + units[unit];
     }
 
+    /// <summary>A duration in its two largest units, such as "3 d 4 h" or "12 min" (the uptime column of the endpoint list, 0.8.0).</summary>
+    public static string Duration(TimeSpan duration)
+    {
+        if (duration < TimeSpan.FromMinutes(1))
+        {
+            return "less than a minute";
+        }
+
+        if (duration.TotalDays >= 1)
+        {
+            return duration.Hours > 0 ? $"{(int)duration.TotalDays} d {duration.Hours} h" : $"{(int)duration.TotalDays} d";
+        }
+
+        if (duration.TotalHours >= 1)
+        {
+            return duration.Minutes > 0 ? $"{(int)duration.TotalHours} h {duration.Minutes} min" : $"{(int)duration.TotalHours} h";
+        }
+
+        return $"{duration.Minutes} min";
+    }
+
     public static string EventLabel(EndpointEventKind kind) => kind switch
     {
         EndpointEventKind.Connected => "Connected",

@@ -1743,6 +1743,64 @@ namespace Fleeto.Infrastructure.Migrations
                     b.ToTable("ClientTemplateSiteMonitoringTemplates");
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.ColumnLayout", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.PrimitiveCollection<List<string>>("Columns")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.HasIndex("Priority")
+                        .IsUnique();
+
+                    b.ToTable("ColumnLayouts");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.ColumnLayoutRole", b =>
+                {
+                    b.Property<Guid>("LayoutId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RoleId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("LayoutId", "RoleId");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("ColumnLayoutRoles");
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.ConfigChangeEvent", b =>
                 {
                     b.Property<long>("Id")
@@ -1960,6 +2018,10 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<string>("DetectedClass")
                         .IsRequired()
@@ -5370,6 +5432,18 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<bool>("RemoteClipboardEnabled")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("RemoteConsentAllowLabel")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("RemoteConsentDenyLabel")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("RemoteConsentMessage")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
                     b.Property<bool>("RemoteConsentRequired")
                         .HasColumnType("boolean");
 
@@ -5377,6 +5451,10 @@ namespace Fleeto.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
                         .HasDefaultValue(30);
+
+                    b.Property<string>("RemoteConsentTitle")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
 
                     b.Property<int>("RemoteIdleTimeoutMinutes")
                         .ValueGeneratedOnAdd()
@@ -7520,6 +7598,21 @@ namespace Fleeto.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.ColumnLayoutRole", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.ColumnLayout", null)
+                        .WithMany("Roles")
+                        .HasForeignKey("LayoutId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleeto.Infrastructure.Identity.ApplicationRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.DashboardDailyCount", b =>
                 {
                     b.HasOne("Fleeto.Core.Entities.Client", null)
@@ -8358,6 +8451,11 @@ namespace Fleeto.Infrastructure.Migrations
             modelBuilder.Entity("Fleeto.Core.Entities.ClientTemplateSite", b =>
                 {
                     b.Navigation("MonitoringTemplates");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.ColumnLayout", b =>
+                {
+                    b.Navigation("Roles");
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.Dashboard", b =>

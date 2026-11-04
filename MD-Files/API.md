@@ -332,7 +332,8 @@ GET /api/v1/endpoints?clientId=77c5d95d-1a92-4205-aec2-eb63037f8bde&class=server
       "heldAlertCount": 0,
       "maintenance": null,
       "createdAt": "2026-09-02T09:30:00Z",
-      "updatedAt": "2026-09-15T16:58:02.41Z"
+      "updatedAt": "2026-09-15T16:58:02.41Z",
+      "description": "Domain controller, rack 2"
     }
   ],
   "nextCursor": null
@@ -795,6 +796,7 @@ maintenance window of its policy) the one that lasts longest is shown.
 | `maintenance` | [EndpointMaintenance](#endpointmaintenance), nullable | `null` when the endpoint is not in maintenance. |
 | `createdAt` | timestamp | |
 | `updatedAt` | timestamp | |
+| `description` | string, nullable | Free text a technician gave the endpoint in Fleeto (since 0.8.0), at most 200 characters on one line; `null` when it has none. Never set by the agent. |
 
 ### PatchState
 
