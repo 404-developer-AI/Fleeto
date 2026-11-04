@@ -2,11 +2,12 @@
 
 Remote monitoring and management (RMM) by Steaan.
 
-Status: 0.7.0 released, running on the first test VPS. Windows and Linux agents, enrollment with mTLS, agent-only and
+Status: 0.8.0 released, running on the first test VPS. Windows and Linux agents, enrollment with mTLS, agent-only and
 managed endpoints with licensing, checks and alerts, dashboard, backups, jobs, scripts and tasks, remote control and remote
 background, patch management through Action1 on Windows with patch policies, storage analysis, instance health, user groups
-and roles with permissions, sign-in with Microsoft Entra ID, and a performance monitor and security monitor of Fleeto itself.
-Next is 0.8.0, vulnerability reporting and patch management on Linux. See
+and roles with permissions, sign-in with Microsoft Entra ID, a performance monitor and security monitor of Fleeto itself,
+vulnerability reporting with an end-of-life report, the Proxmox and Synology web interfaces and a dashboard designer.
+Next is 0.9.0, patch management on Linux and on Windows without Action1. See
 [`MD-Files/ROADMAP.md`](MD-Files/ROADMAP.md).
 
 Source-available, not open source: see [License](#license).

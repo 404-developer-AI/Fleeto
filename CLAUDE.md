@@ -8,14 +8,12 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 
 - **Language**: conversation with the developer is always in Dutch. Documentation, code,
   comments, commit messages, log messages and UI text are always in English.
-- **Current phase**: 0.7.0 (the performance monitor and the security monitor) is released (2026-10-26) and runs on the first
-  test VPS, tested through `v0.7.0-alpha.1` to `alpha.13`. Next is 0.8.0 in `MD-Files/ROADMAP.md`: vulnerability reporting
-  (`MD-Files/VULNERABILITIES.md`) first, then the Proxmox web interface (`MD-Files/PROXMOX-WEB.md`, decided 2026-10-27), then the
-  dashboard designer (`MD-Files/DASHBOARDS.md`, decided 2026-10-27, built before the rest of 0.8.0), in place of hardening, which was
-  taken off the roadmap. 0.8.0 is released once `v0.8.0-alpha.16` is tested (decided 2026-11-04). Then 0.9.0: patch management on Linux
-  (moved from 0.8.0) and on Windows, servers and workstations, for endpoints without Action1 (decided 2026-11-04; how and what is still
-  to be discussed, and it changes the Action1 rule under Patch management). The other integrations moved to "Not yet scheduled" on
-  2026-09-23. Local development runs without Docker (see `README.md`); Docker is for the VPS and CI only.
+- **Current phase**: 0.8.0 (vulnerability reporting, the Proxmox and Synology web interfaces, the dashboard designer, column
+  layouts and the end-of-life report) is released (2026-11-04) and runs on the first test VPS, tested through `v0.8.0-alpha.1` to
+  `alpha.16`. Next is 0.9.0 in `MD-Files/ROADMAP.md`: patch management on Linux and on Windows, servers and workstations, for
+  endpoints without Action1 (decided 2026-11-04; how and what is still to be discussed, and it changes the Action1 rule under Patch
+  management). The other integrations moved to "Not yet scheduled" on 2026-09-23. Local development runs without Docker (see
+  `README.md`); Docker is for the VPS and CI only.
 - **Git**: always ask before committing, pushing or tagging. No intermediate commits while a version is being built.
   Tag a version only after its commits are pushed and CI is green.
 - **Source control**: git, default branch `main`, public GitHub repository

@@ -145,7 +145,7 @@ Built 2026-10-27 for the test build `v0.8.0-alpha.6`.
    `ws://` and the console of the VM appeared). Fleeto Connect now sends a request for that page (`/?console=...&novnc=1` without
    `encrypt`) to the same address with `encrypt=0`; the leg to pveproxy keeps the TLS of Fleeto Connect. The xterm.js consoles follow the
    protocol of the page and never needed it. An ISO upload is not tested (the developer decided it need not be).
-   [open] Still to test: a VM console with the fix (next alpha).
+   Tested by the developer with `v0.8.0-alpha.16` on 2026-11-04: the VM console connects.
 
 ## 8. The Synology web interface (0.8.0)
 
