@@ -1987,6 +1987,224 @@ namespace Fleeto.Infrastructure.Migrations
                     b.ToTable("DataKeys");
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.EndOfLifeRefreshRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("HandledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Problem")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid?>("ReportId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("RequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestedAt");
+
+                    b.ToTable("EndOfLifeRefreshRequests");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.EndOfLifeReleaseRecord", b =>
+                {
+                    b.Property<string>("Product")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("Release")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateOnly?>("EndOfLifeOn")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("ExtensionUntil")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime>("FetchedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("LatestBuild")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Product", "Release");
+
+                    b.ToTable("EndOfLifeReleases", (string)null);
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.EndOfLifeReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DataAsOf")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("Day")
+                        .HasColumnType("date");
+
+                    b.Property<bool>("Notified")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("PeriodMonths")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RequestedByName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<Guid?>("RequestedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Scheduled")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.ToTable("EndOfLifeReports");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.EndOfLifeReportCount", b =>
+                {
+                    b.Property<Guid>("ReportId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SiteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Endpoints")
+                        .HasColumnType("integer");
+
+                    b.HasKey("ReportId", "SiteId", "Status");
+
+                    b.HasIndex("ClientId", "ReportId");
+
+                    b.HasIndex("SiteId", "ClientId");
+
+                    b.ToTable("EndOfLifeReportCounts");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.EndOfLifeReportRow", b =>
+                {
+                    b.Property<Guid>("ReportId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly?>("EndOfLifeOn")
+                        .HasColumnType("date");
+
+                    b.Property<bool>("ExtensionCounted")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateOnly?>("ExtensionUntil")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Hostname")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("OsName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Product")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("Release")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ReleaseLabel")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("SiteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.HasKey("ReportId", "EndpointId");
+
+                    b.HasIndex("ClientId", "ReportId");
+
+                    b.HasIndex("EndpointId", "ClientId");
+
+                    b.ToTable("EndOfLifeReportRows");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.EndOfLifeSource", b =>
+                {
+                    b.Property<string>("Product")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTime?>("FailingSince")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastSuccessAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Problem")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("ReleaseCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Product");
+
+                    b.ToTable("EndOfLifeSources");
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.Endpoint", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2027,6 +2245,10 @@ namespace Fleeto.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
+
+                    b.Property<string>("EndOfLifeExtensionRelease")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
 
                     b.Property<DateTime>("EnrolledAt")
                         .HasColumnType("timestamp with time zone");
@@ -4149,6 +4371,9 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<string>("EncryptedWebhook")
                         .HasMaxLength(8000)
                         .HasColumnType("character varying(8000)");
+
+                    b.Property<bool>("EndOfLifeReports")
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("InstanceHealth")
                         .ValueGeneratedOnAdd()
@@ -7642,6 +7867,38 @@ namespace Fleeto.Infrastructure.Migrations
                     b.HasOne("Fleeto.Core.Entities.Dashboard", null)
                         .WithMany()
                         .HasForeignKey("DashboardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.EndOfLifeReportCount", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.EndOfLifeReport", null)
+                        .WithMany()
+                        .HasForeignKey("ReportId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleeto.Core.Entities.Site", null)
+                        .WithMany()
+                        .HasForeignKey("SiteId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.EndOfLifeReportRow", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.EndOfLifeReport", null)
+                        .WithMany()
+                        .HasForeignKey("ReportId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleeto.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

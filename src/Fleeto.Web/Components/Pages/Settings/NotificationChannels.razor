@@ -103,7 +103,7 @@
         { Clients.Count: 0 } => "No clients left",
         { Clients.Count: <= 3 } => string.Join(", ", channel.Clients.Select(c => c.Code)),
         _ => $"{channel.Clients.Count} clients"
-    }) + (channel.InstanceHealth ? " · instance health" : "") + (channel.SecurityIncidents ? " · security" : "");
+    }) + (channel.InstanceHealth ? " · instance health" : "") + (channel.SecurityIncidents ? " · security" : "") + (channel.EndOfLifeReports ? " · end of life" : "");
 
     private async Task EditAsync(NotificationChannelView? channel)
     {

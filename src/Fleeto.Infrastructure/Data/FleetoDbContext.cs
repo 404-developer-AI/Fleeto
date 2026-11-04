@@ -137,6 +137,14 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<VulnerabilityCveCount> VulnerabilityCveCounts => Set<VulnerabilityCveCount>();
     public DbSet<VulnerabilityExploit> VulnerabilityExploits => Set<VulnerabilityExploit>();
 
+    // End of life (0.8.0): the dates are instance-wide, the counts and rows of a report belong to a site or an endpoint.
+    public DbSet<EndOfLifeReleaseRecord> EndOfLifeReleases => Set<EndOfLifeReleaseRecord>();
+    public DbSet<EndOfLifeSource> EndOfLifeSources => Set<EndOfLifeSource>();
+    public DbSet<EndOfLifeReport> EndOfLifeReports => Set<EndOfLifeReport>();
+    public DbSet<EndOfLifeReportCount> EndOfLifeReportCounts => Set<EndOfLifeReportCount>();
+    public DbSet<EndOfLifeReportRow> EndOfLifeReportRows => Set<EndOfLifeReportRow>();
+    public DbSet<EndOfLifeRefreshRequest> EndOfLifeRefreshRequests => Set<EndOfLifeRefreshRequest>();
+
     // The performance monitor (0.7.0): instance-wide, no client, no personal data.
     public DbSet<PerfMinute> PerfMinutes => Set<PerfMinute>();
     public DbSet<PerfHour> PerfHours => Set<PerfHour>();
@@ -364,6 +372,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
         {
             entity.Property(e => e.Hostname).HasMaxLength(255);
             entity.Property(e => e.Description).HasMaxLength(Core.Domain.EndpointDescriptionRules.MaxLength);
+            entity.Property(e => e.EndOfLifeExtensionRelease).HasMaxLength(50);
             entity.Property(e => e.OsPlatform).HasMaxLength(20);
             entity.Property(e => e.OsName).HasMaxLength(200);
             entity.Property(e => e.OsVersion).HasMaxLength(100);
@@ -1843,6 +1852,64 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(s => s.ClientId);
             EndpointChild(entity, s => new { s.EndpointId, s.ClientId });
             EndpointOwned(entity);
+        });
+
+        // End of life (0.8.0, VULNERABILITIES.md §12.3).
+        builder.Entity<EndOfLifeReleaseRecord>(entity =>
+        {
+            entity.ToTable("EndOfLifeReleases");
+            entity.HasKey(r => new { r.Product, r.Release });
+            entity.Property(r => r.Product).HasConversion<string>().HasMaxLength(30);
+            entity.Property(r => r.Release).HasMaxLength(50);
+            entity.Property(r => r.Label).HasMaxLength(100);
+            entity.Property(r => r.LatestBuild).HasMaxLength(50);
+        });
+
+        builder.Entity<EndOfLifeSource>(entity =>
+        {
+            entity.HasKey(s => s.Product);
+            entity.Property(s => s.Product).HasConversion<string>().HasMaxLength(30);
+            entity.Property(s => s.Problem).HasMaxLength(1000);
+        });
+
+        builder.Entity<EndOfLifeReport>(entity =>
+        {
+            entity.Property(r => r.RequestedByName).HasMaxLength(256);
+            entity.HasIndex(r => r.CreatedAt);
+        });
+
+        builder.Entity<EndOfLifeReportCount>(entity =>
+        {
+            entity.HasKey(c => new { c.ReportId, c.SiteId, c.Status });
+            entity.HasOne<EndOfLifeReport>().WithMany().HasForeignKey(c => c.ReportId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Site>().WithMany()
+                .HasForeignKey(c => new { c.SiteId, c.ClientId })
+                .HasPrincipalKey(s => new { s.Id, s.ClientId })
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(c => new { c.ClientId, c.ReportId });
+            WholeSiteOwned(entity);
+        });
+
+        builder.Entity<EndOfLifeReportRow>(entity =>
+        {
+            entity.HasKey(r => new { r.ReportId, r.EndpointId });
+            entity.Property(r => r.Hostname).HasMaxLength(255);
+            entity.Property(r => r.OsName).HasMaxLength(200);
+            entity.Property(r => r.Product).HasConversion<string>().HasMaxLength(30);
+            entity.Property(r => r.Release).HasMaxLength(50);
+            entity.Property(r => r.ReleaseLabel).HasMaxLength(100);
+            entity.HasOne<EndOfLifeReport>().WithMany().HasForeignKey(r => r.ReportId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(r => new { r.ClientId, r.ReportId });
+            entity.HasIndex(r => new { r.EndpointId, r.ClientId });
+            EndpointChild(entity, r => new { r.EndpointId, r.ClientId });
+            EndpointOwned(entity);
+        });
+
+        builder.Entity<EndOfLifeRefreshRequest>(entity =>
+        {
+            entity.Property(r => r.UserName).HasMaxLength(256);
+            entity.Property(r => r.Problem).HasMaxLength(1000);
+            entity.HasIndex(r => r.RequestedAt);
         });
 
         builder.Entity<UserSignInNetwork>(entity =>

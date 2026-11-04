@@ -1,0 +1,68 @@
+@* The operating systems Fleeto supports and how far (0.8.0 step 4, VULNERABILITIES.md §12): the catalog SupportedProducts, kept in code with
+   the features, so every operating system Fleeto adds appears here. *@
+<div class="fl-panel">
+    <MudSimpleTable Dense="true" Elevation="0" Hover="true">
+        <thead>
+            <tr>
+                <th>Operating system</th>
+                <th>Monitoring</th>
+                <th>Patching</th>
+                <th>Remote control</th>
+                <th>Remote background</th>
+                <th>Vulnerabilities</th>
+                <th>Web interface</th>
+                <th>End-of-life dates</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var product in SupportedProducts.All)
+            {
+                var info = EndOfLife.Info(product.Product);
+                <tr>
+                    <td>
+                        <strong>@info.Name</strong>
+                        <div class="muted">@product.Versions</div>
+                    </td>
+                    <td>@Cell(product.Monitoring)</td>
+                    <td>@Cell(product.Patching)</td>
+                    <td>@Cell(product.RemoteControl)</td>
+                    <td>@Cell(product.RemoteBackground)</td>
+                    <td>@Cell(product.Vulnerabilities)</td>
+                    <td>@Cell(product.WebInterface)</td>
+                    <td><MudLink Href="@info.SourceLink" Target="_blank" rel="noopener noreferrer">@info.SourceName</MudLink></td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+</div>
+<MudText Typo="Typo.caption" Class="muted mt-2 d-block">
+    Other operating systems can run the Fleeto agent where it supports them, but are not in the end-of-life report. Remote control needs Windows 10 or
+    Server 2016 or newer, or Linux with a desktop on X11. macOS is not supported.
+</MudText>
+
+@code {
+    private static RenderFragment Cell(FeatureSupport support) => support.Level switch
+    {
+        SupportLevel.Yes => @<span>
+            <StatusChip Text="Yes" Kind="StatusKind.Ok" />
+            @if (support.Note is { } note)
+            {
+                <div class="muted">@note</div>
+            }
+        </span>,
+        SupportLevel.Partly => @<span>
+            <StatusChip Text="Partly" Kind="StatusKind.Warning" />
+            @if (support.Note is { } note)
+            {
+                <div class="muted">@note</div>
+            }
+        </span>,
+        _ => @<span>
+            <StatusChip Text="No" Kind="StatusKind.Neutral" />
+            @if (support.Note is { } note)
+            {
+                <div class="muted">@note</div>
+            }
+        </span>
+    };
+}

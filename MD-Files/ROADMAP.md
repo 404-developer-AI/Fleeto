@@ -35,6 +35,9 @@ before anything is built.
   matching on Linux endpoints, and step 2, the Vulnerabilities tab, the overview, the dashboard tile and Settings, built 2026-10-26.
   Step 3, actively exploited CVEs (CISA's KEV catalog, ENISA's EUVD as fallback) and EPSS scores, ordering and filtering on them, and
   the vulnerabilities in the History tab, built 2026-10-27. The Windows findings of Action1 moved to "Not yet scheduled".
+  Step 4, End of life (asked for and decided 2026-11-04, `VULNERABILITIES.md` §12): per client the managed endpoints whose operating
+  system is at or near end of life, from endoflife.date and Synology's life-cycle policy, on a schedule and on request, with a PDF
+  per client, a message to notification channels, the mark of a paid extension and the list of supported products, built 2026-11-04.
 - [open] Fix: vulnerability feeds are never fetched (found on the test VPS with `v0.8.0-alpha.4`, 2026-10-27). The workers role
   may not create the temporary tables the Ubuntu and KEV imports use, and the `PostgresException` stops every feed without a
   reason on the page. Cause, workaround and fix (grant `TEMPORARY` to `fleeto_workers` in `10-fleeto-roles.sh` and

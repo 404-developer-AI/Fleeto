@@ -94,6 +94,9 @@ public static class WorkersServiceCollectionExtensions
         // Vulnerabilities on Linux endpoints (0.8.0): the feeds, and matching the endpoints against them.
         services.AddSingleton(sp => ActivatorUtilities.CreateInstance<VulnerabilityReporting.VulnerabilityFeedService>(sp));
         services.AddHostedService(sp => sp.GetRequiredService<VulnerabilityReporting.VulnerabilityFeedService>());
+        // End of life (0.8.0 step 4): the dates of endoflife.date and the report.
+        services.AddSingleton(sp => ActivatorUtilities.CreateInstance<VulnerabilityReporting.EndOfLifeService>(sp));
+        services.AddHostedService(sp => sp.GetRequiredService<VulnerabilityReporting.EndOfLifeService>());
         services.AddSingleton(sp => ActivatorUtilities.CreateInstance<VulnerabilityReporting.ExploitFeedService>(sp));
         services.AddHostedService(sp => sp.GetRequiredService<VulnerabilityReporting.ExploitFeedService>());
         services.AddSingleton<VulnerabilityReporting.VulnerabilityMatchService>();

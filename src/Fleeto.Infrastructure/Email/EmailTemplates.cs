@@ -160,6 +160,89 @@ public static class EmailTemplates
         return new EmailContent(Subject(subject), html, Footer(text));
     }
 
+    /// <summary>
+    /// The end-of-life report of a scheduled run (0.8.0): per client its counts and the endpoints at or near end of life, at most
+    /// <see cref="EndOfLifeNotice.MaxEndpoints"/>. Host and OS names come from agents and are encoded.
+    /// </summary>
+    public static EmailContent EndOfLifeReport(string instanceFqdn, EndOfLifeNotice notice, string reportUrl)
+    {
+        var day = notice.Day.ToString("d MMMM yyyy", CultureInfo.InvariantCulture);
+        var lead = $"The end-of-life report of {instanceFqdn} of {day}: endpoints whose operating system no longer gets security updates, " +
+                   $"or will not within {notice.PeriodMonths} months.";
+        var html = new StringBuilder();
+        var text = new StringBuilder();
+        var listed = 0;
+        foreach (var client in notice.Clients)
+        {
+            var counts = EndOfLifeCounts(client);
+            html.Append($"""<p style="margin:16px 0 4px;font-weight:600">[{Enc(client.ClientCode)}] {Enc(client.ClientName)}</p>""")
+                .Append($"""<p style="margin:0 0 8px;color:{MutedColor};font-size:13px">{Enc(counts)}</p>""");
+            text.Append($"[{client.ClientCode}] {client.ClientName}\n{counts}\n");
+            var rows = new StringBuilder();
+            foreach (var endpoint in client.Endpoints)
+            {
+                if (listed >= EndOfLifeNotice.MaxEndpoints)
+                {
+                    break;
+                }
+
+                listed++;
+                var state = EndOfLifeState(endpoint);
+                rows.Append($"""<tr><td style="padding:2px 12px 2px 0">{Enc(endpoint.Hostname)}</td><td style="padding:2px 12px 2px 0">{Enc(endpoint.OsName)}</td><td style="padding:2px 0">{Enc(state)}</td></tr>""");
+                text.Append($"  {endpoint.Hostname}  {endpoint.OsName}  {state}\n");
+            }
+
+            if (rows.Length > 0)
+            {
+                html.Append($"""<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 8px;font-size:13px">{rows}</table>""");
+            }
+
+            text.Append('\n');
+        }
+
+        var total = notice.Clients.Sum(c => c.Endpoints.Count);
+        if (total > listed)
+        {
+            var more = $"And {total - listed} more endpoints: the tab End of life and the PDF of each client list them all.";
+            html.Append($"""<p style="margin:8px 0 16px;color:{MutedColor}">{Enc(more)}</p>""");
+            text.Append(more).Append('\n');
+        }
+
+        var body = Layout($"""
+            <p style="margin:0 0 16px">{Enc(lead)}</p>
+            <p style="margin:0 0 8px;font-size:17px;font-weight:600">{Enc(notice.Headline)}</p>
+            {html}
+            {Button(reportUrl, "Open the report")}
+            """);
+        var plain = $"""
+            {lead}
+
+            {notice.Headline}
+
+            {text}
+            Open the report: {reportUrl}
+            """;
+        return new EmailContent(Subject($"End-of-life report: {notice.Headline}"), body, Footer(plain));
+    }
+
+    private static string EndOfLifeCounts(EndOfLifeNoticeClient client) =>
+        $"{client.EndOfLife} at end of life, {client.EndingSoon} ending soon, {client.Extended} on a paid extension, {client.NotRecognised} not recognised";
+
+    /// <summary>The state of one endpoint in a message: "End of life since 2025-10-14", "Ends 2027-06-01".</summary>
+    public static string EndOfLifeState(EndOfLifeNoticeEndpoint endpoint)
+    {
+        var date = endpoint.EndOfLifeOn is { } on ? on.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : null;
+        return endpoint.Status switch
+        {
+            EndOfLifeStatus.EndOfLife => date is null ? "End of life" : $"End of life since {date}",
+            EndOfLifeStatus.EndingSoon => $"Ends {date}",
+            EndOfLifeStatus.Extended => "Paid extension",
+            EndOfLifeStatus.NoDate => "No end of life announced",
+            EndOfLifeStatus.NotRecognised => "Not recognised",
+            _ => "Supported"
+        };
+    }
+
     /// <summary>A security incident of the instance (0.7.0): an attack, a sign-in from a new network, a privilege change.</summary>
     public static EmailContent SecurityIncident(string instanceFqdn, NotificationEvent notificationEvent, string severity, string title, string detail,
         string securityUrl)

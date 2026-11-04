@@ -53,6 +53,12 @@ public static class SettingKeys
     /// <summary>Months ended vulnerability findings are kept (0.8.0). A plain integer; missing means 13.</summary>
     public const string RetentionEndedVulnerabilitiesMonths = "retention.ended-vulnerabilities-months";
 
+    /// <summary>The schedule of the end-of-life report (0.8.0), an <see cref="Core.Domain.EndOfLifeSchedule"/> as JSON; missing means the default.</summary>
+    public const string EndOfLifeSchedule = "end-of-life.schedule";
+
+    /// <summary>Months before its end of life an endpoint counts as ending soon (0.8.0). A plain integer; missing means 6.</summary>
+    public const string EndOfLifePeriodMonths = "end-of-life.period-months";
+
     /// <summary>
     /// Endpoint count above which starting a script emails every admin (0.2.1). A plain integer; 0 never notifies.
     /// Missing means <see cref="Core.Entities.ScriptRules.DefaultAdminNoticeAbove"/>.

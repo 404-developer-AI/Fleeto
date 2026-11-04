@@ -87,6 +87,12 @@ public class Endpoint
     /// </summary>
     public string? Description { get; set; }
 
+    /// <summary>
+    /// The release of the operating system for which a user with "Edit endpoints" marked that the client bought a paid extension (Windows
+    /// ESU, Extended LTS) (0.8.0, VULNERABILITIES.md §12); null when none. It counts only while the endpoint runs that release.
+    /// </summary>
+    public string? EndOfLifeExtensionRelease { get; set; }
+
     /// <summary>Class derived from the OS (server edition or not).</summary>
     public EndpointClass DetectedClass { get; set; }
 

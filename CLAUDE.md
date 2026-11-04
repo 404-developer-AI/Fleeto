@@ -136,6 +136,14 @@ the API and the database follows it.
   An admin makes layouts in Settings, Column layouts (permission Column layouts) and links them to roles; a user sees the first in
   priority order linked to one of its roles, otherwise the default columns, like dashboards. Users never change their own columns, and
   a column never shows more than the user's permissions give.
+- **End of life** (decided 2026-11-04, 0.8.0, `MD-Files/VULNERABILITIES.md` §12): the tab End of life under Vulnerabilities lists per
+  client the managed endpoints (never agent-only) whose operating system no longer gets security updates or will not within a period an
+  admin sets (default 6 months): Windows, Windows Server, Ubuntu, Debian, AlmaLinux, Proxmox VE and Synology DSM, recognised from what the
+  agent reports. Dates from endoflife.date, fetched by the workers; Synology DSM from Synology's life-cycle policy, kept in code. A report
+  runs on a schedule (Settings, Vulnerabilities) and on "Refresh now", goes after a scheduled run to the notification channels that chose
+  it, and exports a PDF per client. A paid extension (ESU, Ubuntu Pro, Extended LTS) is shown apart; a user with Edit endpoints marks
+  that the client bought it, Ubuntu Pro counts by itself. The tab Supported products shows per operating system what Fleeto offers
+  (`SupportedProducts`). **Every operating system Fleeto supports later joins both** (a test enforces it).
 - **Policy**: agent behaviour pushed to the endpoints it applies to (at most one per client, site and endpoint;
   without one on any level the instance default policy applies): check intervals, update ring, script permissions,
   remote control rules, maintenance windows.

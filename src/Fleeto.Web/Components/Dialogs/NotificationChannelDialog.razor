@@ -56,6 +56,11 @@
             Attacks on sign-in, API keys or the agent gateway, sign-ins from a new network and changes to who can do what. Scans that Fleeto
             blocked by itself are only shown in Settings, Security.
         </MudText>
+        <MudSwitch T="bool" @bind-Value="_endOfLifeReports" Color="Color.Primary" Label="Also send end-of-life reports" />
+        <MudText Typo="Typo.caption" Class="muted d-block mb-2" Style="margin-top:-6px">
+            After every scheduled run of the report on the tab End of life under Vulnerabilities: the endpoints at or near end of life of the
+            clients this channel receives.
+        </MudText>
         <MudSwitch T="bool" @bind-Value="_notifyOnResolve" Color="Color.Primary" Label="Also send a message when an alert is resolved" />
         <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Label="Enabled" />
     </DialogContent>
@@ -84,6 +89,7 @@
     private bool _notifyOnResolve = true;
     private bool _instanceHealth;
     private bool _securityIncidents;
+    private bool _endOfLifeReports;
     private bool _enabled = true;
     private bool _busy;
 
@@ -101,6 +107,7 @@
             _notifyOnResolve = c.NotifyOnResolve;
             _instanceHealth = c.InstanceHealth;
             _securityIncidents = c.SecurityIncidents;
+            _endOfLifeReports = c.EndOfLifeReports;
             _enabled = c.Enabled;
         }
     }
@@ -130,7 +137,7 @@
         try
         {
             var input = new NotificationChannelInput(_name, _type, _recipients, _format, _url, _minimumSeverity, _notifyOnResolve, _enabled,
-                _allClients, _clientIds.ToList(), _instanceHealth, _securityIncidents);
+                _allClients, _clientIds.ToList(), _instanceHealth, _securityIncidents, _endOfLifeReports);
             if (await OnSubmit(input))
             {
                 MudDialog.Close(DialogResult.Ok(true));

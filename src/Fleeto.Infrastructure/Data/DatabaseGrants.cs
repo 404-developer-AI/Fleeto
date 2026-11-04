@@ -261,6 +261,14 @@ public static class DatabaseGrants
             ["VulnerabilityCveCounts"] = Grants(web: Read, workers: ReadWrite),
             // KEV and EPSS per CVE (step 3): the workers replace them from the feeds, web joins them to the findings it shows.
             ["VulnerabilityExploits"] = Grants(web: Read, workers: ReadWrite),
+            // End of life (0.8.0, step 4): the workers fetch the dates and write the reports; web shows them and asks for a refresh,
+            // which a trigger turns into a notification for the workers.
+            ["EndOfLifeReleases"] = Grants(web: Read, workers: ReadWrite),
+            ["EndOfLifeSources"] = Grants(web: Read, workers: ReadWrite),
+            ["EndOfLifeReports"] = Grants(web: Read, workers: ReadWrite),
+            ["EndOfLifeReportCounts"] = Grants(web: Read, workers: ReadWrite),
+            ["EndOfLifeReportRows"] = Grants(web: Read, workers: ReadWrite),
+            ["EndOfLifeRefreshRequests"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
 
             // Key material: full access for the signer only; everyone else reads the public columns.
             ["InstanceSigningKeys"] = Grants(signer: "SELECT, INSERT, UPDATE"),

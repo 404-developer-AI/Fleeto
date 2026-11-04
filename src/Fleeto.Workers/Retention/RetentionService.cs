@@ -174,6 +174,17 @@ public sealed class RetentionService : WorkerLoop
         """;
 
     // Security advisories (0.8.0): kept 13 months after their publication; their handling goes with them by cascade.
+    // End-of-life reports (0.8.0): a report takes its counts and rows with it (cascade), so a batch is a few reports.
+    private const string DeleteEndOfLifeReportsSql = """
+        DELETE FROM "EndOfLifeReports" WHERE "Id" IN (
+          SELECT "Id" FROM "EndOfLifeReports" WHERE "CreatedAt" < @cutoff ORDER BY "CreatedAt" LIMIT 5)
+        """;
+
+    private const string DeleteEndOfLifeRequestsSql = """
+        DELETE FROM "EndOfLifeRefreshRequests" WHERE "Id" IN (
+          SELECT "Id" FROM "EndOfLifeRefreshRequests" WHERE "RequestedAt" < @cutoff LIMIT 5000)
+        """;
+
     private const string DeleteAdvisoriesSql = """
         DELETE FROM "Advisories" WHERE "Id" IN (
           SELECT "Id" FROM "Advisories" WHERE "PublishedAt" < @cutoff LIMIT 5000)
@@ -323,6 +334,10 @@ public sealed class RetentionService : WorkerLoop
         deleted["SecurityIncidents"] = await DeleteInBatchesAsync(DeleteSecurityIncidentsSql,
             () => [new NpgsqlParameter("cutoff", now - Security.SecurityMonitorService.ResolvedRetention)], cancellationToken);
         deleted["Advisories"] = await DeleteInBatchesAsync(DeleteAdvisoriesSql, () => [new NpgsqlParameter("cutoff", now - AdvisorySources.Retention)], cancellationToken);
+        deleted["EndOfLifeReports"] = await DeleteInBatchesAsync(DeleteEndOfLifeReportsSql,
+            () => [new NpgsqlParameter("cutoff", now.AddMonths(-EndOfLife.ReportRetentionMonths))], cancellationToken);
+        deleted["EndOfLifeRefreshRequests"] = await DeleteInBatchesAsync(DeleteEndOfLifeRequestsSql, () => [new NpgsqlParameter("cutoff", now.AddDays(-30))],
+            cancellationToken);
         var vulnerabilityMonths = Vulnerabilities.EndedRetentionMonths(
             await _settings.GetStringAsync(SettingKeys.RetentionEndedVulnerabilitiesMonths, cancellationToken));
         deleted["EndpointVulnerabilities (ended)"] = await DeleteInBatchesAsync(DeleteEndedVulnerabilitiesSql,

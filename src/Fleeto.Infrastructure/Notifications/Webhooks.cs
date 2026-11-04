@@ -218,6 +218,80 @@ public static class WebhookPayloads
         };
     }
 
+    /// <summary>Event name of an end-of-life report (0.8.0) in webhook payloads and outbox categories.</summary>
+    public const string EndOfLifeReportEventName = "end_of_life.report";
+
+    /// <summary>
+    /// The end-of-life report of a scheduled run (0.8.0). Slack and Teams get the counts per client; the generic format gets every
+    /// listed endpoint, at most <see cref="EndOfLifeNotice.MaxEndpoints"/>.
+    /// </summary>
+    public static string EndOfLifeReport(WebhookFormat format, Guid deliveryId, Guid reportId, string instanceFqdn, EndOfLifeNotice notice, string reportUrl,
+        DateTime now)
+    {
+        var headline = $"End-of-life report: {notice.Headline}";
+        var facts = new List<(string Name, string Value)> { ("Instance", instanceFqdn), ("Day", notice.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)) };
+        var summary = string.Join("\n", notice.Clients.Select(c =>
+            $"[{c.ClientCode}] {c.ClientName}: {c.EndOfLife} at end of life, {c.EndingSoon} ending soon, {c.Extended} on a paid extension, {c.NotRecognised} not recognised"));
+        switch (format)
+        {
+            case WebhookFormat.Slack:
+                return Slack(headline, facts, Trim(summary), reportUrl, "Open the report");
+            case WebhookFormat.Teams:
+                return Teams(headline, facts, Trim(summary), reportUrl, "Open the report",
+                    notice.EndOfLife > 0 ? "Attention" : notice.EndingSoon > 0 ? "Warning" : "Good");
+        }
+
+        var listed = 0;
+        var clients = new JsonArray();
+        foreach (var client in notice.Clients)
+        {
+            var endpoints = new JsonArray();
+            foreach (var endpoint in client.Endpoints)
+            {
+                if (listed++ >= EndOfLifeNotice.MaxEndpoints)
+                {
+                    break;
+                }
+
+                endpoints.Add(new JsonObject
+                {
+                    ["hostname"] = endpoint.Hostname,
+                    ["os"] = endpoint.OsName,
+                    ["status"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(endpoint.Status.ToString()),
+                    ["endOfLife"] = endpoint.EndOfLifeOn?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+                });
+            }
+
+            clients.Add(new JsonObject
+            {
+                ["code"] = client.ClientCode,
+                ["name"] = client.ClientName,
+                ["endOfLife"] = client.EndOfLife,
+                ["endingSoon"] = client.EndingSoon,
+                ["extended"] = client.Extended,
+                ["notRecognised"] = client.NotRecognised,
+                ["endpoints"] = endpoints
+            });
+        }
+
+        return Serialize(new JsonObject
+        {
+            ["id"] = deliveryId,
+            ["type"] = EndOfLifeReportEventName,
+            ["version"] = 1,
+            ["createdAt"] = Utc(now),
+            ["instance"] = instanceFqdn,
+            ["report"] = new JsonObject
+            {
+                ["id"] = reportId,
+                ["day"] = notice.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                ["periodMonths"] = notice.PeriodMonths,
+                ["url"] = reportUrl,
+                ["clients"] = clients
+            }
+        });
+    }
+
     /// <summary>Event name of a security incident (0.7.0) in webhook payloads and outbox categories.</summary>
     public static string SecurityIncidentEventName(NotificationEvent notificationEvent) => notificationEvent switch
     {

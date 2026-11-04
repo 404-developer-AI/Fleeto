@@ -194,6 +194,9 @@ public static class NotificationChannels
     /// it.
     /// </summary>
     public const string VulnerabilityFeeds = "fleeto_vulnerability_feeds";
+
+    /// <summary>Payload: the id of an end-of-life refresh request (0.8.0); raised by a database trigger, the workers run the report.</summary>
+    public const string EndOfLife = "fleeto_end_of_life";
 }
 
 /// <summary>Writes audit entries. The table is append-only; there is no update or delete.</summary>
@@ -391,6 +394,18 @@ public static class AuditActions
 
     /// <summary>The settings of vulnerability reporting changed (0.8.0): the retention of ended findings.</summary>
     public const string VulnerabilitySettingsChanged = "vulnerability.settings_changed";
+
+    /// <summary>A user asked for a new end-of-life report (0.8.0).</summary>
+    public const string EndOfLifeRefreshRequested = "end_of_life.refresh_requested";
+
+    /// <summary>The schedule or the period of the end-of-life report changed (0.8.0).</summary>
+    public const string EndOfLifeSettingsChanged = "end_of_life.settings_changed";
+
+    /// <summary>A user marked that the client bought a paid extension for the release of an endpoint, or removed that mark (0.8.0).</summary>
+    public const string EndOfLifeExtensionChanged = "end_of_life.extension_changed";
+
+    /// <summary>The PDF of the end-of-life report of a client was downloaded (0.8.0), without its content.</summary>
+    public const string EndOfLifeReportExported = "end_of_life.report_exported";
 
     /// <summary>The settings of the security monitor changed (0.7.0): automatic blocking on or off.</summary>
     public const string SecuritySettingsChanged = "security.settings_changed";

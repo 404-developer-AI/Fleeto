@@ -2,6 +2,7 @@
 @attribute [RequirePermission(Permissions.VulnerabilitiesManage)]
 @inherits FleetoPageBase
 @inject VulnerabilityService VulnerabilitySvc
+@inject EndOfLifeReportService EndOfLifeSvc
 
 <PageTitle>Vulnerabilities - Fleeto</PageTitle>
 
@@ -91,6 +92,96 @@
             </div>
         </div>
     }
+
+    @* The end-of-life report (0.8.0 step 4, VULNERABILITIES.md §12): its schedule, the period of "ending soon" and the state of its sources. *@
+    @if (_endOfLife is { } eol)
+    {
+        <div class="fl-panel pa-4 mt-4" style="max-width:640px">
+            <MudText Typo="Typo.subtitle1">End-of-life report</MudText>
+            <MudText Typo="Typo.body2" Class="muted mb-3">
+                When the report of the tab End of life runs by itself. After every scheduled run it goes to the notification channels that chose
+                end-of-life reports. "Refresh now" on the tab makes a report at any time, without a message.
+            </MudText>
+            <div class="d-flex flex-wrap gap-3 align-center mb-2">
+                <MudSelect T="EndOfLifeScheduleKind" @bind-Value="_kind" Label="Runs" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:160px">
+                    <MudSelectItem T="EndOfLifeScheduleKind" Value="EndOfLifeScheduleKind.Off">Off</MudSelectItem>
+                    <MudSelectItem T="EndOfLifeScheduleKind" Value="EndOfLifeScheduleKind.Daily">Daily</MudSelectItem>
+                    <MudSelectItem T="EndOfLifeScheduleKind" Value="EndOfLifeScheduleKind.Weekly">Weekly</MudSelectItem>
+                    <MudSelectItem T="EndOfLifeScheduleKind" Value="EndOfLifeScheduleKind.Monthly">Monthly</MudSelectItem>
+                </MudSelect>
+                @if (_kind == EndOfLifeScheduleKind.Weekly)
+                {
+                    <MudSelect T="DayOfWeek" @bind-Value="_weekDay" Label="On" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:160px">
+                        @foreach (var day in WeekDays)
+                        {
+                            <MudSelectItem T="DayOfWeek" Value="day">@day</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
+                @if (_kind == EndOfLifeScheduleKind.Monthly)
+                {
+                    <MudNumericField T="int" @bind-Value="_monthDay" Label="On day" Min="1" Max="28" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                     Style="max-width:110px" HelperText="1 to 28" />
+                }
+                @if (_kind != EndOfLifeScheduleKind.Off)
+                {
+                    <MudNumericField T="int" @bind-Value="_hour" Label="At hour" Min="0" Max="23" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                     Style="max-width:110px" HelperText="0 to 23" />
+                }
+            </div>
+            @if (_kind != EndOfLifeScheduleKind.Off)
+            {
+                <MudAutocomplete T="string" @bind-Value="_zone" Label="Time zone" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2"
+                                 SearchFunc="SearchZonesAsync" ToStringFunc="ZoneLabel" MaxItems="50" Strict="true" ResetValueOnEmptyText="false"
+                                 Style="max-width:360px" />
+            }
+            <MudNumericField T="int" @bind-Value="_period" Label="Ending soon within (months)" Min="EndOfLife.MinPeriodMonths" Max="EndOfLife.MaxPeriodMonths"
+                             Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:240px" Class="mb-2"
+                             HelperText="@($"An endpoint whose end of life is this close counts as ending soon ({EndOfLife.MinPeriodMonths} to {EndOfLife.MaxPeriodMonths}).")" />
+            <div class="d-flex align-center gap-3 mb-4">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_savingEndOfLife || !EndOfLifeChanged(eol))" OnClick="SaveEndOfLifeAsync">
+                    Save
+                </MudButton>
+                <MudText Typo="Typo.body2" Class="muted">
+                    @(eol.NextRun is { } next ? $"Next run {Time.Short(next)}." : "No run is scheduled.")
+                </MudText>
+            </div>
+
+            <MudSimpleTable Dense="true" Elevation="0">
+                <thead><tr><th>Product</th><th>Source</th><th>Last fetched</th><th>Releases</th></tr></thead>
+                <tbody>
+                    @foreach (var source in eol.Sources)
+                    {
+                        <tr>
+                            <td><strong>@source.Name</strong></td>
+                            <td>
+                                @source.SourceName
+                                @if (source.Problem is { } problem)
+                                {
+                                    <div class="muted mt-1" style="font-size:0.8125rem">@problem</div>
+                                }
+                            </td>
+                            <td>
+                                @if (source.Builtin)
+                                {
+                                    <span class="muted">In Fleeto</span>
+                                }
+                                else if (source.LastSuccessAt is { } success)
+                                {
+                                    <TimeText Value="success" />
+                                }
+                                else
+                                {
+                                    <span class="muted">Never</span>
+                                }
+                            </td>
+                            <td>@source.Releases</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    }
 </LoadState>
 
 @code {
@@ -101,11 +192,57 @@
 
     protected override Task OnInitializedAsync() => ReloadAsync();
 
+    private EndOfLifeSettingsView? _endOfLife;
+    private EndOfLifeScheduleKind _kind;
+    private DayOfWeek _weekDay;
+    private int _monthDay = 1;
+    private int _hour = 7;
+    private string _zone = "UTC";
+    private int _period = EndOfLife.DefaultPeriodMonths;
+    private bool _savingEndOfLife;
+
+    private static readonly DayOfWeek[] WeekDays =
+        [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday];
+
     private Task ReloadAsync() => LoadAsync(async caller =>
     {
         _view = await VulnerabilitySvc.GetSettingsAsync(caller);
         _months = _view.RetentionMonths;
+        _endOfLife = await EndOfLifeSvc.GetSettingsAsync(caller);
+        var schedule = _endOfLife.Schedule;
+        (_kind, _weekDay, _monthDay, _hour, _zone, _period) =
+            (schedule.Kind, schedule.WeekDay, schedule.MonthDay, schedule.Hour, schedule.TimeZone, _endOfLife.PeriodMonths);
     });
+
+    private EndOfLifeSchedule EditedSchedule => new(_kind, _weekDay, _monthDay, _hour, _zone);
+
+    private bool EndOfLifeChanged(EndOfLifeSettingsView view) => EditedSchedule != view.Schedule || _period != view.PeriodMonths;
+
+    private async Task SaveEndOfLifeAsync()
+    {
+        _savingEndOfLife = true;
+        try
+        {
+            if (await RunAsync(caller => EndOfLifeSvc.SaveSettingsAsync(caller, EditedSchedule, _period), "Saved."))
+            {
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _savingEndOfLife = false;
+        }
+    }
+
+    private static string ZoneLabel(string? id) => TimeZoneOptions.All.FirstOrDefault(z => z.Id == id)?.Label ?? id ?? string.Empty;
+
+    private static Task<IEnumerable<string>> SearchZonesAsync(string? text, CancellationToken cancellationToken)
+    {
+        var term = text?.Trim();
+        return Task.FromResult(TimeZoneOptions.All
+            .Where(z => string.IsNullOrEmpty(term) || z.Label.Contains(term, StringComparison.OrdinalIgnoreCase))
+            .Select(z => z.Id));
+    }
 
     private async Task RefreshAsync()
     {

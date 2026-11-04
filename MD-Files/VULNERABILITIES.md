@@ -77,7 +77,7 @@ How it works (CCB):
   `robots.txt` included, answers 403 from the bot protection of its CDN to a client that is not a browser. Fleeto does not get
   around that: it **reads the RSS feed only**, every hour, like `IpFeedService` (timeouts, retries with backoff, the circuit
   breaker), and shows the title, the date and the link. CVE identifiers and a summary are not shown for the CCB until it offers
-  them in a form Fleeto may fetch (§12). The source id is the `guid`; a warning the feed drops stays in Fleeto until its
+  them in a form Fleeto may fetch (§13). The source id is the `guid`; a warning the feed drops stays in Fleeto until its
   retention ends, because the feed holds only 10 items.
 - **Untrusted input**: everything from a source is shown as plain text, never as HTML or Markdown, and the only link Fleeto
   renders is the one to the warning on the host of its source (`ccb.belgium.be`), checked against that host.
@@ -343,11 +343,15 @@ Each step is an alpha on the test VPS; the version is released as a whole with p
    dpkg and rpm version comparison with the reference test sets; the severity mapping and the release support table; the
    tables, migrations (expand only) and matching in the workers; the summary table; the instance health problem for a stale
    feed; a load test of matching at 10,000 endpoints.
-2. **UI**, built 2026-10-26 without Windows (the developer chose to leave the Windows findings of Action1 out for now, §12): the
+2. **UI**, built 2026-10-26 without Windows (the developer chose to leave the Windows findings of Action1 out for now, §13): the
    endpoint tab, the overview per client and site, the dashboard tile, the permissions, Settings, Vulnerabilities, and the API
    waiting list entries (how it works: `ARCHITECTURE.md` §5; deviations below).
 3. **Exploitation and age**, built 2026-10-27: KEV (with the EUVD fallback) and EPSS, sorting on them, the instance health problem for
    these two feeds, the CVSS score, and the History tab entries (how it works: `ARCHITECTURE.md` §5; deviations below).
+4. **End of life** (§12, decided 2026-11-04): the release recognition and the status rules with tests on the names of real endpoints, the
+   catalog of supported products with the test that every operating system has a source and a line, the DSM list, the fetch of
+   `endoflife.date`, the tables and migration (expand only), the report with schedule and "Refresh now", the tabs, the extension mark, the
+   PDF, the message to notification channels, the instance health problem, and the API waiting list entries.
 
 Deviations of step 1 from §6 to §8, decided while building:
 
@@ -411,7 +415,104 @@ Deviations of step 2 from §9, decided while building:
   `errata.almalinux.org`) and only for identifiers that look like theirs; the Debian tracker gives no DSA per CVE, so a Debian finding
   links to the CVE page of the tracker.
 
-## 12. Open
+## 12. End of life (step 4)
+
+Asked for by the developer on 2026-11-04, after alpha.14: a tab End of life under Vulnerabilities that lists per client the endpoints whose
+operating system no longer gets security updates, or soon will not, as a report on a schedule and on request, and on the same page which
+products Fleeto supports and how far. Decided the same day:
+
+- **Products**: Windows, Windows Server, Ubuntu, Debian, AlmaLinux, Proxmox VE and Synology DSM, the operating systems Fleeto recognises
+  today. **Every operating system Fleeto supports later joins the list**: a test fails when an operating system of the catalog below has no
+  life-cycle source or no line in the list of supported products.
+- **Managed endpoints only**, like vulnerabilities and patches (§10): an agent-only endpoint is left out of the report and the counts.
+- **Source**: `endoflife.date` for everything it covers, fetched by the workers and kept in the database; **Synology DSM is not on
+  endoflife.date** (checked 2026-11-04), so its dates are a fixed list in the code, taken from Synology's *Software Life Cycle Policy*
+  (last updated 2026-10-13), which gives months only: Fleeto takes the last day of the month. The page names the source and the age of
+  the data of every product.
+- **The report** is three things: a snapshot on the tab (the latest one, with its date), a PDF per client to give to the client, and a
+  message to the notification channels an admin chose for end-of-life reports after every scheduled run.
+- **Schedule**: off, daily, weekly (a day of the week) or monthly (a day of the month), at an hour in a time zone, set by an admin; and
+  "Refresh now" on the tab at any time. A manual refresh makes a new snapshot but sends no message.
+- **"Ending soon"**: an endpoint whose end of life falls within a period an admin sets (1 to 24 months, default 6).
+- **Paid extensions** (Windows 10 ESU, Windows Server ESU, Debian ELTS, Ubuntu Pro): shown apart, "End of life, extension possible until
+  X". A user with the permission Edit endpoints marks per endpoint that the client bought it; while the extension runs the endpoint is
+  not in the report as end of life (it is counted as extended), and once it ends it is back. The mark belongs to the release it was made
+  for, so an endpoint upgraded to another release loses it. **Ubuntu Pro counts by itself** where the agent reports the service
+  `esm-infra` (§6), without a mark. Marking and unmarking are audited.
+- **Supported products**: per operating system whether Fleeto offers monitoring, patching, remote control, remote background,
+  vulnerabilities and a web interface, with the limits in a few words ("Linux X11 only", "Windows through Action1"). A catalog in code,
+  not data.
+
+### 12.1 Recognising the release
+
+From what the agent already reports (`OsPlatform`, `OsName`, `OsVersion`), so no agent change is needed and an older agent works:
+
+| Product | Reported name | Release |
+|---|---|---|
+| Windows | `Windows 11 Pro`, `10.0.26200` | The release of `endoflife.date` whose latest build is `10.0.<build>`; an edition with Enterprise or Education takes its `-e` release, LTSC its `-e-lts` (IoT LTSC its `-iot-lts`), every other edition its `-w` release; a build with one release (Windows 10 22H2) takes that one |
+| Windows Server | `Windows Server 2022 Standard` | The year in the name (`2022`, `2012 R2` as `2012-r2`, `2008 R2` as `2008-r2-sp1`), otherwise the long-term release with the build |
+| Ubuntu | `Ubuntu 24.04.1 LTS` | `24.04` |
+| Debian | `Debian GNU/Linux 12 (bookworm)` | `12` |
+| AlmaLinux | `AlmaLinux 9.8 (Olive Jaguar)` | `9` |
+| Proxmox VE | `Proxmox VE 8.4.21 (Debian GNU/Linux 12 (bookworm))` | `8` (its Debian is not reported apart) |
+| Synology DSM | `Synology DSM 7.1.1-42962 Update 8` | `7.1` |
+
+An endpoint whose release is not recognised, or that the source does not know, is listed as "Not recognised" with its name, never left
+out; a release the source lists without a date (Proxmox VE 9 on 2026-11-04) is "No end of life announced".
+
+### 12.2 Dates
+
+- **End of life** is the end of security updates: `eolFrom` of `endoflife.date` (for Windows and Ubuntu the end of their standard security
+  support, for Debian the end of its LTS), and for DSM the end of the Extended Life Phase, or of the Maintenance Phase for a release without
+  one. The end of active support (`eoasFrom`) is not used.
+- **Extension until** is `eoesFrom` (ESU, Expanded Security Maintenance, ELTS) where the source has one. DSM 7.1 has an Extended Life Phase only
+  on a list of older models, which Fleeto does not know, so its end of life is the end of its Maintenance Phase (both are past).
+- **Status**, from the day of the report in the time zone of the schedule: *Supported*, *Ending soon* (within the period), *Extended* (past
+  end of life, marked or Ubuntu Pro, before the end of the extension), *End of life*, *No end of life announced*, *Not recognised*.
+
+### 12.3 Data
+
+- `EndOfLifeReleases`: per product and release its label, end of life, extension until, latest build (Windows), source and fetched at;
+  replaced per product by a successful fetch. Instance-wide.
+- `EndOfLifeSources`: per product the last fetch, last change, number of releases and last error, like `VulnerabilityFeeds`.
+- `EndOfLifeReports`: one per run (when, scheduled or by whom, the period used, the data age, the counts per status) and
+  `EndOfLifeReportRows`: per endpoint that is not *Supported* in that run (`ClientId`, `SiteId`, `EndpointId`, hostname, OS name,
+  product, release, status, end of life, extension until). Client-owned rows with composite foreign keys; a deleted endpoint keeps no
+  rows (cascade). Reports are kept 13 months; the tab shows the newest.
+- `Endpoints.EndOfLifeExtensionRelease`: the release the paid extension was marked for, null when none.
+- Settings (`Settings`): schedule kind, day, hour, time zone, period in months. `NotificationChannels.EndOfLifeReports`.
+- Requests for "Refresh now" are a row web writes and notifies (`fleeto_vulnerabilities`), handled by the workers like the other
+  requests of an admin (web never reaches the internet, `CLAUDE.md`).
+
+### 12.4 Workers
+
+- `EndOfLifeService` (a `WorkerLoop`): fetches `https://endoflife.date/api/v1/products/<product>` for the six products once a day, with
+  timeouts, retries, the circuit breaker and a User-Agent that names Fleeto; a response without releases, or with far fewer than the stored
+  ones, is refused and the stored data stays. Not fetched for 7 days is an instance health problem; the report then still runs and states
+  the age of its data.
+- Runs a report when the schedule is due or a request waits: reads the managed endpoints, recognises their release, decides the status,
+  writes the report with its rows in one transaction. Then, for a scheduled run only, one message per channel that chose end-of-life
+  reports, holding the clients that channel routes (all clients or its own), each with its counts and endpoints at end of life or ending
+  soon, and a link to the tab. Email through the outbox, Slack, Teams and webhooks through their own formats.
+
+### 12.5 UI
+
+- **Vulnerabilities gets tabs**: Linux packages (the overview of §9), End of life, Supported products. Permission View vulnerabilities.
+- **End of life tab**: the choice of client like the overview, cards per status, the date of the report and the age of the data, "Refresh
+  now" (View vulnerabilities; once per minute for the instance), and per client a table of its endpoints with status, OS, release, end of
+  life and extension; a menu per row to mark or unmark the paid extension (Edit endpoints) and "Download PDF" per client, which is audited
+  without its content.
+- **PDF**: written by Fleeto itself like the storage report (`PdfDocument`): client, date of the report, counts, and the endpoints at end
+  of life, extended, ending soon and not recognised, with their dates and sources.
+- **Supported products tab**: the catalog as a table, with a note on where the dates come from.
+- **Settings, Vulnerabilities**: the schedule, the period, and the state of each source. **Settings, Notification channels**: "End-of-life
+  reports" next to instance health and security incidents.
+
+### 12.6 API
+
+Reading the latest report and the supported products goes on `API-WAITLIST.md` in the commit of this step, and so does marking an extension.
+
+## 13. Open
 
 Every question was decided on 2026-10-26 (§2, §5, §7, §9, §10). What is left:
 

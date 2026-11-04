@@ -11,29 +11,30 @@
 <div class="page-header">
     <div>
         <MudText Typo="Typo.h4" Class="page-title">Vulnerabilities</MudText>
-        <MudText Typo="Typo.body2" Class="muted">
-            Known vulnerabilities in the packages of managed Linux endpoints, per CVE. Windows endpoints are not included: their missing
-            updates are on the Patches tab of each endpoint.
-        </MudText>
+        <MudText Typo="Typo.body2" Class="muted">@TabDescription</MudText>
     </div>
 </div>
 
+@* Three tabs (0.8.0 step 4, VULNERABILITIES.md §12.5): the packages of Linux endpoints, the operating systems at or near end of life, and what
+   Fleeto supports on each operating system. The tab is in the address, so a link (the email of a report) opens the right one. *@
+<MudTabs ActivePanelIndex="TabIndex" ActivePanelIndexChanged="SetTab" Elevation="0" ApplyEffectsToContainer="true" PanelClass="pt-3" Class="mb-1">
+    <MudTabPanel Text="Linux packages" Icon="@Icons.Material.Outlined.Inventory2" />
+    <MudTabPanel Text="End of life" Icon="@Icons.Material.Outlined.EventBusy" />
+    <MudTabPanel Text="Supported products" Icon="@Icons.Material.Outlined.FactCheck" />
+</MudTabs>
+
+@if (Tab == EndOfLifeTabKey)
+{
+    <EndOfLifeTab Clients="_clients" ClientId="ClientId" SiteId="SiteId" ScopeValue="@ScopeValue" OnScopeChanged="SetScopeAsync" />
+}
+else if (Tab == SupportedTabKey)
+{
+    <SupportedProductsTab />
+}
+else
+{
 <div class="d-flex gap-3 flex-wrap align-center mb-3">
-    <MudSelect T="string" Value="ScopeValue" ValueChanged="SetScopeAsync" Label="Clients" Variant="Variant.Outlined" Margin="Margin.Dense"
-               Style="min-width:260px;max-width:360px" Dense="true">
-        <MudSelectItem T="string" Value="@string.Empty">All clients</MudSelectItem>
-        @foreach (var client in _clients)
-        {
-            <MudSelectItem T="string" Value="@($"c:{client.Id}")">[@client.Code] @client.Name</MudSelectItem>
-            @if (client.Sites.Count > 1)
-            {
-                @foreach (var site in client.Sites)
-                {
-                    <MudSelectItem T="string" Value="@($"s:{site.Id}")"><span class="ml-4">@client.Code › @site.Name</span></MudSelectItem>
-                }
-            }
-        }
-    </MudSelect>
+    <ScopeSelect Clients="_clients" Value="@ScopeValue" ValueChanged="SetScopeAsync" />
     <MudSelect T="VulnerabilitySeverity?" Value="_minSeverity" ValueChanged="SetSeverityAsync" Label="Severity" Variant="Variant.Outlined"
                Margin="Margin.Dense" Style="max-width:200px" Dense="true">
         <MudSelectItem T="VulnerabilitySeverity?" Value="@((VulnerabilitySeverity?)null)">Every severity</MudSelectItem>
@@ -193,8 +194,15 @@
         }
     }
 </LoadState>
+}
 
 @code {
+    private const string EndOfLifeTabKey = "end-of-life";
+    private const string SupportedTabKey = "supported";
+
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? Tab { get; set; }
+
     [SupplyParameterFromQuery(Name = "client")]
     public Guid? ClientId { get; set; }
 
@@ -212,6 +220,16 @@
 
     private string ScopeValue => SiteId is { } site ? $"s:{site}" : ClientId is { } client ? $"c:{client}" : string.Empty;
 
+    private int TabIndex => Tab switch { EndOfLifeTabKey => 1, SupportedTabKey => 2, _ => 0 };
+
+    private string TabDescription => Tab switch
+    {
+        EndOfLifeTabKey => "Managed endpoints whose operating system no longer gets security updates, or soon will not, per client.",
+        SupportedTabKey => "The operating systems Fleeto supports, and what it offers on each of them.",
+        _ => "Known vulnerabilities in the packages of managed Linux endpoints, per CVE. Windows endpoints are not included: their missing " +
+             "updates are on the Patches tab of each endpoint."
+    };
+
     protected override async Task OnParametersSetAsync()
     {
         await LoadAsync(async caller =>
@@ -221,8 +239,38 @@
                 _clients = await ClientSvc.ListTreeAsync(caller);
             }
 
-            await LoadOverviewAsync(caller);
+            if (TabIndex == 0)
+            {
+                await LoadOverviewAsync(caller);
+            }
         });
+    }
+
+    private void SetTab(int index)
+    {
+        var tab = index switch { 1 => EndOfLifeTabKey, 2 => SupportedTabKey, _ => null };
+        Navigation.NavigateTo(Address(tab, ScopeValue));
+    }
+
+    /// <summary>The address of a tab and scope: "/vulnerabilities?tab=end-of-life&amp;client=...".</summary>
+    private static string Address(string? tab, string scope)
+    {
+        var query = new List<string>();
+        if (tab is not null)
+        {
+            query.Add($"tab={tab}");
+        }
+
+        if (scope.StartsWith("c:", StringComparison.Ordinal))
+        {
+            query.Add($"client={scope[2..]}");
+        }
+        else if (scope.StartsWith("s:", StringComparison.Ordinal))
+        {
+            query.Add($"site={scope[2..]}");
+        }
+
+        return "/vulnerabilities" + (query.Count > 0 ? "?" + string.Join('&', query) : string.Empty);
     }
 
     private async Task LoadOverviewAsync(Caller caller)
@@ -235,16 +283,7 @@
         _affected = null;
     }
 
-    private void SetScopeAsync(string value)
-    {
-        var query = value switch
-        {
-            _ when value.StartsWith("c:", StringComparison.Ordinal) => $"?client={value[2..]}",
-            _ when value.StartsWith("s:", StringComparison.Ordinal) => $"?site={value[2..]}",
-            _ => string.Empty
-        };
-        Navigation.NavigateTo("/vulnerabilities" + query);
-    }
+    private void SetScopeAsync(string value) => Navigation.NavigateTo(Address(TabIndex switch { 1 => EndOfLifeTabKey, 2 => SupportedTabKey, _ => null }, value));
 
     private Task SetSeverityAsync(VulnerabilitySeverity? severity)
     {

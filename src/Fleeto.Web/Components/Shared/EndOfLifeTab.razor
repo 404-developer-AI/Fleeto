@@ -1,0 +1,442 @@
+@inherits FleetoPageBase
+@implements IAsyncDisposable
+@inject EndOfLifeReportService EndOfLifeSvc
+@inject IJSRuntime JS
+@inject IDialogService DialogService
+
+@* The tab End of life of the Vulnerabilities page (0.8.0 step 4, VULNERABILITIES.md §12.5): the newest report of the managed endpoints whose
+   operating system no longer gets security updates or soon will not, "Refresh now", the PDF per client and the mark of a paid extension. *@
+<div class="d-flex gap-3 flex-wrap align-center mb-3">
+    <ScopeSelect Clients="Clients" Value="@ScopeValue" ValueChanged="OnScopeChanged" />
+    <MudSelect T="EndOfLifeStatus?" Value="_status" ValueChanged="SetStatus" Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense"
+               Style="max-width:220px" Dense="true">
+        <MudSelectItem T="EndOfLifeStatus?" Value="@((EndOfLifeStatus?)null)">Every status</MudSelectItem>
+        <MudSelectItem T="EndOfLifeStatus?" Value="@((EndOfLifeStatus?)EndOfLifeStatus.EndOfLife)">End of life</MudSelectItem>
+        <MudSelectItem T="EndOfLifeStatus?" Value="@((EndOfLifeStatus?)EndOfLifeStatus.EndingSoon)">Ending soon</MudSelectItem>
+        <MudSelectItem T="EndOfLifeStatus?" Value="@((EndOfLifeStatus?)EndOfLifeStatus.Extended)">Paid extension</MudSelectItem>
+        <MudSelectItem T="EndOfLifeStatus?" Value="@((EndOfLifeStatus?)EndOfLifeStatus.NoDate)">No end of life announced</MudSelectItem>
+        <MudSelectItem T="EndOfLifeStatus?" Value="@((EndOfLifeStatus?)EndOfLifeStatus.NotRecognised)">Not recognised</MudSelectItem>
+    </MudSelect>
+    <MudSpacer />
+    @if (PdfClientId is { } pdfClient && _overview?.ReportId is not null)
+    {
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.PictureAsPdf" Disabled="_exporting"
+                   OnClick="@(() => ExportAsync(pdfClient))">Download PDF</MudButton>
+    }
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Refresh" Disabled="@(_overview?.RefreshPending == true || _refreshing)"
+               OnClick="RefreshAsync">Refresh now</MudButton>
+</div>
+
+<LoadState Loading="Loading" Failed="LoadFailed">
+    @if (_overview is { } overview)
+    {
+        @if (overview.RefreshPending)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">Fleeto is making a new report. This page shows it as soon as it is ready.</MudAlert>
+        }
+
+        @foreach (var source in overview.Sources.Where(s => s.Problem is not null))
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                The end-of-life dates of @source.Name could not be fetched: @source.Problem
+                @(source.LastSuccessAt is { } at ? $" The report uses the dates of {Time.Short(at)}." : " The report cannot judge this product until they are.")
+            </MudAlert>
+        }
+
+        @if (overview.ReportId is null)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.EventBusy" Title="No report yet"
+                        Text="@($"The first report runs {(overview.NextRun is { } next ? Time.Short(next) : "when somebody refreshes it")}. Refresh now to make it at once.")" />
+        }
+        else
+        {
+            var counts = overview.Counts;
+            <MudGrid Spacing="3" Class="mb-3">
+                <MudItem xs="6" sm="4" md="2">
+                    <div class="stat-card fl-panel @(counts.EndOfLife > 0 ? "stat-error" : "")">
+                        <div class="stat-label">End of life</div>
+                        <div class="stat-number">@counts.EndOfLife</div>
+                        <div class="stat-detail">no security updates</div>
+                    </div>
+                </MudItem>
+                <MudItem xs="6" sm="4" md="2">
+                    <div class="stat-card fl-panel @(counts.EndingSoon > 0 ? "stat-warning" : "")">
+                        <div class="stat-label">Ending soon</div>
+                        <div class="stat-number">@counts.EndingSoon</div>
+                        <div class="stat-detail">within @Ui.Count(overview.PeriodMonths, "month")</div>
+                    </div>
+                </MudItem>
+                <MudItem xs="6" sm="4" md="2">
+                    <div class="stat-card fl-panel">
+                        <div class="stat-label">Paid extension</div>
+                        <div class="stat-number">@counts.Extended</div>
+                        <div class="stat-detail">ESU, Ubuntu Pro, Extended LTS</div>
+                    </div>
+                </MudItem>
+                <MudItem xs="6" sm="4" md="2">
+                    <div class="stat-card fl-panel">
+                        <div class="stat-label">Supported</div>
+                        <div class="stat-number">@counts.Supported</div>
+                        <div class="stat-detail">managed endpoints</div>
+                    </div>
+                </MudItem>
+                @if (counts.NotRecognised + counts.NoDate > 0)
+                {
+                    <MudItem xs="6" sm="4" md="2">
+                        <div class="stat-card fl-panel">
+                            <div class="stat-label">Not judged</div>
+                            <div class="stat-number">@(counts.NotRecognised + counts.NoDate)</div>
+                            <div class="stat-detail">@counts.NotRecognised not recognised · @counts.NoDate without a date</div>
+                        </div>
+                    </MudItem>
+                }
+            </MudGrid>
+
+            @if (IsAllScope && PerClient.Count > 0)
+            {
+                <div class="fl-panel mb-3">
+                    <MudSimpleTable Dense="true" Elevation="0" Hover="true">
+                        <thead>
+                            <tr><th>Client</th><th>End of life</th><th>Ending soon</th><th>Paid extension</th><th>Not judged</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var client in PerClient)
+                            {
+                                <tr>
+                                    <td><MudLink OnClick="@(() => OnScopeChanged.InvokeAsync($"c:{client.Id}"))">[@client.Code] @client.Name</MudLink></td>
+                                    <td>@client.EndOfLife</td>
+                                    <td>@client.EndingSoon</td>
+                                    <td>@client.Extended</td>
+                                    <td>@client.NotJudged</td>
+                                    <td class="text-right">
+                                        <MudIconButton Icon="@Icons.Material.Outlined.PictureAsPdf" Size="Size.Small" Disabled="_exporting"
+                                                       aria-label="@($"Download the PDF of {client.Code}")" title="Download PDF"
+                                                       OnClick="@(() => ExportAsync(client.Id))" />
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            }
+
+            @if (VisibleRows.Count == 0)
+            {
+                <EmptyState Icon="@Icons.Material.Outlined.VerifiedUser" Title="Nothing at or near end of life"
+                            Text="@($"Every managed endpoint in this selection gets security updates for more than {Ui.Count(overview.PeriodMonths, "month")}.")" />
+            }
+            else
+            {
+                <div class="fl-panel">
+                    <MudTable T="EndOfLifeRowView" Items="VisibleRows" Dense="true" Hover="true" Elevation="0" RowsPerPage="50">
+                        <HeaderContent>
+                            <MudTh>Endpoint</MudTh>
+                            @if (IsAllScope)
+                            {
+                                <MudTh>Client</MudTh>
+                            }
+                            <MudTh>Site</MudTh>
+                            <MudTh>Operating system</MudTh>
+                            <MudTh>Status</MudTh>
+                            <MudTh>End of life</MudTh>
+                            <MudTh>Paid extension</MudTh>
+                            <MudTh Style="width:48px"></MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd><MudLink Href="@($"/endpoints/{context.EndpointId}")"><strong>@context.Hostname</strong></MudLink></MudTd>
+                            @if (IsAllScope)
+                            {
+                                <MudTd>@context.ClientCode</MudTd>
+                            }
+                            <MudTd>@context.SiteName</MudTd>
+                            <MudTd>
+                                @context.OsName
+                                @if (context.ReleaseLabel is { } label)
+                                {
+                                    <div class="muted">@EndOfLifeLabel(context.Product, label)</div>
+                                }
+                            </MudTd>
+                            <MudTd><StatusChip Text="@StatusText(context.Status)" Kind="@StatusKindOf(context.Status)" /></MudTd>
+                            <MudTd>@(context.EndOfLifeOn is { } on ? Day(on) : "-")</MudTd>
+                            <MudTd>
+                                @if (context.ExtensionUntil is { } until)
+                                {
+                                    <span>until @Day(until)</span>
+                                    @if (context.ExtensionCounted)
+                                    {
+                                        <div class="muted">@(context.ExtensionMarked ? "Bought, marked" : "Ubuntu Pro active")</div>
+                                    }
+                                    else if (context.ExtensionMarked)
+                                    {
+                                        <div class="muted">Marked as bought</div>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="muted">-</span>
+                                }
+                            </MudTd>
+                            <MudTd>
+                                @if (context.ExtensionPossible && Can(Permissions.EndpointsEdit))
+                                {
+                                    <MudMenu Icon="@Icons.Material.Outlined.MoreVert" Size="Size.Small" Dense="true" AriaLabel="Endpoint actions"
+                                             AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                                        @if (context.ExtensionMarked)
+                                        {
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.EventBusy" OnClick="@(() => SetExtensionAsync(context, false))">
+                                                Remove the paid extension
+                                            </MudMenuItem>
+                                        }
+                                        else
+                                        {
+                                            <MudMenuItem Icon="@Icons.Material.Outlined.EventAvailable" OnClick="@(() => SetExtensionAsync(context, true))">
+                                                The client bought the paid extension
+                                            </MudMenuItem>
+                                        }
+                                    </MudMenu>
+                                }
+                            </MudTd>
+                        </RowTemplate>
+                        <PagerContent>
+                            <MudTablePager PageSizeOptions="new[] { 50, 100, 200 }" />
+                        </PagerContent>
+                    </MudTable>
+                </div>
+            }
+
+            <MudText Typo="Typo.caption" Class="muted mt-2 d-block">
+                Report of @Time.Short(overview.CreatedAt) (@(overview.Scheduled ? "scheduled" : $"refreshed by {overview.RequestedBy}")).
+                @if (overview.NextRun is { } next)
+                {
+                    <span>Next scheduled report @Time.Short(next). </span>
+                }
+                else
+                {
+                    <span>No report is scheduled. </span>
+                }
+                Managed endpoints only. Dates of Windows, Windows Server, Ubuntu, Debian, AlmaLinux and Proxmox VE come from
+                <MudLink Href="https://endoflife.date" Target="_blank" rel="noopener noreferrer">endoflife.date</MudLink>@(overview.DataAsOf is { } asOf ? $", fetched {Time.Relative(asOf)}" : string.Empty);
+                those of Synology DSM from the Software Life Cycle Policy of Synology.
+                @if (_overview.Rows.Count >= EndOfLifeReportService.MaxRows)
+                {
+                    <span>The first @EndOfLifeReportService.MaxRows endpoints are listed; choose a client to see the others.</span>
+                }
+            </MudText>
+        }
+    }
+</LoadState>
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ClientTreeItem> Clients { get; set; } = [];
+
+    [Parameter]
+    public Guid? ClientId { get; set; }
+
+    [Parameter]
+    public Guid? SiteId { get; set; }
+
+    [Parameter]
+    public string ScopeValue { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> OnScopeChanged { get; set; }
+
+    private EndOfLifeOverview? _overview;
+    private EndOfLifeStatus? _status;
+    private bool _exporting;
+    private bool _refreshing;
+    private string? _loadedScope;
+    private CancellationTokenSource? _poll;
+
+    private bool IsAllScope => ClientId is null && SiteId is null;
+
+    /// <summary>The client whose PDF the toolbar offers: the chosen client, or the client of the chosen site.</summary>
+    private Guid? PdfClientId => ClientId ?? (SiteId is { } site ? Clients.FirstOrDefault(c => c.Sites.Any(s => s.Id == site))?.Id : null);
+
+    private IReadOnlyList<EndOfLifeRowView> VisibleRows =>
+        _overview is null ? [] : _status is { } status ? _overview.Rows.Where(r => r.Status == status).ToList() : _overview.Rows;
+
+    private sealed record ClientLine(Guid Id, string Code, string Name, int EndOfLife, int EndingSoon, int Extended, int NotJudged);
+
+    private IReadOnlyList<ClientLine> PerClient => _overview is null
+        ? []
+        : _overview.Rows.GroupBy(r => r.ClientId)
+            .Select(g => new ClientLine(g.Key, g.First().ClientCode, g.First().ClientName,
+                g.Count(r => r.Status == EndOfLifeStatus.EndOfLife), g.Count(r => r.Status == EndOfLifeStatus.EndingSoon),
+                g.Count(r => r.Status == EndOfLifeStatus.Extended),
+                g.Count(r => r.Status is EndOfLifeStatus.NotRecognised or EndOfLifeStatus.NoDate)))
+            .OrderByDescending(c => c.EndOfLife).ThenByDescending(c => c.EndingSoon).ThenBy(c => c.Code, StringComparer.Ordinal)
+            .ToList();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var scope = $"{ClientId}|{SiteId}";
+        if (scope == _loadedScope)
+        {
+            return;
+        }
+
+        _loadedScope = scope;
+        await LoadOverviewAsync();
+    }
+
+    private async Task LoadOverviewAsync()
+    {
+        var clientId = SiteId is { } site ? Clients.FirstOrDefault(c => c.Sites.Any(s => s.Id == site))?.Id : ClientId;
+        await LoadAsync(async caller => _overview = await EndOfLifeSvc.GetOverviewAsync(caller, clientId, SiteId));
+        if (_overview?.RefreshPending == true)
+        {
+            StartPolling();
+        }
+    }
+
+    /// <summary>While a report is being made, the tab looks every 3 seconds, for at most 2 minutes.</summary>
+    private void StartPolling()
+    {
+        if (_poll is not null)
+        {
+            return;
+        }
+
+        _poll = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        var token = _poll.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(3), token);
+                    await InvokeAsync(async () =>
+                    {
+                        await LoadAsync(async caller =>
+                            _overview = await EndOfLifeSvc.GetOverviewAsync(caller,
+                                SiteId is { } site ? Clients.FirstOrDefault(c => c.Sites.Any(s => s.Id == site))?.Id : ClientId, SiteId));
+                        StateHasChanged();
+                    });
+                    if (_overview?.RefreshPending != true)
+                    {
+                        break;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Stopped: the page closed or two minutes passed.
+            }
+            finally
+            {
+                _poll?.Dispose();
+                _poll = null;
+            }
+        }, token);
+    }
+
+    private void SetStatus(EndOfLifeStatus? status) => _status = status;
+
+    private async Task RefreshAsync()
+    {
+        _refreshing = true;
+        try
+        {
+            if (await RunAsync(caller => EndOfLifeSvc.RequestRefreshAsync(caller), "Fleeto is making a new report."))
+            {
+                await LoadOverviewAsync();
+                StartPolling();
+            }
+        }
+        finally
+        {
+            _refreshing = false;
+        }
+    }
+
+    private async Task SetExtensionAsync(EndOfLifeRowView row, bool marked)
+    {
+        if (marked)
+        {
+            var parameters = new DialogParameters<ConfirmDialog>
+            {
+                { d => d.Title, "The client bought the paid extension" },
+                {
+                    d => d.Message,
+                    $"{row.Hostname} then counts as covered until {(row.ExtensionUntil is { } until ? Day(until) : "the end of the extension")} and leaves the " +
+                    "list of endpoints at end of life. Mark it only when the client really bought the extension: Fleeto cannot check it."
+                },
+                { d => d.ConfirmText, "Mark as bought" },
+                { d => d.ConfirmColor, Color.Primary }
+            };
+            var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+            if ((await dialog.Result)!.Canceled)
+            {
+                return;
+            }
+        }
+
+        if (await RunAsync(caller => EndOfLifeSvc.SetExtensionAsync(caller, row.EndpointId, marked),
+                marked ? "Marked. Fleeto is making a new report." : "The mark is removed. Fleeto is making a new report."))
+        {
+            await LoadOverviewAsync();
+            StartPolling();
+        }
+    }
+
+    private async Task ExportAsync(Guid clientId)
+    {
+        _exporting = true;
+        try
+        {
+            if (await RunForValueAsync(caller => EndOfLifeSvc.GetClientReportAsync(caller, clientId), null) is not { Value: { } report })
+            {
+                return;
+            }
+
+            var pdf = Reports.EndOfLifeReportPdf.Render(report, t => Time.Short(t));
+            await JS.InvokeVoidAsync("fleeto.saveFile", report.FileName, "application/pdf", Convert.ToBase64String(pdf));
+        }
+        finally
+        {
+            _exporting = false;
+        }
+    }
+
+    private static string Day(DateOnly day) => day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string EndOfLifeLabel(EndOfLifeProduct? product, string label) =>
+        product is { } p && !label.StartsWith(EndOfLife.Info(p).Name, StringComparison.OrdinalIgnoreCase) ? $"{EndOfLife.Info(p).Name} {label}" : label;
+
+    public static string StatusText(EndOfLifeStatus status) => status switch
+    {
+        EndOfLifeStatus.EndOfLife => "End of life",
+        EndOfLifeStatus.EndingSoon => "Ending soon",
+        EndOfLifeStatus.Extended => "Paid extension",
+        EndOfLifeStatus.NoDate => "No date announced",
+        EndOfLifeStatus.NotRecognised => "Not recognised",
+        _ => "Supported"
+    };
+
+    private static StatusKind StatusKindOf(EndOfLifeStatus status) => status switch
+    {
+        EndOfLifeStatus.EndOfLife => StatusKind.Error,
+        EndOfLifeStatus.EndingSoon => StatusKind.Warning,
+        EndOfLifeStatus.Extended => StatusKind.Info,
+        EndOfLifeStatus.Supported => StatusKind.Ok,
+        _ => StatusKind.Neutral
+    };
+
+    public ValueTask DisposeAsync()
+    {
+        try
+        {
+            _poll?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already stopped.
+        }
+
+        Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

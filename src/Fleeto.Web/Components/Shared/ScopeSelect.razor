@@ -1,0 +1,27 @@
+@* The choice of all clients, a client or a site of the Vulnerabilities page (0.8.0): "c:<id>" for a client, "s:<id>" for a site, empty for all. *@
+<MudSelect T="string" Value="Value" ValueChanged="ValueChanged" Label="Clients" Variant="Variant.Outlined" Margin="Margin.Dense"
+           Style="min-width:260px;max-width:360px" Dense="true">
+    <MudSelectItem T="string" Value="@string.Empty">All clients</MudSelectItem>
+    @foreach (var client in Clients)
+    {
+        <MudSelectItem T="string" Value="@($"c:{client.Id}")">[@client.Code] @client.Name</MudSelectItem>
+        @if (client.Sites.Count > 1)
+        {
+            @foreach (var site in client.Sites)
+            {
+                <MudSelectItem T="string" Value="@($"s:{site.Id}")"><span class="ml-4">@client.Code › @site.Name</span></MudSelectItem>
+            }
+        }
+    }
+</MudSelect>
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ClientTreeItem> Clients { get; set; } = [];
+
+    [Parameter]
+    public string Value { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> ValueChanged { get; set; }
+}

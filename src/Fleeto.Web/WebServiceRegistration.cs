@@ -83,6 +83,7 @@ public static class WebServiceRegistration
         services.AddSingleton<EndpointCheckService>();
         services.AddSingleton<StorageService>();
         services.AddSingleton<VulnerabilityService>();
+        services.AddSingleton<EndOfLifeReportService>();
         services.AddSingleton<CheckHistoryService>();
         services.AddSingleton<NoteService>();
         services.AddSingleton<AlertService>();

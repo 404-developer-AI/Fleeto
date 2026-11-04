@@ -116,6 +116,19 @@ When a third released version is added, the oldest entry moves to the top of
   message, a teal bar that counts down and the buttons Deny and Allow. Needs agent 0.8.0; older agents keep the plain prompt.
 - While the person at the endpoint is asked, the remote control window shows a card over the screen with who is asked and a bar with
   the seconds left, instead of only a line of text above the screen.
+- End of life (0.8.0 step 4, decided 2026-11-04): Vulnerabilities has the tabs Linux packages, End of life and Supported products. End of
+  life lists per client the managed endpoints whose operating system no longer gets security updates, or will not within a period you set
+  (default 6 months), for Windows, Windows Server, Ubuntu, Debian, AlmaLinux, Proxmox VE and Synology DSM. The release is recognised from
+  what the agent already reports, so no agent update is needed. The workers fetch the dates from endoflife.date once a day; those of
+  Synology DSM come from Synology's Software Life Cycle Policy, kept in Fleeto. A paid extension (Windows ESU, Ubuntu Pro, Extended LTS) is
+  shown with its end; mark per endpoint that the client bought it (permission Edit endpoints) and the endpoint counts as covered until the
+  extension ends. Ubuntu Pro counts by itself where the agent reports it. Download the report of a client as a PDF.
+- The end-of-life report runs on a schedule set in Settings, Vulnerabilities (daily, weekly or monthly at an hour, default monthly on the
+  1st at 07:00) and with "Refresh now" on the tab. After every scheduled run it goes to the notification channels that chose "Also send
+  end-of-life reports", with the clients each channel receives. Dates that cannot be fetched for 7 days are an instance health problem.
+  Migration `EndOfLifeReport`, expand only.
+- Supported products: per operating system whether Fleeto offers monitoring, patching, remote control, remote background, vulnerabilities
+  and a web interface, with their limits.
 
 ### Fixed
 

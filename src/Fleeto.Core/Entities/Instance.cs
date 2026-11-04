@@ -238,6 +238,12 @@ public class NotificationChannel
     /// <summary>Also receives security incidents (0.7.0): an attack, a sign-in from a new network, a privilege change.</summary>
     public bool SecurityIncidents { get; set; }
 
+    /// <summary>
+    /// Also receives the end-of-life report after every scheduled run (0.8.0), holding the clients the channel routes (all clients, or
+    /// those in <see cref="Clients"/>).
+    /// </summary>
+    public bool EndOfLifeReports { get; set; }
+
     public List<NotificationChannelClient> Clients { get; set; } = [];
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
