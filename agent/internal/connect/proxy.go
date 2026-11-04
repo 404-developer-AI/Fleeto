@@ -70,6 +70,7 @@ type Proxy struct {
 	gateMu    sync.Mutex
 	gateUsed  bool
 	product   string
+	plainWS   bool
 	logger    *slog.Logger
 }
 
@@ -88,7 +89,8 @@ func NewProxy(dial Dialer, certificate, hostLabel string, target Target, logger 
 	if err != nil {
 		return nil, fmt.Errorf("Fleeto Connect could not open a local address: %w", err)
 	}
-	p := &Proxy{listeners: []net.Listener{listener}, gate: randomToken(), cookie: randomToken(), product: target.Product, logger: logger}
+	p := &Proxy{listeners: []net.Listener{listener}, gate: randomToken(), cookie: randomToken(), product: target.Product,
+		plainWS: target.Upstream == upstreamHost, logger: logger}
 	upstream := target.Upstream
 	port := listener.Addr().(*net.TCPAddr).Port
 	// Browsers try ::1 first for a name below localhost; without IPv6 they use 127.0.0.1 alone.
@@ -198,8 +200,28 @@ func (p *Proxy) guard(next http.Handler) http.Handler {
 				http.StatusForbidden)
 			return
 		}
+		if p.plainWS && consoleWithoutEncrypt(r) {
+			// The noVNC console of Proxmox always opens wss://, which the browser cannot reach on this plain HTTP address, so every VM,
+			// container and host console failed with code 1006 (found on the test VPS, 2026-11-04). noVNC takes encrypt=0 from the address
+			// and then opens ws:// here. Nothing is weakened: the leg to pveproxy is the TLS of Fleeto Connect, the browser leg stays on
+			// loopback. The xterm.js consoles already follow the protocol of the page.
+			q := r.URL.Query()
+			q.Set("encrypt", "0")
+			w.Header().Set("Cache-Control", "no-store")
+			http.Redirect(w, r, r.URL.Path+"?"+q.Encode(), http.StatusFound)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// consoleWithoutEncrypt is a request for the noVNC console page of Proxmox (/?console=...&novnc=1) that does not say encrypt yet.
+func consoleWithoutEncrypt(r *http.Request) bool {
+	if r.Method != http.MethodGet || r.URL.Path != "/" {
+		return false
+	}
+	q := r.URL.Query()
+	return q.Get("novnc") == "1" && q.Has("console") && !q.Has("encrypt")
 }
 
 func (p *Proxy) open(w http.ResponseWriter, r *http.Request) {

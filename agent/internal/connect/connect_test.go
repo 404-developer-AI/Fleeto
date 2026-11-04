@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -353,6 +354,28 @@ func TestTheWebInterfaceOpensThroughTheSessionForTheBrowserThatOpenedTheLinkOnly
 		t.Fatalf("console: %q %v", data, err)
 	}
 
+	// The noVNC console of Proxmox opens wss:// unless its address says encrypt=0, and wss:// cannot reach this plain HTTP address
+	// (every VM console failed with code 1006): its page is sent to the same address with encrypt=0, once.
+	noFollow := *client
+	noFollow.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	console, err := noFollow.Get(proxy.Base + "?console=kvm&novnc=1&vmid=116&node=PVE-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	console.Body.Close()
+	location, _ := url.Parse(console.Header.Get("Location"))
+	if console.StatusCode != http.StatusFound || location.Path != "/" || location.Query().Get("encrypt") != "0" ||
+		location.Query().Get("vmid") != "116" || location.Query().Get("console") != "kvm" {
+		t.Fatalf("console page: %d %q", console.StatusCode, console.Header.Get("Location"))
+	}
+	if code, _ := get(t, &noFollow, proxy.Base+"?console=kvm&novnc=1&vmid=116&node=PVE-01&encrypt=0"); code != http.StatusOK {
+		t.Fatalf("console page with encrypt=0: %d", code)
+	}
+	// The xterm.js consoles follow the protocol of the page and are left alone.
+	if code, _ := get(t, &noFollow, proxy.Base+"?console=shell&xtermjs=1&node=PVE-01"); code != http.StatusOK {
+		t.Fatalf("xterm.js console page: %d", code)
+	}
+
 	// Ending from Fleeto Connect ends the session on the endpoint.
 	h.session.End("done")
 	select {
@@ -483,11 +506,18 @@ func TestTheSynologyWebInterfaceReachesDSMOnItsDefaultHTTPSAddress(t *testing.T)
 	if !strings.HasPrefix(proxy.Base, "http://synology-0b6a4e2c.localhost:") {
 		t.Fatalf("base = %s", proxy.Base)
 	}
-	if code, _ := get(t, browser(t), proxy.URL); code != http.StatusOK {
+	client := browser(t)
+	if code, _ := get(t, client, proxy.URL); code != http.StatusOK {
 		t.Fatalf("open: %d", code)
 	}
 	if seen := h.pve.last(); seen.Host != "127.0.0.1:5001" {
 		t.Fatalf("DSM saw host %q", seen.Host)
+	}
+	// The noVNC rule of Proxmox does not apply to DSM: its pages pass unchanged.
+	noFollow := *client
+	noFollow.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	if code, _ := get(t, &noFollow, proxy.Base+"?console=kvm&novnc=1"); code != http.StatusOK {
+		t.Fatalf("DSM page with novnc=1: %d", code)
 	}
 	if _, ok := TargetOf("remote_background"); ok {
 		t.Fatal("a kind that is no web interface has a target")

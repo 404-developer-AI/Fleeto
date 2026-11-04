@@ -214,12 +214,26 @@ public sealed class PerformanceWorkersTests
         }
     }
 
+    [Fact]
+    public void First_runs_after_start_up_are_spread_stably_and_never_beyond_the_interval()
+    {
+        string[] names = ["check-evaluation", "endpoint-health", "tasks", "config-fanout", "vulnerability-match", "retention"];
+        var delays = names.Select(n => WorkerLoop.FirstRunDelayFor(n, TimeSpan.FromMinutes(5))).ToList();
+
+        Assert.All(delays, d => Assert.InRange(d, TimeSpan.Zero, WorkerLoop.StartSpread));
+        Assert.True(delays.Distinct().Count() > names.Length / 2, "the loops must not share one start second");
+        Assert.Equal(delays[0], WorkerLoop.FirstRunDelayFor(names[0], TimeSpan.FromMinutes(5)));
+        Assert.InRange(WorkerLoop.FirstRunDelayFor("tasks", TimeSpan.FromSeconds(2)), TimeSpan.Zero, TimeSpan.FromSeconds(2));
+    }
+
     private sealed class ProbeLoop(WorkersFixture fixture)
         : WorkerLoop("perf-probe", fixture.Heartbeat(), TimeProvider.System, NullLogger.Instance)
     {
         public TaskCompletionSource Ran { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         protected override TimeSpan Interval => TimeSpan.FromHours(1);
+
+        protected override TimeSpan FirstRunDelay => TimeSpan.Zero;
 
         protected override async Task<bool> RunOnceAsync(CancellationToken cancellationToken)
         {

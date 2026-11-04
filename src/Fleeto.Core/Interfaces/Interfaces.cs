@@ -476,6 +476,18 @@ public static class AuditActions
     public const string RemoteSessionLeft = "remote_session.left";
     public const string RemoteSessionRefused = "remote_session.refused";
 
+    /// <summary>
+    /// A remote session (remote control, remote background or a web interface) started: the first technician connected to the endpoint
+    /// (0.8.0). The kind, the endpoint and the technician who started it.
+    /// </summary>
+    public const string RemoteSessionStarted = "remote_session.started";
+
+    /// <summary>
+    /// A remote session that had started ended (0.8.0): its kind, endpoint, reason and duration in seconds, by the technician who left last,
+    /// or by the system when the gateway restarted or the workers ended a session left without technicians.
+    /// </summary>
+    public const string RemoteSessionEnded = "remote_session.ended";
+
     /// <summary>Fleeto Connect claimed a session of the Proxmox web interface (0.8.0) with its key, its version and the address it came from.</summary>
     public const string RemoteSessionClaimed = "remote_session.claimed";
 

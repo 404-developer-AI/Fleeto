@@ -20,7 +20,7 @@ namespace Fleeto.Web.Tests;
 [Collection(WebCollection.Name)]
 public sealed class WebInterfaceServiceTests
 {
-    private const string Connect = "0.8.0-alpha.6";
+    private const string Connect = RemoteSessionRules.MinimumConnectVersion;
     private readonly WebFixture _fixture;
 
     public WebInterfaceServiceTests(WebFixture fixture)
@@ -112,7 +112,7 @@ public sealed class WebInterfaceServiceTests
                 (session.Kind, session.Component, session.WindowsSessionId, session.Reason));
             Assert.True(await db.AuditEntries.AnyAsync(a => a.Action == AuditActions.RemoteSessionClaimed && a.TargetId == session.Id.ToString()));
             var stored = await db.RemoteSessionClaims.AsNoTracking().SingleAsync(c => c.Id == start.Value.ClaimId);
-            Assert.Equal(("198.51.100.8", "Fleeto Connect 0.8.0-alpha.6 (windows/amd64)"), (stored.ClaimedFrom, stored.ClaimedBy));
+            Assert.Equal(("198.51.100.8", $"Fleeto Connect {Connect} (windows/amd64)"), (stored.ClaimedFrom, stored.ClaimedBy));
         }
 
         Assert.Equal(WebInterfaceProgressState.Connecting, (await Service.GetWebInterfaceProgressAsync(technician, start.Value.ClaimId))!.State);
@@ -206,7 +206,7 @@ public sealed class WebInterfaceServiceTests
         // A Fleeto Connect that knows only the Proxmox web interface is refused with the way out.
         var claim = ClaimOf(start.Value!.Link);
         Assert.Contains("too old for the Synology web interface",
-            (await Service.ClaimWebInterfaceAsync(claim, RandomNumberGenerator.GetBytes(32), Connect, "windows/amd64", null)).Problem);
+            (await Service.ClaimWebInterfaceAsync(claim, RandomNumberGenerator.GetBytes(32), "0.8.0-alpha.6", "windows/amd64", null)).Problem);
 
         var signer = SignAsync(start.Value.ClaimId);
         var ticket = await Service.ClaimWebInterfaceAsync(claim, RandomNumberGenerator.GetBytes(32), RemoteSessionRules.MinimumSynologyConnectVersion,

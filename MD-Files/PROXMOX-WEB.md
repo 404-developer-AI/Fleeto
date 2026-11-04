@@ -139,9 +139,13 @@ Built 2026-10-27 for the test build `v0.8.0-alpha.6`.
 4. **On a real host with the developer.** Tested 2026-10-27 with `v0.8.0-alpha.6` on Ubuntu desktop and Chrome: the install proposal, the
    `.deb`, the sign-in to Proxmox (the Secure cookie is kept on `http://<name>.localhost`), and an upgrade of the host from the web
    interface, whose shell (xterm.js) opened without problems.
-   [open] Still to test: Windows (the first run with SmartScreen, the per-user install), Edge and Firefox (also how Firefox handles the
-   `fleeto-connect:` link), a VM console (noVNC) and an ISO upload. If a browser does not keep the cookie, Fleeto Connect serves HTTPS on
-   loopback with a certificate of its own instead, and this file changes first.
+   Tested by the developer up to 2026-11-04 on Windows with Edge and Firefox: the web interface works. A VM console (noVNC) failed in
+   every browser with "Connection closed (code: 1006)": the noVNC page of Proxmox always opens `wss://`, which cannot reach the plain
+   HTTP address of Fleeto Connect (found 2026-11-04 by watching the console in Chrome; with `encrypt=0` in its address noVNC opens
+   `ws://` and the console of the VM appeared). Fleeto Connect now sends a request for that page (`/?console=...&novnc=1` without
+   `encrypt`) to the same address with `encrypt=0`; the leg to pveproxy keeps the TLS of Fleeto Connect. The xterm.js consoles follow the
+   protocol of the page and never needed it. An ISO upload is not tested (the developer decided it need not be).
+   [open] Still to test: a VM console with the fix (next alpha).
 
 ## 8. The Synology web interface (0.8.0)
 

@@ -11,7 +11,10 @@ Released versions, from 0.0.0 to 0.7.0, are described in `CHANGELOG.md` and `CHA
 what is not released yet. The latest release is **0.7.0** (2026-10-26, `v0.7.0`): the performance monitor and the security
 monitor, tested through `v0.7.0-alpha.1` to `alpha.13`.
 
-**0.8.0** — next: vulnerability reporting, then patch management on Linux.
+**0.8.0** — in test: vulnerability reporting, the Proxmox and Synology web interfaces, the dashboard designer, column layouts and
+the end-of-life report. It is released once `v0.8.0-alpha.16` is tested (decided 2026-11-04).
+
+**0.9.0** — next: patch management on Linux, and on Windows for endpoints without Action1 (decided 2026-11-04).
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
 2026-09-15, see Later).
@@ -21,15 +24,15 @@ repository, with the images as private packages on ghcr.io (public since 2026-09
 
 Markers: [done] built and tested, [open] still to do.
 
-## 0.8.0 — Vulnerability reporting, the Proxmox web interface and patch management on Linux
+## 0.8.0 — Vulnerability reporting, the Proxmox web interface and the dashboard designer
 
 Replaces hardening as 0.8.0 (decided 2026-10-26; hardening was taken off the roadmap). Four parts, in this order (decided
 2026-10-26, the Proxmox web interface and the dashboard designer added 2026-10-27): vulnerability reporting, designed in
 `VULNERABILITIES.md`, the Proxmox web interface, designed in `PROXMOX-WEB.md`, the dashboard designer, designed in `DASHBOARDS.md`,
-then patch management on Linux, of which how and what is discussed with the developer
-before anything is built.
+then patch management on Linux. Patch management on Linux moved to 0.9.0 on 2026-11-04: 0.8.0 is finished once
+`v0.8.0-alpha.16` is tested.
 
-- [open] Vulnerability reporting (`VULNERABILITIES.md`): security advisories of the CCB on the dashboard, and the CVEs that
+- [done] Vulnerability reporting (`VULNERABILITIES.md`): security advisories of the CCB on the dashboard, and the CVEs that
   affect the distribution packages of managed Ubuntu, Debian, AlmaLinux and Proxmox VE endpoints, matched inside the instance.
   Step 0, the security advisories on the dashboard, built 2026-10-26 (RSS feed of the CCB only: title, date and link). Step 1,
   matching on Linux endpoints, and step 2, the Vulnerabilities tab, the overview, the dashboard tile and Settings, built 2026-10-26.
@@ -38,33 +41,42 @@ before anything is built.
   Step 4, End of life (asked for and decided 2026-11-04, `VULNERABILITIES.md` §12): per client the managed endpoints whose operating
   system is at or near end of life, from endoflife.date and Synology's life-cycle policy, on a schedule and on request, with a PDF
   per client, a message to notification channels, the mark of a paid extension and the list of supported products, built 2026-11-04.
-- [open] Fix: vulnerability feeds are never fetched (found on the test VPS with `v0.8.0-alpha.4`, 2026-10-27). The workers role
+  Steps 0 to 4 tested on the test VPS; step 4 with `v0.8.0-alpha.15` on 2026-11-04.
+- [done] Fix: vulnerability feeds are never fetched (found on the test VPS with `v0.8.0-alpha.4`, 2026-10-27). The workers role
   may not create the temporary tables the Ubuntu and KEV imports use, and the `PostgresException` stops every feed without a
   reason on the page. Cause, workaround and fix (grant `TEMPORARY` to `fleeto_workers` in `10-fleeto-roles.sh` and
   `DatabaseGrants`, contain a failure to its own feed, tests, changelog) in `FIX-VULNERABILITY-FEEDS-TEMP-TABLES.md`. Built
-  2026-10-27, to be tested on the VPS with the next alpha.
-- [open] Local development on Linux (the developer moved from Windows to Ubuntu 26.04 on 2026-10-27). `setup-dev.ps1`,
+  2026-10-27; the feeds are fetched on the test VPS.
+- [done] Local development on Linux (the developer moved from Windows to Ubuntu 26.04 on 2026-10-27). `setup-dev.ps1`,
   `start-dev.ps1`, `build-agent.ps1` and `README.md` work on Linux (secrets in `~/.local/share/Fleeto/dev`, the four
-  components in one terminal); built, set up and run on 2026-10-27, in `v0.8.0-alpha.5`. Still to decide: `global.json` on
+  components in one terminal); built, set up and run on 2026-10-27, in `v0.8.0-alpha.5`. Not decided: `global.json` on
   `10.0.400`, because the `dotnet-sdk-10.0` package of Ubuntu (SDK 10.0.1xx) fails on the Razor components with 112 errors
   where the SDK of Microsoft (10.0.403, as in CI) builds them.
+  Closed 2026-11-04: development continues on Windows, not on Linux, so the `global.json` question is not decided for now.
 - [open] Proxmox web interface (`PROXMOX-WEB.md`, decided 2026-10-27): the real web interface of a managed Proxmox VE host, opened
   from the endpoint list through a tunnel in a remote session to `127.0.0.1:8006` on the host, with Fleeto Connect on the technician's
   PC (Windows and Ubuntu desktop), proposed for download when it is missing. Built 2026-10-27 for `v0.8.0-alpha.6`; tested the same
-  day on Ubuntu with Chrome (install proposal, `.deb`, sign-in, an upgrade of the host with its shell). Still to test: Windows, Edge and
-  Firefox, a VM console and an ISO upload (`PROXMOX-WEB.md` §7).
-- [open] A code signing certificate for Fleeto Connect on Windows. Until Steaan has one, SmartScreen warns on its first run; its
-  integrity comes from the signed release manifest (decided 2026-10-27).
-- [open] Dashboard designer (`DASHBOARDS.md`, decided 2026-10-27, built before the rest of 0.8.0): dashboards an admin designs
+  day on Ubuntu with Chrome (install proposal, `.deb`, sign-in, an upgrade of the host with its shell), and on Windows with Edge and
+  Firefox. The VM console failed in every browser (noVNC opened `wss://` on the plain HTTP address of Fleeto Connect); fixed 2026-11-04,
+  still to test with the next alpha. An ISO upload need not be tested (decided 2026-11-04).
+- [done] Dashboard designer (`DASHBOARDS.md`, decided 2026-10-27, built before the rest of 0.8.0): dashboards an admin designs
   in Settings, with tiles of a catalog in code, their size, place and settings, linked to roles; a user sees the first dashboard in
-  priority order linked to one of its roles, otherwise the built-in default dashboard. Built 2026-10-27 for `v0.8.0-alpha.7`; still to
-  test in a browser on the test VPS (`DASHBOARDS.md` §9 step 7).
-- [open] Endpoint description and column layouts (decided 2026-11-04): a description per endpoint, set in Edit with the permission
+  priority order linked to one of its roles, otherwise the built-in default dashboard. Built 2026-10-27 for `v0.8.0-alpha.7`; tested in
+  a browser on the test VPS (`DASHBOARDS.md` §9 step 7).
+- [done] Endpoint description and column layouts (decided 2026-11-04): a description per endpoint, set in Edit with the permission
   Edit endpoints and shown as a column of the endpoint list; column layouts an admin makes in Settings, Column layouts (columns and
-  their order) and links to roles, picked like dashboards. Built 2026-11-04; still to test in a browser on the test VPS.
+  their order) and links to roles, picked like dashboards. Built 2026-11-04; tested on the test VPS with `v0.8.0-alpha.14` the same day.
+## 0.9.0 — Patch management on Linux and on Windows without Action1
+
+Decided 2026-11-04. How and what is discussed with the developer before anything is built, and designed in a file of its own like
+the parts of 0.8.0.
+
 - [open] Patch management on Linux (planned as 0.4.1, moved to "Not yet scheduled" on 2026-09-23, scheduled as 0.8.0 on
-  2026-10-26). Until it is built a Linux endpoint shows no patch data at all and stays out of the compliance counts, because
-  calling it uncovered would be untrue.
+  2026-10-26, moved to 0.9.0 on 2026-11-04). Until it is built a Linux endpoint shows no patch data at all and stays out of the
+  compliance counts, because calling it uncovered would be untrue.
+- [open] Patch management on Windows, servers and workstations, for endpoints where Action1 is not used (decided 2026-11-04). This
+  changes the rule in `CLAUDE.md` that patching is delegated to Action1 and that Fleeto builds no patch engine of its own; how it
+  relates to Action1 (one or the other per client, site or endpoint, never both on one endpoint) is decided before it is designed.
 
 ## 1.0.0 — General availability
 
@@ -78,6 +90,10 @@ before anything is built.
 
 Wanted, but not in a version yet: the version is chosen once the open questions are answered. These subjects stay part of
   the v1 scope in `CLAUDE.md` (decided 2026-09-23), so each one gets a version before 1.0.0.
+
+- A code signing certificate for Fleeto Connect on Windows. Until Steaan has one, SmartScreen warns on its first run; its
+  integrity comes from the signed release manifest (decided 2026-10-27; moved out of
+  0.8.0 on 2026-11-04, because it waits on Steaan and blocks no release).
 
 - The integrations other than Action1 (planned as 0.5.0, moved here on 2026-09-23): Sophos Central (endpoint health,
   detections), Veeam (backup job status), Proxmox VE and VMware vCenter (host and VM inventory and health), and

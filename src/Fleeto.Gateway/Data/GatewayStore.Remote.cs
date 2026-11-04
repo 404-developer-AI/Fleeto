@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Fleeto.Core.Entities;
+using Fleeto.Core.Interfaces;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -99,7 +100,10 @@ public sealed partial class GatewayStore
         return revoked;
     }
 
-    /// <summary>Browser and endpoint are paired: the participant is connected, the session started, and the join is audited.</summary>
+    /// <summary>
+    /// Browser and endpoint are paired: the participant is connected and the join is audited. The first pair of a session also starts the
+    /// session, audited as started (0.8.0) with the technician who started it.
+    /// </summary>
     public async Task MarkParticipantConnectedAsync(ClaimedParticipant participant, string? ipAddress, DateTime now, CancellationToken cancellationToken)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
@@ -113,16 +117,23 @@ public sealed partial class GatewayStore
             await update.ExecuteNonQueryAsync(cancellationToken);
         }
 
+        bool started;
         await using (var update = new NpgsqlCommand("""
-            UPDATE "RemoteSessions" SET "StartedAt" = COALESCE("StartedAt", $2) WHERE "Id" = $1
+            UPDATE "RemoteSessions" SET "StartedAt" = $2 WHERE "Id" = $1 AND "StartedAt" IS NULL
             """, connection, transaction))
         {
             update.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = participant.SessionId });
             update.Parameters.Add(new NpgsqlParameter<DateTime> { TypedValue = now });
-            await update.ExecuteNonQueryAsync(cancellationToken);
+            started = await update.ExecuteNonQueryAsync(cancellationToken) > 0;
         }
 
-        await InsertRemoteAuditAsync(connection, transaction, "remote_session.joined", participant, now, ipAddress,
+        if (started)
+        {
+            await InsertRemoteAuditAsync(connection, transaction, AuditActions.RemoteSessionStarted, participant, now, ipAddress,
+                new { participant.EndpointId, Kind = participant.Kind.ToString(), Technician = participant.UserName }, cancellationToken);
+        }
+
+        await InsertRemoteAuditAsync(connection, transaction, AuditActions.RemoteSessionJoined, participant, now, ipAddress,
             new { participant.EndpointId, ParticipantId = participant.ParticipantId, Kind = participant.Kind.ToString(), Technician = participant.UserName },
             cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -130,7 +141,8 @@ public sealed partial class GatewayStore
 
     /// <summary>
     /// Ends a participant that was claimed: Ended after it was connected, Refused when the endpoint or gateway refused it before. When no
-    /// participant of the session is active any more, the session ends too. Audited as left or refused.
+    /// participant of the session is active any more, the session ends too. Audited as left or refused, and a session that had started
+    /// as ended (0.8.0) by the technician who left last.
     /// </summary>
     public async Task EndParticipantAsync(ClaimedParticipant participant, bool connected, string reason, string? ipAddress, DateTime now,
         CancellationToken cancellationToken)
@@ -154,10 +166,10 @@ public sealed partial class GatewayStore
             }
         }
 
-        await EndSessionIfIdleAsync(connection, transaction, participant.SessionId, text, now, cancellationToken);
-        await InsertRemoteAuditAsync(connection, transaction, connected ? "remote_session.left" : "remote_session.refused", participant, now, ipAddress,
-            new { participant.EndpointId, ParticipantId = participant.ParticipantId, Kind = participant.Kind.ToString(), Technician = participant.UserName, Reason = text },
+        await InsertRemoteAuditAsync(connection, transaction, connected ? AuditActions.RemoteSessionLeft : AuditActions.RemoteSessionRefused, participant, now,
+            ipAddress, new { participant.EndpointId, ParticipantId = participant.ParticipantId, Kind = participant.Kind.ToString(), Technician = participant.UserName, Reason = text },
             cancellationToken);
+        await EndSessionIfIdleAsync(connection, transaction, participant.SessionId, text, now, participant, ipAddress, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -183,7 +195,7 @@ public sealed partial class GatewayStore
 
         foreach (var sessionId in sessions.Distinct())
         {
-            await EndSessionIfIdleAsync(connection, transaction, sessionId, "The gateway restarted.", now, cancellationToken);
+            await EndSessionIfIdleAsync(connection, transaction, sessionId, "The gateway restarted.", now, null, null, cancellationToken);
         }
 
         await transaction.CommitAsync(cancellationToken);
@@ -213,37 +225,77 @@ public sealed partial class GatewayStore
         return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
     }
 
+    /// <summary>
+    /// Ends the session when no participant is active any more. A session that had started is audited as ended (0.8.0) with how long it
+    /// lasted, by <paramref name="lastParticipant"/> or, without one (the gateway restarted), by the system.
+    /// </summary>
     private static async Task EndSessionIfIdleAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid sessionId, string reason, DateTime now,
-        CancellationToken cancellationToken)
+        ClaimedParticipant? lastParticipant, string? ipAddress, CancellationToken cancellationToken)
     {
         await using var update = new NpgsqlCommand("""
             UPDATE "RemoteSessions" SET "EndedAt" = $2, "EndReason" = $3
             WHERE "Id" = $1 AND "EndedAt" IS NULL
               AND NOT EXISTS (SELECT 1 FROM "RemoteSessionParticipants" p
                               WHERE p."SessionId" = $1 AND p."State" IN ('Requested', 'Signed', 'Connecting', 'Connected'))
+            RETURNING "ClientId", "EndpointId", "Kind", "StartedAt"
             """, connection, transaction);
         update.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = sessionId });
         update.Parameters.Add(new NpgsqlParameter<DateTime> { TypedValue = now });
         update.Parameters.Add(new NpgsqlParameter<string> { TypedValue = reason });
-        await update.ExecuteNonQueryAsync(cancellationToken);
+        Guid clientId, endpointId;
+        string kind;
+        DateTime startedAt;
+        await using (var reader = await update.ExecuteReaderAsync(cancellationToken))
+        {
+            if (!await reader.ReadAsync(cancellationToken) || await reader.IsDBNullAsync(3, cancellationToken))
+            {
+                // Still in use, ended already, or never started because nobody connected: nothing ended to audit.
+                return;
+            }
+
+            clientId = reader.GetGuid(0);
+            endpointId = reader.GetGuid(1);
+            kind = reader.GetString(2);
+            startedAt = reader.GetDateTime(3);
+        }
+
+        var details = new { EndpointId = endpointId, Kind = kind, Reason = reason, DurationSeconds = (long)Math.Max(0, (now - startedAt).TotalSeconds) };
+        if (lastParticipant is not null)
+        {
+            await InsertRemoteAuditAsync(connection, transaction, AuditActions.RemoteSessionEnded, lastParticipant, now, ipAddress, details, cancellationToken);
+        }
+        else
+        {
+            await InsertAuditAsync(connection, transaction, AuditActions.RemoteSessionEnded, clientId, sessionId, nameof(AuditActorType.System), "fleeto-gateway",
+                "fleeto-gateway", now, null, details, cancellationToken);
+        }
     }
 
-    private static async Task InsertRemoteAuditAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string action, ClaimedParticipant participant,
-        DateTime now, string? ipAddress, object details, CancellationToken cancellationToken)
+    // The naming of every other audit entry of the instance (AuditLog), so a start or an end reads the same whoever wrote it.
+    private static readonly JsonSerializerOptions AuditJson = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+    // The technician is the actor of a start, join, leave or end; the gateway only witnessed it.
+    private static Task InsertRemoteAuditAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string action, ClaimedParticipant participant,
+        DateTime now, string? ipAddress, object details, CancellationToken cancellationToken) =>
+        InsertAuditAsync(connection, transaction, action, participant.ClientId, participant.SessionId, nameof(AuditActorType.User), participant.UserId.ToString(),
+            participant.UserName, now, ipAddress, details, cancellationToken);
+
+    private static async Task InsertAuditAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string action, Guid clientId, Guid sessionId,
+        string actorType, string actorId, string actorName, DateTime now, string? ipAddress, object details, CancellationToken cancellationToken)
     {
         await using var audit = new NpgsqlCommand("""
             INSERT INTO "AuditEntries" ("Time", "ClientId", "ActorType", "ActorId", "ActorName", "Action", "TargetType", "TargetId", "DetailsJson", "IpAddress")
-            VALUES ($1, $2, 'User', $7, $8, $3, 'RemoteSession', $4, $5, $6)
+            VALUES ($1, $2, $9, $7, $8, $3, 'RemoteSession', $4, $5, $6)
             """, connection, transaction);
         audit.Parameters.Add(new NpgsqlParameter<DateTime> { TypedValue = now });
-        audit.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = participant.ClientId });
+        audit.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = clientId });
         audit.Parameters.Add(new NpgsqlParameter<string> { TypedValue = action });
-        audit.Parameters.Add(new NpgsqlParameter<string> { TypedValue = participant.SessionId.ToString() });
-        audit.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = JsonSerializer.Serialize(details) });
+        audit.Parameters.Add(new NpgsqlParameter<string> { TypedValue = sessionId.ToString() });
+        audit.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = JsonSerializer.Serialize(details, AuditJson) });
         audit.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Varchar, Value = ipAddress is null ? DBNull.Value : DbText.Clean(ipAddress, 64) });
-        // The technician is the actor of a join or a leave; the gateway only witnessed it.
-        audit.Parameters.Add(new NpgsqlParameter<string> { TypedValue = participant.UserId.ToString() });
-        audit.Parameters.Add(new NpgsqlParameter<string> { TypedValue = participant.UserName });
+        audit.Parameters.Add(new NpgsqlParameter<string> { TypedValue = actorId });
+        audit.Parameters.Add(new NpgsqlParameter<string> { TypedValue = actorName });
+        audit.Parameters.Add(new NpgsqlParameter<string> { TypedValue = actorType });
         await audit.ExecuteNonQueryAsync(cancellationToken);
     }
 }

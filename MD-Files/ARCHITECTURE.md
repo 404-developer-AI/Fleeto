@@ -735,7 +735,8 @@ Fleeto `PERFORMANCE.md`.
   job delivery from the moment a job could be delivered (signed, agent online); relayed connections with their bytes each way;
   the last-seen batch.
 - *Workers.* `WorkerLoop` measures every run of every loop as `worker:<Name>` with its interval as sub key, leaving out idle
-  runs (under 25 ms, no query, nothing waiting). `PerfHostService` writes the VPS every minute (`PerfHostReader`: CPU busy,
+  runs (under 25 ms, no query, nothing waiting). After a start each loop waits a share of 20 seconds fixed by its name (at most its
+  interval) before its first run, so some 40 first runs do not queue on the thread pool at once; a notification runs it at once. `PerfHostService` writes the VPS every minute (`PerfHostReader`: CPU busy,
   steal and iowait from /proc/stat, latency and utilization of whole disks from /proc/diskstats, throttling from the cgroup's
   cpu.stat). `PerfSnapshotService` stores statement statistics (the 50 costliest in total and the 20 slowest per call, folded
   per query id) and a database snapshot every 15 minutes and every table every hour. `PerfMaintenanceService` rolls finished
@@ -1206,7 +1207,8 @@ connection. The flow for one technician (a participant):
    signature as r || s, and its certificate's SubjectPublicKeyInfo). A refusal goes back as `RemoteSessionRefused` over the
    control session and reaches the browser.
 6. The gateway pairs the socket only with the certificate of exactly that endpoint and service (allow list), records the
-   participant `Connected` and the session started, audits `remote_session.joined`, and gives the browser the key,
+   participant `Connected` and the session started, audits `remote_session.joined` (and `remote_session.started` for the
+   first technician of the session, 0.8.0), and gives the browser the key,
    signature and certificate key. The browser accepts the certificate key only when its fingerprint is one web gave,
    verifies the signature with it, and derives the keys.
 7. Keys: X25519 shared secret → HKDF-SHA256 with salt SHA-256(token payload) and info `fleeto-remote-v1` || browser key ||
@@ -1219,7 +1221,9 @@ connection. The flow for one technician (a participant):
    End and Activity; bodies are JSON except Data. Without input for the policy's idle timeout (default 30 minutes) the
    endpoint warns 2 minutes before and ends the session.
 9. When either side closes, the relay closes the other; the gateway ends the participant (`Ended`, with the reason) and the
-   session once nobody is connected, and audits `remote_session.left`. Revoking the certificate or the endpoint, switching
+   session once nobody is connected, and audits `remote_session.left` and, when the session ends, `remote_session.ended` with
+   its reason and duration in seconds (0.8.0; by the technician who left last, or by the system after a gateway restart or when the
+   workers end a session left without technicians). Audit details are camelCase like every other entry. Revoking the certificate or the endpoint, switching
    it to agent-only (checked on every endpoint status notification and every minute) and a gateway restart end the relay;
    at its start the gateway ends every connection left from before. The workers end participants that never connected
    within 5 minutes.
@@ -1982,11 +1986,13 @@ Which known vulnerabilities affect the distribution packages of a managed Linux 
   managed Linux endpoint loses its findings and summary. Ended findings are kept 13 months, or what Settings, Vulnerabilities says (1 to
   60, `retention.ended-vulnerabilities-months`).
 - **Counts per site and CVE** (`VulnerabilityCveCounts`, step 2): rebuilt by the matcher from the open findings in one transaction once
-  nothing is due, at most every 2 minutes while endpoints change, and otherwise every 10 minutes only when a fingerprint of the managed
+  nothing is due, at most every 2 minutes while matches open, change or end findings (a match that leaves every finding as it was does
+  not count), and otherwise every 10 minutes only when a fingerprint of the managed
   Linux endpoints (id, client, site) and the versions of the feeds changed, so a deleted or moved endpoint or a new list of exploited
   CVEs leaves them too (rebuilding regardless took about 40% of the database time of the test instance): first one row per endpoint and CVE, then per site, the packages grouped apart, each reading the findings itself (a shared
-  CTE is materialized); after an ANALYZE of the findings (`fleeto_perf_analyze`, granted to the workers as well), because a large
-  first match leaves them without statistics, and without nested loops. 23 seconds right after the first match (15 afterwards; measured before step 3 added the count of actively exploited findings) at 10,000 endpoints with 3.1 million findings. Its
+  CTE is materialized); after an ANALYZE of the findings (`fleeto_perf_analyze`, granted to the workers as well) when a tenth of them
+  and at least 1,000 changed since their last analysis (`pg_stat_user_tables.n_mod_since_analyze`), because a large first match leaves
+  them without statistics, and without nested loops. 23 seconds right after the first match (15 afterwards; measured before step 3 added the count of actively exploited findings) at 10,000 endpoints with 3.1 million findings. Its
   query filter shows a row only with the whole client or the whole site. In the same transaction, before nested loops are switched off,
   `EndpointVulnerabilitySummaries.Exploited` is counted again (step 3): the open findings of actively exploited CVEs, read through the
   index on (Cve, ClientId) for the few exploited CVEs, and written only where it changed, so a change of the KEV list reaches the

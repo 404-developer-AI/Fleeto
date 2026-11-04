@@ -479,7 +479,11 @@ public sealed class EndpointService
         caller.Ensure(Permissions.HistoryView);
         await using var db = _dbFactory.Create(caller.Scope);
         var id = endpointId.ToString();
-        var entries = db.AuditEntries.AsNoTracking().Where(a => a.TargetType == "Endpoint" && a.TargetId == id);
+        // The start and the end of its remote sessions too (0.8.0): those entries are about the session, which names the endpoint.
+        var sessions = db.RemoteSessions.Where(s => s.EndpointId == endpointId).Select(s => s.Id.ToString());
+        var entries = db.AuditEntries.AsNoTracking().Where(a => (a.TargetType == "Endpoint" && a.TargetId == id) ||
+            (a.TargetType == "RemoteSession" && (a.Action == AuditActions.RemoteSessionStarted || a.Action == AuditActions.RemoteSessionEnded) &&
+             sessions.Contains(a.TargetId)));
         if (SearchTerm(search) is { } term)
         {
             var pattern = ServiceSupport.LikePattern(term);

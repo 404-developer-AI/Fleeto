@@ -46,6 +46,32 @@ public abstract class WorkerLoop : BackgroundService
     /// <summary>Longest a single run may take without reporting before the process counts as unhealthy.</summary>
     protected virtual TimeSpan MaxRunDuration => TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// Longest wait before the first run after start-up. Every loop waits a fixed share of it derived from its name, so the
+    /// loops do not all run their first pass in the same second. A notification (<see cref="Wake"/>) still runs a loop at once.
+    /// </summary>
+    internal static readonly TimeSpan StartSpread = TimeSpan.FromSeconds(20);
+
+    /// <summary>
+    /// Wait before the first run. Why: after a restart some 40 loops ran their first pass at once and queued 150 work items
+    /// on a thread pool that starts with one thread per core, so every first run took seconds (performance export 2026-11-04).
+    /// </summary>
+    protected virtual TimeSpan FirstRunDelay => FirstRunDelayFor(Name, Interval);
+
+    /// <summary>A stable share of <see cref="StartSpread"/> for a loop name, never longer than the loop's interval.</summary>
+    internal static TimeSpan FirstRunDelayFor(string name, TimeSpan interval)
+    {
+        // FNV-1a: string.GetHashCode is randomized per process, and a stable offset keeps the spread the same on every start.
+        var hash = 2166136261u;
+        foreach (var c in name)
+        {
+            hash = (hash ^ c) * 16777619u;
+        }
+
+        var spread = interval < StartSpread ? interval : StartSpread;
+        return TimeSpan.FromTicks((long)(spread.Ticks * (hash % 1000) / 1000.0));
+    }
+
     /// <summary>One pass. Returns true when more work is waiting, so the loop runs again at once.</summary>
     protected abstract Task<bool> RunOnceAsync(CancellationToken cancellationToken);
 
@@ -94,7 +120,7 @@ public abstract class WorkerLoop : BackgroundService
         }
 
         var backoff = TimeSpan.FromSeconds(5);
-        var nextRun = Time.GetUtcNow();
+        var nextRun = Time.GetUtcNow() + FirstRunDelay;
 
         try
         {

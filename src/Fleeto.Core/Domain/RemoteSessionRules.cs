@@ -25,8 +25,11 @@ public static class RemoteSessionRules
     /// <summary>The first agent that serves the Synology web interface (0.8.0, PROXMOX-WEB.md §8); an older agent refuses the session.</summary>
     public const string MinimumSynologyAgentVersion = "0.8.0-alpha.9";
 
-    /// <summary>The oldest Fleeto Connect a claim is accepted from; an older one is refused with the download of the current one.</summary>
-    public const string MinimumConnectVersion = "0.8.0-alpha.6";
+    /// <summary>
+    /// The oldest Fleeto Connect a claim is accepted from; an older one is refused with the download of the current one. Raised to
+    /// 0.8.0-alpha.16 because an older one cannot open the noVNC consoles of Proxmox (they opened wss:// on its plain HTTP address).
+    /// </summary>
+    public const string MinimumConnectVersion = "0.8.0-alpha.16";
 
     /// <summary>The oldest Fleeto Connect that shows the Synology web interface: an older one knows only the Proxmox web interface.</summary>
     public const string MinimumSynologyConnectVersion = "0.8.0-alpha.9";

@@ -1,9 +1,12 @@
 using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
+using Fleeto.Core.Interfaces;
+using Fleeto.Infrastructure.Audit;
 using Fleeto.Infrastructure.Data;
 using Fleeto.Workers.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 
 namespace Fleeto.Workers.Remote;
 
@@ -21,6 +24,14 @@ public sealed class RemoteSessionMaintenanceService : WorkerLoop
 
     /// <summary>How long a claim of Fleeto Connect is kept.</summary>
     public static readonly TimeSpan ClaimRetention = TimeSpan.FromDays(1);
+
+    private const string EndIdleSessionsSql = """
+        UPDATE "RemoteSessions" r SET "EndedAt" = @now, "EndReason" = @reason
+        WHERE r."EndedAt" IS NULL AND r."CreatedAt" < @cutoff
+          AND NOT EXISTS (SELECT 1 FROM "RemoteSessionParticipants" p
+                          WHERE p."SessionId" = r."Id" AND p."State" IN ('Requested', 'Signed', 'Connecting', 'Connected'))
+        RETURNING r."Id", r."ClientId", r."EndpointId", r."Kind", r."StartedAt"
+        """;
 
     private readonly IFleetoDbContextFactory _dbFactory;
 
@@ -56,13 +67,23 @@ public sealed class RemoteSessionMaintenanceService : WorkerLoop
                 .SetProperty(p => p.EndedAt, now)
                 .SetProperty(p => p.EndReason, NotConnectedReason), cancellationToken);
 
-        changed += await db.RemoteSessions
-            .Where(r => r.EndedAt == null && r.CreatedAt < cutoff && !db.RemoteSessionParticipants.Any(p => p.SessionId == r.Id &&
-                (p.State == RemoteParticipantState.Requested || p.State == RemoteParticipantState.Signed ||
-                 p.State == RemoteParticipantState.Connecting || p.State == RemoteParticipantState.Connected)))
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(r => r.EndedAt, now)
-                .SetProperty(r => r.EndReason, NoParticipantReason), cancellationToken);
+        // A session that had started and ends here is audited as ended (0.8.0), like the gateway does when the last technician leaves.
+        // One statement ends the sessions and returns them, so a session the gateway ended meanwhile is neither ended nor audited twice.
+        var ended = await db.Database.SqlQueryRaw<EndedSession>(EndIdleSessionsSql,
+                new NpgsqlParameter<DateTime>("now", now), new NpgsqlParameter<DateTime>("cutoff", cutoff), new NpgsqlParameter<string>("reason", NoParticipantReason))
+            .ToListAsync(cancellationToken);
+        changed += ended.Count;
+        foreach (var session in ended.Where(r => r.StartedAt is not null))
+        {
+            db.AuditEntries.Add(AuditLog.ToEntry(new AuditRecord(AuditActions.RemoteSessionEnded, "RemoteSession", session.Id.ToString(),
+                session.ClientId, AuditActorType.System, "fleeto-workers", "fleeto-workers", new
+                {
+                    session.EndpointId, session.Kind, Reason = NoParticipantReason,
+                    DurationSeconds = (long)Math.Max(0, (now - session.StartedAt!.Value).TotalSeconds)
+                }), now));
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
 
         // A claim is used within 50 seconds or never; after a day it holds nothing anybody reads.
         changed += await db.RemoteSessionClaims.Where(c => c.CreatedAt < now - ClaimRetention).ExecuteDeleteAsync(cancellationToken);
@@ -73,5 +94,14 @@ public sealed class RemoteSessionMaintenanceService : WorkerLoop
         }
 
         return changed;
+    }
+
+    private sealed class EndedSession
+    {
+        public Guid Id { get; set; }
+        public Guid ClientId { get; set; }
+        public Guid EndpointId { get; set; }
+        public string Kind { get; set; } = string.Empty;
+        public DateTime? StartedAt { get; set; }
     }
 }

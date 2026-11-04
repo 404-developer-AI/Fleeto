@@ -129,9 +129,19 @@ When a third released version is added, the oldest entry moves to the top of
   Migration `EndOfLifeReport`, expand only.
 - Supported products: per operating system whether Fleeto offers monitoring, patching, remote control, remote background, vulnerabilities
   and a web interface, with their limits.
+- The audit log records the start and the end of every remote session (remote control, remote background and the web interfaces):
+  `remote_session.started` when the first technician connects and `remote_session.ended` when the session ends, with its kind, the
+  endpoint, the reason and how long it lasted. The end is by the technician who left last, or by the system when the gateway restarted
+  or nobody was connected any more. Both also show on the History tab of the endpoint. The joins and leaves of each technician are
+  recorded as before; the details of every remote session entry are now camelCase, like the other entries.
 
 ### Fixed
 
+- The console of a VM, container or host in the Proxmox web interface did not connect in any browser ("Connection closed",
+  code 1006): the noVNC page of Proxmox always opens a `wss://` connection, which cannot reach the plain HTTP address on loopback that
+  Fleeto Connect serves. Fleeto Connect now opens that page with `encrypt=0`, so noVNC connects with `ws://` to Fleeto Connect, which
+  carries it over its own TLS to the host as before. A Fleeto Connect older than 0.8.0-alpha.16 is now refused for the Proxmox web
+  interface, and the window of the session offers the current one to install (the Synology web interface still accepts 0.8.0-alpha.9).
 - On a screen wider than 1920 pixels the pages stood centred, far from the sidebar. They now start beside the sidebar, and the Clients
   and Settings workspaces use the whole width.
 - Editing a task showed the id of the script of a step in its dropdown instead of the name of the script.
@@ -181,6 +191,13 @@ When a third released version is added, the oldest entry moves to the top of
   into the state of the task, and the notification of that change woke the loop again at once. On the test instance that was 16 million
   database commands in six hours and 16% CPU of the workers on average. A pass now writes the state only when something in it
   changed.
+- After a restart of the workers every loop ran its first pass in the same second: some 40 passes queued 150 work items on a thread
+  pool that starts with one thread per core, so each first pass took 2 to 9 seconds. Each loop now waits a fixed share of the first
+  20 seconds (never more than its own interval) before its first pass; a notification still runs it at once.
+- The counts per site and CVE of the vulnerability overview were rebuilt after every match, also when the match changed no finding
+  (most matches follow an inventory change that leaves the findings as they were), each time with an ANALYZE of the findings: a
+  third of all database time of the test instance. They are now rebuilt only after a match that opened, changed or ended a finding,
+  and the findings are analysed only when a tenth of them (at least 1,000) changed since their last analysis.
 
 ## [0.7.0] — 2026-10-26
 

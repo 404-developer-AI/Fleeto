@@ -398,13 +398,13 @@ Deviations of step 2 from §9, decided while building:
 - **The overview is a page of its own** (`/vulnerabilities`, in the sidebar after Alerts) with a choice of all clients, a client or a
   site, rather than a part of the clients workspace, whose tabs list endpoints. The dashboard tile opens it.
 - **The overview reads counts per site and CVE** (`VulnerabilityCveCounts`), which the workers rebuild after matching, at most every 2
-  minutes while endpoints change and every 10 minutes otherwise when an endpoint was deleted or moved or a feed changed, so it can lag the tab of an endpoint by that much and says when it
+  minutes while matches change findings and every 10 minutes otherwise when an endpoint was deleted or moved or a feed changed, so it can lag the tab of an endpoint by that much and says when it
   was counted. Counting the endpoints per CVE over the findings took 3 seconds (only fixable) to 31 seconds (every finding) at 10,000
   endpoints; the rebuild takes 23 seconds right after the first match (15 afterwards) and the overview then 70 ms. A count row is visible only with the whole client or the whole site;
   a user whose groups give part of a site gets the endpoints it may see counted over the findings instead, so it never sees a count of
   endpoints outside its groups. Two traps found in the load test: right after a large first match the findings have no statistics and
   the planner chose nested loops (5.6 seconds for 16,000 findings, 0.2 after ANALYZE), so the rebuild analyzes them first through
-  `fleeto_perf_analyze`, which the workers may call as well now; and one CTE of the open findings used twice was materialized (67
+  `fleeto_perf_analyze`, which the workers may call as well now, when a tenth of them (at least 1,000) changed since the last analysis; and one CTE of the open findings used twice was materialized (67
   seconds instead of 15 at 10,000 endpoints), so the query reads them twice.
 - **The tab lists source packages**, not single findings: per package the installed version, its most severe finding, how many are
   fixable and the version to update to, opening its CVEs. The running kernel is a group of its own.

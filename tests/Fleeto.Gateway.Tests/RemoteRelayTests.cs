@@ -216,9 +216,19 @@ public sealed partial class RemoteRelayTests
         var session = await db.RemoteSessions.AsNoTracking().SingleAsync(s => s.Id == participant.SessionId);
         Assert.NotNull(session.StartedAt);
         Assert.NotNull(session.EndedAt);
-        var actions = await db.AuditEntries.AsNoTracking().Where(a => a.TargetId == participant.SessionId.ToString()).Select(a => a.Action).ToListAsync();
+        var entries = await db.AuditEntries.AsNoTracking().Where(a => a.TargetId == participant.SessionId.ToString()).OrderBy(a => a.Id).ToListAsync();
+        var actions = entries.Select(a => a.Action).ToList();
         Assert.Contains(AuditActions.RemoteSessionJoined, actions);
         Assert.Contains(AuditActions.RemoteSessionLeft, actions);
+        // The start and the end of the session itself, once each, in order, by the technician (0.8.0).
+        Assert.Equal([AuditActions.RemoteSessionStarted, AuditActions.RemoteSessionJoined, AuditActions.RemoteSessionLeft, AuditActions.RemoteSessionEnded],
+            actions.Where(a => a is AuditActions.RemoteSessionStarted or AuditActions.RemoteSessionJoined or AuditActions.RemoteSessionLeft
+                or AuditActions.RemoteSessionEnded).ToList());
+        var end = entries.Single(a => a.Action == AuditActions.RemoteSessionEnded);
+        var join = entries.Single(a => a.Action == AuditActions.RemoteSessionJoined);
+        Assert.Equal((AuditActorType.User, join.ActorId, "Tess Tech"), (end.ActorType, end.ActorId, end.ActorName));
+        Assert.Contains("The technician closed the session.", end.DetailsJson, StringComparison.Ordinal);
+        Assert.Contains("\"durationSeconds\"", end.DetailsJson, StringComparison.Ordinal);
     }
 
     [Fact]

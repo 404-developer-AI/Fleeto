@@ -11,8 +11,10 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 - **Current phase**: 0.7.0 (the performance monitor and the security monitor) is released (2026-10-26) and runs on the first
   test VPS, tested through `v0.7.0-alpha.1` to `alpha.13`. Next is 0.8.0 in `MD-Files/ROADMAP.md`: vulnerability reporting
   (`MD-Files/VULNERABILITIES.md`) first, then the Proxmox web interface (`MD-Files/PROXMOX-WEB.md`, decided 2026-10-27), then the
-  dashboard designer (`MD-Files/DASHBOARDS.md`, decided 2026-10-27, built before the rest of 0.8.0), then
-  patch management on Linux (decided 2026-10-26, how and what is still to be discussed), in place of hardening, which was taken off the roadmap. The other integrations moved to "Not yet scheduled" on
+  dashboard designer (`MD-Files/DASHBOARDS.md`, decided 2026-10-27, built before the rest of 0.8.0), in place of hardening, which was
+  taken off the roadmap. 0.8.0 is released once `v0.8.0-alpha.16` is tested (decided 2026-11-04). Then 0.9.0: patch management on Linux
+  (moved from 0.8.0) and on Windows, servers and workstations, for endpoints without Action1 (decided 2026-11-04; how and what is still
+  to be discussed, and it changes the Action1 rule under Patch management). The other integrations moved to "Not yet scheduled" on
   2026-09-23. Local development runs without Docker (see `README.md`); Docker is for the VPS and CI only.
 - **Git**: always ask before committing, pushing or tagging. No intermediate commits while a version is being built.
   Tag a version only after its commits are pushed and CI is green.
@@ -426,6 +428,10 @@ The Action1 agent runs next to the Fleeto agent; Fleeto can push the Action1 ins
 signed job. Platforms that Action1 does not cover show "not covered by patch management"
 rather than a home-grown fallback.
 
+**To be revisited in 0.9.0** (decided 2026-11-04): patch management on Linux, and on Windows (servers and workstations) for endpoints
+where Action1 is not used. This changes the rule above that Fleeto keeps no patch engine of its own; how and what, and how it lives
+next to Action1, is decided with the developer before anything is designed or built.
+
 Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
 
 - **Windows first** (0.4.0), Linux later (planned as 0.4.1, moved to "Not yet scheduled" on 2026-09-23, 0.8.0 since 2026-10-26). Action1 patches
@@ -685,7 +691,7 @@ check/alert model as agent data (one alert pipeline, not two), credentials encry
 - Integrations: Action1, Sophos, Veeam, Proxmox, vCenter
 
 Explicitly out of scope for v1: mobile device management, network topology mapping, a
-home-grown patch engine. Note them, do not build them. (File transfer inside remote sessions moved into 0.3.0 on 2026-09-16.)
+home-grown patch engine (revisited in 0.9.0 for Linux and for Windows without Action1, see Patch management). Note them, do not build them. (File transfer inside remote sessions moved into 0.3.0 on 2026-09-16.)
 
 ## Conventions
 

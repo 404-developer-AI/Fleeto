@@ -75,6 +75,45 @@ public sealed class EndpointHistorySearchTests
         Assert.Equal(6, (await Endpoints.GetAuditAsync(caller, endpoint.Id, 50, "   ")).Count);
     }
 
+    [Fact]
+    public async Task The_history_shows_the_start_and_end_of_the_remote_sessions_of_the_endpoint_only()
+    {
+        var client = await _fixture.Database.CreateClientAsync();
+        var site = await _fixture.Database.CreateSiteAsync(client.Id);
+        var endpoint = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "WS-REMOTE");
+        var other = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "WS-REMOTE-OTHER");
+
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            foreach (var target in new[] { endpoint, other })
+            {
+                var session = new RemoteSession
+                {
+                    Id = Guid.NewGuid(), ClientId = client.Id, EndpointId = target.Id, Kind = RemoteSessionKind.RemoteControl, Component = AgentComponent.Agent,
+                    StartedByUserId = Guid.NewGuid(), StartedByName = "Tech", CreatedAt = Now.AddMinutes(-20), StartedAt = Now.AddMinutes(-19),
+                    EndedAt = Now.AddMinutes(-5)
+                };
+                db.RemoteSessions.Add(session);
+                foreach (var action in new[] { "remote_session.started", "remote_session.joined", "remote_session.left", "remote_session.ended" })
+                {
+                    db.AuditEntries.Add(new AuditEntry
+                    {
+                        Time = Now.AddMinutes(-10), ClientId = client.Id, ActorType = AuditActorType.User, ActorId = Guid.NewGuid().ToString(),
+                        ActorName = "Tech", Action = action, TargetType = "RemoteSession", TargetId = session.Id.ToString(),
+                        DetailsJson = $$"""{"endpointId":"{{target.Id}}","kind":"RemoteControl"}"""
+                    });
+                }
+            }
+
+            await db.SaveChangesAsync();
+        }
+
+        var caller = WebFixture.Technician();
+        var history = await Endpoints.GetAuditAsync(caller, endpoint.Id, 50);
+        Assert.Equal(["remote_session.ended", "remote_session.started"], history.Select(a => a.Action).ToArray());
+        Assert.Single(await Endpoints.GetAuditAsync(caller, endpoint.Id, 50, "ended"));
+    }
+
     private static Alert Alert(Endpoint endpoint, string target, string title, DateTime openedAt) => new()
     {
         Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, Kind = AlertKind.Check, Target = target,

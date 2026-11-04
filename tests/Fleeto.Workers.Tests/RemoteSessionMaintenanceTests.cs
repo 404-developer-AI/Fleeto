@@ -1,4 +1,5 @@
 using Fleeto.Core.Entities;
+using Fleeto.Core.Interfaces;
 using Fleeto.Workers.Remote;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -68,6 +69,37 @@ public sealed class RemoteSessionMaintenanceTests
         Assert.Null((await db.RemoteSessions.AsNoTracking().SingleAsync(s => s.Id == connected.Session.Id)).EndedAt);
         Assert.Equal(RemoteParticipantState.Ended, (await db.RemoteSessionParticipants.AsNoTracking().SingleAsync(p => p.Id == stuck.Participant.Id)).State);
         Assert.NotNull((await db.RemoteSessions.AsNoTracking().SingleAsync(s => s.Id == stuck.Session.Id)).EndedAt);
+    }
+
+    [Fact]
+    public async Task A_started_session_the_workers_end_is_audited_as_ended_and_one_that_never_started_is_not()
+    {
+        var (_, site) = await _fixture.CreateClientAndSiteAsync();
+        var endpoint = await _fixture.Db.CreateEndpointAsync(site, EndpointTier.Managed, "SRV-AUDIT");
+        // A technician worked in it; a second one was claimed by a gateway that never paired him, so only the workers can end it.
+        var started = await SessionAsync(endpoint, RemoteParticipantState.Connecting, TimeSpan.FromMinutes(20));
+        var neverStarted = await SessionAsync(endpoint, RemoteParticipantState.Signed, TimeSpan.FromMinutes(6));
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            await db.RemoteSessions.Where(s => s.Id == started.Session.Id)
+                .ExecuteUpdateAsync(s => s.SetProperty(r => r.StartedAt, _fixture.Now - TimeSpan.FromMinutes(15)));
+        }
+
+        var service = new RemoteSessionMaintenanceService(_fixture.Db.DbFactory, _fixture.Heartbeat(), _fixture.Db.Time,
+            NullLogger<RemoteSessionMaintenanceService>.Instance);
+        await service.RunAsync(CancellationToken.None);
+        await service.RunAsync(CancellationToken.None);
+
+        await using var check = _fixture.Db.DbFactory.CreateSystem();
+        var ended = await check.AuditEntries.AsNoTracking()
+            .Where(a => a.Action == AuditActions.RemoteSessionEnded && a.TargetId == started.Session.Id.ToString()).ToListAsync();
+        var entry = Assert.Single(ended);
+        Assert.Equal((AuditActorType.System, "fleeto-workers", "RemoteSession", (Guid?)endpoint.ClientId),
+            (entry.ActorType, entry.ActorId, entry.TargetType, entry.ClientId));
+        using var details = System.Text.Json.JsonDocument.Parse(entry.DetailsJson);
+        Assert.Equal("RemoteBackground", details.RootElement.GetProperty("kind").GetString());
+        Assert.Equal(15 * 60, details.RootElement.GetProperty("durationSeconds").GetInt64());
+        Assert.False(await check.AuditEntries.AnyAsync(a => a.Action == AuditActions.RemoteSessionEnded && a.TargetId == neverStarted.Session.Id.ToString()));
     }
 
     [Fact]
