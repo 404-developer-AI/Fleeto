@@ -176,6 +176,8 @@ public sealed class PatchScanWriter : WorkerLoop
         state.Coverage = PatchCoverage.Active;
         state.ScanTool = scan.Tool;
         state.ScanProblem = scan.Problem;
+        state.ScanSource = scan.Source;
+        state.ScanSourceServer = scan.SourceServer;
         state.RebootRequired = scan.RestartRequired;
         state.ProductAgentVersion = scan.AgentVersion;
         state.UpdatedAt = now;
@@ -217,13 +219,18 @@ public sealed class PatchScanWriter : WorkerLoop
     {
         var existing = await db.EndpointMissingUpdates.Where(u => u.EndpointId == endpoint.Id).ToListAsync(cancellationToken);
         var byId = existing.GroupBy(u => u.ExternalUpdateId, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
-        var findings = await FindingsAsync(db, endpoint.Id, cancellationToken);
+        // Windows updates name their own severity, CVEs and release; the findings of the vulnerability feeds are Linux only.
+        var windows = tool == "windows_update";
+        var findings = windows ? [] : await FindingsAsync(db, endpoint.Id, cancellationToken);
         var kept = new HashSet<EndpointMissingUpdate>();
         var critical = 0;
         var other = 0;
         foreach (var update in updates.DistinctBy(u => u.Id, StringComparer.Ordinal))
         {
-            var fix = PatchScanRules.FixOf(update, tool, findings);
+            var fix = windows
+                ? new PatchFix(PatchScanRules.SeverityOf(update.Severity), update.Cves ?? [], string.Empty,
+                    update.ReleasedAt is { } released ? DateOnly.FromDateTime(released) : null)
+                : PatchScanRules.FixOf(update, tool, findings);
             if (!byId.TryGetValue(update.Id, out var row))
             {
                 row = new EndpointMissingUpdate
@@ -242,16 +249,22 @@ public sealed class PatchScanWriter : WorkerLoop
             row.Vendor = string.Empty;
             row.Version = update.Version;
             row.InstalledVersion = update.InstalledVersion;
-            row.KbNumber = string.Empty;
+            row.KbNumber = update.KbNumbers is { Count: > 0 } kbs ? kbs[0] : string.Empty;
             row.Severity = fix?.Severity ?? PatchSeverity.Unspecified;
             row.ReleaseDate = fix?.ReleaseDate;
-            row.UpdateType = update.Security || fix is { Cves.Count: > 0 } ? PatchScanRules.SecurityType : PatchScanRules.RegularType;
+            row.UpdateType = windows
+                ? PatchScanRules.WindowsUpdateType(update.Classification)
+                : update.Security || fix is { Cves.Count: > 0 } ? PatchScanRules.SecurityType : PatchScanRules.RegularType;
             row.ApprovalStatus = string.Empty;
             row.Cves = [.. fix?.Cves ?? []];
             row.Advisory = fix?.Advisory ?? update.Advisory;
             row.Origin = update.Origin;
             row.Held = update.Held;
             row.Removal = update.Removal;
+            row.SizeBytes = windows && update.SizeBytes > 0 ? update.SizeBytes : null;
+            row.Downloaded = update.Downloaded;
+            row.IsDriver = update.IsDriver;
+            row.IsFeatureUpdate = update.IsFeatureUpdate;
             row.UpdatedAt = now;
             kept.Add(row);
             if (update.Removal)

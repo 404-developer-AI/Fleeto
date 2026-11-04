@@ -6,7 +6,7 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1"
 )
 
-// scanWith picks the engine of the endpoint: apt where dpkg is the package database (Ubuntu, Debian, Proxmox VE), dnf on the RHEL
+// scanWith picks the Linux engine of the endpoint (Windows always uses the Windows Update Agent, scan_windows.go): apt where dpkg is the package database (Ubuntu, Debian, Proxmox VE), dnf on the RHEL
 // family (AlmaLinux). Without either there is nothing Fleeto can scan, and no report is made.
 func scanWith(ctx context.Context, sys system) *agentv1.PatchScanReport {
 	switch {

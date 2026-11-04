@@ -35,7 +35,9 @@ engine (Action1 or Fleeto) is a property of the patch policy, and one endpoint i
   enterprise repository answering 401.
 - [open] Later, when a Debian endpoint runs: captures of Debian 12 and 13 (`apt-get -q update`, `apt-get -s dist-upgrade`, `apt-mark
   showhold`) for the parser tests; Debian is supported on the representative output of `agent/internal/patch/testdata` until then.
-- [open] Step 2: scanning on Windows with the Windows Update Agent, for endpoints without Action1.
+- [done] Step 2: scanning on Windows with the Windows Update Agent, for endpoints without Action1. Still to do before the release: a
+  scan as SYSTEM on a Windows endpoint with missing updates, on a Windows Server and under WSUS (it ran read-only on the development
+  PC, as the signed-in user, with nothing missing).
 - [open] Step 3: installing by hand from the Patches tab and the endpoint list, as a signed job, with the restart inside the job.
 - [open] Step 4: patch policies with engine Fleeto: rounds on their schedule, "Scheduled patching", turning automatic updates off.
 - [open] Step 5: the remaining options, the documentation and the release.

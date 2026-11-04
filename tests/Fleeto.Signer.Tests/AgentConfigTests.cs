@@ -54,7 +54,7 @@ public sealed class AgentConfigTests
     }
 
     [Fact]
-    public async Task Only_a_managed_Linux_endpoint_whose_engine_is_Fleeto_is_asked_to_scan_for_missing_updates()
+    public async Task Only_a_managed_endpoint_whose_engine_is_Fleeto_is_asked_to_scan_for_missing_updates()
     {
         await _fixture.Database.LoadTestLicenseAsync(100);
         var client = await _fixture.Database.CreateClientAsync();
@@ -81,8 +81,8 @@ public sealed class AgentConfigTests
         Assert.Equal(Core.Domain.PatchScanRules.DefaultIntervalHours, (await SignConfigAsync(scanned)).Config.PatchScanIntervalHours);
         Assert.Equal(0u, (await SignConfigAsync(agentOnly)).Config.PatchScanIntervalHours);
         Assert.Equal(0u, (await SignConfigAsync(action1)).Config.PatchScanIntervalHours);
-        // Windows is scanned from 0.9.0 step 2.
-        Assert.Equal(0u, (await SignConfigAsync(windows)).Config.PatchScanIntervalHours);
+        // Windows with the Windows Update Agent (0.9.0 step 2).
+        Assert.Equal(Core.Domain.PatchScanRules.DefaultIntervalHours, (await SignConfigAsync(windows)).Config.PatchScanIntervalHours);
     }
 
     [Fact]

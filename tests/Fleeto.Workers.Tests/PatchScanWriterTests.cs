@@ -288,4 +288,43 @@ public sealed class PatchScanWriterTests
         Assert.Equal(EndpointPatchEngine.Fleeto, row.Engine);
         Assert.Equal(PatchEngine.Fleeto, (await StateAsync(endpoint.Id)).State!.Engine);
     }
+
+    [Fact]
+    public async Task A_Windows_scan_names_its_own_severity_CVEs_release_and_update_type()
+    {
+        var endpoint = await LinuxEndpointAsync();
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            await db.Endpoints.Where(e => e.Id == endpoint.Id).ExecuteUpdateAsync(s => s
+                .SetProperty(e => e.OsPlatform, "windows").SetProperty(e => e.OsName, "Windows Server 2022 Standard"));
+        }
+
+        var cumulative = new PatchScanUpdate("a:201", "2026-10 Cumulative Update for Windows Server 2022 (KB5031354)", string.Empty, string.Empty, false,
+            string.Empty, string.Empty, "Critical", false, false, "Security Updates", ["KB5031354"], new DateTime(2026, 10, 14, 17, 0, 0, DateTimeKind.Utc),
+            ["CVE-2026-21001"], 812_000_000, Downloaded: true);
+        var defender = new PatchScanUpdate("b:1", "Security Intelligence Update for Microsoft Defender Antivirus", string.Empty, string.Empty, false,
+            string.Empty, string.Empty, string.Empty, false, false, "Definition Updates");
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            db.PatchScans.Add(new PatchScan
+            {
+                Id = Guid.CreateVersion7(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, AgentScanId = Guid.NewGuid(), ReceivedAt = _fixture.Now,
+                Tool = "windows_update", Source = "microsoft_update", UpdateCount = 2, AgentVersion = PatchScanRules.MinimumAgentVersion,
+                UpdatesJson = PatchScanRules.Serialize([cumulative, defender])
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await _fixture.PatchScans().ProcessAsync(CancellationToken.None);
+
+        var (state, missing) = await StateAsync(endpoint.Id);
+        Assert.Equal(("windows_update", "microsoft_update"), (state!.ScanTool, state.ScanSource));
+        Assert.Equal((1, 1), (state.MissingCritical, state.MissingOther));
+        var row = missing.Single(u => u.ExternalUpdateId == "a:201");
+        Assert.Equal(("KB5031354", PatchSeverity.Critical, "Security Updates"), (row.KbNumber, row.Severity, row.UpdateType));
+        Assert.Equal(["CVE-2026-21001"], row.Cves);
+        Assert.Equal(new DateOnly(2026, 10, 14), row.ReleaseDate);
+        Assert.Equal((812_000_000L, true), (row.SizeBytes!.Value, row.Downloaded));
+        Assert.Equal("Definition Updates", missing.Single(u => u.ExternalUpdateId == "b:1").UpdateType);
+    }
 }

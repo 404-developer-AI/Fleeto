@@ -28,6 +28,14 @@ When a third released version is added, the oldest entry moves to the top of
   dashboard and in the endpoint list, and the "Missing updates" check works on Linux; an update without an advisory date counts from
   the day Fleeto first saw it missing. An endpoint whose scans are older than 7 days while it is online opens a patch state alert.
   Installing follows in a later step.
+- Missing updates on Windows, read by the Fleeto agent itself (0.9.0 step 2). On a managed Windows endpoint without an Action1 agent
+  (Windows 10 and 11, Windows Server 2016 or newer, Server Core included) the agent asks the Windows Update Agent which updates are
+  missing, every 6 hours and on "Scan now". It searches where the endpoint already looks: the WSUS server of a group policy, Microsoft
+  Update when it is registered (Office, SQL Server, .NET), otherwise Windows Update; a scan downloads, installs and registers nothing.
+  The Patches tab shows per update the title and KB, the release date, the update type, the CVEs, the MSRC severity, the size and
+  whether it is downloaded already, with where the scan searched. A search that fails says why (Windows Update not reachable, the
+  service disabled, a WSUS server that refuses) with the code. Drivers and feature updates are not searched. A client that uses Action1
+  still offers "Install Action1 agent" on such an endpoint; once the agent runs there, Action1 patches it instead.
 - The agent reports the time zone of the endpoint with its inventory, for patch rounds in the endpoint's own time later in 0.9.0.
 
 ### Changed
@@ -36,8 +44,11 @@ When a third released version is added, the oldest entry moves to the top of
 - The Patches tab of an endpoint without patch management says why: agent-only, DSM updates itself, or an operating system Fleeto
   does not patch.
 - The public API: `GET /api/v1/endpoints/{endpointId}/patches` also answers for an endpoint the Fleeto agent scans, with `engine`,
-  `scanTool` and `scanProblem`, and every missing update with `advisory`, `origin`, `held`, `removal` and `firstSeenAt`.
-- Supported products: Ubuntu, Debian, AlmaLinux and Proxmox VE show their missing updates by Fleeto.
+  `scanTool`, `scanProblem`, `scanSource` and `scanSourceServer`, and every missing update with `advisory`, `origin`, `held`, `removal`,
+  `firstSeenAt`, `sizeBytes`, `downloaded` and `isFeatureUpdate`.
+- Supported products: Ubuntu, Debian, AlmaLinux and Proxmox VE show their missing updates by Fleeto, and Windows and Windows Server
+  by Fleeto as well as through Action1.
+- A patch policy for patching by Fleeto on an endpoint Action1 patches says on the Patches tab that it installs nothing there.
 
 ## [0.8.0] — 2026-11-04
 

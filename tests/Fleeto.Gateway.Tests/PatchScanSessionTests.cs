@@ -223,4 +223,61 @@ public sealed class PatchScanSessionTests
         await using var db = _fixture.Database.DbFactory.CreateSystem();
         Assert.Null((await db.PatchScanRequests.AsNoTracking().SingleAsync(r => r.Id == request.Id)).DeliveredAt);
     }
+
+    [Fact]
+    public async Task A_Windows_scan_keeps_its_source_KB_numbers_CVEs_and_release_and_drops_what_is_not_well_formed()
+    {
+        using var harness = _fixture.CreateHarness();
+        var endpoint = await _fixture.CreateEndpointAsync(EndpointTier.Managed);
+        using var session = await harness.OpenAsync(endpoint);
+        GatewayHarness.Drain(session);
+
+        var report = new PatchScanReport
+        {
+            ScanId = Guid.NewGuid().ToString("D"), Engine = "windows_update", Source = "wsus", SourceServer = "wsus01.corp.example:8530"
+        };
+        var update = new PatchUpdate
+        {
+            Id = "5fd1ab0f-6a4b-4c3a-9b5e-2c4b1d0f7a11:201", Name = "2026-10 Cumulative Update for Windows 11 Version 24H2 (KB5031354)",
+            Classification = "Security Updates", Severity = "Critical", ReleasedAt = Timestamp.FromDateTime(new DateTime(2026, 10, 14, 17, 0, 0, DateTimeKind.Utc)),
+            SizeBytes = 812_000_000, Downloaded = true, RestartRequired = true
+        };
+        update.KbNumbers.Add("kb5031354");
+        update.KbNumbers.Add("KB<script>");
+        update.Cves.Add("cve-2026-21001");
+        update.Cves.Add("not-a-cve");
+        report.Updates.Add(update);
+        // A release in the far future is not believed.
+        report.Updates.Add(new PatchUpdate { Id = "b:1", Name = "Odd update", ReleasedAt = Timestamp.FromDateTime(new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc)) });
+
+        await harness.Manager.HandleAsync(session, new AgentMessage { PatchScan = report }, CancellationToken.None);
+
+        var scan = Assert.Single(await ScansAsync(endpoint.Id));
+        Assert.Equal(("windows_update", "wsus", "wsus01.corp.example:8530"), (scan.Tool, scan.Source, scan.SourceServer));
+        var updates = PatchScanRules.Parse(scan.UpdatesJson);
+        var cumulative = updates[0];
+        Assert.Equal(["KB5031354"], cumulative.KbNumbers!);
+        Assert.Equal(["CVE-2026-21001"], cumulative.Cves!);
+        Assert.Equal(new DateTime(2026, 10, 14, 17, 0, 0, DateTimeKind.Utc), cumulative.ReleasedAt);
+        Assert.Equal(("Security Updates", "Critical", 812_000_000L, true, true),
+            (cumulative.Classification, cumulative.Severity, cumulative.SizeBytes, cumulative.Downloaded, cumulative.RestartRequired));
+        Assert.Null(updates[1].ReleasedAt);
+    }
+
+    [Fact]
+    public async Task An_unknown_source_is_stored_as_none_and_a_server_only_for_WSUS()
+    {
+        using var harness = _fixture.CreateHarness();
+        var endpoint = await _fixture.CreateEndpointAsync(EndpointTier.Managed);
+        using var session = await harness.OpenAsync(endpoint);
+        GatewayHarness.Drain(session);
+
+        await harness.Manager.HandleAsync(session, new AgentMessage
+        {
+            PatchScan = new PatchScanReport { ScanId = Guid.NewGuid().ToString("D"), Engine = "windows_update", Source = "somewhere", SourceServer = "x:1" }
+        }, CancellationToken.None);
+
+        var scan = Assert.Single(await ScansAsync(endpoint.Id));
+        Assert.Equal((string.Empty, string.Empty), (scan.Source, scan.SourceServer));
+    }
 }

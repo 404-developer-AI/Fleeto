@@ -314,8 +314,9 @@ public sealed class PublicApiQueries
             state.MissingCritical, state.MissingOther, state.RebootRequired, UtcOrNull(state.ProductLastSeenAt), state.ProductAgentVersion,
             Utc(state.UpdatedAt), UtcOrNull(view.DetailUpdatedAt),
             view.Missing.Select(u => new ApiMissingUpdate(u.Id, u.Name, u.Vendor, u.Version, u.InstalledVersion, u.ReleaseDate, u.KbNumber,
-                u.UpdateType, u.ApprovalStatus, Map(u.Severity), u.CveList, u.Advisory, u.Origin, u.Held, u.Removal, UtcOrNull(u.FirstSeenAt))).ToList(),
-            fleeto ? ApiPatchEngine.Fleeto : ApiPatchEngine.Action1, fleeto ? state.ScanTool : null, fleeto ? state.ScanProblem : null));
+                u.UpdateType, u.ApprovalStatus, Map(u.Severity), u.CveList, u.Advisory, u.Origin, u.Held, u.Removal, UtcOrNull(u.FirstSeenAt), u.SizeBytes, u.Downloaded, u.IsFeatureUpdate)).ToList(),
+            fleeto ? ApiPatchEngine.Fleeto : ApiPatchEngine.Action1, fleeto ? state.ScanTool : null, fleeto ? state.ScanProblem : null,
+            fleeto && state.ScanSource.Length > 0 ? state.ScanSource : null, fleeto && state.ScanSourceServer.Length > 0 ? state.ScanSourceServer : null));
     }
 
     /// <summary>

@@ -99,8 +99,20 @@ func joinProblem(first, rest string) string {
 	return first + " " + rest
 }
 
-// Finalize makes a report safe to send: a valid scan id, valid and bounded strings, and at most MaxUpdates updates, security
-// updates first, so a cut drops the less important ones.
+// rank orders the updates of a report, so a cut drops the least important: security updates first, then critical updates of
+// Windows, then the rest.
+func rank(u *agentv1.PatchUpdate) int {
+	switch u.GetClassification() {
+	case classificationSecurity, classificationSecurityUpdates:
+		return 0
+	case classificationCriticalUpdates:
+		return 1
+	}
+	return 2
+}
+
+// Finalize makes a report safe to send: a valid scan id, valid and bounded strings, KB numbers and CVEs of a valid form, and at most
+// MaxUpdates updates, security updates first, so a cut drops the less important ones.
 func Finalize(r *agentv1.PatchScanReport) {
 	if !scanIDPattern.MatchString(r.GetScanId()) {
 		r.ScanId = newUUID()
@@ -108,6 +120,9 @@ func Finalize(r *agentv1.PatchScanReport) {
 	r.Engine = cut(r.GetEngine(), 20)
 	r.Problem = cut(r.GetProblem(), maxProblemLen)
 	r.RequestId = cut(r.GetRequestId(), maxRequestIDLen)
+	r.Source = cut(r.GetSource(), maxSourceLen)
+	r.SourceServer = cut(r.GetSourceServer(), maxSourceServerLen)
+	windows := r.GetEngine() == EngineWindowsUpdate
 	updates := r.GetUpdates()[:0]
 	for _, u := range r.GetUpdates() {
 		if u == nil {
@@ -120,21 +135,22 @@ func Finalize(r *agentv1.PatchScanReport) {
 		u.Id = cut(u.GetId(), maxNameLen+1+maxNameLen)
 		u.Version = cut(u.GetVersion(), maxVersionLen)
 		u.InstalledVersion = cut(u.GetInstalledVersion(), maxVersionLen)
-		if u.GetClassification() != classificationSecurity {
+		if windows {
+			// The name of the update classification ("Security Updates", "Critical Updates", ...).
+			u.Classification = cut(u.GetClassification(), maxClassificationLen)
+		} else if u.GetClassification() != classificationSecurity {
 			u.Classification = classificationOther
 		}
+		u.KbNumbers = kbNumbers(u.GetKbNumbers())
+		u.Cves = cveIDs(u.GetCves())
 		u.Origin = cut(u.GetOrigin(), maxOriginLen)
 		u.Advisory = cut(u.GetAdvisory(), maxAdvisoryLen)
 		u.Severity = cut(u.GetSeverity(), maxSeverityLen)
 		updates = append(updates, u)
 	}
 	slices.SortFunc(updates, func(a, b *agentv1.PatchUpdate) int {
-		aSec, bSec := a.GetClassification() == classificationSecurity, b.GetClassification() == classificationSecurity
-		if aSec != bSec {
-			if aSec {
-				return -1
-			}
-			return 1
+		if c := cmp.Compare(rank(a), rank(b)); c != 0 {
+			return c
 		}
 		return cmp.Compare(a.GetId(), b.GetId())
 	})

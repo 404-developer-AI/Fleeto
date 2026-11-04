@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Fleeto.Core.Domain;
 using Fleeto.Protocol.Agent.V1;
 using Npgsql;
@@ -20,6 +21,12 @@ public enum PatchScanOutcome
 /// <summary>Patch scans (0.9.0): PatchScans (select, insert) and PatchScanRequests (select, update).</summary>
 public sealed partial class GatewayStore
 {
+    [GeneratedRegex(@"^CVE-\d{4}-\d{4,7}$")]
+    private static partial Regex CvePattern();
+
+    [GeneratedRegex(@"^KB\d{4,8}$")]
+    private static partial Regex KbPattern();
+
     /// <summary>
     /// Stores one patch scan exactly once per scan id. Every text is cleaned and cut to its limit and only the first
     /// <see cref="PatchScanRules.MaxUpdates"/> updates are kept: the agent is authenticated, not trusted with the size of the database.
@@ -55,9 +62,9 @@ public sealed partial class GatewayStore
         var updates = ToEntries(report).ToList();
         await using (var insert = new NpgsqlCommand("""
             INSERT INTO "PatchScans" ("Id", "ClientId", "EndpointId", "AgentScanId", "ReceivedAt", "AgentStartedAt", "DurationMs", "Tool",
-              "Problem", "RestartRequired", "UpdateCount", "Truncated", "RequestId", "AgentVersion", "UpdatesJson")
+              "Problem", "RestartRequired", "UpdateCount", "Truncated", "RequestId", "AgentVersion", "UpdatesJson", "Source", "SourceServer")
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-              COALESCE((SELECT left("AgentVersion", 50) FROM "Endpoints" WHERE "Id" = $3), ''), $14)
+              COALESCE((SELECT left("AgentVersion", 50) FROM "Endpoints" WHERE "Id" = $3), ''), $14, $15, $16)
             ON CONFLICT ("EndpointId", "AgentScanId") DO NOTHING
             """, connection, transaction))
         {
@@ -87,6 +94,12 @@ public sealed partial class GatewayStore
                 Value = Guid.TryParse(report.RequestId, out var requestId) ? requestId : DBNull.Value
             });
             insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = PatchScanRules.Serialize(updates) });
+            // Windows (step 2): where the Windows Update Agent searched; an unknown value is stored as none.
+            insert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = PatchScanRules.Sources.Contains(report.Source) ? report.Source : string.Empty });
+            insert.Parameters.Add(new NpgsqlParameter<string>
+            {
+                TypedValue = report.Source == "wsus" ? DbText.Clean(report.SourceServer, PatchScanRules.MaxServerLength) : string.Empty
+            });
             if (await insert.ExecuteNonQueryAsync(cancellationToken) == 0)
             {
                 return PatchScanOutcome.Duplicate;
@@ -98,12 +111,15 @@ public sealed partial class GatewayStore
     }
 
     /// <summary>The updates of a report as stored: cleaned, cut, without empty names, at most <see cref="PatchScanRules.MaxUpdates"/>.</summary>
-    internal static IEnumerable<PatchScanUpdate> ToEntries(PatchScanReport report) =>
-        report.Updates.Take(PatchScanRules.MaxUpdates)
+    internal static IEnumerable<PatchScanUpdate> ToEntries(PatchScanReport report)
+    {
+        var windows = report.Engine == "windows_update";
+        return report.Updates.Take(PatchScanRules.MaxUpdates)
             .Where(u => !string.IsNullOrWhiteSpace(u.Name))
             .Select(u => new PatchScanUpdate(
                 DbText.Clean(string.IsNullOrWhiteSpace(u.Id) ? u.Name : u.Id, PatchScanRules.MaxNameLength),
-                DbText.Clean(u.Name, PatchScanRules.MaxNameLength),
+                // A Windows update is named by its title, which is longer than a package name.
+                DbText.Clean(u.Name, windows ? PatchScanRules.MaxTitleLength : PatchScanRules.MaxNameLength),
                 DbText.Clean(u.Version, PatchScanRules.MaxVersionLength),
                 DbText.Clean(u.InstalledVersion, PatchScanRules.MaxVersionLength),
                 u.Classification == "security",
@@ -111,7 +127,30 @@ public sealed partial class GatewayStore
                 DbText.Clean(u.Advisory, PatchScanRules.MaxAdvisoryLength),
                 DbText.Clean(u.Severity, 20),
                 u.Held,
-                u.Removal));
+                u.Removal,
+                windows ? DbText.Clean(u.Classification, 50) : string.Empty,
+                [.. u.KbNumbers.Select(k => k.Trim().ToUpperInvariant()).Where(k => KbPattern().IsMatch(k)).Distinct().Take(10)],
+                ReleaseDate(u.ReleasedAt),
+                [.. u.Cves.Select(c => c.Trim().ToUpperInvariant()).Where(c => CvePattern().IsMatch(c)).Distinct().Take(200)],
+                DbText.ClampToLong(u.SizeBytes),
+                u.Downloaded,
+                u.RestartRequired,
+                u.Mandatory,
+                u.IsDriver,
+                u.IsFeatureUpdate));
+    }
+
+    /// <summary>A release date the agent reported, or null when it is missing, unreadable or not plausible (before 1990 or in the future).</summary>
+    private static DateTime? ReleaseDate(Google.Protobuf.WellKnownTypes.Timestamp? timestamp)
+    {
+        if (timestamp is null)
+        {
+            return null;
+        }
+
+        var value = SafeToDateTime(timestamp, DateTime.MinValue);
+        return value.Year >= 1990 && value <= DateTime.UtcNow.AddDays(1) ? value : null;
+    }
 
     /// <summary>Pending patch scan requests of these endpoints, oldest first; at most one per endpoint is needed.</summary>
     public async Task<List<DeliverablePatchScanRequest>> ReadDeliverablePatchScanRequestsAsync(Guid[] endpointIds, DateTime now,

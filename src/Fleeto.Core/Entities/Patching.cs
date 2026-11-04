@@ -93,6 +93,12 @@ public class EndpointPatchState
     /// <summary>What went wrong in the last scan (0.9.0), in words for the Patches tab; null when it read everything.</summary>
     public string? ScanProblem { get; set; }
 
+    /// <summary>Windows (0.9.0 step 2): where the last scan searched, windows_update, microsoft_update or wsus; empty otherwise.</summary>
+    public string ScanSource { get; set; } = string.Empty;
+
+    /// <summary>Windows: the WSUS server of a group policy, host and port only; empty otherwise.</summary>
+    public string ScanSourceServer { get; set; } = string.Empty;
+
     /// <summary>
     /// Since when the scans of the Fleeto agent read nothing because of a problem (0.9.0); null once a scan reads the updates. The patch
     /// state alert counts from here while no scan ever read the updates.
@@ -166,6 +172,18 @@ public class EndpointMissingUpdate
 
     /// <summary>The upgrade would remove this package (0.9.0, apt dist-upgrade).</summary>
     public bool Removal { get; set; }
+
+    /// <summary>Windows (0.9.0 step 2): the download size in bytes; null when unknown.</summary>
+    public long? SizeBytes { get; set; }
+
+    /// <summary>Windows: the files are on the endpoint already.</summary>
+    public bool Downloaded { get; set; }
+
+    /// <summary>Windows: a driver.</summary>
+    public bool IsDriver { get; set; }
+
+    /// <summary>Windows: a feature update or upgrade of Windows itself.</summary>
+    public bool IsFeatureUpdate { get; set; }
 
     /// <summary>When Fleeto last saw this update as missing.</summary>
     public DateTime UpdatedAt { get; set; }
@@ -508,6 +526,12 @@ public class PatchScan
 
     /// <summary>The agent version that scanned.</summary>
     public string AgentVersion { get; set; } = string.Empty;
+
+    /// <summary>Windows (step 2): windows_update, microsoft_update or wsus; empty on Linux.</summary>
+    public string Source { get; set; } = string.Empty;
+
+    /// <summary>Windows: the WSUS server, host and port only.</summary>
+    public string SourceServer { get; set; } = string.Empty;
 
     /// <summary>JSON array of <see cref="Domain.PatchScanUpdate"/>.</summary>
     public string UpdatesJson { get; set; } = "[]";

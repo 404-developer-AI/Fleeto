@@ -1789,7 +1789,9 @@
     {
         var state = patches.State;
         var scanned = state?.ProductLastSeenAt is not null;
-        var tool = state?.ScanTool is { Length: > 0 } t ? t : null;
+        var windows = _endpoint?.OsPlatform == "windows";
+        var tool = PatchScanRules.DescribeSource(state?.ScanSource, state?.ScanSourceServer)
+                   ?? (state?.ScanTool is { Length: > 0 } t ? t : null);
         <div class="d-flex gap-4 flex-wrap align-center mb-3">
             <StatusChip Text="@(!scanned ? "Not scanned yet" : state!.IsCompliant ? "Up to date" : "Updates missing")"
                         Kind="@(!scanned ? StatusKind.Neutral : state!.IsCompliant ? StatusKind.Ok : StatusKind.Warning)" />
@@ -1810,6 +1812,25 @@
         @if (patches.ScanNote is { } note)
         {
             <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">@note</MudAlert>
+        }
+
+        @if (patches.PolicyNote is { } policyNote)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">@policyNote</MudAlert>
+        }
+
+        @PatchRequestNotice(patches)
+        @AgentInstallNotice(patches)
+        @if (Can(Permissions.Action1AgentInstall) && patches.CanInstallAgent)
+        {
+            var install = patches.AgentInstall;
+            <div class="d-flex gap-2 align-center mb-3">
+                <MudText Typo="Typo.body2" Class="muted">This client uses Action1. With its agent on this endpoint, Action1 patches it instead of Fleeto.</MudText>
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Outlined.InstallDesktop"
+                           Disabled="@(_installingAgent || install?.Status == Action1AgentStatus.Installing)" OnClick="InstallAction1AgentAsync">
+                    @(install?.Status is Action1AgentStatus.Failed or Action1AgentStatus.Stopped ? "Install Action1 agent again" : "Install Action1 agent")
+                </MudButton>
+            </div>
         }
 
         @if (state?.ScanProblem is { } problem)
@@ -1862,6 +1883,58 @@
         {
             <EmptyState Icon="@Icons.Material.Outlined.CheckCircle" Title="Nothing missing"
                         Text="The last scan found no missing updates on this endpoint." />
+        }
+        else if (windows)
+        {
+            <MudTable T="MissingUpdateView" Items="patches.Missing" Dense="true" Elevation="0">
+                <HeaderContent>
+                    <MudTh>Name</MudTh>
+                    <MudTh>Release date</MudTh>
+                    <MudTh>Update type</MudTh>
+                    <MudTh>Vulnerabilities</MudTh>
+                    <MudTh>Security severity</MudTh>
+                    <MudTh>Size</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd>
+                        @context.Name
+                        @if (!string.IsNullOrEmpty(context.KbNumber))
+                        {
+                            <span class="muted"> (@context.KbNumber)</span>
+                        }
+                        @if (context.Downloaded)
+                        {
+                            <StatusChip Text="Downloaded" Kind="StatusKind.Neutral" />
+                        }
+                    </MudTd>
+                    <MudTd>@(context.ReleaseDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture))</MudTd>
+                    <MudTd>@context.UpdateType</MudTd>
+                    <MudTd>
+                        @if (context.CveList.Count > 0)
+                        {
+                            <MudTooltip Text="@context.Cves">
+                                <span>@Ui.Count(context.CveList.Count, "CVE")</span>
+                            </MudTooltip>
+                        }
+                        else
+                        {
+                            <span class="muted">None</span>
+                        }
+                    </MudTd>
+                    <MudTd>
+                        @if (context.Severity != PatchSeverity.Unspecified)
+                        {
+                            <StatusChip Text="@context.Severity.ToString()"
+                                        Kind="@(context.Severity == PatchSeverity.Critical ? StatusKind.Error
+                                                : context.Severity == PatchSeverity.Important ? StatusKind.Warning : StatusKind.Neutral)" />
+                        }
+                    </MudTd>
+                    <MudTd>@(context.SizeBytes is { } size ? ByteSize.Format(size) : string.Empty)</MudTd>
+                </RowTemplate>
+                <PagerContent>
+                    <MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" />
+                </PagerContent>
+            </MudTable>
         }
         else
         {

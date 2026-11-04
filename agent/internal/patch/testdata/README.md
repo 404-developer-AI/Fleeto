@@ -2,6 +2,18 @@
 
 Output of the commands a Linux patch scan runs (`LC_ALL=C`), used by `parse_test.go` and `engine_test.go`.
 
+**Windows has no files here.** A Windows scan reads the Windows Update Agent through COM (`scan_windows.go`); everything after that
+(the source decision from the registry, the mapping of an update to `PatchUpdate`, the classification by category id, the HRESULT of
+a failed search, the DECIMAL of `MaxDownloadSize` and the DATE of `LastDeploymentChangeTime`) is pure code in `wua.go`, tested in
+`wua_test.go` with a fake session and registry on every platform. The updates in those fakes are representative: titles, KB numbers
+and category ids in the shape the Windows Update Agent gives them (a cumulative update, a feature update, a Defender definition
+update, a driver, a classification name in Dutch that the id turns into English). `scan_windows_test.go` reads the real Windows
+Update Agent of the machine it runs on, read-only, only with `FLEETO_WUA_LIVE=1`: one search for missing updates exactly as a scan
+does, and one for installed updates, so the VARIANT handling is checked on real values also when nothing is missing (2026-11-05 on
+the development PC, Windows 11 with Microsoft Update registered: no missing updates; 20 installed updates, each with a release date,
+a size and the English classification). Still to check on the test endpoints: a Windows Server with missing updates, an endpoint a
+WSUS group policy covers, and the search as SYSTEM in session 0.
+
 | Directory | Commands |
 |---|---|
 | `ubuntu-22.04` | `apt-get -q update`, `apt-get -s -q -o Debug::NoLocking=1 dist-upgrade` (security, updates, ESM Apps, a new dependency, a removal, a foreign architecture, kept back), `apt-mark showhold`, `dpkg-query -W` |

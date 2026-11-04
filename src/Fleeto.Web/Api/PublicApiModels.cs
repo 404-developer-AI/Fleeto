@@ -286,12 +286,13 @@ public sealed record ApiService(string Name, string DisplayName, string StartTyp
 /// approval and CVEs 0.6.0).</summary>
 public sealed record ApiMissingUpdate(string Id, string Name, string Vendor, string Version, string InstalledVersion, DateOnly? ReleaseDate,
     string KbNumber, string UpdateType, string ApprovalStatus, ApiPatchSeverity Severity, IReadOnlyList<string> Cves, string Advisory,
-    string Origin, bool Held, bool Removal, DateTime? FirstSeenAt);
+    string Origin, bool Held, bool Removal, DateTime? FirstSeenAt, long? SizeBytes, bool Downloaded, bool IsFeatureUpdate);
 
 /// <summary>The patch state of one endpoint (0.4.0), as patch management last reported it.</summary>
 public sealed record ApiPatchState(Guid EndpointId, ApiPatchCoverage Coverage, bool Compliant, int MissingCritical, int MissingOther,
     bool RebootRequired, DateTime? ProductLastSeenAt, string ProductAgentVersion, DateTime UpdatedAt, DateTime? DetailUpdatedAt,
-    IReadOnlyList<ApiMissingUpdate> Missing, ApiPatchEngine Engine, string? ScanTool, string? ScanProblem);
+    IReadOnlyList<ApiMissingUpdate> Missing, ApiPatchEngine Engine, string? ScanTool, string? ScanProblem, string? ScanSource,
+    string? ScanSourceServer);
 
 /// <summary>What one endpoint of a deployment did, as patch management reports it (0.4.0).</summary>
 public sealed record ApiDeploymentTarget(Guid EndpointId, string Hostname, ApiDeploymentTargetState State, string? Message);

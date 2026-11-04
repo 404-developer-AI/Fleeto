@@ -847,6 +847,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(s => s.Tool).HasMaxLength(20);
             entity.Property(s => s.Problem).HasMaxLength(PatchScanRules.MaxProblemLength);
             entity.Property(s => s.AgentVersion).HasMaxLength(50);
+            entity.Property(s => s.Source).HasMaxLength(20).HasDefaultValue(string.Empty);
+            entity.Property(s => s.SourceServer).HasMaxLength(PatchScanRules.MaxServerLength).HasDefaultValue(string.Empty);
             entity.Property(s => s.UpdatesJson).HasColumnType("jsonb");
             EndpointChild(entity, s => new { s.EndpointId, s.ClientId });
             // A report sent twice is stored once.
@@ -1452,6 +1454,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 .HasSentinel((PatchEngine)(-1));
             entity.Property(p => p.ScanTool).HasMaxLength(20).HasDefaultValue(string.Empty);
             entity.Property(p => p.ScanProblem).HasMaxLength(PatchScanRules.MaxProblemLength);
+            entity.Property(p => p.ScanSource).HasMaxLength(20).HasDefaultValue(string.Empty);
+            entity.Property(p => p.ScanSourceServer).HasMaxLength(PatchScanRules.MaxServerLength).HasDefaultValue(string.Empty);
             entity.Ignore(p => p.IsCompliant);
             // The scheduled patching check and the Patches tab find the automation of an endpoint (0.6.0).
             entity.HasIndex(p => p.AutomationId).HasFilter("\"AutomationId\" IS NOT NULL");
@@ -1502,6 +1506,9 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(u => u.Origin).HasMaxLength(100).HasDefaultValue(string.Empty);
             entity.Property(u => u.Held).HasDefaultValue(false);
             entity.Property(u => u.Removal).HasDefaultValue(false);
+            entity.Property(u => u.Downloaded).HasDefaultValue(false);
+            entity.Property(u => u.IsDriver).HasDefaultValue(false);
+            entity.Property(u => u.IsFeatureUpdate).HasDefaultValue(false);
             entity.HasIndex(u => new { u.EndpointId, u.Severity });
             EndpointChild(entity, u => new { u.EndpointId, u.ClientId });
             EndpointOwned(entity);

@@ -147,4 +147,36 @@ public sealed class PatchScanServiceTests
         Assert.False(result.Success);
         Assert.Contains("Action1 patches this endpoint", result.Problem);
     }
+
+    [Fact]
+    public async Task A_Windows_endpoint_without_Action1_is_patched_by_Fleeto_and_says_where_it_searched()
+    {
+        var (_, endpoint) = await LinuxAsync();
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.Endpoints.Where(e => e.Id == endpoint.Id).ExecuteUpdateAsync(s => s
+                .SetProperty(e => e.OsPlatform, "windows").SetProperty(e => e.OsName, "Windows 11 Pro"));
+            db.EndpointPatchStates.Add(new EndpointPatchState
+            {
+                EndpointId = endpoint.Id, ClientId = endpoint.ClientId, Engine = PatchEngine.Fleeto, ScanTool = "windows_update", ScanSource = "wsus",
+                ScanSourceServer = "wsus01:8530", ProductLastSeenAt = Now, MissingCritical = 1, UpdatedAt = Now
+            });
+            db.EndpointMissingUpdates.Add(new EndpointMissingUpdate
+            {
+                Id = Guid.NewGuid(), EndpointId = endpoint.Id, ClientId = endpoint.ClientId, ExternalUpdateId = "a:201", Name = "2026-10 Cumulative Update",
+                KbNumber = "KB5031354", Severity = PatchSeverity.Critical, UpdateType = "Security Updates", SizeBytes = 812_000_000, Downloaded = true,
+                UpdatedAt = Now, FirstSeenAt = Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var view = await Patches.GetAsync(WebFixture.Technician(), endpoint.Id);
+
+        Assert.True(view!.ByFleeto);
+        Assert.Null(view.ScanNote);
+        Assert.Equal("WSUS (wsus01:8530)", PatchScanRules.DescribeSource(view.State!.ScanSource, view.State.ScanSourceServer));
+        var update = Assert.Single(view.Missing);
+        Assert.Equal(("KB5031354", 812_000_000L, true), (update.KbNumber, update.SizeBytes!.Value, update.Downloaded));
+        Assert.True((await Patches.RequestScanAsync(WebFixture.Technician(), endpoint.Id)).Success);
+    }
 }

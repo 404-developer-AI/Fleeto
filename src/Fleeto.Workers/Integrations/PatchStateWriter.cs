@@ -37,6 +37,8 @@ internal static class PatchStateWriter
         state.ScanTool = string.Empty;
         state.ScanProblem = null;
         state.ScanFailingSince = null;
+        state.ScanSource = string.Empty;
+        state.ScanSourceServer = string.Empty;
         state.ExternalEndpointId = item.Id;
         state.ExternalTenantId = tenantId;
         state.Coverage = item.Coverage;

@@ -4197,7 +4197,7 @@ type PatchScanReport struct {
 	ScanId     string                 `protobuf:"bytes,1,opt,name=scan_id,json=scanId,proto3" json:"scan_id,omitempty"`
 	StartedAt  *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
 	DurationMs uint32                 `protobuf:"varint,3,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
-	// "apt" or "dnf" (0.9.0); "windows_update" follows in a later step.
+	// "apt" or "dnf" (0.9.0 step 1), "windows_update" (step 2): the Windows Update Agent.
 	Engine string `protobuf:"bytes,4,opt,name=engine,proto3" json:"engine,omitempty"`
 	// Empty when the scan read everything; otherwise what went wrong, in words for the Patches tab (a held package lock, a repository
 	// that could not be read, an interrupted dpkg). updates then holds what could be read, which may be nothing.
@@ -4209,7 +4209,13 @@ type PatchScanReport struct {
 	// PatchScanRequest.request_id of the request that started the scan; empty for a scheduled scan.
 	RequestId string `protobuf:"bytes,8,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	// True when updates was cut at 2,000.
-	Truncated     bool `protobuf:"varint,9,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	Truncated bool `protobuf:"varint,9,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	// Windows: where the Windows Update Agent searched (0.9.0 step 2): "wsus" (a group policy points the endpoint at a WSUS server),
+	// "microsoft_update" (the Microsoft Update service is registered, so Office, SQL Server and .NET updates are included) or
+	// "windows_update". Empty on Linux.
+	Source string `protobuf:"bytes,10,opt,name=source,proto3" json:"source,omitempty"`
+	// Windows: the WSUS server of a group policy (WUServer), as host and port only; empty otherwise.
+	SourceServer  string `protobuf:"bytes,11,opt,name=source_server,json=sourceServer,proto3" json:"source_server,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4307,6 +4313,20 @@ func (x *PatchScanReport) GetTruncated() bool {
 	return false
 }
 
+func (x *PatchScanReport) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *PatchScanReport) GetSourceServer() string {
+	if x != nil {
+		return x.SourceServer
+	}
+	return ""
+}
+
 // One missing update. Linux: one package the upgrade would change.
 type PatchUpdate struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -4329,9 +4349,31 @@ type PatchUpdate struct {
 	// Held back by the administrator (apt-mark hold, dnf versionlock): the upgrade leaves it alone.
 	Held bool `protobuf:"varint,9,opt,name=held,proto3" json:"held,omitempty"`
 	// The upgrade would remove this package (apt dist-upgrade).
-	Removal       bool `protobuf:"varint,10,opt,name=removal,proto3" json:"removal,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Removal bool `protobuf:"varint,10,opt,name=removal,proto3" json:"removal,omitempty"`
+	// Windows (0.9.0 step 2). id is "UpdateID:RevisionNumber" of the Windows Update Agent, name its title, version empty,
+	// classification the name of its first update classification category ("Security Updates", "Critical Updates", "Updates",
+	// "Update Rollups", "Definition Updates", "Feature Packs", "Service Packs", "Tools", "Drivers", "Upgrades"), severity its
+	// MsrcSeverity ("Critical", "Important", "Moderate", "Low", or empty), origin empty.
+	// The KB numbers it names, as "KB5031354".
+	KbNumbers []string `protobuf:"bytes,11,rep,name=kb_numbers,json=kbNumbers,proto3" json:"kb_numbers,omitempty"`
+	// LastDeploymentChangeTime: when Microsoft released this revision.
+	ReleasedAt *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=released_at,json=releasedAt,proto3" json:"released_at,omitempty"`
+	// The CVE identifiers it fixes (CveIDs), uppercase.
+	Cves []string `protobuf:"bytes,13,rep,name=cves,proto3" json:"cves,omitempty"`
+	// MaxDownloadSize in bytes; 0 when unknown.
+	SizeBytes uint64 `protobuf:"varint,14,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	// IsDownloaded: the files are on the endpoint already.
+	Downloaded bool `protobuf:"varint,15,opt,name=downloaded,proto3" json:"downloaded,omitempty"`
+	// InstallationBehavior.RebootBehavior is not "never": installing it may need a restart.
+	RestartRequired bool `protobuf:"varint,16,opt,name=restart_required,json=restartRequired,proto3" json:"restart_required,omitempty"`
+	// IsMandatory.
+	Mandatory bool `protobuf:"varint,17,opt,name=mandatory,proto3" json:"mandatory,omitempty"`
+	// A driver (Type = 2).
+	IsDriver bool `protobuf:"varint,18,opt,name=is_driver,json=isDriver,proto3" json:"is_driver,omitempty"`
+	// A feature update or upgrade of Windows itself (classification "Upgrades").
+	IsFeatureUpdate bool `protobuf:"varint,19,opt,name=is_feature_update,json=isFeatureUpdate,proto3" json:"is_feature_update,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *PatchUpdate) Reset() {
@@ -4430,6 +4472,69 @@ func (x *PatchUpdate) GetHeld() bool {
 func (x *PatchUpdate) GetRemoval() bool {
 	if x != nil {
 		return x.Removal
+	}
+	return false
+}
+
+func (x *PatchUpdate) GetKbNumbers() []string {
+	if x != nil {
+		return x.KbNumbers
+	}
+	return nil
+}
+
+func (x *PatchUpdate) GetReleasedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ReleasedAt
+	}
+	return nil
+}
+
+func (x *PatchUpdate) GetCves() []string {
+	if x != nil {
+		return x.Cves
+	}
+	return nil
+}
+
+func (x *PatchUpdate) GetSizeBytes() uint64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *PatchUpdate) GetDownloaded() bool {
+	if x != nil {
+		return x.Downloaded
+	}
+	return false
+}
+
+func (x *PatchUpdate) GetRestartRequired() bool {
+	if x != nil {
+		return x.RestartRequired
+	}
+	return false
+}
+
+func (x *PatchUpdate) GetMandatory() bool {
+	if x != nil {
+		return x.Mandatory
+	}
+	return false
+}
+
+func (x *PatchUpdate) GetIsDriver() bool {
+	if x != nil {
+		return x.IsDriver
+	}
+	return false
+}
+
+func (x *PatchUpdate) GetIsFeatureUpdate() bool {
+	if x != nil {
+		return x.IsFeatureUpdate
 	}
 	return false
 }
@@ -6852,7 +6957,7 @@ const file_agent_proto_rawDesc = "" +
 	"\ascan_id\x18\x01 \x01(\tR\x06scanId\"1\n" +
 	"\x10PatchScanRequest\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\tR\trequestId\"\xd8\x02\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\"\x95\x03\n" +
 	"\x0fPatchScanReport\x12\x17\n" +
 	"\ascan_id\x18\x01 \x01(\tR\x06scanId\x129\n" +
 	"\n" +
@@ -6865,7 +6970,10 @@ const file_agent_proto_rawDesc = "" +
 	"\aupdates\x18\a \x03(\v2\x1c.fleeto.agent.v1.PatchUpdateR\aupdates\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\b \x01(\tR\trequestId\x12\x1c\n" +
-	"\ttruncated\x18\t \x01(\bR\ttruncated\"\x9e\x02\n" +
+	"\ttruncated\x18\t \x01(\bR\ttruncated\x12\x16\n" +
+	"\x06source\x18\n" +
+	" \x01(\tR\x06source\x12#\n" +
+	"\rsource_server\x18\v \x01(\tR\fsourceServer\"\xdf\x04\n" +
 	"\vPatchUpdate\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
@@ -6877,7 +6985,21 @@ const file_agent_proto_rawDesc = "" +
 	"\bseverity\x18\b \x01(\tR\bseverity\x12\x12\n" +
 	"\x04held\x18\t \x01(\bR\x04held\x12\x18\n" +
 	"\aremoval\x18\n" +
-	" \x01(\bR\aremoval\"'\n" +
+	" \x01(\bR\aremoval\x12\x1d\n" +
+	"\n" +
+	"kb_numbers\x18\v \x03(\tR\tkbNumbers\x12;\n" +
+	"\vreleased_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"releasedAt\x12\x12\n" +
+	"\x04cves\x18\r \x03(\tR\x04cves\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x0e \x01(\x04R\tsizeBytes\x12\x1e\n" +
+	"\n" +
+	"downloaded\x18\x0f \x01(\bR\n" +
+	"downloaded\x12)\n" +
+	"\x10restart_required\x18\x10 \x01(\bR\x0frestartRequired\x12\x1c\n" +
+	"\tmandatory\x18\x11 \x01(\bR\tmandatory\x12\x1b\n" +
+	"\tis_driver\x18\x12 \x01(\bR\bisDriver\x12*\n" +
+	"\x11is_feature_update\x18\x13 \x01(\bR\x0fisFeatureUpdate\"'\n" +
 	"\fPatchScanAck\x12\x17\n" +
 	"\ascan_id\x18\x01 \x01(\tR\x06scanId\"]\n" +
 	"\fSignedConfig\x12\x18\n" +
@@ -7326,42 +7448,43 @@ var file_agent_proto_depIdxs = []int32{
 	83, // 61: fleeto.agent.v1.StorageFile.modified_at:type_name -> google.protobuf.Timestamp
 	83, // 62: fleeto.agent.v1.PatchScanReport.started_at:type_name -> google.protobuf.Timestamp
 	53, // 63: fleeto.agent.v1.PatchScanReport.updates:type_name -> fleeto.agent.v1.PatchUpdate
-	83, // 64: fleeto.agent.v1.AgentConfig.issued_at:type_name -> google.protobuf.Timestamp
-	3,  // 65: fleeto.agent.v1.AgentConfig.tier:type_name -> fleeto.agent.v1.Tier
-	57, // 66: fleeto.agent.v1.AgentConfig.checks:type_name -> fleeto.agent.v1.CheckSpec
-	4,  // 67: fleeto.agent.v1.CheckSpec.type:type_name -> fleeto.agent.v1.CheckType
-	82, // 68: fleeto.agent.v1.CheckSpec.parameters:type_name -> fleeto.agent.v1.CheckSpec.ParametersEntry
-	62, // 69: fleeto.agent.v1.CheckSpec.script:type_name -> fleeto.agent.v1.ScriptJob
-	6,  // 70: fleeto.agent.v1.JobPayload.type:type_name -> fleeto.agent.v1.JobType
-	83, // 71: fleeto.agent.v1.JobPayload.valid_until:type_name -> google.protobuf.Timestamp
-	62, // 72: fleeto.agent.v1.JobPayload.script:type_name -> fleeto.agent.v1.ScriptJob
-	5,  // 73: fleeto.agent.v1.JobPayload.run_as:type_name -> fleeto.agent.v1.JobRunAs
-	61, // 74: fleeto.agent.v1.JobPayload.restart:type_name -> fleeto.agent.v1.RestartJob
-	7,  // 75: fleeto.agent.v1.ScriptJob.language:type_name -> fleeto.agent.v1.ScriptLanguage
-	83, // 76: fleeto.agent.v1.JobStarted.started_at:type_name -> google.protobuf.Timestamp
-	8,  // 77: fleeto.agent.v1.JobOutput.stream:type_name -> fleeto.agent.v1.JobStream
-	9,  // 78: fleeto.agent.v1.JobCompletion.result:type_name -> fleeto.agent.v1.JobResult
-	65, // 79: fleeto.agent.v1.JobCompletion.stdout:type_name -> fleeto.agent.v1.JobStreamSummary
-	65, // 80: fleeto.agent.v1.JobCompletion.stderr:type_name -> fleeto.agent.v1.JobStreamSummary
-	83, // 81: fleeto.agent.v1.JobCompletion.finished_at:type_name -> google.protobuf.Timestamp
-	10, // 82: fleeto.agent.v1.JobAck.kind:type_name -> fleeto.agent.v1.JobAckKind
-	8,  // 83: fleeto.agent.v1.JobAck.stream:type_name -> fleeto.agent.v1.JobStream
-	0,  // 84: fleeto.agent.v1.UpdateStatus.component:type_name -> fleeto.agent.v1.Component
-	11, // 85: fleeto.agent.v1.UpdateStatus.state:type_name -> fleeto.agent.v1.UpdateState
-	12, // 86: fleeto.agent.v1.UpdateStatus.wait_reason:type_name -> fleeto.agent.v1.UpdateWaitReason
-	13, // 87: fleeto.agent.v1.RemoteSessionToken.kind:type_name -> fleeto.agent.v1.RemoteSessionKind
-	0,  // 88: fleeto.agent.v1.RemoteSessionToken.component:type_name -> fleeto.agent.v1.Component
-	83, // 89: fleeto.agent.v1.RemoteSessionToken.issued_at:type_name -> google.protobuf.Timestamp
-	83, // 90: fleeto.agent.v1.RemoteSessionToken.valid_until:type_name -> google.protobuf.Timestamp
-	72, // 91: fleeto.agent.v1.RemoteSessionOffer.session:type_name -> fleeto.agent.v1.SignedRemoteSession
-	83, // 92: fleeto.agent.v1.RemoteSessionActionReport.time:type_name -> google.protobuf.Timestamp
-	83, // 93: fleeto.agent.v1.UninstallCommand.valid_until:type_name -> google.protobuf.Timestamp
-	14, // 94: fleeto.agent.v1.Disconnect.code:type_name -> fleeto.agent.v1.DisconnectCode
-	95, // [95:95] is the sub-list for method output_type
-	95, // [95:95] is the sub-list for method input_type
-	95, // [95:95] is the sub-list for extension type_name
-	95, // [95:95] is the sub-list for extension extendee
-	0,  // [0:95] is the sub-list for field type_name
+	83, // 64: fleeto.agent.v1.PatchUpdate.released_at:type_name -> google.protobuf.Timestamp
+	83, // 65: fleeto.agent.v1.AgentConfig.issued_at:type_name -> google.protobuf.Timestamp
+	3,  // 66: fleeto.agent.v1.AgentConfig.tier:type_name -> fleeto.agent.v1.Tier
+	57, // 67: fleeto.agent.v1.AgentConfig.checks:type_name -> fleeto.agent.v1.CheckSpec
+	4,  // 68: fleeto.agent.v1.CheckSpec.type:type_name -> fleeto.agent.v1.CheckType
+	82, // 69: fleeto.agent.v1.CheckSpec.parameters:type_name -> fleeto.agent.v1.CheckSpec.ParametersEntry
+	62, // 70: fleeto.agent.v1.CheckSpec.script:type_name -> fleeto.agent.v1.ScriptJob
+	6,  // 71: fleeto.agent.v1.JobPayload.type:type_name -> fleeto.agent.v1.JobType
+	83, // 72: fleeto.agent.v1.JobPayload.valid_until:type_name -> google.protobuf.Timestamp
+	62, // 73: fleeto.agent.v1.JobPayload.script:type_name -> fleeto.agent.v1.ScriptJob
+	5,  // 74: fleeto.agent.v1.JobPayload.run_as:type_name -> fleeto.agent.v1.JobRunAs
+	61, // 75: fleeto.agent.v1.JobPayload.restart:type_name -> fleeto.agent.v1.RestartJob
+	7,  // 76: fleeto.agent.v1.ScriptJob.language:type_name -> fleeto.agent.v1.ScriptLanguage
+	83, // 77: fleeto.agent.v1.JobStarted.started_at:type_name -> google.protobuf.Timestamp
+	8,  // 78: fleeto.agent.v1.JobOutput.stream:type_name -> fleeto.agent.v1.JobStream
+	9,  // 79: fleeto.agent.v1.JobCompletion.result:type_name -> fleeto.agent.v1.JobResult
+	65, // 80: fleeto.agent.v1.JobCompletion.stdout:type_name -> fleeto.agent.v1.JobStreamSummary
+	65, // 81: fleeto.agent.v1.JobCompletion.stderr:type_name -> fleeto.agent.v1.JobStreamSummary
+	83, // 82: fleeto.agent.v1.JobCompletion.finished_at:type_name -> google.protobuf.Timestamp
+	10, // 83: fleeto.agent.v1.JobAck.kind:type_name -> fleeto.agent.v1.JobAckKind
+	8,  // 84: fleeto.agent.v1.JobAck.stream:type_name -> fleeto.agent.v1.JobStream
+	0,  // 85: fleeto.agent.v1.UpdateStatus.component:type_name -> fleeto.agent.v1.Component
+	11, // 86: fleeto.agent.v1.UpdateStatus.state:type_name -> fleeto.agent.v1.UpdateState
+	12, // 87: fleeto.agent.v1.UpdateStatus.wait_reason:type_name -> fleeto.agent.v1.UpdateWaitReason
+	13, // 88: fleeto.agent.v1.RemoteSessionToken.kind:type_name -> fleeto.agent.v1.RemoteSessionKind
+	0,  // 89: fleeto.agent.v1.RemoteSessionToken.component:type_name -> fleeto.agent.v1.Component
+	83, // 90: fleeto.agent.v1.RemoteSessionToken.issued_at:type_name -> google.protobuf.Timestamp
+	83, // 91: fleeto.agent.v1.RemoteSessionToken.valid_until:type_name -> google.protobuf.Timestamp
+	72, // 92: fleeto.agent.v1.RemoteSessionOffer.session:type_name -> fleeto.agent.v1.SignedRemoteSession
+	83, // 93: fleeto.agent.v1.RemoteSessionActionReport.time:type_name -> google.protobuf.Timestamp
+	83, // 94: fleeto.agent.v1.UninstallCommand.valid_until:type_name -> google.protobuf.Timestamp
+	14, // 95: fleeto.agent.v1.Disconnect.code:type_name -> fleeto.agent.v1.DisconnectCode
+	96, // [96:96] is the sub-list for method output_type
+	96, // [96:96] is the sub-list for method input_type
+	96, // [96:96] is the sub-list for extension type_name
+	96, // [96:96] is the sub-list for extension extendee
+	0,  // [0:96] is the sub-list for field type_name
 }
 
 func init() { file_agent_proto_init() }

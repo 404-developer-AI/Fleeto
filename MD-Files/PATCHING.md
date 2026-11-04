@@ -444,7 +444,7 @@ arrives with the least risk, and the part that changes endpoints last.
    the scan interval in the signed configuration, the gateway write and ack, `PatchScans`, `PatchScanWriter` with the join on the
    findings, the Patches tab for a Linux endpoint, "Scan now", the compliance counts, "Missing updates" on Linux, the `patch_state`
    alert for stale scans, `SupportedProducts`, `API.md` and the waiting list, the load test. Nothing is installed yet.
-2. **Scanning on Windows** (§4): the Windows Update Agent through COM, the source switch, the tab for a Windows endpoint with engine
+2. [built 2026-11-05, not yet on the test VPS] **Scanning on Windows** (§4): the Windows Update Agent through COM, the source switch, the tab for a Windows endpoint with engine
    *Fleeto*, the conflict line for an endpoint with an Action1 agent.
 3. **Installing by hand** (§5, §8): the job type, `PatchRules`, the signer, the agent flows on apt, dnf and Windows, the restart
    inside a job and its recovery, the deployment, targets and steps from the job, the dialog and the endpoint list action, the audit
@@ -515,6 +515,22 @@ Taken with the developer on 2026-11-04: every recommendation of the proposal, wi
 - An upgrade Ubuntu defers due to phasing is listed as held and counted as missing; whether a phased update should count is to look at
   on the test VPS.
 - The load test has its scenario (`Fleeto.LoadTest --patch-scans-per-hour --patch-updates`) but has not run at 10,000 agents yet.
+
+**What step 2 built differently** (2026-11-05):
+
+- The update classification is read by its category id and mapped to the English name, because `Name` is in the language of the
+  endpoint ("Beveiligingsupdates"); an unknown id keeps its name. The server maps it to the update types of Action1
+  (`PatchScanRules.WindowsUpdateType`), so a patch policy filters both engines alike. There is no `Classification` column.
+- The search criteria are `IsInstalled=0 and IsHidden=0 and Type='Software'`: drivers come with the policy option of step 5, feature
+  updates not in 0.9.0. Microsoft Update is searched with `ServerSelection` 3 and its service id only when it is already registered.
+- The restart required of a Windows scan is `SystemInfo.RebootRequired` or the pending restart keys of CBS and Windows Update, the
+  same keys the "Pending restart" check reads.
+- A Windows endpoint whose engine is Fleeto in a client that uses Action1 keeps "Install Action1 agent" and the outcome of a sync on
+  its tab; the tab says when its patch policy is for Action1 and so installs nothing yet. An endpoint Action1 patches whose patch
+  policy is for Fleeto says that the policy installs nothing there.
+- The search ran read-only on the development PC (Windows 11, signed-in user, Microsoft Update registered, nothing missing; the
+  mapping was checked on its installed updates). Not yet as SYSTEM in session 0, on a Windows Server with missing updates or under a
+  WSUS group policy: to do on the test VPS.
 
 To check while building, in the step that needs it:
 

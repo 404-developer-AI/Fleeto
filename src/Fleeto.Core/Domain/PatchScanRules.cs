@@ -12,7 +12,11 @@ namespace Fleeto.Core.Domain;
 /// <param name="Version">The version the upgrade would install; empty for a removal.</param>
 /// <param name="InstalledVersion">The version installed now; empty for a new dependency.</param>
 /// <param name="Security">From a security archive or advisory.</param>
-/// <param name="Severity">The severity the tool named (AlmaLinux updateinfo), empty when none.</param>
+/// <param name="Severity">The severity the tool named (AlmaLinux updateinfo, MsrcSeverity on Windows), empty when none.</param>
+/// <param name="Classification">Windows (step 2): the update classification of the Windows Update Agent, such as Security Updates.</param>
+/// <param name="KbNumbers">Windows: the KB numbers, as KB5031354.</param>
+/// <param name="ReleasedAt">Windows: when Microsoft released this revision.</param>
+/// <param name="Cves">Windows: the CVEs it fixes.</param>
 public sealed record PatchScanUpdate(
     [property: JsonPropertyName("i")] string Id,
     [property: JsonPropertyName("n")] string Name,
@@ -23,7 +27,17 @@ public sealed record PatchScanUpdate(
     [property: JsonPropertyName("a")] string Advisory,
     [property: JsonPropertyName("sv")] string Severity,
     [property: JsonPropertyName("h")] bool Held,
-    [property: JsonPropertyName("r")] bool Removal);
+    [property: JsonPropertyName("r")] bool Removal,
+    [property: JsonPropertyName("c")] string Classification = "",
+    [property: JsonPropertyName("kb")] IReadOnlyList<string>? KbNumbers = null,
+    [property: JsonPropertyName("ra")] DateTime? ReleasedAt = null,
+    [property: JsonPropertyName("cv")] IReadOnlyList<string>? Cves = null,
+    [property: JsonPropertyName("sz")] long SizeBytes = 0,
+    [property: JsonPropertyName("dl")] bool Downloaded = false,
+    [property: JsonPropertyName("rr")] bool RestartRequired = false,
+    [property: JsonPropertyName("m")] bool Mandatory = false,
+    [property: JsonPropertyName("dr")] bool IsDriver = false,
+    [property: JsonPropertyName("fu")] bool IsFeatureUpdate = false);
 
 /// <summary>An open vulnerability finding of an endpoint as the patch scan writer joins it (0.9.0, <c>PATCHING.md</c> §4).</summary>
 public sealed record PatchFinding(string Package, IReadOnlyList<string> Binaries, string? FixedVersion, string Cve, VulnerabilitySeverity Severity,
@@ -52,6 +66,8 @@ public static class PatchScanRules
     public const int MaxVersionLength = 100;
     public const int MaxOriginLength = 100;
     public const int MaxAdvisoryLength = 100;
+    public const int MaxServerLength = 255;
+    public const int MaxTitleLength = 300;
 
     /// <summary>A "Scan now" within this time of the previous one is refused, as the agent would ignore it.</summary>
     public static readonly TimeSpan RequestGap = TimeSpan.FromMinutes(15);
@@ -82,10 +98,39 @@ public static class PatchScanRules
     public static bool AgentScans(string? agentVersion) =>
         SemanticVersion.TryParse(agentVersion, out _) && !SemanticVersion.IsOlder(agentVersion, MinimumAgentVersion);
 
+    /// <summary>True when the platform scans: Linux with apt or dnf (step 1) and Windows with the Windows Update Agent (step 2).</summary>
+    public static bool PlatformScans(string? osPlatform) => osPlatform is "linux" or "windows";
+
+    /// <summary>Where a Windows scan searched, as the agent names it.</summary>
+    public static readonly IReadOnlyList<string> Sources = ["windows_update", "microsoft_update", "wsus"];
+
+    /// <summary>The source of a scan in words for the Patches tab: "Windows Update", "Microsoft Update", "WSUS (wsus01:8530)".</summary>
+    public static string? DescribeSource(string? source, string? server) => source switch
+    {
+        "windows_update" => "Windows Update",
+        "microsoft_update" => "Microsoft Update",
+        "wsus" => string.IsNullOrEmpty(server) ? "WSUS" : $"WSUS ({server})",
+        _ => null
+    };
+
     /// <summary>
-    /// True when the platform scans in this release: Linux only until the Windows Update Agent follows (<c>PATCHING.md</c> §13, step 2).
+    /// The update type of a Windows update in the words of <see cref="PatchPolicyRules.UpdateTypes"/>, from its update classification in
+    /// the Windows Update Agent, so a patch policy filters both engines alike.
     /// </summary>
-    public static bool PlatformScans(string? osPlatform) => osPlatform == "linux";
+    public static string WindowsUpdateType(string? classification) => classification?.Trim() switch
+    {
+        "Security Updates" => "Security Updates",
+        "Critical Updates" => "Critical - Non-Security",
+        "Updates" => "Regular Updates",
+        "Update Rollups" => "Update Rollups",
+        "Definition Updates" => "Definition Updates",
+        "Feature Packs" => "Feature Updates",
+        "Service Packs" => "Service Packs",
+        "Tools" => "Tools",
+        "Drivers" => "Drivers",
+        "Upgrades" => "Upgrades",
+        _ => "Unknown"
+    };
 
     /// <summary>
     /// The scan interval for the signed configuration: <see cref="DefaultIntervalHours"/> for a managed endpoint whose engine is Fleeto
@@ -100,7 +145,7 @@ public static class PatchScanRules
     /// </summary>
     public static string? Problem(string? osPlatform, string? agentVersion) =>
         !PlatformScans(osPlatform)
-            ? "Fleeto reads the missing updates of Windows endpoints itself from a later 0.9.0 build. Until then patch management of this endpoint needs Action1."
+            ? "Fleeto does not read the missing updates of this operating system."
             : !AgentScans(agentVersion)
                 ? $"Update the agent to {MinimumAgentVersion} or newer to see the missing updates of this endpoint."
                 : null;

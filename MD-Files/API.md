@@ -387,7 +387,7 @@ the `title` says which), 429.
 
 Gets the patch state of a managed endpoint as Action1 last reported it (from Fleeto 0.4.0), or, for an endpoint Action1 does
 not patch, as the last patch scan of the Fleeto agent found it (from Fleeto 0.9.0, Linux: Ubuntu, Debian, AlmaLinux and Proxmox
-VE). `engine` says which. One endpoint is never reported by both: an endpoint with an Action1 agent is Action1's.
+VE; and Windows from 0.9.0 step 2, with the Windows Update Agent). `engine` says which. One endpoint is never reported by both: an endpoint with an Action1 agent is Action1's.
 
 Answers `409 endpoint_not_managed` for an agent-only endpoint, and `404 not_found` when the endpoint does not exist or
 patch management does not cover it — no Action1 integration for its client and no scan by the Fleeto agent yet, no Action1
@@ -423,12 +423,17 @@ something, which can be one pass behind the counts. `detailUpdatedAt` says when 
       "origin": "",
       "held": false,
       "removal": false,
-      "firstSeenAt": "2026-09-20T19:02:14Z"
+      "firstSeenAt": "2026-09-20T19:02:14Z",
+      "sizeBytes": null,
+      "downloaded": false,
+      "isFeatureUpdate": false
     }
   ],
   "engine": "action1",
   "scanTool": null,
-  "scanProblem": null
+  "scanProblem": null,
+  "scanSource": null,
+  "scanSourceServer": null
 }
 ```
 
@@ -827,9 +832,11 @@ always `active`, `productLastSeenAt` is the last scan that read the updates, `pr
 | `updatedAt` | timestamp | When Fleeto last read the counts. |
 | `detailUpdatedAt` | timestamp, nullable | When Fleeto last read `missing`. Null while no detail has been read. |
 | `engine` | string | [Patch engine](#patch-engine) (from 0.9.0): who reported this state. |
-| `scanTool` | string, nullable | For engine `fleeto`: the tool of the last scan, `apt` or `dnf`. Null for `action1`. |
+| `scanTool` | string, nullable | For engine `fleeto`: the tool of the last scan, `apt`, `dnf` or `windows_update`. Null for `action1`. |
+| `scanSource` | string, nullable | For engine `fleeto` on Windows: where the Windows Update Agent searched, `windows_update`, `microsoft_update` (the Microsoft Update service is registered, so Office, SQL Server and .NET updates are included) or `wsus` (a group policy points the endpoint at a WSUS server, which decides what is offered). Null otherwise. |
+| `scanSourceServer` | string, nullable | For `scanSource` `wsus`: the WSUS server, as host and port. Null otherwise. |
 | `scanProblem` | string, nullable | For engine `fleeto`: what went wrong in the last scan, in the words an admin sees on the Patches tab (a held package lock, a repository that could not be read, an interrupted dpkg); null when it read everything, and always null for `action1`. A scan that read nothing keeps the state of the scan before it. |
-| `missing` | array | The missing updates, most severe first: `id` (the id in Action1, which a deployment names), `name`, `vendor`, `version` (the version Action1 would install), `installedVersion` (the version on the endpoint now, empty when Action1 does not report one), `releaseDate` (`YYYY-MM-DD`, the release of `version`, null when unknown), `kbNumber` (Windows only, else empty), `updateType` (Action1's word, such as `Security Updates`, `Feature Updates`, `Drivers`, `Update Rollups`, `Unknown`; empty when not reported), `approvalStatus` (the approval in Action1: `New`, `Approved` or `Declined`, empty when not reported; a deployment installs what it names regardless), `severity` ([Patch severity](#patch-severity)), `cves` (array of CVE ids the update remediates, may be empty). `rebootNeeded` was removed in 0.6.0: Action1 reports "possibly" for every update. From 0.9.0 also `advisory` (the advisory that covers it, such as a USN or ALSA, empty when none is known), `origin` (Linux: the archive or repository, such as `jammy-security`), `held` (Linux: held back, by the administrator or because apt keeps it back), `removal` (Linux: the upgrade would remove this package; not counted as missing) and `firstSeenAt` (timestamp, when Fleeto first saw it missing; null for rows from before 0.9.0). For engine `fleeto`, `id` is `name:architecture`, `vendor`, `kbNumber` and `approvalStatus` are empty, `updateType` is `Security Updates` or `Regular Updates`, and `severity` and `cves` come from the vulnerability findings the update fixes (severity also from AlmaLinux updateinfo). Empty for a compliant endpoint, and empty when the detail has not been read yet while the counts say something is missing. |
+| `missing` | array | The missing updates, most severe first: `id` (the id in Action1, which a deployment names), `name`, `vendor`, `version` (the version Action1 would install), `installedVersion` (the version on the endpoint now, empty when Action1 does not report one), `releaseDate` (`YYYY-MM-DD`, the release of `version`, null when unknown), `kbNumber` (Windows only, else empty), `updateType` (Action1's word, such as `Security Updates`, `Feature Updates`, `Drivers`, `Update Rollups`, `Unknown`; empty when not reported), `approvalStatus` (the approval in Action1: `New`, `Approved` or `Declined`, empty when not reported; a deployment installs what it names regardless), `severity` ([Patch severity](#patch-severity)), `cves` (array of CVE ids the update remediates, may be empty). `rebootNeeded` was removed in 0.6.0: Action1 reports "possibly" for every update. From 0.9.0 also `advisory` (the advisory that covers it, such as a USN or ALSA, empty when none is known), `origin` (Linux: the archive or repository, such as `jammy-security`), `held` (Linux: held back, by the administrator or because apt keeps it back), `removal` (Linux: the upgrade would remove this package; not counted as missing) and `firstSeenAt` (timestamp, when Fleeto first saw it missing; null for rows from before 0.9.0), and for Windows `sizeBytes` (the download size, null when unknown), `downloaded` (the files are on the endpoint already) and `isFeatureUpdate` (an upgrade of Windows itself; not searched in 0.9.0). For engine `fleeto` on Linux, `id` is `name:architecture`, `vendor`, `kbNumber` and `approvalStatus` are empty, `updateType` is `Security Updates` or `Regular Updates`, and `severity` and `cves` come from the vulnerability findings the update fixes (severity also from AlmaLinux updateinfo). On Windows `id` is `UpdateID:RevisionNumber` of the Windows Update Agent, `name` its title, `kbNumber` its first KB, `version` and `installedVersion` empty, `updateType` its update classification in the words of Action1 (`Security Updates`, `Critical - Non-Security`, `Regular Updates`, `Update Rollups`, `Definition Updates`, `Feature Updates`, `Service Packs`, `Tools`, `Drivers`, `Upgrades`, `Unknown`), `severity` its MSRC severity, `cves` its CVEs and `releaseDate` the release of its revision. Empty for a compliant endpoint, and empty when the detail has not been read yet while the counts say something is missing. |
 
 ### Deployment
 

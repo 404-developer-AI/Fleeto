@@ -547,7 +547,7 @@ message PatchScanReport {
   string scan_id = 1;
   google.protobuf.Timestamp started_at = 2;
   uint32 duration_ms = 3;
-  // "apt" or "dnf" (0.9.0); "windows_update" follows in a later step.
+  // "apt" or "dnf" (0.9.0 step 1), "windows_update" (step 2): the Windows Update Agent.
   string engine = 4;
   // Empty when the scan read everything; otherwise what went wrong, in words for the Patches tab (a held package lock, a repository
   // that could not be read, an interrupted dpkg). updates then holds what could be read, which may be nothing.
@@ -560,6 +560,12 @@ message PatchScanReport {
   string request_id = 8;
   // True when updates was cut at 2,000.
   bool truncated = 9;
+  // Windows: where the Windows Update Agent searched (0.9.0 step 2): "wsus" (a group policy points the endpoint at a WSUS server),
+  // "microsoft_update" (the Microsoft Update service is registered, so Office, SQL Server and .NET updates are included) or
+  // "windows_update". Empty on Linux.
+  string source = 10;
+  // Windows: the WSUS server of a group policy (WUServer), as host and port only; empty otherwise.
+  string source_server = 11;
 }
 
 // One missing update. Linux: one package the upgrade would change.
@@ -584,6 +590,29 @@ message PatchUpdate {
   bool held = 9;
   // The upgrade would remove this package (apt dist-upgrade).
   bool removal = 10;
+
+  // Windows (0.9.0 step 2). id is "UpdateID:RevisionNumber" of the Windows Update Agent, name its title, version empty,
+  // classification the name of its first update classification category ("Security Updates", "Critical Updates", "Updates",
+  // "Update Rollups", "Definition Updates", "Feature Packs", "Service Packs", "Tools", "Drivers", "Upgrades"), severity its
+  // MsrcSeverity ("Critical", "Important", "Moderate", "Low", or empty), origin empty.
+  // The KB numbers it names, as "KB5031354".
+  repeated string kb_numbers = 11;
+  // LastDeploymentChangeTime: when Microsoft released this revision.
+  google.protobuf.Timestamp released_at = 12;
+  // The CVE identifiers it fixes (CveIDs), uppercase.
+  repeated string cves = 13;
+  // MaxDownloadSize in bytes; 0 when unknown.
+  uint64 size_bytes = 14;
+  // IsDownloaded: the files are on the endpoint already.
+  bool downloaded = 15;
+  // InstallationBehavior.RebootBehavior is not "never": installing it may need a restart.
+  bool restart_required = 16;
+  // IsMandatory.
+  bool mandatory = 17;
+  // A driver (Type = 2).
+  bool is_driver = 18;
+  // A feature update or upgrade of Windows itself (classification "Upgrades").
+  bool is_feature_update = 19;
 }
 
 // Sent after the PatchScanReport with this scan_id is committed to PostgreSQL (or was already); the agent then deletes it.
