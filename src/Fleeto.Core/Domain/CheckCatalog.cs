@@ -281,14 +281,15 @@ public static partial class CheckCatalog
             "The script says what its exit codes mean: success and info are OK, a warning is a warning and an error is critical. A code it does not list: 0 is OK, 1 is a warning and any other code is critical. A script that times out could not run.",
             PlatformsFor: ScriptPlatforms),
         new CheckTypeInfo(CheckType.MissingUpdates, "Missing updates",
-            "Days since the release of the oldest update Action1 reports as missing. Fleeto evaluates it after every patch sync, " +
-            "every 4 hours; updates declined in Action1 do not count.",
-            CheckPlatforms.Windows,
+            "Days since the release of the oldest update Action1 or a patch scan of the Fleeto agent reports as missing. Fleeto " +
+            "evaluates it after every patch sync and every patch scan; updates declined in Action1 do not count. On Linux an update " +
+            "counts from the date of its advisory, or else from the day Fleeto first saw it missing.",
+            CheckPlatforms.Windows | CheckPlatforms.Linux,
             [new("severity", "Count", ParameterKind.Choice, Required: true, Default: "any", Choices: MissingUpdateSeverities,
                 Help: "Only updates of this security severity count. Every missing update also counts updates without a severity.")],
             FleetoEvaluatedIntervalSeconds, 14, 30, _ => ThresholdKind.HigherIsWorse, _ => "days",
             "Alert when a missing update was released this many days ago or longer.",
-            EvaluatedWhen: "after every patch sync"),
+            EvaluatedWhen: "after every patch sync and patch scan"),
         new CheckTypeInfo(CheckType.FolderGrowth, "Folder growth",
             "How much the used space of a drive grew over a period, from the storage scans of the endpoint, with the folder " +
             "that grew most. Fleeto evaluates it after every storage scan, once a day by default.",

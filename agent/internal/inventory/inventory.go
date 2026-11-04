@@ -98,6 +98,8 @@ func Collect(ctx context.Context, logger *slog.Logger) *agentv1.Inventory {
 	inv.Desktop = desktop(ctx)
 	// The distribution and the state of its package manager, for vulnerability matching (0.8.0); nil off Linux.
 	inv.Packages = packageInfo(ctx)
+	// The time zone, for patch rounds in the endpoint's own time (0.9.0); "" when it cannot be read.
+	inv.TimeZone = timeZone()
 
 	Normalize(inv)
 	return inv

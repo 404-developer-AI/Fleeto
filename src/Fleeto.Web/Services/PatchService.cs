@@ -14,8 +14,14 @@ namespace Fleeto.Web.Services;
 /// <param name="Version">The version the product would install.</param>
 /// <param name="Cves">The CVEs it remediates, as one comma-separated text so the view keeps value equality (a chosen update
 /// stays chosen after a refresh).</param>
+/// <param name="Advisory">The advisory that covers it (0.9.0), empty when none is known.</param>
+/// <param name="Origin">The archive or repository it comes from (0.9.0, Linux).</param>
+/// <param name="Held">Held back by the administrator (0.9.0, Linux).</param>
+/// <param name="Removal">The upgrade would remove this package (0.9.0, Linux).</param>
+/// <param name="FirstSeenAt">When Fleeto first saw it missing (0.9.0).</param>
 public sealed record MissingUpdateView(string Id, string Name, string Vendor, string Version, string KbNumber, PatchSeverity Severity,
-    string InstalledVersion, DateOnly? ReleaseDate, string UpdateType, string ApprovalStatus, string Cves)
+    string InstalledVersion, DateOnly? ReleaseDate, string UpdateType, string ApprovalStatus, string Cves, string Advisory = "",
+    string Origin = "", bool Held = false, bool Removal = false, DateTime? FirstSeenAt = null)
 {
     public IReadOnlyList<string> CveList => Cves.Length == 0 ? [] : Cves.Split(", ");
 }
@@ -38,9 +44,23 @@ public sealed record MissingUpdateView(string Id, string Name, string Vendor, st
 /// True when an Action1 agent runs on this managed Windows endpoint that Action1 does not report (0.6.0): Fleeto can only
 /// remove it with a signed job, since Action1 cannot remove what it does not hold.
 /// </param>
+/// <param name="Engine">Who can patch this endpoint (0.9.0, <see cref="PatchEngineRules"/>); Action1 for every view before 0.9.0.</param>
+/// <param name="ScanNote">For an endpoint whose engine is Fleeto: why it is not scanned yet (an older agent, Windows before step 2); null when it is.</param>
+/// <param name="LastScanRequest">The newest "Scan now" of this endpoint (0.9.0).</param>
 public sealed record EndpointPatchView(bool Managed, bool Configured, EndpointPatchState? State, IReadOnlyList<MissingUpdateView> Missing,
     DateTime? DetailUpdatedAt, bool CanInstallAgent = false, string AgentOnEndpoint = "", PatchScheduleView? Schedule = null,
-    PatchRequestView? LastRequest = null, bool CanRemoveAgentByJob = false, AgentInstallView? AgentInstall = null);
+    PatchRequestView? LastRequest = null, bool CanRemoveAgentByJob = false, AgentInstallView? AgentInstall = null,
+    PatchEngineResult? Engine = null, string? ScanNote = null, PatchScanRequestView? LastScanRequest = null)
+{
+    /// <summary>True when the Fleeto agent patches this endpoint (0.9.0).</summary>
+    public bool ByFleeto => Engine?.Engine == EndpointPatchEngine.Fleeto;
+}
+
+/// <summary>A "Scan now" of an endpoint (0.9.0): pending until the agent sent a scan after it, or expired when it never came online.</summary>
+public sealed record PatchScanRequestView(string RequestedByName, DateTime RequestedAt, DateTime ExpiresAt, DateTime? DeliveredAt, DateTime? CompletedAt)
+{
+    public bool IsPending(DateTime now) => CompletedAt is null && (DeliveredAt is not null || ExpiresAt > now);
+}
 
 /// <summary>
 /// The Action1 agent of an endpoint and its automatic installation (0.6.0).
@@ -146,18 +166,41 @@ public sealed class PatchService
     {
         caller.Ensure(Permissions.PatchesView);
         await using var db = _dbFactory.Create(caller.Scope);
-        var endpoint = await db.Endpoints.AsNoTracking().Where(e => e.Id == endpointId)
-            .Select(e => new { e.Tier, e.ClientId, e.OsPlatform }).SingleOrDefaultAsync(cancellationToken);
+        var endpoint = await db.Endpoints.AsNoTracking().SingleOrDefaultAsync(e => e.Id == endpointId, cancellationToken);
         if (endpoint is null)
         {
             return null;
         }
 
-        var managed = TierRules.EffectiveTier(endpoint.Tier, await _licenses.GetStatusAsync(db, cancellationToken)) == EndpointTier.Managed;
+        var license = await _licenses.GetStatusAsync(db, cancellationToken);
+        var managed = TierRules.EffectiveTier(endpoint.Tier, license) == EndpointTier.Managed;
         var configured = await db.IntegrationMappings.AsNoTracking().AnyAsync(m => m.ClientId == endpoint.ClientId, cancellationToken);
-        if (!managed || !configured)
+        if (!managed)
         {
             return new EndpointPatchView(managed, configured, null, [], null);
+        }
+
+        // Who patches this endpoint (0.9.0): the Fleeto agent shows what its scans found, without Action1 being set up at all.
+        var inventory = await db.InventorySnapshots.AsNoTracking().SingleOrDefaultAsync(i => i.EndpointId == endpointId, cancellationToken);
+        var current = await db.EndpointPatchStates.AsNoTracking().SingleOrDefaultAsync(p => p.EndpointId == endpointId, cancellationToken);
+        var engine = PatchEngineRules.EngineFor(endpoint, license, inventory, current);
+        // Windows is not scanned by Fleeto before 0.9.0 step 2, so a Windows endpoint without Action1 keeps the Action1 view with its
+        // installation of the Action1 agent until then.
+        if (engine.Engine == EndpointPatchEngine.Fleeto && PatchScanRules.PlatformScans(endpoint.OsPlatform))
+        {
+            return await FleetoViewAsync(db, endpoint, configured, engine, current, cancellationToken);
+        }
+
+        if (engine.Engine == EndpointPatchEngine.None)
+        {
+            return new EndpointPatchView(true, configured, null, [], null, Engine: engine);
+        }
+
+        // The Action1 view: for an endpoint Action1 patches, and for a Windows endpoint without Action1 before Fleeto scans Windows.
+        PatchEngineResult? action1View = engine.Engine == EndpointPatchEngine.Action1 ? engine : null;
+        if (!configured)
+        {
+            return new EndpointPatchView(true, false, null, [], null, Engine: action1View);
         }
 
         var agentOnEndpoint = await db.InventorySnapshots.AsNoTracking()
@@ -182,7 +225,7 @@ public sealed class PatchService
                 .FirstOrDefaultAsync(cancellationToken);
             return new EndpointPatchView(true, true, null, [], null,
                 windows && agentOnEndpoint.Length == 0 && Action1AgentInstall.IsValidInstallerUrl(installerUrl), agentOnEndpoint, null, lastRequest,
-                windows && agentOnEndpoint.Length > 0, await AgentInstallAsync(db, endpointId, cancellationToken));
+                windows && agentOnEndpoint.Length > 0, await AgentInstallAsync(db, endpointId, cancellationToken), action1View);
         }
 
         var rows = await db.EndpointMissingUpdates.AsNoTracking()
@@ -198,7 +241,99 @@ public sealed class PatchService
 
         return new EndpointPatchView(true, true, state, missing, detailAt, false, agentOnEndpoint,
             await ScheduleAsync(db, endpointId, endpoint.ClientId, state, cancellationToken), lastRequest, false,
-            await AgentInstallAsync(db, endpointId, cancellationToken));
+            await AgentInstallAsync(db, endpointId, cancellationToken), action1View);
+    }
+
+    /// <summary>
+    /// The patch state of an endpoint the Fleeto agent patches (0.9.0): what its last scan found, the problem it met, and the newest
+    /// "Scan now". The state is null before the first scan arrived. Rounds of a patch policy follow in a later step.
+    /// </summary>
+    private static async Task<EndpointPatchView> FleetoViewAsync(FleetoDbContext db, Core.Entities.Endpoint endpoint, bool configured, PatchEngineResult engine,
+        EndpointPatchState? current, CancellationToken cancellationToken)
+    {
+        var state = current is { Engine: PatchEngine.Fleeto } ? current : null;
+        var rows = state is null
+            ? []
+            : await db.EndpointMissingUpdates.AsNoTracking().Where(u => u.EndpointId == endpoint.Id).ToListAsync(cancellationToken);
+        List<MissingUpdateView> missing = [.. rows
+            .Select(u => new MissingUpdateView(u.ExternalUpdateId, u.Name, u.Vendor, u.Version, u.KbNumber, u.Severity,
+                u.InstalledVersion, u.ReleaseDate, u.UpdateType, u.ApprovalStatus, string.Join(", ", u.Cves), u.Advisory, u.Origin, u.Held,
+                u.Removal, u.FirstSeenAt))
+            .OrderBy(u => u.Removal)
+            .ThenByDescending(u => u.Severity)
+            .ThenByDescending(u => u.UpdateType == PatchScanRules.SecurityType)
+            .ThenBy(u => u.Name, StringComparer.Ordinal)];
+        var lastScanRequest = await db.PatchScanRequests.AsNoTracking()
+            .Where(r => r.EndpointId == endpoint.Id)
+            .OrderByDescending(r => r.RequestedAt)
+            .Select(r => new PatchScanRequestView(r.RequestedByName, r.RequestedAt, r.ExpiresAt, r.DeliveredAt, r.CompletedAt))
+            .FirstOrDefaultAsync(cancellationToken);
+        return new EndpointPatchView(true, configured, state, missing, state?.ProductLastSeenAt, Engine: engine,
+            ScanNote: PatchScanRules.Problem(endpoint.OsPlatform, endpoint.AgentVersion), LastScanRequest: lastScanRequest);
+    }
+
+    /// <summary>
+    /// Asks the Fleeto agent of the endpoint to scan for missing updates now (0.9.0). Users with Sync patches, managed endpoints whose
+    /// engine is Fleeto with an agent that scans, once per <see cref="PatchScanRules.RequestGap"/> per endpoint; audited. Returns whether
+    /// the endpoint is online right now: an offline endpoint gets the request when it connects within the next 15 minutes.
+    /// </summary>
+    public async Task<ServiceResult<bool>> RequestScanAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
+    {
+        if (!caller.Has(Permissions.PatchesSync))
+        {
+            return ServiceResult<bool>.Forbidden();
+        }
+
+        await using var db = _dbFactory.Create(caller.Scope);
+        var endpoint = await db.Endpoints.AsNoTracking().SingleOrDefaultAsync(e => e.Id == endpointId, cancellationToken);
+        if (endpoint is null)
+        {
+            return ServiceResult<bool>.NotFound("endpoint");
+        }
+
+        var license = await _licenses.GetStatusAsync(db, cancellationToken);
+        if (TierRules.EffectiveTier(endpoint.Tier, license) != EndpointTier.Managed)
+        {
+            return ServiceResult<bool>.Fail("This endpoint is not managed. Switch it to managed to use patch management on it.");
+        }
+
+        var inventory = await db.InventorySnapshots.AsNoTracking().SingleOrDefaultAsync(i => i.EndpointId == endpointId, cancellationToken);
+        var state = await db.EndpointPatchStates.AsNoTracking().SingleOrDefaultAsync(p => p.EndpointId == endpointId, cancellationToken);
+        var engine = PatchEngineRules.EngineFor(endpoint, license, inventory, state);
+        if (engine.Engine != EndpointPatchEngine.Fleeto)
+        {
+            return ServiceResult<bool>.Fail(engine.Engine == EndpointPatchEngine.Action1
+                ? "Action1 patches this endpoint. Sync it with Action1 instead."
+                : PatchEngineRules.Describe(engine.Reason) ?? "Fleeto does not patch this endpoint.");
+        }
+
+        if (PatchScanRules.Problem(endpoint.OsPlatform, endpoint.AgentVersion) is { } problem)
+        {
+            return ServiceResult<bool>.Fail(problem);
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        var gap = now - PatchScanRules.RequestGap;
+        if (await db.PatchScanRequests.AnyAsync(r => r.EndpointId == endpointId && r.RequestedAt > gap, cancellationToken))
+        {
+            return ServiceResult<bool>.Fail("A scan of this endpoint was asked for less than 15 minutes ago. Wait for its result, then try again.");
+        }
+
+        var request = new PatchScanRequest
+        {
+            Id = Guid.CreateVersion7(),
+            ClientId = endpoint.ClientId,
+            EndpointId = endpointId,
+            RequestedByUserId = caller.UserId,
+            RequestedByName = Cut(caller.Name, 200),
+            RequestedAt = now,
+            ExpiresAt = now + PatchScanRules.RequestLifetime
+        };
+        db.PatchScanRequests.Add(request);
+        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.PatchScanRequested, "Endpoint", endpointId.ToString(), endpoint.ClientId,
+            new { endpoint.Hostname, RequestId = request.Id }), now));
+        await db.SaveChangesAsync(cancellationToken);
+        return ServiceResult<bool>.Ok(endpoint.IsOnline);
     }
 
     /// <summary>Where the Action1 agent of the endpoint stands (0.6.0), with whether its patch policy installs it by itself.</summary>
@@ -411,7 +546,8 @@ public sealed class PatchService
     {
         caller.Ensure(Permissions.ClientsView);
         await using var db = _dbFactory.Create(caller.Scope);
-        var states = db.EndpointPatchStates.AsNoTracking();
+        // Both engines count (0.9.0); a Fleeto patch state whose scans never read the updates is not counted, so it never looks compliant.
+        var states = db.EndpointPatchStates.AsNoTracking().Where(p => p.Engine == PatchEngine.Action1 || p.ProductLastSeenAt != null);
         if (clientId is { } client)
         {
             states = states.Where(p => p.ClientId == client);

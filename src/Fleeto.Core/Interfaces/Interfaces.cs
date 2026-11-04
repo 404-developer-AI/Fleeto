@@ -140,6 +140,12 @@ public static class NotificationChannels
     /// <summary>Payload: endpoint id. The gateway stored a storage scan of the endpoint; the workers evaluate folder growth (0.6.0).</summary>
     public const string StorageScans = "fleeto_storage_scans";
 
+    /// <summary>Payload: PatchScanRequest id. Raised by a database trigger on insert; the gateway delivers the request (0.9.0).</summary>
+    public const string PatchScanRequests = "fleeto_patch_scan_requests";
+
+    /// <summary>Payload: endpoint id. The gateway stored a patch scan of the endpoint; the workers turn it into patch state (0.9.0).</summary>
+    public const string PatchScans = "fleeto_patch_scans";
+
     /// <summary>Payload: agent release version. A release was paused, resumed or released to all rings (0.2.1).</summary>
     public const string AgentReleases = "fleeto_agent_releases";
 
@@ -295,6 +301,8 @@ public static class AuditActions
     public const string CheckReset = "check.reset";
     /// <summary>A technician asked an endpoint to scan its storage now (0.6.0).</summary>
     public const string StorageScanRequested = "storage.scan_requested";
+    /// <summary>A technician asked the Fleeto agent of an endpoint to scan for missing updates now (0.9.0).</summary>
+    public const string PatchScanRequested = "patch_scan.requested";
     /// <summary>A user copied the storage summary of an endpoint as an image or downloaded its PDF report (0.7.0); never the paths.</summary>
     public const string StorageReportExported = "storage.report_exported";
     /// <summary>A user copied the process list of a CPU or memory usage result as an image (0.7.0); never the processes or users.</summary>

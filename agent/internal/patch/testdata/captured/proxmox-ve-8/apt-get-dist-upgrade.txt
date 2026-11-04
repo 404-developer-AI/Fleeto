@@ -1,0 +1,26 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Calculating upgrade...
+The following packages will be upgraded:
+  apt apt-utils bind9-dnsutils bind9-host bind9-libs libapt-pkg6.0 libsasl2-2
+  libsasl2-modules-db tzdata
+9 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+Inst libapt-pkg6.0 [2.6.1] (2.6.2 Debian-Security:12/oldstable-security [amd64])
+Conf libapt-pkg6.0 (2.6.2 Debian-Security:12/oldstable-security [amd64])
+Inst apt [2.6.1] (2.6.2 Debian-Security:12/oldstable-security [amd64]) [apt-utils:amd64 ]
+Conf apt (2.6.2 Debian-Security:12/oldstable-security [amd64]) [apt-utils:amd64 ]
+Inst apt-utils [2.6.1] (2.6.2 Debian-Security:12/oldstable-security [amd64])
+Inst tzdata [2026e-0+deb12u1] (2026f-0+deb12u1 Debian-Security:12/oldstable-security [all])
+Inst bind9-dnsutils [1:9.18.49-1~deb12u2] (1:9.18.49-1~deb12u3 Debian-Security:12/oldstable-security [amd64]) []
+Inst bind9-host [1:9.18.49-1~deb12u2] (1:9.18.49-1~deb12u3 Debian-Security:12/oldstable-security [amd64]) []
+Inst bind9-libs [1:9.18.49-1~deb12u2] (1:9.18.49-1~deb12u3 Debian-Security:12/oldstable-security [amd64])
+Inst libsasl2-modules-db [2.1.28+dfsg-10] (2.1.28+dfsg-10+deb12u1 Debian-Security:12/oldstable-security [amd64])
+Inst libsasl2-2 [2.1.28+dfsg-10] (2.1.28+dfsg-10+deb12u1 Debian-Security:12/oldstable-security [amd64])
+Conf apt-utils (2.6.2 Debian-Security:12/oldstable-security [amd64])
+Conf tzdata (2026f-0+deb12u1 Debian-Security:12/oldstable-security [all])
+Conf bind9-dnsutils (1:9.18.49-1~deb12u3 Debian-Security:12/oldstable-security [amd64])
+Conf bind9-host (1:9.18.49-1~deb12u3 Debian-Security:12/oldstable-security [amd64])
+Conf bind9-libs (1:9.18.49-1~deb12u3 Debian-Security:12/oldstable-security [amd64])
+Conf libsasl2-modules-db (2.1.28+dfsg-10+deb12u1 Debian-Security:12/oldstable-security [amd64])
+Conf libsasl2-2 (2.1.28+dfsg-10+deb12u1 Debian-Security:12/oldstable-security [amd64])

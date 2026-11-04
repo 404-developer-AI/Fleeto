@@ -31,6 +31,12 @@ internal static class PatchStateWriter
             db.EndpointPatchStates.Add(state);
         }
 
+        // An endpoint the Fleeto agent scanned until its Action1 agent appeared is Action1's from now on (0.9.0); the next detail read
+        // replaces the missing updates of the scan.
+        state.Engine = PatchEngine.Action1;
+        state.ScanTool = string.Empty;
+        state.ScanProblem = null;
+        state.ScanFailingSince = null;
         state.ExternalEndpointId = item.Id;
         state.ExternalTenantId = tenantId;
         state.Coverage = item.Coverage;

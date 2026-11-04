@@ -1,0 +1,7 @@
+ALSA-2026:93930 Moderate/Sec.  kernel-5.14.0-687.65.1.el9_8.x86_64
+ALSA-2026:93930 Moderate/Sec.  kernel-core-5.14.0-687.65.1.el9_8.x86_64
+ALSA-2026:93930 Moderate/Sec.  kernel-modules-5.14.0-687.65.1.el9_8.x86_64
+ALSA-2026:93930 Moderate/Sec.  kernel-modules-core-5.14.0-687.65.1.el9_8.x86_64
+ALSA-2026:93930 Moderate/Sec.  kernel-tools-5.14.0-687.65.1.el9_8.x86_64
+ALSA-2026:93930 Moderate/Sec.  kernel-tools-libs-5.14.0-687.65.1.el9_8.x86_64
+ALSA-2026:88421 Important/Sec. qemu-guest-agent-17:10.1.0-17.el9_8.9.alma.1.x86_64

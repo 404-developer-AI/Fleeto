@@ -1,0 +1,30 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Calculating upgrade...
+The following upgrades have been deferred due to phasing:
+  python3-distupgrade ubuntu-release-upgrader-core
+The following packages will be upgraded:
+  libssl3t64 openssh-client openssh-server openssh-sftp-server openssl
+  snapd systemd systemd-dev systemd-resolved systemd-sysv
+10 upgraded, 0 newly installed, 0 to remove and 2 not upgraded.
+Inst libssl3t64 [3.0.13-0ubuntu3.4] (3.0.13-0ubuntu3.5 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Inst openssl [3.0.13-0ubuntu3.4] (3.0.13-0ubuntu3.5 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Inst openssh-sftp-server [1:9.6p1-3ubuntu13.5] (1:9.6p1-3ubuntu13.8 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64]) []
+Inst openssh-server [1:9.6p1-3ubuntu13.5] (1:9.6p1-3ubuntu13.8 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64]) []
+Inst openssh-client [1:9.6p1-3ubuntu13.5] (1:9.6p1-3ubuntu13.8 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Inst systemd-dev [255.4-1ubuntu8.4] (255.4-1ubuntu8.5 Ubuntu:24.04/noble-updates [all]) []
+Inst systemd-sysv [255.4-1ubuntu8.4] (255.4-1ubuntu8.5 Ubuntu:24.04/noble-updates [amd64]) []
+Inst systemd-resolved [255.4-1ubuntu8.4] (255.4-1ubuntu8.5 Ubuntu:24.04/noble-updates [amd64]) []
+Inst systemd [255.4-1ubuntu8.4] (255.4-1ubuntu8.5 Ubuntu:24.04/noble-updates [amd64])
+Inst snapd [2.63+24.04ubuntu0.1] (2.66.1+24.04 Ubuntu:24.04/noble-updates [amd64])
+Conf libssl3t64 (3.0.13-0ubuntu3.5 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Conf openssl (3.0.13-0ubuntu3.5 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Conf openssh-client (1:9.6p1-3ubuntu13.8 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Conf openssh-sftp-server (1:9.6p1-3ubuntu13.8 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Conf openssh-server (1:9.6p1-3ubuntu13.8 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Conf systemd-dev (255.4-1ubuntu8.5 Ubuntu:24.04/noble-updates [all])
+Conf systemd (255.4-1ubuntu8.5 Ubuntu:24.04/noble-updates [amd64])
+Conf systemd-sysv (255.4-1ubuntu8.5 Ubuntu:24.04/noble-updates [amd64])
+Conf systemd-resolved (255.4-1ubuntu8.5 Ubuntu:24.04/noble-updates [amd64])
+Conf snapd (2.66.1+24.04 Ubuntu:24.04/noble-updates [amd64])

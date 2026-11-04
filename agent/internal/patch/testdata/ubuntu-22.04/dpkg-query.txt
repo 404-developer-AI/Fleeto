@@ -1,0 +1,4 @@
+docker-ce	docker-ce	amd64	5:27.3.1-1~ubuntu.22.04~jammy
+libfwupdplugin5	libfwupdplugin5	amd64	1.7.9-1~22.04.3
+python3-update-manager	python3-update-manager	all	1:22.04.20
+update-manager-core	update-manager-core	all	1:22.04.20

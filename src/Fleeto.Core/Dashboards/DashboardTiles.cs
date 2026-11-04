@@ -179,7 +179,7 @@ public static class DashboardTiles
             [Permissions.AlertsView], new(2, 2), CounterMax, Small, ScopeAndClass | TileOptions.ThresholdsAbove, AlertCountsSource,
             TileLiveEvents.Alerts, "0.8.0"),
         new(PatchCompliance, TileKind.Counter, CountersGroup, "Patch compliance",
-            "Managed Windows endpoints that Action1 reports as up to date.", [Permissions.ClientsView], new(2, 2), CounterMax, Small,
+            "Managed endpoints that Action1 or a patch scan of the Fleeto agent reports as up to date.", [Permissions.ClientsView], new(2, 2), CounterMax, Small,
             TileOptions.Scope | TileOptions.ThresholdsBelow | TileOptions.HideWhenEmpty, PatchSource, TileLiveEvents.PatchDeployments, "0.8.0"),
         new(Vulnerabilities, TileKind.Counter, CountersGroup, "Vulnerabilities",
             "Linux endpoints missing a critical fix or with an actively exploited vulnerability.", [Permissions.VulnerabilitiesView],

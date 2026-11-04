@@ -60,7 +60,8 @@ public static class DatabaseGrants
             // The signer revokes the earlier certificates of an endpoint that enrolls again (0.2.0).
             ["AgentCertificates"] = Grants(web: "SELECT, UPDATE", gateway: Read, signer: "SELECT, INSERT, UPDATE", workers: "SELECT, DELETE"),
             ["EnrollmentTokens"] = Grants(web: ReadWrite, gateway: Read, signer: "SELECT, UPDATE", workers: "SELECT, DELETE"),
-            ["InventorySnapshots"] = Grants(web: Read, gateway: "SELECT, INSERT, UPDATE", workers: Read),
+            // The signer reads the Action1 agent of the inventory for the patch engine of a configuration (0.9.0).
+            ["InventorySnapshots"] = Grants(web: Read, gateway: "SELECT, INSERT, UPDATE", signer: Read, workers: Read),
 
             // The gateway reads the update ring of the policy (0.2.1).
             ["Policies"] = Grants(web: ReadWrite, gateway: Read, signer: Read, workers: Read),
@@ -111,6 +112,9 @@ public static class DatabaseGrants
             // and apply retention. Web and the workers (for a Disk free check) ask for scans, the gateway delivers them.
             ["StorageScans"] = Grants(web: Read, gateway: "SELECT, INSERT", workers: "SELECT, DELETE"),
             ["StorageScanRequests"] = Grants(web: "SELECT, INSERT", gateway: "SELECT, UPDATE", workers: "SELECT, INSERT, DELETE"),
+            // Patch scans (0.9.0): the gateway stores what the agent reported, the workers turn it into patch state and age it out.
+            ["PatchScans"] = Grants(web: Read, gateway: "SELECT, INSERT", workers: "SELECT, UPDATE, DELETE"),
+            ["PatchScanRequests"] = Grants(web: "SELECT, INSERT", gateway: "SELECT, UPDATE", workers: "SELECT, UPDATE, DELETE"),
 
             // Scripts and jobs (0.2.0): web writes, the signer decides and signs, the gateway delivers and stores output, the
             // workers expire and clean up. Who may request a job signature is also enforced by TR_SigningRequests_Origin.
@@ -166,7 +170,8 @@ public static class DatabaseGrants
             // Web queues test deliveries and reads the last delivery per channel; the workers deliver.
             ["OutboxWebhooks"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
             // Patch state (0.4.0): the workers read it from the patch management product, web and the public API show it.
-            ["EndpointPatchStates"] = Grants(web: Read, workers: ReadWrite),
+            // The signer reads who reported the patch state for the patch engine of a configuration (0.9.0).
+            ["EndpointPatchStates"] = Grants(web: Read, signer: Read, workers: ReadWrite),
             ["EndpointMissingUpdates"] = Grants(web: Read, workers: ReadWrite),
             // Deployments (0.4.0 step 3): web writes what a technician asked for, the workers hand it to the product and
             // write back what it reports. Web never updates a deployment, so it cannot claim an outcome of its own.

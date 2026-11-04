@@ -1,0 +1,33 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Calculating upgrade...
+The following packages were automatically installed and are no longer required:
+  libfwupd2 libgusb2
+Use 'apt autoremove' to remove them.
+The following upgrades have been deferred due to phasing:
+  libsqlite3-0
+The following packages will be upgraded:
+  apt apt-utils bind9-dnsutils bind9-host bind9-libs libapt-pkg6.0t64
+  libmspack0t64 libpcre2-8-0 linux-firmware-amd-graphics python3-twisted
+10 upgraded, 0 newly installed, 0 to remove and 1 not upgraded.
+Inst libapt-pkg6.0t64 [2.8.3] (2.8.4ubuntu0.1 Ubuntu:24.04/noble-security [amd64])
+Conf libapt-pkg6.0t64 (2.8.4ubuntu0.1 Ubuntu:24.04/noble-security [amd64])
+Inst apt [2.8.3] (2.8.4ubuntu0.1 Ubuntu:24.04/noble-security [amd64]) [apt-utils:amd64 ]
+Conf apt (2.8.4ubuntu0.1 Ubuntu:24.04/noble-security [amd64]) [apt-utils:amd64 ]
+Inst apt-utils [2.8.3] (2.8.4ubuntu0.1 Ubuntu:24.04/noble-security [amd64])
+Inst libpcre2-8-0 [10.42-4ubuntu2.1] (10.42-4ubuntu2.2 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Conf libpcre2-8-0 (10.42-4ubuntu2.2 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Inst bind9-dnsutils [1:9.18.39-0ubuntu0.24.04.8] (1:9.18.39-0ubuntu0.24.04.9 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64]) []
+Inst bind9-host [1:9.18.39-0ubuntu0.24.04.8] (1:9.18.39-0ubuntu0.24.04.9 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64]) []
+Inst bind9-libs [1:9.18.39-0ubuntu0.24.04.8] (1:9.18.39-0ubuntu0.24.04.9 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Inst libmspack0t64 [0.11-1.1build1] (0.11-1.1ubuntu0.24.04.1 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Inst linux-firmware-amd-graphics [20240318.git3b128b60-0ubuntu3.3] (20240318.git3b128b60-0ubuntu3.4 Ubuntu:24.04/noble-updates [all])
+Inst python3-twisted [24.3.0-1ubuntu0.2] (24.3.0-1ubuntu0.3 Ubuntu:24.04/noble-security [all])
+Conf apt-utils (2.8.4ubuntu0.1 Ubuntu:24.04/noble-security [amd64])
+Conf bind9-dnsutils (1:9.18.39-0ubuntu0.24.04.9 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Conf bind9-host (1:9.18.39-0ubuntu0.24.04.9 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Conf bind9-libs (1:9.18.39-0ubuntu0.24.04.9 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Conf libmspack0t64 (0.11-1.1ubuntu0.24.04.1 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Conf linux-firmware-amd-graphics (20240318.git3b128b60-0ubuntu3.4 Ubuntu:24.04/noble-updates [all])
+Conf python3-twisted (24.3.0-1ubuntu0.3 Ubuntu:24.04/noble-security [all])

@@ -287,7 +287,10 @@ public sealed class PatchAutomationService : WorkerLoop
         }
 
         var policyIds = rows.Select(r => r.PatchPolicyId).Distinct().ToList();
-        var policies = await db.PatchPolicies.AsNoTracking().Where(p => policyIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, cancellationToken);
+        // Only a policy patched by Action1 becomes an automation (0.9.0); a policy that changed to the Fleeto engine loses its
+        // automations as a deleted one does.
+        var policies = await db.PatchPolicies.AsNoTracking().Where(p => policyIds.Contains(p.Id) && p.Engine == PatchEngine.Action1)
+            .ToDictionaryAsync(p => p.Id, cancellationToken);
         return rows.Where(r => policies.ContainsKey(r.PatchPolicyId))
             .GroupBy(r => (r.ClientId, r.PatchPolicyId))
             .ToDictionary(g => g.Key, g => new Target(g.First().ExternalTenantId, policies[g.Key.PatchPolicyId],

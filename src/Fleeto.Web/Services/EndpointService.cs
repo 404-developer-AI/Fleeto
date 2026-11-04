@@ -282,7 +282,9 @@ public sealed class EndpointService
                 .ToDictionaryAsync(i => i.EndpointId, cancellationToken)
             : [];
         var states = patches
-            ? await db.EndpointPatchStates.AsNoTracking().Where(p => ids.Contains(p.EndpointId))
+            // A Fleeto patch state whose scans never read the updates (0.9.0) is not shown as up to date.
+            ? await db.EndpointPatchStates.AsNoTracking()
+                .Where(p => ids.Contains(p.EndpointId) && (p.Engine == PatchEngine.Action1 || p.ProductLastSeenAt != null))
                 .Select(p => new { p.EndpointId, p.Coverage, p.MissingCritical, p.MissingOther, p.RebootRequired })
                 .ToDictionaryAsync(p => p.EndpointId, p => new EndpointRowPatches(p.Coverage, p.MissingCritical, p.MissingOther, p.RebootRequired),
                     cancellationToken)

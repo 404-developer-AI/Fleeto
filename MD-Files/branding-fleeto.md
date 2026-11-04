@@ -107,7 +107,9 @@ Use these terms consistently in UI, docs and email; do not introduce synonyms.
 | **job** | One execution of a script, patch run or task on an endpoint |
 | **task** | Library scripts that run by themselves as steps, linked to a client, site, endpoint or monitoring template (0.6.0): on a schedule, when an alert of a check opens, when an endpoint becomes managed, or with "Run now". One start is a "run", with a job per step on each endpoint. A step that restarts the endpoint is a "restart" ("Restart the endpoint"), never "reboot". Never "scheduled job", "automation" or "cron" in UI text. |
 | **policy** | Agent behaviour settings linked to a client, site or endpoint; the most specific one applies |
-| **patch policy** | When and how Action1 installs updates, linked to a client, site or endpoint (0.6.0). "Patch policy", never "update policy" or "patch schedule" in UI text. What it becomes in Action1 is an "automation". |
+| **patch policy** | When and how updates are installed, by Fleeto itself or by Action1, linked to a client, site or endpoint (0.6.0; Fleeto from 0.9.0). "Patch policy", never "update policy" or "patch schedule" in UI text. Who installs is "Patched by Fleeto" or "Patched by Action1". What it becomes in Action1 is an "automation". |
+| **scan** | The agent reading which updates are missing on an endpoint (0.9.0): "Scan now", "Last scan". Never "check" for it: a check is a monitoring rule. |
+| **round** | One scheduled run of a patch policy on its endpoints (0.9.0): "Next round", "Last round". In the API and the data a round is a deployment of scope `patch_policy`. Never "cycle" or "wave" in UI text. |
 | **monitoring template** | A named set of checks with thresholds, linked to a client, site or endpoint; they add up |
 | **client template** | A blueprint of a client and its sites, with their policies, patch policies and monitoring templates, used when creating a client |
 | **integration** | A connected external product (Action1, Sophos, Veeam, ...) |

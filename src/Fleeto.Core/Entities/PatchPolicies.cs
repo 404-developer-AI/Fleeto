@@ -23,6 +23,16 @@ public enum PatchUpdateScope
     Filtered
 }
 
+/// <summary>Who installs the updates of a patch policy, and who reported the patch state of an endpoint (0.9.0, <c>PATCHING.md</c> §2).</summary>
+public enum PatchEngine
+{
+    /// <summary>Action1 installs them through one automation per client (0.6.0); every policy made before 0.9.0.</summary>
+    Action1,
+
+    /// <summary>The Fleeto agent installs them itself, with the Windows Update Agent, apt or dnf of the endpoint.</summary>
+    Fleeto
+}
+
 /// <summary>
 /// A patch policy (0.6.0): when and how updates are installed on the endpoints it applies to. Fleeto hands it to the patch
 /// management product as a scheduled automation per client (Action1: one automation per organization that uses it), so
@@ -33,6 +43,13 @@ public class PatchPolicy
 {
     public Guid Id { get; set; }
     public Guid? ClientId { get; set; }
+
+    /// <summary>
+    /// Who installs the updates (0.9.0): Action1, or the Fleeto agent itself. It only decides what Fleeto does on an endpoint
+    /// the policy applies to; which engine an endpoint can have at all is <see cref="Domain.PatchEngineRules"/>, so one endpoint
+    /// is never patched by both.
+    /// </summary>
+    public PatchEngine Engine { get; set; } = PatchEngine.Action1;
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
 

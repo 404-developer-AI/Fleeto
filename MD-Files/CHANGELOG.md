@@ -9,6 +9,36 @@ When a third released version is added, the oldest entry moves to the top of
 
 ## [Unreleased]
 
+### Added
+
+- Patch management by Fleeto itself (0.9.0 step 0): a patch policy now says who installs its updates, Action1 or Fleeto. Every
+  existing patch policy stays with Action1, and nothing can choose Fleeto yet: the choice appears in the patch policy dialog once the
+  Fleeto agent can scan and install. One rule decides which engine an endpoint has, so one endpoint is never patched by both: none on
+  an agent-only endpoint, Action1 wherever its agent runs or Action1 reports the endpoint, otherwise Fleeto on Windows, Windows Server,
+  Ubuntu, Debian, AlmaLinux and Proxmox VE. The design and the decisions are in `PATCHING.md`.
+
+- Missing updates on Linux, read by the Fleeto agent itself (0.9.0 step 1). On a managed Ubuntu, Debian, AlmaLinux or Proxmox VE
+  endpoint without an Action1 agent, the agent reads which updates are missing every 6 hours, with apt or dnf of the endpoint and at
+  the lowest priority; it installs and configures nothing. The Patches tab shows them per package: the installed and the new version,
+  where it comes from, security or regular, the CVEs it fixes and their severity from the vulnerabilities Fleeto already knows of the
+  endpoint, the advisory, and packages that are held back or that the upgrade would remove. "Scan now" asks the agent to scan at
+  once, once per 15 minutes. A scan that could not read everything says why (a held package lock, a repository that answered with an
+  error such as the Proxmox enterprise repository without a subscription, an interrupted dpkg) instead of showing an empty list, and an
+  endpoint whose scans never read the updates is not counted as up to date. These endpoints now count in patch compliance on the
+  dashboard and in the endpoint list, and the "Missing updates" check works on Linux; an update without an advisory date counts from
+  the day Fleeto first saw it missing. An endpoint whose scans are older than 7 days while it is online opens a patch state alert.
+  Installing follows in a later step.
+- The agent reports the time zone of the endpoint with its inventory, for patch rounds in the endpoint's own time later in 0.9.0.
+
+### Changed
+
+- Only a patch policy patched by Action1 becomes an Action1 automation.
+- The Patches tab of an endpoint without patch management says why: agent-only, DSM updates itself, or an operating system Fleeto
+  does not patch.
+- The public API: `GET /api/v1/endpoints/{endpointId}/patches` also answers for an endpoint the Fleeto agent scans, with `engine`,
+  `scanTool` and `scanProblem`, and every missing update with `advisory`, `origin`, `held`, `removal` and `firstSeenAt`.
+- Supported products: Ubuntu, Debian, AlmaLinux and Proxmox VE show their missing updates by Fleeto.
+
 ## [0.8.0] — 2026-11-04
 
 Vulnerability reporting: security advisories of the CCB on the dashboard, the CVEs of the packages of managed Linux endpoints matched

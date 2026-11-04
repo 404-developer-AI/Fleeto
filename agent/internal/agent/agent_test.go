@@ -280,6 +280,8 @@ func testOptions(store *state.Store) Options {
 		SignedInUsers: func() ([]*agentv1.SignedInUser, error) { return nil, errors.New("no signed-in users in tests") },
 		// Nor are its Windows Update settings.
 		WindowsUpdate: func(bool, bool) (string, bool, error) { return winupdate.StateUntouched, false, nil },
+		// Nor are its missing updates: a test never runs apt or dnf.
+		PatchScan: func(context.Context, string) *agentv1.PatchScanReport { return nil },
 	}
 }
 

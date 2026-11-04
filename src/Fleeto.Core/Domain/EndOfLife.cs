@@ -511,7 +511,9 @@ public sealed record ProductSupport(EndOfLifeProduct Product, string Versions, F
 public static class SupportedProducts
 {
     private static readonly FeatureSupport NoWebInterface = new(SupportLevel.No);
-    private static readonly FeatureSupport LinuxPatching = new(SupportLevel.No, "Not yet; planned for Linux");
+    // 0.9.0 step 1: the Fleeto agent reads the missing updates; installing follows in a later step of 0.9.0.
+    private static readonly FeatureSupport AptPatching = new(SupportLevel.Partly, "Missing updates by Fleeto (apt); installing follows");
+    private static readonly FeatureSupport DnfPatching = new(SupportLevel.Partly, "Missing updates by Fleeto (dnf); installing follows");
     private static readonly FeatureSupport LinuxRemoteControl = new(SupportLevel.Partly, "Only with a desktop on X11, not Wayland");
 
     public static readonly IReadOnlyList<ProductSupport> All =
@@ -532,28 +534,28 @@ public static class SupportedProducts
             NoWebInterface),
         new(EndOfLifeProduct.Ubuntu, "Ubuntu 22.04, 24.04 and 26.04 LTS",
             FeatureSupport.Full,
-            LinuxPatching,
+            AptPatching,
             LinuxRemoteControl,
             FeatureSupport.Full,
             new(SupportLevel.Yes, "18.04 and 20.04 only with Ubuntu Pro"),
             NoWebInterface),
         new(EndOfLifeProduct.Debian, "Debian 12 and 13",
             FeatureSupport.Full,
-            LinuxPatching,
+            AptPatching,
             LinuxRemoteControl,
             FeatureSupport.Full,
             FeatureSupport.Full,
             NoWebInterface),
         new(EndOfLifeProduct.AlmaLinux, "AlmaLinux 8, 9 and 10",
             FeatureSupport.Full,
-            LinuxPatching,
+            DnfPatching,
             LinuxRemoteControl,
             FeatureSupport.Full,
             new(SupportLevel.Yes, "Security updates AlmaLinux released"),
             NoWebInterface),
         new(EndOfLifeProduct.ProxmoxVe, "Proxmox VE 8 and 9",
             FeatureSupport.Full,
-            LinuxPatching,
+            AptPatching,
             new(SupportLevel.No, "No desktop on a Proxmox VE host"),
             FeatureSupport.Full,
             new(SupportLevel.Partly, "Debian packages; Proxmox packages and kernel not covered"),

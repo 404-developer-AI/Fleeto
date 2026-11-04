@@ -69,6 +69,15 @@ public sealed class AgentConfigBuilder
                 : null;
             config.TurnOffWindowsUpdate = WindowsUpdateRules.Applies(effectiveTier, endpoint.OsPlatform, patchPolicy, action1);
 
+            // Patch scans by the Fleeto agent (0.9.0): only where its engine is Fleeto, so an endpoint Action1 patches is never scanned
+            // twice. Older agents ignore the field.
+            var inventory = await db.InventorySnapshots.IgnoreQueryFilters().AsNoTracking()
+                .SingleOrDefaultAsync(i => i.EndpointId == endpoint.Id, cancellationToken);
+            var patchState = await db.EndpointPatchStates.IgnoreQueryFilters().AsNoTracking()
+                .SingleOrDefaultAsync(s => s.EndpointId == endpoint.Id, cancellationToken);
+            config.PatchScanIntervalHours = PatchScanRules.IntervalHours(effectiveTier,
+                PatchEngineRules.EngineFor(endpoint, licenseStatus, inventory, patchState), endpoint.OsPlatform);
+
             var checks = await EffectiveCheckResolver.LoadAsync(db, endpoint, includeDisabledOnEndpoint: false, cancellationToken);
             var scriptBytes = 0L;
             // A check Fleeto evaluates itself (the missing updates of Action1) never reaches the agent.

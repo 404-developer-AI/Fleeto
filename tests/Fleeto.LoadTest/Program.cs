@@ -126,6 +126,10 @@ public static class Program
         await Task.WhenAll(tasks);
         await reporter;
         stats.Print(stopwatch.Elapsed, options.Agents, final: true);
+        if (options.PatchScansPerHour > 0)
+        {
+            stats.PrintPatchScans(final: true);
+        }
         return 0;
     }
 
@@ -162,6 +166,10 @@ public static class Program
             while (await timer.WaitForNextTickAsync(cancellationToken))
             {
                 stats.Print(stopwatch.Elapsed, options.Agents, final: false);
+                if (options.PatchScansPerHour > 0)
+                {
+                    stats.PrintPatchScans(final: false);
+                }
             }
         }
         catch (OperationCanceledException)
@@ -174,7 +182,7 @@ internal sealed class LoadTestOptions
 {
     public const string Usage =
         "Usage: --server host:port --token fet_... --ca-fingerprint <hex> [--agents 1000] [--ramp-seconds 60] " +
-        "[--duration-minutes 10] [--results-per-minute 20] [--identity-cache <dir>]";
+        "[--duration-minutes 10] [--results-per-minute 20] [--identity-cache <dir>] [--patch-scans-per-hour 0] [--patch-updates 100]";
 
     public string Server { get; private set; } = string.Empty;
     public string Token { get; private set; } = string.Empty;
@@ -184,6 +192,12 @@ internal sealed class LoadTestOptions
     public double DurationMinutes { get; private set; } = 10;
     public int ResultsPerMinute { get; private set; } = 20;
     public string? IdentityCache { get; private set; }
+
+    /// <summary>Patch scans each agent sends per hour (0.9.0); 0 sends none. Only managed endpoints have their scans stored.</summary>
+    public double PatchScansPerHour { get; private set; }
+
+    /// <summary>Missing updates in each patch scan.</summary>
+    public int PatchUpdates { get; private set; } = 100;
 
     public static LoadTestOptions Parse(string[] args)
     {
@@ -201,6 +215,8 @@ internal sealed class LoadTestOptions
                 case "--duration-minutes": options.DurationMinutes = double.Parse(Value(), CultureInfo.InvariantCulture); break;
                 case "--results-per-minute": options.ResultsPerMinute = int.Parse(Value(), CultureInfo.InvariantCulture); break;
                 case "--identity-cache": options.IdentityCache = Value(); break;
+                case "--patch-scans-per-hour": options.PatchScansPerHour = double.Parse(Value(), CultureInfo.InvariantCulture); break;
+                case "--patch-updates": options.PatchUpdates = int.Parse(Value(), CultureInfo.InvariantCulture); break;
                 default: throw new ArgumentException($"Unknown option {args[i]}.");
             }
         }
@@ -213,6 +229,11 @@ internal sealed class LoadTestOptions
         if (options.CaFingerprint.Length != 64)
         {
             throw new ArgumentException("--ca-fingerprint must be the 64-character hex SHA-256 of the CA certificate.");
+        }
+
+        if (options.PatchScansPerHour < 0 || options.PatchUpdates is < 0 or > 2000)
+        {
+            throw new ArgumentException("--patch-scans-per-hour cannot be negative and --patch-updates must be between 0 and 2000.");
         }
 
         if (options.Agents < 1 || options.ResultsPerMinute < 0 || options.RampSeconds < 0)
@@ -289,6 +310,17 @@ internal sealed class Stats
         _latencies.Enqueue(latencyMs);
     }
 
+    private readonly ConcurrentQueue<double> _patchLatencies = new();
+    private readonly List<double> _allPatchLatencies = [];
+    private long _patchScansAcked;
+
+    /// <summary>A patch scan acknowledged by the gateway after its durable write (0.9.0).</summary>
+    public void PatchScanAcked(double latencyMs)
+    {
+        Interlocked.Increment(ref _patchScansAcked);
+        _patchLatencies.Enqueue(latencyMs);
+    }
+
     public void Print(TimeSpan elapsed, int agents, bool final)
     {
         var samples = new List<double>();
@@ -321,6 +353,30 @@ internal sealed class Stats
             $"| ack latency p50 {Percentile(samples, 0.50):0.0} ms p95 {Percentile(samples, 0.95):0.0} ms p99 {Percentile(samples, 0.99):0.0} ms"));
     }
 
+    /// <summary>The patch scan line, printed only when the run sends patch scans.</summary>
+    public void PrintPatchScans(bool final)
+    {
+        var samples = new List<double>();
+        while (_patchLatencies.TryDequeue(out var latency))
+        {
+            samples.Add(latency);
+        }
+
+        lock (_allPatchLatencies)
+        {
+            _allPatchLatencies.AddRange(samples);
+            if (final)
+            {
+                samples = [.. _allPatchLatencies];
+            }
+        }
+
+        samples.Sort();
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"   patch scans acked {Interlocked.Read(ref _patchScansAcked)} | ack latency p50 {Percentile(samples, 0.50):0.0} ms " +
+            $"p95 {Percentile(samples, 0.95):0.0} ms p99 {Percentile(samples, 0.99):0.0} ms"));
+    }
+
     private static double Percentile(List<double> sorted, double p) =>
         sorted.Count == 0 ? 0 : sorted[Math.Min(sorted.Count - 1, (int)Math.Ceiling(p * sorted.Count) - 1)];
 }
@@ -337,6 +393,7 @@ internal sealed class SimulatedAgent
     private readonly Stats _stats;
     private readonly HttpClient _enrollClient;
     private readonly ConcurrentDictionary<ulong, long> _pendingAcks = new();
+    private readonly ConcurrentDictionary<string, long> _pendingPatchAcks = new();
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private X509Certificate2? _certificate;
     private X509Certificate2? _ca;
@@ -521,6 +578,13 @@ internal sealed class SimulatedAgent
                         }
 
                         break;
+                    case ServerMessage.BodyOneofCase.PatchScanAck:
+                        if (_pendingPatchAcks.TryRemove(message.PatchScanAck.ScanId, out var scanSentAt))
+                        {
+                            _stats.PatchScanAcked(Stopwatch.GetElapsedTime(scanSentAt).TotalMilliseconds);
+                        }
+
+                        break;
                     case ServerMessage.BodyOneofCase.Disconnect:
                         var code = message.Disconnect.Code;
                         if (_index <= 3 || code != DisconnectCode.ServerShutdown)
@@ -549,6 +613,7 @@ internal sealed class SimulatedAgent
             }
 
             _pendingAcks.Clear();
+            _pendingPatchAcks.Clear();
             _stats.Disconnected();
             if (socket.State == WebSocketState.Open)
             {
@@ -570,6 +635,11 @@ internal sealed class SimulatedAgent
         // Spread batches over the interval so thousands of agents never send in the same second.
         var nextBatch = Stopwatch.GetTimestamp() + (long)(Random.Shared.NextDouble() * BatchInterval.TotalSeconds * Stopwatch.Frequency);
         var resultsPerBatch = (int)Math.Round(_options.ResultsPerMinute * BatchInterval.TotalMinutes);
+        // Patch scans (0.9.0), spread over their interval like the batches.
+        var scanInterval = _options.PatchScansPerHour > 0 ? TimeSpan.FromHours(1 / _options.PatchScansPerHour) : TimeSpan.Zero;
+        var nextScan = scanInterval > TimeSpan.Zero
+            ? Stopwatch.GetTimestamp() + (long)(Random.Shared.NextDouble() * scanInterval.TotalSeconds * Stopwatch.Frequency)
+            : long.MaxValue;
         while (!cancellationToken.IsCancellationRequested)
         {
             var now = Stopwatch.GetTimestamp();
@@ -602,8 +672,43 @@ internal sealed class SimulatedAgent
                 nextBatch = now + (long)(BatchInterval.TotalSeconds * Stopwatch.Frequency);
             }
 
+            if (now >= nextScan)
+            {
+                var report = PatchScan();
+                _pendingPatchAcks[report.ScanId] = Stopwatch.GetTimestamp();
+                await SendAsync(socket, new AgentMessage { PatchScan = report }, cancellationToken);
+                nextScan = now + (long)(scanInterval.TotalSeconds * Stopwatch.Frequency);
+            }
+
             await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
         }
+    }
+
+    /// <summary>A patch scan as an Ubuntu server reports it, with the number of missing updates of the run.</summary>
+    private PatchScanReport PatchScan()
+    {
+        var report = new PatchScanReport
+        {
+            ScanId = Guid.NewGuid().ToString("D"),
+            StartedAt = Timestamp.FromDateTime(DateTime.UtcNow),
+            DurationMs = 20_000,
+            Engine = "apt",
+            RestartRequired = _index % 5 == 0
+        };
+        for (var i = 0; i < _options.PatchUpdates; i++)
+        {
+            report.Updates.Add(new PatchUpdate
+            {
+                Id = $"loadtest-package-{i}:amd64",
+                Name = $"loadtest-package-{i}",
+                Version = $"1.{i}.2-0ubuntu0.24.04.{_index % 7 + 2}",
+                InstalledVersion = $"1.{i}.2-0ubuntu0.24.04.1",
+                Classification = i % 3 == 0 ? "security" : "other",
+                Origin = i % 3 == 0 ? "noble-security" : "noble-updates"
+            });
+        }
+
+        return report;
     }
 
     private async Task SendAsync(ClientWebSocket socket, AgentMessage message, CancellationToken cancellationToken)

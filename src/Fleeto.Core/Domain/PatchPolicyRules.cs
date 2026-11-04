@@ -53,6 +53,11 @@ public static class PatchPolicyRules
             return $"The description can be at most {MaxDescriptionLength} characters.";
         }
 
+        if (!Enum.IsDefined(policy.Engine))
+        {
+            return "Choose whether Action1 or Fleeto installs the updates.";
+        }
+
         if (!Enum.IsDefined(policy.AppliesTo))
         {
             return "Choose all endpoints, servers or workstations.";

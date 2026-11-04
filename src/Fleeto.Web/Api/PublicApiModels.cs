@@ -93,6 +93,13 @@ public enum ApiPatchCoverage
     [JsonStringEnumMemberName("inactive")] Inactive
 }
 
+/// <summary>Who reported a patch state (0.9.0): Action1, or a patch scan of the Fleeto agent.</summary>
+public enum ApiPatchEngine
+{
+    [JsonStringEnumMemberName("action1")] Action1,
+    [JsonStringEnumMemberName("fleeto")] Fleeto
+}
+
 /// <summary>What a deployment installs (0.4.0).</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<ApiDeploymentScope>))]
 public enum ApiDeploymentScope
@@ -278,12 +285,13 @@ public sealed record ApiService(string Name, string DisplayName, string StartTyp
 /// <summary>One update an endpoint is missing, as patch management reports it (0.4.0; installed version, release date, type,
 /// approval and CVEs 0.6.0).</summary>
 public sealed record ApiMissingUpdate(string Id, string Name, string Vendor, string Version, string InstalledVersion, DateOnly? ReleaseDate,
-    string KbNumber, string UpdateType, string ApprovalStatus, ApiPatchSeverity Severity, IReadOnlyList<string> Cves);
+    string KbNumber, string UpdateType, string ApprovalStatus, ApiPatchSeverity Severity, IReadOnlyList<string> Cves, string Advisory,
+    string Origin, bool Held, bool Removal, DateTime? FirstSeenAt);
 
 /// <summary>The patch state of one endpoint (0.4.0), as patch management last reported it.</summary>
 public sealed record ApiPatchState(Guid EndpointId, ApiPatchCoverage Coverage, bool Compliant, int MissingCritical, int MissingOther,
     bool RebootRequired, DateTime? ProductLastSeenAt, string ProductAgentVersion, DateTime UpdatedAt, DateTime? DetailUpdatedAt,
-    IReadOnlyList<ApiMissingUpdate> Missing);
+    IReadOnlyList<ApiMissingUpdate> Missing, ApiPatchEngine Engine, string? ScanTool, string? ScanProblem);
 
 /// <summary>What one endpoint of a deployment did, as patch management reports it (0.4.0).</summary>
 public sealed record ApiDeploymentTarget(Guid EndpointId, string Hostname, ApiDeploymentTargetState State, string? Message);

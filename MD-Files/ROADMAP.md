@@ -12,7 +12,8 @@ what is not released yet. The latest release is **0.8.0** (2026-11-04, `v0.8.0`)
 Synology web interfaces, the dashboard designer, column layouts and the end-of-life report, tested through `v0.8.0-alpha.1` to
 `alpha.16`.
 
-**0.9.0** — next: patch management on Linux, and on Windows for endpoints without Action1 (decided 2026-11-04).
+**0.9.0** — in progress: patch management on Linux, and on Windows for endpoints without Action1 (decided 2026-11-04, designed in
+`PATCHING.md`).
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
 2026-09-15, see Later).
@@ -24,15 +25,26 @@ Markers: [done] built and tested, [open] still to do.
 
 ## 0.9.0 — Patch management on Linux and on Windows without Action1
 
-Decided 2026-11-04. How and what is discussed with the developer before anything is built, and designed in a file of its own like
-the parts of 0.8.0.
+Decided 2026-11-04, with how and what decided the same day: the design, the decisions and the build plan are in `PATCHING.md`. The
+engine (Action1 or Fleeto) is a property of the patch policy, and one endpoint is never patched by both.
 
+- [done] Step 0: the decisions, the engine of a patch policy and the rule for the engine of an endpoint (`PatchEngineRules`).
+- [done] Step 1: scanning on Linux (Ubuntu, Debian, AlmaLinux, Proxmox VE): missing updates on the Patches tab, in the compliance counts
+  and the "Missing updates" check. Nothing installed yet. The parsers read real captures of Ubuntu 24.04, Proxmox VE 8 and AlmaLinux 9 and
+  10. Still to do before the release: the load test at 10,000 agents on the test VPS, and a capture of a Proxmox VE host with the
+  enterprise repository answering 401.
+- [open] Later, when a Debian endpoint runs: captures of Debian 12 and 13 (`apt-get -q update`, `apt-get -s dist-upgrade`, `apt-mark
+  showhold`) for the parser tests; Debian is supported on the representative output of `agent/internal/patch/testdata` until then.
+- [open] Step 2: scanning on Windows with the Windows Update Agent, for endpoints without Action1.
+- [open] Step 3: installing by hand from the Patches tab and the endpoint list, as a signed job, with the restart inside the job.
+- [open] Step 4: patch policies with engine Fleeto: rounds on their schedule, "Scheduled patching", turning automatic updates off.
+- [open] Step 5: the remaining options, the documentation and the release.
 - [open] Patch management on Linux (planned as 0.4.1, moved to "Not yet scheduled" on 2026-09-23, scheduled as 0.8.0 on
   2026-10-26, moved to 0.9.0 on 2026-11-04). Until it is built a Linux endpoint shows no patch data at all and stays out of the
   compliance counts, because calling it uncovered would be untrue.
 - [open] Patch management on Windows, servers and workstations, for endpoints where Action1 is not used (decided 2026-11-04). This
   changes the rule in `CLAUDE.md` that patching is delegated to Action1 and that Fleeto builds no patch engine of its own; how it
-  relates to Action1 (one or the other per client, site or endpoint, never both on one endpoint) is decided before it is designed.
+  relates to Action1 (one or the other per endpoint through its patch policy, never both on one endpoint) is decided (`PATCHING.md` §2).
 
 ## 1.0.0 — General availability
 
@@ -55,6 +67,10 @@ Wanted, but not in a version yet: the version is chosen once the open questions 
   detections), Veeam (backup job status), Proxmox VE and VMware vCenter (host and VM inventory and health), and
   integration health on the dashboard. The connector architecture and the rules they follow are in `CLAUDE.md`
   (Integrations) and `ARCHITECTURE.md` §11; Action1 is the worked example.
+
+- Third-party applications on Windows (Chrome, Adobe, 7-Zip) by the Fleeto agent itself, left out of 0.9.0 on 2026-11-04
+  (`PATCHING.md` §1): Action1 covers them today. Open question: whether winget, which runs per user, can be used reliably as SYSTEM.
+  Also later: feature updates of Windows, and a limit per site for a round ("at most N endpoints of a site at once", for clusters).
 
 - Windows endpoints in the vulnerability overview (left out of 0.8.0 by the developer on 2026-10-27): Action1 shows vulnerabilities
   with their CVEs per organization in its console. Open question: whether its API offers them, and with which permission of the

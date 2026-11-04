@@ -8,8 +8,8 @@ using Microsoft.EntityFrameworkCore;
 namespace Fleeto.Workers.Integrations;
 
 /// <summary>
-/// Gives the missing updates checks their results after a patch sync (0.6.0). Fleeto evaluates these checks itself from the
-/// patch state Action1 reported, so the workers write a result as the gateway does for an agent, and check evaluation turns
+/// Gives the missing updates checks their results after a patch sync (0.6.0) and a patch scan (0.9.0). Fleeto evaluates these
+/// checks itself from the patch state Action1 or the Fleeto agent reported, so the workers write a result as the gateway does for an agent, and check evaluation turns
 /// it into a state and an alert exactly like any other: thresholds, failures before alert, maintenance, acknowledge and hold.
 /// <para>
 /// A result is written only when Fleeto knows what the endpoint misses: a compliant endpoint misses nothing (value 0), and
@@ -42,15 +42,23 @@ public static class MissingUpdateChecks
             .ToDictionaryAsync(s => s.EndpointId, cancellationToken);
         var missing = (await db.EndpointMissingUpdates.AsNoTracking()
                 .Where(u => ids.Contains(u.EndpointId))
-                .Select(u => new { u.EndpointId, u.Name, u.KbNumber, u.Severity, u.ReleaseDate, u.ApprovalStatus })
+                .Select(u => new { u.EndpointId, u.Name, u.KbNumber, u.Severity, u.ReleaseDate, u.ApprovalStatus, u.FirstSeenAt })
                 .ToListAsync(cancellationToken))
-            .ToLookup(u => u.EndpointId, u => new MissingUpdateAge.Update(u.Name, u.KbNumber, u.Severity, u.ReleaseDate, u.ApprovalStatus));
+            // A Linux update without an advisory date counts from the day Fleeto first saw it missing (0.9.0, PATCHING.md §4); an
+            // Action1 update without a release date still does not count.
+            .ToLookup(u => u.EndpointId, u => new MissingUpdateAge.Update(u.Name, u.KbNumber, u.Severity,
+                u.ReleaseDate ?? (states.TryGetValue(u.EndpointId, out var s) && s.Engine == PatchEngine.Fleeto && u.FirstSeenAt is { } first
+                    ? DateOnly.FromDateTime(first)
+                    : null),
+                u.ApprovalStatus));
 
         var today = DateOnly.FromDateTime(now);
         var written = new List<Guid>();
         foreach (var endpoint in endpoints)
         {
-            if (!states.TryGetValue(endpoint.Id, out var state) || (!state.IsCompliant && !missing[endpoint.Id].Any()))
+            // A Fleeto patch state whose scans never read the updates (0.9.0) knows nothing yet.
+            if (!states.TryGetValue(endpoint.Id, out var state) || (!state.IsCompliant && !missing[endpoint.Id].Any()) ||
+                (state.Engine == PatchEngine.Fleeto && state.ProductLastSeenAt is null))
             {
                 continue;
             }

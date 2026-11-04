@@ -11,8 +11,8 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 - **Current phase**: 0.8.0 (vulnerability reporting, the Proxmox and Synology web interfaces, the dashboard designer, column
   layouts and the end-of-life report) is released (2026-11-04) and runs on the first test VPS, tested through `v0.8.0-alpha.1` to
   `alpha.16`. Next is 0.9.0 in `MD-Files/ROADMAP.md`: patch management on Linux and on Windows, servers and workstations, for
-  endpoints without Action1 (decided 2026-11-04; how and what is still to be discussed, and it changes the Action1 rule under Patch
-  management). The other integrations moved to "Not yet scheduled" on 2026-09-23. Local development runs without Docker (see
+  endpoints without Action1 (decided 2026-11-04 with every choice in `MD-Files/PATCHING.md`, see Patch management; step 0 is built).
+  The other integrations moved to "Not yet scheduled" on 2026-09-23. Local development runs without Docker (see
   `README.md`); Docker is for the VPS and CI only.
 - **Git**: always ask before committing, pushing or tagging. No intermediate commits while a version is being built.
   Tag a version only after its commits are pushed and CI is green.
@@ -41,6 +41,7 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 | `MD-Files/VULNERABILITIES.md` | Vulnerability reporting (0.8.0): security advisories on the dashboard and CVEs on Linux endpoints, its sources, data model and build plan. |
 | `MD-Files/PROXMOX-WEB.md` | The Proxmox web interface (0.8.0): the tunnel through a remote session, Fleeto Connect, security and build plan. |
 | `MD-Files/DASHBOARDS.md` | The dashboard designer (0.8.0): dashboards linked to roles, the tile catalog, the grid, the designer and build plan. |
+| `MD-Files/PATCHING.md` | Patch management by the Fleeto agent (0.9.0): next to Action1, scanning, installing, rounds, signer rules and build plan. |
 
 ## Priorities (in this order)
 
@@ -147,9 +148,9 @@ the API and the database follows it.
 - **Policy**: agent behaviour pushed to the endpoints it applies to (at most one per client, site and endpoint;
   without one on any level the instance default policy applies): check intervals, update ring, script permissions,
   remote control rules, maintenance windows.
-- **Patch policy** (0.6.0): when and how Action1 installs updates, with only the options an Action1 automation offers.
-  Fleeto keeps one Action1 automation per client and patch policy, aimed at the endpoints it applies to (see Patch
-  management).
+- **Patch policy** (0.6.0): when and how updates are installed, by Action1 or (0.9.0) by the Fleeto agent itself: its engine.
+  For Action1 only the options an Action1 automation offers, and Fleeto keeps one Action1 automation per client and patch policy,
+  aimed at the endpoints it applies to; for Fleeto the rounds are jobs the agent carries out (see Patch management).
 - **Maintenance mode** (0.2.0): a client, a site or one endpoint is put in maintenance by hand,
   with an optional end time and a required reason (0.6.0, decided 2026-10-16). While it lasts, its endpoints open and escalate
   no alerts (open alerts stay open and still resolve). Every period is kept, and the History tab of an endpoint lists those of
@@ -416,26 +417,43 @@ Fleeto into other tools.
   much later. When the API part is built, the entry moves from the waiting list into
   `MD-Files/API.md`. A feature is not done until it is in the API or on the waiting list.
 
-## Patch management: Action1
+## Patch management: Action1 and Fleeto
 
-Fleeto does not maintain its own package catalog or patch engine. Patch management is
-delegated to **Action1** through its REST API, integrated like every other connector
-(see Integrations). Fleeto shows patch compliance per endpoint, site and client, lists
-missing updates, triggers and tracks deployments, and raises alerts on stale patch state.
-The Action1 agent runs next to the Fleeto agent; Fleeto can push the Action1 installer as a
-signed job. Platforms that Action1 does not cover show "not covered by patch management"
-rather than a home-grown fallback.
+Fleeto keeps no package catalog and no update files of its own. Where **Action1** is used, patch management is delegated to it
+through its REST API, integrated like every other connector (see Integrations); elsewhere (0.9.0) the Fleeto agent patches with the
+tools of the operating system itself: the Windows Update Agent, apt or dnf of the endpoint decide what exists. Fleeto shows patch
+compliance per endpoint, site and client for both, lists missing updates, triggers and tracks deployments, and raises alerts on stale
+patch state. The Action1 agent runs next to the Fleeto agent; Fleeto can push the Action1 installer as a signed job.
 
-**To be revisited in 0.9.0** (decided 2026-11-04): patch management on Linux, and on Windows (servers and workstations) for endpoints
-where Action1 is not used. This changes the rule above that Fleeto keeps no patch engine of its own; how and what, and how it lives
-next to Action1, is decided with the developer before anything is designed or built.
+Decisions of 2026-11-04 (0.9.0, the design and build plan in `MD-Files/PATCHING.md`, which holds every detail):
+
+- **The engine is a property of the patch policy** (`PatchPolicies.Engine`: Action1, the default and every policy made before 0.9.0,
+  or Fleeto). The links on three levels and the class slots stay as they are.
+- **One endpoint is never patched by both.** One rule (`PatchEngineRules`, in C#, SQL and EF Core kept equal by a test) gives every
+  endpoint its engine: none without a Fleeto agent or on an agent-only endpoint; Action1 when the Action1 agent runs on it or Action1
+  reports it; otherwise Fleeto on Windows, Windows Server, Ubuntu, Debian, AlmaLinux and Proxmox VE; none on Synology DSM (it updates
+  itself). A Fleeto patch policy on an endpoint whose engine is Action1 installs nothing and says so; Fleeto never removes an Action1
+  agent by itself. Only a policy of engine Action1 becomes an Action1 automation.
+- **Scanning follows the endpoint**: every managed endpoint whose engine is Fleeto is scanned (every 6 hours, after an installation and
+  on "Scan now"), also without a patch policy; installing needs a patch policy or a technician. A scan changes nothing on the endpoint
+  (Microsoft Update is registered only when a Fleeto patch policy asks for it, through the signed configuration).
+- **Installing is a signed job** that fleeto-signer composes from the deployment and the policy (identifiers, filters and switches,
+  never a script); a round of a patch policy is written only by the workers, only for an enabled Fleeto policy that applies, and
+  checked again by the signer. Linux installs everything (`dist-upgrade`) unless the policy says security updates only; drivers on
+  Windows only by a policy option; no feature updates of Windows and no third-party applications in 0.9.0.
+- **Restarts** only when the policy (`AutoReboot`) or the technician's deployment allows them, never with a consent prompt; on a
+  workstation with a signed-in user the notice is always shown first. A round never restarts a Proxmox VE host (a cluster would lose
+  its quorum): it installs and the tab says "Restart required".
+- **The timeout never kills the package manager**: the job times out and frees its slot, a new patch job waits until the earlier
+  process ended, and the next scan tells what was installed.
 
 Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
 
 - **Windows first** (0.4.0), Linux later (planned as 0.4.1, moved to "Not yet scheduled" on 2026-09-23, 0.8.0 since 2026-10-26). Action1 patches
   Windows 8.1 and Server 2008 or newer, macOS and Linux x64;
   Windows 7 and Server 2003 are out and are the platforms that show "not covered by patch management". A Linux endpoint
-  shows no patch data at all for now and is left out of the compliance counts: saying it is not covered would be untrue.
+  without an Action1 agent is scanned by the Fleeto agent itself from 0.9.0 (step 1, decided 2026-11-04, `MD-Files/PATCHING.md`);
+  before that it showed no patch data at all and was left out of the compliance counts.
 - **One enterprise credential per instance.** Action1 API credentials are OAuth2 client credentials created in the Action1
   console, scoped by role, and reach every organization of the enterprise; the instance stores one set (encrypted, like every
   integration credential) and maps organizations to clients. Use the EU region (`app.eu.action1.com`) so patch data stays in
@@ -681,7 +699,7 @@ check/alert model as agent data (one alert pipeline, not two), credentials encry
 - Remote control with two-way clipboard and file transfer, built in; remote background with terminal as SYSTEM, files,
   services and processes
 - Watchdog service that keeps the agent running and alerts when it cannot
-- Patch compliance and deployment through Action1
+- Patch compliance and deployment through Action1, or by the Fleeto agent itself where Action1 is not used (0.9.0)
 - Log and event search
 - **Notes**: markdown notes on managed endpoints, with author + timestamp, searchable, included in the audit trail (without the body); a Servicedesk ticket reference follows later (not yet scheduled, see `MD-Files/ROADMAP.md`)
 - Users, roles (built-in admin / technician / read-only and custom roles with permissions, 0.6.0), groups, 2FA
@@ -689,7 +707,7 @@ check/alert model as agent data (one alert pipeline, not two), credentials encry
 - Integrations: Action1, Sophos, Veeam, Proxmox, vCenter
 
 Explicitly out of scope for v1: mobile device management, network topology mapping, a
-home-grown patch engine (revisited in 0.9.0 for Linux and for Windows without Action1, see Patch management). Note them, do not build them. (File transfer inside remote sessions moved into 0.3.0 on 2026-09-16.)
+package catalog or update repository of Fleeto's own (0.9.0 patches with the tools of the operating system, see Patch management). Note them, do not build them. (File transfer inside remote sessions moved into 0.3.0 on 2026-09-16.)
 
 ## Conventions
 
@@ -697,7 +715,7 @@ home-grown patch engine (revisited in 0.9.0 for Linux and for Windows without Ac
   2026-09-15; the internal name Fleetify was renamed in 0.2.1). The old name appears only in the migration code listed in
   `deploy/ci/branding-check.sh`. Run that check (`MD-Files/branding-fleeto.md` §7) before every release.
 - UI text in English, tone per `MD-Files/branding-fleeto.md` §8 (calm, no exclamation marks, errors state cause + next step). Use the fixed vocabulary from §6 (instance, client, site, endpoint, agent-only, managed, agent, check, alert, job, policy, patch policy, monitoring template, client template, integration, note, tag, task, remote control session, API key, role, permission, blocked address, allowed address, security incident, security advisory, vulnerability,
-  Proxmox web interface, Synology web interface, Fleeto Connect, dashboard, tile, column layout).
+  Proxmox web interface, Synology web interface, Fleeto Connect, dashboard, tile, column layout, scan, round).
 - Follow the Migrify codebase conventions where they exist (project layout, EF Core patterns, MudBlazor usage, email templates).
 - **Performance monitor** (0.7.0, `MD-Files/PERFORMANCE.md`): every workers loop derives from `WorkerLoop`, which measures
   each run; a loop that does not is a review finding. Metric keys never contain values: route templates, type names and fixed

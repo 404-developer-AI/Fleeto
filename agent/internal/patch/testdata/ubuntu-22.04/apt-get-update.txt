@@ -1,0 +1,12 @@
+Hit:1 http://archive.ubuntu.com/ubuntu jammy InRelease
+Get:2 http://archive.ubuntu.com/ubuntu jammy-updates InRelease [128 kB]
+Get:3 http://security.ubuntu.com/ubuntu jammy-security InRelease [129 kB]
+Hit:4 http://archive.ubuntu.com/ubuntu jammy-backports InRelease
+Hit:5 https://esm.ubuntu.com/apps/ubuntu jammy-apps-security InRelease
+Hit:6 https://esm.ubuntu.com/apps/ubuntu jammy-apps-updates InRelease
+Hit:7 https://esm.ubuntu.com/infra/ubuntu jammy-infra-security InRelease
+Hit:8 https://esm.ubuntu.com/infra/ubuntu jammy-infra-updates InRelease
+Get:9 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 Packages [2,128 kB]
+Get:10 http://security.ubuntu.com/ubuntu jammy-security/main amd64 Packages [1,890 kB]
+Fetched 4,275 kB in 2s (2,131 kB/s)
+Reading package lists...

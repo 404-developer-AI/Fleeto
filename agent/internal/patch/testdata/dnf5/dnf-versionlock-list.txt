@@ -1,0 +1,3 @@
+# Added by 'versionlock add' command on 2025-06-30 08:12:44
+Package name: python3-libdnf5
+evr = 5.2.8.1-3.el10_0.alma.1

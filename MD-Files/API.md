@@ -385,12 +385,13 @@ the `title` says which), 429.
 
 ### GET /api/v1/endpoints/{endpointId}/patches
 
-Gets the patch state of a managed endpoint as Action1 last reported it (from Fleeto 0.4.0). Fleeto does not patch itself:
-Action1 does, and this is what it says.
+Gets the patch state of a managed endpoint as Action1 last reported it (from Fleeto 0.4.0), or, for an endpoint Action1 does
+not patch, as the last patch scan of the Fleeto agent found it (from Fleeto 0.9.0, Linux: Ubuntu, Debian, AlmaLinux and Proxmox
+VE). `engine` says which. One endpoint is never reported by both: an endpoint with an Action1 agent is Action1's.
 
 Answers `409 endpoint_not_managed` for an agent-only endpoint, and `404 not_found` when the endpoint does not exist or
-patch management does not cover it — no Action1 integration for its client, no Action1 agent on the endpoint, or Action1
-does not know it yet. Counts are refreshed every four hours; the list of missing updates is read for endpoints that miss
+patch management does not cover it — no Action1 integration for its client and no scan by the Fleeto agent yet, no Action1
+agent on a Windows endpoint, or Action1 does not know it yet. A Fleeto agent scans every 6 hours. Counts are refreshed every four hours; the list of missing updates is read for endpoints that miss
 something, which can be one pass behind the counts. `detailUpdatedAt` says when that list was read.
 
 ```json
@@ -417,9 +418,17 @@ something, which can be one pass behind the counts. `detailUpdatedAt` says when 
       "updateType": "Security Updates",
       "approvalStatus": "New",
       "severity": "critical",
-      "cves": ["CVE-2026-1001", "CVE-2026-1002"]
+      "cves": ["CVE-2026-1001", "CVE-2026-1002"],
+      "advisory": "",
+      "origin": "",
+      "held": false,
+      "removal": false,
+      "firstSeenAt": "2026-09-20T19:02:14Z"
     }
-  ]
+  ],
+  "engine": "action1",
+  "scanTool": null,
+  "scanProblem": null
 }
 ```
 
@@ -800,8 +809,10 @@ maintenance window of its policy) the one that lasts longest is shown.
 
 ### PatchState
 
-The patch state of one managed endpoint (0.4.0), read from Action1 and stored per endpoint. Fleeto keeps no patch history
-of its own; Action1 has it.
+The patch state of one managed endpoint (0.4.0), read from Action1 or, from 0.9.0, from the last patch scan of the Fleeto agent,
+and stored per endpoint. Fleeto keeps no patch history of its own. For engine `fleeto` the Action1 words below mean: `coverage` is
+always `active`, `productLastSeenAt` is the last scan that read the updates, `productAgentVersion` is the Fleeto agent, and
+`missing` is what the last scan found.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -815,7 +826,10 @@ of its own; Action1 has it.
 | `productAgentVersion` | string | The version of the Action1 agent on the endpoint. Action1 updates its own agent; Fleeto only reports what is there. |
 | `updatedAt` | timestamp | When Fleeto last read the counts. |
 | `detailUpdatedAt` | timestamp, nullable | When Fleeto last read `missing`. Null while no detail has been read. |
-| `missing` | array | The missing updates, most severe first: `id` (the id in Action1, which a deployment names), `name`, `vendor`, `version` (the version Action1 would install), `installedVersion` (the version on the endpoint now, empty when Action1 does not report one), `releaseDate` (`YYYY-MM-DD`, the release of `version`, null when unknown), `kbNumber` (Windows only, else empty), `updateType` (Action1's word, such as `Security Updates`, `Feature Updates`, `Drivers`, `Update Rollups`, `Unknown`; empty when not reported), `approvalStatus` (the approval in Action1: `New`, `Approved` or `Declined`, empty when not reported; a deployment installs what it names regardless), `severity` ([Patch severity](#patch-severity)), `cves` (array of CVE ids the update remediates, may be empty). `rebootNeeded` was removed in 0.6.0: Action1 reports "possibly" for every update. Empty for a compliant endpoint, and empty when the detail has not been read yet while the counts say something is missing. |
+| `engine` | string | [Patch engine](#patch-engine) (from 0.9.0): who reported this state. |
+| `scanTool` | string, nullable | For engine `fleeto`: the tool of the last scan, `apt` or `dnf`. Null for `action1`. |
+| `scanProblem` | string, nullable | For engine `fleeto`: what went wrong in the last scan, in the words an admin sees on the Patches tab (a held package lock, a repository that could not be read, an interrupted dpkg); null when it read everything, and always null for `action1`. A scan that read nothing keeps the state of the scan before it. |
+| `missing` | array | The missing updates, most severe first: `id` (the id in Action1, which a deployment names), `name`, `vendor`, `version` (the version Action1 would install), `installedVersion` (the version on the endpoint now, empty when Action1 does not report one), `releaseDate` (`YYYY-MM-DD`, the release of `version`, null when unknown), `kbNumber` (Windows only, else empty), `updateType` (Action1's word, such as `Security Updates`, `Feature Updates`, `Drivers`, `Update Rollups`, `Unknown`; empty when not reported), `approvalStatus` (the approval in Action1: `New`, `Approved` or `Declined`, empty when not reported; a deployment installs what it names regardless), `severity` ([Patch severity](#patch-severity)), `cves` (array of CVE ids the update remediates, may be empty). `rebootNeeded` was removed in 0.6.0: Action1 reports "possibly" for every update. From 0.9.0 also `advisory` (the advisory that covers it, such as a USN or ALSA, empty when none is known), `origin` (Linux: the archive or repository, such as `jammy-security`), `held` (Linux: held back, by the administrator or because apt keeps it back), `removal` (Linux: the upgrade would remove this package; not counted as missing) and `firstSeenAt` (timestamp, when Fleeto first saw it missing; null for rows from before 0.9.0). For engine `fleeto`, `id` is `name:architecture`, `vendor`, `kbNumber` and `approvalStatus` are empty, `updateType` is `Security Updates` or `Regular Updates`, and `severity` and `cves` come from the vulnerability findings the update fixes (severity also from AlmaLinux updateinfo). Empty for a compliant endpoint, and empty when the detail has not been read yet while the counts say something is missing. |
 
 ### Deployment
 
@@ -1048,6 +1062,10 @@ anything Fleeto does not recognise is `unspecified` rather than something worse 
 
 `active` (patch management patches this endpoint), `inactive` (it knows the endpoint but does not patch it, for example
 because the endpoint is above the licensed number of the Action1 subscription, so its state is not to be trusted).
+
+### Patch engine
+
+`action1` (Action1 reported the state through its API), `fleeto` (a patch scan of the Fleeto agent, from 0.9.0).
 
 ### Deployment scope
 

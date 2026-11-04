@@ -132,6 +132,8 @@ message AgentMessage {
     // 0.6.0
     StorageScanReport storage_scan = 15;
     UninstallAccepted uninstall_accepted = 16;
+    // 0.9.0
+    PatchScanReport patch_scan = 17;
   }
 }
 
@@ -156,6 +158,9 @@ message ServerMessage {
     StorageScanRequest storage_scan_request = 14;
     StorageScanAck storage_scan_ack = 15;
     SignedUninstall uninstall = 16;
+    // 0.9.0
+    PatchScanRequest patch_scan_request = 17;
+    PatchScanAck patch_scan_ack = 18;
   }
 }
 
@@ -298,6 +303,10 @@ message Inventory {
   // What vulnerability matching needs of the distribution and its packages (0.8.0), Linux only. Absent from older agents and on
   // other platforms; the server then shows "Update the agent to see vulnerabilities".
   PackageInfo packages = 20;
+  // The time zone of the endpoint (0.9.0), for patch rounds in the endpoint's own time: the IANA name on Linux (/etc/timezone,
+  // else the target of /etc/localtime, e.g. "Europe/Brussels"), the Windows name on Windows (e.g. "Romance Standard Time"). Empty
+  // when it cannot be read and from older agents; the server then uses UTC.
+  string time_zone = 21;
 }
 
 // The distribution and the state of its package manager (0.8.0), read on every inventory: a restart that is required or an apt
@@ -516,6 +525,73 @@ message StorageScanAck {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// Patch scans (0.9.0, PATCHING.md section 4)
+// ---------------------------------------------------------------------------------------------------------------
+//
+// A managed endpoint whose patch engine is Fleeto reads which updates are missing with the tools of its operating system (apt on
+// Ubuntu, Debian and Proxmox VE, dnf on AlmaLinux) on the schedule of its signed configuration and on a PatchScanRequest, at the
+// lowest CPU and I/O priority. A scan never installs or configures anything. The report is kept on the agent's disk until
+// PatchScanAck arrives, which the gateway sends only after the report is committed to PostgreSQL; a report with a scan_id the
+// server already has is acked again and not stored twice.
+
+// Asks the agent to scan now ("Scan now" on the Patches tab). Not signed: it can only start the scan the agent already does. The
+// agent honours it only on a managed configuration with a patch scan interval, runs one scan at a time and ignores a request within
+// 15 minutes of the start of the previous scan. Older agents ignore the whole message.
+message PatchScanRequest {
+  // Id of the request in the server database, echoed in the report of the scan it started.
+  string request_id = 1;
+}
+
+message PatchScanReport {
+  // Random id of this scan (UUID), the idempotency key on the server.
+  string scan_id = 1;
+  google.protobuf.Timestamp started_at = 2;
+  uint32 duration_ms = 3;
+  // "apt" or "dnf" (0.9.0); "windows_update" follows in a later step.
+  string engine = 4;
+  // Empty when the scan read everything; otherwise what went wrong, in words for the Patches tab (a held package lock, a repository
+  // that could not be read, an interrupted dpkg). updates then holds what could be read, which may be nothing.
+  string problem = 5;
+  // The endpoint waits for a restart to finish earlier updates.
+  bool restart_required = 6;
+  // The missing updates, at most 2,000.
+  repeated PatchUpdate updates = 7;
+  // PatchScanRequest.request_id of the request that started the scan; empty for a scheduled scan.
+  string request_id = 8;
+  // True when updates was cut at 2,000.
+  bool truncated = 9;
+}
+
+// One missing update. Linux: one package the upgrade would change.
+message PatchUpdate {
+  // Linux: "name:architecture" (e.g. "libssl3:amd64", "openssl.x86_64" becomes "openssl:x86_64").
+  string id = 1;
+  // Linux: the package name.
+  string name = 2;
+  // Linux: the version the upgrade would install; empty for a package the upgrade would remove.
+  string version = 3;
+  // Linux: the version installed now; empty for a package the upgrade would newly install (a new dependency).
+  string installed_version = 4;
+  // Linux: "security" when it comes from a security archive or advisory, "other" otherwise.
+  string classification = 5;
+  // Linux: the archive or repository it comes from, such as "jammy-security", "bookworm", "baseos" or "pve-no-subscription".
+  string origin = 6;
+  // Linux: the advisory the tool names for it (an ALSA on AlmaLinux), empty when none.
+  string advisory = 7;
+  // Linux: the severity the tool names for it (AlmaLinux updateinfo: "Critical", "Important", "Moderate", "Low"), empty when none.
+  string severity = 8;
+  // Held back by the administrator (apt-mark hold, dnf versionlock): the upgrade leaves it alone.
+  bool held = 9;
+  // The upgrade would remove this package (apt dist-upgrade).
+  bool removal = 10;
+}
+
+// Sent after the PatchScanReport with this scan_id is committed to PostgreSQL (or was already); the agent then deletes it.
+message PatchScanAck {
+  string scan_id = 1;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // Signed configuration
 // ---------------------------------------------------------------------------------------------------------------
 
@@ -548,6 +624,10 @@ message AgentConfig {
   // remembers that it did, and removes it again when this is false; a value somebody else set (a group policy) wins and is never
   // changed. Never true on TIER_AGENT_ONLY; the agent ignores it there. Older agents ignore the field.
   bool turn_off_windows_update = 10;
+  // Hours between two scheduled patch scans (0.9.0); 0 for none. Set by the server only for a managed endpoint whose patch engine is
+  // Fleeto (PatchEngineRules); never on TIER_AGENT_ONLY, where the agent ignores it and also ignores a PatchScanRequest. Older agents
+  // ignore the field.
+  uint32 patch_scan_interval_hours = 11;
 }
 
 enum Tier {

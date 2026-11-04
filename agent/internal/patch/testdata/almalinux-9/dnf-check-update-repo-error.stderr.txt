@@ -1,0 +1,4 @@
+Errors during downloading metadata for repository 'epel':
+  - Curl error (6): Couldn't resolve host name for https://mirrors.fedoraproject.org/metalink?repo=epel-9&arch=x86_64 [Could not resolve host: mirrors.fedoraproject.org]
+Error: Failed to download metadata for repo 'epel': Cannot prepare internal mirrorlist: Curl error (6): Couldn't resolve host name for https://mirrors.fedoraproject.org/metalink?repo=epel-9&arch=x86_64 [Could not resolve host: mirrors.fedoraproject.org]
+Ignoring repositories: epel

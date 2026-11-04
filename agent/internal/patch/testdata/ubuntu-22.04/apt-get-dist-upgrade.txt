@@ -1,0 +1,48 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Calculating upgrade...
+The following packages will be REMOVED:
+  libfwupdplugin5
+The following NEW packages will be installed:
+  libfwupd2 linux-headers-5.15.0-126 linux-headers-5.15.0-126-generic
+  linux-image-5.15.0-126-generic linux-modules-5.15.0-126-generic
+The following packages have been kept back:
+  docker-ce python3-update-manager update-manager-core
+The following packages will be upgraded:
+  curl fwupd imagemagick-6-common libcurl4 libssl3 libssl3:i386
+  linux-generic linux-headers-generic linux-image-generic openssl tzdata
+11 upgraded, 5 newly installed, 1 to remove and 3 not upgraded.
+Remv libfwupdplugin5 [1.7.9-1~22.04.3]
+Inst libfwupd2 (1.7.9-1~22.04.4 Ubuntu:22.04/jammy-updates [amd64])
+Inst fwupd [1.7.9-1~22.04.3] (1.7.9-1~22.04.4 Ubuntu:22.04/jammy-updates [amd64]) []
+Inst curl [7.81.0-1ubuntu1.18] (7.81.0-1ubuntu1.20 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64]) []
+Inst libcurl4 [7.81.0-1ubuntu1.18] (7.81.0-1ubuntu1.20 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Inst imagemagick-6-common [8:6.9.11.60+dfsg-1.3ubuntu0.22.04.5] (8:6.9.11.60+dfsg-1.3ubuntu0.22.04.5+esm1 UbuntuESMApps:22.04/jammy-apps-security [all])
+Inst libssl3 [3.0.2-0ubuntu1.18] (3.0.2-0ubuntu1.19 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64]) [libssl3:i386 ]
+Inst libssl3:i386 [3.0.2-0ubuntu1.18] (3.0.2-0ubuntu1.19 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [i386])
+Inst linux-modules-5.15.0-126-generic (5.15.0-126.136 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Inst linux-image-5.15.0-126-generic (5.15.0-126.136 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Inst linux-generic [5.15.0.125.123] (5.15.0.126.124 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64]) []
+Inst linux-image-generic [5.15.0.125.123] (5.15.0.126.124 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64]) []
+Inst linux-headers-5.15.0-126 (5.15.0-126.136 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [all]) []
+Inst linux-headers-5.15.0-126-generic (5.15.0-126.136 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64]) []
+Inst linux-headers-generic [5.15.0.125.123] (5.15.0.126.124 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Inst openssl [3.0.2-0ubuntu1.18] (3.0.2-0ubuntu1.19 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Inst tzdata [2024a-0ubuntu0.22.04.1] (2024b-0ubuntu0.22.04.1 Ubuntu:22.04/jammy-updates [all])
+Conf libfwupd2 (1.7.9-1~22.04.4 Ubuntu:22.04/jammy-updates [amd64])
+Conf fwupd (1.7.9-1~22.04.4 Ubuntu:22.04/jammy-updates [amd64])
+Conf libcurl4 (7.81.0-1ubuntu1.20 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Conf curl (7.81.0-1ubuntu1.20 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Conf imagemagick-6-common (8:6.9.11.60+dfsg-1.3ubuntu0.22.04.5+esm1 UbuntuESMApps:22.04/jammy-apps-security [all])
+Conf libssl3 (3.0.2-0ubuntu1.19 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Conf libssl3:i386 (3.0.2-0ubuntu1.19 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [i386])
+Conf linux-modules-5.15.0-126-generic (5.15.0-126.136 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Conf linux-image-5.15.0-126-generic (5.15.0-126.136 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Conf linux-image-generic (5.15.0.126.124 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Conf linux-headers-5.15.0-126 (5.15.0-126.136 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [all])
+Conf linux-headers-5.15.0-126-generic (5.15.0-126.136 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Conf linux-headers-generic (5.15.0.126.124 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Conf linux-generic (5.15.0.126.124 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Conf openssl (3.0.2-0ubuntu1.19 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Conf tzdata (2024b-0ubuntu0.22.04.1 Ubuntu:22.04/jammy-updates [all])

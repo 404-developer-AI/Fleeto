@@ -54,6 +54,38 @@ public sealed class AgentConfigTests
     }
 
     [Fact]
+    public async Task Only_a_managed_Linux_endpoint_whose_engine_is_Fleeto_is_asked_to_scan_for_missing_updates()
+    {
+        await _fixture.Database.LoadTestLicenseAsync(100);
+        var client = await _fixture.Database.CreateClientAsync();
+        var site = await _fixture.Database.CreateSiteAsync(client.Id);
+        async Task<Endpoint> LinuxAsync(EndpointTier tier, string action1AgentId, string platform = "linux")
+        {
+            var endpoint = await _fixture.Database.CreateEndpointAsync(site, tier, "PS-" + Guid.NewGuid().ToString("N")[..6]);
+            await using var db = _fixture.Database.DbFactory.CreateSystem();
+            await db.Endpoints.Where(e => e.Id == endpoint.Id).ExecuteUpdateAsync(u => u
+                .SetProperty(e => e.OsPlatform, platform).SetProperty(e => e.OsName, platform == "linux" ? "Debian GNU/Linux 12 (bookworm)" : "Windows 11 Pro"));
+            db.InventorySnapshots.Add(new InventorySnapshot
+            {
+                EndpointId = endpoint.Id, ClientId = endpoint.ClientId, ReceivedAt = _fixture.Now, Hash = "h", Action1AgentId = action1AgentId
+            });
+            await db.SaveChangesAsync();
+            return endpoint;
+        }
+
+        var scanned = await LinuxAsync(EndpointTier.Managed, string.Empty);
+        var agentOnly = await LinuxAsync(EndpointTier.AgentOnly, string.Empty);
+        var action1 = await LinuxAsync(EndpointTier.Managed, "a1-agent");
+        var windows = await LinuxAsync(EndpointTier.Managed, string.Empty, "windows");
+
+        Assert.Equal(Core.Domain.PatchScanRules.DefaultIntervalHours, (await SignConfigAsync(scanned)).Config.PatchScanIntervalHours);
+        Assert.Equal(0u, (await SignConfigAsync(agentOnly)).Config.PatchScanIntervalHours);
+        Assert.Equal(0u, (await SignConfigAsync(action1)).Config.PatchScanIntervalHours);
+        // Windows is scanned from 0.9.0 step 2.
+        Assert.Equal(0u, (await SignConfigAsync(windows)).Config.PatchScanIntervalHours);
+    }
+
+    [Fact]
     public async Task Unchanged_configuration_does_not_create_a_new_version()
     {
         await _fixture.Database.LoadTestLicenseAsync(100);

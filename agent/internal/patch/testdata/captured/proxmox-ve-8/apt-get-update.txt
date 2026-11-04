@@ -1,0 +1,8 @@
+Get:1 http://security.debian.org/debian-security bookworm-security InRelease [34.8 kB]
+Hit:2 http://deb.debian.org/debian bookworm InRelease
+Get:3 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
+Get:4 http://security.debian.org/debian-security bookworm-security/main amd64 Packages [361 kB]
+Hit:5 http://download.proxmox.com/debian/pve bookworm InRelease
+Get:6 http://security.debian.org/debian-security bookworm-security/main Translation-en [226 kB]
+Fetched 677 kB in 1s (588 kB/s)
+Reading package lists...

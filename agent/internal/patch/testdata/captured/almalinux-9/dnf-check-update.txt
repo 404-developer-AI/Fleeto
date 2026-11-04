@@ -1,0 +1,11 @@
+
+kernel.x86_64                   5.14.0-687.65.1.el9_8            baseos-proxy   
+kernel-core.x86_64              5.14.0-687.65.1.el9_8            baseos-proxy   
+kernel-modules.x86_64           5.14.0-687.65.1.el9_8            baseos-proxy   
+kernel-modules-core.x86_64      5.14.0-687.65.1.el9_8            baseos-proxy   
+kernel-tools.x86_64             5.14.0-687.65.1.el9_8            baseos-proxy   
+kernel-tools-libs.x86_64        5.14.0-687.65.1.el9_8            baseos-proxy   
+python3-perf.x86_64             5.14.0-687.65.1.el9_8            appstream-proxy
+qemu-guest-agent.x86_64         17:10.1.0-17.el9_8.9.alma.1      appstream-proxy
+tzdata.noarch                   2026f-1.el9_8                    baseos-proxy   
+tzdata-java.noarch              2026f-1.el9_8                    appstream-proxy

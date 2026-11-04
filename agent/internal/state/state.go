@@ -60,6 +60,8 @@ type State struct {
 	CertificateRenewedAt time.Time `json:"certificateRenewedAt,omitzero"`
 	// StorageScanStartedAt is the start of the last storage scan (0.6.0), so a restart does not scan again.
 	StorageScanStartedAt time.Time `json:"storageScanStartedAt,omitzero"`
+	// PatchScanStartedAt is the start of the last patch scan (0.9.0), so a restart does not scan again.
+	PatchScanStartedAt time.Time `json:"patchScanStartedAt,omitzero"`
 }
 
 // Certificate parses the agent certificate.

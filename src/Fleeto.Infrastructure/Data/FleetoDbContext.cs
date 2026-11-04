@@ -60,6 +60,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<Note> Notes => Set<Note>();
     public DbSet<StorageScan> StorageScans => Set<StorageScan>();
     public DbSet<StorageScanRequest> StorageScanRequests => Set<StorageScanRequest>();
+    public DbSet<PatchScan> PatchScans => Set<PatchScan>();
+    public DbSet<PatchScanRequest> PatchScanRequests => Set<PatchScanRequest>();
     public DbSet<Script> Scripts => Set<Script>();
     public DbSet<ScriptVersion> ScriptVersions => Set<ScriptVersion>();
     public DbSet<Job> Jobs => Set<Job>();
@@ -643,8 +645,12 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(p => p.Scope).HasConversion<string>().HasMaxLength(20);
             entity.Property(p => p.AppliesTo).HasConversion<string>().HasMaxLength(20).HasDefaultValue(CheckAppliesTo.All).HasSentinel(CheckAppliesTo.All);
             entity.Property(p => p.RebootMessageText).HasMaxLength(PatchPolicyRules.MaxRebootMessageLength);
+            // 0.9.0: every policy made before it is patched by Action1, and 0.8.0 still inserts without the column.
+            entity.Property(p => p.Engine).HasConversion<string>().HasMaxLength(20).HasDefaultValue(PatchEngine.Action1)
+                .HasSentinel((PatchEngine)(-1));
             entity.ToTable(table =>
             {
+                table.HasCheckConstraint("CK_PatchPolicies_Engine", "\"Engine\" IN ('Action1', 'Fleeto')");
                 table.HasCheckConstraint("CK_PatchPolicies_WeekDays", "\"WeekDays\" BETWEEN 0 AND 127");
                 table.HasCheckConstraint("CK_PatchPolicies_MonthDay", "\"MonthDay\" BETWEEN 1 AND 31");
                 table.HasCheckConstraint("CK_PatchPolicies_MonthWeek", "\"MonthWeek\" BETWEEN 1 AND 4");
@@ -833,6 +839,36 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(r => new { r.EndpointId, r.RequestedAt });
             entity.HasIndex(r => r.RequestedAt);
             entity.HasIndex(r => r.ExpiresAt).HasFilter("\"DeliveredAt\" IS NULL").HasDatabaseName("IX_StorageScanRequests_Pending");
+            EndpointOwned(entity);
+        });
+
+        builder.Entity<PatchScan>(entity =>
+        {
+            entity.Property(s => s.Tool).HasMaxLength(20);
+            entity.Property(s => s.Problem).HasMaxLength(PatchScanRules.MaxProblemLength);
+            entity.Property(s => s.AgentVersion).HasMaxLength(50);
+            entity.Property(s => s.UpdatesJson).HasColumnType("jsonb");
+            EndpointChild(entity, s => new { s.EndpointId, s.ClientId });
+            // A report sent twice is stored once.
+            entity.HasIndex(s => new { s.EndpointId, s.AgentScanId }).IsUnique();
+            entity.HasIndex(s => new { s.EndpointId, s.ReceivedAt });
+            entity.HasIndex(s => s.ReceivedAt).HasFilter("\"ProcessedAt\" IS NULL").HasDatabaseName("IX_PatchScans_Unprocessed");
+            entity.HasIndex(s => s.ReceivedAt);
+            entity.ToTable(table =>
+            {
+                table.HasCheckConstraint("CK_PatchScans_Tool", "\"Tool\" IN ('apt', 'dnf', 'windows_update')");
+                table.HasCheckConstraint("CK_PatchScans_UpdateCount", $"\"UpdateCount\" BETWEEN 0 AND {PatchScanRules.MaxUpdates}");
+            });
+            EndpointOwned(entity);
+        });
+
+        builder.Entity<PatchScanRequest>(entity =>
+        {
+            entity.Property(r => r.RequestedByName).HasMaxLength(200);
+            EndpointChild(entity, r => new { r.EndpointId, r.ClientId });
+            entity.HasIndex(r => new { r.EndpointId, r.RequestedAt });
+            entity.HasIndex(r => r.RequestedAt);
+            entity.HasIndex(r => r.ExpiresAt).HasFilter("\"DeliveredAt\" IS NULL").HasDatabaseName("IX_PatchScanRequests_Pending");
             EndpointOwned(entity);
         });
 
@@ -1411,6 +1447,11 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(p => p.ExternalTenantId).HasMaxLength(200);
             entity.Property(p => p.Coverage).HasConversion<string>().HasMaxLength(20);
             entity.Property(p => p.ProductAgentVersion).HasMaxLength(50);
+            // 0.9.0: every row before it came from Action1, and 0.8.0 still inserts without the column.
+            entity.Property(p => p.Engine).HasConversion<string>().HasMaxLength(20).HasDefaultValue(PatchEngine.Action1)
+                .HasSentinel((PatchEngine)(-1));
+            entity.Property(p => p.ScanTool).HasMaxLength(20).HasDefaultValue(string.Empty);
+            entity.Property(p => p.ScanProblem).HasMaxLength(PatchScanRules.MaxProblemLength);
             entity.Ignore(p => p.IsCompliant);
             // The scheduled patching check and the Patches tab find the automation of an endpoint (0.6.0).
             entity.HasIndex(p => p.AutomationId).HasFilter("\"AutomationId\" IS NOT NULL");
@@ -1457,6 +1498,10 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(u => u.UpdateType).HasMaxLength(50);
             entity.Property(u => u.ApprovalStatus).HasMaxLength(20);
             entity.Property(u => u.Severity).HasConversion<string>().HasMaxLength(20);
+            entity.Property(u => u.Advisory).HasMaxLength(100).HasDefaultValue(string.Empty);
+            entity.Property(u => u.Origin).HasMaxLength(100).HasDefaultValue(string.Empty);
+            entity.Property(u => u.Held).HasDefaultValue(false);
+            entity.Property(u => u.Removal).HasDefaultValue(false);
             entity.HasIndex(u => new { u.EndpointId, u.Severity });
             EndpointChild(entity, u => new { u.EndpointId, u.ClientId });
             EndpointOwned(entity);

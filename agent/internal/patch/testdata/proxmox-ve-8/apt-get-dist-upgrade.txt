@@ -1,0 +1,24 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Calculating upgrade...
+The following NEW packages will be installed:
+  proxmox-kernel-6.8.12-16-pve-signed
+The following packages will be upgraded:
+  libpve-common-perl proxmox-kernel-6.8 pve-manager pve-qemu-kvm qemu-server
+  tzdata
+6 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.
+Inst libpve-common-perl [8.3.1] (8.3.4 Proxmox Debian Repository:stable [all]) []
+Inst proxmox-kernel-6.8.12-16-pve-signed (6.8.12-16 Proxmox Debian Repository:stable [amd64])
+Inst proxmox-kernel-6.8 [6.8.12-15] (6.8.12-16 Proxmox Debian Repository:stable [all])
+Inst pve-qemu-kvm [9.2.0-7] (9.2.0-8 Proxmox Debian Repository:stable [amd64])
+Inst qemu-server [8.4.1] (8.4.4 Proxmox Debian Repository:stable [amd64])
+Inst pve-manager [8.4.1] (8.4.14 Proxmox Debian Repository:stable [all])
+Inst tzdata [2025b-0+deb12u1] (2025b-0+deb12u2 Debian:12-updates/oldstable-updates [all])
+Conf libpve-common-perl (8.3.4 Proxmox Debian Repository:stable [all])
+Conf proxmox-kernel-6.8.12-16-pve-signed (6.8.12-16 Proxmox Debian Repository:stable [amd64])
+Conf proxmox-kernel-6.8 (6.8.12-16 Proxmox Debian Repository:stable [all])
+Conf pve-qemu-kvm (9.2.0-8 Proxmox Debian Repository:stable [amd64])
+Conf qemu-server (8.4.4 Proxmox Debian Repository:stable [amd64])
+Conf pve-manager (8.4.14 Proxmox Debian Repository:stable [all])
+Conf tzdata (2025b-0+deb12u2 Debian:12-updates/oldstable-updates [all])

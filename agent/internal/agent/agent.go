@@ -20,6 +20,7 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/inventory"
 	"github.com/404-developer-AI/Fleeto/agent/internal/jobs"
 	"github.com/404-developer-AI/Fleeto/agent/internal/keystore"
+	"github.com/404-developer-AI/Fleeto/agent/internal/patch"
 	"github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1"
 	"github.com/404-developer-AI/Fleeto/agent/internal/remote"
 	"github.com/404-developer-AI/Fleeto/agent/internal/safego"
@@ -36,6 +37,9 @@ const JobsDirName = "jobs"
 
 // StorageScansDirName is the spool of storage scan reports inside the state directory (0.6.0).
 const StorageScansDirName = "storage-scans"
+
+// PatchScansDirName is the spool of patch scan reports inside the state directory (0.9.0).
+const PatchScansDirName = "patch-scans"
 
 // CheckScriptsDirName holds the scripts of script checks while they run.
 const CheckScriptsDirName = "check-scripts"
@@ -58,6 +62,8 @@ type Options struct {
 	SignedInUsersInterval time.Duration
 	// StorageScan scans the volumes (0.6.0); default storage.ScanAll. Tests replace it.
 	StorageScan func(ctx context.Context, requestID string) []*agentv1.StorageScanReport
+	// PatchScan reads the missing updates (0.9.0); default patch.Scan. Tests replace it.
+	PatchScan func(ctx context.Context, requestID string) *agentv1.PatchScanReport
 	// WindowsUpdate turns automatic Windows Update off or back on (0.7.0) and returns the state to report and whether it changed
 	// anything; default winupdate.Apply. Tests replace it.
 	WindowsUpdate func(turnOff, action1 bool) (string, bool, error)
@@ -148,6 +154,7 @@ type Agent struct {
 	scheduler *checks.Scheduler
 	jobs      *jobs.Manager
 	storage   *storage.Manager
+	patch     *patch.Manager
 
 	resultsAdded chan struct{}
 
@@ -272,10 +279,42 @@ func New(opts Options) (*Agent, error) {
 		return nil, fmt.Errorf("open the storage scan spool: %w", err)
 	}
 	a.storage = scans
+	patchScans, err := patch.NewManager(patch.Options{
+		Dir:    filepath.Join(opts.Store.Dir(), PatchScansDirName),
+		Access: opts.Store.Access(),
+		Logger: opts.Logger,
+		Now:    opts.Now,
+		Managed: func() bool {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			return a.config.GetTier() == agentv1.Tier_TIER_MANAGED
+		},
+		IntervalHours: func() uint32 {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			return a.config.GetPatchScanIntervalHours()
+		},
+		LastStarted: func() time.Time {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			return a.st.PatchScanStartedAt
+		},
+		SaveStarted: a.savePatchScanStarted,
+		Scan:        opts.PatchScan,
+	})
+	if err != nil {
+		scans.Close()
+		manager.Close()
+		_ = buf.Close()
+		_ = key.Close()
+		return nil, fmt.Errorf("open the patch scan spool: %w", err)
+	}
+	a.patch = patchScans
 	a.remote = a.newRemoteServer()
 	if opts.Watchdog != nil {
 		watchdog, err := newWatchdogManager(a, *opts.Watchdog)
 		if err != nil {
+			patchScans.Close()
 			scans.Close()
 			manager.Close()
 			_ = buf.Close()
@@ -312,6 +351,7 @@ func (a *Agent) Close() error {
 	a.scheduler.Stop()
 	a.jobs.Close()
 	a.storage.Close()
+	a.patch.Close()
 	return errors.Join(a.buffer.Close(), a.key.Close())
 }
 
@@ -353,6 +393,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	defer stopUsers()
 	safego.Go(a.logger, "signed-in users", func() { a.watchSignedInUsers(usersCtx) })
 	safego.Go(a.logger, "storage scan schedule", func() { a.storage.Run(usersCtx) })
+	safego.Go(a.logger, "patch scan schedule", func() { a.patch.Run(usersCtx) })
 
 	bo := backoff.New(a.opts.BackoffBase, a.opts.BackoffMax)
 	for {
@@ -451,6 +492,21 @@ func (a *Agent) applyWindowsUpdate(action1 bool) string {
 		a.logger.Info("changed automatic Windows Update as the configuration asks", "state", state)
 	}
 	return state
+}
+
+// savePatchScanStarted keeps the start of the last patch scan in the state file.
+func (a *Agent) savePatchScanStarted(started time.Time) error {
+	st, err := a.store.Update(func(st *state.State) error {
+		st.PatchScanStartedAt = started.UTC()
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.st = st
+	a.mu.Unlock()
+	return nil
 }
 
 func (a *Agent) saveStorageScanStarted(started time.Time) error {

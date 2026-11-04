@@ -79,10 +79,15 @@ type session struct {
 	// storageSent holds the storage scan reports sent on this connection and when; one without an acknowledgement is sent
 	// again after BatchAckTimeout.
 	storageSent map[string]time.Time
+	// patchSent holds the patch scan reports sent on this connection and when, like storageSent.
+	patchSent map[string]time.Time
 }
 
 // maxStorageInFlight is how many storage scan reports wait for their acknowledgement at once.
 const maxStorageInFlight = 4
+
+// maxPatchInFlight is how many patch scan reports wait for their acknowledgement at once.
+const maxPatchInFlight = 2
 
 // tlsConfig builds the mTLS configuration: the pinned instance CA is the only root, the client certificate is the
 // agent certificate with the key from the key store.
@@ -171,6 +176,7 @@ func (a *Agent) runSession(ctx context.Context) (sessionOutcome, error) {
 		inventoryReady: make(chan *agentv1.Inventory, 1),
 		jobsSent:       map[string]bool{},
 		storageSent:    map[string]time.Time{},
+		patchSent:      map[string]time.Time{},
 		startedAt:      now,
 		lastFlush:      now,
 	}
@@ -266,7 +272,7 @@ func (s *session) loop() (sessionOutcome, error) {
 		case <-a.resultsAdded:
 			err = s.maybeSendBatch()
 		case <-flush.C:
-			err = errors.Join(s.maybeSendBatch(), s.sendStorageReports())
+			err = errors.Join(s.maybeSendBatch(), s.sendStorageReports(), s.sendPatchReports())
 		case <-s.heartbeat.C:
 			err = s.sendHeartbeat()
 		case <-s.inventoryTimer.C:
@@ -280,6 +286,8 @@ func (s *session) loop() (sessionOutcome, error) {
 			err = s.sendJobMessages()
 		case <-a.storage.Notify():
 			err = s.sendStorageReports()
+		case <-a.patch.Notify():
+			err = s.sendPatchReports()
 		}
 		if err != nil {
 			if errors.Is(err, errWrite) {
@@ -357,6 +365,41 @@ func (s *session) sendStorageReports() error {
 	return nil
 }
 
+// sendPatchReports sends the spooled patch scan reports, oldest first, at most maxPatchInFlight unacknowledged at once. A report
+// sent on this connection is sent again when its acknowledgement did not come within BatchAckTimeout.
+func (s *session) sendPatchReports() error {
+	if !s.acked {
+		return nil
+	}
+	a := s.a
+	now := a.opts.Now()
+	waiting := 0
+	for _, sentAt := range s.patchSent {
+		if now.Sub(sentAt) < a.opts.BatchAckTimeout {
+			waiting++
+		}
+	}
+	for _, id := range a.patch.Pending() {
+		if waiting >= maxPatchInFlight {
+			return nil
+		}
+		if sentAt, sent := s.patchSent[id]; sent && now.Sub(sentAt) < a.opts.BatchAckTimeout {
+			continue
+		}
+		report, err := a.patch.Load(id)
+		if err != nil {
+			a.logger.Warn("dropped a patch scan report that could not be read", "error", err)
+			continue
+		}
+		if err := s.send(&agentv1.AgentMessage{Body: &agentv1.AgentMessage_PatchScan{PatchScan: report}}); err != nil {
+			return err
+		}
+		s.patchSent[id] = now
+		waiting++
+	}
+	return nil
+}
+
 // sendHeartbeat sends a heartbeat with the state of the watchdog service (0.2.1) and, when it changed on this connection, the signed-in
 // users (0.2.2), and refreshes the health file.
 func (s *session) sendHeartbeat() error {
@@ -407,7 +450,10 @@ func (s *session) handle(msg *agentv1.ServerMessage) (sessionOutcome, bool, erro
 		if err := s.sendJobMessages(); err != nil {
 			return outcomeHealthy, false, err
 		}
-		return outcomeHealthy, false, s.sendStorageReports()
+		if err := s.sendStorageReports(); err != nil {
+			return outcomeHealthy, false, err
+		}
+		return outcomeHealthy, false, s.sendPatchReports()
 	case *agentv1.ServerMessage_Job:
 		a.jobs.Accept(body.Job)
 		return 0, false, nil
@@ -447,6 +493,19 @@ func (s *session) handle(msg *agentv1.ServerMessage) (sessionOutcome, bool, erro
 		a.storage.Ack(id)
 		delete(s.storageSent, id)
 		return 0, false, s.sendStorageReports()
+	case *agentv1.ServerMessage_PatchScanRequest:
+		requestID := body.PatchScanRequest.GetRequestId()
+		if started, reason := a.patch.Request(requestID); started {
+			a.logger.Info("the server asked for a patch scan; scanning", "requestId", requestID)
+		} else {
+			a.logger.Info("the server asked for a patch scan; ignored", "requestId", requestID, "reason", reason)
+		}
+		return 0, false, nil
+	case *agentv1.ServerMessage_PatchScanAck:
+		id := body.PatchScanAck.GetScanId()
+		a.patch.Ack(id)
+		delete(s.patchSent, id)
+		return 0, false, s.sendPatchReports()
 	case *agentv1.ServerMessage_Disconnect:
 		return s.handleDisconnect(body.Disconnect)
 	case *agentv1.ServerMessage_UpdateOffer:

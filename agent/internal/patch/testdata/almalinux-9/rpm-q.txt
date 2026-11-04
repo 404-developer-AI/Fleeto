@@ -1,0 +1,13 @@
+NetworkManager.x86_64 1:1.46.0-20.el9_4
+NetworkManager-config-connectivity-redhat.noarch 1:1.46.0-20.el9_4
+NetworkManager-libnm.x86_64 1:1.46.0-20.el9_4
+kernel.x86_64 5.14.0-427.37.1.el9_4
+kernel.x86_64 5.14.0-427.40.1.el9_4
+kernel-core.x86_64 5.14.0-427.37.1.el9_4
+kernel-core.x86_64 5.14.0-427.40.1.el9_4
+kernel-modules.x86_64 5.14.0-427.37.1.el9_4
+kernel-modules.x86_64 5.14.0-427.40.1.el9_4
+openssl.x86_64 1:3.0.7-27.el9
+openssl-libs.x86_64 1:3.0.7-27.el9
+python3-perf.x86_64 5.14.0-427.40.1.el9_4
+tzdata.noarch 2024a-1.el9

@@ -200,6 +200,7 @@
     private bool _installingAgent;
     private bool _removingAgent;
     private bool _requestingSync;
+    private bool _requestingScan;
     private IReadOnlyList<AlertView> _alerts = [];
     private IReadOnlyList<EndpointEventView> _events = [];
     private IReadOnlyList<AuditEntryView> _audit = [];
@@ -1585,6 +1586,15 @@
             <EmptyState Icon="@Icons.Material.Outlined.Security" Title="Patch management needs a managed endpoint"
                         Text="Switch this endpoint to managed to see its patch state." />
         }
+        else if (patches.Engine is { Engine: EndpointPatchEngine.None } none)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.Security" Title="Not patched"
+                        Text="@(PatchEngineRules.Describe(none.Reason) ?? "Fleeto does not patch this endpoint.")" />
+        }
+        else if (patches.ByFleeto)
+        {
+            @FleetoPatches(patches)
+        }
         else if (!patches.Configured)
         {
             <EmptyState Icon="@Icons.Material.Outlined.Security" Title="No patch management for this client"
@@ -1768,6 +1778,161 @@
                     </PagerContent>
                 </MudTable>
             }
+        }
+    };
+
+    /// <summary>
+    /// The Patches tab of an endpoint the Fleeto agent patches (0.9.0 step 1): what its last scan found, with the problem it met.
+    /// Installing follows in a later step, so there is no deploy button yet.
+    /// </summary>
+    private RenderFragment FleetoPatches(EndpointPatchView patches) => __builder =>
+    {
+        var state = patches.State;
+        var scanned = state?.ProductLastSeenAt is not null;
+        var tool = state?.ScanTool is { Length: > 0 } t ? t : null;
+        <div class="d-flex gap-4 flex-wrap align-center mb-3">
+            <StatusChip Text="@(!scanned ? "Not scanned yet" : state!.IsCompliant ? "Up to date" : "Updates missing")"
+                        Kind="@(!scanned ? StatusKind.Neutral : state!.IsCompliant ? StatusKind.Ok : StatusKind.Warning)" />
+            @if (state?.RebootRequired == true)
+            {
+                <StatusChip Text="Restart required" Kind="StatusKind.Active" />
+            }
+            <MudText Typo="Typo.body2" Class="muted">
+                @(tool is null ? "Patched by Fleeto" : $"Patched by Fleeto ({tool})")@if (scanned)
+                {
+                    <span>, last scan <TimeText Value="state!.ProductLastSeenAt" /></span>
+                }
+            </MudText>
+            <MudSpacer />
+            @ScanButton(patches)
+        </div>
+
+        @if (patches.ScanNote is { } note)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">@note</MudAlert>
+        }
+
+        @if (state?.ScanProblem is { } problem)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                The last scan did not read everything: @problem
+            </MudAlert>
+        }
+
+        @if (patches.LastScanRequest is { } request)
+        {
+            var now = DateTime.UtcNow;
+            if (request.IsPending(now))
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                    @(request.DeliveredAt is null
+                        ? "Fleeto asks the agent to scan as soon as the endpoint is online, within 15 minutes of the request."
+                        : "The agent is scanning for missing updates. The result appears here when it finishes.")
+                </MudAlert>
+            }
+            else if (request.CompletedAt is null && request.DeliveredAt is null && now - request.ExpiresAt < TimeSpan.FromHours(1))
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                    The endpoint was not online within 15 minutes of the scan request (<TimeText Value="request.RequestedAt" />). Its next
+                    scheduled scan still runs; ask again when it is online.
+                </MudAlert>
+            }
+        }
+
+        @if (state is null || !scanned)
+        {
+            if (patches.ScanNote is null)
+            {
+                <EmptyState Icon="@Icons.Material.Outlined.Security" Title="Not scanned yet"
+                            Text="The Fleeto agent reads the missing updates of this endpoint every 6 hours. The first result appears here after its first scan." />
+            }
+
+            return;
+        }
+
+        <MudSimpleTable Dense="true" Elevation="0" Class="detail-table mb-4" Style="max-width:420px">
+            <tbody>
+                <tr><td class="muted">Missing, critical</td><td>@state.MissingCritical</td></tr>
+                <tr><td class="muted">Missing, other</td><td>@state.MissingOther</td></tr>
+                <tr><td class="muted">Fleeto agent</td><td>@(string.IsNullOrEmpty(state.ProductAgentVersion) ? "-" : state.ProductAgentVersion)</td></tr>
+            </tbody>
+        </MudSimpleTable>
+
+        @if (patches.Missing.Count == 0)
+        {
+            <EmptyState Icon="@Icons.Material.Outlined.CheckCircle" Title="Nothing missing"
+                        Text="The last scan found no missing updates on this endpoint." />
+        }
+        else
+        {
+            <MudTable T="MissingUpdateView" Items="patches.Missing" Dense="true" Elevation="0">
+                <HeaderContent>
+                    <MudTh>Package</MudTh>
+                    <MudTh>Installed version</MudTh>
+                    <MudTh>New version</MudTh>
+                    <MudTh>From</MudTh>
+                    <MudTh>Update type</MudTh>
+                    <MudTh>Vulnerabilities</MudTh>
+                    <MudTh>Security severity</MudTh>
+                    <MudTh>Advisory</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd>
+                        @context.Name
+                        @if (context.Held)
+                        {
+                            <StatusChip Text="Held" Kind="StatusKind.Neutral" />
+                        }
+                        @if (context.Removal)
+                        {
+                            <StatusChip Text="Removed by the upgrade" Kind="StatusKind.Warning" />
+                        }
+                    </MudTd>
+                    <MudTd>@(context.InstalledVersion.Length > 0 ? context.InstalledVersion : "Not installed")</MudTd>
+                    <MudTd>@(context.Removal ? "-" : context.Version)</MudTd>
+                    <MudTd>@context.Origin</MudTd>
+                    <MudTd>@(context.UpdateType == PatchScanRules.SecurityType ? "Security" : "Regular")</MudTd>
+                    <MudTd>
+                        @if (context.CveList.Count > 0)
+                        {
+                            <MudTooltip Text="@context.Cves">
+                                <span>@Ui.Count(context.CveList.Count, "CVE")</span>
+                            </MudTooltip>
+                        }
+                        else
+                        {
+                            <span class="muted">None known</span>
+                        }
+                    </MudTd>
+                    <MudTd>
+                        @if (context.Severity != PatchSeverity.Unspecified)
+                        {
+                            <StatusChip Text="@context.Severity.ToString()"
+                                        Kind="@(context.Severity == PatchSeverity.Critical ? StatusKind.Error
+                                                : context.Severity == PatchSeverity.Important ? StatusKind.Warning : StatusKind.Neutral)" />
+                        }
+                    </MudTd>
+                    <MudTd>@context.Advisory</MudTd>
+                </RowTemplate>
+                <PagerContent>
+                    <MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" />
+                </PagerContent>
+            </MudTable>
+        }
+    };
+
+    /// <summary>Asks the Fleeto agent to scan for missing updates now (0.9.0); the result comes in with the live update of the scan.</summary>
+    private RenderFragment ScanButton(EndpointPatchView patches) => __builder =>
+    {
+        @if (Can(Permissions.PatchesSync) && patches.ScanNote is null)
+        {
+            var scanning = _requestingScan || patches.LastScanRequest?.IsPending(DateTime.UtcNow) == true;
+            <MudTooltip Text="Let the Fleeto agent read the missing updates of this endpoint now">
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Outlined.Sync"
+                           Class="@(scanning ? "icon-spin" : null)" Disabled="scanning" OnClick="ScanPatchesAsync">
+                    @(scanning ? "Scanning" : "Scan now")
+                </MudButton>
+            </MudTooltip>
         }
     };
 
@@ -2037,6 +2202,33 @@
         finally
         {
             _installingAgent = false;
+        }
+    }
+
+    private async Task ScanPatchesAsync()
+    {
+        if (_endpoint is null || _requestingScan)
+        {
+            return;
+        }
+
+        _requestingScan = true;
+        try
+        {
+            var online = await RunForValueAsync(caller => PatchSvc.RequestScanAsync(caller, EndpointId), null);
+            if (online is null)
+            {
+                return;
+            }
+
+            Snackbar.Add(online.Value
+                ? "The agent is asked to scan for missing updates. The result appears here when it finishes."
+                : "The endpoint is offline. The agent scans if it connects within the next 15 minutes.", Severity.Info);
+            await RefreshAsync();
+        }
+        finally
+        {
+            _requestingScan = false;
         }
     }
 

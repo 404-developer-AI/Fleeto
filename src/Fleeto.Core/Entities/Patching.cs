@@ -81,6 +81,24 @@ public class EndpointPatchState
     /// <summary>The patch policy of <see cref="AutomationId"/>, kept so a change of policy can restart <see cref="ScheduledSince"/>.</summary>
     public Guid? ScheduledPolicyId { get; set; }
 
+    /// <summary>
+    /// Who reported this state (0.9.0): Action1 through its API, or the Fleeto agent with a scan. For a scan the external ids
+    /// stay empty, <see cref="ProductLastSeenAt"/> is when the scan arrived and <see cref="ProductAgentVersion"/> the Fleeto agent.
+    /// </summary>
+    public PatchEngine Engine { get; set; } = PatchEngine.Action1;
+
+    /// <summary>The tool of the last scan (0.9.0): apt or dnf; empty for Action1.</summary>
+    public string ScanTool { get; set; } = string.Empty;
+
+    /// <summary>What went wrong in the last scan (0.9.0), in words for the Patches tab; null when it read everything.</summary>
+    public string? ScanProblem { get; set; }
+
+    /// <summary>
+    /// Since when the scans of the Fleeto agent read nothing because of a problem (0.9.0); null once a scan reads the updates. The patch
+    /// state alert counts from here while no scan ever read the updates.
+    /// </summary>
+    public DateTime? ScanFailingSince { get; set; }
+
     /// <summary>True when the endpoint misses nothing the product knows about.</summary>
     public bool IsCompliant => MissingCritical == 0 && MissingOther == 0;
 }
@@ -130,6 +148,24 @@ public class EndpointMissingUpdate
 
     /// <summary>The CVEs the update remediates (0.6.0).</summary>
     public List<string> Cves { get; set; } = [];
+
+    /// <summary>
+    /// When Fleeto first saw this update missing on the endpoint (0.9.0); kept while later scans still report it, so the deferral
+    /// of a patch policy can count from it. Null on rows written before 0.9.0.
+    /// </summary>
+    public DateTime? FirstSeenAt { get; set; }
+
+    /// <summary>The advisory that covers the update (0.9.0): a USN, DSA or ALSA; empty when none is known.</summary>
+    public string Advisory { get; set; } = string.Empty;
+
+    /// <summary>The archive or repository it comes from (0.9.0, Linux), such as jammy-security or pve-no-subscription.</summary>
+    public string Origin { get; set; } = string.Empty;
+
+    /// <summary>Held back by the administrator (0.9.0, Linux: apt-mark hold, dnf versionlock); an upgrade leaves it alone.</summary>
+    public bool Held { get; set; }
+
+    /// <summary>The upgrade would remove this package (0.9.0, apt dist-upgrade).</summary>
+    public bool Removal { get; set; }
 
     /// <summary>When Fleeto last saw this update as missing.</summary>
     public DateTime UpdatedAt { get; set; }
@@ -433,4 +469,71 @@ public class Action1AgentInstallState
     public string? CheckDetail { get; set; }
 
     public DateTime UpdatedAt { get; set; }
+}
+
+/// <summary>
+/// One patch scan of an endpoint (0.9.0, <c>PATCHING.md</c> §6), as the Fleeto agent reported it: which updates are missing, read with
+/// apt or dnf. Stored by the gateway once per <see cref="AgentScanId"/> and turned into patch state by the workers; the newest per
+/// endpoint is kept, older ones go after 7 days.
+/// </summary>
+public class PatchScan
+{
+    public Guid Id { get; set; }
+    public Guid ClientId { get; set; }
+    public Guid EndpointId { get; set; }
+
+    /// <summary>The scan id the agent chose, unique per endpoint: a report sent twice is stored once.</summary>
+    public Guid AgentScanId { get; set; }
+
+    /// <summary>Stamped by the gateway on ingest; used for ordering, the agent's time is informational.</summary>
+    public DateTime ReceivedAt { get; set; }
+
+    public DateTime? AgentStartedAt { get; set; }
+    public int DurationMs { get; set; }
+
+    /// <summary>apt or dnf.</summary>
+    public string Tool { get; set; } = string.Empty;
+
+    /// <summary>What went wrong, null when the scan read everything.</summary>
+    public string? Problem { get; set; }
+
+    public bool RestartRequired { get; set; }
+    public int UpdateCount { get; set; }
+
+    /// <summary>True when the agent cut the list at <see cref="Domain.PatchScanRules.MaxUpdates"/>.</summary>
+    public bool Truncated { get; set; }
+
+    /// <summary>The request that started the scan, null for a scheduled one.</summary>
+    public Guid? RequestId { get; set; }
+
+    /// <summary>The agent version that scanned.</summary>
+    public string AgentVersion { get; set; } = string.Empty;
+
+    /// <summary>JSON array of <see cref="Domain.PatchScanUpdate"/>.</summary>
+    public string UpdatesJson { get; set; } = "[]";
+
+    /// <summary>When the workers turned it into patch state; null while it waits.</summary>
+    public DateTime? ProcessedAt { get; set; }
+}
+
+/// <summary>
+/// A request to scan an endpoint for missing updates now (0.9.0): a technician clicked "Scan now". Written by web, delivered once by
+/// the gateway to a live agent before it expires, and completed by the workers when a scan that names it arrives.
+/// </summary>
+public class PatchScanRequest
+{
+    public Guid Id { get; set; }
+    public Guid ClientId { get; set; }
+    public Guid EndpointId { get; set; }
+    public Guid RequestedByUserId { get; set; }
+    public string RequestedByName { get; set; } = string.Empty;
+    public DateTime RequestedAt { get; set; }
+
+    /// <summary>An agent that connects after this time does not receive the request.</summary>
+    public DateTime ExpiresAt { get; set; }
+
+    public DateTime? DeliveredAt { get; set; }
+
+    /// <summary>When a scan that names this request arrived; null while it waits.</summary>
+    public DateTime? CompletedAt { get; set; }
 }

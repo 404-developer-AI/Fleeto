@@ -49,12 +49,13 @@ public sealed record PatchPolicyInput(
     int RetryHours,
     CheckAppliesTo AppliesTo = CheckAppliesTo.All,
     bool AutoInstallAgent = false,
-    bool TurnOffWindowsUpdate = false)
+    bool TurnOffWindowsUpdate = false,
+    PatchEngine Engine = PatchEngine.Action1)
 {
     public static PatchPolicyInput From(PatchPolicy p) => new(p.Name, p.Description, p.Enabled, p.ScheduleKind, p.WeekDays, p.MonthDay, p.MonthWeek,
         p.MonthWeekday, p.StartMinute, p.EndpointLocalTime, p.Scope, p.UpdateSources, p.UpdateTypes, p.Severities, p.ExcludedNames,
         p.ExcludedVendors, p.RequireApproval, p.InstallDelayDays, p.AutoReboot, p.RebootMessage, p.RebootMessageText, p.RebootTimeoutMinutes,
-        p.RetryHours, p.AppliesTo, p.AutoInstallAgent, p.TurnOffWindowsUpdate);
+        p.RetryHours, p.AppliesTo, p.AutoInstallAgent, p.TurnOffWindowsUpdate, p.Engine);
 }
 
 /// <summary>
@@ -324,6 +325,7 @@ public sealed class PatchPolicyService
         policy.RetryHours = input.RetryHours;
         policy.AutoInstallAgent = input.AutoInstallAgent;
         policy.TurnOffWindowsUpdate = input.TurnOffWindowsUpdate;
+        policy.Engine = input.Engine;
         policy.UpdatedAt = now;
     }
 
@@ -334,6 +336,7 @@ public sealed class PatchPolicyService
     {
         policy.Name,
         policy.Enabled,
+        Engine = policy.Engine.ToString(),
         AppliesTo = policy.AppliesTo.ToString(),
         Schedule = PatchPolicyRules.DescribeSchedule(policy),
         Scope = policy.Scope.ToString(),
