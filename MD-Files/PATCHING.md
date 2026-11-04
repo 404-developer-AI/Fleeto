@@ -446,7 +446,7 @@ arrives with the least risk, and the part that changes endpoints last.
    alert for stale scans, `SupportedProducts`, `API.md` and the waiting list, the load test. Nothing is installed yet.
 2. [built 2026-11-05, not yet on the test VPS] **Scanning on Windows** (§4): the Windows Update Agent through COM, the source switch, the tab for a Windows endpoint with engine
    *Fleeto*, the conflict line for an endpoint with an Action1 agent.
-3. **Installing by hand** (§5, §8): the job type, `PatchRules`, the signer, the agent flows on apt, dnf and Windows, the restart
+3. [built 2026-11-05, not yet on the test VPS] **Installing by hand** (§5, §8): the job type, `PatchRules`, the signer, the agent flows on apt, dnf and Windows, the restart
    inside a job and its recovery, the deployment, targets and steps from the job, the dialog and the endpoint list action, the audit
    entries, the API changes on deployments.
 4. **Patch policies with engine Fleeto** (§6, §7): the dialog per engine, the new columns, `PatchPolicies.Occurrences`,
@@ -531,6 +531,28 @@ Taken with the developer on 2026-11-04: every recommendation of the proposal, wi
 - The search ran read-only on the development PC (Windows 11, signed-in user, Microsoft Update registered, nothing missing; the
   mapping was checked on its installed updates). Not yet as SYSTEM in session 0, on a Windows Server with missing updates or under a
   WSUS group policy: to do on the test VPS.
+
+**What step 3 built differently** (2026-11-05):
+
+- The installation job carries no body hash: `ScriptSha256` is frozen at insert and only fleeto-signer knows the body, so the signed
+  payload stored on the job is the record of what ran. The binding of a job to its deployment and endpoint is enforced by two triggers
+  of their own (`TR_Jobs_PatchOrigin`, `TR_Jobs_PatchBinding`) instead of a new version of `fleeto_job_origin` and `fleeto_job_binding`.
+- Web writes a deployment by Fleeto as `Running` (there is nothing to hand over), with `FollowUntil` the validity of its jobs plus their
+  timeout and an hour; `FleetoDeploymentService` follows it from the jobs. Action1's `PatchDeploymentService` reads only engine `Action1`.
+- The agent writes one line per update and one for the restart (`fleeto-patch: <status> <id> <title>`, `fleeto-patch: restart <state>`,
+  `agent.proto` `PatchInstallJob`); the workers read them into the steps of the history and the restart of the endpoint.
+- The restart notice of a deployment by hand is `PatchRules.RebootTimeoutMinutes` (30 minutes) with `PatchRules.RebootMessage`.
+- To check on the test VPS before step 3 is done: that `apt-get install --only-upgrade --` accepts `--` and `name:arch=version` for a
+  foreign architecture; needrestart on Ubuntu, which can restart services during an installation; dnf upgrade without
+  `skip_if_unavailable`, so one unreachable repository fails the installation (the scan skips it); the COM part of the Windows
+  installation, which has only compiled; and that systemd kills apt or dnf when the agent stops mid-installation (`KillMode=mixed`,
+  for example at an agent update) — running the package manager under `systemd-run --scope` would avoid it. On Windows a restart with
+  a notice closes applications without asking, as the restart step of a task already does.
+- A package's own scripts could print a line that looks like a `fleeto-patch:` line; it only changes what the history shows, never what
+  is installed. The workers read the last restart line.
+- Rollback: an image rollback to 0.8.0 reads jobs of type `PatchInstall` and deployments of engine `Fleeto` that it does not know. Until
+  the release decides between `rollback: restore` in the manifest and leaving those rows to fail on their own, roll back an alpha of
+  0.9.0 only on a test VPS.
 
 To check while building, in the step that needs it:
 

@@ -179,4 +179,42 @@ public sealed class PatchScanServiceTests
         Assert.Equal(("KB5031354", 812_000_000L, true), (update.KbNumber, update.SizeBytes!.Value, update.Downloaded));
         Assert.True((await Patches.RequestScanAsync(WebFixture.Technician(), endpoint.Id)).Success);
     }
+
+    [Fact]
+    public async Task A_deployment_by_Fleeto_writes_one_bound_installation_job_per_endpoint_and_asks_for_its_signature()
+    {
+        var (_, endpoint) = await LinuxAsync();
+        await StateAsync(endpoint, Now, "curl", "tzdata");
+
+        var started = await Patches.StartDeploymentAsync(WebFixture.Technician(), [endpoint.Id], ["curl:amd64"], autoReboot: true);
+
+        Assert.True(started.Success, started.Problem);
+        var view = Assert.Single(started.Value!.Deployments);
+        Assert.Equal((PatchEngine.Fleeto, PatchDeploymentScope.Specified, PatchDeploymentState.Running), (view.Engine, view.Scope, view.State));
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        var target = await db.PatchDeploymentTargets.AsNoTracking().SingleAsync(t => t.DeploymentId == view.Id);
+        var job = await db.Jobs.AsNoTracking().SingleAsync(j => j.Id == target.JobId);
+        Assert.Equal((JobType.PatchInstall, JobState.PendingSignature, view.Id, target.Id),
+            (job.Type, job.State, job.PatchDeploymentId!.Value, job.PatchDeploymentTargetId!.Value));
+        Assert.True(await db.SigningRequests.AnyAsync(r => r.SubjectId == job.Id && r.Kind == SigningRequestKind.Job));
+        Assert.Equal("curl:amd64", (await db.PatchDeploymentUpdates.AsNoTracking().SingleAsync(u => u.DeploymentId == view.Id)).ExternalUpdateId);
+
+        // A second installation while the first is on its way is skipped with the reason.
+        var again = await Patches.StartDeploymentAsync(WebFixture.Technician(), [endpoint.Id]);
+        Assert.False(again.Success);
+        Assert.Contains("already on its way", again.Problem);
+    }
+
+    [Fact]
+    public async Task A_deployment_by_Fleeto_skips_an_endpoint_whose_agent_cannot_install_and_one_whose_last_scan_found_nothing()
+    {
+        var (_, old) = await LinuxAsync(agentVersion: "0.8.0");
+        var (_, clean) = await LinuxAsync();
+        await StateAsync(clean, Now);
+
+        var started = await Patches.StartDeploymentAsync(WebFixture.Technician(), [old.Id, clean.Id]);
+
+        Assert.False(started.Success);
+        Assert.Contains("Nothing was deployed", started.Problem);
+    }
 }

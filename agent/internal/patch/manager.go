@@ -42,6 +42,7 @@ const (
 	reasonNotOn      = "patch management by Fleeto is not on for the endpoint"
 	reasonRunning    = "a patch scan is running"
 	reasonTooSoon    = "a patch scan started less than 15 minutes ago"
+	reasonInstalling = "an installation of updates is running; a scan follows when it ends"
 )
 
 // scanIDPattern is the form of a scan id this agent creates. An acknowledgement names a spool file by it, so anything else is
@@ -85,8 +86,10 @@ type Manager struct {
 	notify chan struct{}
 	wg     sync.WaitGroup
 
-	mu          sync.Mutex
-	running     bool
+	mu      sync.Mutex
+	running bool
+	// again starts another scan when the running one ends: an installation ended while it ran.
+	again       bool
 	lastStarted time.Time
 	started     time.Time
 	firstDue    time.Time
@@ -216,7 +219,7 @@ func (m *Manager) Tick() {
 
 // dueLocked reports whether a scheduled scan should start now.
 func (m *Manager) dueLocked(now time.Time) bool {
-	if m.running || !m.opts.Managed() {
+	if m.running || !m.opts.Managed() || InstallRunning() {
 		return false
 	}
 	hours := m.opts.IntervalHours()
@@ -246,6 +249,9 @@ func (m *Manager) Request(requestID string) (bool, string) {
 	case m.opts.IntervalHours() == 0:
 		m.mu.Unlock()
 		return false, reasonNotOn
+	case InstallRunning():
+		m.mu.Unlock()
+		return false, reasonInstalling
 	case m.running:
 		m.mu.Unlock()
 		return false, reasonRunning
@@ -255,6 +261,22 @@ func (m *Manager) Request(requestID string) (bool, string) {
 	}
 	m.mu.Unlock()
 	return m.start(requestID), ""
+}
+
+// ScanAfterInstall scans now, so the server sees what an installation of updates did. A scan that runs already read the state from
+// before the installation ended, so another one follows it. The gap between requested scans does not apply.
+func (m *Manager) ScanAfterInstall() {
+	if !m.opts.Managed() || m.opts.IntervalHours() == 0 {
+		return
+	}
+	m.mu.Lock()
+	if m.running {
+		m.again = true
+		m.mu.Unlock()
+		return
+	}
+	m.mu.Unlock()
+	m.start("")
 }
 
 // start runs a scan in the background, unless one runs already.
@@ -279,8 +301,13 @@ func (m *Manager) start(requestID string) bool {
 		defer func() {
 			m.mu.Lock()
 			m.running = false
+			again := m.again
+			m.again = false
 			m.mu.Unlock()
 			m.signal()
+			if again {
+				m.start("")
+			}
 		}()
 		defer safego.Recover(m.opts.Logger, "patch scan")
 		// The thread is never unlocked: it ends with this goroutine, so its lowered priority never reaches other work. The commands

@@ -954,6 +954,9 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasIndex(j => new { j.EndpointId, j.CreatedAt }).IsDescending(false, true);
             entity.HasIndex(j => new { j.State, j.EndpointId }).HasFilter("\"State\" IN ('PendingSignature', 'Queued', 'Running')");
             entity.HasIndex(j => j.BatchId);
+            // One installation job per endpoint of a deployment by Fleeto (0.9.0), however often web or the workers retry.
+            entity.HasIndex(j => j.PatchDeploymentTargetId).IsUnique().HasFilter("\"PatchDeploymentTargetId\" IS NOT NULL");
+            entity.HasIndex(j => j.PatchDeploymentId).HasFilter("\"PatchDeploymentId\" IS NOT NULL");
             // Tasks (0.6.0): the jobs of a run, and the last job of a task on an endpoint (overlap, signing interval).
             entity.HasOne<AutomationTask>().WithMany().HasForeignKey(j => j.TaskId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne<AutomationTaskRun>().WithMany().HasForeignKey(j => j.TaskRunId).OnDelete(DeleteBehavior.SetNull);
@@ -1523,6 +1526,11 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(d => d.StatusMessage).HasMaxLength(1000);
             entity.Property(d => d.RequestedByName).HasMaxLength(200);
             entity.Property(d => d.ExternalAutomationId).HasMaxLength(200).HasDefaultValue(string.Empty);
+            // 0.9.0: every deployment before it was carried out by Action1, and 0.8.0 still inserts without the column.
+            entity.Property(d => d.Engine).HasConversion<string>().HasMaxLength(20).HasDefaultValue(PatchEngine.Action1)
+                .HasSentinel((PatchEngine)(-1));
+            entity.Property(d => d.SecurityOnly).HasDefaultValue(false);
+            entity.ToTable(table => table.HasCheckConstraint("CK_PatchDeployments_Engine", "\"Engine\" IN ('Action1', 'Fleeto')"));
             entity.Ignore(d => d.IsOpen);
             // A run of an automation becomes one scheduled deployment, however often the workers find it (0.6.0).
             entity.HasIndex(d => new { d.ClientId, d.ExternalDeploymentId }).IsUnique().HasFilter("\"ExternalAutomationId\" <> ''");
@@ -1552,6 +1560,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(t => t.Hostname).HasMaxLength(255);
             entity.Property(t => t.State).HasConversion<string>().HasMaxLength(20);
             entity.Property(t => t.Message).HasMaxLength(1000);
+            entity.Property(t => t.Restart).HasConversion<string>().HasMaxLength(20);
+            entity.HasIndex(t => t.JobId).HasFilter("\"JobId\" IS NOT NULL");
             // One row per endpoint in a deployment: a re-delivered result updates it instead of adding another.
             entity.HasIndex(t => new { t.DeploymentId, t.EndpointId }).IsUnique();
             entity.HasIndex(t => new { t.EndpointId, t.UpdatedAt }).IsDescending(false, true);

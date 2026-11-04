@@ -408,6 +408,106 @@ func (CheckType) EnumDescriptor() ([]byte, []int) {
 	return file_agent_proto_rawDescGZIP(), []int{4}
 }
 
+type PatchInstallScope int32
+
+const (
+	PatchInstallScope_PATCH_INSTALL_SCOPE_UNSPECIFIED PatchInstallScope = 0
+	PatchInstallScope_PATCH_INSTALL_SCOPE_ALL_MISSING PatchInstallScope = 1
+	PatchInstallScope_PATCH_INSTALL_SCOPE_SPECIFIED   PatchInstallScope = 2
+)
+
+// Enum value maps for PatchInstallScope.
+var (
+	PatchInstallScope_name = map[int32]string{
+		0: "PATCH_INSTALL_SCOPE_UNSPECIFIED",
+		1: "PATCH_INSTALL_SCOPE_ALL_MISSING",
+		2: "PATCH_INSTALL_SCOPE_SPECIFIED",
+	}
+	PatchInstallScope_value = map[string]int32{
+		"PATCH_INSTALL_SCOPE_UNSPECIFIED": 0,
+		"PATCH_INSTALL_SCOPE_ALL_MISSING": 1,
+		"PATCH_INSTALL_SCOPE_SPECIFIED":   2,
+	}
+)
+
+func (x PatchInstallScope) Enum() *PatchInstallScope {
+	p := new(PatchInstallScope)
+	*p = x
+	return p
+}
+
+func (x PatchInstallScope) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (PatchInstallScope) Descriptor() protoreflect.EnumDescriptor {
+	return file_agent_proto_enumTypes[5].Descriptor()
+}
+
+func (PatchInstallScope) Type() protoreflect.EnumType {
+	return &file_agent_proto_enumTypes[5]
+}
+
+func (x PatchInstallScope) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use PatchInstallScope.Descriptor instead.
+func (PatchInstallScope) EnumDescriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{5}
+}
+
+type PatchRestart int32
+
+const (
+	PatchRestart_PATCH_RESTART_UNSPECIFIED PatchRestart = 0
+	// Never restart; the job ends with "restart required" when an update needs one.
+	PatchRestart_PATCH_RESTART_NEVER PatchRestart = 1
+	// Restart after the notice when an installed update needs it.
+	PatchRestart_PATCH_RESTART_IF_REQUIRED PatchRestart = 2
+)
+
+// Enum value maps for PatchRestart.
+var (
+	PatchRestart_name = map[int32]string{
+		0: "PATCH_RESTART_UNSPECIFIED",
+		1: "PATCH_RESTART_NEVER",
+		2: "PATCH_RESTART_IF_REQUIRED",
+	}
+	PatchRestart_value = map[string]int32{
+		"PATCH_RESTART_UNSPECIFIED": 0,
+		"PATCH_RESTART_NEVER":       1,
+		"PATCH_RESTART_IF_REQUIRED": 2,
+	}
+)
+
+func (x PatchRestart) Enum() *PatchRestart {
+	p := new(PatchRestart)
+	*p = x
+	return p
+}
+
+func (x PatchRestart) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (PatchRestart) Descriptor() protoreflect.EnumDescriptor {
+	return file_agent_proto_enumTypes[6].Descriptor()
+}
+
+func (PatchRestart) Type() protoreflect.EnumType {
+	return &file_agent_proto_enumTypes[6]
+}
+
+func (x PatchRestart) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use PatchRestart.Descriptor instead.
+func (PatchRestart) EnumDescriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{6}
+}
+
 type JobRunAs int32
 
 const (
@@ -443,11 +543,11 @@ func (x JobRunAs) String() string {
 }
 
 func (JobRunAs) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[5].Descriptor()
+	return file_agent_proto_enumTypes[7].Descriptor()
 }
 
 func (JobRunAs) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[5]
+	return &file_agent_proto_enumTypes[7]
 }
 
 func (x JobRunAs) Number() protoreflect.EnumNumber {
@@ -456,7 +556,7 @@ func (x JobRunAs) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use JobRunAs.Descriptor instead.
 func (JobRunAs) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{5}
+	return file_agent_proto_rawDescGZIP(), []int{7}
 }
 
 type JobType int32
@@ -465,6 +565,8 @@ const (
 	JobType_JOB_TYPE_UNSPECIFIED JobType = 0
 	JobType_JOB_TYPE_SCRIPT      JobType = 1
 	JobType_JOB_TYPE_RESTART     JobType = 2
+	// 0.9.0 step 3: PatchInstallJob.
+	JobType_JOB_TYPE_PATCH_INSTALL JobType = 3
 )
 
 // Enum value maps for JobType.
@@ -473,11 +575,13 @@ var (
 		0: "JOB_TYPE_UNSPECIFIED",
 		1: "JOB_TYPE_SCRIPT",
 		2: "JOB_TYPE_RESTART",
+		3: "JOB_TYPE_PATCH_INSTALL",
 	}
 	JobType_value = map[string]int32{
-		"JOB_TYPE_UNSPECIFIED": 0,
-		"JOB_TYPE_SCRIPT":      1,
-		"JOB_TYPE_RESTART":     2,
+		"JOB_TYPE_UNSPECIFIED":   0,
+		"JOB_TYPE_SCRIPT":        1,
+		"JOB_TYPE_RESTART":       2,
+		"JOB_TYPE_PATCH_INSTALL": 3,
 	}
 )
 
@@ -492,11 +596,11 @@ func (x JobType) String() string {
 }
 
 func (JobType) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[6].Descriptor()
+	return file_agent_proto_enumTypes[8].Descriptor()
 }
 
 func (JobType) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[6]
+	return &file_agent_proto_enumTypes[8]
 }
 
 func (x JobType) Number() protoreflect.EnumNumber {
@@ -505,7 +609,7 @@ func (x JobType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use JobType.Descriptor instead.
 func (JobType) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{6}
+	return file_agent_proto_rawDescGZIP(), []int{8}
 }
 
 type ScriptLanguage int32
@@ -551,11 +655,11 @@ func (x ScriptLanguage) String() string {
 }
 
 func (ScriptLanguage) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[7].Descriptor()
+	return file_agent_proto_enumTypes[9].Descriptor()
 }
 
 func (ScriptLanguage) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[7]
+	return &file_agent_proto_enumTypes[9]
 }
 
 func (x ScriptLanguage) Number() protoreflect.EnumNumber {
@@ -564,7 +668,7 @@ func (x ScriptLanguage) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ScriptLanguage.Descriptor instead.
 func (ScriptLanguage) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{7}
+	return file_agent_proto_rawDescGZIP(), []int{9}
 }
 
 type JobStream int32
@@ -600,11 +704,11 @@ func (x JobStream) String() string {
 }
 
 func (JobStream) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[8].Descriptor()
+	return file_agent_proto_enumTypes[10].Descriptor()
 }
 
 func (JobStream) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[8]
+	return &file_agent_proto_enumTypes[10]
 }
 
 func (x JobStream) Number() protoreflect.EnumNumber {
@@ -613,7 +717,7 @@ func (x JobStream) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use JobStream.Descriptor instead.
 func (JobStream) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{8}
+	return file_agent_proto_rawDescGZIP(), []int{10}
 }
 
 type JobResult int32
@@ -663,11 +767,11 @@ func (x JobResult) String() string {
 }
 
 func (JobResult) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[9].Descriptor()
+	return file_agent_proto_enumTypes[11].Descriptor()
 }
 
 func (JobResult) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[9]
+	return &file_agent_proto_enumTypes[11]
 }
 
 func (x JobResult) Number() protoreflect.EnumNumber {
@@ -676,7 +780,7 @@ func (x JobResult) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use JobResult.Descriptor instead.
 func (JobResult) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{9}
+	return file_agent_proto_rawDescGZIP(), []int{11}
 }
 
 type JobAckKind int32
@@ -715,11 +819,11 @@ func (x JobAckKind) String() string {
 }
 
 func (JobAckKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[10].Descriptor()
+	return file_agent_proto_enumTypes[12].Descriptor()
 }
 
 func (JobAckKind) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[10]
+	return &file_agent_proto_enumTypes[12]
 }
 
 func (x JobAckKind) Number() protoreflect.EnumNumber {
@@ -728,7 +832,7 @@ func (x JobAckKind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use JobAckKind.Descriptor instead.
 func (JobAckKind) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{10}
+	return file_agent_proto_rawDescGZIP(), []int{12}
 }
 
 type UpdateState int32
@@ -779,11 +883,11 @@ func (x UpdateState) String() string {
 }
 
 func (UpdateState) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[11].Descriptor()
+	return file_agent_proto_enumTypes[13].Descriptor()
 }
 
 func (UpdateState) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[11]
+	return &file_agent_proto_enumTypes[13]
 }
 
 func (x UpdateState) Number() protoreflect.EnumNumber {
@@ -792,7 +896,7 @@ func (x UpdateState) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use UpdateState.Descriptor instead.
 func (UpdateState) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{11}
+	return file_agent_proto_rawDescGZIP(), []int{13}
 }
 
 // Why an installer holds back an offered newer release (0.2.2).
@@ -843,11 +947,11 @@ func (x UpdateWaitReason) String() string {
 }
 
 func (UpdateWaitReason) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[12].Descriptor()
+	return file_agent_proto_enumTypes[14].Descriptor()
 }
 
 func (UpdateWaitReason) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[12]
+	return &file_agent_proto_enumTypes[14]
 }
 
 func (x UpdateWaitReason) Number() protoreflect.EnumNumber {
@@ -856,7 +960,7 @@ func (x UpdateWaitReason) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use UpdateWaitReason.Descriptor instead.
 func (UpdateWaitReason) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{12}
+	return file_agent_proto_rawDescGZIP(), []int{14}
 }
 
 type RemoteSessionKind int32
@@ -902,11 +1006,11 @@ func (x RemoteSessionKind) String() string {
 }
 
 func (RemoteSessionKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[13].Descriptor()
+	return file_agent_proto_enumTypes[15].Descriptor()
 }
 
 func (RemoteSessionKind) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[13]
+	return &file_agent_proto_enumTypes[15]
 }
 
 func (x RemoteSessionKind) Number() protoreflect.EnumNumber {
@@ -915,7 +1019,7 @@ func (x RemoteSessionKind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RemoteSessionKind.Descriptor instead.
 func (RemoteSessionKind) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{13}
+	return file_agent_proto_rawDescGZIP(), []int{15}
 }
 
 type DisconnectCode int32
@@ -965,11 +1069,11 @@ func (x DisconnectCode) String() string {
 }
 
 func (DisconnectCode) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[14].Descriptor()
+	return file_agent_proto_enumTypes[16].Descriptor()
 }
 
 func (DisconnectCode) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[14]
+	return &file_agent_proto_enumTypes[16]
 }
 
 func (x DisconnectCode) Number() protoreflect.EnumNumber {
@@ -978,7 +1082,7 @@ func (x DisconnectCode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use DisconnectCode.Descriptor instead.
 func (DisconnectCode) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{14}
+	return file_agent_proto_rawDescGZIP(), []int{16}
 }
 
 type EnrollRequest struct {
@@ -5019,7 +5123,9 @@ type JobPayload struct {
 	RunAsUserId string `protobuf:"bytes,11,opt,name=run_as_user_id,json=runAsUserId,proto3" json:"run_as_user_id,omitempty"`
 	// With JOB_TYPE_RESTART (0.6.0): restart the endpoint for a step of a task. The agent runs a fixed command and completes the job
 	// only after the endpoint came back with a newer boot time, or when timeout_seconds passed without a restart.
-	Restart       *RestartJob `protobuf:"bytes,12,opt,name=restart,proto3" json:"restart,omitempty"`
+	Restart *RestartJob `protobuf:"bytes,12,opt,name=restart,proto3" json:"restart,omitempty"`
+	// With JOB_TYPE_PATCH_INSTALL (0.9.0 step 3): install missing updates with the Windows Update Agent, apt or dnf of the endpoint.
+	PatchInstall  *PatchInstallJob `protobuf:"bytes,13,opt,name=patch_install,json=patchInstall,proto3" json:"patch_install,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5138,6 +5244,13 @@ func (x *JobPayload) GetRestart() *RestartJob {
 	return nil
 }
 
+func (x *JobPayload) GetPatchInstall() *PatchInstallJob {
+	if x != nil {
+		return x.PatchInstall
+	}
+	return nil
+}
+
 // A restart has no input: everything the agent does is fixed in the agent.
 type RestartJob struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -5175,6 +5288,267 @@ func (*RestartJob) Descriptor() ([]byte, []int) {
 	return file_agent_proto_rawDescGZIP(), []int{46}
 }
 
+// Installs updates with the tools of the operating system (0.9.0, PATCHING.md section 5). fleeto-signer composes it from the
+// deployment and, later, the patch policy: identifiers, filters and switches, never a command. The agent validates every name and id
+// before it passes them to apt, dnf or the Windows Update Agent as arguments, never through a shell, and refuses the job on an
+// agent-only configuration or one without a patch scan interval.
+//
+// The agent scans first, then selects: exactly the named updates (SCOPE_SPECIFIED; one no longer missing is reported as such, never an
+// error) or what the filter allows of everything missing (SCOPE_ALL_MISSING). It writes one line per update to stdout, then the
+// restart, in a fixed form the server reads for the deployment history:
+//
+//	fleeto-patch: <status> <id> <title>     status: installed, failed, not-missing, held, excluded
+//	fleeto-patch: restart <state>           state: not-required, required, restarting
+//
+// The output of apt, dnf or the Windows Update Agent is the rest of the output. Exit code 0 when every selected update was installed
+// (also when nothing was missing), 1 when one failed or the tool failed. The package manager is never killed: at the timeout the job
+// reports JOB_RESULT_TIMED_OUT and the agent refuses another patch job while the process it started still runs. With
+// RESTART_IF_REQUIRED and a result that needs a restart, the agent restarts like a restart job (after the notice) and completes the
+// job once the endpoint started again with a newer boot time, then scans.
+type PatchInstallJob struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Scope PatchInstallScope      `protobuf:"varint,1,opt,name=scope,proto3,enum=fleeto.agent.v1.PatchInstallScope" json:"scope,omitempty"`
+	// SCOPE_SPECIFIED: exactly these, nothing else; at most 100.
+	Updates []*PatchInstallUpdate `protobuf:"bytes,2,rep,name=updates,proto3" json:"updates,omitempty"`
+	// SCOPE_ALL_MISSING: what of everything missing is installed.
+	Filter  *PatchInstallFilter `protobuf:"bytes,3,opt,name=filter,proto3" json:"filter,omitempty"`
+	Restart PatchRestart        `protobuf:"varint,4,opt,name=restart,proto3,enum=fleeto.agent.v1.PatchRestart" json:"restart,omitempty"`
+	// Seconds between the notice to a signed-in user and the restart, 60 to 86400. On a workstation with a signed-in user the notice is
+	// always shown (decided 2026-11-04).
+	RestartNoticeSeconds uint32 `protobuf:"varint,5,opt,name=restart_notice_seconds,json=restartNoticeSeconds,proto3" json:"restart_notice_seconds,omitempty"`
+	// The text of the notice; empty for the agent's own wording.
+	RestartMessage string `protobuf:"bytes,6,opt,name=restart_message,json=restartMessage,proto3" json:"restart_message,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PatchInstallJob) Reset() {
+	*x = PatchInstallJob{}
+	mi := &file_agent_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PatchInstallJob) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PatchInstallJob) ProtoMessage() {}
+
+func (x *PatchInstallJob) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PatchInstallJob.ProtoReflect.Descriptor instead.
+func (*PatchInstallJob) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *PatchInstallJob) GetScope() PatchInstallScope {
+	if x != nil {
+		return x.Scope
+	}
+	return PatchInstallScope_PATCH_INSTALL_SCOPE_UNSPECIFIED
+}
+
+func (x *PatchInstallJob) GetUpdates() []*PatchInstallUpdate {
+	if x != nil {
+		return x.Updates
+	}
+	return nil
+}
+
+func (x *PatchInstallJob) GetFilter() *PatchInstallFilter {
+	if x != nil {
+		return x.Filter
+	}
+	return nil
+}
+
+func (x *PatchInstallJob) GetRestart() PatchRestart {
+	if x != nil {
+		return x.Restart
+	}
+	return PatchRestart_PATCH_RESTART_UNSPECIFIED
+}
+
+func (x *PatchInstallJob) GetRestartNoticeSeconds() uint32 {
+	if x != nil {
+		return x.RestartNoticeSeconds
+	}
+	return 0
+}
+
+func (x *PatchInstallJob) GetRestartMessage() string {
+	if x != nil {
+		return x.RestartMessage
+	}
+	return ""
+}
+
+// One update a technician chose, as the last scan reported it.
+type PatchInstallUpdate struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// PatchUpdate.id: "name:architecture" on Linux, "UpdateID:RevisionNumber" on Windows.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// For the output only; never passed to a tool.
+	Title string `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	// Linux: the version to install ("name=version" for apt, "name-version" for dnf). Empty on Windows.
+	Version       string `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PatchInstallUpdate) Reset() {
+	*x = PatchInstallUpdate{}
+	mi := &file_agent_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PatchInstallUpdate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PatchInstallUpdate) ProtoMessage() {}
+
+func (x *PatchInstallUpdate) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PatchInstallUpdate.ProtoReflect.Descriptor instead.
+func (*PatchInstallUpdate) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *PatchInstallUpdate) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *PatchInstallUpdate) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *PatchInstallUpdate) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+// What SCOPE_ALL_MISSING installs. Empty fields do not filter.
+type PatchInstallFilter struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Linux: only updates the scan classified as security.
+	SecurityOnly bool `protobuf:"varint,1,opt,name=security_only,json=securityOnly,proto3" json:"security_only,omitempty"`
+	// Windows: only these update classifications (Security Updates, Critical Updates, ...).
+	Classifications []string `protobuf:"bytes,2,rep,name=classifications,proto3" json:"classifications,omitempty"`
+	// Only these severities (Critical, Important, Moderate, Low; "Unspecified" for updates without one).
+	Severities []string `protobuf:"bytes,3,rep,name=severities,proto3" json:"severities,omitempty"`
+	// Never these: package names (Linux) or a case-insensitive part of the title (Windows); at most 20.
+	ExcludedNames []string `protobuf:"bytes,4,rep,name=excluded_names,json=excludedNames,proto3" json:"excluded_names,omitempty"`
+	// Only updates released before this time (deferral of a patch policy); unset installs regardless of release.
+	ReleasedBefore *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=released_before,json=releasedBefore,proto3" json:"released_before,omitempty"`
+	// Windows: also drivers.
+	IncludeDrivers bool `protobuf:"varint,6,opt,name=include_drivers,json=includeDrivers,proto3" json:"include_drivers,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PatchInstallFilter) Reset() {
+	*x = PatchInstallFilter{}
+	mi := &file_agent_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PatchInstallFilter) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PatchInstallFilter) ProtoMessage() {}
+
+func (x *PatchInstallFilter) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PatchInstallFilter.ProtoReflect.Descriptor instead.
+func (*PatchInstallFilter) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *PatchInstallFilter) GetSecurityOnly() bool {
+	if x != nil {
+		return x.SecurityOnly
+	}
+	return false
+}
+
+func (x *PatchInstallFilter) GetClassifications() []string {
+	if x != nil {
+		return x.Classifications
+	}
+	return nil
+}
+
+func (x *PatchInstallFilter) GetSeverities() []string {
+	if x != nil {
+		return x.Severities
+	}
+	return nil
+}
+
+func (x *PatchInstallFilter) GetExcludedNames() []string {
+	if x != nil {
+		return x.ExcludedNames
+	}
+	return nil
+}
+
+func (x *PatchInstallFilter) GetReleasedBefore() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ReleasedBefore
+	}
+	return nil
+}
+
+func (x *PatchInstallFilter) GetIncludeDrivers() bool {
+	if x != nil {
+		return x.IncludeDrivers
+	}
+	return false
+}
+
 type ScriptJob struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Language ScriptLanguage         `protobuf:"varint,1,opt,name=language,proto3,enum=fleeto.agent.v1.ScriptLanguage" json:"language,omitempty"`
@@ -5190,7 +5564,7 @@ type ScriptJob struct {
 
 func (x *ScriptJob) Reset() {
 	*x = ScriptJob{}
-	mi := &file_agent_proto_msgTypes[47]
+	mi := &file_agent_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5202,7 +5576,7 @@ func (x *ScriptJob) String() string {
 func (*ScriptJob) ProtoMessage() {}
 
 func (x *ScriptJob) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[47]
+	mi := &file_agent_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5215,7 +5589,7 @@ func (x *ScriptJob) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScriptJob.ProtoReflect.Descriptor instead.
 func (*ScriptJob) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{47}
+	return file_agent_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *ScriptJob) GetLanguage() ScriptLanguage {
@@ -5267,7 +5641,7 @@ type JobStarted struct {
 
 func (x *JobStarted) Reset() {
 	*x = JobStarted{}
-	mi := &file_agent_proto_msgTypes[48]
+	mi := &file_agent_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5279,7 +5653,7 @@ func (x *JobStarted) String() string {
 func (*JobStarted) ProtoMessage() {}
 
 func (x *JobStarted) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[48]
+	mi := &file_agent_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5292,7 +5666,7 @@ func (x *JobStarted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobStarted.ProtoReflect.Descriptor instead.
 func (*JobStarted) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{48}
+	return file_agent_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *JobStarted) GetJobId() string {
@@ -5330,7 +5704,7 @@ type JobOutput struct {
 
 func (x *JobOutput) Reset() {
 	*x = JobOutput{}
-	mi := &file_agent_proto_msgTypes[49]
+	mi := &file_agent_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5342,7 +5716,7 @@ func (x *JobOutput) String() string {
 func (*JobOutput) ProtoMessage() {}
 
 func (x *JobOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[49]
+	mi := &file_agent_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5355,7 +5729,7 @@ func (x *JobOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobOutput.ProtoReflect.Descriptor instead.
 func (*JobOutput) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{49}
+	return file_agent_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *JobOutput) GetJobId() string {
@@ -5399,7 +5773,7 @@ type JobStreamSummary struct {
 
 func (x *JobStreamSummary) Reset() {
 	*x = JobStreamSummary{}
-	mi := &file_agent_proto_msgTypes[50]
+	mi := &file_agent_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5411,7 +5785,7 @@ func (x *JobStreamSummary) String() string {
 func (*JobStreamSummary) ProtoMessage() {}
 
 func (x *JobStreamSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[50]
+	mi := &file_agent_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5424,7 +5798,7 @@ func (x *JobStreamSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobStreamSummary.ProtoReflect.Descriptor instead.
 func (*JobStreamSummary) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{50}
+	return file_agent_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *JobStreamSummary) GetChunks() uint64 {
@@ -5465,7 +5839,7 @@ type JobCompletion struct {
 
 func (x *JobCompletion) Reset() {
 	*x = JobCompletion{}
-	mi := &file_agent_proto_msgTypes[51]
+	mi := &file_agent_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5477,7 +5851,7 @@ func (x *JobCompletion) String() string {
 func (*JobCompletion) ProtoMessage() {}
 
 func (x *JobCompletion) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[51]
+	mi := &file_agent_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5490,7 +5864,7 @@ func (x *JobCompletion) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobCompletion.ProtoReflect.Descriptor instead.
 func (*JobCompletion) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{51}
+	return file_agent_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *JobCompletion) GetJobId() string {
@@ -5562,7 +5936,7 @@ type JobAck struct {
 
 func (x *JobAck) Reset() {
 	*x = JobAck{}
-	mi := &file_agent_proto_msgTypes[52]
+	mi := &file_agent_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5574,7 +5948,7 @@ func (x *JobAck) String() string {
 func (*JobAck) ProtoMessage() {}
 
 func (x *JobAck) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[52]
+	mi := &file_agent_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5587,7 +5961,7 @@ func (x *JobAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobAck.ProtoReflect.Descriptor instead.
 func (*JobAck) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{52}
+	return file_agent_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *JobAck) GetJobId() string {
@@ -5637,7 +6011,7 @@ type WatchdogCertificateRequest struct {
 
 func (x *WatchdogCertificateRequest) Reset() {
 	*x = WatchdogCertificateRequest{}
-	mi := &file_agent_proto_msgTypes[53]
+	mi := &file_agent_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5649,7 +6023,7 @@ func (x *WatchdogCertificateRequest) String() string {
 func (*WatchdogCertificateRequest) ProtoMessage() {}
 
 func (x *WatchdogCertificateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[53]
+	mi := &file_agent_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5662,7 +6036,7 @@ func (x *WatchdogCertificateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchdogCertificateRequest.ProtoReflect.Descriptor instead.
 func (*WatchdogCertificateRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{53}
+	return file_agent_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *WatchdogCertificateRequest) GetCsrDer() []byte {
@@ -5700,7 +6074,7 @@ type WatchdogCertificateResponse struct {
 
 func (x *WatchdogCertificateResponse) Reset() {
 	*x = WatchdogCertificateResponse{}
-	mi := &file_agent_proto_msgTypes[54]
+	mi := &file_agent_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5712,7 +6086,7 @@ func (x *WatchdogCertificateResponse) String() string {
 func (*WatchdogCertificateResponse) ProtoMessage() {}
 
 func (x *WatchdogCertificateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[54]
+	mi := &file_agent_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5725,7 +6099,7 @@ func (x *WatchdogCertificateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchdogCertificateResponse.ProtoReflect.Descriptor instead.
 func (*WatchdogCertificateResponse) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{54}
+	return file_agent_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *WatchdogCertificateResponse) GetCertificateDer() []byte {
@@ -5765,7 +6139,7 @@ type UpdateOffer struct {
 
 func (x *UpdateOffer) Reset() {
 	*x = UpdateOffer{}
-	mi := &file_agent_proto_msgTypes[55]
+	mi := &file_agent_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5777,7 +6151,7 @@ func (x *UpdateOffer) String() string {
 func (*UpdateOffer) ProtoMessage() {}
 
 func (x *UpdateOffer) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[55]
+	mi := &file_agent_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5790,7 +6164,7 @@ func (x *UpdateOffer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateOffer.ProtoReflect.Descriptor instead.
 func (*UpdateOffer) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{55}
+	return file_agent_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *UpdateOffer) GetManifest() []byte {
@@ -5834,7 +6208,7 @@ type UpdateStatus struct {
 
 func (x *UpdateStatus) Reset() {
 	*x = UpdateStatus{}
-	mi := &file_agent_proto_msgTypes[56]
+	mi := &file_agent_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5846,7 +6220,7 @@ func (x *UpdateStatus) String() string {
 func (*UpdateStatus) ProtoMessage() {}
 
 func (x *UpdateStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[56]
+	mi := &file_agent_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5859,7 +6233,7 @@ func (x *UpdateStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateStatus.ProtoReflect.Descriptor instead.
 func (*UpdateStatus) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{56}
+	return file_agent_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *UpdateStatus) GetComponent() Component {
@@ -5918,7 +6292,7 @@ type SignedRemoteSession struct {
 
 func (x *SignedRemoteSession) Reset() {
 	*x = SignedRemoteSession{}
-	mi := &file_agent_proto_msgTypes[57]
+	mi := &file_agent_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5930,7 +6304,7 @@ func (x *SignedRemoteSession) String() string {
 func (*SignedRemoteSession) ProtoMessage() {}
 
 func (x *SignedRemoteSession) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[57]
+	mi := &file_agent_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5943,7 +6317,7 @@ func (x *SignedRemoteSession) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedRemoteSession.ProtoReflect.Descriptor instead.
 func (*SignedRemoteSession) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{57}
+	return file_agent_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *SignedRemoteSession) GetPayload() []byte {
@@ -6016,7 +6390,7 @@ type RemoteSessionToken struct {
 
 func (x *RemoteSessionToken) Reset() {
 	*x = RemoteSessionToken{}
-	mi := &file_agent_proto_msgTypes[58]
+	mi := &file_agent_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6028,7 +6402,7 @@ func (x *RemoteSessionToken) String() string {
 func (*RemoteSessionToken) ProtoMessage() {}
 
 func (x *RemoteSessionToken) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[58]
+	mi := &file_agent_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6041,7 +6415,7 @@ func (x *RemoteSessionToken) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteSessionToken.ProtoReflect.Descriptor instead.
 func (*RemoteSessionToken) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{58}
+	return file_agent_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *RemoteSessionToken) GetParticipantId() string {
@@ -6208,7 +6582,7 @@ type RemoteSessionOffer struct {
 
 func (x *RemoteSessionOffer) Reset() {
 	*x = RemoteSessionOffer{}
-	mi := &file_agent_proto_msgTypes[59]
+	mi := &file_agent_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6220,7 +6594,7 @@ func (x *RemoteSessionOffer) String() string {
 func (*RemoteSessionOffer) ProtoMessage() {}
 
 func (x *RemoteSessionOffer) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[59]
+	mi := &file_agent_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6233,7 +6607,7 @@ func (x *RemoteSessionOffer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteSessionOffer.ProtoReflect.Descriptor instead.
 func (*RemoteSessionOffer) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{59}
+	return file_agent_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *RemoteSessionOffer) GetSession() *SignedRemoteSession {
@@ -6255,7 +6629,7 @@ type RemoteSessionRefused struct {
 
 func (x *RemoteSessionRefused) Reset() {
 	*x = RemoteSessionRefused{}
-	mi := &file_agent_proto_msgTypes[60]
+	mi := &file_agent_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6267,7 +6641,7 @@ func (x *RemoteSessionRefused) String() string {
 func (*RemoteSessionRefused) ProtoMessage() {}
 
 func (x *RemoteSessionRefused) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[60]
+	mi := &file_agent_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6280,7 +6654,7 @@ func (x *RemoteSessionRefused) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteSessionRefused.ProtoReflect.Descriptor instead.
 func (*RemoteSessionRefused) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{60}
+	return file_agent_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *RemoteSessionRefused) GetParticipantId() string {
@@ -6317,7 +6691,7 @@ type RemoteSessionActionReport struct {
 
 func (x *RemoteSessionActionReport) Reset() {
 	*x = RemoteSessionActionReport{}
-	mi := &file_agent_proto_msgTypes[61]
+	mi := &file_agent_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6329,7 +6703,7 @@ func (x *RemoteSessionActionReport) String() string {
 func (*RemoteSessionActionReport) ProtoMessage() {}
 
 func (x *RemoteSessionActionReport) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[61]
+	mi := &file_agent_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6342,7 +6716,7 @@ func (x *RemoteSessionActionReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteSessionActionReport.ProtoReflect.Descriptor instead.
 func (*RemoteSessionActionReport) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{61}
+	return file_agent_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *RemoteSessionActionReport) GetParticipantId() string {
@@ -6398,7 +6772,7 @@ type RelayEndpointHello struct {
 
 func (x *RelayEndpointHello) Reset() {
 	*x = RelayEndpointHello{}
-	mi := &file_agent_proto_msgTypes[62]
+	mi := &file_agent_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6410,7 +6784,7 @@ func (x *RelayEndpointHello) String() string {
 func (*RelayEndpointHello) ProtoMessage() {}
 
 func (x *RelayEndpointHello) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[62]
+	mi := &file_agent_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6423,7 +6797,7 @@ func (x *RelayEndpointHello) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayEndpointHello.ProtoReflect.Descriptor instead.
 func (*RelayEndpointHello) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{62}
+	return file_agent_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *RelayEndpointHello) GetParticipantId() string {
@@ -6468,7 +6842,7 @@ type SignedUninstall struct {
 
 func (x *SignedUninstall) Reset() {
 	*x = SignedUninstall{}
-	mi := &file_agent_proto_msgTypes[63]
+	mi := &file_agent_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6480,7 +6854,7 @@ func (x *SignedUninstall) String() string {
 func (*SignedUninstall) ProtoMessage() {}
 
 func (x *SignedUninstall) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[63]
+	mi := &file_agent_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6493,7 +6867,7 @@ func (x *SignedUninstall) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedUninstall.ProtoReflect.Descriptor instead.
 func (*SignedUninstall) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{63}
+	return file_agent_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *SignedUninstall) GetPayload() []byte {
@@ -6533,7 +6907,7 @@ type UninstallCommand struct {
 
 func (x *UninstallCommand) Reset() {
 	*x = UninstallCommand{}
-	mi := &file_agent_proto_msgTypes[64]
+	mi := &file_agent_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6545,7 +6919,7 @@ func (x *UninstallCommand) String() string {
 func (*UninstallCommand) ProtoMessage() {}
 
 func (x *UninstallCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[64]
+	mi := &file_agent_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6558,7 +6932,7 @@ func (x *UninstallCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UninstallCommand.ProtoReflect.Descriptor instead.
 func (*UninstallCommand) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{64}
+	return file_agent_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *UninstallCommand) GetUninstallId() string {
@@ -6606,7 +6980,7 @@ type UninstallAccepted struct {
 
 func (x *UninstallAccepted) Reset() {
 	*x = UninstallAccepted{}
-	mi := &file_agent_proto_msgTypes[65]
+	mi := &file_agent_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6618,7 +6992,7 @@ func (x *UninstallAccepted) String() string {
 func (*UninstallAccepted) ProtoMessage() {}
 
 func (x *UninstallAccepted) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[65]
+	mi := &file_agent_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6631,7 +7005,7 @@ func (x *UninstallAccepted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UninstallAccepted.ProtoReflect.Descriptor instead.
 func (*UninstallAccepted) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{65}
+	return file_agent_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *UninstallAccepted) GetUninstallId() string {
@@ -6651,7 +7025,7 @@ type Disconnect struct {
 
 func (x *Disconnect) Reset() {
 	*x = Disconnect{}
-	mi := &file_agent_proto_msgTypes[66]
+	mi := &file_agent_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6663,7 +7037,7 @@ func (x *Disconnect) String() string {
 func (*Disconnect) ProtoMessage() {}
 
 func (x *Disconnect) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[66]
+	mi := &file_agent_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6676,7 +7050,7 @@ func (x *Disconnect) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Disconnect.ProtoReflect.Descriptor instead.
 func (*Disconnect) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{66}
+	return file_agent_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *Disconnect) GetCode() DisconnectCode {
@@ -7038,7 +7412,7 @@ const file_agent_proto_rawDesc = "" +
 	"\tSignedJob\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\fR\tsignature\x12\x15\n" +
-	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\x88\x04\n" +
+	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\xcf\x04\n" +
 	"\n" +
 	"JobPayload\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x1f\n" +
@@ -7056,9 +7430,30 @@ const file_agent_proto_rawDesc = "" +
 	"\x06run_as\x18\n" +
 	" \x01(\x0e2\x19.fleeto.agent.v1.JobRunAsR\x05runAs\x12#\n" +
 	"\x0erun_as_user_id\x18\v \x01(\tR\vrunAsUserId\x125\n" +
-	"\arestart\x18\f \x01(\v2\x1b.fleeto.agent.v1.RestartJobR\arestart\"\f\n" +
+	"\arestart\x18\f \x01(\v2\x1b.fleeto.agent.v1.RestartJobR\arestart\x12E\n" +
+	"\rpatch_install\x18\r \x01(\v2 .fleeto.agent.v1.PatchInstallJobR\fpatchInstall\"\f\n" +
 	"\n" +
-	"RestartJob\"\xa2\x01\n" +
+	"RestartJob\"\xdf\x02\n" +
+	"\x0fPatchInstallJob\x128\n" +
+	"\x05scope\x18\x01 \x01(\x0e2\".fleeto.agent.v1.PatchInstallScopeR\x05scope\x12=\n" +
+	"\aupdates\x18\x02 \x03(\v2#.fleeto.agent.v1.PatchInstallUpdateR\aupdates\x12;\n" +
+	"\x06filter\x18\x03 \x01(\v2#.fleeto.agent.v1.PatchInstallFilterR\x06filter\x127\n" +
+	"\arestart\x18\x04 \x01(\x0e2\x1d.fleeto.agent.v1.PatchRestartR\arestart\x124\n" +
+	"\x16restart_notice_seconds\x18\x05 \x01(\rR\x14restartNoticeSeconds\x12'\n" +
+	"\x0frestart_message\x18\x06 \x01(\tR\x0erestartMessage\"T\n" +
+	"\x12PatchInstallUpdate\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
+	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\tR\aversion\"\x98\x02\n" +
+	"\x12PatchInstallFilter\x12#\n" +
+	"\rsecurity_only\x18\x01 \x01(\bR\fsecurityOnly\x12(\n" +
+	"\x0fclassifications\x18\x02 \x03(\tR\x0fclassifications\x12\x1e\n" +
+	"\n" +
+	"severities\x18\x03 \x03(\tR\n" +
+	"severities\x12%\n" +
+	"\x0eexcluded_names\x18\x04 \x03(\tR\rexcludedNames\x12C\n" +
+	"\x0freleased_before\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x0ereleasedBefore\x12'\n" +
+	"\x0finclude_drivers\x18\x06 \x01(\bR\x0eincludeDrivers\"\xa2\x01\n" +
 	"\tScriptJob\x12;\n" +
 	"\blanguage\x18\x01 \x01(\x0e2\x1f.fleeto.agent.v1.ScriptLanguageR\blanguage\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
@@ -7222,15 +7617,24 @@ const file_agent_proto_rawDesc = "" +
 	"\x11CHECK_TYPE_SCRIPT\x10\x0f\x12\x19\n" +
 	"\x15CHECK_TYPE_RAID_STATE\x10\x10\x12\x1a\n" +
 	"\x16CHECK_TYPE_DISK_HEALTH\x10\x11\x12\x1f\n" +
-	"\x1bCHECK_TYPE_DISK_TEMPERATURE\x10\x12*]\n" +
+	"\x1bCHECK_TYPE_DISK_TEMPERATURE\x10\x12*\x80\x01\n" +
+	"\x11PatchInstallScope\x12#\n" +
+	"\x1fPATCH_INSTALL_SCOPE_UNSPECIFIED\x10\x00\x12#\n" +
+	"\x1fPATCH_INSTALL_SCOPE_ALL_MISSING\x10\x01\x12!\n" +
+	"\x1dPATCH_INSTALL_SCOPE_SPECIFIED\x10\x02*e\n" +
+	"\fPatchRestart\x12\x1d\n" +
+	"\x19PATCH_RESTART_UNSPECIFIED\x10\x00\x12\x17\n" +
+	"\x13PATCH_RESTART_NEVER\x10\x01\x12\x1d\n" +
+	"\x19PATCH_RESTART_IF_REQUIRED\x10\x02*]\n" +
 	"\bJobRunAs\x12\x1a\n" +
 	"\x16JOB_RUN_AS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_RUN_AS_SERVICE\x10\x01\x12\x1d\n" +
-	"\x19JOB_RUN_AS_LOGGED_ON_USER\x10\x02*N\n" +
+	"\x19JOB_RUN_AS_LOGGED_ON_USER\x10\x02*j\n" +
 	"\aJobType\x12\x18\n" +
 	"\x14JOB_TYPE_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fJOB_TYPE_SCRIPT\x10\x01\x12\x14\n" +
-	"\x10JOB_TYPE_RESTART\x10\x02*\xa1\x01\n" +
+	"\x10JOB_TYPE_RESTART\x10\x02\x12\x1a\n" +
+	"\x16JOB_TYPE_PATCH_INSTALL\x10\x03*\xa1\x01\n" +
 	"\x0eScriptLanguage\x12\x1f\n" +
 	"\x1bSCRIPT_LANGUAGE_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aSCRIPT_LANGUAGE_POWERSHELL\x10\x01\x12\x19\n" +
@@ -7295,196 +7699,207 @@ func file_agent_proto_rawDescGZIP() []byte {
 	return file_agent_proto_rawDescData
 }
 
-var file_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 15)
-var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 68)
+var file_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 17)
+var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 71)
 var file_agent_proto_goTypes = []any{
 	(Component)(0),                      // 0: fleeto.agent.v1.Component
 	(ServiceState)(0),                   // 1: fleeto.agent.v1.ServiceState
 	(StorageScanMethod)(0),              // 2: fleeto.agent.v1.StorageScanMethod
 	(Tier)(0),                           // 3: fleeto.agent.v1.Tier
 	(CheckType)(0),                      // 4: fleeto.agent.v1.CheckType
-	(JobRunAs)(0),                       // 5: fleeto.agent.v1.JobRunAs
-	(JobType)(0),                        // 6: fleeto.agent.v1.JobType
-	(ScriptLanguage)(0),                 // 7: fleeto.agent.v1.ScriptLanguage
-	(JobStream)(0),                      // 8: fleeto.agent.v1.JobStream
-	(JobResult)(0),                      // 9: fleeto.agent.v1.JobResult
-	(JobAckKind)(0),                     // 10: fleeto.agent.v1.JobAckKind
-	(UpdateState)(0),                    // 11: fleeto.agent.v1.UpdateState
-	(UpdateWaitReason)(0),               // 12: fleeto.agent.v1.UpdateWaitReason
-	(RemoteSessionKind)(0),              // 13: fleeto.agent.v1.RemoteSessionKind
-	(DisconnectCode)(0),                 // 14: fleeto.agent.v1.DisconnectCode
-	(*EnrollRequest)(nil),               // 15: fleeto.agent.v1.EnrollRequest
-	(*EnrollResponse)(nil),              // 16: fleeto.agent.v1.EnrollResponse
-	(*RecoverRequest)(nil),              // 17: fleeto.agent.v1.RecoverRequest
-	(*RecoverResponse)(nil),             // 18: fleeto.agent.v1.RecoverResponse
-	(*OsInfo)(nil),                      // 19: fleeto.agent.v1.OsInfo
-	(*AgentMessage)(nil),                // 20: fleeto.agent.v1.AgentMessage
-	(*ServerMessage)(nil),               // 21: fleeto.agent.v1.ServerMessage
-	(*Hello)(nil),                       // 22: fleeto.agent.v1.Hello
-	(*HelloAck)(nil),                    // 23: fleeto.agent.v1.HelloAck
-	(*Heartbeat)(nil),                   // 24: fleeto.agent.v1.Heartbeat
-	(*SignedInUsers)(nil),               // 25: fleeto.agent.v1.SignedInUsers
-	(*SignedInUser)(nil),                // 26: fleeto.agent.v1.SignedInUser
-	(*UserSession)(nil),                 // 27: fleeto.agent.v1.UserSession
-	(*PeerStatus)(nil),                  // 28: fleeto.agent.v1.PeerStatus
-	(*Ping)(nil),                        // 29: fleeto.agent.v1.Ping
-	(*Pong)(nil),                        // 30: fleeto.agent.v1.Pong
-	(*InventoryRequest)(nil),            // 31: fleeto.agent.v1.InventoryRequest
-	(*RunChecksNow)(nil),                // 32: fleeto.agent.v1.RunChecksNow
-	(*InventoryReport)(nil),             // 33: fleeto.agent.v1.InventoryReport
-	(*Inventory)(nil),                   // 34: fleeto.agent.v1.Inventory
-	(*PackageInfo)(nil),                 // 35: fleeto.agent.v1.PackageInfo
-	(*ServiceItem)(nil),                 // 36: fleeto.agent.v1.ServiceItem
-	(*Disk)(nil),                        // 37: fleeto.agent.v1.Disk
-	(*NetworkInterface)(nil),            // 38: fleeto.agent.v1.NetworkInterface
-	(*SoftwareItem)(nil),                // 39: fleeto.agent.v1.SoftwareItem
-	(*CheckResultBatch)(nil),            // 40: fleeto.agent.v1.CheckResultBatch
-	(*CheckResult)(nil),                 // 41: fleeto.agent.v1.CheckResult
-	(*ProcessSample)(nil),               // 42: fleeto.agent.v1.ProcessSample
-	(*BatchAck)(nil),                    // 43: fleeto.agent.v1.BatchAck
-	(*RenewCertificateRequest)(nil),     // 44: fleeto.agent.v1.RenewCertificateRequest
-	(*RenewCertificateResponse)(nil),    // 45: fleeto.agent.v1.RenewCertificateResponse
-	(*StorageScanRequest)(nil),          // 46: fleeto.agent.v1.StorageScanRequest
-	(*StorageScanReport)(nil),           // 47: fleeto.agent.v1.StorageScanReport
-	(*StorageFolder)(nil),               // 48: fleeto.agent.v1.StorageFolder
-	(*StorageFile)(nil),                 // 49: fleeto.agent.v1.StorageFile
-	(*StorageScanAck)(nil),              // 50: fleeto.agent.v1.StorageScanAck
-	(*PatchScanRequest)(nil),            // 51: fleeto.agent.v1.PatchScanRequest
-	(*PatchScanReport)(nil),             // 52: fleeto.agent.v1.PatchScanReport
-	(*PatchUpdate)(nil),                 // 53: fleeto.agent.v1.PatchUpdate
-	(*PatchScanAck)(nil),                // 54: fleeto.agent.v1.PatchScanAck
-	(*SignedConfig)(nil),                // 55: fleeto.agent.v1.SignedConfig
-	(*AgentConfig)(nil),                 // 56: fleeto.agent.v1.AgentConfig
-	(*CheckSpec)(nil),                   // 57: fleeto.agent.v1.CheckSpec
-	(*ConfigApplied)(nil),               // 58: fleeto.agent.v1.ConfigApplied
-	(*SignedJob)(nil),                   // 59: fleeto.agent.v1.SignedJob
-	(*JobPayload)(nil),                  // 60: fleeto.agent.v1.JobPayload
-	(*RestartJob)(nil),                  // 61: fleeto.agent.v1.RestartJob
-	(*ScriptJob)(nil),                   // 62: fleeto.agent.v1.ScriptJob
-	(*JobStarted)(nil),                  // 63: fleeto.agent.v1.JobStarted
-	(*JobOutput)(nil),                   // 64: fleeto.agent.v1.JobOutput
-	(*JobStreamSummary)(nil),            // 65: fleeto.agent.v1.JobStreamSummary
-	(*JobCompletion)(nil),               // 66: fleeto.agent.v1.JobCompletion
-	(*JobAck)(nil),                      // 67: fleeto.agent.v1.JobAck
-	(*WatchdogCertificateRequest)(nil),  // 68: fleeto.agent.v1.WatchdogCertificateRequest
-	(*WatchdogCertificateResponse)(nil), // 69: fleeto.agent.v1.WatchdogCertificateResponse
-	(*UpdateOffer)(nil),                 // 70: fleeto.agent.v1.UpdateOffer
-	(*UpdateStatus)(nil),                // 71: fleeto.agent.v1.UpdateStatus
-	(*SignedRemoteSession)(nil),         // 72: fleeto.agent.v1.SignedRemoteSession
-	(*RemoteSessionToken)(nil),          // 73: fleeto.agent.v1.RemoteSessionToken
-	(*RemoteSessionOffer)(nil),          // 74: fleeto.agent.v1.RemoteSessionOffer
-	(*RemoteSessionRefused)(nil),        // 75: fleeto.agent.v1.RemoteSessionRefused
-	(*RemoteSessionActionReport)(nil),   // 76: fleeto.agent.v1.RemoteSessionActionReport
-	(*RelayEndpointHello)(nil),          // 77: fleeto.agent.v1.RelayEndpointHello
-	(*SignedUninstall)(nil),             // 78: fleeto.agent.v1.SignedUninstall
-	(*UninstallCommand)(nil),            // 79: fleeto.agent.v1.UninstallCommand
-	(*UninstallAccepted)(nil),           // 80: fleeto.agent.v1.UninstallAccepted
-	(*Disconnect)(nil),                  // 81: fleeto.agent.v1.Disconnect
-	nil,                                 // 82: fleeto.agent.v1.CheckSpec.ParametersEntry
-	(*timestamppb.Timestamp)(nil),       // 83: google.protobuf.Timestamp
+	(PatchInstallScope)(0),              // 5: fleeto.agent.v1.PatchInstallScope
+	(PatchRestart)(0),                   // 6: fleeto.agent.v1.PatchRestart
+	(JobRunAs)(0),                       // 7: fleeto.agent.v1.JobRunAs
+	(JobType)(0),                        // 8: fleeto.agent.v1.JobType
+	(ScriptLanguage)(0),                 // 9: fleeto.agent.v1.ScriptLanguage
+	(JobStream)(0),                      // 10: fleeto.agent.v1.JobStream
+	(JobResult)(0),                      // 11: fleeto.agent.v1.JobResult
+	(JobAckKind)(0),                     // 12: fleeto.agent.v1.JobAckKind
+	(UpdateState)(0),                    // 13: fleeto.agent.v1.UpdateState
+	(UpdateWaitReason)(0),               // 14: fleeto.agent.v1.UpdateWaitReason
+	(RemoteSessionKind)(0),              // 15: fleeto.agent.v1.RemoteSessionKind
+	(DisconnectCode)(0),                 // 16: fleeto.agent.v1.DisconnectCode
+	(*EnrollRequest)(nil),               // 17: fleeto.agent.v1.EnrollRequest
+	(*EnrollResponse)(nil),              // 18: fleeto.agent.v1.EnrollResponse
+	(*RecoverRequest)(nil),              // 19: fleeto.agent.v1.RecoverRequest
+	(*RecoverResponse)(nil),             // 20: fleeto.agent.v1.RecoverResponse
+	(*OsInfo)(nil),                      // 21: fleeto.agent.v1.OsInfo
+	(*AgentMessage)(nil),                // 22: fleeto.agent.v1.AgentMessage
+	(*ServerMessage)(nil),               // 23: fleeto.agent.v1.ServerMessage
+	(*Hello)(nil),                       // 24: fleeto.agent.v1.Hello
+	(*HelloAck)(nil),                    // 25: fleeto.agent.v1.HelloAck
+	(*Heartbeat)(nil),                   // 26: fleeto.agent.v1.Heartbeat
+	(*SignedInUsers)(nil),               // 27: fleeto.agent.v1.SignedInUsers
+	(*SignedInUser)(nil),                // 28: fleeto.agent.v1.SignedInUser
+	(*UserSession)(nil),                 // 29: fleeto.agent.v1.UserSession
+	(*PeerStatus)(nil),                  // 30: fleeto.agent.v1.PeerStatus
+	(*Ping)(nil),                        // 31: fleeto.agent.v1.Ping
+	(*Pong)(nil),                        // 32: fleeto.agent.v1.Pong
+	(*InventoryRequest)(nil),            // 33: fleeto.agent.v1.InventoryRequest
+	(*RunChecksNow)(nil),                // 34: fleeto.agent.v1.RunChecksNow
+	(*InventoryReport)(nil),             // 35: fleeto.agent.v1.InventoryReport
+	(*Inventory)(nil),                   // 36: fleeto.agent.v1.Inventory
+	(*PackageInfo)(nil),                 // 37: fleeto.agent.v1.PackageInfo
+	(*ServiceItem)(nil),                 // 38: fleeto.agent.v1.ServiceItem
+	(*Disk)(nil),                        // 39: fleeto.agent.v1.Disk
+	(*NetworkInterface)(nil),            // 40: fleeto.agent.v1.NetworkInterface
+	(*SoftwareItem)(nil),                // 41: fleeto.agent.v1.SoftwareItem
+	(*CheckResultBatch)(nil),            // 42: fleeto.agent.v1.CheckResultBatch
+	(*CheckResult)(nil),                 // 43: fleeto.agent.v1.CheckResult
+	(*ProcessSample)(nil),               // 44: fleeto.agent.v1.ProcessSample
+	(*BatchAck)(nil),                    // 45: fleeto.agent.v1.BatchAck
+	(*RenewCertificateRequest)(nil),     // 46: fleeto.agent.v1.RenewCertificateRequest
+	(*RenewCertificateResponse)(nil),    // 47: fleeto.agent.v1.RenewCertificateResponse
+	(*StorageScanRequest)(nil),          // 48: fleeto.agent.v1.StorageScanRequest
+	(*StorageScanReport)(nil),           // 49: fleeto.agent.v1.StorageScanReport
+	(*StorageFolder)(nil),               // 50: fleeto.agent.v1.StorageFolder
+	(*StorageFile)(nil),                 // 51: fleeto.agent.v1.StorageFile
+	(*StorageScanAck)(nil),              // 52: fleeto.agent.v1.StorageScanAck
+	(*PatchScanRequest)(nil),            // 53: fleeto.agent.v1.PatchScanRequest
+	(*PatchScanReport)(nil),             // 54: fleeto.agent.v1.PatchScanReport
+	(*PatchUpdate)(nil),                 // 55: fleeto.agent.v1.PatchUpdate
+	(*PatchScanAck)(nil),                // 56: fleeto.agent.v1.PatchScanAck
+	(*SignedConfig)(nil),                // 57: fleeto.agent.v1.SignedConfig
+	(*AgentConfig)(nil),                 // 58: fleeto.agent.v1.AgentConfig
+	(*CheckSpec)(nil),                   // 59: fleeto.agent.v1.CheckSpec
+	(*ConfigApplied)(nil),               // 60: fleeto.agent.v1.ConfigApplied
+	(*SignedJob)(nil),                   // 61: fleeto.agent.v1.SignedJob
+	(*JobPayload)(nil),                  // 62: fleeto.agent.v1.JobPayload
+	(*RestartJob)(nil),                  // 63: fleeto.agent.v1.RestartJob
+	(*PatchInstallJob)(nil),             // 64: fleeto.agent.v1.PatchInstallJob
+	(*PatchInstallUpdate)(nil),          // 65: fleeto.agent.v1.PatchInstallUpdate
+	(*PatchInstallFilter)(nil),          // 66: fleeto.agent.v1.PatchInstallFilter
+	(*ScriptJob)(nil),                   // 67: fleeto.agent.v1.ScriptJob
+	(*JobStarted)(nil),                  // 68: fleeto.agent.v1.JobStarted
+	(*JobOutput)(nil),                   // 69: fleeto.agent.v1.JobOutput
+	(*JobStreamSummary)(nil),            // 70: fleeto.agent.v1.JobStreamSummary
+	(*JobCompletion)(nil),               // 71: fleeto.agent.v1.JobCompletion
+	(*JobAck)(nil),                      // 72: fleeto.agent.v1.JobAck
+	(*WatchdogCertificateRequest)(nil),  // 73: fleeto.agent.v1.WatchdogCertificateRequest
+	(*WatchdogCertificateResponse)(nil), // 74: fleeto.agent.v1.WatchdogCertificateResponse
+	(*UpdateOffer)(nil),                 // 75: fleeto.agent.v1.UpdateOffer
+	(*UpdateStatus)(nil),                // 76: fleeto.agent.v1.UpdateStatus
+	(*SignedRemoteSession)(nil),         // 77: fleeto.agent.v1.SignedRemoteSession
+	(*RemoteSessionToken)(nil),          // 78: fleeto.agent.v1.RemoteSessionToken
+	(*RemoteSessionOffer)(nil),          // 79: fleeto.agent.v1.RemoteSessionOffer
+	(*RemoteSessionRefused)(nil),        // 80: fleeto.agent.v1.RemoteSessionRefused
+	(*RemoteSessionActionReport)(nil),   // 81: fleeto.agent.v1.RemoteSessionActionReport
+	(*RelayEndpointHello)(nil),          // 82: fleeto.agent.v1.RelayEndpointHello
+	(*SignedUninstall)(nil),             // 83: fleeto.agent.v1.SignedUninstall
+	(*UninstallCommand)(nil),            // 84: fleeto.agent.v1.UninstallCommand
+	(*UninstallAccepted)(nil),           // 85: fleeto.agent.v1.UninstallAccepted
+	(*Disconnect)(nil),                  // 86: fleeto.agent.v1.Disconnect
+	nil,                                 // 87: fleeto.agent.v1.CheckSpec.ParametersEntry
+	(*timestamppb.Timestamp)(nil),       // 88: google.protobuf.Timestamp
 }
 var file_agent_proto_depIdxs = []int32{
-	19, // 0: fleeto.agent.v1.EnrollRequest.os:type_name -> fleeto.agent.v1.OsInfo
-	22, // 1: fleeto.agent.v1.AgentMessage.hello:type_name -> fleeto.agent.v1.Hello
-	24, // 2: fleeto.agent.v1.AgentMessage.heartbeat:type_name -> fleeto.agent.v1.Heartbeat
-	33, // 3: fleeto.agent.v1.AgentMessage.inventory:type_name -> fleeto.agent.v1.InventoryReport
-	40, // 4: fleeto.agent.v1.AgentMessage.check_results:type_name -> fleeto.agent.v1.CheckResultBatch
-	44, // 5: fleeto.agent.v1.AgentMessage.renew_certificate:type_name -> fleeto.agent.v1.RenewCertificateRequest
-	58, // 6: fleeto.agent.v1.AgentMessage.config_applied:type_name -> fleeto.agent.v1.ConfigApplied
-	30, // 7: fleeto.agent.v1.AgentMessage.pong:type_name -> fleeto.agent.v1.Pong
-	63, // 8: fleeto.agent.v1.AgentMessage.job_started:type_name -> fleeto.agent.v1.JobStarted
-	64, // 9: fleeto.agent.v1.AgentMessage.job_output:type_name -> fleeto.agent.v1.JobOutput
-	66, // 10: fleeto.agent.v1.AgentMessage.job_completion:type_name -> fleeto.agent.v1.JobCompletion
-	68, // 11: fleeto.agent.v1.AgentMessage.watchdog_certificate:type_name -> fleeto.agent.v1.WatchdogCertificateRequest
-	71, // 12: fleeto.agent.v1.AgentMessage.update_status:type_name -> fleeto.agent.v1.UpdateStatus
-	75, // 13: fleeto.agent.v1.AgentMessage.remote_session_refused:type_name -> fleeto.agent.v1.RemoteSessionRefused
-	76, // 14: fleeto.agent.v1.AgentMessage.remote_session_action:type_name -> fleeto.agent.v1.RemoteSessionActionReport
-	47, // 15: fleeto.agent.v1.AgentMessage.storage_scan:type_name -> fleeto.agent.v1.StorageScanReport
-	80, // 16: fleeto.agent.v1.AgentMessage.uninstall_accepted:type_name -> fleeto.agent.v1.UninstallAccepted
-	52, // 17: fleeto.agent.v1.AgentMessage.patch_scan:type_name -> fleeto.agent.v1.PatchScanReport
-	23, // 18: fleeto.agent.v1.ServerMessage.hello_ack:type_name -> fleeto.agent.v1.HelloAck
-	43, // 19: fleeto.agent.v1.ServerMessage.batch_ack:type_name -> fleeto.agent.v1.BatchAck
-	55, // 20: fleeto.agent.v1.ServerMessage.config:type_name -> fleeto.agent.v1.SignedConfig
-	45, // 21: fleeto.agent.v1.ServerMessage.renew_certificate:type_name -> fleeto.agent.v1.RenewCertificateResponse
-	29, // 22: fleeto.agent.v1.ServerMessage.ping:type_name -> fleeto.agent.v1.Ping
-	81, // 23: fleeto.agent.v1.ServerMessage.disconnect:type_name -> fleeto.agent.v1.Disconnect
-	31, // 24: fleeto.agent.v1.ServerMessage.inventory_request:type_name -> fleeto.agent.v1.InventoryRequest
-	32, // 25: fleeto.agent.v1.ServerMessage.run_checks_now:type_name -> fleeto.agent.v1.RunChecksNow
-	59, // 26: fleeto.agent.v1.ServerMessage.job:type_name -> fleeto.agent.v1.SignedJob
-	67, // 27: fleeto.agent.v1.ServerMessage.job_ack:type_name -> fleeto.agent.v1.JobAck
-	70, // 28: fleeto.agent.v1.ServerMessage.update_offer:type_name -> fleeto.agent.v1.UpdateOffer
-	69, // 29: fleeto.agent.v1.ServerMessage.watchdog_certificate:type_name -> fleeto.agent.v1.WatchdogCertificateResponse
-	74, // 30: fleeto.agent.v1.ServerMessage.remote_session_offer:type_name -> fleeto.agent.v1.RemoteSessionOffer
-	46, // 31: fleeto.agent.v1.ServerMessage.storage_scan_request:type_name -> fleeto.agent.v1.StorageScanRequest
-	50, // 32: fleeto.agent.v1.ServerMessage.storage_scan_ack:type_name -> fleeto.agent.v1.StorageScanAck
-	78, // 33: fleeto.agent.v1.ServerMessage.uninstall:type_name -> fleeto.agent.v1.SignedUninstall
-	51, // 34: fleeto.agent.v1.ServerMessage.patch_scan_request:type_name -> fleeto.agent.v1.PatchScanRequest
-	54, // 35: fleeto.agent.v1.ServerMessage.patch_scan_ack:type_name -> fleeto.agent.v1.PatchScanAck
-	19, // 36: fleeto.agent.v1.Hello.os:type_name -> fleeto.agent.v1.OsInfo
-	0,  // 37: fleeto.agent.v1.Hello.component:type_name -> fleeto.agent.v1.Component
-	83, // 38: fleeto.agent.v1.HelloAck.server_time:type_name -> google.protobuf.Timestamp
-	83, // 39: fleeto.agent.v1.Heartbeat.agent_time:type_name -> google.protobuf.Timestamp
-	28, // 40: fleeto.agent.v1.Heartbeat.peer:type_name -> fleeto.agent.v1.PeerStatus
-	25, // 41: fleeto.agent.v1.Heartbeat.signed_in_users:type_name -> fleeto.agent.v1.SignedInUsers
-	26, // 42: fleeto.agent.v1.SignedInUsers.users:type_name -> fleeto.agent.v1.SignedInUser
-	27, // 43: fleeto.agent.v1.SignedInUser.sessions:type_name -> fleeto.agent.v1.UserSession
-	1,  // 44: fleeto.agent.v1.PeerStatus.state:type_name -> fleeto.agent.v1.ServiceState
-	34, // 45: fleeto.agent.v1.InventoryReport.inventory:type_name -> fleeto.agent.v1.Inventory
-	19, // 46: fleeto.agent.v1.Inventory.os:type_name -> fleeto.agent.v1.OsInfo
-	37, // 47: fleeto.agent.v1.Inventory.disks:type_name -> fleeto.agent.v1.Disk
-	38, // 48: fleeto.agent.v1.Inventory.network_interfaces:type_name -> fleeto.agent.v1.NetworkInterface
-	39, // 49: fleeto.agent.v1.Inventory.software:type_name -> fleeto.agent.v1.SoftwareItem
-	83, // 50: fleeto.agent.v1.Inventory.boot_time:type_name -> google.protobuf.Timestamp
-	36, // 51: fleeto.agent.v1.Inventory.services:type_name -> fleeto.agent.v1.ServiceItem
-	35, // 52: fleeto.agent.v1.Inventory.packages:type_name -> fleeto.agent.v1.PackageInfo
-	83, // 53: fleeto.agent.v1.PackageInfo.package_lists_updated_at:type_name -> google.protobuf.Timestamp
-	41, // 54: fleeto.agent.v1.CheckResultBatch.results:type_name -> fleeto.agent.v1.CheckResult
-	83, // 55: fleeto.agent.v1.CheckResult.collected_at:type_name -> google.protobuf.Timestamp
-	42, // 56: fleeto.agent.v1.CheckResult.processes:type_name -> fleeto.agent.v1.ProcessSample
-	83, // 57: fleeto.agent.v1.StorageScanReport.started_at:type_name -> google.protobuf.Timestamp
-	2,  // 58: fleeto.agent.v1.StorageScanReport.method:type_name -> fleeto.agent.v1.StorageScanMethod
-	48, // 59: fleeto.agent.v1.StorageScanReport.folders:type_name -> fleeto.agent.v1.StorageFolder
-	49, // 60: fleeto.agent.v1.StorageScanReport.files:type_name -> fleeto.agent.v1.StorageFile
-	83, // 61: fleeto.agent.v1.StorageFile.modified_at:type_name -> google.protobuf.Timestamp
-	83, // 62: fleeto.agent.v1.PatchScanReport.started_at:type_name -> google.protobuf.Timestamp
-	53, // 63: fleeto.agent.v1.PatchScanReport.updates:type_name -> fleeto.agent.v1.PatchUpdate
-	83, // 64: fleeto.agent.v1.PatchUpdate.released_at:type_name -> google.protobuf.Timestamp
-	83, // 65: fleeto.agent.v1.AgentConfig.issued_at:type_name -> google.protobuf.Timestamp
-	3,  // 66: fleeto.agent.v1.AgentConfig.tier:type_name -> fleeto.agent.v1.Tier
-	57, // 67: fleeto.agent.v1.AgentConfig.checks:type_name -> fleeto.agent.v1.CheckSpec
-	4,  // 68: fleeto.agent.v1.CheckSpec.type:type_name -> fleeto.agent.v1.CheckType
-	82, // 69: fleeto.agent.v1.CheckSpec.parameters:type_name -> fleeto.agent.v1.CheckSpec.ParametersEntry
-	62, // 70: fleeto.agent.v1.CheckSpec.script:type_name -> fleeto.agent.v1.ScriptJob
-	6,  // 71: fleeto.agent.v1.JobPayload.type:type_name -> fleeto.agent.v1.JobType
-	83, // 72: fleeto.agent.v1.JobPayload.valid_until:type_name -> google.protobuf.Timestamp
-	62, // 73: fleeto.agent.v1.JobPayload.script:type_name -> fleeto.agent.v1.ScriptJob
-	5,  // 74: fleeto.agent.v1.JobPayload.run_as:type_name -> fleeto.agent.v1.JobRunAs
-	61, // 75: fleeto.agent.v1.JobPayload.restart:type_name -> fleeto.agent.v1.RestartJob
-	7,  // 76: fleeto.agent.v1.ScriptJob.language:type_name -> fleeto.agent.v1.ScriptLanguage
-	83, // 77: fleeto.agent.v1.JobStarted.started_at:type_name -> google.protobuf.Timestamp
-	8,  // 78: fleeto.agent.v1.JobOutput.stream:type_name -> fleeto.agent.v1.JobStream
-	9,  // 79: fleeto.agent.v1.JobCompletion.result:type_name -> fleeto.agent.v1.JobResult
-	65, // 80: fleeto.agent.v1.JobCompletion.stdout:type_name -> fleeto.agent.v1.JobStreamSummary
-	65, // 81: fleeto.agent.v1.JobCompletion.stderr:type_name -> fleeto.agent.v1.JobStreamSummary
-	83, // 82: fleeto.agent.v1.JobCompletion.finished_at:type_name -> google.protobuf.Timestamp
-	10, // 83: fleeto.agent.v1.JobAck.kind:type_name -> fleeto.agent.v1.JobAckKind
-	8,  // 84: fleeto.agent.v1.JobAck.stream:type_name -> fleeto.agent.v1.JobStream
-	0,  // 85: fleeto.agent.v1.UpdateStatus.component:type_name -> fleeto.agent.v1.Component
-	11, // 86: fleeto.agent.v1.UpdateStatus.state:type_name -> fleeto.agent.v1.UpdateState
-	12, // 87: fleeto.agent.v1.UpdateStatus.wait_reason:type_name -> fleeto.agent.v1.UpdateWaitReason
-	13, // 88: fleeto.agent.v1.RemoteSessionToken.kind:type_name -> fleeto.agent.v1.RemoteSessionKind
-	0,  // 89: fleeto.agent.v1.RemoteSessionToken.component:type_name -> fleeto.agent.v1.Component
-	83, // 90: fleeto.agent.v1.RemoteSessionToken.issued_at:type_name -> google.protobuf.Timestamp
-	83, // 91: fleeto.agent.v1.RemoteSessionToken.valid_until:type_name -> google.protobuf.Timestamp
-	72, // 92: fleeto.agent.v1.RemoteSessionOffer.session:type_name -> fleeto.agent.v1.SignedRemoteSession
-	83, // 93: fleeto.agent.v1.RemoteSessionActionReport.time:type_name -> google.protobuf.Timestamp
-	83, // 94: fleeto.agent.v1.UninstallCommand.valid_until:type_name -> google.protobuf.Timestamp
-	14, // 95: fleeto.agent.v1.Disconnect.code:type_name -> fleeto.agent.v1.DisconnectCode
-	96, // [96:96] is the sub-list for method output_type
-	96, // [96:96] is the sub-list for method input_type
-	96, // [96:96] is the sub-list for extension type_name
-	96, // [96:96] is the sub-list for extension extendee
-	0,  // [0:96] is the sub-list for field type_name
+	21,  // 0: fleeto.agent.v1.EnrollRequest.os:type_name -> fleeto.agent.v1.OsInfo
+	24,  // 1: fleeto.agent.v1.AgentMessage.hello:type_name -> fleeto.agent.v1.Hello
+	26,  // 2: fleeto.agent.v1.AgentMessage.heartbeat:type_name -> fleeto.agent.v1.Heartbeat
+	35,  // 3: fleeto.agent.v1.AgentMessage.inventory:type_name -> fleeto.agent.v1.InventoryReport
+	42,  // 4: fleeto.agent.v1.AgentMessage.check_results:type_name -> fleeto.agent.v1.CheckResultBatch
+	46,  // 5: fleeto.agent.v1.AgentMessage.renew_certificate:type_name -> fleeto.agent.v1.RenewCertificateRequest
+	60,  // 6: fleeto.agent.v1.AgentMessage.config_applied:type_name -> fleeto.agent.v1.ConfigApplied
+	32,  // 7: fleeto.agent.v1.AgentMessage.pong:type_name -> fleeto.agent.v1.Pong
+	68,  // 8: fleeto.agent.v1.AgentMessage.job_started:type_name -> fleeto.agent.v1.JobStarted
+	69,  // 9: fleeto.agent.v1.AgentMessage.job_output:type_name -> fleeto.agent.v1.JobOutput
+	71,  // 10: fleeto.agent.v1.AgentMessage.job_completion:type_name -> fleeto.agent.v1.JobCompletion
+	73,  // 11: fleeto.agent.v1.AgentMessage.watchdog_certificate:type_name -> fleeto.agent.v1.WatchdogCertificateRequest
+	76,  // 12: fleeto.agent.v1.AgentMessage.update_status:type_name -> fleeto.agent.v1.UpdateStatus
+	80,  // 13: fleeto.agent.v1.AgentMessage.remote_session_refused:type_name -> fleeto.agent.v1.RemoteSessionRefused
+	81,  // 14: fleeto.agent.v1.AgentMessage.remote_session_action:type_name -> fleeto.agent.v1.RemoteSessionActionReport
+	49,  // 15: fleeto.agent.v1.AgentMessage.storage_scan:type_name -> fleeto.agent.v1.StorageScanReport
+	85,  // 16: fleeto.agent.v1.AgentMessage.uninstall_accepted:type_name -> fleeto.agent.v1.UninstallAccepted
+	54,  // 17: fleeto.agent.v1.AgentMessage.patch_scan:type_name -> fleeto.agent.v1.PatchScanReport
+	25,  // 18: fleeto.agent.v1.ServerMessage.hello_ack:type_name -> fleeto.agent.v1.HelloAck
+	45,  // 19: fleeto.agent.v1.ServerMessage.batch_ack:type_name -> fleeto.agent.v1.BatchAck
+	57,  // 20: fleeto.agent.v1.ServerMessage.config:type_name -> fleeto.agent.v1.SignedConfig
+	47,  // 21: fleeto.agent.v1.ServerMessage.renew_certificate:type_name -> fleeto.agent.v1.RenewCertificateResponse
+	31,  // 22: fleeto.agent.v1.ServerMessage.ping:type_name -> fleeto.agent.v1.Ping
+	86,  // 23: fleeto.agent.v1.ServerMessage.disconnect:type_name -> fleeto.agent.v1.Disconnect
+	33,  // 24: fleeto.agent.v1.ServerMessage.inventory_request:type_name -> fleeto.agent.v1.InventoryRequest
+	34,  // 25: fleeto.agent.v1.ServerMessage.run_checks_now:type_name -> fleeto.agent.v1.RunChecksNow
+	61,  // 26: fleeto.agent.v1.ServerMessage.job:type_name -> fleeto.agent.v1.SignedJob
+	72,  // 27: fleeto.agent.v1.ServerMessage.job_ack:type_name -> fleeto.agent.v1.JobAck
+	75,  // 28: fleeto.agent.v1.ServerMessage.update_offer:type_name -> fleeto.agent.v1.UpdateOffer
+	74,  // 29: fleeto.agent.v1.ServerMessage.watchdog_certificate:type_name -> fleeto.agent.v1.WatchdogCertificateResponse
+	79,  // 30: fleeto.agent.v1.ServerMessage.remote_session_offer:type_name -> fleeto.agent.v1.RemoteSessionOffer
+	48,  // 31: fleeto.agent.v1.ServerMessage.storage_scan_request:type_name -> fleeto.agent.v1.StorageScanRequest
+	52,  // 32: fleeto.agent.v1.ServerMessage.storage_scan_ack:type_name -> fleeto.agent.v1.StorageScanAck
+	83,  // 33: fleeto.agent.v1.ServerMessage.uninstall:type_name -> fleeto.agent.v1.SignedUninstall
+	53,  // 34: fleeto.agent.v1.ServerMessage.patch_scan_request:type_name -> fleeto.agent.v1.PatchScanRequest
+	56,  // 35: fleeto.agent.v1.ServerMessage.patch_scan_ack:type_name -> fleeto.agent.v1.PatchScanAck
+	21,  // 36: fleeto.agent.v1.Hello.os:type_name -> fleeto.agent.v1.OsInfo
+	0,   // 37: fleeto.agent.v1.Hello.component:type_name -> fleeto.agent.v1.Component
+	88,  // 38: fleeto.agent.v1.HelloAck.server_time:type_name -> google.protobuf.Timestamp
+	88,  // 39: fleeto.agent.v1.Heartbeat.agent_time:type_name -> google.protobuf.Timestamp
+	30,  // 40: fleeto.agent.v1.Heartbeat.peer:type_name -> fleeto.agent.v1.PeerStatus
+	27,  // 41: fleeto.agent.v1.Heartbeat.signed_in_users:type_name -> fleeto.agent.v1.SignedInUsers
+	28,  // 42: fleeto.agent.v1.SignedInUsers.users:type_name -> fleeto.agent.v1.SignedInUser
+	29,  // 43: fleeto.agent.v1.SignedInUser.sessions:type_name -> fleeto.agent.v1.UserSession
+	1,   // 44: fleeto.agent.v1.PeerStatus.state:type_name -> fleeto.agent.v1.ServiceState
+	36,  // 45: fleeto.agent.v1.InventoryReport.inventory:type_name -> fleeto.agent.v1.Inventory
+	21,  // 46: fleeto.agent.v1.Inventory.os:type_name -> fleeto.agent.v1.OsInfo
+	39,  // 47: fleeto.agent.v1.Inventory.disks:type_name -> fleeto.agent.v1.Disk
+	40,  // 48: fleeto.agent.v1.Inventory.network_interfaces:type_name -> fleeto.agent.v1.NetworkInterface
+	41,  // 49: fleeto.agent.v1.Inventory.software:type_name -> fleeto.agent.v1.SoftwareItem
+	88,  // 50: fleeto.agent.v1.Inventory.boot_time:type_name -> google.protobuf.Timestamp
+	38,  // 51: fleeto.agent.v1.Inventory.services:type_name -> fleeto.agent.v1.ServiceItem
+	37,  // 52: fleeto.agent.v1.Inventory.packages:type_name -> fleeto.agent.v1.PackageInfo
+	88,  // 53: fleeto.agent.v1.PackageInfo.package_lists_updated_at:type_name -> google.protobuf.Timestamp
+	43,  // 54: fleeto.agent.v1.CheckResultBatch.results:type_name -> fleeto.agent.v1.CheckResult
+	88,  // 55: fleeto.agent.v1.CheckResult.collected_at:type_name -> google.protobuf.Timestamp
+	44,  // 56: fleeto.agent.v1.CheckResult.processes:type_name -> fleeto.agent.v1.ProcessSample
+	88,  // 57: fleeto.agent.v1.StorageScanReport.started_at:type_name -> google.protobuf.Timestamp
+	2,   // 58: fleeto.agent.v1.StorageScanReport.method:type_name -> fleeto.agent.v1.StorageScanMethod
+	50,  // 59: fleeto.agent.v1.StorageScanReport.folders:type_name -> fleeto.agent.v1.StorageFolder
+	51,  // 60: fleeto.agent.v1.StorageScanReport.files:type_name -> fleeto.agent.v1.StorageFile
+	88,  // 61: fleeto.agent.v1.StorageFile.modified_at:type_name -> google.protobuf.Timestamp
+	88,  // 62: fleeto.agent.v1.PatchScanReport.started_at:type_name -> google.protobuf.Timestamp
+	55,  // 63: fleeto.agent.v1.PatchScanReport.updates:type_name -> fleeto.agent.v1.PatchUpdate
+	88,  // 64: fleeto.agent.v1.PatchUpdate.released_at:type_name -> google.protobuf.Timestamp
+	88,  // 65: fleeto.agent.v1.AgentConfig.issued_at:type_name -> google.protobuf.Timestamp
+	3,   // 66: fleeto.agent.v1.AgentConfig.tier:type_name -> fleeto.agent.v1.Tier
+	59,  // 67: fleeto.agent.v1.AgentConfig.checks:type_name -> fleeto.agent.v1.CheckSpec
+	4,   // 68: fleeto.agent.v1.CheckSpec.type:type_name -> fleeto.agent.v1.CheckType
+	87,  // 69: fleeto.agent.v1.CheckSpec.parameters:type_name -> fleeto.agent.v1.CheckSpec.ParametersEntry
+	67,  // 70: fleeto.agent.v1.CheckSpec.script:type_name -> fleeto.agent.v1.ScriptJob
+	8,   // 71: fleeto.agent.v1.JobPayload.type:type_name -> fleeto.agent.v1.JobType
+	88,  // 72: fleeto.agent.v1.JobPayload.valid_until:type_name -> google.protobuf.Timestamp
+	67,  // 73: fleeto.agent.v1.JobPayload.script:type_name -> fleeto.agent.v1.ScriptJob
+	7,   // 74: fleeto.agent.v1.JobPayload.run_as:type_name -> fleeto.agent.v1.JobRunAs
+	63,  // 75: fleeto.agent.v1.JobPayload.restart:type_name -> fleeto.agent.v1.RestartJob
+	64,  // 76: fleeto.agent.v1.JobPayload.patch_install:type_name -> fleeto.agent.v1.PatchInstallJob
+	5,   // 77: fleeto.agent.v1.PatchInstallJob.scope:type_name -> fleeto.agent.v1.PatchInstallScope
+	65,  // 78: fleeto.agent.v1.PatchInstallJob.updates:type_name -> fleeto.agent.v1.PatchInstallUpdate
+	66,  // 79: fleeto.agent.v1.PatchInstallJob.filter:type_name -> fleeto.agent.v1.PatchInstallFilter
+	6,   // 80: fleeto.agent.v1.PatchInstallJob.restart:type_name -> fleeto.agent.v1.PatchRestart
+	88,  // 81: fleeto.agent.v1.PatchInstallFilter.released_before:type_name -> google.protobuf.Timestamp
+	9,   // 82: fleeto.agent.v1.ScriptJob.language:type_name -> fleeto.agent.v1.ScriptLanguage
+	88,  // 83: fleeto.agent.v1.JobStarted.started_at:type_name -> google.protobuf.Timestamp
+	10,  // 84: fleeto.agent.v1.JobOutput.stream:type_name -> fleeto.agent.v1.JobStream
+	11,  // 85: fleeto.agent.v1.JobCompletion.result:type_name -> fleeto.agent.v1.JobResult
+	70,  // 86: fleeto.agent.v1.JobCompletion.stdout:type_name -> fleeto.agent.v1.JobStreamSummary
+	70,  // 87: fleeto.agent.v1.JobCompletion.stderr:type_name -> fleeto.agent.v1.JobStreamSummary
+	88,  // 88: fleeto.agent.v1.JobCompletion.finished_at:type_name -> google.protobuf.Timestamp
+	12,  // 89: fleeto.agent.v1.JobAck.kind:type_name -> fleeto.agent.v1.JobAckKind
+	10,  // 90: fleeto.agent.v1.JobAck.stream:type_name -> fleeto.agent.v1.JobStream
+	0,   // 91: fleeto.agent.v1.UpdateStatus.component:type_name -> fleeto.agent.v1.Component
+	13,  // 92: fleeto.agent.v1.UpdateStatus.state:type_name -> fleeto.agent.v1.UpdateState
+	14,  // 93: fleeto.agent.v1.UpdateStatus.wait_reason:type_name -> fleeto.agent.v1.UpdateWaitReason
+	15,  // 94: fleeto.agent.v1.RemoteSessionToken.kind:type_name -> fleeto.agent.v1.RemoteSessionKind
+	0,   // 95: fleeto.agent.v1.RemoteSessionToken.component:type_name -> fleeto.agent.v1.Component
+	88,  // 96: fleeto.agent.v1.RemoteSessionToken.issued_at:type_name -> google.protobuf.Timestamp
+	88,  // 97: fleeto.agent.v1.RemoteSessionToken.valid_until:type_name -> google.protobuf.Timestamp
+	77,  // 98: fleeto.agent.v1.RemoteSessionOffer.session:type_name -> fleeto.agent.v1.SignedRemoteSession
+	88,  // 99: fleeto.agent.v1.RemoteSessionActionReport.time:type_name -> google.protobuf.Timestamp
+	88,  // 100: fleeto.agent.v1.UninstallCommand.valid_until:type_name -> google.protobuf.Timestamp
+	16,  // 101: fleeto.agent.v1.Disconnect.code:type_name -> fleeto.agent.v1.DisconnectCode
+	102, // [102:102] is the sub-list for method output_type
+	102, // [102:102] is the sub-list for method input_type
+	102, // [102:102] is the sub-list for extension type_name
+	102, // [102:102] is the sub-list for extension extendee
+	0,   // [0:102] is the sub-list for field type_name
 }
 
 func init() { file_agent_proto_init() }
@@ -7536,8 +7951,8 @@ func file_agent_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
-			NumEnums:      15,
-			NumMessages:   68,
+			NumEnums:      17,
+			NumMessages:   71,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

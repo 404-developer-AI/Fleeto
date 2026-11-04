@@ -36,6 +36,16 @@ When a third released version is added, the oldest entry moves to the top of
   whether it is downloaded already, with where the scan searched. A search that fails says why (Windows Update not reachable, the
   service disabled, a WSUS server that refuses) with the code. Drivers and feature updates are not searched. A client that uses Action1
   still offers "Install Action1 agent" on such an endpoint; once the agent runs there, Action1 patches it instead.
+- Installing updates by the Fleeto agent itself (0.9.0 step 3). "Deploy all missing updates", "Deploy chosen updates" and "Deploy updates"
+  on a selection of endpoints now also work on endpoints Action1 does not patch: every endpoint gets a signed job that the Fleeto agent
+  carries out with the Windows Update Agent, apt or dnf of the endpoint. fleeto-signer composes what the job installs from the
+  deployment itself (identifiers and switches, never a command) and checks again that Fleeto patches the endpoint, that the agent is
+  new enough and which of the chosen updates are still missing. On Linux the deployment can install security updates only. With the
+  restart switched on, a signed-in user gets the message and 30 minutes before the endpoint restarts; without it the job says that a
+  restart is required. The package manager is never killed: an installation that takes longer than 4 hours times out while apt, dnf
+  or Windows Update finishes, and the next scan shows what was installed. The history of the deployment shows per update whether it
+  was installed, failed, already installed or held, and the job output what the package manager did. A selection with endpoints of
+  both engines becomes a deployment in Action1 for its endpoints and one by Fleeto for the others.
 - The agent reports the time zone of the endpoint with its inventory, for patch rounds in the endpoint's own time later in 0.9.0.
 
 ### Changed
@@ -49,6 +59,12 @@ When a third released version is added, the oldest entry moves to the top of
 - Supported products: Ubuntu, Debian, AlmaLinux and Proxmox VE show their missing updates by Fleeto, and Windows and Windows Server
   by Fleeto as well as through Action1.
 - A patch policy for patching by Fleeto on an endpoint Action1 patches says on the Patches tab that it installs nothing there.
+- The public API: a deployment has `engine` and `securityOnly`, and each of its endpoints `jobId` and `restart`.
+
+### Fixed
+
+- The public API answered the patch engine of `GET /api/v1/endpoints/{endpointId}/patches` as a number instead of `action1` or `fleeto`
+  (found before release).
 
 ## [0.8.0] — 2026-11-04
 

@@ -51,7 +51,8 @@ public sealed record MissingUpdateView(string Id, string Name, string Vendor, st
 public sealed record EndpointPatchView(bool Managed, bool Configured, EndpointPatchState? State, IReadOnlyList<MissingUpdateView> Missing,
     DateTime? DetailUpdatedAt, bool CanInstallAgent = false, string AgentOnEndpoint = "", PatchScheduleView? Schedule = null,
     PatchRequestView? LastRequest = null, bool CanRemoveAgentByJob = false, AgentInstallView? AgentInstall = null,
-    PatchEngineResult? Engine = null, string? ScanNote = null, PatchScanRequestView? LastScanRequest = null, string? PolicyNote = null)
+    PatchEngineResult? Engine = null, string? ScanNote = null, PatchScanRequestView? LastScanRequest = null, string? PolicyNote = null,
+    string? InstallNote = null)
 {
     /// <summary>True when the Fleeto agent patches this endpoint (0.9.0).</summary>
     public bool ByFleeto => Engine?.Engine == EndpointPatchEngine.Fleeto;
@@ -108,7 +109,8 @@ public sealed record PatchCompliance(int Covered, int Compliant, int MissingCrit
 }
 
 /// <summary>One endpoint of a deployment as the UI shows it.</summary>
-public sealed record DeploymentTargetView(Guid EndpointId, string Hostname, PatchDeploymentTargetState State, string? Message);
+public sealed record DeploymentTargetView(Guid EndpointId, string Hostname, PatchDeploymentTargetState State, string? Message, Guid? JobId = null,
+    PatchTargetRestart? Restart = null);
 
 /// <summary>
 /// One deployment with what the product reports per endpoint (0.4.0 step 3).
@@ -116,7 +118,8 @@ public sealed record DeploymentTargetView(Guid EndpointId, string Hostname, Patc
 /// <param name="UpdateNames">The updates it installs, empty when it installs every update the endpoints miss.</param>
 public sealed record DeploymentView(Guid Id, Guid BatchId, Guid ClientId, PatchDeploymentScope Scope, bool AutoReboot,
     PatchDeploymentState State, string? StatusMessage, string RequestedByName, DateTime RequestedAt, DateTime? CompletedAt,
-    IReadOnlyList<string> UpdateNames, IReadOnlyList<DeploymentTargetView> Targets, Guid? PatchPolicyId = null)
+    IReadOnlyList<string> UpdateNames, IReadOnlyList<DeploymentTargetView> Targets, Guid? PatchPolicyId = null,
+    PatchEngine Engine = PatchEngine.Action1, bool SecurityOnly = false)
 {
     public int Succeeded => Targets.Count(t => t.State == PatchDeploymentTargetState.Succeeded);
     public int Failed => Targets.Count(t => t.State == PatchDeploymentTargetState.Failed);
@@ -131,8 +134,10 @@ public sealed record DeploymentStepView(DateTime? Time, string Operation, string
 
 /// <summary>The history of one endpoint of a deployment, and when Fleeto last read it from the product.</summary>
 /// <param name="ReadAt">Null while the history was not read since the state of the endpoint last changed.</param>
+/// <param name="Engine">Who carried it out (0.9.0); for Fleeto the steps come from the installation job <paramref name="JobId"/>.</param>
 public sealed record DeploymentHistoryView(Guid DeploymentId, Guid EndpointId, string Hostname, PatchDeploymentTargetState State,
-    DateTime RequestedAt, DateTime? ReadAt, IReadOnlyList<DeploymentStepView> Steps);
+    DateTime RequestedAt, DateTime? ReadAt, IReadOnlyList<DeploymentStepView> Steps, PatchEngine Engine = PatchEngine.Action1, Guid? JobId = null,
+    PatchTargetRestart? Restart = null, string? Message = null);
 
 /// <param name="Deployments">One per client of the run, in the order the clients were named.</param>
 /// <param name="Skipped">Endpoints nothing was started for, with the reason.</param>
@@ -293,7 +298,7 @@ public sealed class PatchService
             CanInstallAgent: windows && Action1AgentInstall.IsValidInstallerUrl(installerUrl),
             AgentInstall: windows ? await AgentInstallAsync(db, endpoint.Id, cancellationToken) : null,
             Engine: engine, ScanNote: PatchScanRules.Problem(endpoint.OsPlatform, endpoint.AgentVersion), LastScanRequest: lastScanRequest,
-            PolicyNote: policyNote);
+            PolicyNote: policyNote, InstallNote: PatchRules.InstallProblem(endpoint.OsPlatform, endpoint.AgentVersion));
     }
 
     /// <summary>
@@ -617,8 +622,10 @@ public sealed class PatchService
     /// part is skipped with the reason instead of quietly left out.
     /// </para>
     /// </summary>
+    /// <param name="securityOnly">Engine Fleeto on Linux (0.9.0): only the updates the scan classified as security.</param>
     public async Task<ServiceResult<DeploymentStartResult>> StartDeploymentAsync(Caller caller, IReadOnlyCollection<Guid> endpointIds,
-        IReadOnlyCollection<string>? updateIds = null, bool autoReboot = false, CancellationToken cancellationToken = default)
+        IReadOnlyCollection<string>? updateIds = null, bool autoReboot = false, CancellationToken cancellationToken = default,
+        bool securityOnly = false)
     {
         if (!caller.Has(Permissions.PatchesDeploy))
         {
@@ -645,9 +652,7 @@ public sealed class PatchService
         }
 
         await using var db = _dbFactory.Create(caller.Scope);
-        var endpoints = await db.Endpoints.AsNoTracking().Where(e => ids.Contains(e.Id))
-            .Select(e => new { e.Id, e.ClientId, e.Hostname, e.Tier })
-            .ToListAsync(cancellationToken);
+        var endpoints = await db.Endpoints.AsNoTracking().Where(e => ids.Contains(e.Id)).ToListAsync(cancellationToken);
         if (endpoints.Count == 0)
         {
             return ServiceResult<DeploymentStartResult>.NotFound("endpoint");
@@ -659,6 +664,16 @@ public sealed class PatchService
             .ToDictionaryAsync(m => m.ClientId, m => m.ExternalTenantId, cancellationToken);
         var states = await db.EndpointPatchStates.AsNoTracking().Where(p => ids.Contains(p.EndpointId))
             .ToDictionaryAsync(p => p.EndpointId, cancellationToken);
+        var inventories = await db.InventorySnapshots.AsNoTracking().Where(i => ids.Contains(i.EndpointId))
+            .ToDictionaryAsync(i => i.EndpointId, cancellationToken);
+        // Who patches each endpoint (0.9.0): one deployment of either engine per client, never both on one endpoint.
+        var engines = endpoints.ToDictionary(e => e.Id,
+            e => PatchEngineRules.EngineFor(e, license, inventories.GetValueOrDefault(e.Id), states.GetValueOrDefault(e.Id)));
+        var installing = await db.Jobs.AsNoTracking()
+            .Where(j => ids.Contains(j.EndpointId) && j.Type == JobType.PatchInstall &&
+                        (j.State == JobState.PendingSignature || j.State == JobState.Queued || j.State == JobState.Running))
+            .Select(j => j.EndpointId)
+            .ToListAsync(cancellationToken);
 
         var scope = chosen.Count > 0 ? PatchDeploymentScope.Specified : PatchDeploymentScope.AllMissing;
         var updates = new List<PatchDeploymentUpdate>();
@@ -673,9 +688,10 @@ public sealed class PatchService
                     "One of the chosen updates is no longer missing on this endpoint. Refresh the Patches tab and choose again.");
             }
 
-            // Without a version the product cannot be told which package to install, and picking the newest one would
-            // install something the technician did not choose.
-            if (missing.FirstOrDefault(u => string.IsNullOrEmpty(u.Version)) is { } unversioned)
+            // Without a version Action1 cannot be told which package to install, and picking the newest one would install something
+            // the technician did not choose. A Windows update by Fleeto is named by its id and has no version.
+            if (engines.GetValueOrDefault(ids[0]).Engine != EndpointPatchEngine.Fleeto &&
+                missing.FirstOrDefault(u => string.IsNullOrEmpty(u.Version)) is { } unversioned)
             {
                 return ServiceResult<DeploymentStartResult>.Fail(
                     $"Action1 reports no version for {unversioned.Name}, so Fleeto cannot deploy that update by name. Deploy every missing update instead.");
@@ -691,12 +707,41 @@ public sealed class PatchService
         var batchId = Guid.NewGuid();
         var skipped = new List<JobRunTarget>();
         var deployments = new List<PatchDeployment>();
+        var fleetoJobs = new List<Job>();
         foreach (var group in endpoints.GroupBy(e => e.ClientId))
         {
             var targets = new List<PatchDeploymentTarget>();
+            var fleetoTargets = new List<PatchDeploymentTarget>();
             foreach (var endpoint in group.OrderBy(e => e.Hostname, StringComparer.OrdinalIgnoreCase))
             {
                 states.TryGetValue(endpoint.Id, out var state);
+                if (engines[endpoint.Id].Engine == EndpointPatchEngine.Fleeto)
+                {
+                    var fleetoProblem = PatchRules.InstallProblem(endpoint.OsPlatform, endpoint.AgentVersion)
+                                        ?? (installing.Contains(endpoint.Id)
+                                            ? "An installation is already on its way to this endpoint. Its result is on the Jobs tab."
+                                            : scope == PatchDeploymentScope.AllMissing && state is { Engine: PatchEngine.Fleeto, ProductLastSeenAt: not null } &&
+                                              state.IsCompliant
+                                                ? "The last scan found no missing updates on this endpoint."
+                                                : null);
+                    if (fleetoProblem is not null)
+                    {
+                        skipped.Add(new JobRunTarget(endpoint.Id, endpoint.Hostname, fleetoProblem));
+                        continue;
+                    }
+
+                    fleetoTargets.Add(new PatchDeploymentTarget
+                    {
+                        Id = Guid.NewGuid(),
+                        ClientId = endpoint.ClientId,
+                        EndpointId = endpoint.Id,
+                        Hostname = endpoint.Hostname,
+                        State = PatchDeploymentTargetState.Pending,
+                        UpdatedAt = now
+                    });
+                    continue;
+                }
+
                 var problem = TierRules.EffectiveTier(endpoint.Tier, license) != EndpointTier.Managed
                     ? "Not managed. Switch it to managed to deploy updates."
                     : !tenants.ContainsKey(endpoint.ClientId)
@@ -724,6 +769,12 @@ public sealed class PatchService
                     State = PatchDeploymentTargetState.Pending,
                     UpdatedAt = now
                 });
+            }
+
+            if (fleetoTargets.Count > 0)
+            {
+                deployments.Add(AddFleetoDeployment(db, caller, group.Key, batchId, scope, autoReboot, securityOnly, fleetoTargets, updates,
+                    fleetoJobs, now));
             }
 
             if (targets.Count == 0)
@@ -783,13 +834,130 @@ public sealed class PatchService
                 : $"Nothing was deployed. None of the endpoints can take a deployment, for example {skipped[0].Hostname}: {skipped[0].Problem}");
         }
 
-        await db.SaveChangesAsync(cancellationToken);
+        // The installation jobs are bound to their deployment by a trigger that reads it, so the deployments are written first, in
+        // the same transaction.
+        await using (var transaction = await db.Database.BeginTransactionAsync(cancellationToken))
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            if (fleetoJobs.Count > 0)
+            {
+                foreach (var job in fleetoJobs)
+                {
+                    db.Jobs.Add(job);
+                    db.SigningRequests.Add(new SigningRequest
+                    {
+                        Id = Guid.NewGuid(),
+                        ClientId = job.ClientId,
+                        Kind = SigningRequestKind.Job,
+                        SubjectId = job.Id,
+                        Payload = [],
+                        RequestedBy = "web:" + (caller.IpAddress ?? "unknown"),
+                        CreatedAt = now
+                    });
+                }
+
+                await db.SaveChangesAsync(cancellationToken);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+        }
+
         foreach (var deployment in deployments)
         {
             await _bus.PublishAsync(NotificationChannels.PatchDeployments, deployment.Id.ToString(), cancellationToken);
         }
 
+        foreach (var endpointId in fleetoJobs.Select(j => j.EndpointId).Distinct())
+        {
+            await _bus.PublishAsync(NotificationChannels.Jobs, endpointId.ToString(), cancellationToken);
+        }
+
         return ServiceResult<DeploymentStartResult>.Ok(new DeploymentStartResult(batchId, [.. deployments.Select(ToView)], skipped));
+    }
+
+    /// <summary>
+    /// Adds a deployment by Fleeto (0.9.0 step 3) for the endpoints of one client: one installation job per endpoint, bound to its
+    /// target, which fleeto-signer composes from the deployment. The jobs are returned in <paramref name="jobs"/>, to be written after
+    /// the deployment. Audited as a deployment, never with a package list.
+    /// </summary>
+    private static PatchDeployment AddFleetoDeployment(FleetoDbContext db, Caller caller, Guid clientId, Guid batchId, PatchDeploymentScope scope,
+        bool autoReboot, bool securityOnly, List<PatchDeploymentTarget> targets, List<PatchDeploymentUpdate> updates, List<Job> jobs, DateTime now)
+    {
+        var deployment = new PatchDeployment
+        {
+            Id = Guid.NewGuid(),
+            ClientId = clientId,
+            BatchId = batchId,
+            Engine = PatchEngine.Fleeto,
+            Scope = scope,
+            AutoReboot = autoReboot,
+            SecurityOnly = securityOnly && scope == PatchDeploymentScope.AllMissing,
+            State = PatchDeploymentState.Running,
+            StartedAt = now,
+            FollowUntil = now + PatchRules.InstallValidity + TimeSpan.FromSeconds(PatchRules.InstallTimeoutSeconds) + TimeSpan.FromHours(1),
+            RequestedByUserId = caller.UserId,
+            RequestedByName = Cut(caller.Name, 200),
+            RequestedAt = now
+        };
+        foreach (var target in targets)
+        {
+            var job = new Job
+            {
+                Id = Guid.NewGuid(),
+                ClientId = clientId,
+                EndpointId = target.EndpointId,
+                BatchId = batchId,
+                Type = JobType.PatchInstall,
+                ScriptName = PatchRules.InstallJobName,
+                TimeoutSeconds = PatchRules.InstallTimeoutSeconds,
+                MaxOutputBytes = PatchRules.InstallMaxOutputBytes,
+                RunAs = JobRunAs.Service,
+                CreatedAt = now,
+                ValidUntil = now + PatchRules.InstallValidity,
+                InitiatedByUserId = caller.UserId,
+                InitiatedByName = Cut(caller.Name, 200),
+                PatchDeploymentId = deployment.Id,
+                PatchDeploymentTargetId = target.Id
+            };
+            target.JobId = job.Id;
+            deployment.Targets.Add(target);
+            jobs.Add(job);
+            db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.JobCreated, "Job", job.Id.ToString(), clientId, new
+            {
+                target.Hostname,
+                target.EndpointId,
+                Type = JobType.PatchInstall.ToString(),
+                job.ScriptName,
+                job.ValidUntil
+            }), now));
+        }
+
+        foreach (var update in updates)
+        {
+            deployment.Updates.Add(new PatchDeploymentUpdate
+            {
+                Id = Guid.NewGuid(),
+                DeploymentId = deployment.Id,
+                ClientId = clientId,
+                ExternalUpdateId = update.ExternalUpdateId,
+                Name = update.Name,
+                Version = update.Version
+            });
+        }
+
+        db.PatchDeployments.Add(deployment);
+        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.PatchDeploymentStarted, "PatchDeployment", deployment.Id.ToString(),
+            clientId, new
+            {
+                BatchId = batchId,
+                Engine = PatchEngine.Fleeto.ToString(),
+                Scope = scope.ToString(),
+                deployment.AutoReboot,
+                deployment.SecurityOnly,
+                Endpoints = targets.Select(t => new { t.EndpointId, t.Hostname }),
+                Updates = updates.Count
+            }), now));
+        return deployment;
     }
 
     /// <summary>
@@ -937,8 +1105,9 @@ public sealed class PatchService
             .Where(t => t.DeploymentId == deploymentId && t.EndpointId == endpointId)
             .Select(t => new
             {
-                t.Id, t.Hostname, t.State, t.StepsReadAt,
-                RequestedAt = db.PatchDeployments.Where(d => d.Id == t.DeploymentId).Select(d => d.RequestedAt).First()
+                t.Id, t.Hostname, t.State, t.StepsReadAt, t.JobId, t.Restart, t.Message,
+                RequestedAt = db.PatchDeployments.Where(d => d.Id == t.DeploymentId).Select(d => d.RequestedAt).First(),
+                Engine = db.PatchDeployments.Where(d => d.Id == t.DeploymentId).Select(d => d.Engine).First()
             })
             .SingleOrDefaultAsync(cancellationToken);
         if (target is null)
@@ -951,7 +1120,8 @@ public sealed class PatchService
             .OrderByDescending(s => s.Time).ThenByDescending(s => s.Position)
             .Select(s => new DeploymentStepView(s.Time, s.Operation, s.Status, s.Details))
             .ToListAsync(cancellationToken);
-        return new DeploymentHistoryView(deploymentId, endpointId, target.Hostname, target.State, target.RequestedAt, target.StepsReadAt, steps);
+        return new DeploymentHistoryView(deploymentId, endpointId, target.Hostname, target.State, target.RequestedAt, target.StepsReadAt, steps,
+            target.Engine, target.JobId, target.Restart, target.Message);
     }
 
     /// <summary>The deployments of one run, for the window that shows how it went.</summary>
@@ -975,9 +1145,9 @@ public sealed class PatchService
             .Select(u => u.Version.Length == 0 ? u.Name : $"{u.Name} {u.Version}")
             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)],
         [.. deployment.Targets
-            .Select(t => new DeploymentTargetView(t.EndpointId, t.Hostname, t.State, t.Message))
+            .Select(t => new DeploymentTargetView(t.EndpointId, t.Hostname, t.State, t.Message, t.JobId, t.Restart))
             .OrderBy(t => t.Hostname, StringComparer.OrdinalIgnoreCase)],
-        deployment.PatchPolicyId);
+        deployment.PatchPolicyId, deployment.Engine, deployment.SecurityOnly);
 
     private static string Cut(string value, int max) => value.Length <= max ? value : value[..max];
 }

@@ -89,6 +89,9 @@ public sealed class WorkersFixture : IAsyncLifetime
     public StorageScanService StorageScans() =>
         new(Db.DbFactory, Db.Bus, Heartbeat(), Db.Time, NullLogger<StorageScanService>.Instance);
 
+    public Integrations.FleetoDeploymentService FleetoDeployments() =>
+        new(Db.DbFactory, Db.Bus, Heartbeat(), Db.Time, NullLogger<Integrations.FleetoDeploymentService>.Instance);
+
     public Integrations.PatchScanWriter PatchScans() =>
         new(Db.DbFactory, Db.Bus, new AlertNotificationService(Db.Time), Db.Licenses, Heartbeat(), Db.Time,
             NullLogger<Integrations.PatchScanWriter>.Instance);

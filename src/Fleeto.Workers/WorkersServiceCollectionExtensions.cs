@@ -68,6 +68,7 @@ public static class WorkersServiceCollectionExtensions
         services.AddHostedService<CheckRunRequestService>();
         services.AddHostedService<StorageScanService>();
         services.AddHostedService<PatchScanWriter>();
+        services.AddHostedService<FleetoDeploymentService>();
         services.AddHostedService<JobMaintenanceService>();
         services.AddHostedService<AutomationTaskService>();
         services.AddHostedService<RemoteSessionMaintenanceService>();

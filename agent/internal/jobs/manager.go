@@ -47,6 +47,12 @@ type Options struct {
 	Trust func() signedconfig.Trust
 	// Managed reports whether the applied configuration is managed.
 	Managed func() bool
+	// PatchScanning reports whether the applied configuration scans for missing updates (patch_scan_interval_hours above 0, 0.9.0):
+	// patch management by Fleeto is on, and only then does a patch installation run. Nil refuses every patch installation.
+	PatchScanning func() bool
+	// AfterPatchInstall is called when an installation of updates ended, also one that outlived its job, and when a patch job
+	// completed after its restart, so a scan reports what was installed.
+	AfterPatchInstall func()
 	// MaxConcurrent jobs run at the same time; more wait. Default 4.
 	MaxConcurrent int
 	// FlushInterval sends partial output chunks while a job runs. Default 1 second.
@@ -83,6 +89,9 @@ func NewManager(opts Options) (*Manager, error) {
 	}
 	if opts.FlushInterval <= 0 {
 		opts.FlushInterval = time.Second
+	}
+	if opts.PatchScanning == nil {
+		opts.PatchScanning = func() bool { return false }
 	}
 	if err := platform.EnsureProtectedDir(opts.Dir, opts.Access); err != nil {
 		return nil, err
@@ -139,7 +148,7 @@ func (m *Manager) Accept(sj *agentv1.SignedJob) {
 		return
 	}
 
-	payload, err := Verify(sj, m.opts.Trust(), m.opts.Managed(), m.opts.Now())
+	payload, err := VerifyApplied(sj, m.opts.Trust(), m.applied(), m.opts.Now())
 	if err != nil {
 		m.opts.Logger.Warn("refused a job", "jobId", id, "reason", err)
 		m.remember(id, m.opts.Now())
@@ -161,6 +170,11 @@ func (m *Manager) Accept(sj *agentv1.SignedJob) {
 	m.opts.Logger.Info("accepted a job", "jobId", id, "type", payload.GetType().String(), "script", payload.GetScript().GetName(),
 		"version", payload.GetScript().GetVersion(), "initiatedBy", payload.GetInitiatedBy())
 	m.start(id, payload)
+}
+
+// applied is what the applied configuration allows.
+func (m *Manager) applied() Applied {
+	return Applied{Managed: m.opts.Managed(), PatchScanning: m.opts.PatchScanning()}
 }
 
 // remember records a job id until a moment; ids are kept a week past it, longer than any job can be delivered again.
@@ -195,11 +209,14 @@ func (m *Manager) start(id string, payload *agentv1.JobPayload) {
 				Error: "the job expired while it waited for other jobs to finish"})
 			return
 		}
-		if payload.GetType() == agentv1.JobType_JOB_TYPE_RESTART {
+		switch payload.GetType() {
+		case agentv1.JobType_JOB_TYPE_RESTART:
 			m.runRestart(id, payload)
-			return
+		case agentv1.JobType_JOB_TYPE_PATCH_INSTALL:
+			m.runPatchInstall(id, payload)
+		default:
+			m.run(id, payload)
 		}
-		m.run(id, payload)
 	})
 }
 
@@ -265,6 +282,12 @@ func (m *Manager) recover() {
 		}
 		if exists(filepath.Join(dir, startedFile)) {
 			m.opts.Logger.Warn("a job was running when the agent stopped; it is reported as interrupted and not run again", "jobId", id)
+			if m.isPatchJob(id) {
+				// Running it again could be worse than not knowing; the scan tells what was installed.
+				m.complete(id, &agentv1.JobCompletion{Result: agentv1.JobResult_JOB_RESULT_INTERRUPTED, Error: errPatchInterrupted})
+				m.afterPatchInstall()
+				continue
+			}
 			m.complete(id, &agentv1.JobCompletion{Result: agentv1.JobResult_JOB_RESULT_INTERRUPTED,
 				Error: "The agent stopped while the job ran. The job is not run again."})
 			continue
@@ -279,7 +302,7 @@ func (m *Manager) recover() {
 			_ = os.RemoveAll(dir)
 			continue
 		}
-		payload, err := Verify(&sj, m.opts.Trust(), m.opts.Managed(), now)
+		payload, err := VerifyApplied(&sj, m.opts.Trust(), m.applied(), now)
 		if err != nil {
 			m.complete(id, &agentv1.JobCompletion{Result: agentv1.JobResult_JOB_RESULT_REFUSED, Error: err.Error()})
 			continue

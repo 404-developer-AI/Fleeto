@@ -238,15 +238,22 @@ func chooseSource(reg registryReader, sess wuaSession) (wuaSource, error) {
 
 // scanWUA runs one Windows scan against a session.
 func scanWUA(sess wuaSession, reg registryReader) *agentv1.PatchScanReport {
+	report, _ := scanWUAChecked(sess, reg)
+	return report
+}
+
+// scanWUAChecked is scanWUA that also says whether the search failed, so an installation never takes an empty list for "nothing
+// missing".
+func scanWUAChecked(sess wuaSession, reg registryReader) (*agentv1.PatchScanReport, bool) {
 	report := &agentv1.PatchScanReport{Engine: EngineWindowsUpdate}
 	var probs problems
 	// A failure to read the list of services is not a problem of the scan: it searches the default service then.
 	src, _ := chooseSource(reg, sess)
 	report.Source, report.SourceServer = src.Source, src.Server
 
-	result, err := sess.Search(wuaCriteria, src.ServerSelection, src.ServiceID)
-	if err != nil {
-		probs.add(wuaProblem(errorCode(err), src.Source))
+	result, searchErr := sess.Search(wuaCriteria, src.ServerSelection, src.ServiceID)
+	if searchErr != nil {
+		probs.add(wuaProblem(errorCode(searchErr), src.Source))
 	} else {
 		if result.ResultCode != wuaResultSucceeded && result.ResultCode != 0 {
 			probs.add(problemWUAPartial)
@@ -261,10 +268,15 @@ func scanWUA(sess wuaSession, reg registryReader) *agentv1.PatchScanReport {
 		}
 	}
 
-	restart, err := sess.RebootRequired()
-	report.RestartRequired = (err == nil && restart) || reg.KeyExists(cbsRebootPendingKey) || reg.KeyExists(wuRebootRequiredKey)
+	report.RestartRequired = restartPending(sess, reg)
 	report.Problem = probs.String()
-	return report
+	return report, searchErr != nil
+}
+
+// restartPending is ISystemInformation.RebootRequired or a pending restart key of CBS or Windows Update.
+func restartPending(sess wuaSession, reg registryReader) bool {
+	restart, err := sess.RebootRequired()
+	return (err == nil && restart) || reg.KeyExists(cbsRebootPendingKey) || reg.KeyExists(wuRebootRequiredKey)
 }
 
 // errorCode returns the HRESULT of an error of the session; 0 when it has none.

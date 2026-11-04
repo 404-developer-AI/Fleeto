@@ -12,6 +12,7 @@ import (
 
 	"github.com/shirou/gopsutil/v4/host"
 
+	"github.com/404-developer-AI/Fleeto/agent/internal/patch"
 	"github.com/404-developer-AI/Fleeto/agent/internal/platform"
 	"github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1"
 	"github.com/404-developer-AI/Fleeto/agent/internal/safego"
@@ -41,6 +42,8 @@ type restartRecord struct {
 	BootTime    time.Time `json:"bootTime"`
 	RequestedAt time.Time `json:"requestedAt"`
 	Deadline    time.Time `json:"deadline"`
+	// Patch is set for a patch installation that restarts the endpoint (0.9.0): what its completion needs after the start.
+	Patch *patchRestart `json:"patch,omitempty"`
 }
 
 // RestartSupported reports whether this operating system restarts for a task.
@@ -92,6 +95,14 @@ func (m *Manager) waitForRestart(id string, record restartRecord) {
 	if err := cancelRestart(); err != nil {
 		m.opts.Logger.Warn("could not cancel the planned restart", "jobId", id, "error", err)
 	}
+	if record.Patch != nil {
+		m.complete(id, m.patchCompletion(id, record.Patch, agentv1.JobResult_JOB_RESULT_TIMED_OUT,
+			fmt.Sprintf("The endpoint did not restart within %s after Fleeto asked for it to finish the updates. The planned restart "+
+				"was cancelled; the endpoint still needs a restart.", record.Deadline.Sub(record.RequestedAt).Round(time.Minute)),
+			patch.RestartLine(patch.RestartRequired)))
+		m.afterPatchInstall()
+		return
+	}
 	m.complete(id, &agentv1.JobCompletion{Result: agentv1.JobResult_JOB_RESULT_TIMED_OUT,
 		Error: fmt.Sprintf("The endpoint did not restart within %s after Fleeto asked for it. The planned restart was cancelled.",
 			record.Deadline.Sub(record.RequestedAt).Round(time.Minute))})
@@ -112,6 +123,12 @@ func (m *Manager) recoverRestart(id string) bool {
 	}
 	if boot, err := readBootTime(); err == nil && boot.After(record.BootTime.Add(bootTolerance)) {
 		line := fmt.Sprintf("The endpoint restarted at %s.\n", boot.UTC().Format(time.RFC3339))
+		if record.Patch != nil {
+			m.opts.Logger.Info("the endpoint restarted for updates", "jobId", id, "bootTime", boot.UTC().Format(time.RFC3339))
+			m.complete(id, m.patchCompletion(id, record.Patch, agentv1.JobResult_JOB_RESULT_EXITED, "", line))
+			m.afterPatchInstall()
+			return true
+		}
 		summary, err := m.writeLine(id, line)
 		completion := &agentv1.JobCompletion{Result: agentv1.JobResult_JOB_RESULT_EXITED, ExitCode: 0, Stdout: summary}
 		if err != nil {
@@ -128,6 +145,13 @@ func (m *Manager) recoverRestart(id string) bool {
 			defer m.wg.Done()
 			m.waitForRestart(id, record)
 		})
+		return true
+	}
+	if record.Patch != nil {
+		m.complete(id, m.patchCompletion(id, record.Patch, agentv1.JobResult_JOB_RESULT_TIMED_OUT,
+			"The agent started again, but the endpoint did not restart before the wait for the restart ended. The updates were "+
+				"installed; the endpoint still needs a restart.", patch.RestartLine(patch.RestartRequired)))
+		m.afterPatchInstall()
 		return true
 	}
 	m.complete(id, &agentv1.JobCompletion{Result: agentv1.JobResult_JOB_RESULT_TIMED_OUT,

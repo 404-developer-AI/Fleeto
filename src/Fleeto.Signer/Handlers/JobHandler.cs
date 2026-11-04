@@ -55,6 +55,12 @@ public sealed class JobHandler : ISigningRequestHandler
     public const string TaskOrderReason =
         "The step before this one has not ended, or ended in a way that stops the run, so Fleeto did not start this step.";
     public const string RestartUserReason = "Fleeto restarts an endpoint only for a restart step of a task.";
+    public const string PatchDeploymentReason =
+        "The deployment of this installation is gone, carried out by Action1, or names another endpoint. Start the deployment again.";
+    public const string PatchEngineReason =
+        "Fleeto does not patch this endpoint now: Action1 does, or it is not an operating system Fleeto patches. Nothing was installed.";
+    public const string PatchNothingLeftReason =
+        "None of the chosen updates is missing on this endpoint any more. Scan it again to see what is missing now.";
     public const string AccessReason = "The user who started the job no longer has access to this endpoint. Ask an admin to add it to a group that has.";
     public const string AutomaticPolicyReason =
         "The patch policy of this endpoint no longer installs the Action1 agent automatically, so Fleeto did not start the installation.";
@@ -96,7 +102,8 @@ public sealed class JobHandler : ISigningRequestHandler
             return SigningOutcome.Completed(null);
         }
 
-        if (job.Type is not (JobType.Script or JobType.Action1Agent or JobType.Action1AgentRemoval or JobType.Restart) || job.ValidUntil <= now ||
+        if (job.Type is not (JobType.Script or JobType.Action1Agent or JobType.Action1AgentRemoval or JobType.Restart or JobType.PatchInstall) ||
+            job.ValidUntil <= now ||
             job.ValidUntil > job.CreatedAt + ScriptRules.MaxValidity + TimeSpan.FromMinutes(5) ||
             job.ValidUntil > now + ScriptRules.MaxValidity + TimeSpan.FromMinutes(5))
         {
@@ -156,6 +163,14 @@ public sealed class JobHandler : ISigningRequestHandler
             }
 
             return await SignAgentInstallAsync(db, job, endpoint.Id, endpoint.Hostname, endpoint.OsPlatform, now, cancellationToken);
+        }
+
+        // An installation by Fleeto (0.9.0 step 3) has no script: the signer composes it from the deployment it is bound to.
+        if (job.Type == JobType.PatchInstall)
+        {
+            return automatic
+                ? SigningOutcome.Refused(AutomaticTypeReason)
+                : await SignPatchInstallAsync(db, job, license, now, cancellationToken);
         }
 
         // The job that removes the Action1 agent (0.6.0) has a fixed body the signer writes; nothing about it comes from web.
@@ -533,6 +548,116 @@ public sealed class JobHandler : ISigningRequestHandler
     }
 
     /// <summary>
+    /// Signs an installation of updates by Fleeto (0.9.0 step 3). Everything is read again from the database, never from what web wrote on
+    /// the job alone: the deployment and its endpoint the job is bound to (frozen by TR_Jobs_PatchBinding), the engine of the endpoint
+    /// (<see cref="PatchEngineRules"/>, so an endpoint that got an Action1 agent since is never patched twice), the platform and agent
+    /// version, and for chosen updates which of them are still missing. The body holds identifiers, filters and switches, never a command.
+    /// </summary>
+    private async Task<SigningOutcome> SignPatchInstallAsync(Infrastructure.Data.FleetoDbContext db, Job job, LicenseStatus license, DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var deployment = job.PatchDeploymentId is { } deploymentId
+            ? await db.PatchDeployments.IgnoreQueryFilters().AsNoTracking().Include(d => d.Updates)
+                .SingleOrDefaultAsync(d => d.Id == deploymentId && d.ClientId == job.ClientId, cancellationToken)
+            : null;
+        var target = job.PatchDeploymentTargetId is { } targetId
+            ? await db.PatchDeploymentTargets.IgnoreQueryFilters().AsNoTracking()
+                .SingleOrDefaultAsync(t => t.Id == targetId && t.ClientId == job.ClientId, cancellationToken)
+            : null;
+        if (deployment is not { Engine: PatchEngine.Fleeto, Scope: PatchDeploymentScope.AllMissing or PatchDeploymentScope.Specified } ||
+            target is null || target.DeploymentId != deployment.Id || target.EndpointId != job.EndpointId ||
+            deployment.RequestedByUserId != job.InitiatedByUserId)
+        {
+            return SigningOutcome.Refused(PatchDeploymentReason);
+        }
+
+        var endpoint = await db.Endpoints.IgnoreQueryFilters().AsNoTracking().SingleAsync(e => e.Id == job.EndpointId, cancellationToken);
+        var inventory = await db.InventorySnapshots.IgnoreQueryFilters().AsNoTracking()
+            .SingleOrDefaultAsync(i => i.EndpointId == endpoint.Id, cancellationToken);
+        var state = await db.EndpointPatchStates.IgnoreQueryFilters().AsNoTracking()
+            .SingleOrDefaultAsync(s => s.EndpointId == endpoint.Id, cancellationToken);
+        if (PatchEngineRules.EngineFor(endpoint, license, inventory, state).Engine != EndpointPatchEngine.Fleeto)
+        {
+            return SigningOutcome.Refused(PatchEngineReason);
+        }
+
+        if (PatchRules.InstallProblem(endpoint.OsPlatform, endpoint.AgentVersion) is { } problem)
+        {
+            return SigningOutcome.Refused(problem);
+        }
+
+        var install = new PatchInstallJob
+        {
+            Scope = deployment.Scope == PatchDeploymentScope.Specified ? PatchInstallScope.Specified : PatchInstallScope.AllMissing,
+            Filter = new PatchInstallFilter { SecurityOnly = deployment.SecurityOnly && endpoint.OsPlatform == "linux" },
+            Restart = deployment.AutoReboot ? PatchRestart.IfRequired : PatchRestart.Never,
+            RestartNoticeSeconds = (uint)(PatchRules.RebootTimeoutMinutes * 60),
+            RestartMessage = PatchRules.RebootMessage
+        };
+        if (deployment.Scope == PatchDeploymentScope.Specified)
+        {
+            // A chosen update that is no longer missing is left out, not refused (PATCHING.md section 8).
+            var chosen = deployment.Updates.Select(u => u.ExternalUpdateId).ToList();
+            var missing = await db.EndpointMissingUpdates.IgnoreQueryFilters().AsNoTracking()
+                .Where(u => u.EndpointId == endpoint.Id && chosen.Contains(u.ExternalUpdateId))
+                .Select(u => u.ExternalUpdateId)
+                .ToListAsync(cancellationToken);
+            foreach (var update in deployment.Updates.Where(u => missing.Contains(u.ExternalUpdateId)).Take(PatchRules.MaxUpdatesPerDeployment))
+            {
+                install.Updates.Add(new PatchInstallUpdate { Id = update.ExternalUpdateId, Title = update.Name, Version = update.Version });
+            }
+
+            if (install.Updates.Count == 0)
+            {
+                return SigningOutcome.Refused(PatchNothingLeftReason);
+            }
+        }
+
+        var payload = new JobPayload
+        {
+            JobId = job.Id.ToString("D"),
+            InstanceId = _keyRing.InstanceId.ToString("D"),
+            EndpointId = endpoint.Id.ToString("D"),
+            Type = Protocol.Agent.V1.JobType.PatchInstall,
+            ValidUntil = Timestamp.FromDateTime(DateTime.SpecifyKind(job.ValidUntil, DateTimeKind.Utc)),
+            InitiatedBy = job.InitiatedByName,
+            TimeoutSeconds = PatchRules.InstallTimeoutSeconds,
+            MaxOutputBytes = (ulong)PatchRules.InstallMaxOutputBytes,
+            RunAs = Protocol.Agent.V1.JobRunAs.Service,
+            PatchInstall = install
+        }.ToByteArray();
+
+        job.Payload = payload;
+        job.Signature = _keyRing.Sign(SignatureContexts.Job, payload);
+        job.SigningKeyId = _keyRing.SigningKeyId;
+        job.SignedAt = now;
+        job.ScriptName = PatchRules.InstallJobName;
+        job.TimeoutSeconds = PatchRules.InstallTimeoutSeconds;
+        job.MaxOutputBytes = PatchRules.InstallMaxOutputBytes;
+        job.State = JobState.Queued;
+
+        // Never a package list in the audit log: the scope, the number of updates and the restart.
+        await SignerAudit.WriteAsync(db, new AuditRecord(AuditActions.JobSigned, "Job", job.Id.ToString(), job.ClientId, AuditActorType.System,
+            "fleeto-signer", "fleeto-signer",
+            new
+            {
+                endpoint.Hostname,
+                EndpointId = endpoint.Id,
+                Type = JobType.PatchInstall.ToString(),
+                DeploymentId = deployment.Id,
+                Scope = deployment.Scope.ToString(),
+                Updates = install.Updates.Count,
+                deployment.AutoReboot,
+                job.ValidUntil,
+                InitiatedBy = job.InitiatedByName
+            }), now, cancellationToken);
+
+        await db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Signed the installation {JobId} of deployment {DeploymentId} for endpoint {EndpointId}", job.Id, deployment.Id, endpoint.Id);
+        return SigningOutcome.Completed(null, new PendingNotification(NotificationChannels.Jobs, endpoint.Id.ToString()));
+    }
+
+    /// <summary>
     /// Signs the job that uninstalls the Action1 agent (0.6.0). The body is <see cref="Action1AgentRemoval"/> and has no
     /// input at all, so web can pick the endpoint but never what runs. Windows only, like the install; script approval
     /// does not apply, as there is no script to approve.
@@ -639,6 +764,7 @@ public sealed class JobHandler : ISigningRequestHandler
         JobType.Action1Agent => Permissions.Action1AgentInstall,
         JobType.Action1AgentRemoval => Permissions.Action1AgentRemove,
         JobType.Restart => Permissions.EndpointsRestart,
+        JobType.PatchInstall => Permissions.PatchesDeploy,
         _ => Permissions.ScriptsRun
     };
 }

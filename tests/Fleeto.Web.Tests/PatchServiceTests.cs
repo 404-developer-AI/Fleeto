@@ -228,7 +228,8 @@ public sealed class PatchServiceTests
         Assert.Equal(missing.Id, Assert.Single(Assert.Single(run.Deployments).Targets).EndpointId);
         Assert.Equal(3, run.Skipped.Count);
         Assert.Contains(run.Skipped, s => s.EndpointId == agentOnly.Id && s.Problem.Contains("Not managed"));
-        Assert.Contains(run.Skipped, s => s.EndpointId == unknownToProduct.Id && s.Problem.Contains("Action1 does not report"));
+        // Without an Action1 agent the endpoint is Fleeto's to patch (0.9.0), and its agent is too old to install.
+        Assert.Contains(run.Skipped, s => s.EndpointId == unknownToProduct.Id && s.Problem.Contains("Update the agent"));
         Assert.Contains(run.Skipped, s => s.EndpointId == compliant.Id && s.Problem.Contains("no missing updates"));
     }
 

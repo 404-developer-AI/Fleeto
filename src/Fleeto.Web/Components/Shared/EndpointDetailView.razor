@@ -1879,6 +1879,32 @@
             </tbody>
         </MudSimpleTable>
 
+        @Deployments()
+
+        @if (Can(Permissions.PatchesDeploy) && !state.IsCompliant)
+        {
+            <div class="d-flex gap-2 flex-wrap align-center mb-3">
+                @if (patches.InstallNote is { } installNote)
+                {
+                    <MudText Typo="Typo.body2" Class="muted">@installNote</MudText>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.SystemUpdateAlt"
+                               OnClick="@(() => DeployAsync(null))">
+                        Deploy all missing updates
+                    </MudButton>
+                    @if (_chosenUpdates.Count > 0)
+                    {
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.PlaylistAddCheck"
+                                   OnClick="@(() => DeployAsync([.. _chosenUpdates]))">
+                            Deploy @Ui.Count(_chosenUpdates.Count, "chosen update")
+                        </MudButton>
+                    }
+                }
+            </div>
+        }
+
         @if (patches.Missing.Count == 0)
         {
             <EmptyState Icon="@Icons.Material.Outlined.CheckCircle" Title="Nothing missing"
@@ -1886,7 +1912,8 @@
         }
         else if (windows)
         {
-            <MudTable T="MissingUpdateView" Items="patches.Missing" Dense="true" Elevation="0">
+            <MudTable T="MissingUpdateView" Items="patches.Missing" Dense="true" Elevation="0"
+                      MultiSelection="@(Can(Permissions.PatchesDeploy) && patches.InstallNote is null)" @bind-SelectedItems="_chosenUpdates">
                 <HeaderContent>
                     <MudTh>Name</MudTh>
                     <MudTh>Release date</MudTh>
@@ -1938,7 +1965,8 @@
         }
         else
         {
-            <MudTable T="MissingUpdateView" Items="patches.Missing" Dense="true" Elevation="0">
+            <MudTable T="MissingUpdateView" Items="patches.Missing" Dense="true" Elevation="0"
+                      MultiSelection="@(Can(Permissions.PatchesDeploy) && patches.InstallNote is null)" @bind-SelectedItems="_chosenUpdates">
                 <HeaderContent>
                     <MudTh>Package</MudTh>
                     <MudTh>Installed version</MudTh>
@@ -2191,8 +2219,9 @@
                         <MudTd><StatusChip Text="@Ui.DeploymentStateLabel(context.State)" Kind="@Ui.DeploymentStateKind(context.State)" /></MudTd>
                         <MudTd class="muted">@(context.IsScheduled ? $"Patch policy {context.RequestedByName}" : context.RequestedByName)</MudTd>
                         <MudTd>
-                            <MudTooltip Text="History from Action1">
-                                <MudIconButton Icon="@Icons.Material.Outlined.History" Size="Size.Small" aria-label="Deployment history from Action1"
+                            <MudTooltip Text="@(context.Engine == PatchEngine.Fleeto ? "What the installation did" : "History from Action1")">
+                                <MudIconButton Icon="@Icons.Material.Outlined.History" Size="Size.Small"
+                                               aria-label="@(context.Engine == PatchEngine.Fleeto ? "What the installation did" : "Deployment history from Action1")"
                                                OnClick="@(() => ShowHistoryAsync(context.Id))" />
                             </MudTooltip>
                         </MudTd>
@@ -2219,9 +2248,12 @@
             { d => d.EndpointIds, new[] { endpoint.Id } },
             { d => d.TargetLabel, endpoint.Hostname },
             { d => d.UpdateNames, chosen?.Select(u => u.Version.Length == 0 ? u.Name : $"{u.Name} {u.Version}").ToList() ?? [] },
-            { d => d.OnSubmit, async (bool autoReboot) =>
+            { d => d.Engine, _patches?.ByFleeto == true ? DeployUpdatesDialog.DeployEngine.Fleeto : DeployUpdatesDialog.DeployEngine.Action1 },
+            { d => d.OffersSecurityOnly, _patches?.ByFleeto == true && endpoint.OsPlatform == "linux" },
+            { d => d.OnSubmit, async (DeployUpdatesDialog.DeployChoice choice) =>
                 {
-                    var started = await RunForValueAsync(caller => PatchSvc.StartDeploymentAsync(caller, [endpoint.Id], updateIds, autoReboot), null);
+                    var started = await RunForValueAsync(caller => PatchSvc.StartDeploymentAsync(caller, [endpoint.Id], updateIds, choice.AutoReboot,
+                        securityOnly: choice.SecurityOnly), null);
                     if (started?.Value is not { } run)
                     {
                         return false;

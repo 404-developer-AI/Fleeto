@@ -275,3 +275,52 @@ func TestAnUnreadableReportIsDropped(t *testing.T) {
 		t.Fatal("an unreadable report is dropped")
 	}
 }
+
+func TestNoScanRunsDuringAnInstallationAndOneFollowsIt(t *testing.T) {
+	h := newHarness(t, t.TempDir(), harnessOptions{block: true})
+	release, ok := BeginInstall()
+	if !ok {
+		t.Fatal("the guard is free")
+	}
+	if ok, reason := h.m.Request("r1"); ok || reason != reasonInstalling {
+		t.Fatalf("during an installation: %v %q", ok, reason)
+	}
+	h.clock.Advance(2 * time.Hour)
+	h.m.Tick()
+	if h.m.Running() {
+		t.Fatal("no scheduled scan during an installation")
+	}
+	release()
+
+	// The installation ended while a scan ran: another scan follows it, whatever the gap between requested scans.
+	h.m.Tick()
+	if !h.m.Running() {
+		t.Fatal("the scheduled scan starts once the installation ended")
+	}
+	h.m.ScanAfterInstall()
+	close(h.release)
+	deadline := time.Now().Add(5 * time.Second)
+	for h.scans.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	waitIdle(t, h.m)
+	if h.scans.Load() != 2 {
+		t.Fatalf("scans = %d, want the running one and the one after the installation", h.scans.Load())
+	}
+	h.m.ScanAfterInstall()
+	deadline = time.Now().Add(5 * time.Second)
+	for h.scans.Load() < 3 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	waitIdle(t, h.m)
+	if h.scans.Load() != 3 {
+		t.Fatalf("scans = %d, a scan after an installation ignores the gap of 15 minutes", h.scans.Load())
+	}
+
+	h.hours.Store(0)
+	h.m.ScanAfterInstall()
+	time.Sleep(50 * time.Millisecond)
+	if h.scans.Load() != 3 {
+		t.Fatal("without patch management by Fleeto there is no scan after an installation")
+	}
+}

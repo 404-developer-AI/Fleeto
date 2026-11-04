@@ -227,6 +227,36 @@ func New(opts Options) (*Agent, error) {
 	}
 	a.scheduler = checks.NewScheduler(opts.Collector, a.storeResults, opts.Logger)
 	a.loadAppliedConfig()
+	// The patch scans open before the jobs, so a patch job the jobs answer at the start can ask for a scan (0.9.0).
+	patchScans, err := patch.NewManager(patch.Options{
+		Dir:    filepath.Join(opts.Store.Dir(), PatchScansDirName),
+		Access: opts.Store.Access(),
+		Logger: opts.Logger,
+		Now:    opts.Now,
+		Managed: func() bool {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			return a.config.GetTier() == agentv1.Tier_TIER_MANAGED
+		},
+		IntervalHours: func() uint32 {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			return a.config.GetPatchScanIntervalHours()
+		},
+		LastStarted: func() time.Time {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			return a.st.PatchScanStartedAt
+		},
+		SaveStarted: a.savePatchScanStarted,
+		Scan:        opts.PatchScan,
+	})
+	if err != nil {
+		_ = buf.Close()
+		_ = key.Close()
+		return nil, fmt.Errorf("open the patch scan spool: %w", err)
+	}
+	a.patch = patchScans
 	manager, err := jobs.NewManager(jobs.Options{
 		Dir:    filepath.Join(opts.Store.Dir(), JobsDirName),
 		Access: opts.Store.Access(),
@@ -242,8 +272,15 @@ func New(opts Options) (*Agent, error) {
 			defer a.mu.Unlock()
 			return a.config.GetTier() == agentv1.Tier_TIER_MANAGED
 		},
+		PatchScanning: func() bool {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			return a.config.GetTier() == agentv1.Tier_TIER_MANAGED && a.config.GetPatchScanIntervalHours() > 0
+		},
+		AfterPatchInstall: a.patch.ScanAfterInstall,
 	})
 	if err != nil {
+		patchScans.Close()
 		_ = buf.Close()
 		_ = key.Close()
 		return nil, fmt.Errorf("open the job spool: %w", err)
@@ -274,42 +311,12 @@ func New(opts Options) (*Agent, error) {
 	})
 	if err != nil {
 		manager.Close()
+		patchScans.Close()
 		_ = buf.Close()
 		_ = key.Close()
 		return nil, fmt.Errorf("open the storage scan spool: %w", err)
 	}
 	a.storage = scans
-	patchScans, err := patch.NewManager(patch.Options{
-		Dir:    filepath.Join(opts.Store.Dir(), PatchScansDirName),
-		Access: opts.Store.Access(),
-		Logger: opts.Logger,
-		Now:    opts.Now,
-		Managed: func() bool {
-			a.mu.Lock()
-			defer a.mu.Unlock()
-			return a.config.GetTier() == agentv1.Tier_TIER_MANAGED
-		},
-		IntervalHours: func() uint32 {
-			a.mu.Lock()
-			defer a.mu.Unlock()
-			return a.config.GetPatchScanIntervalHours()
-		},
-		LastStarted: func() time.Time {
-			a.mu.Lock()
-			defer a.mu.Unlock()
-			return a.st.PatchScanStartedAt
-		},
-		SaveStarted: a.savePatchScanStarted,
-		Scan:        opts.PatchScan,
-	})
-	if err != nil {
-		scans.Close()
-		manager.Close()
-		_ = buf.Close()
-		_ = key.Close()
-		return nil, fmt.Errorf("open the patch scan spool: %w", err)
-	}
-	a.patch = patchScans
 	a.remote = a.newRemoteServer()
 	if opts.Watchdog != nil {
 		watchdog, err := newWatchdogManager(a, *opts.Watchdog)

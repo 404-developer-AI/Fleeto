@@ -327,4 +327,96 @@ public sealed class PatchScanWriterTests
         Assert.Equal((812_000_000L, true), (row.SizeBytes!.Value, row.Downloaded));
         Assert.Equal("Definition Updates", missing.Single(u => u.ExternalUpdateId == "b:1").UpdateType);
     }
+
+    private async Task<(PatchDeployment Deployment, Job Job)> FleetoDeploymentAsync(Endpoint endpoint)
+    {
+        var user = await _fixture.Db.CreateUserAsync(Core.Entities.FleetoRoles.Technician);
+        await using var db = _fixture.Db.DbFactory.CreateSystem();
+        var deployment = new PatchDeployment
+        {
+            Id = Guid.NewGuid(), ClientId = endpoint.ClientId, BatchId = Guid.NewGuid(), Engine = PatchEngine.Fleeto, Scope = PatchDeploymentScope.AllMissing,
+            State = PatchDeploymentState.Running, RequestedByUserId = user.Id, RequestedByName = "Tess", RequestedAt = _fixture.Now,
+            FollowUntil = _fixture.Now.AddDays(1)
+        };
+        var target = new PatchDeploymentTarget { Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, Hostname = endpoint.Hostname, UpdatedAt = _fixture.Now };
+        deployment.Targets.Add(target);
+        db.PatchDeployments.Add(deployment);
+        await db.SaveChangesAsync();
+        var job = new Job
+        {
+            Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, BatchId = deployment.BatchId, Type = JobType.PatchInstall,
+            ScriptName = PatchRules.InstallJobName, CreatedAt = _fixture.Now, ValidUntil = _fixture.Now.AddDays(1), InitiatedByUserId = user.Id,
+            InitiatedByName = "Tess", PatchDeploymentId = deployment.Id, PatchDeploymentTargetId = target.Id
+        };
+        db.Jobs.Add(job);
+        await db.SaveChangesAsync();
+        // Signed as the signer would: a queued job carries its payload and signature.
+        await db.Jobs.Where(j => j.Id == job.Id).ExecuteUpdateAsync(s => s
+            .SetProperty(j => j.State, JobState.Queued).SetProperty(j => j.Payload, new byte[] { 1 }).SetProperty(j => j.Signature, new byte[] { 2 })
+            .SetProperty(j => j.SigningKeyId, "test").SetProperty(j => j.SignedAt, _fixture.Now).SetProperty(j => j.DeliveredAt, _fixture.Now));
+        await db.PatchDeploymentTargets.Where(t => t.Id == target.Id).ExecuteUpdateAsync(s => s.SetProperty(t => t.JobId, job.Id));
+        return (deployment, job);
+    }
+
+    [Fact]
+    public async Task A_deployment_by_Fleeto_follows_its_job_and_reads_the_updates_and_the_restart_from_its_output()
+    {
+        var endpoint = await LinuxEndpointAsync();
+        var (deployment, job) = await FleetoDeploymentAsync(endpoint);
+
+        await _fixture.FleetoDeployments().FollowAsync(CancellationToken.None);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            Assert.Equal(PatchDeploymentTargetState.Pending, (await db.PatchDeploymentTargets.AsNoTracking().SingleAsync(t => t.DeploymentId == deployment.Id)).State);
+            var output = "Reading package lists...\n" +
+                         "fleeto-patch: installed libssl3:amd64 libssl3 3.0.13-0ubuntu3.5\n" +
+                         "fleeto-patch: failed curl:amd64 curl 8.5.0-2ubuntu10.6\n" +
+                         "fleeto-patch: held linux-image-generic:amd64 linux-image-generic\n" +
+                         "fleeto-patch: restart required\n";
+            db.JobOutputChunks.Add(new JobOutputChunk
+            {
+                JobId = job.Id, Stream = JobStream.Stdout, Sequence = 0, ClientId = endpoint.ClientId, Data = System.Text.Encoding.UTF8.GetBytes(output),
+                ReceivedAt = _fixture.Now
+            });
+            await db.SaveChangesAsync();
+            await db.Jobs.Where(j => j.Id == job.Id).ExecuteUpdateAsync(s => s
+                .SetProperty(j => j.State, JobState.Failed).SetProperty(j => j.Result, JobResult.Exited).SetProperty(j => j.ExitCode, 1)
+                .SetProperty(j => j.CompletedAt, _fixture.Now).SetProperty(j => j.OutputState, JobOutputState.Complete));
+        }
+
+        await _fixture.FleetoDeployments().FollowAsync(CancellationToken.None);
+
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var target = await db.PatchDeploymentTargets.AsNoTracking().SingleAsync(t => t.DeploymentId == deployment.Id);
+            Assert.Equal((PatchDeploymentTargetState.Failed, PatchTargetRestart.Required), (target.State, target.Restart));
+            var steps = await db.PatchDeploymentSteps.AsNoTracking().Where(s => s.TargetId == target.Id).OrderBy(s => s.Position).ToListAsync();
+            Assert.Equal(["Succeeded", "Failed", "Held"], steps.Select(s => s.Status));
+            Assert.Equal("libssl3 3.0.13-0ubuntu3.5", steps[0].Details);
+            var done = await db.PatchDeployments.AsNoTracking().SingleAsync(d => d.Id == deployment.Id);
+            Assert.Equal(PatchDeploymentState.Completed, done.State);
+            Assert.True(await db.AuditEntries.AnyAsync(a => a.Action == Core.Interfaces.AuditActions.PatchDeploymentCompleted && a.TargetId == deployment.Id.ToString()));
+        }
+    }
+
+    [Fact]
+    public async Task A_deployment_by_Fleeto_is_never_handed_to_Action1_and_one_whose_job_expired_ends_unknown()
+    {
+        var endpoint = await LinuxEndpointAsync();
+        var (deployment, job) = await FleetoDeploymentAsync(endpoint);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            await db.Jobs.Where(j => j.Id == job.Id).ExecuteUpdateAsync(s => s
+                .SetProperty(j => j.State, JobState.Expired).SetProperty(j => j.CompletedAt, _fixture.Now));
+        }
+
+        await _fixture.FleetoDeployments().FollowAsync(CancellationToken.None);
+
+        await using var check = _fixture.Db.DbFactory.CreateSystem();
+        var target = await check.PatchDeploymentTargets.AsNoTracking().SingleAsync(t => t.DeploymentId == deployment.Id);
+        Assert.Equal(PatchDeploymentTargetState.Unknown, target.State);
+        Assert.Contains("not online", target.Message);
+        var done = await check.PatchDeployments.AsNoTracking().SingleAsync(d => d.Id == deployment.Id);
+        Assert.Equal((PatchDeploymentState.Completed, string.Empty), (done.State, done.ExternalDeploymentId));
+    }
 }

@@ -19,6 +19,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/404-developer-AI/Fleeto/agent/internal/patch"
 	"github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1"
 	"github.com/404-developer-AI/Fleeto/agent/internal/signedconfig"
 )
@@ -58,8 +59,23 @@ func PeekID(sj *agentv1.SignedJob) string {
 	return strings.ToLower(payload.GetJobId())
 }
 
-// Verify checks a signed job against the pinned trust and returns the payload. managed is the tier of the applied configuration.
+// Applied is what the applied configuration of the endpoint allows a job.
+type Applied struct {
+	// Managed is the tier of the applied configuration.
+	Managed bool
+	// PatchScanning: the configuration scans for missing updates (patch_scan_interval_hours above 0), so patch management by
+	// Fleeto is on and a patch installation may run.
+	PatchScanning bool
+}
+
+// Verify checks a signed job against the pinned trust and returns the payload. managed is the tier of the applied configuration;
+// a patch installation is refused, as for a configuration that does not scan.
 func Verify(sj *agentv1.SignedJob, trust signedconfig.Trust, managed bool, now time.Time) (*agentv1.JobPayload, error) {
+	return VerifyApplied(sj, trust, Applied{Managed: managed}, now)
+}
+
+// VerifyApplied checks a signed job against the pinned trust and what the applied configuration allows, and returns the payload.
+func VerifyApplied(sj *agentv1.SignedJob, trust signedconfig.Trust, applied Applied, now time.Time) (*agentv1.JobPayload, error) {
 	if sj == nil || len(sj.GetPayload()) == 0 || len(sj.GetPayload()) > MaxPayloadBytes {
 		return nil, ErrNotSigned
 	}
@@ -99,13 +115,15 @@ func Verify(sj *agentv1.SignedJob, trust signedconfig.Trust, managed bool, now t
 	if payload.GetValidUntil().AsTime().After(now.Add(7*24*time.Hour + 2*ClockTolerance)) {
 		return nil, errors.New("the job is valid for longer than 7 days")
 	}
-	if !managed {
+	if !applied.Managed {
 		return nil, errors.New("the endpoint is agent-only: jobs do not run")
 	}
 	switch payload.GetType() {
+	case agentv1.JobType_JOB_TYPE_PATCH_INSTALL:
+		return verifyPatchInstall(&payload, applied)
 	case agentv1.JobType_JOB_TYPE_RESTART:
 		// A restart carries nothing to run: the agent's own fixed command restarts the endpoint.
-		if payload.GetRestart() == nil || payload.GetScript() != nil {
+		if payload.GetRestart() == nil || payload.GetScript() != nil || payload.GetPatchInstall() != nil {
 			return nil, errors.New("the restart job is malformed")
 		}
 		if !RestartSupported() {
@@ -113,7 +131,7 @@ func Verify(sj *agentv1.SignedJob, trust signedconfig.Trust, managed bool, now t
 		}
 		return &payload, nil
 	case agentv1.JobType_JOB_TYPE_SCRIPT:
-		if payload.GetScript() == nil || payload.GetRestart() != nil {
+		if payload.GetScript() == nil || payload.GetRestart() != nil || payload.GetPatchInstall() != nil {
 			return nil, errors.New("this agent does not know the job type; update the agent")
 		}
 	default:
@@ -128,6 +146,28 @@ func Verify(sj *agentv1.SignedJob, trust signedconfig.Trust, managed bool, now t
 		return nil, fmt.Errorf("%s scripts do not run on %s", LanguageName(script.GetLanguage()), runtime.GOOS)
 	}
 	return &payload, nil
+}
+
+// verifyPatchInstall accepts a patch installation only with its body alone, on an endpoint where patch management by Fleeto is on,
+// with a supported package manager, and with a body of valid identifiers (internal/patch ValidateInstallJob).
+func verifyPatchInstall(payload *agentv1.JobPayload, applied Applied) (*agentv1.JobPayload, error) {
+	if payload.GetPatchInstall() == nil || payload.GetScript() != nil || payload.GetRestart() != nil {
+		return nil, errors.New("the patch installation job is malformed")
+	}
+	if !applied.PatchScanning {
+		return nil, errors.New("Patch management by Fleeto is not on for this endpoint")
+	}
+	engine := patchEngine()
+	if engine == "" {
+		if runtime.GOOS == "linux" {
+			return nil, errors.New("no supported package manager (apt or dnf) was found on this endpoint")
+		}
+		return nil, fmt.Errorf("Fleeto does not install updates on %s endpoints", runtime.GOOS)
+	}
+	if err := patch.ValidateInstallJob(payload.GetPatchInstall(), engine); err != nil {
+		return nil, fmt.Errorf("the patch installation job is refused: %w", err)
+	}
+	return payload, nil
 }
 
 // LanguageRunsHere reports whether this operating system runs the language.

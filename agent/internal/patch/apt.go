@@ -39,6 +39,13 @@ var securityLabels = []string{"Debian-Security", "UbuntuESM", "UbuntuESMApps"}
 
 // scanApt runs an apt scan: refresh the package lists, simulate a dist-upgrade and read what it would change.
 func scanApt(ctx context.Context, sys system) *agentv1.PatchScanReport {
+	report, _ := scanAptChecked(ctx, sys)
+	return report
+}
+
+// scanAptChecked is scanApt that also says whether the scan failed outright (stopped, or the simulation did not run), so an
+// installation never takes an empty list for "nothing missing".
+func scanAptChecked(ctx context.Context, sys system) (*agentv1.PatchScanReport, bool) {
 	report := &agentv1.PatchScanReport{Engine: EngineApt}
 	var probs problems
 
@@ -50,7 +57,7 @@ func scanApt(ctx context.Context, sys system) *agentv1.PatchScanReport {
 	update := sys.Run(ctx, aptEnv, "apt-get", "-q", "-o", "DPkg::Lock::Timeout=300", "update")
 	if ctx.Err() != nil {
 		report.Problem = probs.String()
-		return report
+		return report, true
 	}
 	for _, p := range parseAptUpdateProblems(update.Stdout + "\n" + update.Stderr) {
 		probs.add(p)
@@ -63,10 +70,11 @@ func scanApt(ctx context.Context, sys system) *agentv1.PatchScanReport {
 	sim := sys.Run(ctx, []string{"LC_ALL=C", "LANG=C"}, "apt-get", "-s", "-q", "-o", "Debug::NoLocking=1", "dist-upgrade")
 	if ctx.Err() != nil {
 		report.Problem = probs.String()
-		return report
+		return report, true
 	}
 	parsed := parseAptSimulation(sim.Stdout)
-	if sim.Err != nil || sim.Code != 0 {
+	failed := sim.Err != nil || sim.Code != 0
+	if failed {
 		probs.add(aptSimulationProblem(sim))
 	}
 
@@ -96,7 +104,7 @@ func scanApt(ctx context.Context, sys system) *agentv1.PatchScanReport {
 	}
 	report.RestartRequired = sys.Exists(rebootRequiredFile)
 	report.Problem = probs.String()
-	return report
+	return report, failed || ctx.Err() != nil
 }
 
 // aptUpdate is one package of the simulation.

@@ -1,5 +1,5 @@
 @using Fleeto.Core.Domain
-@* Starts a deployment of updates through the patch management product, on one endpoint or a selection (0.4.0 step 3). *@
+@* Starts a deployment of updates, on one endpoint or a selection (0.4.0 step 3): through Action1, or (0.9.0) by the Fleeto agent itself. *@
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">Deploy updates on @TargetLabel</MudText>
@@ -7,7 +7,7 @@
     <DialogContent>
         @if (UpdateNames.Count > 0)
         {
-            <MudText Typo="Typo.body2" Class="mb-2">Action1 installs @Ui.Count(UpdateNames.Count, "chosen update"):</MudText>
+            <MudText Typo="Typo.body2" Class="mb-2">@Installer installs @Ui.Count(UpdateNames.Count, "chosen update"):</MudText>
             <MudSimpleTable Dense="true" Elevation="0" Class="detail-table mb-3">
                 <tbody>
                     @foreach (var name in UpdateNames.Take(MaxNamed))
@@ -24,12 +24,21 @@
         else
         {
             <MudText Typo="Typo.body2" Class="mb-3">
-                Action1 installs every update it reports as missing on @(EndpointIds.Count == 1 ? "this endpoint" : "these endpoints").
-                What is missing can have changed since Fleeto last read it.
+                @Installer installs every update @(Engine == DeployEngine.Fleeto ? "the agent finds" : Engine == DeployEngine.Action1 ? "it reports" : "it finds")
+                missing on @(EndpointIds.Count == 1 ? "this endpoint" : "these endpoints"). What is missing can have changed since Fleeto last read it.
             </MudText>
+            @if (OffersSecurityOnly)
+            {
+                <MudSwitch T="bool" @bind-Value="_securityOnly" Color="Color.Primary"
+                           Label="@(Engine == DeployEngine.Fleeto ? "Security updates only" : "Security updates only on Linux endpoints patched by Fleeto")" />
+                <MudText Typo="Typo.caption" Class="muted d-block mb-2">
+                    Only the packages that come from a security archive or fix a known vulnerability. Without it the upgrade installs everything
+                    missing, as apt dist-upgrade and dnf upgrade do.
+                </MudText>
+            }
         }
 
-        <MudSwitch T="bool" @bind-Value="_autoReboot" Color="Color.Primary" Label="Let Action1 restart the endpoint when an update needs it" />
+        <MudSwitch T="bool" @bind-Value="_autoReboot" Color="Color.Primary" Label="Restart the endpoint when an update needs it" />
         <MudText Typo="Typo.caption" Class="muted d-block mb-2">
             @if (_autoReboot)
             {
@@ -48,8 +57,27 @@
         </MudText>
 
         <MudText Typo="Typo.caption" Class="muted d-block">
-            The deployment runs in Action1, not in Fleeto: it starts as soon as the workers hand it over, and endpoints that are offline are
-            retried by Action1 for a day. Fleeto shows what Action1 reports per endpoint.
+            @if (Engine == DeployEngine.Fleeto)
+            {
+                <text>
+                    The Fleeto agent installs with the Windows Update Agent, apt or dnf of the endpoint, as a signed job. An endpoint that is offline
+                    gets it when it comes back within a day. The job output shows what the package manager did.
+                </text>
+            }
+            else if (Engine == DeployEngine.Action1)
+            {
+                <text>
+                    The deployment runs in Action1, not in Fleeto: it starts as soon as the workers hand it over, and endpoints that are offline are
+                    retried by Action1 for a day. Fleeto shows what Action1 reports per endpoint.
+                </text>
+            }
+            else
+            {
+                <text>
+                    Endpoints that Action1 patches get a deployment in Action1; the others are installed by the Fleeto agent as a signed job. Offline
+                    endpoints get it when they come back within a day.
+                </text>
+            }
         </MudText>
     </DialogContent>
     <DialogActions>
@@ -71,11 +99,25 @@
     /// <summary>The chosen updates; empty means every missing update goes.</summary>
     [Parameter] public IReadOnlyList<string> UpdateNames { get; set; } = [];
 
-    /// <summary>Starts the deployment with the chosen restart behaviour and returns true when it was accepted.</summary>
-    [Parameter] public Func<bool, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
+    /// <summary>Who installs (0.9.0): Action1, the Fleeto agent, or a selection with both.</summary>
+    [Parameter] public DeployEngine Engine { get; set; } = DeployEngine.Action1;
+
+    /// <summary>True when "Security updates only" applies: a Linux endpoint patched by Fleeto, or a selection that may hold one.</summary>
+    [Parameter] public bool OffersSecurityOnly { get; set; }
+
+    /// <summary>Starts the deployment with the chosen options and returns true when it was accepted.</summary>
+    [Parameter] public Func<DeployChoice, Task<bool>> OnSubmit { get; set; } = _ => Task.FromResult(true);
 
     private bool _autoReboot;
+    private bool _securityOnly;
     private bool _busy;
+
+    private string Installer => Engine switch
+    {
+        DeployEngine.Fleeto => "The Fleeto agent",
+        DeployEngine.Action1 => "Action1",
+        _ => "Action1 or the Fleeto agent"
+    };
 
     private void Cancel() => MudDialog.Cancel();
 
@@ -84,7 +126,7 @@
         _busy = true;
         try
         {
-            if (await OnSubmit(_autoReboot))
+            if (await OnSubmit(new DeployChoice(_autoReboot, _securityOnly && UpdateNames.Count == 0 && OffersSecurityOnly)))
             {
                 MudDialog.Close(DialogResult.Ok(true));
             }
@@ -94,4 +136,15 @@
             _busy = false;
         }
     }
+
+    /// <summary>Who installs the updates of a deployment, as the dialog describes it.</summary>
+    public enum DeployEngine
+    {
+        Action1,
+        Fleeto,
+        Mixed
+    }
+
+    /// <summary>What the technician chose.</summary>
+    public sealed record DeployChoice(bool AutoReboot, bool SecurityOnly);
 }

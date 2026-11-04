@@ -857,8 +857,10 @@ inside one organization. A scheduled run appears within minutes after Action1 st
 | `requestedAt` | timestamp | When it was started in Fleeto. For scope `patch_policy`, when Action1 started the run for a policy in UTC, and when Fleeto found it for a policy in the endpoint's own time (Action1 names no time zone for those). |
 | `completedAt` | timestamp, nullable | When every endpoint had an answer, or Fleeto stopped following it. Null while it runs. |
 | `updates` | array of string | The chosen updates with their version, for a deployment of scope `specified`. Empty for `all_missing`, where Action1 decides what is missing at the moment it runs. |
-| `targets` | array | One per endpoint: `endpointId`, `hostname` (as it was when the deployment started), `state` ([Deployment target state](#deployment-target-state)) and `message` (what Action1 said, null when it said nothing). For scope `patch_policy`, the endpoints Fleeto put in the automation of the policy. |
+| `targets` | array | One per endpoint: `endpointId`, `hostname` (as it was when the deployment started), `state` ([Deployment target state](#deployment-target-state)), `message` (what Action1 said, or for engine `fleeto` why the installation failed or ended without an answer; null when nothing was said), and from 0.9.0 `jobId` (engine `fleeto`: the installation job of the endpoint, see the jobs of the endpoint; null for `action1`) and `restart` (engine `fleeto`: `not_required`, `required` or `restarted` once the job ended; null otherwise). For scope `patch_policy`, the endpoints Fleeto put in the automation of the policy. |
 | `patchPolicyId` | UUID, nullable | The patch policy whose schedule ran it, for scope `patch_policy` (from 0.6.0); null otherwise, and the id of a policy that may since have been deleted. |
+| `engine` | string | [Patch engine](#patch-engine) (from 0.9.0): `action1`, or `fleeto` when the Fleeto agent installs with one signed job per endpoint. |
+| `securityOnly` | boolean | For engine `fleeto` on Linux: only the updates the scan classified as security (from 0.9.0). |
 
 ### Inventory
 

@@ -1232,9 +1232,13 @@
         {
             { d => d.EndpointIds, endpointIds },
             { d => d.TargetLabel, label },
-            { d => d.OnSubmit, async (bool autoReboot) =>
+            // A selection can hold endpoints of both engines (0.9.0); each is installed by its own.
+            { d => d.Engine, DeployUpdatesDialog.DeployEngine.Mixed },
+            { d => d.OffersSecurityOnly, true },
+            { d => d.OnSubmit, async (DeployUpdatesDialog.DeployChoice choice) =>
                 {
-                    var result = await RunForValueAsync(caller => PatchSvc.StartDeploymentAsync(caller, endpointIds, null, autoReboot), null);
+                    var result = await RunForValueAsync(caller => PatchSvc.StartDeploymentAsync(caller, endpointIds, null, choice.AutoReboot,
+                        securityOnly: choice.SecurityOnly), null);
                     run = result?.Value;
                     return run is not null;
                 } }

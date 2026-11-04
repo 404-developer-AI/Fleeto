@@ -302,6 +302,15 @@ public class PatchDeployment
     /// </summary>
     public DateTime? FollowUntil { get; set; }
 
+    /// <summary>
+    /// Who carries it out (0.9.0): Action1, or the Fleeto agent with one <see cref="JobType.PatchInstall"/> job per target, followed by
+    /// the workers from those jobs.
+    /// </summary>
+    public PatchEngine Engine { get; set; } = PatchEngine.Action1;
+
+    /// <summary>Engine Fleeto, Linux: only the updates the scan classified as security (0.9.0).</summary>
+    public bool SecurityOnly { get; set; }
+
     public List<PatchDeploymentUpdate> Updates { get; set; } = [];
     public List<PatchDeploymentTarget> Targets { get; set; } = [];
 
@@ -352,6 +361,25 @@ public class PatchDeploymentTarget
 
     /// <summary>When the workers last read the history of this endpoint from the product (0.6.0); null while never read.</summary>
     public DateTime? StepsReadAt { get; set; }
+
+    /// <summary>Engine Fleeto (0.9.0): the installation job of this endpoint.</summary>
+    public Guid? JobId { get; set; }
+
+    /// <summary>Engine Fleeto: what became of the restart, from the job; null while unknown.</summary>
+    public PatchTargetRestart? Restart { get; set; }
+}
+
+/// <summary>What became of the restart of one endpoint of a deployment by Fleeto (0.9.0), as its job reported it.</summary>
+public enum PatchTargetRestart
+{
+    /// <summary>Nothing that was installed needs a restart.</summary>
+    NotRequired,
+
+    /// <summary>An update needs a restart, and the deployment did not allow one (or a Proxmox VE host in a round).</summary>
+    Required,
+
+    /// <summary>The endpoint restarted to finish the updates.</summary>
+    Restarted
 }
 
 /// <summary>

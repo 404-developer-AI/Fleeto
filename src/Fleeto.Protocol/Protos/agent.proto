@@ -786,10 +786,81 @@ message JobPayload {
   // With JOB_TYPE_RESTART (0.6.0): restart the endpoint for a step of a task. The agent runs a fixed command and completes the job
   // only after the endpoint came back with a newer boot time, or when timeout_seconds passed without a restart.
   RestartJob restart = 12;
+  // With JOB_TYPE_PATCH_INSTALL (0.9.0 step 3): install missing updates with the Windows Update Agent, apt or dnf of the endpoint.
+  PatchInstallJob patch_install = 13;
 }
 
 // A restart has no input: everything the agent does is fixed in the agent.
 message RestartJob {}
+
+// Installs updates with the tools of the operating system (0.9.0, PATCHING.md section 5). fleeto-signer composes it from the
+// deployment and, later, the patch policy: identifiers, filters and switches, never a command. The agent validates every name and id
+// before it passes them to apt, dnf or the Windows Update Agent as arguments, never through a shell, and refuses the job on an
+// agent-only configuration or one without a patch scan interval.
+//
+// The agent scans first, then selects: exactly the named updates (SCOPE_SPECIFIED; one no longer missing is reported as such, never an
+// error) or what the filter allows of everything missing (SCOPE_ALL_MISSING). It writes one line per update to stdout, then the
+// restart, in a fixed form the server reads for the deployment history:
+//   fleeto-patch: <status> <id> <title>     status: installed, failed, not-missing, held, excluded
+//   fleeto-patch: restart <state>           state: not-required, required, restarting
+// The output of apt, dnf or the Windows Update Agent is the rest of the output. Exit code 0 when every selected update was installed
+// (also when nothing was missing), 1 when one failed or the tool failed. The package manager is never killed: at the timeout the job
+// reports JOB_RESULT_TIMED_OUT and the agent refuses another patch job while the process it started still runs. With
+// RESTART_IF_REQUIRED and a result that needs a restart, the agent restarts like a restart job (after the notice) and completes the
+// job once the endpoint started again with a newer boot time, then scans.
+message PatchInstallJob {
+  PatchInstallScope scope = 1;
+  // SCOPE_SPECIFIED: exactly these, nothing else; at most 100.
+  repeated PatchInstallUpdate updates = 2;
+  // SCOPE_ALL_MISSING: what of everything missing is installed.
+  PatchInstallFilter filter = 3;
+  PatchRestart restart = 4;
+  // Seconds between the notice to a signed-in user and the restart, 60 to 86400. On a workstation with a signed-in user the notice is
+  // always shown (decided 2026-11-04).
+  uint32 restart_notice_seconds = 5;
+  // The text of the notice; empty for the agent's own wording.
+  string restart_message = 6;
+}
+
+enum PatchInstallScope {
+  PATCH_INSTALL_SCOPE_UNSPECIFIED = 0;
+  PATCH_INSTALL_SCOPE_ALL_MISSING = 1;
+  PATCH_INSTALL_SCOPE_SPECIFIED = 2;
+}
+
+enum PatchRestart {
+  PATCH_RESTART_UNSPECIFIED = 0;
+  // Never restart; the job ends with "restart required" when an update needs one.
+  PATCH_RESTART_NEVER = 1;
+  // Restart after the notice when an installed update needs it.
+  PATCH_RESTART_IF_REQUIRED = 2;
+}
+
+// One update a technician chose, as the last scan reported it.
+message PatchInstallUpdate {
+  // PatchUpdate.id: "name:architecture" on Linux, "UpdateID:RevisionNumber" on Windows.
+  string id = 1;
+  // For the output only; never passed to a tool.
+  string title = 2;
+  // Linux: the version to install ("name=version" for apt, "name-version" for dnf). Empty on Windows.
+  string version = 3;
+}
+
+// What SCOPE_ALL_MISSING installs. Empty fields do not filter.
+message PatchInstallFilter {
+  // Linux: only updates the scan classified as security.
+  bool security_only = 1;
+  // Windows: only these update classifications (Security Updates, Critical Updates, ...).
+  repeated string classifications = 2;
+  // Only these severities (Critical, Important, Moderate, Low; "Unspecified" for updates without one).
+  repeated string severities = 3;
+  // Never these: package names (Linux) or a case-insensitive part of the title (Windows); at most 20.
+  repeated string excluded_names = 4;
+  // Only updates released before this time (deferral of a patch policy); unset installs regardless of release.
+  google.protobuf.Timestamp released_before = 5;
+  // Windows: also drivers.
+  bool include_drivers = 6;
+}
 
 enum JobRunAs {
   // SYSTEM on Windows, root on Linux: the account the agent service itself runs as.
@@ -803,6 +874,8 @@ enum JobType {
   JOB_TYPE_UNSPECIFIED = 0;
   JOB_TYPE_SCRIPT = 1;
   JOB_TYPE_RESTART = 2;
+  // 0.9.0 step 3: PatchInstallJob.
+  JOB_TYPE_PATCH_INSTALL = 3;
 }
 
 message ScriptJob {

@@ -430,6 +430,8 @@ public static class AuditActions
 
     /// <summary>A technician asked for updates to be deployed (0.4.0 step 3); one entry per client of the run.</summary>
     public const string PatchDeploymentStarted = "patch_deployment.started";
+    /// <summary>A deployment by Fleeto ended (0.9.0): every endpoint has an answer, or Fleeto stopped following it; with the counts.</summary>
+    public const string PatchDeploymentCompleted = "patch_deployment.completed";
 
     /// <summary>The patch management product accepted the deployment and named it.</summary>
     public const string PatchDeploymentAccepted = "patch_deployment.accepted";

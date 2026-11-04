@@ -25,6 +25,13 @@ var severityRank = map[string]int{"low": 1, "moderate": 2, "important": 3, "crit
 
 // scanDnf runs a dnf scan: the missing updates with their repository, the installed versions, the advisories and the version locks.
 func scanDnf(ctx context.Context, sys system) *agentv1.PatchScanReport {
+	report, _ := scanDnfChecked(ctx, sys)
+	return report
+}
+
+// scanDnfChecked is scanDnf that also says whether the scan failed outright (stopped, or check-update did not answer), so an
+// installation never takes an empty list for "nothing missing".
+func scanDnfChecked(ctx context.Context, sys system) (*agentv1.PatchScanReport, bool) {
 	report := &agentv1.PatchScanReport{Engine: EngineDnf}
 	var probs problems
 
@@ -32,20 +39,23 @@ func scanDnf(ctx context.Context, sys system) *agentv1.PatchScanReport {
 	// others usable, and is reported below.
 	check := sys.Run(ctx, dnfEnv, "dnf", "-q", "--refresh", "--setopt=skip_if_unavailable=True", "check-update")
 	if ctx.Err() != nil {
-		return report
+		return report, true
 	}
 	for _, repo := range parseDnfRepoProblems(check.Stderr) {
 		probs.add("The repository " + repo + " could not be read; the scan used the other repositories.")
 	}
 	var updates []*dnfUpdate
+	failed := false
 	switch {
 	case check.Err != nil:
 		probs.add("dnf check-update could not run: " + check.Err.Error() + ".")
+		failed = true
 	case check.Code == 0:
 	case check.Code == 100:
 		updates = parseDnfCheckUpdate(check.Stdout)
 	default:
 		probs.add("dnf check-update failed: " + firstDnfError(check.Stderr, check.Stdout, check.Code))
+		failed = true
 	}
 
 	if len(updates) > 0 {
@@ -68,7 +78,7 @@ func scanDnf(ctx context.Context, sys system) *agentv1.PatchScanReport {
 		if ctx.Err() != nil {
 			report.Updates = dnfToProto(updates, nil, nil)
 			report.Problem = probs.String()
-			return report
+			return report, true
 		}
 		var advisories map[string]dnfAdvisory
 		if info.Err == nil && info.Code == 0 {
@@ -87,7 +97,7 @@ func scanDnf(ctx context.Context, sys system) *agentv1.PatchScanReport {
 	}
 	report.RestartRequired = needsRestarting(ctx, sys)
 	report.Problem = probs.String()
-	return report
+	return report, failed || ctx.Err() != nil
 }
 
 // dnfUpdate is one package of dnf check-update.

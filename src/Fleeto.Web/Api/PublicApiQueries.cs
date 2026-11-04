@@ -342,7 +342,15 @@ public sealed class PublicApiQueries
         return new ManagedRead<IReadOnlyList<ApiDeployment>>(true, [.. deployments.Select(d => new ApiDeployment(
             d.Id, d.BatchId, d.ClientId, Map(d.Scope), d.AutoReboot, Map(d.State), d.StatusMessage, d.RequestedByName,
             Utc(d.RequestedAt), UtcOrNull(d.CompletedAt), d.UpdateNames,
-            [.. d.Targets.Select(t => new ApiDeploymentTarget(t.EndpointId, t.Hostname, Map(t.State), t.Message))], d.PatchPolicyId))]);
+            [.. d.Targets.Select(t => new ApiDeploymentTarget(t.EndpointId, t.Hostname, Map(t.State), t.Message, t.JobId,
+                t.Restart switch
+                {
+                    PatchTargetRestart.NotRequired => ApiTargetRestart.NotRequired,
+                    PatchTargetRestart.Required => ApiTargetRestart.Required,
+                    PatchTargetRestart.Restarted => ApiTargetRestart.Restarted,
+                    _ => null
+                }))], d.PatchPolicyId,
+            d.Engine == PatchEngine.Fleeto ? ApiPatchEngine.Fleeto : ApiPatchEngine.Action1, d.SecurityOnly))]);
     }
 
     /// <summary>Null when the endpoint does not exist.</summary>

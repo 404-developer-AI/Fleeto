@@ -94,16 +94,25 @@ func wrap(op string, err error) error {
 	return &wuaError{Op: op, Code: oleCode(err), Err: err}
 }
 
-// comSession is the Windows Update Agent through IDispatch. It only reads: it never calls Download, Install or AddService2.
+// comSession is the Windows Update Agent through IDispatch. For a scan it only reads: it never calls Download, Install or
+// AddService2. An installation (install_windows.go) sets keep, so the updates of the last search stay available to install.
 type comSession struct {
 	logger  *slog.Logger
 	session *ole.IDispatch
+	// keep holds on to the updates of the last search in last.
+	keep bool
+	last *ole.IDispatch
+	// coll is the UpdateColl of an installation, installer its IUpdateInstaller.
+	coll      *ole.IDispatch
+	installer *ole.IDispatch
 }
 
 func (s *comSession) close() {
-	if s.session != nil {
-		s.session.Release()
-		s.session = nil
+	for _, obj := range []**ole.IDispatch{&s.installer, &s.coll, &s.last, &s.session} {
+		if *obj != nil {
+			(*obj).Release()
+			*obj = nil
+		}
 	}
 }
 
@@ -204,7 +213,14 @@ func (s *comSession) Search(criteria string, serverSelection int32, serviceID st
 	if err != nil {
 		return result, err
 	}
-	defer updates.Release()
+	if s.keep {
+		if s.last != nil {
+			s.last.Release()
+		}
+		s.last = updates
+	} else {
+		defer updates.Release()
+	}
 	count, err := getInt(updates, "Count")
 	if err != nil {
 		return result, err

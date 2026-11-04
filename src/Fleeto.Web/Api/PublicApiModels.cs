@@ -93,7 +93,8 @@ public enum ApiPatchCoverage
     [JsonStringEnumMemberName("inactive")] Inactive
 }
 
-/// <summary>Who reported a patch state (0.9.0): Action1, or a patch scan of the Fleeto agent.</summary>
+/// <summary>Who reported a patch state or carried out a deployment (0.9.0): Action1, or the Fleeto agent.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ApiPatchEngine>))]
 public enum ApiPatchEngine
 {
     [JsonStringEnumMemberName("action1")] Action1,
@@ -295,7 +296,17 @@ public sealed record ApiPatchState(Guid EndpointId, ApiPatchCoverage Coverage, b
     string? ScanSourceServer);
 
 /// <summary>What one endpoint of a deployment did, as patch management reports it (0.4.0).</summary>
-public sealed record ApiDeploymentTarget(Guid EndpointId, string Hostname, ApiDeploymentTargetState State, string? Message);
+public sealed record ApiDeploymentTarget(Guid EndpointId, string Hostname, ApiDeploymentTargetState State, string? Message, Guid? JobId,
+    ApiTargetRestart? Restart);
+
+/// <summary>What became of the restart of an endpoint of a deployment by Fleeto (0.9.0).</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ApiTargetRestart>))]
+public enum ApiTargetRestart
+{
+    [JsonStringEnumMemberName("not_required")] NotRequired,
+    [JsonStringEnumMemberName("required")] Required,
+    [JsonStringEnumMemberName("restarted")] Restarted
+}
 
 /// <summary>
 /// One deployment of updates started from Fleeto (0.4.0), or a scheduled run of a patch policy (0.6.0). It covers one
@@ -304,7 +315,7 @@ public sealed record ApiDeploymentTarget(Guid EndpointId, string Hostname, ApiDe
 /// <param name="PatchPolicyId">The patch policy whose schedule ran it, for scope <c>patch_policy</c> (0.6.0); null otherwise.</param>
 public sealed record ApiDeployment(Guid Id, Guid BatchId, Guid ClientId, ApiDeploymentScope Scope, bool AutoReboot,
     ApiDeploymentState State, string? StatusMessage, string RequestedByName, DateTime RequestedAt, DateTime? CompletedAt,
-    IReadOnlyList<string> Updates, IReadOnlyList<ApiDeploymentTarget> Targets, Guid? PatchPolicyId);
+    IReadOnlyList<string> Updates, IReadOnlyList<ApiDeploymentTarget> Targets, Guid? PatchPolicyId, ApiPatchEngine Engine, bool SecurityOnly);
 
 public sealed record ApiInventory(Guid EndpointId, DateTime ReceivedAt, string Manufacturer, string Model, string SerialNumber, ApiCpu Cpu,
     long MemoryTotalBytes, DateTime? BootTime, string Domain, string LoggedOnUser, IReadOnlyList<ApiDisk> Disks,

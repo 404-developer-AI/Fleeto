@@ -172,12 +172,13 @@ public static class DatabaseGrants
             // Patch state (0.4.0): the workers read it from the patch management product, web and the public API show it.
             // The signer reads who reported the patch state for the patch engine of a configuration (0.9.0).
             ["EndpointPatchStates"] = Grants(web: Read, signer: Read, workers: ReadWrite),
-            ["EndpointMissingUpdates"] = Grants(web: Read, workers: ReadWrite),
+            // The signer reads the missing updates, the deployment and its endpoint before it signs an installation job (0.9.0).
+            ["EndpointMissingUpdates"] = Grants(web: Read, signer: Read, workers: ReadWrite),
             // Deployments (0.4.0 step 3): web writes what a technician asked for, the workers hand it to the product and
             // write back what it reports. Web never updates a deployment, so it cannot claim an outcome of its own.
-            ["PatchDeployments"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
-            ["PatchDeploymentUpdates"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
-            ["PatchDeploymentTargets"] = Grants(web: "SELECT, INSERT", workers: ReadWrite),
+            ["PatchDeployments"] = Grants(web: "SELECT, INSERT", signer: Read, workers: ReadWrite),
+            ["PatchDeploymentUpdates"] = Grants(web: "SELECT, INSERT", signer: Read, workers: ReadWrite),
+            ["PatchDeploymentTargets"] = Grants(web: "SELECT, INSERT", signer: Read, workers: ReadWrite),
             // The product's history per endpoint (0.6.0): only the workers write what the product said.
             ["PatchDeploymentSteps"] = Grants(web: Read, workers: ReadWrite),
             // Requests about the patch management of an endpoint (0.6.0): web asks, only the workers can reach the product.

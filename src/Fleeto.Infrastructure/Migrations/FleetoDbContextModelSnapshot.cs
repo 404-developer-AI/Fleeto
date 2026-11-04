@@ -3930,6 +3930,12 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<bool>("OutputTruncated")
                         .HasColumnType("boolean");
 
+                    b.Property<Guid?>("PatchDeploymentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PatchDeploymentTargetId")
+                        .HasColumnType("uuid");
+
                     b.Property<byte[]>("Payload")
                         .HasColumnType("bytea");
 
@@ -4043,6 +4049,13 @@ namespace Fleeto.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("BatchId");
+
+                    b.HasIndex("PatchDeploymentId")
+                        .HasFilter("\"PatchDeploymentId\" IS NOT NULL");
+
+                    b.HasIndex("PatchDeploymentTargetId")
+                        .IsUnique()
+                        .HasFilter("\"PatchDeploymentTargetId\" IS NOT NULL");
 
                     b.HasIndex("ScriptId");
 
@@ -4651,6 +4664,13 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("Engine")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Action1");
+
                     b.Property<string>("ExternalAutomationId")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -4693,6 +4713,11 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<bool>("SecurityOnly")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<DateTime?>("StartedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -4721,7 +4746,10 @@ namespace Fleeto.Infrastructure.Migrations
                     b.HasIndex("ClientId", "RequestedAt")
                         .IsDescending(false, true);
 
-                    b.ToTable("PatchDeployments");
+                    b.ToTable("PatchDeployments", t =>
+                        {
+                            t.HasCheckConstraint("CK_PatchDeployments_Engine", "\"Engine\" IN ('Action1', 'Fleeto')");
+                        });
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.PatchDeploymentStep", b =>
@@ -4792,9 +4820,16 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
+                    b.Property<Guid?>("JobId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Message")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Restart")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("State")
                         .IsRequired()
@@ -4808,6 +4843,9 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("JobId")
+                        .HasFilter("\"JobId\" IS NOT NULL");
 
                     b.HasIndex("DeploymentId", "EndpointId")
                         .IsUnique();

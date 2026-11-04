@@ -93,7 +93,14 @@ public enum JobType
     /// Restarts the endpoint for a step of a task (0.6.0). There is no script: the agent runs a fixed command and reports success
     /// once the endpoint came back with a newer boot time. Only the workers write it, for a restart step of a task.
     /// </summary>
-    Restart
+    Restart,
+
+    /// <summary>
+    /// Installs missing updates with the Windows Update Agent, apt or dnf of the endpoint (0.9.0 step 3). There is no script:
+    /// fleeto-signer composes the body from the deployment the job is bound to (<see cref="Job.PatchDeploymentId"/>), and the agent
+    /// validates every name before it passes it to the tool.
+    /// </summary>
+    PatchInstall
 }
 
 public enum JobState
@@ -200,6 +207,12 @@ public class Job
 
     /// <summary>The step of the task this job runs (0.6.0, steps); null for a job written before steps existed. No foreign key: a deleted step stays named.</summary>
     public Guid? TaskStepId { get; set; }
+
+    /// <summary>The deployment of a <see cref="JobType.PatchInstall"/> job (0.9.0); frozen once written.</summary>
+    public Guid? PatchDeploymentId { get; set; }
+
+    /// <summary>The endpoint of that deployment this job installs on; one job per target at most.</summary>
+    public Guid? PatchDeploymentTargetId { get; set; }
 
     public DateTime CreatedAt { get; set; }
     public DateTime ValidUntil { get; set; }

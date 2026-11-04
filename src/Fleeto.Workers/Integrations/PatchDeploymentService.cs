@@ -78,7 +78,8 @@ public sealed class PatchDeploymentService : WorkerLoop
         var open = await db.PatchDeployments
             .Include(d => d.Targets)
             .Include(d => d.Updates)
-            .Where(d => d.State == PatchDeploymentState.Requested || d.State == PatchDeploymentState.Running)
+            // A deployment by Fleeto (0.9.0) is followed from its jobs by FleetoDeploymentService, never handed to Action1.
+            .Where(d => d.Engine == PatchEngine.Action1 && (d.State == PatchDeploymentState.Requested || d.State == PatchDeploymentState.Running))
             .OrderBy(d => d.RequestedAt)
             .ToListAsync(cancellationToken);
         if (open.Count == 0 && !await StepsDue(db, Time.GetUtcNow().UtcDateTime).AnyAsync(cancellationToken))

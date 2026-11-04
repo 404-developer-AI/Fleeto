@@ -38,7 +38,8 @@ engine (Action1 or Fleeto) is a property of the patch policy, and one endpoint i
 - [done] Step 2: scanning on Windows with the Windows Update Agent, for endpoints without Action1. Still to do before the release: a
   scan as SYSTEM on a Windows endpoint with missing updates, on a Windows Server and under WSUS (it ran read-only on the development
   PC, as the signed-in user, with nothing missing).
-- [open] Step 3: installing by hand from the Patches tab and the endpoint list, as a signed job, with the restart inside the job.
+- [done] Step 3: installing by hand from the Patches tab and the endpoint list, as a signed job, with the restart inside the job. Still to
+  do before the release: an installation and a restart on every test endpoint (Ubuntu, Proxmox VE, AlmaLinux, Windows 11, Windows Server).
 - [open] Step 4: patch policies with engine Fleeto: rounds on their schedule, "Scheduled patching", turning automatic updates off.
 - [open] Step 5: the remaining options, the documentation and the release.
 - [open] Patch management on Linux (planned as 0.4.1, moved to "Not yet scheduled" on 2026-09-23, scheduled as 0.8.0 on
