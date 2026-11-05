@@ -7,13 +7,21 @@
 
 ## Current
 
-Released versions, from 0.0.0 to 0.8.0, are described in `CHANGELOG.md` and `CHANGELOG-ARCHIVE.md`; this file keeps only
-what is not released yet. The latest release is **0.8.0** (2026-11-04, `v0.8.0`): vulnerability reporting, the Proxmox and
-Synology web interfaces, the dashboard designer, column layouts and the end-of-life report, tested through `v0.8.0-alpha.1` to
-`alpha.16`.
+Released versions, from 0.0.0 to 0.9.0, are described in `CHANGELOG.md` and `CHANGELOG-ARCHIVE.md`; this file keeps only
+what is not released yet. The latest release is **0.9.0** (2026-11-05, `v0.9.0`): patch management by the Fleeto agent itself on
+Windows, Windows Server, Ubuntu, Debian, AlmaLinux and Proxmox VE, next to Action1 (designed in `PATCHING.md`), released without a
+round on the test VPS (decided by the developer on 2026-11-05).
 
-**0.9.0** — in progress: patch management on Linux, and on Windows for endpoints without Action1 (decided 2026-11-04, designed in
-`PATCHING.md`).
+No next version is decided yet. Open after 0.9.0:
+
+- [open] 0.9.0 on the test VPS: an installation and a restart by hand and by a round on every test endpoint (Ubuntu, Proxmox VE,
+  AlmaLinux, Windows 11, Windows Server), the scan as SYSTEM with missing updates, under a WSUS and with Microsoft Update registered
+  by a policy, the systemd scope of apt and dnf when the agent stops, and the other checks of `PATCHING.md` section 15. What they
+  find is a patch release.
+- [open] The load test of patch scans and rounds at 10,000 agents (`Fleeto.LoadTest --patch-scans-per-hour --patch-updates`).
+- [open] When a Debian endpoint runs: captures of Debian 12 and 13 (`apt-get -q update`, `apt-get -s dist-upgrade`, `apt-mark
+  showhold`) for the parser tests; Debian is supported on the representative output of `agent/internal/patch/testdata` until then.
+  Also a Proxmox VE host with the enterprise repository answering 401.
 
 **Platforms**: Windows and Linux. macOS is not supported for now; it may come later when there is demand (decided
 2026-09-15, see Later).
@@ -22,32 +30,6 @@ Synology web interfaces, the dashboard designer, column layouts and the end-of-l
 repository, with the images as private packages on ghcr.io (public since 2026-09-21).
 
 Markers: [done] built and tested, [open] still to do.
-
-## 0.9.0 — Patch management on Linux and on Windows without Action1
-
-Decided 2026-11-04, with how and what decided the same day: the design, the decisions and the build plan are in `PATCHING.md`. The
-engine (Action1 or Fleeto) is a property of the patch policy, and one endpoint is never patched by both.
-
-- [done] Step 0: the decisions, the engine of a patch policy and the rule for the engine of an endpoint (`PatchEngineRules`).
-- [done] Step 1: scanning on Linux (Ubuntu, Debian, AlmaLinux, Proxmox VE): missing updates on the Patches tab, in the compliance counts
-  and the "Missing updates" check. Nothing installed yet. The parsers read real captures of Ubuntu 24.04, Proxmox VE 8 and AlmaLinux 9 and
-  10. Still to do before the release: the load test at 10,000 agents on the test VPS, and a capture of a Proxmox VE host with the
-  enterprise repository answering 401.
-- [open] Later, when a Debian endpoint runs: captures of Debian 12 and 13 (`apt-get -q update`, `apt-get -s dist-upgrade`, `apt-mark
-  showhold`) for the parser tests; Debian is supported on the representative output of `agent/internal/patch/testdata` until then.
-- [done] Step 2: scanning on Windows with the Windows Update Agent, for endpoints without Action1. Still to do before the release: a
-  scan as SYSTEM on a Windows endpoint with missing updates, on a Windows Server and under WSUS (it ran read-only on the development
-  PC, as the signed-in user, with nothing missing).
-- [done] Step 3: installing by hand from the Patches tab and the endpoint list, as a signed job, with the restart inside the job. Still to
-  do before the release: an installation and a restart on every test endpoint (Ubuntu, Proxmox VE, AlmaLinux, Windows 11, Windows Server).
-- [open] Step 4: patch policies with engine Fleeto: rounds on their schedule, "Scheduled patching", turning automatic updates off.
-- [open] Step 5: the remaining options, the documentation and the release.
-- [open] Patch management on Linux (planned as 0.4.1, moved to "Not yet scheduled" on 2026-09-23, scheduled as 0.8.0 on
-  2026-10-26, moved to 0.9.0 on 2026-11-04). Until it is built a Linux endpoint shows no patch data at all and stays out of the
-  compliance counts, because calling it uncovered would be untrue.
-- [open] Patch management on Windows, servers and workstations, for endpoints where Action1 is not used (decided 2026-11-04). This
-  changes the rule in `CLAUDE.md` that patching is delegated to Action1 and that Fleeto builds no patch engine of its own; how it
-  relates to Action1 (one or the other per endpoint through its patch policy, never both on one endpoint) is decided (`PATCHING.md` §2).
 
 ## 1.0.0 — General availability
 

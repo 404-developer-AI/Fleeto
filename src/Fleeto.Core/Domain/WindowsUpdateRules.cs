@@ -34,12 +34,18 @@ public static class WindowsUpdateRules
     /// True when the configuration of the endpoint asks the agent to turn automatic Windows Update off: a managed Windows endpoint
     /// whose patch policy is enabled and asks for it, and that Action1 reports in the organization of its client, so Action1 really
     /// patches it. An endpoint Action1 does not cover keeps Windows Update, or it would get no updates at all.
+    /// <para>
+    /// From 0.9.0 the same switch on a policy of engine Fleeto applies where the engine of the endpoint is Fleeto
+    /// (<paramref name="engine"/>), so only the rounds of that policy install updates; the agent then needs no Action1 agent. A policy of
+    /// one engine never turns Windows Update off on an endpoint the other engine patches.
+    /// </para>
     /// </summary>
-    public static bool Applies(EndpointTier effectiveTier, string? osPlatform, PatchPolicy? patchPolicy, Action1AgentStatus? action1) =>
+    public static bool Applies(EndpointTier effectiveTier, string? osPlatform, PatchPolicy? patchPolicy, Action1AgentStatus? action1,
+        EndpointPatchEngine engine = EndpointPatchEngine.None) =>
         effectiveTier == EndpointTier.Managed &&
         string.Equals(osPlatform, "windows", StringComparison.OrdinalIgnoreCase) &&
         patchPolicy is { Enabled: true, TurnOffWindowsUpdate: true } &&
-        action1 == Action1AgentStatus.Installed;
+        (patchPolicy.Engine == PatchEngine.Fleeto ? engine == EndpointPatchEngine.Fleeto : action1 == Action1AgentStatus.Installed);
 
     /// <summary>
     /// Automatic Windows Update in words for the Patches tab: <paramref name="requested"/> is true when the patch policy of the

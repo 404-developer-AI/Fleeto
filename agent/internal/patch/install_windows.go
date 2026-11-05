@@ -31,7 +31,7 @@ func InstallEngine() string { return EngineWindowsUpdate }
 // multithreaded apartment. It holds the busy guard of the scan, so no search runs next to it. It is synchronous and never stopped:
 // a call of the Windows Update Agent cannot be cancelled, and ctx only keeps an installation from starting after the agent stops.
 // The tool's own output goes to tool, the "fleeto-patch:" lines to lines.
-func Install(ctx context.Context, job *agentv1.PatchInstallJob, tool, lines io.Writer, logger *slog.Logger) InstallResult {
+func Install(ctx context.Context, job *agentv1.PatchInstallJob, opts InstallOptions, tool, lines io.Writer, logger *slog.Logger) InstallResult {
 	out := newInstallOutput(tool, lines)
 	done := make(chan InstallResult, 1)
 	go func() {
@@ -54,7 +54,7 @@ func Install(ctx context.Context, job *agentv1.PatchInstallJob, tool, lines io.W
 		defer ole.CoUninitialize()
 		sess := &comSession{logger: logger, keep: true}
 		defer sess.close()
-		result = installWUA(ctx, sess, windowsRegistry{}, job, out, time.Sleep)
+		result = installWUA(ctx, sess, windowsRegistry{}, job, opts.Drivers, out, time.Sleep)
 	}()
 	return <-done
 }
@@ -90,7 +90,7 @@ func identityKey(update *ole.IDispatch) (string, error) {
 }
 
 func (s *comSession) Collect(ids []string) ([]string, error) {
-	if s.last == nil {
+	if len(s.kept) == 0 {
 		return nil, errors.New("no search result to install from")
 	}
 	wanted := map[string]bool{}
@@ -105,43 +105,53 @@ func (s *comSession) Collect(ids []string) ([]string, error) {
 		s.coll.Release()
 	}
 	s.coll = coll
-	count, err := getInt(s.last, "Count")
-	if err != nil {
-		return nil, err
-	}
 	var taken []string
-	for i := range min(max(count, 0), wuaMaxRead) {
-		err := func() error {
-			update, err := getObject(s.last, "Item", int32(i))
-			if err != nil {
-				return err
-			}
-			defer update.Release()
-			key, err := identityKey(update)
-			if err != nil || !wanted[key] {
-				return nil
-			}
-			delete(wanted, key)
-			if accepted, err := getBool(update, "EulaAccepted"); err != nil || !accepted {
-				v, err := oleutil.CallMethod(update, "AcceptEula")
-				if err != nil {
-					return wrap("AcceptEula", err)
-				}
-				_ = v.Clear()
-			}
-			v, err := oleutil.CallMethod(coll, "Add", update)
-			if err != nil {
-				return wrap("Add", err)
-			}
-			_ = v.Clear()
-			taken = append(taken, key)
-			return nil
-		}()
+	// The searches of the installation in order: software first, then drivers. An update is taken once.
+	for _, updates := range s.kept {
+		count, err := getInt(updates, "Count")
 		if err != nil {
-			s.logger.Warn("an update could not be prepared for installation", "error", err)
+			return nil, err
+		}
+		for i := range min(max(count, 0), wuaMaxRead) {
+			key, err := s.collectOne(coll, updates, int32(i), wanted)
+			if err != nil {
+				s.logger.Warn("an update could not be prepared for installation", "error", err)
+				continue
+			}
+			if key != "" {
+				taken = append(taken, key)
+			}
 		}
 	}
 	return taken, nil
+}
+
+// collectOne adds update index of a search result to the collection when it is wanted, after accepting its license terms. It
+// returns the id it took, or empty.
+func (s *comSession) collectOne(coll, updates *ole.IDispatch, index int32, wanted map[string]bool) (string, error) {
+	update, err := getObject(updates, "Item", index)
+	if err != nil {
+		return "", err
+	}
+	defer update.Release()
+	key, err := identityKey(update)
+	if err != nil || !wanted[key] {
+		return "", nil
+	}
+	delete(wanted, key)
+	if accepted, err := getBool(update, "EulaAccepted"); err != nil || !accepted {
+		v, err := oleutil.CallMethod(update, "AcceptEula")
+		if err != nil {
+			return "", wrap("AcceptEula", err)
+		}
+		_ = v.Clear()
+	}
+	v, err := oleutil.CallMethod(coll, "Add", update)
+	if err != nil {
+		return "", wrap("Add", err)
+	}
+	_ = v.Clear()
+	return key, nil
 }
 
 // putUpdates sets the Updates property of a downloader or installer to the collection; it is a property put by reference.

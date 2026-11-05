@@ -8,10 +8,10 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 
 - **Language**: conversation with the developer is always in Dutch. Documentation, code,
   comments, commit messages, log messages and UI text are always in English.
-- **Current phase**: 0.8.0 (vulnerability reporting, the Proxmox and Synology web interfaces, the dashboard designer, column
-  layouts and the end-of-life report) is released (2026-11-04) and runs on the first test VPS, tested through `v0.8.0-alpha.1` to
-  `alpha.16`. Next is 0.9.0 in `MD-Files/ROADMAP.md`: patch management on Linux and on Windows, servers and workstations, for
-  endpoints without Action1 (decided 2026-11-04 with every choice in `MD-Files/PATCHING.md`, see Patch management; step 0 is built).
+- **Current phase**: 0.9.0 (patch management by the Fleeto agent itself on Linux and on Windows, servers and workstations, for
+  endpoints without Action1, next to Action1; every choice in `MD-Files/PATCHING.md`, see Patch management) is released (2026-11-05)
+  without a round on the test VPS, which still runs 0.8.0; what has to be checked on real endpoints is open in `MD-Files/ROADMAP.md`.
+  No next version is decided.
   The other integrations moved to "Not yet scheduled" on 2026-09-23. Local development runs without Docker (see
   `README.md`); Docker is for the VPS and CI only.
 - **Git**: always ask before committing, pushing or tagging. No intermediate commits while a version is being built.
@@ -501,6 +501,8 @@ Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
   through the signed configuration: only on managed Windows endpoints that Action1 reports and that have the Action1 agent, by
   setting `NoAutoUpdate` only when it is missing; a group policy that sets Windows Update wins and is shown as such, and the
   agent turns it back on when the policy no longer applies, Action1 no longer covers the endpoint or the agent is uninstalled.
+  From 0.9.0 a patch policy of engine Fleeto does the same on the endpoints Fleeto patches, without an Action1 agent, and can also turn
+  unattended-upgrades or dnf-automatic off on Linux the same way.
 - **Sync and the Action1 agent from the Patches tab** (decided 2026-10-13, 0.6.0): Sync reads the endpoint from Action1 at
   once (Action1 offers no way to make an endpoint scan for missing updates), one per endpoint a minute. Installing refuses
   an endpoint that already reports an Action1 agent, and the job stops without changes when it finds one. Removing goes

@@ -81,11 +81,13 @@ func succeeded(code int64) bool {
 	return code == wuaResultSucceeded || code == wuaResultSucceededWithErrors
 }
 
-// installWUA runs one installation against a session. wait sleeps between the looks at a busy installer.
-func installWUA(ctx context.Context, sess wuaInstallSession, reg registryReader, job *agentv1.PatchInstallJob, out *installOutput,
-	wait func(time.Duration)) InstallResult {
+// installWUA runs one installation against a session. The search before it includes drivers when the job's filter includes them
+// or the applied configuration scans them (configDrivers), so a driver the Patches tab lists can be installed by name. wait sleeps
+// between the looks at a busy installer.
+func installWUA(ctx context.Context, sess wuaInstallSession, reg registryReader, job *agentv1.PatchInstallJob, configDrivers bool,
+	out *installOutput, wait func(time.Duration)) InstallResult {
 	out.say("Searching for missing updates with the Windows Update Agent.")
-	report, failed := scanWUAChecked(sess, reg)
+	report, failed := scanWUAChecked(sess, reg, configDrivers || job.GetFilter().GetIncludeDrivers())
 	if report.GetProblem() != "" {
 		out.say("The search reported: %s", report.GetProblem())
 	}

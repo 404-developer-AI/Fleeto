@@ -59,6 +59,22 @@ func TestSelectOnLinux(t *testing.T) {
 		{"an excluded name", &agentv1.PatchInstallJob{Scope: all, Filter: &agentv1.PatchInstallFilter{ExcludedNames: []string{"curl", "Curl"}}},
 			[]string{"libssl3:amd64"},
 			[]Outcome{{StatusExcluded, "curl:amd64", "curl"}, {StatusHeld, "linux-image-generic:amd64", "linux-image-generic"}}, true},
+		{"only the allowed ids", &agentv1.PatchInstallJob{Scope: all, Filter: &agentv1.PatchInstallFilter{RestrictToIds: true,
+			AllowedIds: []string{"curl:amd64", "linux-image-generic:amd64", "vim:amd64"}}},
+			[]string{"curl:amd64"},
+			[]Outcome{{StatusExcluded, "libssl3:amd64", "libssl3"}, {StatusHeld, "linux-image-generic:amd64", "linux-image-generic"}}, true},
+		{"allowed ids still meet the filter", &agentv1.PatchInstallJob{Scope: all, Filter: &agentv1.PatchInstallFilter{RestrictToIds: true,
+			AllowedIds: []string{"curl:amd64", "libssl3:amd64"}, SecurityOnly: true}},
+			[]string{"libssl3:amd64"},
+			[]Outcome{{StatusHeld, "linux-image-generic:amd64", "linux-image-generic"}}, true},
+		{"an empty allowed list installs nothing", &agentv1.PatchInstallJob{Scope: all, Filter: &agentv1.PatchInstallFilter{RestrictToIds: true}},
+			nil,
+			[]Outcome{{StatusExcluded, "libssl3:amd64", "libssl3"}, {StatusExcluded, "curl:amd64", "curl"},
+				{StatusHeld, "linux-image-generic:amd64", "linux-image-generic"}}, true},
+		{"allowed ids without restrict_to_ids are ignored", &agentv1.PatchInstallJob{Scope: all, Filter: &agentv1.PatchInstallFilter{
+			AllowedIds: []string{"curl:amd64"}}},
+			[]string{"libssl3:amd64", "curl:amd64"},
+			[]Outcome{{StatusHeld, "linux-image-generic:amd64", "linux-image-generic"}}, false},
 		{"named updates", &agentv1.PatchInstallJob{Scope: agentv1.PatchInstallScope_PATCH_INSTALL_SCOPE_SPECIFIED, Updates: []*agentv1.PatchInstallUpdate{
 			{Id: "curl:amd64", Title: "curl", Version: "7.81.0-1ubuntu1.15"},
 			{Id: "curl:amd64", Title: "curl again", Version: "7.81.0-1ubuntu1.15"},
@@ -116,6 +132,8 @@ func TestSelectOnWindows(t *testing.T) {
 		{"deferral: released more than a week ago, a missing date is not old enough",
 			&agentv1.PatchInstallFilter{ReleasedBefore: timestamppb.New(now.AddDate(0, 0, -7))}, []string{cu}, nil},
 		{"excluded part of a title", &agentv1.PatchInstallFilter{ExcludedNames: []string{"defender"}}, []string{cu, net}, []string{defender}},
+		{"only the allowed ids; outside the filter stays unlisted", &agentv1.PatchInstallFilter{RestrictToIds: true, AllowedIds: []string{cu, driver}},
+			[]string{cu}, []string{defender, net}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

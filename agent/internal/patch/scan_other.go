@@ -11,4 +11,4 @@ import (
 
 // Scan makes no report on this platform: Fleeto scans for missing updates on Linux (apt, dnf) and Windows (the Windows Update
 // Agent) only.
-func Scan(context.Context, string, *slog.Logger) *agentv1.PatchScanReport { return nil }
+func Scan(context.Context, string, ScanOptions, *slog.Logger) *agentv1.PatchScanReport { return nil }

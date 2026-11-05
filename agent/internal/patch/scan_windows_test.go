@@ -22,7 +22,7 @@ func TestLiveWindowsUpdateSearch(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), ScanTimeout)
 	defer cancel()
 	started := time.Now()
-	r := Scan(ctx, "live", slog.Default())
+	r := Scan(ctx, "live", ScanOptions{Drivers: os.Getenv("FLEETO_WUA_DRIVERS") == "1"}, slog.Default())
 	Finalize(r)
 	t.Logf("engine %s, source %s %s, restart %v, %d updates in %s, problem %q", r.GetEngine(), r.GetSource(), r.GetSourceServer(),
 		r.GetRestartRequired(), len(r.GetUpdates()), time.Since(started).Round(time.Millisecond), r.GetProblem())
@@ -43,7 +43,7 @@ func TestScanRefusesASecondSearchWhileOneRuns(t *testing.T) {
 		t.Fatal("a search runs already")
 	}
 	defer wuaBusy.Store(false)
-	r := Scan(context.Background(), "req", slog.Default())
+	r := Scan(context.Background(), "req", ScanOptions{}, slog.Default())
 	if r.GetProblem() != problemWUABusy || r.GetEngine() != EngineWindowsUpdate || r.GetRequestId() != "req" {
 		t.Fatalf("report %+v", r)
 	}

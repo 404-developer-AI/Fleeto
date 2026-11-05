@@ -17,6 +17,7 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/backoff"
 	"github.com/404-developer-AI/Fleeto/agent/internal/buffer"
 	"github.com/404-developer-AI/Fleeto/agent/internal/checks"
+	"github.com/404-developer-AI/Fleeto/agent/internal/distupdates"
 	"github.com/404-developer-AI/Fleeto/agent/internal/inventory"
 	"github.com/404-developer-AI/Fleeto/agent/internal/jobs"
 	"github.com/404-developer-AI/Fleeto/agent/internal/keystore"
@@ -65,8 +66,14 @@ type Options struct {
 	// PatchScan reads the missing updates (0.9.0); default patch.Scan. Tests replace it.
 	PatchScan func(ctx context.Context, requestID string) *agentv1.PatchScanReport
 	// WindowsUpdate turns automatic Windows Update off or back on (0.7.0) and returns the state to report and whether it changed
-	// anything; default winupdate.Apply. Tests replace it.
-	WindowsUpdate func(turnOff, action1 bool) (string, bool, error)
+	// anything; default winupdate.Apply. fleeto is whether Fleeto patches the endpoint (0.9.0). Tests replace it.
+	WindowsUpdate func(turnOff, action1, fleeto bool) (string, bool, error)
+	// MicrosoftUpdate registers the Microsoft Update service or removes the agent's registration (0.9.0, Windows) and returns the
+	// outcome and whether it changed anything; default patch.ApplyMicrosoftUpdate. Tests replace it.
+	MicrosoftUpdate func(want bool) (string, bool, error)
+	// DistributionUpdates turns unattended-upgrades or dnf-automatic off or back on (0.9.0, Linux) and returns the state to report
+	// and whether it changed anything; default distupdates.Apply with the state directory. Tests replace it.
+	DistributionUpdates func(turnOff bool) (string, bool, error)
 
 	MaxBufferedResults       int
 	BatchMinResults          int
@@ -115,6 +122,17 @@ func (o *Options) setDefaults() {
 	}
 	if o.WindowsUpdate == nil {
 		o.WindowsUpdate = winupdate.Apply
+	}
+	if o.MicrosoftUpdate == nil {
+		logger := o.Logger
+		o.MicrosoftUpdate = func(want bool) (string, bool, error) { return patch.ApplyMicrosoftUpdate(want, logger) }
+	}
+	if o.DistributionUpdates == nil {
+		stateDir := ""
+		if o.Store != nil {
+			stateDir = o.Store.Dir()
+		}
+		o.DistributionUpdates = func(turnOff bool) (string, bool, error) { return distupdates.Apply(stateDir, turnOff) }
 	}
 	if o.SignedInUsers == nil {
 		o.SignedInUsers = jobs.SignedInUsers
@@ -248,8 +266,9 @@ func New(opts Options) (*Agent, error) {
 			defer a.mu.Unlock()
 			return a.st.PatchScanStartedAt
 		},
-		SaveStarted: a.savePatchScanStarted,
-		Scan:        opts.PatchScan,
+		SaveStarted:    a.savePatchScanStarted,
+		IncludeDrivers: a.patchIncludeDrivers,
+		Scan:           opts.PatchScan,
 	})
 	if err != nil {
 		_ = buf.Close()
@@ -277,7 +296,8 @@ func New(opts Options) (*Agent, error) {
 			defer a.mu.Unlock()
 			return a.config.GetTier() == agentv1.Tier_TIER_MANAGED && a.config.GetPatchScanIntervalHours() > 0
 		},
-		AfterPatchInstall: a.patch.ScanAfterInstall,
+		PatchIncludeDrivers: a.patchIncludeDrivers,
+		AfterPatchInstall:   a.patch.ScanAfterInstall,
 	})
 	if err != nil {
 		patchScans.Close()
@@ -484,13 +504,61 @@ func (a *Agent) watchSignedInUsers(ctx context.Context) {
 }
 
 // saveStorageScanStarted keeps the start of the last storage scan in the state file.
+// patchedByFleetoLocked reports whether the applied configuration is managed and scans for missing updates, which the server asks
+// only of an endpoint whose engine is Fleeto (0.9.0). The caller holds a.mu.
+func (a *Agent) patchedByFleetoLocked() bool {
+	return a.config.GetTier() == agentv1.Tier_TIER_MANAGED && a.config.GetPatchScanIntervalHours() > 0
+}
+
+// patchIncludeDrivers reports whether the scans and installations search drivers too (patch_include_drivers, 0.9.0).
+func (a *Agent) patchIncludeDrivers() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.patchedByFleetoLocked() && a.config.GetPatchIncludeDrivers()
+}
+
+// applyMicrosoftUpdate registers Microsoft Update or removes the agent's registration as the applied configuration asks (0.9.0).
+// Only a managed configuration of an endpoint Fleeto patches can ask for it. Errors are logged, never fatal.
+func (a *Agent) applyMicrosoftUpdate() {
+	a.mu.Lock()
+	want := a.patchedByFleetoLocked() && a.config.GetMicrosoftUpdate()
+	a.mu.Unlock()
+	outcome, changed, err := a.opts.MicrosoftUpdate(want)
+	if err != nil {
+		a.logger.Warn("could not bring the Microsoft Update registration in line with the configuration", "error", err)
+		return
+	}
+	if changed {
+		a.logger.Info("changed the Microsoft Update registration as the configuration asks", "outcome", outcome)
+	}
+}
+
+// applyDistributionUpdates turns the automatic updates of a Linux distribution off or back on as the applied configuration asks
+// (0.9.0) and returns the state for the inventory. Only a managed configuration of an endpoint Fleeto patches can ask for it.
+func (a *Agent) applyDistributionUpdates() string {
+	a.mu.Lock()
+	turnOff := a.patchedByFleetoLocked() && a.config.GetTurnOffDistributionUpdates()
+	a.mu.Unlock()
+	state, changed, err := a.opts.DistributionUpdates(turnOff)
+	if err != nil {
+		a.logger.Warn("could not bring the automatic updates of the distribution in line with the configuration", "error", err)
+		return state
+	}
+	if changed {
+		a.logger.Info("changed the automatic updates of the distribution as the configuration asks", "state", state)
+	}
+	return state
+}
+
 // applyWindowsUpdate turns automatic Windows Update off or back on as the applied configuration asks (0.7.0) and returns the state
-// for the inventory. Only a managed configuration can ask for it; action1 is whether the inventory found the Action1 agent.
+// for the inventory. Only a managed configuration can ask for it; action1 is whether the inventory found the Action1 agent, and from
+// 0.9.0 it is also turned off on an endpoint Fleeto patches itself.
 func (a *Agent) applyWindowsUpdate(action1 bool) string {
 	a.mu.Lock()
 	turnOff := a.config.GetTier() == agentv1.Tier_TIER_MANAGED && a.config.GetTurnOffWindowsUpdate()
+	fleeto := a.patchedByFleetoLocked()
 	a.mu.Unlock()
-	state, changed, err := a.opts.WindowsUpdate(turnOff, action1)
+	state, changed, err := a.opts.WindowsUpdate(turnOff, action1, fleeto)
 	if err != nil {
 		a.logger.Warn("could not bring automatic Windows Update in line with the configuration", "error", err)
 		return ""

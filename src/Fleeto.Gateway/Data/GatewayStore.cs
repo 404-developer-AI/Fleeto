@@ -334,9 +334,9 @@ public sealed partial class GatewayStore
             INSERT INTO "InventorySnapshots" ("EndpointId", "ClientId", "ReceivedAt", "Hash", "Manufacturer", "Model", "SerialNumber",
               "CpuModel", "CpuCores", "CpuLogicalProcessors", "MemoryTotalBytes", "BootTime", "Domain", "LoggedOnUser",
               "DisksJson", "NetworkInterfacesJson", "SoftwareJson", "ServicesJson", "Action1AgentId", "Desktop",
-              "WindowsUpdate", "PackageInfoJson")
+              "WindowsUpdate", "PackageInfoJson", "TimeZone", "DistributionUpdates")
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16::jsonb, $17::jsonb, $18::jsonb, $19, $20, $21,
-                    $22::jsonb)
+                    $22::jsonb, $23, $24)
             ON CONFLICT ("EndpointId") DO UPDATE SET
               "ReceivedAt" = EXCLUDED."ReceivedAt", "Hash" = EXCLUDED."Hash", "Manufacturer" = EXCLUDED."Manufacturer",
               "Model" = EXCLUDED."Model", "SerialNumber" = EXCLUDED."SerialNumber", "CpuModel" = EXCLUDED."CpuModel",
@@ -345,7 +345,8 @@ public sealed partial class GatewayStore
               "LoggedOnUser" = EXCLUDED."LoggedOnUser", "DisksJson" = EXCLUDED."DisksJson",
               "NetworkInterfacesJson" = EXCLUDED."NetworkInterfacesJson", "SoftwareJson" = EXCLUDED."SoftwareJson",
               "ServicesJson" = EXCLUDED."ServicesJson", "Action1AgentId" = EXCLUDED."Action1AgentId", "Desktop" = EXCLUDED."Desktop",
-              "WindowsUpdate" = EXCLUDED."WindowsUpdate", "PackageInfoJson" = EXCLUDED."PackageInfoJson"
+              "WindowsUpdate" = EXCLUDED."WindowsUpdate", "PackageInfoJson" = EXCLUDED."PackageInfoJson",
+              "TimeZone" = EXCLUDED."TimeZone", "DistributionUpdates" = EXCLUDED."DistributionUpdates"
             """);
         upsert.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = endpointId });
         upsert.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = clientId });
@@ -372,6 +373,8 @@ public sealed partial class GatewayStore
         upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = RemoteSessionRules.NormalizeDesktop(inventory.Desktop) });
         upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = WindowsUpdateRules.NormalizeState(inventory.WindowsUpdate) });
         upsert.Parameters.Add(new NpgsqlParameter("", NpgsqlDbType.Text) { Value = (object?)PackageInfoJson(inventory, now) ?? DBNull.Value });
+        upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = PatchRounds.NormalizeTimeZone(inventory.TimeZone) });
+        upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = PatchRounds.NormalizeDistributionState(inventory.DistributionUpdates) });
         batch.BatchCommands.Add(upsert);
 
         // Batch commands take positional parameters only.

@@ -28,6 +28,19 @@ public sealed record MissingUpdateView(string Id, string Name, string Vendor, st
 }
 
 /// <summary>
+/// The rounds of the patch policy of engine Fleeto on one endpoint (0.9.0 step 4), for the Patches tab.
+/// </summary>
+/// <param name="NextRound">The next round in UTC, in the time zone of the endpoint for a policy in endpoint time; null while the policy is off.</param>
+/// <param name="Zone">The time zone of the rounds: the IANA name, or "UTC".</param>
+/// <param name="ZoneNote">Why the rounds run in UTC although the policy asks for endpoint time; null otherwise.</param>
+/// <param name="RestartNote">Why a round does not restart this endpoint although the policy allows it (a Proxmox VE host); null otherwise.</param>
+/// <param name="WindowsUpdateNote">Where automatic Windows Update stands for this policy; null when there is nothing to say.</param>
+/// <param name="DistributionNote">Where unattended-upgrades or dnf-automatic stand for this policy; null when there is nothing to say.</param>
+public sealed record PatchRoundView(string PolicyName, string Schedule, bool Enabled, DateTime? NextRound, string Zone, string? ZoneNote,
+    Guid? LastDeploymentId, DateTime? LastRoundAt, PatchDeploymentTargetState? LastState, string? LastMessage, string? RestartNote,
+    string? WindowsUpdateNote, string? DistributionNote);
+
+/// <summary>
 /// The patch state of one endpoint (0.4.0).
 /// </summary>
 /// <param name="Managed">False for an agent-only endpoint: patch management is a managed feature.</param>
@@ -52,7 +65,7 @@ public sealed record EndpointPatchView(bool Managed, bool Configured, EndpointPa
     DateTime? DetailUpdatedAt, bool CanInstallAgent = false, string AgentOnEndpoint = "", PatchScheduleView? Schedule = null,
     PatchRequestView? LastRequest = null, bool CanRemoveAgentByJob = false, AgentInstallView? AgentInstall = null,
     PatchEngineResult? Engine = null, string? ScanNote = null, PatchScanRequestView? LastScanRequest = null, string? PolicyNote = null,
-    string? InstallNote = null)
+    string? InstallNote = null, PatchRoundView? Rounds = null)
 {
     /// <summary>True when the Fleeto agent patches this endpoint (0.9.0).</summary>
     public bool ByFleeto => Engine?.Engine == EndpointPatchEngine.Fleeto;
@@ -192,7 +205,7 @@ public sealed class PatchService
         var engine = PatchEngineRules.EngineFor(endpoint, license, inventory, current);
         if (engine.Engine == EndpointPatchEngine.Fleeto && PatchScanRules.PlatformScans(endpoint.OsPlatform))
         {
-            return await FleetoViewAsync(db, endpoint, configured, engine, current, cancellationToken);
+            return await FleetoViewAsync(db, endpoint, configured, engine, current, _time.GetUtcNow().UtcDateTime, cancellationToken);
         }
 
         if (engine.Engine == EndpointPatchEngine.None)
@@ -253,7 +266,7 @@ public sealed class PatchService
     /// "Scan now". The state is null before the first scan arrived. Rounds of a patch policy follow in a later step.
     /// </summary>
     private static async Task<EndpointPatchView> FleetoViewAsync(FleetoDbContext db, Core.Entities.Endpoint endpoint, bool configured, PatchEngineResult engine,
-        EndpointPatchState? current, CancellationToken cancellationToken)
+        EndpointPatchState? current, DateTime now, CancellationToken cancellationToken)
     {
         var state = current is { Engine: PatchEngine.Fleeto } ? current : null;
         var rows = state is null
@@ -298,7 +311,36 @@ public sealed class PatchService
             CanInstallAgent: windows && Action1AgentInstall.IsValidInstallerUrl(installerUrl),
             AgentInstall: windows ? await AgentInstallAsync(db, endpoint.Id, cancellationToken) : null,
             Engine: engine, ScanNote: PatchScanRules.Problem(endpoint.OsPlatform, endpoint.AgentVersion), LastScanRequest: lastScanRequest,
-            PolicyNote: policyNote, InstallNote: PatchRules.InstallProblem(endpoint.OsPlatform, endpoint.AgentVersion));
+            PolicyNote: policyNote, InstallNote: PatchRules.InstallProblem(endpoint.OsPlatform, endpoint.AgentVersion),
+            Rounds: policy is { Engine: PatchEngine.Fleeto } ? await RoundsAsync(db, endpoint, policy, now, cancellationToken) : null);
+    }
+
+    /// <summary>The rounds of a patch policy of engine Fleeto on one endpoint (0.9.0 step 4): the next one in the endpoint's time, the last one.</summary>
+    private static async Task<PatchRoundView> RoundsAsync(FleetoDbContext db, Core.Entities.Endpoint endpoint, PatchPolicy policy, DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var inventory = await db.InventorySnapshots.AsNoTracking().Where(i => i.EndpointId == endpoint.Id)
+            .Select(i => new { i.TimeZone, i.WindowsUpdate, i.DistributionUpdates })
+            .FirstOrDefaultAsync(cancellationToken);
+        var zone = PatchRounds.ZoneOf(policy, inventory?.TimeZone);
+        var zoneNote = policy.EndpointLocalTime && PatchRounds.FindEndpointZone(inventory?.TimeZone) is null
+            ? "The agent does not report a time zone Fleeto knows, so the rounds run in UTC on this endpoint."
+            : null;
+        var last = await (from t in db.PatchDeploymentTargets
+                          join d in db.PatchDeployments on t.DeploymentId equals d.Id
+                          where t.EndpointId == endpoint.Id && d.Engine == PatchEngine.Fleeto && d.RoundAt != null
+                          orderby d.RoundAt descending
+                          select new { d.Id, d.RoundAt, t.State, t.Message })
+            .FirstOrDefaultAsync(cancellationToken);
+        var restartNote = policy.AutoReboot && !PatchRounds.Restarts(policy, endpoint.OsPlatform, endpoint.OsName)
+            ? "A round never restarts a Proxmox VE host, so a cluster keeps its quorum. Restart it yourself, or deploy by hand with the restart on."
+            : null;
+        var windows = endpoint.OsPlatform == "windows";
+        return new PatchRoundView(policy.Name, PatchPolicyRules.DescribeSchedule(policy), policy.Enabled,
+            policy.Enabled ? PatchRounds.Next(policy, zone, now) : null, zone == TimeZoneInfo.Utc ? "UTC" : zone.Id, zoneNote,
+            last?.Id, last?.RoundAt, last?.State, last?.Message, restartNote,
+            windows ? WindowsUpdateRules.Describe(policy is { Enabled: true, TurnOffWindowsUpdate: true }, inventory?.WindowsUpdate) : null,
+            windows ? null : PatchRounds.DescribeDistributionUpdates(policy is { Enabled: true, TurnOffDistributionUpdates: true }, inventory?.DistributionUpdates));
     }
 
     /// <summary>

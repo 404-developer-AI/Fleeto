@@ -11,6 +11,7 @@ namespace Fleeto.Workers.Integrations;
 /// Gives the scheduled patching checks their results (0.6.0): the days since a scheduled deployment of the endpoint's patch
 /// policy last succeeded on it, so a patch round that fails, or that Action1 never runs, raises an alert like any check.
 /// <para>
+/// From 0.9.0 the rounds of a patch policy of engine Fleeto count the same (<see cref="PatchRoundService"/> keeps the scheduled-since).
 /// Only an endpoint that an automation of Fleeto targets gets a result: without a patch policy nothing is scheduled, and
 /// there is nothing to be late. Until a scheduled deployment succeeded, the days count from when the automation of the
 /// policy first targeted the endpoint (<see cref="EndpointPatchState.ScheduledSince"/>), so a policy that never ran on
@@ -36,7 +37,8 @@ public static class ScheduledPatchingChecks
 
         var ids = endpointIds.ToList();
         var scheduled = await db.EndpointPatchStates.AsNoTracking()
-            .Where(s => ids.Contains(s.EndpointId) && s.AutomationId != null && s.ScheduledSince != null)
+            .Where(s => ids.Contains(s.EndpointId) && s.ScheduledSince != null &&
+                        (s.AutomationId != null || (s.Engine == PatchEngine.Fleeto && s.ScheduledPolicyId != null)))
             .ToDictionaryAsync(s => s.EndpointId, s => s.ScheduledSince!.Value, cancellationToken);
         var transitions = await MissingUpdateChecks.ForgetChecksAsync(db, CheckType.ScheduledPatching,
             [.. ids.Where(id => !scheduled.ContainsKey(id))], now, ResolvedReasonUnscheduled, cancellationToken);

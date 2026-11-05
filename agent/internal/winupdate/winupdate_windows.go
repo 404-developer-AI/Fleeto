@@ -28,14 +28,15 @@ var machine = keys{
 
 // Apply brings automatic Windows Update in line with the configuration and returns the state to report and whether it changed
 // anything. want is the switch of the signed configuration (false for an agent-only endpoint), action1 whether the Action1 agent
-// is installed. It is cheap and idempotent, so the agent calls it with every inventory.
-func Apply(want, action1 bool) (string, bool, error) {
-	return machine.apply(want, action1)
+// is installed, fleeto whether Fleeto patches the endpoint (patch_scan_interval_hours above 0). It is cheap and idempotent, so the
+// agent calls it with every inventory.
+func Apply(want, action1, fleeto bool) (string, bool, error) {
+	return machine.apply(want, action1, fleeto)
 }
 
 // Restore removes the value the agent set, if it is still the one it set, and the key of its marker: for the uninstall of the agent.
 func Restore() error {
-	if _, _, err := machine.apply(false, false); err != nil {
+	if _, _, err := machine.apply(false, false, false); err != nil {
 		return err
 	}
 	if err := registry.DeleteKey(machine.root, machine.markerPath); err != nil && !errors.Is(err, registry.ErrNotExist) {
@@ -44,12 +45,12 @@ func Restore() error {
 	return nil
 }
 
-func (k keys) apply(want, action1 bool) (string, bool, error) {
+func (k keys) apply(want, action1, fleeto bool) (string, bool, error) {
 	c, err := k.read()
 	if err != nil {
 		return "", false, err
 	}
-	next, state := decide(want, action1, c)
+	next, state := decide(want, action1, fleeto, c)
 	switch next {
 	case stepSet:
 		// The marker first: when the value cannot be written after it, the next run finds the marker without a value and tries again.

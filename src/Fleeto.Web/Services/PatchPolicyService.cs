@@ -12,9 +12,17 @@ namespace Fleeto.Web.Services;
 /// <param name="Links">Clients, sites and endpoints that link the patch policy.</param>
 /// <param name="Automations">Automations the workers keep for it in the patch management product.</param>
 /// <param name="AutomationProblem">Why the last change to one of those automations failed; null when all are in step.</param>
+/// <param name="Engine">Who installs the updates (0.9.0).</param>
+/// <param name="NextRound">Engine Fleeto, enabled, in UTC: the next round; null for a policy in endpoint time, whose next round differs per
+/// endpoint (the Patches tab shows it).</param>
+/// <param name="LastRound">Engine Fleeto: when the last round started, and on how many endpoints it succeeded and failed.</param>
 public sealed record PatchPolicyListItem(Guid Id, string Name, string? Description, Guid? ClientId, string? ClientCode, bool Enabled,
     string Schedule, PatchUpdateScope Scope, bool AutoReboot, int Links, int ClientTemplateUses, int Automations, string? AutomationProblem,
-    CheckAppliesTo AppliesTo = CheckAppliesTo.All, bool AutoInstallAgent = false, Action1AgentCounts? Agents = null);
+    CheckAppliesTo AppliesTo = CheckAppliesTo.All, bool AutoInstallAgent = false, Action1AgentCounts? Agents = null,
+    PatchEngine Engine = PatchEngine.Action1, DateTime? NextRound = null, PatchRoundSummary? LastRound = null);
+
+/// <summary>The last round of a patch policy of engine Fleeto (0.9.0) over every client the caller sees.</summary>
+public sealed record PatchRoundSummary(DateTime RoundAt, int Endpoints, int Succeeded, int Failed, int Open);
 
 /// <summary>
 /// The Action1 agent on the managed Windows endpoints a patch policy applies to (0.6.0), as the workers last judged it:
@@ -50,12 +58,19 @@ public sealed record PatchPolicyInput(
     CheckAppliesTo AppliesTo = CheckAppliesTo.All,
     bool AutoInstallAgent = false,
     bool TurnOffWindowsUpdate = false,
-    PatchEngine Engine = PatchEngine.Action1)
+    PatchEngine Engine = PatchEngine.Action1,
+    bool LinuxSecurityOnly = false,
+    bool IncludeDrivers = false,
+    bool MicrosoftUpdate = true,
+    bool TurnOffDistributionUpdates = false,
+    int InstallTimeoutMinutes = PatchPolicyRules.DefaultInstallTimeoutMinutes,
+    int RandomDelayMinutes = PatchPolicyRules.DefaultRandomDelayMinutes)
 {
     public static PatchPolicyInput From(PatchPolicy p) => new(p.Name, p.Description, p.Enabled, p.ScheduleKind, p.WeekDays, p.MonthDay, p.MonthWeek,
         p.MonthWeekday, p.StartMinute, p.EndpointLocalTime, p.Scope, p.UpdateSources, p.UpdateTypes, p.Severities, p.ExcludedNames,
         p.ExcludedVendors, p.RequireApproval, p.InstallDelayDays, p.AutoReboot, p.RebootMessage, p.RebootMessageText, p.RebootTimeoutMinutes,
-        p.RetryHours, p.AppliesTo, p.AutoInstallAgent, p.TurnOffWindowsUpdate, p.Engine);
+        p.RetryHours, p.AppliesTo, p.AutoInstallAgent, p.TurnOffWindowsUpdate, p.Engine, p.LinuxSecurityOnly, p.IncludeDrivers, p.MicrosoftUpdate,
+        p.TurnOffDistributionUpdates, p.InstallTimeoutMinutes, p.RandomDelayMinutes);
 }
 
 /// <summary>
@@ -110,10 +125,42 @@ public sealed class PatchPolicyService
                     g.Where(c => c.Status == Action1AgentStatus.Installed).Sum(c => c.Count),
                     g.Where(c => c.Status is Action1AgentStatus.Installing or Action1AgentStatus.Missing).Sum(c => c.Count),
                     g.Where(c => c.Status is Action1AgentStatus.Failed or Action1AgentStatus.Stopped or Action1AgentStatus.NotReported).Sum(c => c.Count)));
+
+        // The last round of every policy of engine Fleeto (0.9.0 step 4), over the clients the caller sees.
+        var fleeto = policies.Where(r => r.Policy.Engine == PatchEngine.Fleeto).Select(r => r.Policy.Id).ToList();
+        var latest = fleeto.Count == 0
+            ? []
+            : await db.PatchDeployments
+                .Where(d => d.PatchPolicyId != null && fleeto.Contains(d.PatchPolicyId.Value) && d.RoundAt != null)
+                .GroupBy(d => d.PatchPolicyId!.Value)
+                .Select(g => new { PolicyId = g.Key, RoundAt = g.Max(d => d.RoundAt!.Value) })
+                .ToListAsync(cancellationToken);
+        var latestAt = latest.Select(l => l.RoundAt).Distinct().ToList();
+        var latestIds = latest.Select(l => l.PolicyId).ToList();
+        var roundCounts = latest.Count == 0
+            ? []
+            : await (from t in db.PatchDeploymentTargets
+                     join d in db.PatchDeployments on t.DeploymentId equals d.Id
+                     where d.PatchPolicyId != null && latestIds.Contains(d.PatchPolicyId.Value) && d.RoundAt != null && latestAt.Contains(d.RoundAt.Value)
+                     group t by new { PolicyId = d.PatchPolicyId!.Value, RoundAt = d.RoundAt!.Value, t.State } into g
+                     select new { g.Key.PolicyId, g.Key.RoundAt, g.Key.State, Count = g.Count() })
+                .ToListAsync(cancellationToken);
+        var lastRounds = latest.ToDictionary(l => l.PolicyId, l =>
+        {
+            var rows = roundCounts.Where(c => c.PolicyId == l.PolicyId && c.RoundAt == l.RoundAt).ToList();
+            int Count(params PatchDeploymentTargetState[] states) => rows.Where(r => states.Contains(r.State)).Sum(r => r.Count);
+            return new PatchRoundSummary(l.RoundAt, rows.Sum(r => r.Count), Count(PatchDeploymentTargetState.Succeeded),
+                Count(PatchDeploymentTargetState.Failed, PatchDeploymentTargetState.Unknown),
+                Count(PatchDeploymentTargetState.Pending, PatchDeploymentTargetState.Running));
+        });
+        var now = _time.GetUtcNow().UtcDateTime;
         return policies.Select(r => new PatchPolicyListItem(r.Policy.Id, r.Policy.Name, r.Policy.Description, r.Policy.ClientId, r.ClientCode,
                 r.Policy.Enabled, PatchPolicyRules.DescribeSchedule(r.Policy), r.Policy.Scope, r.Policy.AutoReboot, r.Links, r.ClientTemplateUses,
                 r.Automations, r.Problem, r.Policy.AppliesTo, r.Policy.AutoInstallAgent,
-                r.Policy.AutoInstallAgent ? counts.GetValueOrDefault(r.Policy.Id, new Action1AgentCounts(0, 0, 0)) : null))
+                r.Policy.AutoInstallAgent ? counts.GetValueOrDefault(r.Policy.Id, new Action1AgentCounts(0, 0, 0)) : null,
+                r.Policy.Engine,
+                r.Policy is { Engine: PatchEngine.Fleeto, Enabled: true, EndpointLocalTime: false } ? PatchRounds.Next(r.Policy, TimeZoneInfo.Utc, now) : null,
+                lastRounds.GetValueOrDefault(r.Policy.Id)))
             .ToList();
     }
 
@@ -192,6 +239,7 @@ public sealed class PatchPolicyService
 
         var now = _time.GetUtcNow().UtcDateTime;
         var before = (TurnsOffWindowsUpdate(policy), policy.AppliesTo);
+        var configBefore = ConfigOf(policy);
         Apply(policy, input, now);
         if (PatchPolicyRules.Validate(policy) is { } problem)
         {
@@ -205,7 +253,8 @@ public sealed class PatchPolicyService
 
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.PatchPolicyUpdated, "PatchPolicy", policy.Id.ToString(), policy.ClientId,
             Describe(policy)), now));
-        if (before != (TurnsOffWindowsUpdate(policy), policy.AppliesTo) && (before.Item1 || TurnsOffWindowsUpdate(policy)))
+        if ((before != (TurnsOffWindowsUpdate(policy), policy.AppliesTo) && (before.Item1 || TurnsOffWindowsUpdate(policy))) ||
+            (configBefore != ConfigOf(policy) && (configBefore.Fleeto || ConfigOf(policy).Fleeto)))
         {
             AddWindowsUpdateChange(db, now);
         }
@@ -269,7 +318,7 @@ public sealed class PatchPolicyService
         db.PatchPolicies.Remove(policy);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.PatchPolicyDeleted, "PatchPolicy", policy.Id.ToString(), policy.ClientId,
             new { policy.Name, Links = links }), now));
-        if (TurnsOffWindowsUpdate(policy))
+        if (TurnsOffWindowsUpdate(policy) || ConfigOf(policy).Fleeto)
         {
             AddWindowsUpdateChange(db, now);
         }
@@ -278,6 +327,13 @@ public sealed class PatchPolicyService
         await IntegrationFollow.NotifyAsync(_bus, _logger, cancellationToken);
         return ServiceResult.Ok();
     }
+
+    /// <summary>
+    /// What of a policy reaches the signed configuration of its endpoints besides Windows Update (0.9.0): the switches of engine Fleeto,
+    /// and whether it is an enabled policy of engine Fleeto at all. A change re-signs the configurations.
+    /// </summary>
+    private static (bool Fleeto, bool MicrosoftUpdate, bool IncludeDrivers, bool TurnOffDistributionUpdates, CheckAppliesTo AppliesTo) ConfigOf(PatchPolicy policy) =>
+        (policy is { Enabled: true, Engine: PatchEngine.Fleeto }, policy.MicrosoftUpdate, policy.IncludeDrivers, policy.TurnOffDistributionUpdates, policy.AppliesTo);
 
     /// <summary>True when the policy asks the agents of its endpoints to turn automatic Windows Update off (0.7.0).</summary>
     private static bool TurnsOffWindowsUpdate(PatchPolicy policy) => policy is { Enabled: true, TurnOffWindowsUpdate: true };
@@ -326,6 +382,13 @@ public sealed class PatchPolicyService
         policy.AutoInstallAgent = input.AutoInstallAgent;
         policy.TurnOffWindowsUpdate = input.TurnOffWindowsUpdate;
         policy.Engine = input.Engine;
+        // The options of engine Fleeto (0.9.0) keep their value under Action1, which ignores them, so switching back finds them as they were.
+        policy.LinuxSecurityOnly = input.LinuxSecurityOnly;
+        policy.IncludeDrivers = input.IncludeDrivers;
+        policy.MicrosoftUpdate = input.MicrosoftUpdate;
+        policy.TurnOffDistributionUpdates = input.TurnOffDistributionUpdates;
+        policy.InstallTimeoutMinutes = input.InstallTimeoutMinutes;
+        policy.RandomDelayMinutes = input.RandomDelayMinutes;
         policy.UpdatedAt = now;
     }
 
@@ -352,6 +415,12 @@ public sealed class PatchPolicyService
         policy.RebootTimeoutMinutes,
         policy.RetryHours,
         policy.AutoInstallAgent,
-        policy.TurnOffWindowsUpdate
+        policy.TurnOffWindowsUpdate,
+        policy.LinuxSecurityOnly,
+        policy.IncludeDrivers,
+        policy.MicrosoftUpdate,
+        policy.TurnOffDistributionUpdates,
+        policy.InstallTimeoutMinutes,
+        policy.RandomDelayMinutes
     };
 }

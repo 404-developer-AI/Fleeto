@@ -29,6 +29,18 @@ type InstallResult struct {
 	Error string
 }
 
+// InstallOptions is what an installation needs besides its job.
+type InstallOptions struct {
+	// JobID names the job; on Linux it names the systemd scope of the package manager.
+	JobID string
+	// Drivers is patch_include_drivers of the applied configuration (Windows): the search before the installation includes drivers,
+	// as the scans do.
+	Drivers bool
+	// OutputDir is a directory of the job (Linux) where the output of the package manager is written to a file the agent reads, so
+	// the package manager never writes to a pipe that ends with the agent. Empty uses a pipe.
+	OutputDir string
+}
+
 // installing guards the one installation that may run on the endpoint; it stays set while the package manager runs, also after
 // the job timed out.
 var installing atomic.Bool
@@ -343,4 +355,72 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// followPoll is how often the output file of a package manager is read while it runs.
+const followPoll = 250 * time.Millisecond
+
+// followFile copies what is written to r into out until done is closed, then what is left. r is a file the package manager writes
+// to; an end of file only means it wrote nothing new yet.
+func followFile(r io.Reader, out io.Writer, done <-chan struct{}, poll time.Duration) {
+	buf := make([]byte, 32*1024)
+	drain := func() bool {
+		wrote := false
+		for {
+			n, err := r.Read(buf)
+			if n > 0 {
+				_, _ = out.Write(buf[:n])
+				wrote = true
+			}
+			if err != nil || n == 0 {
+				return wrote
+			}
+		}
+	}
+	for {
+		drain()
+		select {
+		case <-done:
+			drain()
+			return
+		case <-time.After(poll):
+		}
+	}
+}
+
+// The systemd scope of a package manager on Linux (PATCHING.md section 15).
+
+// underSystemd: the agent was started by systemd (INVOCATION_ID is set for every unit it starts) or systemd is the init system
+// (/run/systemd/system exists).
+func underSystemd(invocationID string, runSystemdExists bool) bool {
+	return invocationID != "" || runSystemdExists
+}
+
+// scopeUnit names the transient scope of an installation after its job: "fleeto-patch-" and the first 12 letters and digits of the
+// job id; empty (systemd then picks a name) when the id has none.
+func scopeUnit(jobID string) string {
+	var b strings.Builder
+	for _, r := range jobID {
+		if b.Len() == 12 {
+			break
+		}
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return "fleeto-patch-" + strings.ToLower(b.String())
+}
+
+// scopeArgv is the argument vector of systemd-run that runs the package manager at path with args in a transient scope: never a
+// shell, and "--" so nothing of the command is read as an option of systemd-run. --collect unloads the scope also after a failure.
+func scopeArgv(unit, path string, args []string) []string {
+	argv := []string{"--scope", "--quiet", "--collect"}
+	if unit != "" {
+		argv = append(argv, "--unit="+unit)
+	}
+	argv = append(argv, "--", path)
+	return append(argv, args...)
 }

@@ -70,6 +70,7 @@ func Select(job *agentv1.PatchInstallJob, report *agentv1.PatchScanReport) Selec
 	}
 	var sel Selection
 	filter := job.GetFilter()
+	allowed := allowedIDs(filter)
 	for _, u := range report.GetUpdates() {
 		switch {
 		case u == nil || u.GetRemoval():
@@ -81,6 +82,11 @@ func Select(job *agentv1.PatchInstallJob, report *agentv1.PatchScanReport) Selec
 			sel.Narrowed = true
 		case !passesFilter(u, filter, windows):
 			// Outside the filter: not part of this installation, so not listed.
+			sel.Narrowed = true
+		case allowed != nil && !allowed[u.GetId()]:
+			// Not on the list fleeto-signer made (its deferral has not passed, or on Linux its severity is not selected): left out,
+			// so the installation never installs more than the server allowed.
+			sel.Outcomes = append(sel.Outcomes, Outcome{StatusExcluded, u.GetId(), u.GetName()})
 			sel.Narrowed = true
 		default:
 			sel.Targets = append(sel.Targets, targetOf(u, u.GetVersion(), u.GetName()))
@@ -123,6 +129,19 @@ func selectSpecified(job *agentv1.PatchInstallJob, report *agentv1.PatchScanRepo
 		}
 	}
 	return sel
+}
+
+// allowedIDs is the set of filter.allowed_ids when filter.restrict_to_ids is set, and nil otherwise. With restrict_to_ids and an
+// empty list the set is empty, so nothing is installed.
+func allowedIDs(f *agentv1.PatchInstallFilter) map[string]bool {
+	if !f.GetRestrictToIds() {
+		return nil
+	}
+	set := make(map[string]bool, len(f.GetAllowedIds()))
+	for _, id := range f.GetAllowedIds() {
+		set[id] = true
+	}
+	return set
 }
 
 func targetOf(u *agentv1.PatchUpdate, version, title string) Target {

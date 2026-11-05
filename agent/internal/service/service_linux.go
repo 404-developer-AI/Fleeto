@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/404-developer-AI/Fleeto/agent/internal/agent"
+	"github.com/404-developer-AI/Fleeto/agent/internal/distupdates"
 	"github.com/404-developer-AI/Fleeto/agent/internal/keystore"
 	"github.com/404-developer-AI/Fleeto/agent/internal/logging"
 	"github.com/404-developer-AI/Fleeto/agent/internal/platform"
@@ -285,6 +286,11 @@ func Uninstall(out io.Writer) error {
 	}
 
 	stateDir := platform.DefaultStateDir()
+	// With the agent stopped nothing turns them off again: unattended-upgrades or the dnf-automatic timers go back to how they were
+	// before Fleeto (0.9.0). Before the state directory, which holds the record of the timers, is deleted.
+	if err := distupdates.Restore(stateDir); err != nil {
+		errs = append(errs, err)
+	}
 	if st, err := state.NewStore(stateDir, platform.AccessSystem).Load(); err == nil {
 		if err := keystore.Delete(stateDir, st.Key); err != nil {
 			errs = append(errs, fmt.Errorf("delete the identity key: %w", err))

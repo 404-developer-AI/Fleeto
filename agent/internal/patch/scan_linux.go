@@ -20,7 +20,7 @@ import (
 // Priority: the Manager runs Scan on an OS thread locked to its goroutine whose CPU priority (nice 19) and I/O class (idle) it
 // lowered. On Linux both are attributes of the thread, and a child forked from it inherits them; exec.Cmd forks from the calling
 // thread, so apt-get, dnf and everything they start run at the lowest priority without nice or ionice.
-func Scan(ctx context.Context, requestID string, logger *slog.Logger) *agentv1.PatchScanReport {
+func Scan(ctx context.Context, requestID string, _ ScanOptions, logger *slog.Logger) *agentv1.PatchScanReport {
 	report := scanWith(ctx, linuxSystem{logger: logger})
 	if report != nil {
 		report.RequestId = requestID
@@ -30,6 +30,9 @@ func Scan(ctx context.Context, requestID string, logger *slog.Logger) *agentv1.P
 
 type linuxSystem struct {
 	logger *slog.Logger
+	// jobID and outputDir are those of an installation (install_linux.go); empty for a scan.
+	jobID     string
+	outputDir string
 }
 
 // cappedBuffer keeps at most maxOutputBytes of a command's output and drops the rest.

@@ -11,8 +11,8 @@
     <div>
         <MudText Typo="Typo.h4" Class="page-title">Patch policies</MudText>
         <MudText Typo="Typo.body2" Class="muted">
-            When and how Action1 installs updates on the managed Windows endpoints of a client, site or single endpoint. Fleeto keeps one automation
-            per patch policy in the Action1 organization of each client that uses it, so a change here reaches Action1 within a minute.
+            When and how updates are installed on the managed endpoints of a client, site or single endpoint: by the Fleeto agent itself in rounds,
+            or by Action1, for which Fleeto keeps one automation per patch policy in the Action1 organization of each client that uses it.
         </MudText>
     </div>
     @if (Can(Permissions.PatchPoliciesEdit))
@@ -27,7 +27,7 @@
         <div class="fl-panel pa-4">
             <MudText Typo="Typo.body1">No patch policies yet.</MudText>
             <MudText Typo="Typo.body2" Class="muted">
-                Create one, then choose it on a client, a site or an endpoint. Endpoints without a patch policy get no automation from Fleeto.
+                Create one, then choose it on a client, a site or an endpoint. Endpoints without a patch policy are scanned, but nothing is installed by itself.
             </MudText>
         </div>
     }
@@ -36,13 +36,14 @@
         <MudTable Items="_policies" Hover="true" Elevation="0">
             <HeaderContent>
                 <MudTh>Name</MudTh>
+                <MudTh>Patched by</MudTh>
                 <MudTh>Available for</MudTh>
                 <MudTh>For</MudTh>
                 <MudTh>Schedule</MudTh>
                 <MudTh>Updates</MudTh>
                 <MudTh>Restart</MudTh>
                 <MudTh>Used by</MudTh>
-                <MudTh>Action1</MudTh>
+                <MudTh>Rounds or automations</MudTh>
                 <MudTh>Action1 agent</MudTh>
                 @if (Can(Permissions.PatchPoliciesEdit))
                 {
@@ -61,6 +62,9 @@
                         <div class="muted" style="font-size:0.8125rem">@context.Description</div>
                     }
                 </MudTd>
+                <MudTd>
+                    <StatusChip Text="@(context.Engine == PatchEngine.Fleeto ? "Fleeto" : "Action1")" Kind="StatusKind.Neutral" />
+                </MudTd>
                 <MudTd>@(context.ClientCode is null ? "All clients" : context.ClientCode)</MudTd>
                 <MudTd>@Ui.AppliesToLabel(context.AppliesTo)</MudTd>
                 <MudTd>@context.Schedule</MudTd>
@@ -70,7 +74,26 @@
                     @(context.Links == 0 ? "Nothing" : Ui.Count(context.Links, "link"))@(context.ClientTemplateUses > 0 ? $", {Ui.Count(context.ClientTemplateUses, "client template use")}" : "")
                 </MudTd>
                 <MudTd>
-                    @if (context.AutomationProblem is { } problem)
+                    @if (context.Engine == PatchEngine.Fleeto)
+                    {
+                        <div style="font-size:0.8125rem">
+                            @if (context.NextRound is { } next)
+                            {
+                                <div>Next: @Time.Absolute(next)</div>
+                            }
+                            @if (context.LastRound is { } last)
+                            {
+                                <div class="muted">
+                                    Last: @Time.Absolute(last.RoundAt), @last.Succeeded of @Ui.Count(last.Endpoints, "endpoint") succeeded@(last.Failed > 0 ? $", {last.Failed} not" : "")@(last.Open > 0 ? $", {last.Open} still running" : "")
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="muted">No round yet</div>
+                            }
+                        </div>
+                    }
+                    else if (context.AutomationProblem is { } problem)
                     {
                         <MudTooltip Text="@problem"><StatusChip Text="Not in step" Kind="StatusKind.Error" /></MudTooltip>
                     }
@@ -80,7 +103,11 @@
                     }
                 </MudTd>
                 <MudTd>
-                    @if (context.Agents is not { } agents)
+                    @if (context.Engine == PatchEngine.Fleeto)
+                    {
+                        <span class="muted">Not used</span>
+                    }
+                    else if (context.Agents is not { } agents)
                     {
                         <span class="muted">By hand</span>
                     }

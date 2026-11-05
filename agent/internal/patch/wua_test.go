@@ -39,6 +39,10 @@ type fakeWUA struct {
 	reboot       bool
 	rebootErr    error
 
+	// driverResult and driverErr answer the search of drivers.
+	driverResult wuaSearchResult
+	driverErr    error
+
 	muAsked  bool
 	searches []string
 }
@@ -50,6 +54,9 @@ func (f *fakeWUA) MicrosoftUpdateRegistered() (bool, error) {
 
 func (f *fakeWUA) Search(criteria string, selection int32, serviceID string) (wuaSearchResult, error) {
 	f.searches = append(f.searches, fmt.Sprintf("%s|%d|%s", criteria, selection, serviceID))
+	if criteria == wuaDriverCriteria {
+		return f.driverResult, f.driverErr
+	}
 	return f.result, f.searchErr
 }
 
@@ -142,7 +149,7 @@ func TestScanWUAMapsTheUpdates(t *testing.T) {
 		{UpdateID: "not a guid", Title: "broken"},
 	}}}
 	reg := fakeRegistry{keys: []string{cbsRebootPendingKey}}
-	r := scanWUA(wua, reg)
+	r := scanWUA(wua, reg, false)
 	if r.GetEngine() != EngineWindowsUpdate || r.GetSource() != SourceMicrosoftUpdate || r.GetSourceServer() != "" || r.GetProblem() != "" {
 		t.Fatalf("report %+v", r)
 	}
@@ -189,7 +196,7 @@ func TestScanWUAMapsTheUpdates(t *testing.T) {
 
 func TestScanWUAOfAWSUSEndpointThatCannotReachIt(t *testing.T) {
 	wua := &fakeWUA{muRegistered: true, searchErr: &wuaError{Op: "Search", Code: hrNotFound}, rebootErr: fmt.Errorf("no")}
-	r := scanWUA(wua, wsusRegistry("http://wsus.contoso.local:8530/", 1))
+	r := scanWUA(wua, wsusRegistry("http://wsus.contoso.local:8530/", 1), false)
 	if r.GetSource() != SourceWSUS || r.GetSourceServer() != "wsus.contoso.local:8530" || wua.muAsked {
 		t.Fatalf("report %+v, services asked %v", r, wua.muAsked)
 	}
@@ -206,7 +213,7 @@ func TestScanWUAWithErrorsReportsAPartialList(t *testing.T) {
 	wua := &fakeWUA{result: wuaSearchResult{ResultCode: wuaResultSucceededWithErrors, Updates: []wuaUpdate{
 		{UpdateID: "44444444-2222-3333-4444-555555555555", Title: "Update"},
 	}}}
-	r := scanWUA(wua, fakeRegistry{})
+	r := scanWUA(wua, fakeRegistry{}, false)
 	if r.GetProblem() != problemWUAPartial || len(r.GetUpdates()) != 1 || r.GetSource() != SourceWindowsUpdate {
 		t.Fatalf("report %+v", r)
 	}
@@ -319,5 +326,50 @@ func TestFinalizeBoundsWindowsFields(t *testing.T) {
 	sec := r.GetUpdates()[0]
 	if strings.Join(sec.GetKbNumbers(), ",") != "KB1" || strings.Join(sec.GetCves(), ",") != "CVE-2026-1234" {
 		t.Errorf("kb %v, cves %v", sec.GetKbNumbers(), sec.GetCves())
+	}
+}
+
+func TestScanWUAWithDriversSearchesThemToo(t *testing.T) {
+	software := wuaUpdate{UpdateID: "44444444-2222-3333-4444-555555555555", RevisionNumber: 1, Title: "Update", Type: 1}
+	driver := wuaUpdate{UpdateID: "55555555-2222-3333-4444-555555555555", RevisionNumber: 2, Title: "Intel - Display - 31.0.101",
+		Categories: []wuaCategory{{ID: "ebfc1fc5-71a4-4f7b-9aca-3b9a503104a0", Type: "UpdateClassification"}}}
+	wua := &fakeWUA{muRegistered: true,
+		result:       wuaSearchResult{ResultCode: wuaResultSucceeded, Updates: []wuaUpdate{software}},
+		driverResult: wuaSearchResult{ResultCode: wuaResultSucceeded, Updates: []wuaUpdate{driver, software}}}
+	r := scanWUA(wua, fakeRegistry{}, true)
+	want := []string{wuaCriteria + "|3|" + microsoftUpdateServiceID, wuaDriverCriteria + "|3|" + microsoftUpdateServiceID}
+	if strings.Join(wua.searches, ";") != strings.Join(want, ";") {
+		t.Fatalf("searches %v, want %v", wua.searches, want)
+	}
+	if !strings.Contains(wuaDriverCriteria, "Type='Driver'") || !strings.Contains(wuaDriverCriteria, "IsHidden=0") {
+		t.Fatalf("driver criteria %q", wuaDriverCriteria)
+	}
+	if len(r.GetUpdates()) != 2 || r.GetProblem() != "" {
+		t.Fatalf("an update found by both searches is reported once: %+v", r)
+	}
+	if r.GetUpdates()[0].GetIsDriver() || !r.GetUpdates()[1].GetIsDriver() || r.GetUpdates()[1].GetId() != driver.UpdateID+":2" {
+		t.Fatalf("updates %+v", r.GetUpdates())
+	}
+
+	// Without drivers there is one search.
+	wua.searches = nil
+	if r := scanWUA(wua, fakeRegistry{}, false); len(wua.searches) != 1 || len(r.GetUpdates()) != 1 {
+		t.Fatalf("searches %v, updates %d", wua.searches, len(r.GetUpdates()))
+	}
+}
+
+func TestScanWUAKeepsTheSoftwareWhenTheDriverSearchFails(t *testing.T) {
+	wua := &fakeWUA{
+		result:    wuaSearchResult{ResultCode: wuaResultSucceeded, Updates: []wuaUpdate{{UpdateID: "44444444-2222-3333-4444-555555555555", Title: "Update"}}},
+		driverErr: &wuaError{Op: "Search", Code: hrNoConnection}}
+	r, failed := scanWUAChecked(wua, fakeRegistry{}, true)
+	if failed || len(r.GetUpdates()) != 1 || !strings.HasPrefix(r.GetProblem(), problemWUADrivers) {
+		t.Fatalf("failed %v, report %+v", failed, r)
+	}
+
+	// A failed search of software is not searched further.
+	wua = &fakeWUA{searchErr: &wuaError{Op: "Search", Code: hrNoConnection}}
+	if _, failed := scanWUAChecked(wua, fakeRegistry{}, true); !failed || len(wua.searches) != 1 {
+		t.Fatalf("failed %v, searches %v", failed, wua.searches)
 	}
 }

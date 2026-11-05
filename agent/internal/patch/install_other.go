@@ -14,6 +14,6 @@ import (
 func InstallEngine() string { return "" }
 
 // Install installs nothing on this platform.
-func Install(_ context.Context, job *agentv1.PatchInstallJob, tool, lines io.Writer, _ *slog.Logger) InstallResult {
+func Install(_ context.Context, job *agentv1.PatchInstallJob, _ InstallOptions, tool, lines io.Writer, _ *slog.Logger) InstallResult {
 	return failAll(newInstallOutput(tool, lines), job, "Fleeto installs updates on Linux and Windows endpoints only.")
 }

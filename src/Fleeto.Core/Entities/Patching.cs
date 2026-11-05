@@ -311,6 +311,12 @@ public class PatchDeployment
     /// <summary>Engine Fleeto, Linux: only the updates the scan classified as security (0.9.0).</summary>
     public bool SecurityOnly { get; set; }
 
+    /// <summary>
+    /// A round of a patch policy of engine Fleeto (0.9.0 step 4): the occurrence of its schedule in UTC. One deployment per client, patch
+    /// policy and occurrence (unique index), written only by the workers; null for every other deployment.
+    /// </summary>
+    public DateTime? RoundAt { get; set; }
+
     public List<PatchDeploymentUpdate> Updates { get; set; } = [];
     public List<PatchDeploymentTarget> Targets { get; set; } = [];
 
@@ -367,6 +373,25 @@ public class PatchDeploymentTarget
 
     /// <summary>Engine Fleeto: what became of the restart, from the job; null while unknown.</summary>
     public PatchTargetRestart? Restart { get; set; }
+
+    /// <summary>
+    /// A round (0.9.0 step 4): when the workers write the installation job of this endpoint, the occurrence plus its share of the random
+    /// delay of the policy; null for a deployment a technician started, whose jobs are written with it.
+    /// </summary>
+    public DateTime? DueAt { get; set; }
+}
+
+/// <summary>
+/// How far the workers looked for the rounds of a patch policy of engine Fleeto (0.9.0 step 4): every occurrence after
+/// <see cref="CheckedUntil"/> is still to start. A policy the workers see for the first time, or whose schedule changed
+/// (<see cref="ScheduleHash"/>), starts counting from then, so nothing from before it starts a round. Written by the workers only.
+/// </summary>
+public class PatchRoundState
+{
+    public Guid PatchPolicyId { get; set; }
+    public DateTime CheckedUntil { get; set; }
+    public string ScheduleHash { get; set; } = string.Empty;
+    public DateTime UpdatedAt { get; set; }
 }
 
 /// <summary>What became of the restart of one endpoint of a deployment by Fleeto (0.9.0), as its job reported it.</summary>

@@ -50,6 +50,9 @@ type Options struct {
 	// PatchScanning reports whether the applied configuration scans for missing updates (patch_scan_interval_hours above 0, 0.9.0):
 	// patch management by Fleeto is on, and only then does a patch installation run. Nil refuses every patch installation.
 	PatchScanning func() bool
+	// PatchIncludeDrivers reports whether the applied configuration scans drivers (patch_include_drivers, Windows), so the search
+	// before an installation includes them as well. Nil is false.
+	PatchIncludeDrivers func() bool
 	// AfterPatchInstall is called when an installation of updates ended, also one that outlived its job, and when a patch job
 	// completed after its restart, so a scan reports what was installed.
 	AfterPatchInstall func()
@@ -92,6 +95,9 @@ func NewManager(opts Options) (*Manager, error) {
 	}
 	if opts.PatchScanning == nil {
 		opts.PatchScanning = func() bool { return false }
+	}
+	if opts.PatchIncludeDrivers == nil {
+		opts.PatchIncludeDrivers = func() bool { return false }
 	}
 	if err := platform.EnsureProtectedDir(opts.Dir, opts.Access); err != nil {
 		return nil, err

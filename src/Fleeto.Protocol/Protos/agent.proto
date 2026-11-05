@@ -307,6 +307,11 @@ message Inventory {
   // else the target of /etc/localtime, e.g. "Europe/Brussels"), the Windows name on Windows (e.g. "Romance Standard Time"). Empty
   // when it cannot be read and from older agents; the server then uses UTC.
   string time_zone = 21;
+  // Where the distribution's own automatic updates stand (0.9.0), Linux only: "turned_off" (the agent turned unattended-upgrades or
+  // dnf-automatic off), "kept" (the configuration asks for it, but somebody else configured them, so the agent left them), "none"
+  // (neither is installed or enabled) or "untouched" (the configuration does not ask for it; the agent undid its own change). Empty
+  // on other platforms and from older agents.
+  string distribution_updates = 22;
 }
 
 // The distribution and the state of its package manager (0.8.0), read on every inventory: a restart that is required or an apt
@@ -651,12 +656,24 @@ message AgentConfig {
   // asks for it and that Action1 reports. The agent sets NoAutoUpdate = 1 under
   // HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU only when the value is missing and the Action1 agent is installed,
   // remembers that it did, and removes it again when this is false; a value somebody else set (a group policy) wins and is never
-  // changed. Never true on TIER_AGENT_ONLY; the agent ignores it there. Older agents ignore the field.
+  // changed. Never true on TIER_AGENT_ONLY; the agent ignores it there. Older agents ignore the field. From 0.9.0 also set for an
+  // endpoint Fleeto patches itself (the configuration then carries patch_scan_interval_hours), where the agent needs no Action1 agent.
   bool turn_off_windows_update = 10;
   // Hours between two scheduled patch scans (0.9.0); 0 for none. Set by the server only for a managed endpoint whose patch engine is
   // Fleeto (PatchEngineRules); never on TIER_AGENT_ONLY, where the agent ignores it and also ignores a PatchScanRequest. Older agents
   // ignore the field.
   uint32 patch_scan_interval_hours = 11;
+  // Windows (0.9.0): register the Microsoft Update service (Office, SQL Server, .NET) while a patch policy of engine Fleeto asks for
+  // it, never when a WSUS is configured. The agent records that it registered it and removes only its own registration when this is
+  // false. A scan never registers anything. Only with patch_scan_interval_hours.
+  bool microsoft_update = 12;
+  // Linux (0.9.0): turn unattended-upgrades (dpkg) or dnf-automatic (rpm) off while a patch policy of engine Fleeto asks for it, so
+  // only its rounds install updates. The agent changes only what it can undo (a marker records it) and never a file or timer
+  // somebody else wrote; Inventory.distribution_updates reports the state. Only with patch_scan_interval_hours.
+  bool turn_off_distribution_updates = 13;
+  // Windows (0.9.0): the scans also search drivers, because the patch policy of engine Fleeto installs them. Only with
+  // patch_scan_interval_hours.
+  bool patch_include_drivers = 14;
 }
 
 enum Tier {
@@ -860,6 +877,11 @@ message PatchInstallFilter {
   google.protobuf.Timestamp released_before = 5;
   // Windows: also drivers.
   bool include_drivers = 6;
+  // With restrict_to_ids (0.9.0): only updates with these PatchUpdate.id values, at most 2000. fleeto-signer lists the missing updates
+  // whose deferral of the patch policy has passed and, on Linux, that match its severities, which only the server knows. An update the
+  // scan before the installation finds that is not listed is left out (status excluded), so a deferral is never skipped.
+  repeated string allowed_ids = 7;
+  bool restrict_to_ids = 8;
 }
 
 enum JobRunAs {

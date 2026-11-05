@@ -83,6 +83,54 @@ public sealed class AgentConfigTests
         Assert.Equal(0u, (await SignConfigAsync(action1)).Config.PatchScanIntervalHours);
         // Windows with the Windows Update Agent (0.9.0 step 2).
         Assert.Equal(Core.Domain.PatchScanRules.DefaultIntervalHours, (await SignConfigAsync(windows)).Config.PatchScanIntervalHours);
+        // A scan alone registers nothing and changes nothing (decided 2026-11-04): without a patch policy every switch is off.
+        var bare = (await SignConfigAsync(windows)).Config;
+        Assert.False(bare.MicrosoftUpdate || bare.TurnOffWindowsUpdate || bare.PatchIncludeDrivers);
+    }
+
+    [Fact]
+    public async Task A_patch_policy_of_engine_Fleeto_carries_its_switches_only_where_Fleeto_patches()
+    {
+        await _fixture.Database.LoadTestLicenseAsync(100);
+        var client = await _fixture.Database.CreateClientAsync();
+        var site = await _fixture.Database.CreateSiteAsync(client.Id);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            var policy = new PatchPolicy
+            {
+                Id = Guid.NewGuid(), ClientId = client.Id, Name = "Fleeto rounds", Engine = PatchEngine.Fleeto, MicrosoftUpdate = true, IncludeDrivers = true,
+                TurnOffWindowsUpdate = true, TurnOffDistributionUpdates = true, CreatedAt = _fixture.Now, UpdatedAt = _fixture.Now
+            };
+            db.PatchPolicies.Add(policy);
+            await db.SaveChangesAsync();
+            db.ClientPatchPolicies.Add(new ClientPatchPolicy { ClientId = client.Id, PatchPolicyId = policy.Id });
+            await db.SaveChangesAsync();
+        }
+
+        async Task<Endpoint> EndpointAsync(string platform, string osName, string action1AgentId = "")
+        {
+            var endpoint = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "PF-" + Guid.NewGuid().ToString("N")[..6]);
+            await using var db = _fixture.Database.DbFactory.CreateSystem();
+            await db.Endpoints.Where(e => e.Id == endpoint.Id).ExecuteUpdateAsync(u => u.SetProperty(e => e.OsPlatform, platform).SetProperty(e => e.OsName, osName));
+            db.InventorySnapshots.Add(new InventorySnapshot
+            {
+                EndpointId = endpoint.Id, ClientId = endpoint.ClientId, ReceivedAt = _fixture.Now, Hash = "h", Action1AgentId = action1AgentId
+            });
+            await db.SaveChangesAsync();
+            return endpoint;
+        }
+
+        var windows = (await SignConfigAsync(await EndpointAsync("windows", "Windows 11 Pro"))).Config;
+        Assert.True(windows.MicrosoftUpdate && windows.PatchIncludeDrivers && windows.TurnOffWindowsUpdate);
+        Assert.False(windows.TurnOffDistributionUpdates);
+
+        var linux = (await SignConfigAsync(await EndpointAsync("linux", "Ubuntu 24.04.1 LTS"))).Config;
+        Assert.True(linux.TurnOffDistributionUpdates);
+        Assert.False(linux.MicrosoftUpdate || linux.PatchIncludeDrivers || linux.TurnOffWindowsUpdate);
+
+        // An endpoint Action1 patches gets none of them: the policy installs nothing there.
+        var action1 = (await SignConfigAsync(await EndpointAsync("windows", "Windows 11 Pro", "a1-agent"))).Config;
+        Assert.False(action1.MicrosoftUpdate || action1.PatchIncludeDrivers || action1.TurnOffWindowsUpdate);
     }
 
     [Fact]

@@ -62,6 +62,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<StorageScanRequest> StorageScanRequests => Set<StorageScanRequest>();
     public DbSet<PatchScan> PatchScans => Set<PatchScan>();
     public DbSet<PatchScanRequest> PatchScanRequests => Set<PatchScanRequest>();
+    public DbSet<PatchRoundState> PatchRoundStates => Set<PatchRoundState>();
     public DbSet<Script> Scripts => Set<Script>();
     public DbSet<ScriptVersion> ScriptVersions => Set<ScriptVersion>();
     public DbSet<Job> Jobs => Set<Job>();
@@ -447,6 +448,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(i => i.Action1AgentId).HasMaxLength(64).HasDefaultValue(string.Empty);
             entity.Property(i => i.Desktop).HasMaxLength(20).HasDefaultValue(string.Empty);
             entity.Property(i => i.WindowsUpdate).HasMaxLength(20).HasDefaultValue(string.Empty);
+            entity.Property(i => i.TimeZone).HasMaxLength(64).HasDefaultValue(string.Empty);
+            entity.Property(i => i.DistributionUpdates).HasMaxLength(20).HasDefaultValue(string.Empty);
             // The patch poller looks an endpoint up by the id its Action1 agent reports (0.4.0).
             entity.HasIndex(i => i.Action1AgentId).HasFilter("\"Action1AgentId\" <> ''");
             entity.Property(i => i.DisksJson).HasColumnType("jsonb");
@@ -648,8 +651,19 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             // 0.9.0: every policy made before it is patched by Action1, and 0.8.0 still inserts without the column.
             entity.Property(p => p.Engine).HasConversion<string>().HasMaxLength(20).HasDefaultValue(PatchEngine.Action1)
                 .HasSentinel((PatchEngine)(-1));
+            // The options of engine Fleeto (0.9.0 step 4); 0.8.0 inserts without them, so each has the default of a new policy.
+            entity.Property(p => p.LinuxSecurityOnly).HasDefaultValue(false);
+            entity.Property(p => p.IncludeDrivers).HasDefaultValue(false);
+            entity.Property(p => p.MicrosoftUpdate).HasDefaultValue(true).HasSentinel(true);
+            entity.Property(p => p.TurnOffDistributionUpdates).HasDefaultValue(false);
+            entity.Property(p => p.InstallTimeoutMinutes).HasDefaultValue(PatchPolicyRules.DefaultInstallTimeoutMinutes).HasSentinel(-1);
+            entity.Property(p => p.RandomDelayMinutes).HasDefaultValue(PatchPolicyRules.DefaultRandomDelayMinutes).HasSentinel(-1);
             entity.ToTable(table =>
             {
+                table.HasCheckConstraint("CK_PatchPolicies_InstallTimeoutMinutes",
+                    $"\"InstallTimeoutMinutes\" BETWEEN {PatchPolicyRules.MinInstallTimeoutMinutes} AND {PatchPolicyRules.MaxInstallTimeoutMinutes}");
+                table.HasCheckConstraint("CK_PatchPolicies_RandomDelayMinutes",
+                    $"\"RandomDelayMinutes\" BETWEEN 0 AND {PatchPolicyRules.MaxRandomDelayMinutes}");
                 table.HasCheckConstraint("CK_PatchPolicies_Engine", "\"Engine\" IN ('Action1', 'Fleeto')");
                 table.HasCheckConstraint("CK_PatchPolicies_WeekDays", "\"WeekDays\" BETWEEN 0 AND 127");
                 table.HasCheckConstraint("CK_PatchPolicies_MonthDay", "\"MonthDay\" BETWEEN 1 AND 31");
@@ -1067,6 +1081,14 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasOne<Client>().WithMany().HasForeignKey(l => l.ClientId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(l => l.AutomationTaskId);
             GlobalOrClientOwned(entity);
+        });
+
+        // How far the workers looked for rounds of a patch policy of engine Fleeto (0.9.0 step 4); gone with its policy.
+        builder.Entity<PatchRoundState>(entity =>
+        {
+            entity.HasKey(s => s.PatchPolicyId);
+            entity.Property(s => s.ScheduleHash).HasMaxLength(200);
+            entity.HasOne<PatchPolicy>().WithMany().HasForeignKey(s => s.PatchPolicyId).OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<AutomationTaskState>(entity =>
@@ -1531,6 +1553,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
                 .HasSentinel((PatchEngine)(-1));
             entity.Property(d => d.SecurityOnly).HasDefaultValue(false);
             entity.ToTable(table => table.HasCheckConstraint("CK_PatchDeployments_Engine", "\"Engine\" IN ('Action1', 'Fleeto')"));
+            // A round of a patch policy of engine Fleeto runs once per client and occurrence (0.9.0 step 4), however often the workers retry.
+            entity.HasIndex(d => new { d.ClientId, d.PatchPolicyId, d.RoundAt }).IsUnique().HasFilter("\"RoundAt\" IS NOT NULL");
             entity.Ignore(d => d.IsOpen);
             // A run of an automation becomes one scheduled deployment, however often the workers find it (0.6.0).
             entity.HasIndex(d => new { d.ClientId, d.ExternalDeploymentId }).IsUnique().HasFilter("\"ExternalAutomationId\" <> ''");
@@ -1562,6 +1586,8 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.Property(t => t.Message).HasMaxLength(1000);
             entity.Property(t => t.Restart).HasConversion<string>().HasMaxLength(20);
             entity.HasIndex(t => t.JobId).HasFilter("\"JobId\" IS NOT NULL");
+            // The workers write the job of a round's endpoint when its turn came (0.9.0 step 4).
+            entity.HasIndex(t => t.DueAt).HasFilter("\"DueAt\" IS NOT NULL AND \"JobId\" IS NULL AND \"State\" = 'Pending'");
             // One row per endpoint in a deployment: a re-delivered result updates it instead of adding another.
             entity.HasIndex(t => new { t.DeploymentId, t.EndpointId }).IsUnique();
             entity.HasIndex(t => new { t.EndpointId, t.UpdatedAt }).IsDescending(false, true);

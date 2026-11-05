@@ -83,7 +83,7 @@ func runWUA(t *testing.T, f *fakeWUAInstall, job *agentv1.PatchInstallJob) (Inst
 	t.Helper()
 	var buf bytes.Buffer
 	var waits []time.Duration
-	result := installWUA(context.Background(), f, fakeRegistry{}, job, newInstallOutput(&buf, &buf), func(d time.Duration) { waits = append(waits, d) })
+	result := installWUA(context.Background(), f, fakeRegistry{}, job, false, newInstallOutput(&buf, &buf), func(d time.Duration) { waits = append(waits, d) })
 	return result, buf.String(), waits
 }
 
@@ -176,5 +176,55 @@ func TestWindowsNothingMissingSucceedsAndReportsAPendingRestart(t *testing.T) {
 	result, out, _ := runWUA(t, f, &agentv1.PatchInstallJob{Scope: agentv1.PatchInstallScope_PATCH_INSTALL_SCOPE_ALL_MISSING})
 	if len(f.steps) != 0 || result.ExitCode != 0 || !result.RestartRequired || !strings.Contains(out, "Nothing to install") {
 		t.Fatalf("steps %v, result %+v", f.steps, result)
+	}
+}
+
+func TestWindowsInstallationSearchesDriversWhenTheJobOrTheConfigurationIncludesThem(t *testing.T) {
+	driverID := "77777777-1d3f-4a5b-8c7d-9e0f1a2b3c4d"
+	newFake := func() *fakeWUAInstall {
+		f := wuaWithTwoUpdates()
+		f.driverResult = wuaSearchResult{ResultCode: wuaResultSucceeded, Updates: []wuaUpdate{{UpdateID: driverID, RevisionNumber: 4,
+			Title: "Intel - Display - 31.0.101", Type: 2}}}
+		f.download.Updates = append(f.download.Updates, wuaUpdateResult{ResultCode: 2})
+		f.install.Updates = append(f.install.Updates, wuaUpdateResult{ResultCode: 2})
+		return f
+	}
+	all := agentv1.PatchInstallScope_PATCH_INSTALL_SCOPE_ALL_MISSING
+	cases := []struct {
+		name          string
+		filter        *agentv1.PatchInstallFilter
+		configDrivers bool
+		searches      int
+		driver        bool
+	}{
+		{"neither", nil, false, 1, false},
+		{"the job's filter", &agentv1.PatchInstallFilter{IncludeDrivers: true}, false, 2, true},
+		// The configuration scans drivers, so they are found; the filter of the job still decides whether one is installed.
+		{"the configuration only", nil, true, 2, false},
+		{"both", &agentv1.PatchInstallFilter{IncludeDrivers: true}, true, 2, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFake()
+			var buf bytes.Buffer
+			installWUA(context.Background(), f, fakeRegistry{}, &agentv1.PatchInstallJob{Scope: all, Filter: c.filter}, c.configDrivers,
+				newInstallOutput(&buf, &buf), func(time.Duration) {})
+			if len(f.searches) != c.searches {
+				t.Fatalf("searches %v", f.searches)
+			}
+			if got := slices.Contains(f.collected, driverID+":4"); got != c.driver {
+				t.Fatalf("driver collected %v, want %v (%v)", got, c.driver, f.collected)
+			}
+		})
+	}
+
+	// A driver named by a deployment is found when the configuration scans drivers.
+	f := newFake()
+	var buf bytes.Buffer
+	result := installWUA(context.Background(), f, fakeRegistry{}, &agentv1.PatchInstallJob{
+		Scope: agentv1.PatchInstallScope_PATCH_INSTALL_SCOPE_SPECIFIED, Updates: []*agentv1.PatchInstallUpdate{{Id: driverID + ":4"}}},
+		true, newInstallOutput(&buf, &buf), func(time.Duration) {})
+	if !slices.Equal(f.collected, []string{driverID + ":4"}) || result.Installed != 1 {
+		t.Fatalf("collected %v, result %+v\n%s", f.collected, result, buf.String())
 	}
 }

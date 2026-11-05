@@ -3669,6 +3669,13 @@ namespace Fleeto.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("jsonb");
 
+                    b.Property<string>("DistributionUpdates")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("");
+
                     b.Property<string>("Domain")
                         .IsRequired()
                         .HasMaxLength(255)
@@ -3721,6 +3728,13 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<string>("SoftwareJson")
                         .IsRequired()
                         .HasColumnType("jsonb");
+
+                    b.Property<string>("TimeZone")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasDefaultValue("");
 
                     b.Property<string>("WindowsUpdate")
                         .IsRequired()
@@ -4708,6 +4722,9 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<Guid>("RequestedByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("RoundAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Scope")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -4745,6 +4762,10 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.HasIndex("ClientId", "RequestedAt")
                         .IsDescending(false, true);
+
+                    b.HasIndex("ClientId", "PatchPolicyId", "RoundAt")
+                        .IsUnique()
+                        .HasFilter("\"RoundAt\" IS NOT NULL");
 
                     b.ToTable("PatchDeployments", t =>
                         {
@@ -4807,6 +4828,9 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<Guid>("DeploymentId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("DueAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("EndpointId")
                         .HasColumnType("uuid");
 
@@ -4843,6 +4867,9 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DueAt")
+                        .HasFilter("\"DueAt\" IS NOT NULL AND \"JobId\" IS NULL AND \"State\" = 'Pending'");
 
                     b.HasIndex("JobId")
                         .HasFilter("\"JobId\" IS NOT NULL");
@@ -4945,8 +4972,28 @@ namespace Fleeto.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text[]");
 
+                    b.Property<bool>("IncludeDrivers")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<int>("InstallDelayDays")
                         .HasColumnType("integer");
+
+                    b.Property<int>("InstallTimeoutMinutes")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(240);
+
+                    b.Property<bool>("LinuxSecurityOnly")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<bool>("MicrosoftUpdate")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
 
                     b.Property<int>("MonthDay")
                         .HasColumnType("integer");
@@ -4963,6 +5010,11 @@ namespace Fleeto.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<int>("RandomDelayMinutes")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(30);
 
                     b.Property<bool>("RebootMessage")
                         .HasColumnType("boolean");
@@ -4997,6 +5049,11 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<int>("StartMinute")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("TurnOffDistributionUpdates")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("TurnOffWindowsUpdate")
                         .HasColumnType("boolean");
 
@@ -5027,9 +5084,13 @@ namespace Fleeto.Infrastructure.Migrations
 
                             t.HasCheckConstraint("CK_PatchPolicies_InstallDelayDays", "\"InstallDelayDays\" BETWEEN 0 AND 90");
 
+                            t.HasCheckConstraint("CK_PatchPolicies_InstallTimeoutMinutes", "\"InstallTimeoutMinutes\" BETWEEN 30 AND 1440");
+
                             t.HasCheckConstraint("CK_PatchPolicies_MonthDay", "\"MonthDay\" BETWEEN 1 AND 31");
 
                             t.HasCheckConstraint("CK_PatchPolicies_MonthWeek", "\"MonthWeek\" BETWEEN 1 AND 4");
+
+                            t.HasCheckConstraint("CK_PatchPolicies_RandomDelayMinutes", "\"RandomDelayMinutes\" BETWEEN 0 AND 720");
 
                             t.HasCheckConstraint("CK_PatchPolicies_RebootTimeoutMinutes", "\"RebootTimeoutMinutes\" BETWEEN 1 AND 1440");
 
@@ -5097,6 +5158,27 @@ namespace Fleeto.Infrastructure.Migrations
                     b.HasIndex("EndpointId", "RequestedAt");
 
                     b.ToTable("PatchRequests");
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.PatchRoundState", b =>
+                {
+                    b.Property<Guid>("PatchPolicyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CheckedUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ScheduleHash")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("PatchPolicyId");
+
+                    b.ToTable("PatchRoundStates");
                 });
 
             modelBuilder.Entity("Fleeto.Core.Entities.PatchScan", b =>
@@ -8632,6 +8714,15 @@ namespace Fleeto.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("EndpointId", "ClientId")
                         .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Fleeto.Core.Entities.PatchRoundState", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.PatchPolicy", null)
+                        .WithMany()
+                        .HasForeignKey("PatchPolicyId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

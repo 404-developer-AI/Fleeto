@@ -4,6 +4,7 @@ using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Audit;
 using Fleeto.Infrastructure.Data;
+using Fleeto.Workers.Alerts;
 using Fleeto.Workers.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -15,6 +16,11 @@ namespace Fleeto.Workers.Integrations;
 /// installation job, and its state is the state of that job. When a job ended its output gives the steps of the history (one line per
 /// update, in the form of <see cref="PatchRules.ParseInstallOutput"/>) and what became of the restart. The deployment completes when
 /// every endpoint has an answer, and is abandoned with the rest unknown after <see cref="PatchDeployment.FollowUntil"/>.
+/// <para>
+/// A round of a patch policy (0.9.0 step 4) is followed the same way; an endpoint of a round waits for its turn without a job
+/// (<see cref="PatchDeploymentTarget.DueAt"/>, written by <see cref="PatchRoundService"/>), and when one of its endpoints ends the
+/// "Scheduled patching" checks of that endpoint get their result at once.
+/// </para>
 /// <para>Woken by <c>fleeto_jobs</c>; every minute it also catches up, so a lost notification only delays the history.</para>
 /// </summary>
 public sealed class FleetoDeploymentService : WorkerLoop
@@ -26,14 +32,16 @@ public sealed class FleetoDeploymentService : WorkerLoop
 
     private readonly IFleetoDbContextFactory _dbFactory;
     private readonly INotificationBus _bus;
+    private readonly AlertNotificationService _notifier;
     private IDisposable? _subscription;
 
-    public FleetoDeploymentService(IFleetoDbContextFactory dbFactory, INotificationBus bus, WorkerHeartbeat heartbeat, TimeProvider time,
-        ILogger<FleetoDeploymentService> logger)
+    public FleetoDeploymentService(IFleetoDbContextFactory dbFactory, INotificationBus bus, AlertNotificationService notifier, WorkerHeartbeat heartbeat,
+        TimeProvider time, ILogger<FleetoDeploymentService> logger)
         : base("patch-installs", heartbeat, time, logger)
     {
         _dbFactory = dbFactory;
         _bus = bus;
+        _notifier = notifier;
     }
 
     protected override TimeSpan Interval => TimeSpan.FromMinutes(1);
@@ -69,6 +77,7 @@ public sealed class FleetoDeploymentService : WorkerLoop
         var jobIds = open.SelectMany(d => d.Targets).Where(t => t.JobId != null).Select(t => t.JobId!.Value).ToList();
         var jobs = await db.Jobs.AsNoTracking().Where(j => jobIds.Contains(j.Id)).ToDictionaryAsync(j => j.Id, cancellationToken);
         var changed = new List<Guid>();
+        var scheduled = new HashSet<Guid>();
         foreach (var deployment in open)
         {
             var before = deployment.Targets.Select(t => (t.State, t.Restart, t.Message)).ToList();
@@ -98,10 +107,16 @@ public sealed class FleetoDeploymentService : WorkerLoop
             if (!before.SequenceEqual(deployment.Targets.Select(t => (t.State, t.Restart, t.Message))) || !deployment.IsOpen)
             {
                 changed.Add(deployment.Id);
+                if (deployment.RoundAt is not null)
+                {
+                    scheduled.UnionWith(deployment.Targets.Where(t => t.State is not (PatchDeploymentTargetState.Pending or PatchDeploymentTargetState.Running))
+                        .Select(t => t.EndpointId));
+                }
             }
         }
 
         await db.SaveChangesAsync(cancellationToken);
+        await EvaluateScheduledAsync(db, scheduled, now, cancellationToken);
         foreach (var id in changed)
         {
             await _bus.PublishAsync(NotificationChannels.PatchDeployments, id.ToString(), cancellationToken);
@@ -110,12 +125,41 @@ public sealed class FleetoDeploymentService : WorkerLoop
         return open.Count;
     }
 
+    /// <summary>The "Scheduled patching" checks of endpoints whose round ended, so a round that succeeded clears its alert at once.</summary>
+    private async Task EvaluateScheduledAsync(FleetoDbContext db, IReadOnlyCollection<Guid> endpointIds, DateTime now, CancellationToken cancellationToken)
+    {
+        if (endpointIds.Count == 0)
+        {
+            return;
+        }
+
+        var (written, transitions) = await ScheduledPatchingChecks.EvaluateAsync(db, endpointIds, now, cancellationToken);
+        if (written.Count == 0 && transitions.Count == 0)
+        {
+            return;
+        }
+
+        await _notifier.AddNotificationsAsync(db, transitions, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await AlertCleanup.PublishAsync(_bus, transitions.Select(t => t.AlertId), cancellationToken);
+        foreach (var endpointId in written)
+        {
+            await _bus.PublishAsync(NotificationChannels.CheckResults, endpointId.ToString(), cancellationToken);
+        }
+    }
+
     /// <summary>
     /// The state of one endpoint from its installation job. A job that ended gets its steps and restart from its output, once that has
     /// arrived (or after <see cref="OutputGrace"/> with what arrived).
     /// </summary>
     private static async Task FollowTargetAsync(FleetoDbContext db, PatchDeploymentTarget target, Job? job, DateTime now, CancellationToken cancellationToken)
     {
+        if (job is null && target.JobId is null && target.DueAt is not null)
+        {
+            // A round's endpoint whose turn has not come: PatchRoundService writes its job then.
+            return;
+        }
+
         if (job is null)
         {
             target.State = PatchDeploymentTargetState.Unknown;

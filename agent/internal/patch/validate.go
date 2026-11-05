@@ -17,6 +17,8 @@ import (
 const (
 	// MaxSpecifiedUpdates is the most updates SCOPE_SPECIFIED may name.
 	MaxSpecifiedUpdates = 100
+	// MaxAllowedIDs is the most updates filter.allowed_ids may list (the most a scan reports).
+	MaxAllowedIDs = 2000
 	// MaxExcludedNames is the most names a filter may exclude.
 	MaxExcludedNames = 20
 	// MinRestartNotice and MaxRestartNotice bound the seconds between the notice and the restart.
@@ -135,6 +137,14 @@ func ValidateInstallJob(job *agentv1.PatchInstallJob, engine string) error {
 			}
 		} else if !validPackageName(engine, name) {
 			return fmt.Errorf("the excluded name %q is not a package name", cut(name, 100))
+		}
+	}
+	if n := len(f.GetAllowedIds()); n > MaxAllowedIDs {
+		return fmt.Errorf("the filter allows %d updates; at most %d are allowed", n, MaxAllowedIDs)
+	}
+	for _, id := range f.GetAllowedIds() {
+		if !validUpdateID(engine, id) {
+			return fmt.Errorf("the allowed update id %q is not of the form this endpoint uses", cut(id, 100))
 		}
 	}
 	for what, values := range map[string][]string{"classifications": f.GetClassifications(), "severities": f.GetSeverities()} {

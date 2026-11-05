@@ -1,11 +1,30 @@
-@* Create or edit a patch policy (0.6.0). Every option is one an Action1 automation offers (PatchPolicyRules), except turning
-   automatic Windows Update off, which the Fleeto agent does itself (0.7.0); the scope (global or one client) is chosen at
-   creation and cannot change. *@
+@* Create or edit a patch policy (0.6.0). The engine is chosen first (0.9.0): for Action1 every option is one an Action1 automation
+   offers (PatchPolicyRules), except turning automatic Windows Update off, which the Fleeto agent does itself (0.7.0); for Fleeto only
+   the options of the rounds the Fleeto agent carries out. The scope (global or one client) is chosen at creation and cannot change. *@
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">@(IsEdit ? $"Edit patch policy {_m.Name}" : "New patch policy")</MudText>
     </TitleContent>
     <DialogContent>
+        <MudText Typo="Typo.subtitle2" Class="mb-1">Who installs the updates</MudText>
+        <MudRadioGroup T="PatchEngine" @bind-Value="_m.Engine" Class="mb-1">
+            <MudRadio T="PatchEngine" Value="PatchEngine.Fleeto" Color="Color.Primary" Dense="true">Patched by Fleeto</MudRadio>
+            <MudRadio T="PatchEngine" Value="PatchEngine.Action1" Color="Color.Primary" Dense="true">Patched by Action1</MudRadio>
+        </MudRadioGroup>
+        <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+            @if (Fleeto)
+            {
+                @:The Fleeto agent installs the updates in rounds, with the Windows Update Agent, apt or dnf of the endpoint. An endpoint with the Action1 agent stays with Action1, and this policy installs nothing there.
+            }
+            else
+            {
+                @:Fleeto keeps an Action1 automation per client for this policy. Endpoints without the Action1 agent get nothing from it.
+            }
+            @if (IsEdit && Existing!.Engine != _m.Engine)
+            {
+                @: Changing the engine applies to every endpoint that uses this policy at once.
+            }
+        </MudText>
         <MudTextField @bind-Value="_m.Name" Label="Name" Variant="Variant.Outlined" MaxLength="@PatchPolicyRules.MaxNameLength" AutoFocus="true" Class="mb-3" />
         <MudTextField @bind-Value="_m.Description" Label="Description (optional)" Variant="Variant.Outlined" Lines="2"
                       MaxLength="@PatchPolicyRules.MaxDescriptionLength" Class="mb-3" />
@@ -23,7 +42,7 @@
         <AppliesToSelect @bind-Value="_m.AppliesTo" Class="mb-3"
                          HelperText="A patch policy for servers or workstations never applies to the other class, wherever it is linked." />
         <MudSwitch T="bool" @bind-Value="_m.Enabled" Color="Color.Primary" Label="Enabled" />
-        <MudText Typo="Typo.caption" Class="muted d-block mb-2">Off keeps the automations in Action1 but stops them from running.</MudText>
+        <MudText Typo="Typo.caption" Class="muted d-block mb-2">@(Fleeto ? "Off starts no rounds. Endpoints are still scanned." : "Off keeps the automations in Action1 but stops them from running.")</MudText>
 
         <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Schedule</MudText>
         <MudSelect T="PatchScheduleKind" @bind-Value="_m.ScheduleKind" Label="Runs" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2">
@@ -82,15 +101,19 @@
         @if (_m.Scope == PatchUpdateScope.Filtered)
         {
             <div class="fl-panel pa-3 mt-2">
-                <MudSelect T="string" MultiSelection="true" @bind-SelectedValues="_m.Sources" Label="Sources" Variant="Variant.Outlined" Margin="Margin.Dense"
-                           HelperText="Empty means every source. Applications are third-party updates.">
-                    @foreach (var value in PatchPolicyRules.UpdateSources)
-                    {
-                        <MudSelectItem T="string" Value="value">@value</MudSelectItem>
-                    }
-                </MudSelect>
+                @if (!Fleeto)
+                {
+                    <MudSelect T="string" MultiSelection="true" @bind-SelectedValues="_m.Sources" Label="Sources" Variant="Variant.Outlined" Margin="Margin.Dense"
+                               HelperText="Empty means every source. Applications are third-party updates." Class="mb-3">
+                        @foreach (var value in PatchPolicyRules.UpdateSources)
+                        {
+                            <MudSelectItem T="string" Value="value">@value</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
                 <MudSelect T="string" MultiSelection="true" @bind-SelectedValues="_m.Severities" Label="Security severities" Variant="Variant.Outlined"
-                           Margin="Margin.Dense" Class="mt-3" HelperText="Empty means every severity.">
+                           Margin="Margin.Dense"
+                           HelperText="@(Fleeto ? "Empty means every severity. On Linux the severity of an update is the highest of the vulnerabilities it fixes." : "Empty means every severity.")">
                     @foreach (var value in PatchPolicyRules.Severities)
                     {
                         <MudSelectItem T="string" Value="value">@value</MudSelectItem>
@@ -98,29 +121,57 @@
                 </MudSelect>
                 <MudSelect T="string" MultiSelection="true" @bind-SelectedValues="_m.Types" Label="Update types" Variant="Variant.Outlined" Margin="Margin.Dense"
                            Class="mt-3" HelperText="Empty means every type.">
-                    @foreach (var value in PatchPolicyRules.UpdateTypes)
+                    @foreach (var value in PatchPolicyRules.UpdateTypes.Where(t => !Fleeto || t != "Feature Updates"))
                     {
                         <MudSelectItem T="string" Value="value">@value</MudSelectItem>
                     }
                 </MudSelect>
                 <MudTextField @bind-Value="_m.ExcludedNames" Label="Leave out updates named (optional)" Variant="Variant.Outlined" Margin="Margin.Dense"
-                              Class="mt-3" HelperText="Separate with commas; * matches anything, as in Mozilla*." />
-                <MudTextField @bind-Value="_m.ExcludedVendors" Label="Leave out vendors (optional)" Variant="Variant.Outlined" Margin="Margin.Dense"
-                              Class="mt-3" HelperText="Separate with commas; * matches anything." />
+                              Class="mt-3"
+                              HelperText="@(Fleeto ? "Separate with commas; * matches anything. The title of a Windows update, the package name on Linux." : "Separate with commas; * matches anything, as in Mozilla*.")" />
+                @if (!Fleeto)
+                {
+                    <MudTextField @bind-Value="_m.ExcludedVendors" Label="Leave out vendors (optional)" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  Class="mt-3" HelperText="Separate with commas; * matches anything." />
+                }
                 <MudText Typo="Typo.caption" Class="muted d-block mt-2">An update must match every filter that is set.</MudText>
             </div>
         }
 
-        <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Approval</MudText>
-        <MudRadioGroup T="bool" @bind-Value="_m.RequireApproval">
-            <MudRadio T="bool" Value="false" Color="Color.Primary" Dense="true">Install every update that is not declined in Action1</MudRadio>
-            <MudRadio T="bool" Value="true" Color="Color.Primary" Dense="true">Install only updates approved in the Action1 console</MudRadio>
-        </MudRadioGroup>
-        @if (!_m.RequireApproval)
+        @if (Fleeto)
         {
+            <MudSwitch T="bool" @bind-Value="_m.LinuxSecurityOnly" Color="Color.Primary" Label="Linux: security updates only" Class="mt-3" />
+            <MudText Typo="Typo.caption" Class="muted d-block">
+                @(_m.LinuxSecurityOnly
+                    ? "Only updates from a security archive or advisory are installed on Linux. The rest stays missing on the Patches tab."
+                    : "Linux installs every missing update, as a full upgrade (apt dist-upgrade, dnf upgrade) does.")
+            </MudText>
+            <MudSwitch T="bool" @bind-Value="_m.IncludeDrivers" Color="Color.Primary" Label="Windows: also drivers" Class="mt-2" />
+            <MudSwitch T="bool" @bind-Value="_m.MicrosoftUpdate" Color="Color.Primary" Label="Windows: also Microsoft Update" />
+            <MudText Typo="Typo.caption" Class="muted d-block">
+                @(_m.MicrosoftUpdate
+                    ? "The agent registers Microsoft Update for the updates of Office, SQL Server and .NET. An endpoint a WSUS serves keeps its WSUS."
+                    : "Only what Windows Update, or the WSUS of a group policy, offers. Feature updates of Windows are never installed.")
+            </MudText>
+
+            <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Wait after release</MudText>
             <MudNumericField T="int" @bind-Value="_m.InstallDelayDays" Label="Wait after release (days)" Variant="Variant.Outlined" Margin="Margin.Dense"
-                             Min="0" Max="@PatchPolicyRules.MaxInstallDelayDays" Style="max-width:220px" Class="mt-2"
-                             HelperText="0 installs an update as soon as the automation runs." />
+                             Min="0" Max="@PatchPolicyRules.MaxInstallDelayDays" Style="max-width:220px"
+                             HelperText="0 installs an update in the first round. Without a release date Fleeto counts from the day it first saw the update missing." />
+        }
+        else
+        {
+            <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Approval</MudText>
+            <MudRadioGroup T="bool" @bind-Value="_m.RequireApproval">
+                <MudRadio T="bool" Value="false" Color="Color.Primary" Dense="true">Install every update that is not declined in Action1</MudRadio>
+                <MudRadio T="bool" Value="true" Color="Color.Primary" Dense="true">Install only updates approved in the Action1 console</MudRadio>
+            </MudRadioGroup>
+            @if (!_m.RequireApproval)
+            {
+                <MudNumericField T="int" @bind-Value="_m.InstallDelayDays" Label="Wait after release (days)" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                 Min="0" Max="@PatchPolicyRules.MaxInstallDelayDays" Style="max-width:220px" Class="mt-2"
+                                 HelperText="0 installs an update as soon as the automation runs." />
+            }
         }
 
         <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Restart</MudText>
@@ -143,29 +194,61 @@
         {
             <MudText Typo="Typo.caption" Class="muted d-block">Updates that need a restart finish at the next restart somebody makes.</MudText>
         }
+        @if (Fleeto && _m.AutoReboot)
+        {
+            <MudText Typo="Typo.caption" Class="muted d-block mt-1">
+                A signed-in user on a workstation always sees the message for this time first. A round never restarts a Proxmox VE host: its Patches tab says that a restart is required.
+            </MudText>
+        }
 
         <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Missed endpoints</MudText>
         <MudNumericField T="int" @bind-Value="_m.RetryHours" Label="Keep trying for (hours)" Variant="Variant.Outlined" Margin="Margin.Dense"
                          Min="@PatchPolicyRules.MinRetryHours" Max="@PatchPolicyRules.MaxRetryHours" Style="max-width:220px"
-                         HelperText="How long Action1 keeps trying endpoints that were off or offline at the start time. Keep it shorter than the time between two runs." />
+                         HelperText="@(Fleeto ? "An endpoint that is off or offline at the start time still gets the round when it connects within this time. Keep it shorter than the time between two rounds." : "How long Action1 keeps trying endpoints that were off or offline at the start time. Keep it shorter than the time between two runs.")" />
 
-        <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Action1 agent</MudText>
-        <MudSwitch T="bool" @bind-Value="_m.AutoInstallAgent" Color="Color.Primary" Label="Install the Action1 agent automatically" />
-        <MudText Typo="Typo.caption" Class="muted d-block">
-            @if (_m.AutoInstallAgent)
-            {
-                @:Fleeto installs the agent of the client's Action1 organization on every managed Windows endpoint this policy applies to that has none, as soon as it is online. A failed installation is tried again after 1, 6 and 24 hours. An agent removed through Fleeto is not installed again by itself.
-            }
-            else
-            {
-                @:Endpoints without the Action1 agent get it only when a technician installs it on the Patches tab.
-            }
-        </MudText>
+        @if (Fleeto)
+        {
+            <div class="d-flex gap-2 flex-wrap mt-3">
+                <MudNumericField T="int" @bind-Value="_m.RandomDelayMinutes" Label="Spread the start over (minutes)" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                 Min="0" Max="@PatchPolicyRules.MaxRandomDelayMinutes" Style="max-width:240px"
+                                 HelperText="Each endpoint starts at its own moment within this time, so not every endpoint downloads at once." />
+                <MudNumericField T="int" @bind-Value="_m.InstallTimeoutMinutes" Label="An installation may take (minutes)" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                 Min="@PatchPolicyRules.MinInstallTimeoutMinutes" Max="@PatchPolicyRules.MaxInstallTimeoutMinutes" Style="max-width:240px"
+                                 HelperText="After this the job times out. The package manager is never stopped; the next scan shows what was installed." />
+            </div>
+
+            <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Linux</MudText>
+            <MudSwitch T="bool" @bind-Value="_m.TurnOffDistributionUpdates" Color="Color.Primary" Label="Turn off unattended-upgrades and dnf-automatic" />
+            <MudText Typo="Typo.caption" Class="muted d-block">
+                @(_m.TurnOffDistributionUpdates
+                    ? "The Fleeto agent turns the distribution's own automatic updates off, so only the rounds of this policy install updates. It never changes a configuration somebody else wrote, and turns them back on when this policy no longer applies."
+                    : "The distribution can also install updates by itself, outside the rounds of this policy.")
+            </MudText>
+        }
+        else
+        {
+            <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Action1 agent</MudText>
+            <MudSwitch T="bool" @bind-Value="_m.AutoInstallAgent" Color="Color.Primary" Label="Install the Action1 agent automatically" />
+            <MudText Typo="Typo.caption" Class="muted d-block">
+                @if (_m.AutoInstallAgent)
+                {
+                    @:Fleeto installs the agent of the client's Action1 organization on every managed Windows endpoint this policy applies to that has none, as soon as it is online. A failed installation is tried again after 1, 6 and 24 hours. An agent removed through Fleeto is not installed again by itself.
+                }
+                else
+                {
+                    @:Endpoints without the Action1 agent get it only when a technician installs it on the Patches tab.
+                }
+            </MudText>
+        }
 
         <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Windows Update</MudText>
         <MudSwitch T="bool" @bind-Value="_m.TurnOffWindowsUpdate" Color="Color.Primary" Label="Turn off automatic Windows Update" />
         <MudText Typo="Typo.caption" Class="muted d-block">
-            @if (_m.TurnOffWindowsUpdate)
+            @if (_m.TurnOffWindowsUpdate && Fleeto)
+            {
+                @:The Fleeto agent turns automatic Windows Update off on every managed Windows endpoint this policy applies to that Fleeto patches, so only the rounds of this policy install updates. A group policy that sets Windows Update wins, and the agent turns Windows Update back on when this policy no longer applies or is switched off.
+            }
+            else if (_m.TurnOffWindowsUpdate)
             {
                 @:The Fleeto agent turns automatic Windows Update off on every managed Windows endpoint this policy applies to that Action1 reports, so only the rounds of this policy install updates. A group policy that sets Windows Update wins, and the agent turns Windows Update back on when this policy no longer applies, is switched off or Action1 no longer reports the endpoint.
             }
@@ -214,11 +297,28 @@
         public int RetryHours { get; set; } = 24;
         public bool AutoInstallAgent { get; set; }
         public bool TurnOffWindowsUpdate { get; set; }
+        public PatchEngine Engine { get; set; } = PatchEngine.Fleeto;
+        public bool LinuxSecurityOnly { get; set; }
+        public bool IncludeDrivers { get; set; }
+        public bool MicrosoftUpdate { get; set; } = true;
+        public bool TurnOffDistributionUpdates { get; set; }
+        public int InstallTimeoutMinutes { get; set; } = PatchPolicyRules.DefaultInstallTimeoutMinutes;
+        public int RandomDelayMinutes { get; set; } = PatchPolicyRules.DefaultRandomDelayMinutes;
 
-        public PatchPolicyInput ToInput() => new(Name, Description, Enabled, ScheduleKind, WeekDays, MonthDay, MonthWeek, MonthWeekday,
-            (int)(Start ?? TimeSpan.Zero).TotalMinutes, EndpointLocalTime, Scope, Sources.ToList(), Types.ToList(), Severities.ToList(),
-            Split(ExcludedNames), Split(ExcludedVendors), RequireApproval, InstallDelayDays, AutoReboot, RebootMessage, RebootMessageText,
-            RebootTimeoutMinutes, RetryHours, AppliesTo, AutoInstallAgent, TurnOffWindowsUpdate);
+        /// <summary>
+        /// What is saved: the options of the other engine are left out (Action1-only filters, approval and agent for Fleeto), so a policy
+        /// never holds an option its engine does not have.
+        /// </summary>
+        public PatchPolicyInput ToInput()
+        {
+            var fleeto = Engine == PatchEngine.Fleeto;
+            return new(Name, Description, Enabled, ScheduleKind, WeekDays, MonthDay, MonthWeek, MonthWeekday,
+                (int)(Start ?? TimeSpan.Zero).TotalMinutes, EndpointLocalTime, Scope, fleeto ? [] : Sources.ToList(),
+                fleeto ? Types.Where(t => t != "Feature Updates").ToList() : Types.ToList(), Severities.ToList(),
+                Split(ExcludedNames), fleeto ? [] : Split(ExcludedVendors), !fleeto && RequireApproval, InstallDelayDays, AutoReboot, RebootMessage,
+                RebootMessageText, RebootTimeoutMinutes, RetryHours, AppliesTo, !fleeto && AutoInstallAgent, TurnOffWindowsUpdate, Engine,
+                LinuxSecurityOnly, IncludeDrivers, MicrosoftUpdate, TurnOffDistributionUpdates, InstallTimeoutMinutes, RandomDelayMinutes);
+        }
 
         /// <summary>A throwaway entity, only to describe the schedule while it is edited.</summary>
         public PatchPolicy ToPolicy() => new()
@@ -236,7 +336,10 @@
             ExcludedVendors = string.Join(", ", p.ExcludedVendors), RequireApproval = p.RequireApproval, InstallDelayDays = p.InstallDelayDays,
             AutoReboot = p.AutoReboot, RebootMessage = p.RebootMessage, RebootMessageText = p.RebootMessageText,
             RebootTimeoutMinutes = p.RebootTimeoutMinutes, RetryHours = p.RetryHours, AppliesTo = p.AppliesTo,
-            AutoInstallAgent = p.AutoInstallAgent, TurnOffWindowsUpdate = p.TurnOffWindowsUpdate
+            AutoInstallAgent = p.AutoInstallAgent, TurnOffWindowsUpdate = p.TurnOffWindowsUpdate, Engine = p.Engine,
+            LinuxSecurityOnly = p.LinuxSecurityOnly, IncludeDrivers = p.IncludeDrivers, MicrosoftUpdate = p.MicrosoftUpdate,
+            TurnOffDistributionUpdates = p.TurnOffDistributionUpdates, InstallTimeoutMinutes = p.InstallTimeoutMinutes,
+            RandomDelayMinutes = p.RandomDelayMinutes
         };
 
         private static List<string> Split(string? text) =>
@@ -253,6 +356,7 @@
     [Parameter] public Func<Guid?, PatchPolicyInput, Task<bool>> OnSubmit { get; set; } = (_, _) => Task.FromResult(true);
 
     private bool IsEdit => Existing is not null;
+    private bool Fleeto => _m.Engine == PatchEngine.Fleeto;
     private Model _m = new();
     private Guid? _clientId;
     private bool _busy;

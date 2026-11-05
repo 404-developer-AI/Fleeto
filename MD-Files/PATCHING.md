@@ -7,7 +7,8 @@
 >
 > Written 2026-11-04 as a proposal, from the code and the documentation as they are at `v0.8.0-alpha.16`, and **decided with the
 > developer on 2026-11-04**: every recommendation of §14, with four changes from the review (§14, decisions 2, 7, 8 and 11). The rules
-> are in `CLAUDE.md` (Patch management). Step 0 of the build plan (§13) is built.
+> are in `CLAUDE.md` (Patch management). Every step of the build plan (§13) is built and released as 0.9.0 (2026-11-05), without a round
+> on the test VPS; what still has to be checked on real endpoints is in §15.
 
 ## 1. What it is, and what it is not
 
@@ -449,10 +450,10 @@ arrives with the least risk, and the part that changes endpoints last.
 3. [built 2026-11-05, not yet on the test VPS] **Installing by hand** (§5, §8): the job type, `PatchRules`, the signer, the agent flows on apt, dnf and Windows, the restart
    inside a job and its recovery, the deployment, targets and steps from the job, the dialog and the endpoint list action, the audit
    entries, the API changes on deployments.
-4. **Patch policies with engine Fleeto** (§6, §7): the dialog per engine, the new columns, `PatchPolicies.Occurrences`,
+4. [built 2026-11-05, released in 0.9.0 without the test VPS] **Patch policies with engine Fleeto** (§6, §7): the dialog per engine, the new columns, `PatchPolicies.Occurrences`,
    `PatchRoundService`, the origin triggers for rounds, the signer rules for a round, "Scheduled patching", `TurnOffWindowsUpdate` for
    engine *Fleeto*, the distribution-updates switch, the next and last round on the tab and in the list.
-5. **Finish**: drivers and "Security updates only" options, deferral by `FirstSeenAt`, the endpoint list column and tooltip, the
+5. [built 2026-11-05, released as 0.9.0] **Finish**: drivers and "Security updates only" options, deferral by `FirstSeenAt`, the endpoint list column and tooltip, the
    vocabulary and tone pass, `ARCHITECTURE.md` §2, §4 and §9 with what was built, `CHANGELOG.md`, the release.
 
 Every step has its tests before it is called done, and nothing in it has a button for a later step.
@@ -553,6 +554,43 @@ Taken with the developer on 2026-11-04: every recommendation of the proposal, wi
 - Rollback: an image rollback to 0.8.0 reads jobs of type `PatchInstall` and deployments of engine `Fleeto` that it does not know. Until
   the release decides between `rollback: restore` in the manifest and leaving those rows to fail on their own, roll back an alpha of
   0.9.0 only on a test VPS.
+
+**What steps 4 and 5 built differently** (2026-11-05):
+
+- The occurrences are `PatchRounds.Occurrences` (not `PatchPolicies.Occurrences`), with `PatchRounds.Next`, `IsOccurrence`, `ZoneOf`
+  (the endpoint's IANA or Windows zone, UTC when unknown), `DueAt`, `ValidUntil`, `Restarts`, `NoticeSeconds`, `Restricts` and `Allows`
+  shared by the workers, the signer and web. How far the workers looked is `PatchRoundStates` (per policy, with the hash of the
+  schedule), so a new or edited schedule starts counting from then. No `fleeto_patch_policies` notification: the loop runs every minute.
+- A round is a `PatchDeployment` of scope `PatchPolicy` with `RoundAt` (unique per client, policy and occurrence) and no user; each target
+  has `DueAt` and gets its job only when its turn came, in its own transaction with the signing request. The origin triggers were
+  replaced (`fleeto_job_origin`, `fleeto_signing_request_origin`, `fleeto_job_patch_origin` in migration `PatchRounds`): a job without
+  a user may name only an endpoint of a round of an enabled policy of engine Fleeto, and web may never write one.
+- What a round installs beyond what the agent can judge (filters, names with `*`, severities on Linux, the wait after release) is
+  decided by the signer from the last scan: the job then carries `PatchInstallFilter.restrict_to_ids` with `allowed_ids`, and the agent
+  installs nothing else (an update the scan before the installation finds that is not listed is `excluded`). Without filters and without a
+  wait the agent installs everything missing (a `dist-upgrade` on Linux). `released_before` is not used.
+- An endpoint whose last scan read everything and found nothing the policy installs is answered at once as succeeded ("Nothing to
+  install"), without a job; one whose agent is too old or whose earlier installation is still open is answered as unknown with the
+  reason. Endpoints Fleeto does not patch (Action1, agent-only) are not part of a round at all.
+- `AutoRemove` was not built (no `autoremove` in 0.9.0). The new columns are `LinuxSecurityOnly`, `IncludeDrivers`, `MicrosoftUpdate`,
+  `TurnOffDistributionUpdates`, `InstallTimeoutMinutes` and `RandomDelayMinutes`; `InventorySnapshots` got `TimeZone` and
+  `DistributionUpdates`. `AgentConfig` got `microsoft_update`, `turn_off_distribution_updates` and `patch_include_drivers`.
+- The agent's file for unattended-upgrades is `/etc/apt/apt.conf.d/99fleeto-no-unattended-upgrades`, recognised by its first line; on
+  AlmaLinux it handles the four dnf-automatic timers and records them in `distribution-updates.json` in its state directory. Its
+  Microsoft Update registration is marked by `HKLM\SOFTWARE\Fleeto\MicrosoftUpdateRegistered`.
+- The package manager of an installation runs under `systemd-run --scope` where systemd runs the agent, and writes to a file the agent
+  follows, so stopping the agent kills neither (no SIGPIPE).
+- Rollback: `deploy/release-rollback` is `restore`, so a failed update to 0.9.0 restores the backup made before it.
+
+To check on the test VPS (open after the release, `ROADMAP.md`):
+
+- Windows: `AddService2` and `RemoveService` of Microsoft Update as SYSTEM, and that the next scan then searches Microsoft Update; the
+  driver search and a driver installation.
+- Ubuntu, Debian, Proxmox VE: `apt-config dump APT::Periodic::Unattended-Upgrade` shows 0 with the agent's file (a file sorting after it
+  would win, which the agent does not see). AlmaLinux 8, 9 and 10: `systemctl is-enabled` of absent timers, disable and enable `--now`.
+- `systemd-run --scope` under the sandboxing of the agent unit, and that apt or dnf survives `systemctl stop` of the agent and an agent
+  update in the middle of a transaction; a scope of the same name that still exists fails the job with systemd-run's message.
+- A round on every test endpoint, in endpoint time across a daylight saving change if possible, with and without a wait after release.
 
 To check while building, in the step that needs it:
 

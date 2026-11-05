@@ -295,4 +295,16 @@ public class InventorySnapshot
     /// older agent or a platform other than Linux did not report it.
     /// </summary>
     public string? PackageInfoJson { get; set; }
+
+    /// <summary>
+    /// The time zone of the endpoint (0.9.0) as the agent reports it: an IANA name on Linux, a Windows name on Windows; empty when an older
+    /// agent does not report it. Rounds of a patch policy in the endpoint's own time use it (<see cref="Domain.PatchRounds.ZoneOf"/>).
+    /// </summary>
+    public string TimeZone { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Where the distribution's own automatic updates stand (0.9.0), Linux only: a state of <see cref="Domain.PatchRounds"/>
+    /// (<c>turned_off</c>, <c>kept</c>, <c>none</c>, <c>untouched</c>), or empty.
+    /// </summary>
+    public string DistributionUpdates { get; set; } = string.Empty;
 }

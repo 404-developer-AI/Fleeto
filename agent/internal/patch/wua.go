@@ -39,8 +39,11 @@ const (
 	serverSelectionDefault = 0
 	serverSelectionOthers  = 3
 
-	// wuaCriteria finds the software updates that are missing and not hidden. Drivers are a later option of the patch policy.
+	// wuaCriteria finds the software updates that are missing and not hidden.
 	wuaCriteria = "IsInstalled=0 and IsHidden=0 and Type='Software'"
+	// wuaDriverCriteria finds the drivers that are missing and not hidden: a second search, only when the patch policy installs
+	// drivers (AgentConfig.patch_include_drivers) or an installation includes them.
+	wuaDriverCriteria = "IsInstalled=0 and IsHidden=0 and Type='Driver'"
 
 	// wuaMaxRead bounds the updates read from one search; Finalize keeps at most MaxUpdates of them, security updates first.
 	wuaMaxRead = 10000
@@ -77,6 +80,7 @@ const (
 	problemWUAInternal = "The Windows Update Agent search failed inside the agent; the agent log has the details."
 	problemWUAPartial  = "The Windows Update Agent search finished with errors, so the list may be incomplete. It is tried again " +
 		"at the next scan."
+	problemWUADrivers = "The search for drivers failed, so missing drivers are not listed: "
 )
 
 // classificationNames maps the ids of the update classifications, which are the same on every endpoint and WSUS, to their English
@@ -236,34 +240,53 @@ func chooseSource(reg registryReader, sess wuaSession) (wuaSource, error) {
 	return wuaSource{Source: SourceWindowsUpdate, ServerSelection: serverSelectionDefault}, nil
 }
 
-// scanWUA runs one Windows scan against a session.
-func scanWUA(sess wuaSession, reg registryReader) *agentv1.PatchScanReport {
-	report, _ := scanWUAChecked(sess, reg)
+// scanWUA runs one Windows scan against a session. With drivers it also searches the missing drivers.
+func scanWUA(sess wuaSession, reg registryReader, drivers bool) *agentv1.PatchScanReport {
+	report, _ := scanWUAChecked(sess, reg, drivers)
 	return report
 }
 
 // scanWUAChecked is scanWUA that also says whether the search failed, so an installation never takes an empty list for "nothing
-// missing".
-func scanWUAChecked(sess wuaSession, reg registryReader) (*agentv1.PatchScanReport, bool) {
+// missing". Only the search of software counts: a failed search of drivers is a problem of the report, and the software found is
+// still used.
+func scanWUAChecked(sess wuaSession, reg registryReader, drivers bool) (*agentv1.PatchScanReport, bool) {
 	report := &agentv1.PatchScanReport{Engine: EngineWindowsUpdate}
 	var probs problems
 	// A failure to read the list of services is not a problem of the scan: it searches the default service then.
 	src, _ := chooseSource(reg, sess)
 	report.Source, report.SourceServer = src.Source, src.Server
 
-	result, searchErr := sess.Search(wuaCriteria, src.ServerSelection, src.ServiceID)
-	if searchErr != nil {
-		probs.add(wuaProblem(errorCode(searchErr), src.Source))
-	} else {
+	seen := map[string]bool{}
+	add := func(result wuaSearchResult, driver bool) {
 		if result.ResultCode != wuaResultSucceeded && result.ResultCode != 0 {
 			probs.add(problemWUAPartial)
 		}
 		for i, u := range result.Updates {
-			if i >= wuaMaxRead {
+			if i >= wuaMaxRead || len(seen) >= wuaMaxRead {
 				break
 			}
-			if p := mapUpdate(u); p != nil {
-				report.Updates = append(report.Updates, p)
+			p := mapUpdate(u)
+			if p == nil || seen[p.GetId()] {
+				continue
+			}
+			seen[p.GetId()] = true
+			if driver {
+				p.IsDriver = true
+			}
+			report.Updates = append(report.Updates, p)
+		}
+	}
+
+	result, searchErr := sess.Search(wuaCriteria, src.ServerSelection, src.ServiceID)
+	if searchErr != nil {
+		probs.add(wuaProblem(errorCode(searchErr), src.Source))
+	} else {
+		add(result, false)
+		if drivers {
+			if driverResult, err := sess.Search(wuaDriverCriteria, src.ServerSelection, src.ServiceID); err != nil {
+				probs.add(problemWUADrivers + wuaProblem(errorCode(err), src.Source))
+			} else {
+				add(driverResult, true)
 			}
 		}
 	}

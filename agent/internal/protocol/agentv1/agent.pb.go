@@ -2817,9 +2817,14 @@ type Inventory struct {
 	// The time zone of the endpoint (0.9.0), for patch rounds in the endpoint's own time: the IANA name on Linux (/etc/timezone,
 	// else the target of /etc/localtime, e.g. "Europe/Brussels"), the Windows name on Windows (e.g. "Romance Standard Time"). Empty
 	// when it cannot be read and from older agents; the server then uses UTC.
-	TimeZone      string `protobuf:"bytes,21,opt,name=time_zone,json=timeZone,proto3" json:"time_zone,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	TimeZone string `protobuf:"bytes,21,opt,name=time_zone,json=timeZone,proto3" json:"time_zone,omitempty"`
+	// Where the distribution's own automatic updates stand (0.9.0), Linux only: "turned_off" (the agent turned unattended-upgrades or
+	// dnf-automatic off), "kept" (the configuration asks for it, but somebody else configured them, so the agent left them), "none"
+	// (neither is installed or enabled) or "untouched" (the configuration does not ask for it; the agent undid its own change). Empty
+	// on other platforms and from older agents.
+	DistributionUpdates string `protobuf:"bytes,22,opt,name=distribution_updates,json=distributionUpdates,proto3" json:"distribution_updates,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *Inventory) Reset() {
@@ -2995,6 +3000,13 @@ func (x *Inventory) GetPackages() *PackageInfo {
 func (x *Inventory) GetTimeZone() string {
 	if x != nil {
 		return x.TimeZone
+	}
+	return ""
+}
+
+func (x *Inventory) GetDistributionUpdates() string {
+	if x != nil {
+		return x.DistributionUpdates
 	}
 	return ""
 }
@@ -4770,14 +4782,26 @@ type AgentConfig struct {
 	// asks for it and that Action1 reports. The agent sets NoAutoUpdate = 1 under
 	// HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU only when the value is missing and the Action1 agent is installed,
 	// remembers that it did, and removes it again when this is false; a value somebody else set (a group policy) wins and is never
-	// changed. Never true on TIER_AGENT_ONLY; the agent ignores it there. Older agents ignore the field.
+	// changed. Never true on TIER_AGENT_ONLY; the agent ignores it there. Older agents ignore the field. From 0.9.0 also set for an
+	// endpoint Fleeto patches itself (the configuration then carries patch_scan_interval_hours), where the agent needs no Action1 agent.
 	TurnOffWindowsUpdate bool `protobuf:"varint,10,opt,name=turn_off_windows_update,json=turnOffWindowsUpdate,proto3" json:"turn_off_windows_update,omitempty"`
 	// Hours between two scheduled patch scans (0.9.0); 0 for none. Set by the server only for a managed endpoint whose patch engine is
 	// Fleeto (PatchEngineRules); never on TIER_AGENT_ONLY, where the agent ignores it and also ignores a PatchScanRequest. Older agents
 	// ignore the field.
 	PatchScanIntervalHours uint32 `protobuf:"varint,11,opt,name=patch_scan_interval_hours,json=patchScanIntervalHours,proto3" json:"patch_scan_interval_hours,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// Windows (0.9.0): register the Microsoft Update service (Office, SQL Server, .NET) while a patch policy of engine Fleeto asks for
+	// it, never when a WSUS is configured. The agent records that it registered it and removes only its own registration when this is
+	// false. A scan never registers anything. Only with patch_scan_interval_hours.
+	MicrosoftUpdate bool `protobuf:"varint,12,opt,name=microsoft_update,json=microsoftUpdate,proto3" json:"microsoft_update,omitempty"`
+	// Linux (0.9.0): turn unattended-upgrades (dpkg) or dnf-automatic (rpm) off while a patch policy of engine Fleeto asks for it, so
+	// only its rounds install updates. The agent changes only what it can undo (a marker records it) and never a file or timer
+	// somebody else wrote; Inventory.distribution_updates reports the state. Only with patch_scan_interval_hours.
+	TurnOffDistributionUpdates bool `protobuf:"varint,13,opt,name=turn_off_distribution_updates,json=turnOffDistributionUpdates,proto3" json:"turn_off_distribution_updates,omitempty"`
+	// Windows (0.9.0): the scans also search drivers, because the patch policy of engine Fleeto installs them. Only with
+	// patch_scan_interval_hours.
+	PatchIncludeDrivers bool `protobuf:"varint,14,opt,name=patch_include_drivers,json=patchIncludeDrivers,proto3" json:"patch_include_drivers,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *AgentConfig) Reset() {
@@ -4885,6 +4909,27 @@ func (x *AgentConfig) GetPatchScanIntervalHours() uint32 {
 		return x.PatchScanIntervalHours
 	}
 	return 0
+}
+
+func (x *AgentConfig) GetMicrosoftUpdate() bool {
+	if x != nil {
+		return x.MicrosoftUpdate
+	}
+	return false
+}
+
+func (x *AgentConfig) GetTurnOffDistributionUpdates() bool {
+	if x != nil {
+		return x.TurnOffDistributionUpdates
+	}
+	return false
+}
+
+func (x *AgentConfig) GetPatchIncludeDrivers() bool {
+	if x != nil {
+		return x.PatchIncludeDrivers
+	}
+	return false
 }
 
 type CheckSpec struct {
@@ -5473,8 +5518,13 @@ type PatchInstallFilter struct {
 	ReleasedBefore *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=released_before,json=releasedBefore,proto3" json:"released_before,omitempty"`
 	// Windows: also drivers.
 	IncludeDrivers bool `protobuf:"varint,6,opt,name=include_drivers,json=includeDrivers,proto3" json:"include_drivers,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// With restrict_to_ids (0.9.0): only updates with these PatchUpdate.id values, at most 2000. fleeto-signer lists the missing updates
+	// whose deferral of the patch policy has passed and, on Linux, that match its severities, which only the server knows. An update the
+	// scan before the installation finds that is not listed is left out (status excluded), so a deferral is never skipped.
+	AllowedIds    []string `protobuf:"bytes,7,rep,name=allowed_ids,json=allowedIds,proto3" json:"allowed_ids,omitempty"`
+	RestrictToIds bool     `protobuf:"varint,8,opt,name=restrict_to_ids,json=restrictToIds,proto3" json:"restrict_to_ids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PatchInstallFilter) Reset() {
@@ -5545,6 +5595,20 @@ func (x *PatchInstallFilter) GetReleasedBefore() *timestamppb.Timestamp {
 func (x *PatchInstallFilter) GetIncludeDrivers() bool {
 	if x != nil {
 		return x.IncludeDrivers
+	}
+	return false
+}
+
+func (x *PatchInstallFilter) GetAllowedIds() []string {
+	if x != nil {
+		return x.AllowedIds
+	}
+	return nil
+}
+
+func (x *PatchInstallFilter) GetRestrictToIds() bool {
+	if x != nil {
+		return x.RestrictToIds
 	}
 	return false
 }
@@ -7189,7 +7253,7 @@ const file_agent_proto_rawDesc = "" +
 	"request_id\x18\x02 \x01(\tR\trequestId\"_\n" +
 	"\x0fInventoryReport\x12\x12\n" +
 	"\x04hash\x18\x01 \x01(\tR\x04hash\x128\n" +
-	"\tinventory\x18\x02 \x01(\v2\x1a.fleeto.agent.v1.InventoryR\tinventory\"\xfa\x06\n" +
+	"\tinventory\x18\x02 \x01(\v2\x1a.fleeto.agent.v1.InventoryR\tinventory\"\xad\a\n" +
 	"\tInventory\x12\x1a\n" +
 	"\bhostname\x18\x01 \x01(\tR\bhostname\x12'\n" +
 	"\x02os\x18\x02 \x01(\v2\x17.fleeto.agent.v1.OsInfoR\x02os\x12\"\n" +
@@ -7212,7 +7276,8 @@ const file_agent_proto_rawDesc = "" +
 	"\adesktop\x18\x12 \x01(\tR\adesktop\x12%\n" +
 	"\x0ewindows_update\x18\x13 \x01(\tR\rwindowsUpdate\x128\n" +
 	"\bpackages\x18\x14 \x01(\v2\x1c.fleeto.agent.v1.PackageInfoR\bpackages\x12\x1b\n" +
-	"\ttime_zone\x18\x15 \x01(\tR\btimeZone\"\xd7\x04\n" +
+	"\ttime_zone\x18\x15 \x01(\tR\btimeZone\x121\n" +
+	"\x14distribution_updates\x18\x16 \x01(\tR\x13distributionUpdates\"\xd7\x04\n" +
 	"\vPackageInfo\x12'\n" +
 	"\x0fdistribution_id\x18\x01 \x01(\tR\x0edistributionId\x121\n" +
 	"\x14distribution_version\x18\x02 \x01(\tR\x13distributionVersion\x121\n" +
@@ -7379,7 +7444,7 @@ const file_agent_proto_rawDesc = "" +
 	"\fSignedConfig\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\fR\tsignature\x12\x15\n" +
-	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\xae\x04\n" +
+	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\xd0\x05\n" +
 	"\vAgentConfig\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x12\x1f\n" +
@@ -7394,7 +7459,10 @@ const file_agent_proto_rawDesc = "" +
 	"\x1bstorage_scan_interval_hours\x18\t \x01(\rR\x18storageScanIntervalHours\x125\n" +
 	"\x17turn_off_windows_update\x18\n" +
 	" \x01(\bR\x14turnOffWindowsUpdate\x129\n" +
-	"\x19patch_scan_interval_hours\x18\v \x01(\rR\x16patchScanIntervalHours\"\xb5\x02\n" +
+	"\x19patch_scan_interval_hours\x18\v \x01(\rR\x16patchScanIntervalHours\x12)\n" +
+	"\x10microsoft_update\x18\f \x01(\bR\x0fmicrosoftUpdate\x12A\n" +
+	"\x1dturn_off_distribution_updates\x18\r \x01(\bR\x1aturnOffDistributionUpdates\x122\n" +
+	"\x15patch_include_drivers\x18\x0e \x01(\bR\x13patchIncludeDrivers\"\xb5\x02\n" +
 	"\tCheckSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12.\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x1a.fleeto.agent.v1.CheckTypeR\x04type\x12)\n" +
@@ -7444,7 +7512,7 @@ const file_agent_proto_rawDesc = "" +
 	"\x12PatchInstallUpdate\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +
-	"\aversion\x18\x03 \x01(\tR\aversion\"\x98\x02\n" +
+	"\aversion\x18\x03 \x01(\tR\aversion\"\xe1\x02\n" +
 	"\x12PatchInstallFilter\x12#\n" +
 	"\rsecurity_only\x18\x01 \x01(\bR\fsecurityOnly\x12(\n" +
 	"\x0fclassifications\x18\x02 \x03(\tR\x0fclassifications\x12\x1e\n" +
@@ -7453,7 +7521,10 @@ const file_agent_proto_rawDesc = "" +
 	"severities\x12%\n" +
 	"\x0eexcluded_names\x18\x04 \x03(\tR\rexcludedNames\x12C\n" +
 	"\x0freleased_before\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x0ereleasedBefore\x12'\n" +
-	"\x0finclude_drivers\x18\x06 \x01(\bR\x0eincludeDrivers\"\xa2\x01\n" +
+	"\x0finclude_drivers\x18\x06 \x01(\bR\x0eincludeDrivers\x12\x1f\n" +
+	"\vallowed_ids\x18\a \x03(\tR\n" +
+	"allowedIds\x12&\n" +
+	"\x0frestrict_to_ids\x18\b \x01(\bR\rrestrictToIds\"\xa2\x01\n" +
 	"\tScriptJob\x12;\n" +
 	"\blanguage\x18\x01 \x01(\x0e2\x1f.fleeto.agent.v1.ScriptLanguageR\blanguage\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +

@@ -50,7 +50,7 @@ public static class EndpointColumns
         new(PublicIpAddress, "Public IP address", "The address the agent connected to the instance from last time."),
         new(AgentVersion, "Agent version", "The version of the Fleeto agent."),
         new(OpenAlerts, "Open alerts", "Unresolved alerts, not counting alerts on hold.", Permissions.AlertsView),
-        new(Patches, "Patches", "Missing updates as Action1 reports them, or that the endpoint has no patch state.", Permissions.PatchesView),
+        new(Patches, "Patches", "Missing updates as Action1 or a scan of the Fleeto agent reports them, or that the endpoint has no patch state.", Permissions.PatchesView),
         new(Cpu, "CPU", "The processor and its number of cores."),
         new(Memory, "Memory", "The installed memory."),
         new(DiskFree, "Disk free", "The free space of the fullest drive, as a percentage."),

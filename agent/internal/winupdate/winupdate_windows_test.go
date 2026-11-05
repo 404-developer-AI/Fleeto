@@ -40,7 +40,7 @@ func policyValue(t *testing.T, k keys) (uint64, bool) {
 func TestApplyTurnsOffAndBackOn(t *testing.T) {
 	k := testKeys(t)
 
-	state, changed, err := k.apply(true, true)
+	state, changed, err := k.apply(true, true, false)
 	if err != nil || state != StateTurnedOff || !changed {
 		t.Fatalf("apply(true, true) = (%q, %v, %v)", state, changed, err)
 	}
@@ -48,12 +48,12 @@ func TestApplyTurnsOffAndBackOn(t *testing.T) {
 		t.Fatalf("NoAutoUpdate = %d (set %v), want 1", value, set)
 	}
 
-	state, changed, err = k.apply(true, true)
+	state, changed, err = k.apply(true, true, false)
 	if err != nil || state != StateTurnedOff || changed {
 		t.Fatalf("second apply(true, true) = (%q, %v, %v), want no change", state, changed, err)
 	}
 
-	state, changed, err = k.apply(false, true)
+	state, changed, err = k.apply(false, true, false)
 	if err != nil || state != StateUntouched || !changed {
 		t.Fatalf("apply(false, true) = (%q, %v, %v)", state, changed, err)
 	}
@@ -77,11 +77,11 @@ func TestApplyLeavesAGroupPolicyValue(t *testing.T) {
 	}
 	key.Close()
 
-	state, changed, err := k.apply(true, true)
+	state, changed, err := k.apply(true, true, false)
 	if err != nil || state != StatePolicy || changed {
 		t.Fatalf("apply(true, true) = (%q, %v, %v), want the group policy to win", state, changed, err)
 	}
-	if _, _, err := k.apply(false, true); err != nil {
+	if _, _, err := k.apply(false, true, false); err != nil {
 		t.Fatal(err)
 	}
 	if value, set := policyValue(t, k); !set || value != 0 {
@@ -91,9 +91,9 @@ func TestApplyLeavesAGroupPolicyValue(t *testing.T) {
 
 func TestApplyNeverTurnsOffWithoutAction1(t *testing.T) {
 	k := testKeys(t)
-	state, changed, err := k.apply(true, false)
+	state, changed, err := k.apply(true, false, false)
 	if err != nil || state != StateNoAction1 || changed {
-		t.Fatalf("apply(true, false) = (%q, %v, %v)", state, changed, err)
+		t.Fatalf("apply(true, false, false) = (%q, %v, %v)", state, changed, err)
 	}
 	if _, set := policyValue(t, k); set {
 		t.Fatal("NoAutoUpdate was set without the Action1 agent")

@@ -32,12 +32,13 @@ const (
 	clientApplicationID = "Fleeto"
 )
 
-// Scan reads the missing updates with the Windows Update Agent. It only searches: nothing is downloaded, installed or registered.
+// Scan reads the missing updates with the Windows Update Agent, and with opts.Drivers also the missing drivers. It only searches:
+// nothing is downloaded, installed or registered.
 //
 // The search is synchronous and runs on its own goroutine, locked to a thread initialized for COM in the multithreaded apartment.
 // When ctx ends first, Scan returns a report without updates (the Manager adds the reason); the search finishes on its own and its
 // result is dropped.
-func Scan(ctx context.Context, requestID string, logger *slog.Logger) *agentv1.PatchScanReport {
+func Scan(ctx context.Context, requestID string, opts ScanOptions, logger *slog.Logger) *agentv1.PatchScanReport {
 	if !wuaBusy.CompareAndSwap(false, true) {
 		return &agentv1.PatchScanReport{Engine: EngineWindowsUpdate, Problem: problemWUABusy, RequestId: requestID}
 	}
@@ -60,7 +61,7 @@ func Scan(ctx context.Context, requestID string, logger *slog.Logger) *agentv1.P
 		defer ole.CoUninitialize()
 		sess := &comSession{logger: logger}
 		defer sess.close()
-		report = scanWUA(sess, windowsRegistry{})
+		report = scanWUA(sess, windowsRegistry{}, opts.Drivers)
 	}()
 	var report *agentv1.PatchScanReport
 	select {
@@ -95,25 +96,30 @@ func wrap(op string, err error) error {
 }
 
 // comSession is the Windows Update Agent through IDispatch. For a scan it only reads: it never calls Download, Install or
-// AddService2. An installation (install_windows.go) sets keep, so the updates of the last search stay available to install.
+// AddService2. An installation (install_windows.go) sets keep, so the updates of its searches (software, and drivers when they are
+// included) stay available to install.
 type comSession struct {
 	logger  *slog.Logger
 	session *ole.IDispatch
-	// keep holds on to the updates of the last search in last.
+	// keep holds on to the updates of every search in kept.
 	keep bool
-	last *ole.IDispatch
+	kept []*ole.IDispatch
 	// coll is the UpdateColl of an installation, installer its IUpdateInstaller.
 	coll      *ole.IDispatch
 	installer *ole.IDispatch
 }
 
 func (s *comSession) close() {
-	for _, obj := range []**ole.IDispatch{&s.installer, &s.coll, &s.last, &s.session} {
+	for _, obj := range []**ole.IDispatch{&s.installer, &s.coll, &s.session} {
 		if *obj != nil {
 			(*obj).Release()
 			*obj = nil
 		}
 	}
+	for _, updates := range s.kept {
+		updates.Release()
+	}
+	s.kept = nil
 }
 
 func createObject(progID string) (*ole.IDispatch, error) {
@@ -214,10 +220,7 @@ func (s *comSession) Search(criteria string, serverSelection int32, serviceID st
 		return result, err
 	}
 	if s.keep {
-		if s.last != nil {
-			s.last.Release()
-		}
-		s.last = updates
+		s.kept = append(s.kept, updates)
 	} else {
 		defer updates.Release()
 	}

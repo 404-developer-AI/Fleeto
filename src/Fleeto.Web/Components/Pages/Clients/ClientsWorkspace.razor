@@ -610,14 +610,18 @@
         ? extras.CpuCores > 0 ? $"{model} ({Ui.Count(extras.CpuCores, "core")})" : model
         : "-";
 
+    /// <summary>The patches column (0.8.0); from 0.9.0 its tooltip names who reported the state, Action1 or a scan of the Fleeto agent.</summary>
     private static RenderFragment PatchesCell(EndpointRow row) => row.Extras?.Patches switch
     {
-        null => @<span class="muted" title="Action1 reports no patch state for this endpoint.">-</span>,
-        { Coverage: PatchCoverage.Inactive } => @<StatusChip Text="Not patched" Kind="StatusKind.Warning" />,
-        { MissingCritical: 0, MissingOther: 0 } p => @<StatusChip Text="@(p.RebootRequired ? "Up to date, restart" : "Up to date")" Kind="StatusKind.Ok" />,
-        { } p => @<StatusChip Text="@($"{p.MissingCritical + p.MissingOther} missing" + (p.RebootRequired ? ", restart" : string.Empty))"
-                              Kind="@(p.MissingCritical > 0 ? StatusKind.Error : StatusKind.Warning)" />
+        null => @<span class="muted" title="Neither Action1 nor a scan of the Fleeto agent reports a patch state for this endpoint.">-</span>,
+        { Coverage: PatchCoverage.Inactive } p => @<span title="@PatchesBy(p)"><StatusChip Text="Not patched" Kind="StatusKind.Warning" /></span>,
+        { MissingCritical: 0, MissingOther: 0 } p => @<span title="@PatchesBy(p)"><StatusChip Text="@(p.RebootRequired ? "Up to date, restart" : "Up to date")" Kind="StatusKind.Ok" /></span>,
+        { } p => @<span title="@PatchesBy(p)"><StatusChip Text="@($"{p.MissingCritical + p.MissingOther} missing" + (p.RebootRequired ? ", restart" : string.Empty))"
+                                                         Kind="@(p.MissingCritical > 0 ? StatusKind.Error : StatusKind.Warning)" /></span>
     };
+
+    private static string PatchesBy(EndpointRowPatches patches) =>
+        patches.Engine == PatchEngine.Fleeto ? "Patched by Fleeto: as the last scan of the Fleeto agent found it." : "Patched by Action1: as Action1 reports it.";
 
     private static RenderFragment DiskFreeCell(EndpointRow row)
     {

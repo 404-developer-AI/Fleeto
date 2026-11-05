@@ -19,6 +19,15 @@ public static class PatchPolicyRules
     public const int MinRetryHours = 1;
     public const int MaxRetryHours = 7 * 24;
 
+    /// <summary>Engine Fleeto (0.9.0): the timeout of the installation job of a round.</summary>
+    public const int MinInstallTimeoutMinutes = 30;
+    public const int MaxInstallTimeoutMinutes = 24 * 60;
+    public const int DefaultInstallTimeoutMinutes = 240;
+
+    /// <summary>Engine Fleeto (0.9.0): the spread of the start of a round over its endpoints.</summary>
+    public const int MaxRandomDelayMinutes = 720;
+    public const int DefaultRandomDelayMinutes = 30;
+
     /// <summary>Name patterns and vendor patterns a policy may leave out, each.</summary>
     public const int MaxExclusions = 20;
 
@@ -126,6 +135,45 @@ public static class PatchPolicyRules
         if (policy.RetryHours is < MinRetryHours or > MaxRetryHours)
         {
             return $"Retrying missed endpoints must last between {MinRetryHours} hour and {MaxRetryHours / 24} days.";
+        }
+
+        return policy.Engine == PatchEngine.Fleeto ? ValidateFleeto(policy) : null;
+    }
+
+    /// <summary>
+    /// The options of engine Fleeto (0.9.0): what only Action1 has (update sources, vendors, approval in its console, its agent) is
+    /// refused, never silently ignored, and the timeout and random delay of a round are within their bounds.
+    /// </summary>
+    private static string? ValidateFleeto(PatchPolicy policy)
+    {
+        if (policy.UpdateSources.Count > 0 || policy.ExcludedVendors.Count > 0)
+        {
+            return "Update sources and vendors are filters of Action1. A patch policy for patching by Fleeto filters on update types, severities and names.";
+        }
+
+        if (policy.RequireApproval)
+        {
+            return "Approval in the Action1 console does not exist for patching by Fleeto. Use the wait after release instead.";
+        }
+
+        if (policy.AutoInstallAgent)
+        {
+            return "A patch policy for patching by Fleeto does not install the Action1 agent. Choose Action1 to install it automatically.";
+        }
+
+        if (policy.UpdateTypes.Contains("Feature Updates", StringComparer.Ordinal))
+        {
+            return "Fleeto does not install feature updates of Windows yet. Leave out the update type Feature Updates.";
+        }
+
+        if (policy.InstallTimeoutMinutes is < MinInstallTimeoutMinutes or > MaxInstallTimeoutMinutes)
+        {
+            return $"The time an installation may take must be between {MinInstallTimeoutMinutes} minutes and {MaxInstallTimeoutMinutes / 60} hours.";
+        }
+
+        if (policy.RandomDelayMinutes is < 0 or > MaxRandomDelayMinutes)
+        {
+            return $"The random delay must be between 0 and {MaxRandomDelayMinutes} minutes.";
         }
 
         return null;

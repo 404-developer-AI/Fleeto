@@ -44,6 +44,16 @@ func TestValidateAcceptsWellFormedJobs(t *testing.T) {
 	if err := ValidateInstallJob(win, EngineWindowsUpdate); err != nil {
 		t.Errorf("a named Windows update is valid: %v", err)
 	}
+	restricted := validWindowsJob()
+	restricted.Filter.RestrictToIds = true
+	restricted.Filter.AllowedIds = []string{"0b6a4e2c-1d3f-4a5b-8c7d-9e0f1a2b3c4d:201"}
+	if err := ValidateInstallJob(restricted, EngineWindowsUpdate); err != nil {
+		t.Errorf("a filter restricted to allowed ids is valid: %v", err)
+	}
+	restricted.Filter.AllowedIds = nil
+	if err := ValidateInstallJob(restricted, EngineWindowsUpdate); err != nil {
+		t.Errorf("a filter restricted to no ids is valid (it installs nothing): %v", err)
+	}
 }
 
 func TestValidateRefusesEveryBadBody(t *testing.T) {
@@ -99,6 +109,17 @@ func TestValidateRefusesEveryBadBody(t *testing.T) {
 		{"an excluded glob", EngineDnf, validLinuxJob, func(j *agentv1.PatchInstallJob) {
 			j.Updates[0].Id = "openssl:x86_64"
 			j.Filter = &agentv1.PatchInstallFilter{ExcludedNames: []string{"kernel*"}}
+		}},
+		{"too many allowed ids", EngineWindowsUpdate, validWindowsJob, func(j *agentv1.PatchInstallJob) {
+			j.Filter.RestrictToIds = true
+			j.Filter.AllowedIds = make([]string, MaxAllowedIDs+1)
+			for i := range j.Filter.AllowedIds {
+				j.Filter.AllowedIds[i] = fmt.Sprintf("0b6a4e2c-1d3f-4a5b-8c7d-9e0f1a2b3c4d:%d", i)
+			}
+		}},
+		{"an allowed id of another form", EngineWindowsUpdate, validWindowsJob, func(j *agentv1.PatchInstallJob) {
+			j.Filter.RestrictToIds = true
+			j.Filter.AllowedIds = []string{"libssl3:amd64"}
 		}},
 		{"an empty excluded title", EngineWindowsUpdate, validWindowsJob, func(j *agentv1.PatchInstallJob) { j.Filter.ExcludedNames = []string{" "} }},
 		{"no restart choice", EngineApt, validLinuxJob, func(j *agentv1.PatchInstallJob) { j.Restart = 0 }},

@@ -139,6 +139,27 @@ public class PatchPolicy
     /// </summary>
     public bool TurnOffWindowsUpdate { get; set; }
 
+    /// <summary>Engine Fleeto, Linux (0.9.0): only the updates the scan classifies as security.</summary>
+    public bool LinuxSecurityOnly { get; set; }
+
+    /// <summary>Engine Fleeto, Windows (0.9.0): also drivers; the scans then search them too.</summary>
+    public bool IncludeDrivers { get; set; }
+
+    /// <summary>
+    /// Engine Fleeto, Windows (0.9.0): the agent registers the Microsoft Update service (Office, SQL Server, .NET) through the signed
+    /// configuration, never on an endpoint a WSUS serves. A scan never registers it.
+    /// </summary>
+    public bool MicrosoftUpdate { get; set; } = true;
+
+    /// <summary>Engine Fleeto, Linux (0.9.0): the agent turns unattended-upgrades or dnf-automatic off, so only the rounds install updates.</summary>
+    public bool TurnOffDistributionUpdates { get; set; }
+
+    /// <summary>Engine Fleeto (0.9.0): minutes an installation of a round may take before its job times out; the package manager finishes.</summary>
+    public int InstallTimeoutMinutes { get; set; } = Domain.PatchPolicyRules.DefaultInstallTimeoutMinutes;
+
+    /// <summary>Engine Fleeto (0.9.0): every endpoint starts a round at its own share of this many minutes after the start time.</summary>
+    public int RandomDelayMinutes { get; set; } = Domain.PatchPolicyRules.DefaultRandomDelayMinutes;
+
     /// <summary>Patch policy this one was copied from; the copy is independent.</summary>
     public Guid? CopiedFromId { get; set; }
 

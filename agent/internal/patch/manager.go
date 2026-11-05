@@ -49,6 +49,12 @@ const (
 // ignored rather than used as a file name.
 var scanIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
+// ScanOptions is what the applied configuration says about a scan.
+type ScanOptions struct {
+	// Drivers: the Windows scan also searches the missing drivers (AgentConfig.patch_include_drivers). Ignored on Linux.
+	Drivers bool
+}
+
 // Options configures a Manager.
 type Options struct {
 	// Dir is the spool directory, inside the protected state directory.
@@ -64,6 +70,8 @@ type Options struct {
 	// LastStarted and SaveStarted keep the start of the last scan in the state file, so a restart does not scan again.
 	LastStarted func() time.Time
 	SaveStarted func(time.Time) error
+	// IncludeDrivers is patch_include_drivers of the applied configuration (Windows): the default Scan also searches drivers.
+	IncludeDrivers func() bool
 	// Scan reads the missing updates; default Scan. It returns nil on a platform without a supported package manager. It runs on
 	// a thread with the lowest priority, which the commands it starts inherit.
 	Scan func(ctx context.Context, requestID string) *agentv1.PatchScanReport
@@ -105,10 +113,13 @@ func NewManager(opts Options) (*Manager, error) {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
+	if opts.IncludeDrivers == nil {
+		opts.IncludeDrivers = func() bool { return false }
+	}
 	if opts.Scan == nil {
-		logger := opts.Logger
+		logger, drivers := opts.Logger, opts.IncludeDrivers
 		opts.Scan = func(ctx context.Context, requestID string) *agentv1.PatchScanReport {
-			return Scan(ctx, requestID, logger)
+			return Scan(ctx, requestID, ScanOptions{Drivers: drivers()}, logger)
 		}
 	}
 	if opts.MaxSpooled <= 0 {

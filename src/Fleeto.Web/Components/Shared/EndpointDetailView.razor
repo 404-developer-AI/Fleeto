@@ -1819,6 +1819,42 @@
             <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">@policyNote</MudAlert>
         }
 
+        @if (patches.Rounds is { } rounds)
+        {
+            <div class="fl-panel pa-3 mb-3">
+                <MudText Typo="Typo.body2">
+                    Patch policy <strong>@rounds.PolicyName</strong>: @rounds.Schedule@(rounds.Enabled ? "" : ", switched off")
+                </MudText>
+                @if (rounds.NextRound is { } next)
+                {
+                    <MudText Typo="Typo.body2" Class="muted">Next round: @PatchRounds.DescribeRound(next, rounds.Zone == "UTC" ? TimeZoneInfo.Utc : PatchRounds.FindEndpointZone(rounds.Zone) ?? TimeZoneInfo.Utc)</MudText>
+                }
+                @if (rounds.LastRoundAt is { } lastAt)
+                {
+                    <MudText Typo="Typo.body2" Class="muted">
+                        Last round: <TimeText Value="lastAt" />,
+                        @(rounds.LastState switch
+                        {
+                            PatchDeploymentTargetState.Succeeded => "succeeded",
+                            PatchDeploymentTargetState.Failed => "failed",
+                            PatchDeploymentTargetState.Pending => "waiting for its turn",
+                            PatchDeploymentTargetState.Running => "installing",
+                            _ => "did not run"
+                        })@(rounds.LastMessage is { } lastMessage ? $": {lastMessage}" : "")
+                    </MudText>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2" Class="muted">No round has run on this endpoint yet.</MudText>
+                }
+                @foreach (var line in new[] { rounds.ZoneNote, rounds.RestartNote, rounds.WindowsUpdateNote is { } wu ? $"Automatic Windows Update: {wu}" : null,
+                              rounds.DistributionNote is { } du ? $"unattended-upgrades and dnf-automatic: {du}" : null }.OfType<string>())
+                {
+                    <MudText Typo="Typo.caption" Class="muted d-block">@line</MudText>
+                }
+            </div>
+        }
+
         @PatchRequestNotice(patches)
         @AgentInstallNotice(patches)
         @if (Can(Permissions.Action1AgentInstall) && patches.CanInstallAgent)

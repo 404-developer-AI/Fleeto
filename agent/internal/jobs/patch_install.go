@@ -196,6 +196,7 @@ func (m *Manager) runPatchInstall(id string, payload *agentv1.JobPayload) {
 	logger.Info("patch installation started", "jobId", id, "scope", job.GetScope().String(), "updates", len(job.GetUpdates()),
 		"restart", job.GetRestart().String(), "timeout", timeout.String(), "initiatedBy", payload.GetInitiatedBy())
 
+	installOpts := patch.InstallOptions{JobID: id, Drivers: m.opts.PatchIncludeDrivers(), OutputDir: dir}
 	done := make(chan patch.InstallResult, 1)
 	// Not part of the manager's wait group: the installation may outlive the job and the agent's Close, and is never stopped.
 	go func() {
@@ -208,7 +209,7 @@ func (m *Manager) runPatchInstall(id string, payload *agentv1.JobPayload) {
 			done <- result
 		}()
 		defer safego.Recover(logger, "patch installation "+id)
-		result = patchInstall(m.ctx, job, out.tool(), out.lines(), logger)
+		result = patchInstall(m.ctx, job, installOpts, out.tool(), out.lines(), logger)
 	}()
 
 	flushDone := make(chan struct{})

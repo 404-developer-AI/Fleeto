@@ -67,7 +67,9 @@ public sealed record EndpointRow(Guid Id, string Hostname, Guid ClientId, string
 public sealed record EndpointRowExtras(IReadOnlyList<string> IpAddresses, string? CpuModel, int CpuCores, long MemoryTotalBytes, DiskInfo? FullestDrive,
     DateTime? BootTime, EndpointRowPatches? Patches);
 
-public sealed record EndpointRowPatches(PatchCoverage Coverage, int MissingCritical, int MissingOther, bool RebootRequired);
+/// <param name="Engine">Who reported the state (0.9.0): Action1, or a scan of the Fleeto agent.</param>
+public sealed record EndpointRowPatches(PatchCoverage Coverage, int MissingCritical, int MissingOther, bool RebootRequired,
+    PatchEngine Engine = PatchEngine.Action1);
 
 /// <summary>
 /// One page of the endpoint list. Counts cover the whole scope and filters; <see cref="Rows"/> holds at most
@@ -285,8 +287,8 @@ public sealed class EndpointService
             // A Fleeto patch state whose scans never read the updates (0.9.0) is not shown as up to date.
             ? await db.EndpointPatchStates.AsNoTracking()
                 .Where(p => ids.Contains(p.EndpointId) && (p.Engine == PatchEngine.Action1 || p.ProductLastSeenAt != null))
-                .Select(p => new { p.EndpointId, p.Coverage, p.MissingCritical, p.MissingOther, p.RebootRequired })
-                .ToDictionaryAsync(p => p.EndpointId, p => new EndpointRowPatches(p.Coverage, p.MissingCritical, p.MissingOther, p.RebootRequired),
+                .Select(p => new { p.EndpointId, p.Coverage, p.MissingCritical, p.MissingOther, p.RebootRequired, p.Engine })
+                .ToDictionaryAsync(p => p.EndpointId, p => new EndpointRowPatches(p.Coverage, p.MissingCritical, p.MissingOther, p.RebootRequired, p.Engine),
                     cancellationToken)
             : [];
         var result = new Dictionary<Guid, EndpointRowExtras>();

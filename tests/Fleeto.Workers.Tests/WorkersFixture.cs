@@ -90,7 +90,10 @@ public sealed class WorkersFixture : IAsyncLifetime
         new(Db.DbFactory, Db.Bus, Heartbeat(), Db.Time, NullLogger<StorageScanService>.Instance);
 
     public Integrations.FleetoDeploymentService FleetoDeployments() =>
-        new(Db.DbFactory, Db.Bus, Heartbeat(), Db.Time, NullLogger<Integrations.FleetoDeploymentService>.Instance);
+        new(Db.DbFactory, Db.Bus, new AlertNotificationService(Db.Time), Heartbeat(), Db.Time, NullLogger<Integrations.FleetoDeploymentService>.Instance);
+
+    public Integrations.PatchRoundService PatchRounds() =>
+        new(Db.DbFactory, Db.Bus, Db.Licenses, Heartbeat(), Db.Time, NullLogger<Integrations.PatchRoundService>.Instance);
 
     public Integrations.PatchScanWriter PatchScans() =>
         new(Db.DbFactory, Db.Bus, new AlertNotificationService(Db.Time), Db.Licenses, Heartbeat(), Db.Time,

@@ -59,24 +59,33 @@ public sealed class AgentConfigBuilder
                 ? (uint)policy.StorageScanIntervalHours
                 : StorageRules.DefaultScanIntervalHours;
 
-            // Automatic Windows Update off (0.7.0): only where Action1 really patches the endpoint, or it would get no updates at all.
-            var patchPolicy = await EffectivePolicies.LoadPatchPolicyAsync(db, endpoint.Id, cancellationToken);
-            Action1AgentStatus? action1 = patchPolicy is { Enabled: true, TurnOffWindowsUpdate: true }
-                ? await db.Action1AgentInstallStates.IgnoreQueryFilters().AsNoTracking()
-                    .Where(a => a.EndpointId == endpoint.Id)
-                    .Select(a => (Action1AgentStatus?)a.Status)
-                    .FirstOrDefaultAsync(cancellationToken)
-                : null;
-            config.TurnOffWindowsUpdate = WindowsUpdateRules.Applies(effectiveTier, endpoint.OsPlatform, patchPolicy, action1);
-
             // Patch scans by the Fleeto agent (0.9.0): only where its engine is Fleeto, so an endpoint Action1 patches is never scanned
             // twice. Older agents ignore the field.
             var inventory = await db.InventorySnapshots.IgnoreQueryFilters().AsNoTracking()
                 .SingleOrDefaultAsync(i => i.EndpointId == endpoint.Id, cancellationToken);
             var patchState = await db.EndpointPatchStates.IgnoreQueryFilters().AsNoTracking()
                 .SingleOrDefaultAsync(s => s.EndpointId == endpoint.Id, cancellationToken);
+            var engine = PatchEngineRules.EngineFor(endpoint, licenseStatus, inventory, patchState).Engine;
             config.PatchScanIntervalHours = PatchScanRules.IntervalHours(effectiveTier,
                 PatchEngineRules.EngineFor(endpoint, licenseStatus, inventory, patchState), endpoint.OsPlatform);
+
+            // Automatic Windows Update off (0.7.0): only where Action1 really patches the endpoint, or it would get no updates at all; for a
+            // policy of engine Fleeto (0.9.0) where Fleeto patches it.
+            var patchPolicy = await EffectivePolicies.LoadPatchPolicyAsync(db, endpoint.Id, cancellationToken);
+            Action1AgentStatus? action1 = patchPolicy is { Enabled: true, TurnOffWindowsUpdate: true, Engine: PatchEngine.Action1 }
+                ? await db.Action1AgentInstallStates.IgnoreQueryFilters().AsNoTracking()
+                    .Where(a => a.EndpointId == endpoint.Id)
+                    .Select(a => (Action1AgentStatus?)a.Status)
+                    .FirstOrDefaultAsync(cancellationToken)
+                : null;
+            config.TurnOffWindowsUpdate = WindowsUpdateRules.Applies(effectiveTier, endpoint.OsPlatform, patchPolicy, action1, engine);
+
+            // The switches of a patch policy of engine Fleeto (0.9.0 step 4), only where Fleeto patches the endpoint and the agent scans.
+            var fleetoPolicy = config.PatchScanIntervalHours > 0 && patchPolicy is { Enabled: true, Engine: PatchEngine.Fleeto } ? patchPolicy : null;
+            var windows = string.Equals(endpoint.OsPlatform, "windows", StringComparison.OrdinalIgnoreCase);
+            config.MicrosoftUpdate = windows && fleetoPolicy is { MicrosoftUpdate: true };
+            config.PatchIncludeDrivers = windows && fleetoPolicy is { IncludeDrivers: true };
+            config.TurnOffDistributionUpdates = !windows && fleetoPolicy is { TurnOffDistributionUpdates: true };
 
             var checks = await EffectiveCheckResolver.LoadAsync(db, endpoint, includeDisabledOnEndpoint: false, cancellationToken);
             var scriptBytes = 0L;

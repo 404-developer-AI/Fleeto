@@ -34,6 +34,7 @@ type fakePatch struct {
 	after    atomic.Int32
 	restarts []string
 	fail     error
+	opts     patch.InstallOptions
 }
 
 func useFakePatch(t *testing.T, engine string) *fakePatch {
@@ -41,9 +42,12 @@ func useFakePatch(t *testing.T, engine string) *fakePatch {
 	fake := &fakePatch{}
 	oldInstall, oldEngine, oldRestart, oldMin := patchInstall, patchEngine, requestRestartAfter, minTimeout
 	patchEngine = func() string { return engine }
-	patchInstall = func(_ context.Context, job *agentv1.PatchInstallJob, tool, lines io.Writer, _ *slog.Logger) patch.InstallResult {
+	patchInstall = func(_ context.Context, job *agentv1.PatchInstallJob, opts patch.InstallOptions, tool, lines io.Writer, _ *slog.Logger) patch.InstallResult {
 		fake.calls.Add(1)
 		defer fake.ended.Add(1)
+		fake.mu.Lock()
+		fake.opts = opts
+		fake.mu.Unlock()
 		_, _ = io.WriteString(tool, "Reading package lists...\nSetting up libssl3 (3.0.2-0ubuntu1.12) ...")
 		if fake.block != nil {
 			<-fake.block
@@ -68,11 +72,12 @@ func useFakePatch(t *testing.T, engine string) *fakePatch {
 	return fake
 }
 
-func (f *fixture) patchManager(dir string, fake *fakePatch, scanning bool) *Manager {
+func (f *fixture) patchManager(dir string, fake *fakePatch, scanning bool, drivers ...bool) *Manager {
 	m, err := NewManager(Options{
 		Dir: dir, Access: platform.AccessCurrentUser, Logger: logging.Discard(),
 		Trust: func() signedconfig.Trust { return f.trust }, Managed: func() bool { return true }, FlushInterval: 50 * time.Millisecond,
 		PatchScanning: func() bool { return scanning }, AfterPatchInstall: func() { fake.after.Add(1) },
+		PatchIncludeDrivers: func() bool { return len(drivers) > 0 && drivers[0] },
 	})
 	if err != nil {
 		f.t.Fatal(err)
@@ -431,4 +436,22 @@ func emptyStreamState(t *testing.T) streamState {
 		t.Fatal(err)
 	}
 	return s
+}
+
+func TestAPatchJobPassesItsIDDirectoryAndTheDriversOfTheConfiguration(t *testing.T) {
+	useFakeRestart(t, time.Now().Add(-time.Hour))
+	fake := useFakePatch(t, patch.EngineWindowsUpdate)
+	f := newFixture(t)
+	id := "45555555-5555-5555-5555-555555555555"
+	m := f.patchManager(t.TempDir(), fake, true, true)
+	payload := f.patchPayload(id, 3600, agentv1.PatchRestart_PATCH_RESTART_NEVER)
+	payload.PatchInstall.Scope = agentv1.PatchInstallScope_PATCH_INSTALL_SCOPE_ALL_MISSING
+	payload.PatchInstall.Updates = nil
+	m.Accept(f.sign(payload))
+	completionOf(t, m, id, 5*time.Second)
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.opts.JobID != id || !fake.opts.Drivers || fake.opts.OutputDir != m.dir(id) {
+		t.Fatalf("options %+v", fake.opts)
+	}
 }

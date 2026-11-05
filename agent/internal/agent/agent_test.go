@@ -279,7 +279,10 @@ func testOptions(store *state.Store) Options {
 		// The sessions of the machine running the tests are not the endpoint's.
 		SignedInUsers: func() ([]*agentv1.SignedInUser, error) { return nil, errors.New("no signed-in users in tests") },
 		// Nor are its Windows Update settings.
-		WindowsUpdate: func(bool, bool) (string, bool, error) { return winupdate.StateUntouched, false, nil },
+		WindowsUpdate: func(bool, bool, bool) (string, bool, error) { return winupdate.StateUntouched, false, nil },
+		// Nor its Microsoft Update registration or the automatic updates of its distribution (0.9.0).
+		MicrosoftUpdate:     func(bool) (string, bool, error) { return "", false, nil },
+		DistributionUpdates: func(bool) (string, bool, error) { return "", false, nil },
 		// Nor are its missing updates: a test never runs apt or dnf.
 		PatchScan: func(context.Context, string) *agentv1.PatchScanReport { return nil },
 	}
@@ -545,7 +548,7 @@ func TestTheConfigurationTurnsWindowsUpdateOff(t *testing.T) {
 		inv.Action1AgentId = "6f1c2a1e-0d9b-4c53-9a43-1d2f3e4a5b6c"
 		return inv
 	}
-	opts.WindowsUpdate = func(turnOff, action1 bool) (string, bool, error) {
+	opts.WindowsUpdate = func(turnOff, action1, _ bool) (string, bool, error) {
 		calls <- call{turnOff, action1}
 		if turnOff && action1 {
 			return winupdate.StateTurnedOff, true, nil

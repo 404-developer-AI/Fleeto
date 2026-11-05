@@ -22,6 +22,7 @@ import (
 	"github.com/404-developer-AI/Fleeto/agent/internal/checks"
 	"github.com/404-developer-AI/Fleeto/agent/internal/keystore"
 	"github.com/404-developer-AI/Fleeto/agent/internal/logging"
+	"github.com/404-developer-AI/Fleeto/agent/internal/patch"
 	"github.com/404-developer-AI/Fleeto/agent/internal/platform"
 	"github.com/404-developer-AI/Fleeto/agent/internal/safego"
 	"github.com/404-developer-AI/Fleeto/agent/internal/state"
@@ -352,6 +353,11 @@ func Uninstall(out io.Writer) error {
 		fmt.Fprintln(out, "The service is not installed")
 	}
 
+	// With the agent stopped nothing registers it again: the Microsoft Update registration the agent made is removed (0.9.0). Before
+	// winupdate.Restore, which deletes the registry key that holds its marker.
+	if err := patch.RestoreMicrosoftUpdate(nil); err != nil {
+		errs = append(errs, err)
+	}
 	// With the agent stopped nothing turns it off again: automatic Windows Update goes back to how it was before Fleeto (0.7.0).
 	if err := winupdate.Restore(); err != nil {
 		errs = append(errs, err)

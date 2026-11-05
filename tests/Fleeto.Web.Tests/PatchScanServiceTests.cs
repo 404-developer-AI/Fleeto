@@ -217,4 +217,49 @@ public sealed class PatchScanServiceTests
         Assert.False(started.Success);
         Assert.Contains("Nothing was deployed", started.Problem);
     }
+
+    [Fact]
+    public async Task A_patch_policy_of_engine_Fleeto_is_saved_with_its_options_and_the_tab_shows_its_next_round()
+    {
+        var (client, endpoint) = await LinuxAsync();
+        var policies = _fixture.Services.GetRequiredService<PatchPolicyService>();
+        var input = new PatchPolicyInput("Fleeto " + client.Code, null, true, PatchScheduleKind.Weekly, WeekDays.All, 1, 2, DayOfWeek.Tuesday, 20 * 60,
+            false, PatchUpdateScope.All, [], [], [], [], [], false, 3, true, true, null, 30, 12, Engine: PatchEngine.Fleeto, LinuxSecurityOnly: true,
+            TurnOffDistributionUpdates: true, RandomDelayMinutes: 0);
+
+        // What only Action1 has is refused for Fleeto.
+        var refused = await policies.CreateAsync(WebFixture.Admin(), client.Id, input with { RequireApproval = true });
+        Assert.False(refused.Success);
+
+        var created = await policies.CreateAsync(WebFixture.Admin(), client.Id, input);
+        Assert.True(created.Success, created.Problem);
+        var saved = await policies.GetAsync(WebFixture.Admin(), created.Value);
+        Assert.Equal((PatchEngine.Fleeto, true, true, 0), (saved!.Engine, saved.LinuxSecurityOnly, saved.TurnOffDistributionUpdates, saved.RandomDelayMinutes));
+
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            db.ClientPatchPolicies.Add(new ClientPatchPolicy { ClientId = client.Id, PatchPolicyId = created.Value });
+            await db.SaveChangesAsync();
+        }
+
+        var view = await Patches.GetAsync(WebFixture.Technician(), endpoint.Id);
+        var rounds = view!.Rounds;
+        Assert.NotNull(rounds);
+        Assert.Equal(("UTC", true), (rounds!.Zone, rounds.Enabled));
+        Assert.NotNull(rounds.NextRound);
+        Assert.Null(rounds.LastRoundAt);
+
+        // A change of a switch that reaches the agent signs the configurations again.
+        var configsBefore = await CountConfigChangesAsync();
+        Assert.True((await policies.UpdateAsync(WebFixture.Admin(), created.Value, input with { TurnOffDistributionUpdates = false })).Success);
+        Assert.True(await CountConfigChangesAsync() > configsBefore);
+        var list = await policies.ListAsync(WebFixture.Admin());
+        Assert.Equal(PatchEngine.Fleeto, list.Single(p => p.Id == created.Value).Engine);
+    }
+
+    private async Task<int> CountConfigChangesAsync()
+    {
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        return await db.ConfigChangeEvents.CountAsync();
+    }
 }
