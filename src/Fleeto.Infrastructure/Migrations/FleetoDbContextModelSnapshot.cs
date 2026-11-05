@@ -994,6 +994,69 @@ namespace Fleeto.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.AutomationTaskStepRetry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AutomationTaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("HandledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("JobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime>("RequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RequestedByName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("RequestedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TaskStepId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobId");
+
+                    b.HasIndex("RequestedAt")
+                        .HasDatabaseName("IX_AutomationTaskStepRetries_Waiting")
+                        .HasFilter("\"HandledAt\" IS NULL");
+
+                    b.HasIndex("EndpointId", "ClientId");
+
+                    b.HasIndex("RunId", "EndpointId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_AutomationTaskStepRetries_Open")
+                        .HasFilter("\"FinishedAt\" IS NULL");
+
+                    b.ToTable("AutomationTaskStepRetries");
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.BackupRun", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4043,6 +4106,9 @@ namespace Fleeto.Infrastructure.Migrations
                     b.Property<Guid?>("TaskId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("TaskRetryId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("TaskRunId")
                         .HasColumnType("uuid");
 
@@ -4075,6 +4141,10 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.HasIndex("ScriptVersionId");
 
+                    b.HasIndex("TaskRetryId")
+                        .IsUnique()
+                        .HasFilter("\"TaskRetryId\" IS NOT NULL");
+
                     b.HasIndex("TaskRunId")
                         .HasFilter("\"TaskRunId\" IS NOT NULL");
 
@@ -4095,7 +4165,7 @@ namespace Fleeto.Infrastructure.Migrations
                     b.HasIndex("TaskRunId", "EndpointId", "TaskStepId")
                         .IsUnique()
                         .HasDatabaseName("IX_Jobs_TaskStep")
-                        .HasFilter("\"TaskStepId\" IS NOT NULL");
+                        .HasFilter("\"TaskStepId\" IS NOT NULL AND \"TaskRetryId\" IS NULL");
 
                     b.ToTable("Jobs", t =>
                         {
@@ -7896,6 +7966,27 @@ namespace Fleeto.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.NoAction);
                 });
 
+            modelBuilder.Entity("Fleeto.Core.Entities.AutomationTaskStepRetry", b =>
+                {
+                    b.HasOne("Fleeto.Core.Entities.Job", null)
+                        .WithMany()
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Fleeto.Core.Entities.Endpoint", null)
+                        .WithMany()
+                        .HasForeignKey("EndpointId", "ClientId")
+                        .HasPrincipalKey("Id", "ClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Fleeto.Core.Entities.AutomationTaskRunTarget", null)
+                        .WithMany()
+                        .HasForeignKey("RunId", "EndpointId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Fleeto.Core.Entities.CheckDefinition", b =>
                 {
                     b.HasOne("Fleeto.Core.Entities.MonitoringTemplate", "MonitoringTemplate")
@@ -8535,6 +8626,11 @@ namespace Fleeto.Infrastructure.Migrations
                     b.HasOne("Fleeto.Core.Entities.AutomationTask", null)
                         .WithMany()
                         .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Fleeto.Core.Entities.AutomationTaskStepRetry", null)
+                        .WithMany()
+                        .HasForeignKey("TaskRetryId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("Fleeto.Core.Entities.AutomationTaskRun", null)

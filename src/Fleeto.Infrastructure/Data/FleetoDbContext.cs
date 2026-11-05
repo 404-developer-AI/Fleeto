@@ -76,6 +76,7 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
     public DbSet<AutomationTaskState> AutomationTaskStates => Set<AutomationTaskState>();
     public DbSet<AutomationTaskRun> AutomationTaskRuns => Set<AutomationTaskRun>();
     public DbSet<AutomationTaskRunTarget> AutomationTaskRunTargets => Set<AutomationTaskRunTarget>();
+    public DbSet<AutomationTaskStepRetry> AutomationTaskStepRetries => Set<AutomationTaskStepRetry>();
     public DbSet<RemoteSession> RemoteSessions => Set<RemoteSession>();
     public DbSet<RemoteSessionParticipant> RemoteSessionParticipants => Set<RemoteSessionParticipant>();
     public DbSet<RemoteSessionAction> RemoteSessionActions => Set<RemoteSessionAction>();
@@ -975,9 +976,12 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             entity.HasOne<AutomationTask>().WithMany().HasForeignKey(j => j.TaskId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne<AutomationTaskRun>().WithMany().HasForeignKey(j => j.TaskRunId).OnDelete(DeleteBehavior.SetNull);
             entity.HasIndex(j => j.TaskRunId).HasFilter("\"TaskRunId\" IS NOT NULL");
-            // A step of a task runs at most once per run and endpoint (0.6.0, steps), whatever the workers retry.
+            // A step of a task runs at most once per run and endpoint (0.6.0, steps), whatever the workers retry; a user can ask for it
+            // again (0.9.0), one job per retry.
             entity.HasIndex(j => new { j.TaskRunId, j.EndpointId, j.TaskStepId }).IsUnique()
-                .HasFilter("\"TaskStepId\" IS NOT NULL").HasDatabaseName("IX_Jobs_TaskStep");
+                .HasFilter("\"TaskStepId\" IS NOT NULL AND \"TaskRetryId\" IS NULL").HasDatabaseName("IX_Jobs_TaskStep");
+            entity.HasOne<AutomationTaskStepRetry>().WithMany().HasForeignKey(j => j.TaskRetryId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasIndex(j => j.TaskRetryId).IsUnique().HasFilter("\"TaskRetryId\" IS NOT NULL");
             entity.HasIndex(j => new { j.TaskId, j.EndpointId, j.CreatedAt }).HasFilter("\"TaskId\" IS NOT NULL");
             // Public API: the job list across endpoints, newest first, with keyset pagination (0.2.1).
             entity.HasIndex(j => new { j.CreatedAt, j.Id }).IsDescending(true, true);
@@ -1132,6 +1136,22 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             // The runs still busy on an endpoint, for the overlap of a task with steps (0.6.0).
             entity.HasIndex(t => new { t.EndpointId, t.AutomationTaskId, t.State }).HasFilter("\"State\" = 'Started' AND \"FinishedAt\" IS NULL")
                 .HasDatabaseName("IX_AutomationTaskRunTargets_Busy");
+            EndpointOwned(entity);
+        });
+
+        builder.Entity<AutomationTaskStepRetry>(entity =>
+        {
+            entity.Property(r => r.RequestedByName).HasMaxLength(200);
+            entity.Property(r => r.Reason).HasMaxLength(500);
+            entity.HasOne<AutomationTaskRunTarget>().WithMany()
+                .HasForeignKey(r => new { r.RunId, r.EndpointId })
+                .OnDelete(DeleteBehavior.Cascade);
+            EndpointChild(entity, r => new { r.EndpointId, r.ClientId });
+            entity.HasOne<Job>().WithMany().HasForeignKey(r => r.JobId).OnDelete(DeleteBehavior.SetNull);
+            // One retry at a time per endpoint of a run; the workers pick up the ones not handled yet.
+            entity.HasIndex(r => new { r.RunId, r.EndpointId }).IsUnique().HasFilter("\"FinishedAt\" IS NULL")
+                .HasDatabaseName("IX_AutomationTaskStepRetries_Open");
+            entity.HasIndex(r => r.RequestedAt).HasFilter("\"HandledAt\" IS NULL").HasDatabaseName("IX_AutomationTaskStepRetries_Waiting");
             EndpointOwned(entity);
         });
 

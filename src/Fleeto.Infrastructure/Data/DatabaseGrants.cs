@@ -136,6 +136,8 @@ public static class DatabaseGrants
             ["PatchRoundStates"] = Grants(web: Read, workers: ReadWrite),
             ["AutomationTaskRuns"] = Grants(web: "SELECT, INSERT", signer: Read, workers: ReadWrite),
             ["AutomationTaskRunTargets"] = Grants(web: "SELECT, INSERT", signer: Read, workers: ReadWrite),
+            // A step run again by a user (0.9.0): web asks, the workers write the job and close it, the signer checks the user.
+            ["AutomationTaskStepRetries"] = Grants(web: "SELECT, INSERT", signer: Read, workers: "SELECT, UPDATE"),
 
             // Remote sessions (0.3.0): web opens them, the signer signs each participant's token, the gateway pairs browser and endpoint
             // and records who joined and left, the workers end stale rows and apply retention. Actions are reported by the endpoint.

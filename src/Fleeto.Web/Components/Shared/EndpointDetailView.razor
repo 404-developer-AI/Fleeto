@@ -878,9 +878,9 @@
                     <MudTh>Next run</MudTh>
                     <MudTh>Last run</MudTh>
                     <MudTh>Last result</MudTh>
-                    @if (Can(Permissions.TasksEdit))
+                    @if (HasTaskActions)
                     {
-                        <MudTh Style="width:52px"></MudTh>
+                        <MudTh Style="width:120px"></MudTh>
                     }
                 </HeaderContent>
                 <RowTemplate>
@@ -936,18 +936,48 @@
                                  title="@(CanOpenOutput(lastRun) ? "Show the output of the script" : null)" @onclick="@(() => ShowTaskOutputAsync(lastRun))">
                                 @TaskResult(lastRun)
                             </div>
+                            @if (lastRun.Target.StepCount > 1 && (lastRun.Target.Steps.Count > 0 || lastRun.Target.NotRun.Count > 0))
+                            {
+                                <div class="mt-1">
+                                    <TaskRunSteps Steps="lastRun.Target.Steps" NotRun="lastRun.Target.NotRun"
+                                                  OnOutput="@(Can(Permissions.JobsView) ? ShowStepOutputAsync : default(EventCallback<Guid>))"
+                                                  OnRetry="@(Can(Permissions.TasksRun) ? RetryStepCallback(context, lastRun) : default(EventCallback<Guid>))"
+                                                  MayRetry="MayRetryStep" RetryBlocked="@RetryBlocked(context, lastRun)" />
+                                </div>
+                            }
+                        }
+                        @if (_tasks.Alerts.GetValueOrDefault(context.Id) is { } taskAlert)
+                        {
+                            <div class="mt-1">
+                                <StatusChip Text="@TaskAlertText(taskAlert)" Kind="@(taskAlert.IsHeld(Clock.GetUtcNow().UtcDateTime) ? StatusKind.Neutral : Ui.AlertStateKind(taskAlert.State))" />
+                            </div>
                         }
                     </MudTd>
-                    @if (Can(Permissions.TasksEdit))
+                    @if (HasTaskActions)
                     {
                         <MudTd>
-                            @if (context.LinkedToEndpoint)
-                            {
-                                <MudTooltip Text="Unlink from this endpoint">
-                                    <MudIconButton Icon="@Icons.Material.Outlined.LinkOff" Size="Size.Small" aria-label="Unlink from this endpoint"
-                                                   OnClick="@(() => UnlinkTaskAsync(context))" />
-                                </MudTooltip>
-                            }
+                            <div class="d-flex align-center justify-end">
+                                @if (CanRunTaskHere(context))
+                                {
+                                    <MudTooltip Text="Run now on this endpoint">
+                                        <MudIconButton Icon="@Icons.Material.Outlined.PlayArrow" Size="Size.Small" aria-label="Run now on this endpoint"
+                                                       OnClick="@(() => RunTaskHereAsync(context, e))" />
+                                    </MudTooltip>
+                                }
+                                @if (_tasks.Alerts.GetValueOrDefault(context.Id) is { } alert && AlertActions.AnyAction(Caller))
+                                {
+                                    <MudTooltip Text="Act on the alert of this task">
+                                        <AlertActions Alert="alert" OnChanged="AfterActionAsync" />
+                                    </MudTooltip>
+                                }
+                                @if (Can(Permissions.TasksEdit) && context.LinkedToEndpoint)
+                                {
+                                    <MudTooltip Text="Unlink from this endpoint">
+                                        <MudIconButton Icon="@Icons.Material.Outlined.LinkOff" Size="Size.Small" aria-label="Unlink from this endpoint"
+                                                       OnClick="@(() => UnlinkTaskAsync(context))" />
+                                    </MudTooltip>
+                                }
+                            </div>
                         </MudTd>
                     }
                 </RowTemplate>
@@ -1090,6 +1120,69 @@
         var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
         if (!(await dialog.Result)!.Canceled &&
             await RunAsync(caller => TaskSvc.UnlinkAsync(caller, task.Id, LinkLevel.Endpoint, EndpointId), "The task was unlinked from this endpoint."))
+        {
+            await LoadAsync(LoadTabAsync);
+        }
+    }
+
+    /// <summary>The Tasks tab has a column of actions: run now, the alert of the task, unlink.</summary>
+    private bool HasTaskActions => Can(Permissions.TasksEdit) || (Can(Permissions.TasksRun) && Can(Permissions.ScriptsRun)) || AlertActions.AnyAction(Caller);
+
+    private bool CanRunTaskHere(EndpointTaskItem task) => task.Enabled && task.Problem is null && Can(Permissions.TasksRun) && Can(Permissions.ScriptsRun);
+
+    /// <summary>"Alert open", "Alert acknowledged" or "Alert on hold until ...": the unresolved alert of a task on this endpoint.</summary>
+    private string TaskAlertText(AlertView alert) => alert.IsHeld(Clock.GetUtcNow().UtcDateTime)
+        ? $"Alert on hold until {Time.Absolute(alert.HeldUntil)}"
+        : alert.State == AlertState.Acknowledged ? "Alert acknowledged" : "Alert open";
+
+    /// <summary>The permissions of Run now for a step of this kind (0.9.0): a restart also needs Restart endpoints.</summary>
+    private bool MayRetryStep(TaskStepKind kind) =>
+        Can(Permissions.TasksRun) && (kind == TaskStepKind.Restart ? Can(Permissions.EndpointsRestart) : Can(Permissions.ScriptsRun));
+
+    /// <summary>Why no step of the last run can run again now, or null when it can.</summary>
+    private static string? RetryBlocked(EndpointTaskItem task, EndpointTaskRunItem run) =>
+        !task.Enabled ? "The task is switched off."
+        : task.Problem is { } problem ? problem
+        : run.Target.Retrying ? "A step of this run is being run again."
+        : run.Target.State != TaskTargetState.Started || run.Target.FinishedAt is null ? "The run is still busy on this endpoint."
+        : null;
+
+    private EventCallback<Guid> RetryStepCallback(EndpointTaskItem task, EndpointTaskRunItem run) => EventCallback.Factory.Create<Guid>(this, async stepId =>
+    {
+        var step = run.Target.Steps.FirstOrDefault(s => s.StepId == stepId);
+        var notRun = run.Target.NotRun.FirstOrDefault(s => s.StepId == stepId);
+        var position = step?.Position ?? notRun?.Position;
+        var name = step?.Name ?? notRun?.Name;
+        var kind = step?.Kind ?? notRun?.Kind;
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Run step {position} of {task.Name} again" },
+            {
+                d => d.Message, kind == TaskStepKind.Restart
+                    ? $"Restarts {_endpoint?.Hostname ?? "this endpoint"} as step {position} of this run, as you. The steps after it do not run by themselves."
+                    : $"Runs {name} on {_endpoint?.Hostname ?? "this endpoint"} as step {position} of this run, as you. The steps after it do not run by themselves. Once every step of the run passed, the run succeeds and the alert of the task resolves."
+            },
+            { d => d.ConfirmText, "Run step" }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled &&
+            await RunAsync(caller => TaskSvc.RetryStepAsync(caller, run.RunId, EndpointId, stepId), $"Step {position} runs again on this endpoint."))
+        {
+            await LoadAsync(LoadTabAsync);
+        }
+    });
+
+    private async Task RunTaskHereAsync(EndpointTaskItem task, EndpointDetail e)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { d => d.Title, $"Run task {task.Name} now" },
+            { d => d.Message, $"Starts a new run of the task ({task.StepSummary}) on {e.Hostname} only, as you." },
+            { d => d.ConfirmText, "Run now" }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(null, parameters);
+        if (!(await dialog.Result)!.Canceled &&
+            await RunAsync(caller => TaskSvc.RunNowAsync(caller, task.Id, [EndpointId]), $"The task started on {e.Hostname}."))
         {
             await LoadAsync(LoadTabAsync);
         }

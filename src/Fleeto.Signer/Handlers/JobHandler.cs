@@ -382,7 +382,8 @@ public sealed class JobHandler : ISigningRequestHandler
     /// fail. That is read from the jobs the gateway completed, never from what the workers wrote about the run.</item>
     /// </list>
     /// Script approval follows after this, as for every job. Full control of the workers can so start the linked tasks at other
-    /// moments, never another script, and each step at most once per run, in order.
+    /// moments, never another script, and each step at most once per run, in order; a step runs again in a run only for a retry a user
+    /// asked for (0.9.0), checked as that user (<see cref="RetryRefusalAsync"/>).
     /// </summary>
     private static async Task<(string? Refusal, AutomationTaskStep? Step)> AutomaticTaskRefusalAsync(Infrastructure.Data.FleetoDbContext db, Job job,
         Guid siteId, DateTime now, CancellationToken cancellationToken)
@@ -412,6 +413,11 @@ public sealed class JobHandler : ISigningRequestHandler
         if (run is null || run.AutomationTaskId != task.Id || run.ClientId != job.ClientId || target?.JobId != job.Id)
         {
             return (TaskChangedReason, null);
+        }
+
+        if (job.TaskRetryId is { } retryId)
+        {
+            return (await RetryRefusalAsync(db, job, task, run, retryId, siteId, now, cancellationToken), step);
         }
 
         var first = step!.Position == plan.First.Position;
@@ -493,6 +499,51 @@ public sealed class JobHandler : ISigningRequestHandler
         }
 
         return (null, step);
+    }
+
+    /// <summary>
+    /// A step a user asked to run again (0.9.0): the retry names this job, this run, endpoint and step and is still open and recent; the
+    /// user who asked still holds the permissions of Run now for this kind of step and still reaches the endpoint; the task still applies
+    /// to it; and no other job of the run is busy there. What started the run, the order of the steps and the 15 minutes do not count:
+    /// the user decided to run this step.
+    /// </summary>
+    private static async Task<string?> RetryRefusalAsync(Infrastructure.Data.FleetoDbContext db, Job job, AutomationTask task, AutomationTaskRun run,
+        Guid retryId, Guid siteId, DateTime now, CancellationToken cancellationToken)
+    {
+        var retry = await db.AutomationTaskStepRetries.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(r => r.Id == retryId, cancellationToken);
+        if (retry is null || retry.JobId != job.Id || retry.RunId != run.Id || retry.EndpointId != job.EndpointId || retry.ClientId != job.ClientId ||
+            retry.AutomationTaskId != task.Id || retry.TaskStepId != job.TaskStepId || retry.FinishedAt is not null)
+        {
+            return TaskChangedReason;
+        }
+
+        if (retry.RequestedAt < now - AutomationTasks.EventValidity)
+        {
+            return TaskTriggerReason;
+        }
+
+        foreach (var permission in RunNowPermissions(job.Type))
+        {
+            if (!await ScriptCheckResolver.UserHasPermissionAsync(db, retry.RequestedByUserId, now, permission, cancellationToken))
+            {
+                return InitiatorReason;
+            }
+        }
+
+        if (!await UserAccessResolver.MayReachAsync(db, retry.RequestedByUserId, job.ClientId, siteId, job.EndpointId, cancellationToken))
+        {
+            return AccessReason;
+        }
+
+        if (!await AutomationTaskTargets.Linked(db, task).IgnoreQueryFilters().AnyAsync(e => e.Id == job.EndpointId, cancellationToken))
+        {
+            return TaskTargetReason;
+        }
+
+        var busy = await db.Jobs.IgnoreQueryFilters().AnyAsync(j => j.TaskId == task.Id && j.EndpointId == job.EndpointId && j.Id != job.Id &&
+                                                                   (j.State == JobState.PendingSignature || j.State == JobState.Queued ||
+                                                                    j.State == JobState.Running), cancellationToken);
+        return busy ? TaskOrderReason : null;
     }
 
     /// <summary>What the user of a run started by hand must still hold for a job of this type.</summary>

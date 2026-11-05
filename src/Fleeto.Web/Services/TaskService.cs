@@ -92,13 +92,30 @@ public sealed record TaskRunTargetItem(Guid EndpointId, string Hostname, TaskTar
 
     /// <summary>How many steps the task has now.</summary>
     public int StepCount { get; init; } = 1;
+
+    /// <summary>The steps of the task without a job in this run, once the run ended on this endpoint (0.9.0): they can be run on their own.</summary>
+    public IReadOnlyList<TaskNotRunStepItem> NotRun { get; init; } = [];
+
+    /// <summary>A step of this run is being run again on this endpoint (0.9.0): asked, or its job not ended yet.</summary>
+    public bool Retrying { get; init; }
 }
+
+/// <summary>A step of the task that has no job in a run on one endpoint (0.9.0).</summary>
+public sealed record TaskNotRunStepItem(Guid StepId, int Position, string Name, TaskStepKind Kind);
 
 /// <summary>
 /// One step of a run on one endpoint: its job, what its exit code meant by the rules of its script, and whether the step passed.
 /// </summary>
 public sealed record TaskRunStepItem(Guid JobId, int Position, string Name, TaskStepKind Kind, JobState State, JobResult? Result, int? ExitCode,
-    bool Passed, string? Problem, DateTime? StartedAt, DateTime? CompletedAt, string OutputPreview, long OutputBytes, ExitStatus? ExitStatus = null);
+    bool Passed, string? Problem, DateTime? StartedAt, DateTime? CompletedAt, string OutputPreview, long OutputBytes, ExitStatus? ExitStatus = null,
+    Guid? StepId = null)
+{
+    /// <summary>The earlier jobs of this step in the run, oldest first (0.9.0: a user ran the step again); the step is judged on this one.</summary>
+    public IReadOnlyList<Guid> EarlierJobIds { get; init; } = [];
+
+    /// <summary>1 for the first job of the step, 2 for the first time it ran again, and so on.</summary>
+    public int Attempt => EarlierJobIds.Count + 1;
+}
 
 /// <summary>
 /// A task that applies to one endpoint (0.6.0, the Tasks tab): where it is linked, when it runs next and how its last run on the
@@ -123,8 +140,14 @@ public sealed record EndpointTaskRunItem(Guid RunId, Guid TaskId, string TaskNam
     public DateTime At => Target.StartedAt ?? Target.DueAt;
 }
 
-/// <summary>The Tasks tab of an endpoint: the tasks that apply to it and the newest runs on it.</summary>
-public sealed record EndpointTasksView(IReadOnlyList<EndpointTaskItem> Tasks, IReadOnlyList<EndpointTaskRunItem> History);
+/// <summary>
+/// The Tasks tab of an endpoint: the tasks that apply to it and the newest runs on it, and the unresolved alert of each task on the endpoint
+/// by task id (0.9.0; empty without the permission to view alerts), so the tab can act on it.
+/// </summary>
+public sealed record EndpointTasksView(IReadOnlyList<EndpointTaskItem> Tasks, IReadOnlyList<EndpointTaskRunItem> History)
+{
+    public IReadOnlyDictionary<Guid, AlertView> Alerts { get; init; } = new Dictionary<Guid, AlertView>();
+}
 
 /// <summary>The clients, sites and endpoints a task can be linked to, within the caller's groups.</summary>
 public sealed record TaskLinkChoices(IReadOnlyList<TaskLinkView> Clients, IReadOnlyList<TaskLinkView> Sites, IReadOnlyList<TaskLinkView> Endpoints);
@@ -915,6 +938,131 @@ public sealed class TaskService
         return ServiceResult<JobRunResult>.Ok(new JobRunResult(runs[0].Id, started.Count, skipped, notified));
     }
 
+    /// <summary>
+    /// Runs one step of the last run of a task on one endpoint again (0.9.0, decided 2026-11-05): a step that failed, or one that did not
+    /// run. The workers write its job in the same run, and no next step follows it; the run is then judged on the newest job of every
+    /// step, so it ends as a success once every step passed, and its alert resolves. Needs Run tasks and Run scripts, or Restart endpoints
+    /// for a restart step, like Run now; fleeto-signer checks the caller again before it signs.
+    /// </summary>
+    public async Task<ServiceResult> RetryStepAsync(Caller caller, Guid runId, Guid endpointId, Guid stepId, CancellationToken cancellationToken = default)
+    {
+        if (!caller.Has(Permissions.TasksRun))
+        {
+            return ServiceResult.Forbidden();
+        }
+
+        await using var db = _dbFactory.Create(caller.Scope);
+        var target = await db.AutomationTaskRunTargets.AsNoTracking().SingleOrDefaultAsync(t => t.RunId == runId && t.EndpointId == endpointId, cancellationToken);
+        var endpoint = await db.Endpoints.AsNoTracking().Where(e => e.Id == endpointId).Select(e => new { e.Hostname }).SingleOrDefaultAsync(cancellationToken);
+        if (target is null || endpoint is null)
+        {
+            return ServiceResult.NotFound("run");
+        }
+
+        var task = await db.AutomationTasks.AsNoTracking().SingleOrDefaultAsync(t => t.Id == target.AutomationTaskId, cancellationToken);
+        if (task is null)
+        {
+            return ServiceResult.NotFound("task");
+        }
+
+        if (!task.Enabled)
+        {
+            return ServiceResult.Fail("The task is switched off. Switch it on to run a step.");
+        }
+
+        var plan = await TaskPlan.LoadAsync(db, task, cancellationToken);
+        if (plan.Steps.FirstOrDefault(s => s.Id == stepId && s.Id != Guid.Empty) is not { } step)
+        {
+            return ServiceResult.Fail("The step no longer exists in the task. Use Run now to run the task as it is now.");
+        }
+
+        if (step.Kind == TaskStepKind.Restart ? !caller.Has(Permissions.EndpointsRestart) : !caller.Has(Permissions.ScriptsRun))
+        {
+            return step.Kind == TaskStepKind.Restart
+                ? ServiceResult.Fail("The step restarts the endpoint, which needs the permission Restart endpoints. Ask an admin to run it.")
+                : ServiceResult.Forbidden();
+        }
+
+        var lastRunId = await db.AutomationTaskRunTargets.AsNoTracking()
+            .Where(t => t.AutomationTaskId == task.Id && t.EndpointId == endpointId && t.State != TaskTargetState.Pending)
+            .OrderByDescending(t => t.DueAt).Select(t => (Guid?)t.RunId).FirstOrDefaultAsync(cancellationToken);
+        if (lastRunId != runId)
+        {
+            return ServiceResult.Fail("A step can be run again in the last run of the task on this endpoint only. Use Run now to start a new run.");
+        }
+
+        if (target.State != TaskTargetState.Started || target.FinishedAt is null)
+        {
+            return ServiceResult.Fail(target.State == TaskTargetState.Skipped
+                ? "This run did not start on this endpoint. Use Run now to start a new run."
+                : "The run is still busy on this endpoint. Wait until it ended.");
+        }
+
+        var busy = await db.AutomationTaskRunTargets.AsNoTracking()
+                       .AnyAsync(t => t.AutomationTaskId == task.Id && t.EndpointId == endpointId && t.RunId != runId &&
+                                      (t.State == TaskTargetState.Pending || (t.State == TaskTargetState.Started && t.FinishedAt == null && t.JobId != null)),
+                           cancellationToken) ||
+                   await db.Jobs.AsNoTracking()
+                       .AnyAsync(j => j.TaskId == task.Id && j.EndpointId == endpointId &&
+                                      (j.State == JobState.PendingSignature || j.State == JobState.Queued || j.State == JobState.Running), cancellationToken) ||
+                   await db.AutomationTaskStepRetries.AsNoTracking().AnyAsync(r => r.RunId == runId && r.EndpointId == endpointId && r.FinishedAt == null,
+                       cancellationToken);
+        if (busy)
+        {
+            return ServiceResult.Fail("A run of this task, or a step run again, is still busy on this endpoint. Wait until it ended.");
+        }
+
+        if (step.Kind == TaskStepKind.Script)
+        {
+            var script = plan.ScriptOf(step);
+            var version = script?.CurrentVersionId is { } versionId
+                ? await db.ScriptVersions.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(v => v.Id == versionId, cancellationToken)
+                : null;
+            if (version is null)
+            {
+                return ServiceResult.Fail("The script of the step is not available, or has no version.");
+            }
+
+            var approvalRequired = await (
+                    from ep in EffectivePolicies.Query(db).Where(p => p.EndpointId == endpointId)
+                    join p in db.Policies.IgnoreQueryFilters() on ep.PolicyId equals p.Id
+                    select p.ScriptApprovalRequired)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (approvalRequired && !version.IsApproved)
+            {
+                return ServiceResult.Fail(
+                    "The policy requires approved scripts, and the script of the step is not approved. Ask somebody else who may approve scripts to approve it.");
+            }
+        }
+
+        var license = await _licenses.GetStatusAsync(db, cancellationToken);
+        var endpoints = await AutomationTaskTargets.LoadAsync(db, task, plan, license, [endpointId], cancellationToken);
+        if (endpoints.Count == 0)
+        {
+            return ServiceResult.Fail("The task no longer applies to this endpoint.");
+        }
+
+        if (endpoints[0].Problem is { } problem)
+        {
+            return ServiceResult.Fail(problem);
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        var retry = new AutomationTaskStepRetry
+        {
+            Id = Guid.NewGuid(), RunId = runId, EndpointId = endpointId, ClientId = target.ClientId, AutomationTaskId = task.Id, TaskStepId = step.Id,
+            RequestedByUserId = caller.UserId, RequestedByName = Cut(caller.Name, 200), RequestedAt = now
+        };
+        db.AutomationTaskStepRetries.Add(retry);
+        db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.TaskStepRetried, "Task", task.Id.ToString(), target.ClientId, new
+        {
+            task.Name, RunId = runId, EndpointId = endpointId, endpoint.Hostname, Step = step.Position, Kind = step.Kind.ToString(), RetryId = retry.Id
+        }), now));
+        await db.SaveChangesAsync(cancellationToken);
+        await PublishAsync(task.Id, cancellationToken);
+        return ServiceResult.Ok();
+    }
+
     /// <summary>The newest runs of a task the caller can see, with counts per state.</summary>
     public async Task<IReadOnlyList<TaskRunItem>> ListRunsAsync(Caller caller, Guid taskId, int limit = 50, CancellationToken cancellationToken = default)
     {
@@ -971,7 +1119,7 @@ public sealed class TaskService
         var runIds = rows.Select(r => r.RunId).Distinct().ToList();
         var endpointIds = rows.Select(r => r.Target.EndpointId).Distinct().ToList();
         var jobs = await db.Jobs.AsNoTracking().Where(j => j.TaskRunId != null && runIds.Contains(j.TaskRunId.Value) && endpointIds.Contains(j.EndpointId))
-            .OrderBy(j => j.CreatedAt)
+            .OrderBy(j => j.CreatedAt).ThenBy(j => j.TaskRetryId != null)
             .Select(j => new
             {
                 j.Id, j.TaskRunId, j.EndpointId, j.TaskStepId, j.Type, j.ScriptName, j.State, j.Result, j.ExitCode, j.ExitStatus, Problem = j.RefusalReason ?? j.Error,
@@ -986,26 +1134,50 @@ public sealed class TaskService
         var taskIds = rows.Select(r => r.TaskId).Distinct().ToList();
         var tasks = await db.AutomationTasks.IgnoreQueryFilters().AsNoTracking().Where(t => taskIds.Contains(t.Id)).ToListAsync(cancellationToken);
         var plans = await TaskPlan.LoadManyAsync(db, tasks, cancellationToken);
+        var retrying = (await db.AutomationTaskStepRetries.AsNoTracking()
+                .Where(r => runIds.Contains(r.RunId) && endpointIds.Contains(r.EndpointId) && r.FinishedAt == null)
+                .Select(r => new { r.RunId, r.EndpointId }).ToListAsync(cancellationToken))
+            .Select(r => (r.RunId, r.EndpointId)).ToHashSet();
 
         return rows.Select(row =>
         {
             var plan = plans.GetValueOrDefault(row.TaskId);
-            var steps = jobs.Where(j => j.TaskRunId == row.RunId && j.EndpointId == row.Target.EndpointId).Select((j, index) =>
-            {
-                var step = plan?.Find(j.TaskStepId);
-                var kind = j.Type == JobType.Restart ? TaskStepKind.Restart : TaskStepKind.Script;
-                var passed = step is not null ? AutomationTasks.Passed(step, j.State, j.Result, j.ExitCode, j.ExitStatus) : j.State == JobState.Succeeded;
-                return new TaskRunStepItem(j.Id, step?.Position ?? index + 1, kind == TaskStepKind.Restart ? "Restart" : j.ScriptName, kind, j.State, j.Result,
-                    j.ExitCode, passed, j.Problem, j.StartedAt, j.CompletedAt,
-                    firstChunks.TryGetValue(j.Id, out var data) ? Preview(data) : string.Empty, j.ReceivedOutputBytes, j.ExitStatus);
-            }).ToList();
-            var current = steps.LastOrDefault();
+            // The newest job of every step decides (0.9.0: a step can run again); the earlier ones stay reachable for their output.
+            var steps = jobs.Where(j => j.TaskRunId == row.RunId && j.EndpointId == row.Target.EndpointId)
+                .Select((j, index) => (Job: j, Index: index, Step: plan?.Find(j.TaskStepId)))
+                .GroupBy(e => e.Step is { } found ? found.Id : e.Job.Id)
+                .Select(g =>
+                {
+                    var attempts = g.ToList();
+                    var (j, index, step) = attempts[^1];
+                    var kind = j.Type == JobType.Restart ? TaskStepKind.Restart : TaskStepKind.Script;
+                    var passed = step is not null ? AutomationTasks.Passed(step, j.State, j.Result, j.ExitCode, j.ExitStatus) : j.State == JobState.Succeeded;
+                    return new TaskRunStepItem(j.Id, step?.Position ?? attempts[0].Index + 1, kind == TaskStepKind.Restart ? "Restart" : j.ScriptName, kind, j.State,
+                        j.Result, j.ExitCode, passed, j.Problem, j.StartedAt, j.CompletedAt,
+                        firstChunks.TryGetValue(j.Id, out var data) ? Preview(data) : string.Empty, j.ReceivedOutputBytes, j.ExitStatus,
+                        step is null || step.Id == Guid.Empty ? null : step.Id)
+                    {
+                        EarlierJobIds = attempts.Take(attempts.Count - 1).Select(a => a.Job.Id).ToList()
+                    };
+                })
+                .OrderBy(s => s.Position)
+                .ToList();
+            var current = steps.LastOrDefault(s => s.State is JobState.PendingSignature or JobState.Queued or JobState.Running)
+                          ?? steps.FirstOrDefault(s => s.JobId == row.Target.JobId) ?? steps.LastOrDefault();
+            var notRun = row.Target.FinishedAt is null || plan is null
+                ? []
+                : plan.Steps.Where(s => s.Id != Guid.Empty && steps.All(r => r.StepId != s.Id))
+                    .Select(s => new TaskNotRunStepItem(s.Id, s.Position, s.Kind == TaskStepKind.Restart ? "Restart" : plan.ScriptOf(s)?.Name ?? "Script not available",
+                        s.Kind))
+                    .ToList();
             return row.Target with
             {
                 Steps = steps,
                 StepCount = plan?.Steps.Count ?? 1,
+                NotRun = notRun,
+                Retrying = retrying.Contains((row.RunId, row.Target.EndpointId)),
                 OutputPreview = current?.OutputPreview ?? row.Target.OutputPreview,
-                StartedAt = steps.FirstOrDefault()?.StartedAt ?? row.Target.StartedAt
+                StartedAt = steps.Where(s => s.StartedAt is not null).Select(s => s.StartedAt).Min() ?? row.Target.StartedAt
             };
         }).ToList();
     }
@@ -1134,7 +1306,22 @@ public sealed class TaskService
         var newest = db.AutomationTaskRunTargets.AsNoTracking().Where(t => t.EndpointId == endpointId)
             .OrderByDescending(t => t.DueAt).Take(Math.Clamp(limit, 1, 200));
         var history = await WithRunStepsAsync(db, await Runs(db, newest, endpoint.Hostname).ToListAsync(cancellationToken), cancellationToken);
-        return new EndpointTasksView(items, history);
+        var alerts = new Dictionary<Guid, AlertView>();
+        if (caller.Has(Permissions.AlertsView))
+        {
+            var unresolved = await AlertService.Project(db, db.Alerts.AsNoTracking()
+                    .Where(a => a.EndpointId == endpointId && a.Kind == AlertKind.Task && a.State != AlertState.Resolved))
+                .ToListAsync(cancellationToken);
+            foreach (var alert in unresolved)
+            {
+                if (Guid.TryParse(alert.Target, out var taskId))
+                {
+                    alerts[taskId] = alert;
+                }
+            }
+        }
+
+        return new EndpointTasksView(items, history) { Alerts = alerts };
     }
 
     /// <summary>The runs of tasks on one endpoint with their steps.</summary>
@@ -1192,7 +1379,9 @@ public sealed class TaskService
         }
 
         var multi = item.StepCount > 1;
-        var current = item.Steps.LastOrDefault();
+        // The step that is busy, else the one whose job the target points at (a step run again, 0.9.0), else the last.
+        var current = item.Steps.LastOrDefault(s => s.State is JobState.PendingSignature or JobState.Queued or JobState.Running)
+                      ?? item.Steps.FirstOrDefault(s => s.JobId == item.JobId) ?? item.Steps.LastOrDefault();
         switch (item.Outcome)
         {
             case TaskTargetOutcome.Succeeded:

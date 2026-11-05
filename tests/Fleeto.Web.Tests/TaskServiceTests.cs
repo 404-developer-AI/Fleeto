@@ -14,7 +14,8 @@ namespace Fleeto.Web.Tests;
 /// Tasks in web (0.6.0): a task runs a library script of its own client or a global one, is linked within its client, and a
 /// global one is changed only by a user with access to everything it is linked to. Run now starts a job per managed endpoint
 /// as the user who pressed it, skips one that cannot run the script, and the export of a run keeps output a spreadsheet would
-/// read as a formula as text. A script a task runs cannot be deleted.
+/// read as a formula as text. A script a task runs cannot be deleted. A step of the last run on an endpoint can be run again by a user
+/// who may run it (0.9.0), and the Tasks tab shows the steps that did not run and the alert of the task.
 /// </summary>
 [Collection(WebCollection.Name)]
 public sealed class TaskServiceTests
@@ -429,5 +430,85 @@ public sealed class TaskServiceTests
         Assert.Equal((StatusKind.Warning, "Warning"),
             (Ui.JobStateKind(JobState.Succeeded, ExitStatus.Warning), Ui.JobStateLabel(JobState.Succeeded, JobResult.Exited, ExitStatus.Warning)));
         Assert.Equal((StatusKind.Error, "Failed"), (Ui.JobStateKind(JobState.Failed, ExitStatus.Error), Ui.JobStateLabel(JobState.Failed, JobResult.Exited, ExitStatus.Error)));
+    }
+
+    [Fact]
+    public async Task A_step_of_the_last_run_on_an_endpoint_runs_again_for_a_user_who_may_and_the_tasks_tab_shows_it_with_the_alert()
+    {
+        await _fixture.Database.LoadTestLicenseAsync(1000);
+        var client = await _fixture.Database.CreateClientAsync();
+        var site = await _fixture.Database.CreateSiteAsync(client.Id);
+        var endpoint = await _fixture.Database.CreateEndpointAsync(site, EndpointTier.Managed, "WS-RETRY");
+        var (_, script, _) = await _fixture.Database.CreateTaskAsync();
+        var technician = WebFixture.Technician();
+        var created = await Tasks.SaveAsync(technician, null, Input(script.Id) with { Steps = [TaskStepInput.Script(script.Id), TaskStepInput.Script(script.Id)] });
+        Assert.True(created.Success, created.Problem);
+        Assert.True((await Tasks.LinkAsync(technician, created.Value, LinkLevel.Site, site.Id)).Success);
+        Assert.True((await Tasks.RunNowAsync(technician, created.Value, [endpoint.Id])).Success);
+        var job = await StartFirstStepAsync(created.Value, endpoint.Id);
+        Guid runId;
+        IReadOnlyList<AutomationTaskStep> steps;
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            steps = await db.AutomationTaskSteps.AsNoTracking().Where(s => s.AutomationTaskId == created.Value).OrderBy(s => s.Position).ToListAsync();
+            runId = (await db.AutomationTaskRunTargets.SingleAsync(t => t.AutomationTaskId == created.Value)).RunId;
+        }
+
+        // The first step still runs.
+        var busy = await Tasks.RetryStepAsync(technician, runId, endpoint.Id, steps[0].Id);
+        Assert.False(busy.Success);
+        Assert.Contains("still busy", busy.Problem);
+
+        // It failed and stopped the run, which opened an alert.
+        var now = _fixture.Database.Time.GetUtcNow().UtcDateTime;
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.Jobs.Where(j => j.Id == job.Id).ExecuteUpdateAsync(u => u.SetProperty(j => j.Signature, new byte[64])
+                .SetProperty(j => j.State, JobState.Failed).SetProperty(j => j.Result, JobResult.Exited).SetProperty(j => j.ExitCode, 1)
+                .SetProperty(j => j.ExitStatus, ExitStatus.Error).SetProperty(j => j.CompletedAt, now));
+            await db.AutomationTaskRunTargets.Where(t => t.RunId == runId).ExecuteUpdateAsync(u => u.SetProperty(t => t.FinishedAt, now)
+                .SetProperty(t => t.Outcome, TaskTargetOutcome.Failed).SetProperty(t => t.OutcomeHandledAt, now));
+            db.Alerts.Add(new Alert
+            {
+                Id = Guid.NewGuid(), ClientId = client.Id, EndpointId = endpoint.Id, Kind = AlertKind.Task, Target = created.Value.ToString(),
+                Severity = AlertSeverity.Warning, State = AlertState.Open, Title = "Task failed", Detail = string.Empty, OpenedAt = now, UpdatedAt = now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var readOnly = WebFixture.CallerWith(SystemClientScope.Instance, FleetoRoles.ReadOnly);
+        Assert.Equal(ServiceResult.ForbiddenProblem, (await Tasks.RetryStepAsync(readOnly, runId, endpoint.Id, steps[0].Id)).Problem);
+        var otherClient = await _fixture.Database.CreateClientAsync();
+        var limited = WebFixture.CallerWith(new RestrictedClientScope([otherClient.Id]), FleetoRoles.Technician);
+        Assert.False((await Tasks.RetryStepAsync(limited, runId, endpoint.Id, steps[0].Id)).Success);
+
+        var view = await Tasks.GetForEndpointAsync(technician, endpoint.Id);
+        var last = Assert.Single(view!.Tasks).LastRun!;
+        Assert.Equal(steps[1].Id, Assert.Single(last.Target.NotRun).StepId);
+        Assert.Equal(steps[0].Id, Assert.Single(last.Target.Steps).StepId);
+        Assert.Equal(AlertKind.Task, view.Alerts[created.Value].Kind);
+
+        var retried = await Tasks.RetryStepAsync(technician, runId, endpoint.Id, steps[1].Id);
+        Assert.True(retried.Success, retried.Problem);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            var retry = await db.AutomationTaskStepRetries.AsNoTracking().SingleAsync(r => r.RunId == runId);
+            Assert.Equal((steps[1].Id, technician.UserId, (Guid?)null), (retry.TaskStepId, retry.RequestedByUserId, retry.JobId));
+            Assert.True(await db.AuditEntries.AnyAsync(a => a.Action == Core.Interfaces.AuditActions.TaskStepRetried && a.TargetId == created.Value.ToString()));
+        }
+
+        // One at a time: the workers have not handled the first one yet.
+        var twice = await Tasks.RetryStepAsync(technician, runId, endpoint.Id, steps[0].Id);
+        Assert.False(twice.Success);
+        Assert.True((await Tasks.GetForEndpointAsync(technician, endpoint.Id))!.Tasks[0].LastRun!.Target.Retrying);
+
+        // An endpoint switched to agent-only runs nothing.
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.AutomationTaskStepRetries.Where(r => r.RunId == runId).ExecuteUpdateAsync(u => u.SetProperty(r => r.HandledAt, now).SetProperty(r => r.FinishedAt, now));
+            await db.Endpoints.Where(e => e.Id == endpoint.Id).ExecuteUpdateAsync(u => u.SetProperty(e => e.Tier, EndpointTier.AgentOnly));
+        }
+
+        Assert.False((await Tasks.RetryStepAsync(technician, runId, endpoint.Id, steps[0].Id)).Success);
     }
 }

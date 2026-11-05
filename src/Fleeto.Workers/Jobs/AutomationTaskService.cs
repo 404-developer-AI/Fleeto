@@ -24,6 +24,8 @@ namespace Fleeto.Workers.Jobs;
 /// <item><b>Moves on</b> (0.6.0, steps): when the job of a step ended and the step passed (or may fail), the job of the next step
 /// is written at once; otherwise, or after the last step, the run ends on the endpoint. A failed run opens an alert of kind Task
 /// on its endpoint when the task asks for it, naming the step, and a successful one resolves it.</item>
+/// <item><b>Runs a step again</b> (0.9.0): a step a user asked to run again on one endpoint of a run gets its job again in that run,
+/// without a next step after it; the run is then judged on the newest job of every step, so it can still end as a success.</item>
 /// </list>
 /// Runs started by hand are written by web (the run names the user); this service runs their steps like any other run, and
 /// fleeto-signer checks that user's permissions again for every step.
@@ -51,6 +53,11 @@ public sealed class AutomationTaskService : WorkerLoop
     public const string JobGoneReason = "The job of this run was deleted before it ended.";
     public const string StepsChangedReason = "The steps of the task changed during this run, so it stopped. The next run uses the task as it is now.";
     public const string SwitchedOffReason = "The task was switched off during this run, so the next step did not start.";
+    public const string RetryTaskOffReason = "The task was switched off or deleted, so the step did not run again.";
+    public const string RetryStepGoneReason = "The step no longer exists in the task, so it did not run again.";
+    public const string RetryBusyReason = "A run of this task was busy on this endpoint, so the step did not run again. Try again when it ended.";
+    public const string RetryExpiredReason = "The request to run the step again expired before it could start.";
+    public const string RetryJobGoneReason = "The job of the step run again was deleted before it ended.";
 
     private readonly IFleetoDbContextFactory _dbFactory;
     private readonly INotificationBus _bus;
@@ -96,8 +103,9 @@ public sealed class AutomationTaskService : WorkerLoop
         await StartRunsAsync(cancellationToken);
         // Runs that ended first: an endpoint where the previous run just ended is free for the next one in the same pass.
         var followed = await FollowOutcomesAsync(cancellationToken);
+        var retried = await StartRetriesAsync(cancellationToken);
         var started = await StartJobsAsync(cancellationToken);
-        return started >= BatchSize || followed >= BatchSize;
+        return started >= BatchSize || followed >= BatchSize || retried >= BatchSize;
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -471,14 +479,16 @@ public sealed class AutomationTaskService : WorkerLoop
     /// transaction, and points the target at it. Returns the job, or why it could not be written (a script without a version).
     /// </summary>
     private static async Task<(Job? Job, string? Reason)> WriteStepJobAsync(FleetoDbContext db, AutomationTask task, TaskPlan plan, AutomationTaskStep step,
-        AutomationTaskRun run, AutomationTaskRunTarget target, DateTime validUntil, DateTime now, CancellationToken cancellationToken)
+        AutomationTaskRun run, AutomationTaskRunTarget target, DateTime validUntil, DateTime now, CancellationToken cancellationToken,
+        AutomationTaskStepRetry? retry = null)
     {
         var job = new Job
         {
             Id = Guid.NewGuid(), ClientId = target.ClientId, EndpointId = target.EndpointId, BatchId = run.Id, TaskId = task.Id, TaskRunId = run.Id,
             // A step a build before steps knows only as the task itself has no row, and its job no step.
             TaskStepId = step.Id == Guid.Empty ? null : step.Id,
-            CreatedAt = now, ValidUntil = validUntil, InitiatedByUserId = AutomationTasks.AutomaticInitiator, InitiatedByName = run.InitiatedByName
+            CreatedAt = now, ValidUntil = validUntil, InitiatedByUserId = AutomationTasks.AutomaticInitiator,
+            InitiatedByName = retry?.RequestedByName ?? run.InitiatedByName, TaskRetryId = retry?.Id
         };
         if (step.Kind == TaskStepKind.Restart)
         {
@@ -521,6 +531,16 @@ public sealed class AutomationTaskService : WorkerLoop
         target.JobId = job.Id;
         target.OutcomeHandledAt = null;
         target.UpdatedAt = now;
+        if (retry is not null)
+        {
+            // The run is busy on the endpoint again until this job ended.
+            retry.JobId = job.Id;
+            target.FinishedAt = null;
+            target.Outcome = null;
+            target.Reason = null;
+            target.HasWarning = false;
+        }
+
         db.SigningRequests.Add(new SigningRequest
         {
             Id = Guid.NewGuid(), ClientId = job.ClientId, Kind = SigningRequestKind.Job, SubjectId = job.Id, Payload = [],
@@ -530,7 +550,7 @@ public sealed class AutomationTaskService : WorkerLoop
             AuditActorType.System, "fleeto-workers", "fleeto-workers", new
             {
                 EndpointId = job.EndpointId, Task = task.Name, TaskId = task.Id, RunId = run.Id, Trigger = run.Trigger.ToString(), Step = step.Position,
-                Type = job.Type.ToString(), job.ScriptName, job.ScriptVersionNumber, job.ScriptSha256, job.ValidUntil, RunAs = job.RunAs.ToString()
+                RetryId = retry?.Id, RequestedBy = retry?.RequestedByName, Type = job.Type.ToString(), job.ScriptName, job.ScriptVersionNumber, job.ScriptSha256, job.ValidUntil, RunAs = job.RunAs.ToString()
             }), now));
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -541,6 +561,112 @@ public sealed class AutomationTaskService : WorkerLoop
     {
         target.State = TaskTargetState.Skipped;
         target.Reason = reason;
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // 2b. Steps run again (0.9.0)
+    // -----------------------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Writes the job of every step a user asked to run again, in its run, or closes the request with why it could not: the task is off,
+    /// the step is gone, a run of the task is busy on the endpoint, the endpoint can no longer run the task, or the request expired.
+    /// Returns the number handled.
+    /// </summary>
+    public async Task<int> StartRetriesAsync(CancellationToken cancellationToken)
+    {
+        await using var db = _dbFactory.CreateSystem();
+        var now = Time.GetUtcNow().UtcDateTime;
+        var retries = await db.AutomationTaskStepRetries.Where(r => r.HandledAt == null).OrderBy(r => r.RequestedAt).Take(BatchSize)
+            .ToListAsync(cancellationToken);
+        if (retries.Count == 0)
+        {
+            return 0;
+        }
+
+        var license = await _licenses.GetStatusAsync(db, cancellationToken);
+        var started = new List<Job>();
+        foreach (var retry in retries)
+        {
+            retry.HandledAt = now;
+            var (job, reason) = await StartRetryAsync(db, retry, license, now, cancellationToken);
+            if (job is not null)
+            {
+                started.Add(job);
+                continue;
+            }
+
+            retry.FinishedAt = now;
+            retry.Reason = Cut(reason!, 500);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        foreach (var endpointId in started.Select(j => j.EndpointId).Distinct())
+        {
+            await _bus.PublishAsync(NotificationChannels.Jobs, endpointId.ToString(), cancellationToken);
+        }
+
+        foreach (var taskId in retries.Select(r => r.AutomationTaskId).Distinct())
+        {
+            await _bus.PublishAsync(NotificationChannels.Tasks, taskId.ToString(), cancellationToken);
+        }
+
+        return retries.Count;
+    }
+
+    private static async Task<(Job? Job, string? Reason)> StartRetryAsync(FleetoDbContext db, AutomationTaskStepRetry retry, LicenseStatus license,
+        DateTime now, CancellationToken cancellationToken)
+    {
+        var task = await db.AutomationTasks.AsNoTracking().SingleOrDefaultAsync(t => t.Id == retry.AutomationTaskId, cancellationToken);
+        if (task is null || !task.Enabled)
+        {
+            return (null, RetryTaskOffReason);
+        }
+
+        var plan = await TaskPlan.LoadAsync(db, task, cancellationToken);
+        if (plan.Steps.FirstOrDefault(s => s.Id == retry.TaskStepId) is not { } step)
+        {
+            return (null, RetryStepGoneReason);
+        }
+
+        var run = await db.AutomationTaskRuns.AsNoTracking().SingleOrDefaultAsync(r => r.Id == retry.RunId, cancellationToken);
+        var target = await db.AutomationTaskRunTargets.SingleOrDefaultAsync(t => t.RunId == retry.RunId && t.EndpointId == retry.EndpointId, cancellationToken);
+        if (run is null || target is null)
+        {
+            return (null, RetryTaskOffReason);
+        }
+
+        if (now >= retry.RequestedAt + AutomationTasks.EventValidity - TimeSpan.FromMinutes(1))
+        {
+            return (null, RetryExpiredReason);
+        }
+
+        // This run must have ended here, and no other run of the task may be busy on the endpoint.
+        var busy = target.FinishedAt is null ||
+                   await db.AutomationTaskRunTargets.AsNoTracking()
+                       .AnyAsync(t => t.AutomationTaskId == task.Id && t.EndpointId == retry.EndpointId && t.RunId != retry.RunId &&
+                                      (t.State == TaskTargetState.Pending || (t.State == TaskTargetState.Started && t.FinishedAt == null && t.JobId != null)),
+                           cancellationToken) ||
+                   await db.Jobs.AsNoTracking()
+                       .AnyAsync(j => j.TaskId == task.Id && j.EndpointId == retry.EndpointId &&
+                                      (j.State == JobState.PendingSignature || j.State == JobState.Queued || j.State == JobState.Running), cancellationToken);
+        if (busy)
+        {
+            return (null, RetryBusyReason);
+        }
+
+        var endpoints = await AutomationTaskTargets.LoadAsync(db, task, plan, license, [retry.EndpointId], cancellationToken);
+        if (endpoints.Count == 0)
+        {
+            return (null, NoLongerAppliesReason);
+        }
+
+        if (endpoints[0].Problem is { } problem)
+        {
+            return (null, problem);
+        }
+
+        var validUntil = Min(retry.RequestedAt + AutomationTasks.EventValidity, now + ScriptRules.MaxValidity);
+        return await WriteStepJobAsync(db, task, plan, step, run, target, validUntil, now, cancellationToken, retry);
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -562,10 +688,10 @@ public sealed class AutomationTaskService : WorkerLoop
                     where t.JobId != null && t.OutcomeHandledAt == null &&
                           j.State != JobState.PendingSignature && j.State != JobState.Queued && j.State != JobState.Running
                     orderby j.CompletedAt
-                    select new { Target = t, j.TaskStepId, j.State, j.Result, j.ExitCode, j.ExitStatus })
+                    select new { Target = t, j.TaskStepId, j.State, j.Result, j.ExitCode, j.ExitStatus, j.TaskRetryId })
                 .Take(BatchSize)
                 .ToListAsync(cancellationToken))
-            .Select(e => new EndedStep(e.Target, e.TaskStepId, e.State, e.Result, e.ExitCode, e.ExitStatus))
+            .Select(e => new EndedStep(e.Target, e.TaskStepId, e.State, e.Result, e.ExitCode, e.ExitStatus, e.TaskRetryId))
             .ToList();
 
         // A run whose job was deleted (retention, a deleted endpoint's jobs) can never move on: it ends.
@@ -576,6 +702,21 @@ public sealed class AutomationTaskService : WorkerLoop
         foreach (var orphan in orphans)
         {
             Finish(orphan, TaskTargetOutcome.Failed, JobGoneReason, now);
+        }
+
+        // A step run again whose job was deleted, and the retries of the jobs that ended, are closed.
+        var retryIds = ended.Where(e => e.RetryId is not null).Select(e => e.RetryId!.Value).ToList();
+        var retries = await db.AutomationTaskStepRetries
+            .Where(r => r.FinishedAt == null && r.HandledAt != null && (retryIds.Contains(r.Id) || r.JobId == null))
+            .Take(BatchSize * 2)
+            .ToListAsync(cancellationToken);
+        foreach (var retry in retries)
+        {
+            retry.FinishedAt = now;
+            if (retry.JobId is null)
+            {
+                retry.Reason = RetryJobGoneReason;
+            }
         }
 
         var transitions = new List<AlertTransition>();
@@ -616,7 +757,9 @@ public sealed class AutomationTaskService : WorkerLoop
                     continue;
                 }
 
-                if (AutomationTasks.MayContinue(step, outcome.State, outcome.Result, outcome.ExitCode, outcome.ExitStatus) && plan.After(step) is { } next)
+                // A step run again (0.9.0) is that step only: the run is judged again, no next step follows.
+                if (outcome.RetryId is null && AutomationTasks.MayContinue(step, outcome.State, outcome.Result, outcome.ExitCode, outcome.ExitStatus) &&
+                    plan.After(step) is { } next)
                 {
                     var reason = !task.Enabled ? SwitchedOffReason : await StartNextAsync(db, task, plan, next, run, target, license, started, now, cancellationToken);
                     if (reason is null)
@@ -631,7 +774,8 @@ public sealed class AutomationTaskService : WorkerLoop
                 }
 
                 var result = await ResultOfRunAsync(db, plan, target, cancellationToken);
-                Finish(target, result.Outcome, null, now);
+                // Failed only because steps never ran (a step run again passed, the ones after it did not run yet): say which.
+                Finish(target, result.Outcome, result.Outcome == TaskTargetOutcome.Failed && result.Failed.Count == 0 ? NotRunReason(result.NotRun) : null, now);
                 target.HasWarning = result.Warning.Job is not null;
                 if (outcome.State is JobState.Cancelled)
                 {
@@ -671,7 +815,15 @@ public sealed class AutomationTaskService : WorkerLoop
     }
 
     private sealed record EndedStep(AutomationTaskRunTarget Target, Guid? StepId, JobState State, JobResult? Result, int? ExitCode,
-        ExitStatus? ExitStatus);
+        ExitStatus? ExitStatus, Guid? RetryId);
+
+    /// <summary>"Step 5 has not run in this run." or "Steps 5, 6 and 7 have not run in this run."</summary>
+    public static string NotRunReason(IReadOnlyList<int> positions) => positions.Count switch
+    {
+        0 => "A step has not run in this run.",
+        1 => $"Step {positions[0]} has not run in this run. Run it on this endpoint to finish the run.",
+        _ => $"Steps {string.Join(", ", positions.Take(positions.Count - 1))} and {positions[^1]} have not run in this run. Run them on this endpoint to finish the run."
+    };
 
     /// <summary>
     /// Writes the job of the next step, or returns why it cannot start: the endpoint no longer applies or can no longer run every
@@ -703,23 +855,28 @@ public sealed class AutomationTaskService : WorkerLoop
     }
 
     /// <summary>
-    /// The jobs of a run on one endpoint, each judged by its step: the run succeeded when every step passed. <c>Warning</c> is the last
-    /// step that ended with an exit code its script lists as a warning (0.6.0).
+    /// The jobs of a run on one endpoint, each judged by its step, the newest job of a step only (0.9.0: a user can run a step again): the
+    /// run succeeded when every step of the task has a job and passed. <c>NotRun</c> holds the positions of the steps without a job.
+    /// <c>Warning</c> is the last step that ended with an exit code its script lists as a warning (0.6.0).
     /// </summary>
-    private static async Task<(TaskTargetOutcome Outcome, IReadOnlyList<(AutomationTaskStep Step, Job Job)> Failed, (AutomationTaskStep Step, Job Job) Warning)>
-        ResultOfRunAsync(FleetoDbContext db, TaskPlan plan, AutomationTaskRunTarget target, CancellationToken cancellationToken)
+    private static async Task<(TaskTargetOutcome Outcome, IReadOnlyList<(AutomationTaskStep Step, Job Job)> Failed, (AutomationTaskStep Step, Job Job) Warning,
+        IReadOnlyList<int> NotRun)> ResultOfRunAsync(FleetoDbContext db, TaskPlan plan, AutomationTaskRunTarget target, CancellationToken cancellationToken)
     {
         var jobs = await db.Jobs.AsNoTracking().Where(j => j.TaskRunId == target.RunId && j.EndpointId == target.EndpointId)
-            .OrderBy(j => j.CreatedAt).ToListAsync(cancellationToken);
-        var failed = new List<(AutomationTaskStep, Job)>();
-        (AutomationTaskStep Step, Job Job) warning = default;
+            .OrderBy(j => j.CreatedAt).ThenBy(j => j.TaskRetryId != null).ToListAsync(cancellationToken);
+        var newest = new Dictionary<Guid, (AutomationTaskStep Step, Job Job)>();
         foreach (var job in jobs)
         {
-            if (plan.Find(job.TaskStepId) is not { } step)
+            if (plan.Find(job.TaskStepId) is { } step)
             {
-                continue;
+                newest[step.Id] = (step, job);
             }
+        }
 
+        var failed = new List<(AutomationTaskStep, Job)>();
+        (AutomationTaskStep Step, Job Job) warning = default;
+        foreach (var (step, job) in newest.Values.OrderBy(v => v.Step.Position))
+        {
             if (!AutomationTasks.Passed(step, job.State, job.Result, job.ExitCode, job.ExitStatus))
             {
                 failed.Add((step, job));
@@ -730,10 +887,11 @@ public sealed class AutomationTaskService : WorkerLoop
             }
         }
 
-        var outcome = jobs.Any(j => j.State == JobState.Cancelled) ? TaskTargetOutcome.Cancelled
-            : failed.Count == 0 ? TaskTargetOutcome.Succeeded
+        var notRun = plan.Steps.Where(s => !newest.ContainsKey(s.Id)).Select(s => s.Position).ToList();
+        var outcome = newest.Values.Any(v => v.Job.State == JobState.Cancelled) ? TaskTargetOutcome.Cancelled
+            : failed.Count == 0 && notRun.Count == 0 ? TaskTargetOutcome.Succeeded
             : TaskTargetOutcome.Failed;
-        return (outcome, failed, warning);
+        return (outcome, failed, warning, notRun);
     }
 
     /// <summary>
@@ -752,7 +910,7 @@ public sealed class AutomationTaskService : WorkerLoop
                                                             a.Target == alertTarget && a.State != AlertState.Resolved, cancellationToken)
                    ?? db.Alerts.Local.FirstOrDefault(a => a.EndpointId == target.EndpointId && a.Kind == AlertKind.Task &&
                                                           a.Target == alertTarget && a.State != AlertState.Resolved);
-        var (outcome, failed, warning) = await ResultOfRunAsync(db, plan, target, cancellationToken);
+        var (outcome, failed, warning, _) = await ResultOfRunAsync(db, plan, target, cancellationToken);
         var hostname = endpoints.GetValueOrDefault(target.EndpointId, "the endpoint");
         if (stopReason is null && outcome == TaskTargetOutcome.Succeeded)
         {

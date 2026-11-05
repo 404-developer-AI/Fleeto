@@ -1,27 +1,56 @@
 @* The steps of a run of a task on one endpoint (0.6.0): per step its name, how it ended and a link to its output. Used on the task
-   page and on the Tasks tab of an endpoint. *@
-@if (Steps.Count == 0)
+   page and on the Tasks tab of an endpoint. With OnRetry (0.9.0, the last run on the Tasks tab) a step that did not pass, or did not
+   run, can be run again on its own; the step is judged on its newest job. *@
+@if (Steps.Count == 0 && NotRun.Count == 0)
 {
     <span class="muted">No step started</span>
 }
 else
 {
     <div class="d-flex flex-column gap-1">
-        @foreach (var step in Steps)
+        @foreach (var item in Items())
         {
-            <div class="d-flex align-center gap-1 flex-wrap" style="font-size:0.8rem">
-                <span class="muted">@step.Position.</span>
-                <span>@step.Name</span>
-                <StatusChip Text="@TaskService.StepStateText(step)" Kind="@Kind(step)" />
-                @if (OnOutput.HasDelegate)
-                {
-                    <span @onclick:stopPropagation="true"><MudLink Typo="Typo.caption" OnClick="@(() => OnOutput.InvokeAsync(step.JobId))">output</MudLink></span>
-                }
-                @if (!step.Passed && !string.IsNullOrEmpty(step.Problem))
-                {
-                    <div class="muted" style="font-size:0.75rem;flex-basis:100%">@step.Problem</div>
-                }
-            </div>
+            @if (item.Step is { } step)
+            {
+                <div class="d-flex align-center gap-1 flex-wrap" style="font-size:0.8rem">
+                    <span class="muted">@step.Position.</span>
+                    <span>@step.Name</span>
+                    <StatusChip Text="@TaskService.StepStateText(step)" Kind="@Kind(step)" />
+                    @if (step.Attempt > 1)
+                    {
+                        <span class="muted">attempt @step.Attempt</span>
+                    }
+                    @if (OnOutput.HasDelegate)
+                    {
+                        <span @onclick:stopPropagation="true"><MudLink Typo="Typo.caption" OnClick="@(() => OnOutput.InvokeAsync(step.JobId))">output</MudLink></span>
+                        @for (var i = 0; i < step.EarlierJobIds.Count; i++)
+                        {
+                            var jobId = step.EarlierJobIds[i];
+                            var attempt = i + 1;
+                            <span @onclick:stopPropagation="true">
+                                <MudLink Typo="Typo.caption" Class="muted" OnClick="@(() => OnOutput.InvokeAsync(jobId))">attempt @attempt</MudLink>
+                            </span>
+                        }
+                    }
+                    @if (!step.Passed && step.StepId is { } stepId && !IsBusy(step))
+                    {
+                        @RetryButton(stepId, step.Kind)
+                    }
+                    @if (!step.Passed && !string.IsNullOrEmpty(step.Problem))
+                    {
+                        <div class="muted" style="font-size:0.75rem;flex-basis:100%">@step.Problem</div>
+                    }
+                </div>
+            }
+            else if (item.NotRun is { } notRun)
+            {
+                <div class="d-flex align-center gap-1 flex-wrap" style="font-size:0.8rem">
+                    <span class="muted">@notRun.Position.</span>
+                    <span>@notRun.Name</span>
+                    <StatusChip Text="Not run" Kind="StatusKind.Neutral" />
+                    @RetryButton(notRun.StepId, notRun.Kind)
+                </div>
+            }
         }
     </div>
 }
@@ -29,8 +58,42 @@ else
 @code {
     [Parameter, EditorRequired] public IReadOnlyList<TaskRunStepItem> Steps { get; set; } = [];
 
+    /// <summary>The steps of the task without a job in this run (0.9.0).</summary>
+    [Parameter] public IReadOnlyList<TaskNotRunStepItem> NotRun { get; set; } = [];
+
     /// <summary>Opens the output of the job of a step; without it the steps show no link.</summary>
     [Parameter] public EventCallback<Guid> OnOutput { get; set; }
+
+    /// <summary>Runs a step again by its id (0.9.0); without it the steps show no button.</summary>
+    [Parameter] public EventCallback<Guid> OnRetry { get; set; }
+
+    /// <summary>Whether the caller may run a step of this kind again; without it every kind may.</summary>
+    [Parameter] public Func<TaskStepKind, bool>? MayRetry { get; set; }
+
+    /// <summary>Why no step can run again now: the buttons are disabled with this as their tooltip.</summary>
+    [Parameter] public string? RetryBlocked { get; set; }
+
+    private IEnumerable<(int Position, TaskRunStepItem? Step, TaskNotRunStepItem? NotRun)> Items() =>
+        Steps.Select(s => (s.Position, (TaskRunStepItem?)s, (TaskNotRunStepItem?)null))
+            .Concat(NotRun.Select(n => (n.Position, (TaskRunStepItem?)null, (TaskNotRunStepItem?)n)))
+            .OrderBy(i => i.Position);
+
+    private RenderFragment RetryButton(Guid stepId, TaskStepKind kind) => __builder =>
+    {
+        if (!OnRetry.HasDelegate || MayRetry?.Invoke(kind) == false)
+        {
+            return;
+        }
+
+        <span @onclick:stopPropagation="true">
+            <MudTooltip Text="@(RetryBlocked ?? "Run this step again on this endpoint")">
+                <MudIconButton Icon="@Icons.Material.Outlined.Replay" Size="Size.Small" Disabled="@(RetryBlocked is not null)"
+                               aria-label="Run this step again on this endpoint" OnClick="@(() => OnRetry.InvokeAsync(stepId))" />
+            </MudTooltip>
+        </span>
+    };
+
+    private static bool IsBusy(TaskRunStepItem step) => step.State is JobState.PendingSignature or JobState.Queued or JobState.Running;
 
     private static StatusKind Kind(TaskRunStepItem step) => step.Passed ? step.ExitStatus switch
     {

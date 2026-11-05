@@ -70,6 +70,11 @@ When a third released version is added, the oldest entry moves to the top of
   `/etc/apt/apt.conf.d`) or the dnf-automatic timers off the same way, never touching what somebody else configured, and reports
   where they stand.
 
+- A step of a task can be run again on one endpoint, from its Tasks tab (decided 2026-11-05): a step that failed, or one that did not
+  run because an earlier step stopped the run, runs on its own in the same run, as the user who asked, without the steps after it.
+  The run is judged on the newest attempt of every step, so it succeeds once every step passed, and the alert of the task resolves.
+  The Tasks tab also starts a new run of a task on that endpoint only (Run now), and shows every attempt of a step with its output.
+
 ### Changed
 
 - Only a patch policy patched by Action1 becomes an Action1 automation.
@@ -88,6 +93,8 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- The alert of a task that failed could not be acknowledged, put on hold or resolved from the Tasks tab of the endpoint; it can now,
+  with its comment, and the tab shows whether the alert is open, acknowledged or on hold. The Alerts page names failed tasks too.
 - The public API answered the patch engine of `GET /api/v1/endpoints/{endpointId}/patches` as a number instead of `action1` or `fleeto`
   (found before release).
 

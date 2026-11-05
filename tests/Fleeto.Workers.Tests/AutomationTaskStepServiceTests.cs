@@ -104,6 +104,7 @@ public sealed class AutomationTaskStepServiceTests : IAsyncLifetime
     {
         await service.StartRunsAsync(CancellationToken.None);
         await service.FollowOutcomesAsync(CancellationToken.None);
+        await service.StartRetriesAsync(CancellationToken.None);
         await service.StartJobsAsync(CancellationToken.None);
     }
 
@@ -326,5 +327,170 @@ public sealed class AutomationTaskStepServiceTests : IAsyncLifetime
 
         var job = await JobOfAsync(endpoint.Id, steps[0], runId);
         Assert.Equal((AutomationTasks.AutomaticInitiator, "Tess"), (job.InitiatedByUserId, job.InitiatedByName));
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // A step run again (0.9.0)
+    // -----------------------------------------------------------------------------------------------------------------
+
+    /// <summary>A user asks to run a step again, as web writes it. The clock stands still, so a scheduled run cannot come in between.</summary>
+    private async Task<Guid> RetryAsync(Guid taskId, Guid endpointId, AutomationTaskStep step)
+    {
+        var target = await TargetAsync(taskId);
+        var retry = new AutomationTaskStepRetry
+        {
+            Id = Guid.NewGuid(), RunId = target.RunId, EndpointId = endpointId, ClientId = target.ClientId, AutomationTaskId = taskId, TaskStepId = step.Id,
+            RequestedByUserId = Guid.NewGuid(), RequestedByName = "Tess", RequestedAt = Now
+        };
+        await using var db = _fixture.Db.DbFactory.CreateSystem();
+        db.AutomationTaskStepRetries.Add(retry);
+        await db.SaveChangesAsync();
+        return retry.Id;
+    }
+
+    private async Task<Job> RetryJobAsync(Guid retryId)
+    {
+        await using var db = _fixture.Db.DbFactory.CreateSystem();
+        return await db.Jobs.AsNoTracking().SingleAsync(j => j.TaskRetryId == retryId);
+    }
+
+    private async Task<Alert?> OpenAlertAsync(Guid endpointId)
+    {
+        await using var db = _fixture.Db.DbFactory.CreateSystem();
+        return await db.Alerts.AsNoTracking().SingleOrDefaultAsync(a => a.EndpointId == endpointId && a.Kind == AlertKind.Task && a.State != AlertState.Resolved);
+    }
+
+    /// <summary>The job a run wrote by itself for a step (not one run again).</summary>
+    private async Task<Job> FirstJobOfAsync(Guid endpointId, AutomationTaskStep step) =>
+        Assert.Single(await JobsAsync(endpointId), j => j.TaskStepId == step.Id && j.TaskRetryId == null);
+
+    [Fact]
+    public async Task A_failed_step_that_passes_when_run_again_turns_the_run_into_a_success_and_resolves_its_alert_without_running_the_next_step()
+    {
+        // Step 2 may fail, so step 3 ran: only step 2 is wrong.
+        var (endpoint, task, steps) = await SeedAsync("RETRY", "0.6.0", null,
+            new AutomationTaskStep { Kind = TaskStepKind.Script, ContinueOnFailure = true }, new AutomationTaskStep { Kind = TaskStepKind.Script });
+        var service = Service();
+        await StartRunAsync(service);
+        await EndAsync((await JobOfAsync(endpoint.Id, steps[0])).Id, JobState.Succeeded);
+        await PassAsync(service);
+        var failed = await JobOfAsync(endpoint.Id, steps[1]);
+        await EndAsync(failed.Id, JobState.Failed, 1, ExitStatus.Error);
+        await PassAsync(service);
+        await EndAsync((await JobOfAsync(endpoint.Id, steps[2])).Id, JobState.Succeeded);
+        await PassAsync(service);
+        Assert.Equal(TaskTargetOutcome.Failed, (await TargetAsync(task.Id)).Outcome);
+        Assert.NotNull(await OpenAlertAsync(endpoint.Id));
+
+        var retryId = await RetryAsync(task.Id, endpoint.Id, steps[1]);
+        await PassAsync(service);
+        var again = await RetryJobAsync(retryId);
+        Assert.Equal((steps[1].Id, failed.TaskRunId, AutomationTasks.AutomaticInitiator, "Tess"),
+            (again.TaskStepId, again.TaskRunId, again.InitiatedByUserId, again.InitiatedByName));
+        var busy = await TargetAsync(task.Id);
+        Assert.Equal((again.Id, (DateTime?)null, (TaskTargetOutcome?)null), (busy.JobId, busy.FinishedAt, busy.Outcome));
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            Assert.True(await db.SigningRequests.AnyAsync(r => r.SubjectId == again.Id));
+        }
+
+        await EndAsync(again.Id, JobState.Succeeded);
+        await PassAsync(service);
+
+        var target = await TargetAsync(task.Id);
+        Assert.Equal((TaskTargetOutcome.Succeeded, (string?)null), (target.Outcome, target.Reason));
+        Assert.Null(await OpenAlertAsync(endpoint.Id));
+        Assert.Equal(4, (await JobsAsync(endpoint.Id)).Count);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            Assert.NotNull((await db.AutomationTaskStepRetries.AsNoTracking().SingleAsync(r => r.Id == retryId)).FinishedAt);
+        }
+    }
+
+    [Fact]
+    public async Task A_run_that_stopped_succeeds_once_the_failed_step_and_the_steps_after_it_ran_again_one_by_one()
+    {
+        var (endpoint, task, steps) = await SeedAsync("RESUME", "0.6.0", null,
+            new AutomationTaskStep { Kind = TaskStepKind.Script }, new AutomationTaskStep { Kind = TaskStepKind.Script });
+        var service = Service();
+        await StartRunAsync(service);
+        await EndAsync((await JobOfAsync(endpoint.Id, steps[0])).Id, JobState.Succeeded);
+        await PassAsync(service);
+        await EndAsync((await JobOfAsync(endpoint.Id, steps[1])).Id, JobState.Failed, 2, ExitStatus.Error);
+        await PassAsync(service);
+        Assert.Equal(2, (await JobsAsync(endpoint.Id)).Count);
+        var alert = await OpenAlertAsync(endpoint.Id);
+        Assert.NotNull(alert);
+
+        // Step 2 passes now, step 3 never ran: the run is not finished yet, and the alert stays.
+        var second = await RetryAsync(task.Id, endpoint.Id, steps[1]);
+        await PassAsync(service);
+        await EndAsync((await RetryJobAsync(second)).Id, JobState.Succeeded);
+        await PassAsync(service);
+        var target = await TargetAsync(task.Id);
+        Assert.Equal(TaskTargetOutcome.Failed, target.Outcome);
+        Assert.Equal(AutomationTaskService.NotRunReason([3]), target.Reason);
+        Assert.Equal(alert!.Id, (await OpenAlertAsync(endpoint.Id))?.Id);
+        Assert.DoesNotContain(await JobsAsync(endpoint.Id), j => j.TaskStepId == steps[2].Id);
+
+        var third = await RetryAsync(task.Id, endpoint.Id, steps[2]);
+        await PassAsync(service);
+        await EndAsync((await RetryJobAsync(third)).Id, JobState.Succeeded);
+        await PassAsync(service);
+        Assert.Equal(TaskTargetOutcome.Succeeded, (await TargetAsync(task.Id)).Outcome);
+        Assert.Null(await OpenAlertAsync(endpoint.Id));
+    }
+
+    [Fact]
+    public async Task A_step_that_fails_again_keeps_the_run_failed_and_its_alert_open()
+    {
+        var (endpoint, task, steps) = await SeedAsync("AGAIN", "0.6.0", null, new AutomationTaskStep { Kind = TaskStepKind.Script });
+        var service = Service();
+        await StartRunAsync(service);
+        await EndAsync((await FirstJobOfAsync(endpoint.Id, steps[0])).Id, JobState.Failed, 5, ExitStatus.Error);
+        await PassAsync(service);
+        var alert = await OpenAlertAsync(endpoint.Id);
+
+        var retryId = await RetryAsync(task.Id, endpoint.Id, steps[0]);
+        await PassAsync(service);
+        await EndAsync((await RetryJobAsync(retryId)).Id, JobState.Failed, 6, ExitStatus.Error);
+        await PassAsync(service);
+
+        Assert.Equal(TaskTargetOutcome.Failed, (await TargetAsync(task.Id)).Outcome);
+        Assert.Equal(alert!.Id, (await OpenAlertAsync(endpoint.Id))?.Id);
+        Assert.DoesNotContain(await JobsAsync(endpoint.Id), j => j.TaskStepId == steps[1].Id);
+    }
+
+    [Fact]
+    public async Task A_step_is_not_run_again_while_the_run_is_busy_or_once_the_task_is_switched_off()
+    {
+        var (endpoint, task, steps) = await SeedAsync("BUSYRETRY", "0.6.0", null, new AutomationTaskStep { Kind = TaskStepKind.Script });
+        var service = Service();
+        await StartRunAsync(service);
+
+        // Step 1 still runs.
+        var busy = await RetryAsync(task.Id, endpoint.Id, steps[0]);
+        await PassAsync(service);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var retry = await db.AutomationTaskStepRetries.AsNoTracking().SingleAsync(r => r.Id == busy);
+            Assert.Equal((AutomationTaskService.RetryBusyReason, (Guid?)null), (retry.Reason, retry.JobId));
+            Assert.NotNull(retry.FinishedAt);
+        }
+
+        await EndAsync((await FirstJobOfAsync(endpoint.Id, steps[0])).Id, JobState.Failed, 1, ExitStatus.Error);
+        await PassAsync(service);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            await db.AutomationTasks.Where(t => t.Id == task.Id).ExecuteUpdateAsync(s => s.SetProperty(t => t.Enabled, false));
+        }
+
+        var off = await RetryAsync(task.Id, endpoint.Id, steps[0]);
+        await PassAsync(service);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            Assert.Equal(AutomationTaskService.RetryTaskOffReason, (await db.AutomationTaskStepRetries.AsNoTracking().SingleAsync(r => r.Id == off)).Reason);
+            Assert.False(await db.Jobs.AnyAsync(j => j.TaskRetryId != null && j.EndpointId == endpoint.Id));
+        }
     }
 }

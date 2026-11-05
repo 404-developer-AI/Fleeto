@@ -10,8 +10,8 @@ namespace Fleeto.Infrastructure.Tests;
 /// Guarantees the database rules of the steps of tasks (0.6.0, steps) with the production grants: the workers write the job of a
 /// step only as that step says (its script and account, or a restart for a restart step) in a run Fleeto started or a run started
 /// by hand that names its user; nobody else writes a restart; only web writes a run started by hand and only such a run names a
-/// user; what started a run and the step of a job never change; a step runs once per run and endpoint; and a step runs a global
-/// script or one of its task's client.
+/// user; what started a run and the step of a job never change; a step runs once per run and endpoint, and again only for a retry a
+/// user asked for through web (0.9.0); and a step runs a global script or one of its task's client.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class AutomationTaskStepRuleTests
@@ -206,15 +206,15 @@ public sealed class AutomationTaskStepRuleTests
     }
 
     private static NpgsqlCommand InsertJob(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid id, Scope scope, Guid runId, Guid? stepId,
-        string type, Guid? scriptId, Guid? versionId, Guid initiator)
+        string type, Guid? scriptId, Guid? versionId, Guid initiator, Guid? retryId = null)
     {
         var insert = new NpgsqlCommand(
             """
             INSERT INTO "Jobs" ("Id","ClientId","EndpointId","BatchId","Type","ScriptId","ScriptVersionId","ScriptName","ScriptVersionNumber","Language",
-              "ScriptSha256","TimeoutSeconds","MaxOutputBytes","RunAs","TaskId","TaskRunId","TaskStepId","CreatedAt","ValidUntil","InitiatedByUserId",
+              "ScriptSha256","TimeoutSeconds","MaxOutputBytes","RunAs","TaskId","TaskRunId","TaskStepId","TaskRetryId","CreatedAt","ValidUntil","InitiatedByUserId",
               "InitiatedByName","State","ReceivedOutputBytes","OutputTruncated","OutputState")
             VALUES (@id, @client, @endpoint, @run, @type, @script, @version, 'Step', 1, 'PowerShell', '', 600, 1024, 'Service',
-              @task, @run, @step, now(), now() + interval '1 day', @initiator, 'Fleeto (task)', 'PendingSignature', 0, false, 'None')
+              @task, @run, @step, @retry, now(), now() + interval '1 day', @initiator, 'Fleeto (task)', 'PendingSignature', 0, false, 'None')
             """, connection, transaction);
         insert.Parameters.AddWithValue("id", id);
         insert.Parameters.AddWithValue("client", scope.Client.Id);
@@ -226,6 +226,7 @@ public sealed class AutomationTaskStepRuleTests
         insert.Parameters.AddWithValue("task", scope.Task.Id);
         insert.Parameters.AddWithValue("step", (object?)stepId ?? DBNull.Value);
         insert.Parameters.AddWithValue("initiator", initiator);
+        insert.Parameters.AddWithValue("retry", (object?)retryId ?? DBNull.Value);
         return insert;
     }
 
@@ -242,5 +243,167 @@ public sealed class AutomationTaskStepRuleTests
         await using var command = new NpgsqlCommand(sql, connection);
 #pragma warning restore CA2100
         await command.ExecuteNonQueryAsync();
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // A step run again (0.9.0)
+    // -----------------------------------------------------------------------------------------------------------------
+
+    /// <summary>A run with its endpoint and the first step done, and a retry of a step as web writes it.</summary>
+    private async Task<(Guid RunId, Guid RetryId)> RetryAsync(Scope scope, AutomationTaskStep step)
+    {
+        var runId = await RunAsync(scope, TaskTrigger.Schedule);
+        await using var db = _db.DbFactory.CreateSystem();
+        db.AutomationTaskRunTargets.Add(new AutomationTaskRunTarget
+        {
+            RunId = runId, EndpointId = scope.Endpoint.Id, ClientId = scope.Client.Id, AutomationTaskId = scope.Task.Id, DueAt = DateTime.UtcNow,
+            ValidUntil = DateTime.UtcNow.AddHours(1), State = TaskTargetState.Started, FinishedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+        await StepJobAsync(scope, runId, scope.ScriptStep);
+        var retry = new AutomationTaskStepRetry
+        {
+            Id = Guid.NewGuid(), RunId = runId, EndpointId = scope.Endpoint.Id, ClientId = scope.Client.Id, AutomationTaskId = scope.Task.Id,
+            TaskStepId = step.Id, RequestedByUserId = Guid.NewGuid(), RequestedByName = "Tess", RequestedAt = DateTime.UtcNow
+        };
+        db.AutomationTaskStepRetries.Add(retry);
+        await db.SaveChangesAsync();
+        return (runId, retry.Id);
+    }
+
+    [Theory]
+    [InlineData("the step of its retry", true)]
+    [InlineData("a retry that does not exist", false)]
+    [InlineData("another step than its retry", false)]
+    public async Task The_workers_run_a_step_again_only_for_a_retry_a_user_asked_for(string variant, bool allowed)
+    {
+        var scope = await ScopeAsync();
+        var (runId, retryId) = await RetryAsync(scope, scope.ScriptStep);
+        var retry = variant == "a retry that does not exist" ? Guid.NewGuid() : retryId;
+        var restart = variant == "another step than its retry";
+
+        await using var connection = await _db.DataSource.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        await AsWorkersAsync(connection);
+        await using var insert = InsertJob(connection, transaction, Guid.NewGuid(), scope, runId, restart ? scope.RestartStep.Id : scope.ScriptStep.Id,
+            restart ? "Restart" : "Script", restart ? null : scope.Version.ScriptId, restart ? null : scope.Version.Id, Guid.Empty, retry);
+
+        if (allowed)
+        {
+            await insert.ExecuteNonQueryAsync();
+        }
+        else
+        {
+            var error = await Assert.ThrowsAsync<PostgresException>(() => insert.ExecuteNonQueryAsync());
+            Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
+        }
+
+        await transaction.RollbackAsync();
+    }
+
+    [Fact]
+    public async Task Web_never_writes_the_job_of_a_step_run_again_even_for_a_user()
+    {
+        var scope = await ScopeAsync();
+        var (runId, retryId) = await RetryAsync(scope, scope.ScriptStep);
+
+        await using var connection = await _db.DataSource.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        await EnsureRolesAsync();
+        await Execute(connection, DatabaseGrants.BuildSql());
+        await Execute(connection, "SET LOCAL ROLE fleeto_web");
+        await using var insert = InsertJob(connection, transaction, Guid.NewGuid(), scope, runId, scope.ScriptStep.Id, "Script", scope.Version.ScriptId,
+            scope.Version.Id, Guid.NewGuid(), retryId);
+
+        var error = await Assert.ThrowsAsync<PostgresException>(() => insert.ExecuteNonQueryAsync());
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
+        await transaction.RollbackAsync();
+    }
+
+    [Theory]
+    [InlineData("fleeto_web", "a user", true)]
+    [InlineData("fleeto_web", "no user", false)]
+    [InlineData("fleeto_web", "a step of another task", false)]
+    [InlineData("fleeto_workers", "a user", false)]
+    public async Task Only_web_asks_to_run_a_step_again_for_a_user_and_a_step_of_the_task_of_the_run(string role, string variant, bool allowed)
+    {
+        var scope = await ScopeAsync();
+        var other = await ScopeAsync();
+        var (runId, _) = await RetryAsync(scope, scope.ScriptStep);
+        await using (var db = _db.DbFactory.CreateSystem())
+        {
+            await db.AutomationTaskStepRetries.Where(r => r.RunId == runId).ExecuteUpdateAsync(u => u.SetProperty(r => r.FinishedAt, DateTime.UtcNow));
+        }
+
+        await using var connection = await _db.DataSource.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        await EnsureRolesAsync();
+        await Execute(connection, DatabaseGrants.BuildSql());
+        await Execute(connection, $"SET LOCAL ROLE {role}");
+        await using var insert = new NpgsqlCommand(
+            """
+            INSERT INTO "AutomationTaskStepRetries" ("Id","RunId","EndpointId","ClientId","AutomationTaskId","TaskStepId","RequestedByUserId","RequestedByName","RequestedAt")
+            VALUES (gen_random_uuid(), @run, @endpoint, @client, @task, @step, @user, 'Tess', now())
+            """, connection, transaction);
+        insert.Parameters.AddWithValue("run", runId);
+        insert.Parameters.AddWithValue("endpoint", scope.Endpoint.Id);
+        insert.Parameters.AddWithValue("client", scope.Client.Id);
+        insert.Parameters.AddWithValue("task", scope.Task.Id);
+        insert.Parameters.AddWithValue("step", variant == "a step of another task" ? other.ScriptStep.Id : scope.ScriptStep.Id);
+        insert.Parameters.AddWithValue("user", variant == "no user" ? Guid.Empty : Guid.NewGuid());
+
+        if (allowed)
+        {
+            await insert.ExecuteNonQueryAsync();
+        }
+        else
+        {
+            var error = await Assert.ThrowsAsync<PostgresException>(() => insert.ExecuteNonQueryAsync());
+            Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
+        }
+
+        await transaction.RollbackAsync();
+    }
+
+    [Fact]
+    public async Task What_was_asked_of_a_step_run_again_and_the_retry_of_its_job_never_change_and_a_closed_retry_stays_closed()
+    {
+        var scope = await ScopeAsync();
+        var (runId, retryId) = await RetryAsync(scope, scope.ScriptStep);
+        var jobId = Guid.NewGuid();
+        await using (var db = _db.DbFactory.CreateSystem())
+        {
+            db.Jobs.Add(new Job
+            {
+                Id = jobId, ClientId = scope.Client.Id, EndpointId = scope.Endpoint.Id, BatchId = runId, Type = JobType.Script,
+                ScriptId = scope.Version.ScriptId, ScriptVersionId = scope.Version.Id, ScriptName = "Inventory", ScriptVersionNumber = 1,
+                ScriptSha256 = scope.Version.Sha256, TimeoutSeconds = 600, MaxOutputBytes = 1024, TaskId = scope.Task.Id, TaskRunId = runId,
+                TaskStepId = scope.ScriptStep.Id, TaskRetryId = retryId, CreatedAt = DateTime.UtcNow, ValidUntil = DateTime.UtcNow.AddHours(1),
+                InitiatedByUserId = Guid.Empty, InitiatedByName = "Fleeto"
+            });
+            await db.SaveChangesAsync();
+            await db.AutomationTaskStepRetries.Where(r => r.Id == retryId).ExecuteUpdateAsync(u => u.SetProperty(r => r.JobId, jobId));
+        }
+
+        await AssertRefusedAsync(db => db.Jobs.Where(j => j.Id == jobId).ExecuteUpdateAsync(u => u.SetProperty(j => j.TaskRetryId, Guid.NewGuid())));
+        await AssertRefusedAsync(db => db.AutomationTaskStepRetries.Where(r => r.Id == retryId)
+            .ExecuteUpdateAsync(u => u.SetProperty(r => r.TaskStepId, scope.RestartStep.Id)));
+        await AssertRefusedAsync(db => db.AutomationTaskStepRetries.Where(r => r.Id == retryId)
+            .ExecuteUpdateAsync(u => u.SetProperty(r => r.RequestedByUserId, Guid.NewGuid())));
+
+        await using (var db = _db.DbFactory.CreateSystem())
+        {
+            await db.AutomationTaskStepRetries.Where(r => r.Id == retryId).ExecuteUpdateAsync(u => u.SetProperty(r => r.FinishedAt, DateTime.UtcNow));
+        }
+
+        await AssertRefusedAsync(db => db.AutomationTaskStepRetries.Where(r => r.Id == retryId)
+            .ExecuteUpdateAsync(u => u.SetProperty(r => r.FinishedAt, (DateTime?)null)));
+    }
+
+    private async Task AssertRefusedAsync(Func<FleetoDbContext, Task<int>> change)
+    {
+        await using var db = _db.DbFactory.CreateSystem();
+        var error = await Assert.ThrowsAsync<PostgresException>(() => change(db));
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
     }
 }

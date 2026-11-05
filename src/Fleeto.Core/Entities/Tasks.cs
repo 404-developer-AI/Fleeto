@@ -323,3 +323,34 @@ public class AutomationTaskRunTarget
 
     public DateTime UpdatedAt { get; set; }
 }
+
+/// <summary>
+/// A user asked to run one step of a run again on one endpoint (0.9.0, decided 2026-11-05): written by web, picked up by the workers,
+/// which write the job of the step again in the same run (<see cref="Job.TaskRetryId"/>) and point the target at it. The run is then
+/// judged on the newest job of every step, so a step that now passes can turn the run into a success. One retry at a time per
+/// endpoint of a run; fleeto-signer checks this user's permissions and access again before it signs.
+/// </summary>
+public class AutomationTaskStepRetry
+{
+    public Guid Id { get; set; }
+    public Guid RunId { get; set; }
+    public Guid EndpointId { get; set; }
+    public Guid ClientId { get; set; }
+    public Guid AutomationTaskId { get; set; }
+    public Guid TaskStepId { get; set; }
+    public Guid RequestedByUserId { get; set; }
+    public string RequestedByName { get; set; } = string.Empty;
+    public DateTime RequestedAt { get; set; }
+
+    /// <summary>The job the workers wrote for it; null until then, or when it could not start (<see cref="Reason"/>).</summary>
+    public Guid? JobId { get; set; }
+
+    /// <summary>When the workers handled it: the job was written, or it could not start.</summary>
+    public DateTime? HandledAt { get; set; }
+
+    /// <summary>When the job ended and the run was judged again.</summary>
+    public DateTime? FinishedAt { get; set; }
+
+    /// <summary>Why the step could not start again.</summary>
+    public string? Reason { get; set; }
+}

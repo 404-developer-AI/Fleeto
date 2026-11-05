@@ -208,6 +208,12 @@ public class Job
     /// <summary>The step of the task this job runs (0.6.0, steps); null for a job written before steps existed. No foreign key: a deleted step stays named.</summary>
     public Guid? TaskStepId { get; set; }
 
+    /// <summary>
+    /// The retry of a step a user asked for (0.9.0): this job runs <see cref="TaskStepId"/> again in <see cref="TaskRunId"/>, and no next
+    /// step follows it. Null for the jobs a run writes by itself, of which there is one per step.
+    /// </summary>
+    public Guid? TaskRetryId { get; set; }
+
     /// <summary>The deployment of a <see cref="JobType.PatchInstall"/> job (0.9.0); frozen once written.</summary>
     public Guid? PatchDeploymentId { get; set; }
 

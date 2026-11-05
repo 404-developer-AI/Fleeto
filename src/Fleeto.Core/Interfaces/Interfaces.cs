@@ -366,6 +366,7 @@ public static class AuditActions
     public const string TaskUpdated = "task.updated";
     public const string TaskDeleted = "task.deleted";
     public const string TaskRunStarted = "task.run_started";
+    public const string TaskStepRetried = "task.step_retried";
     public const string ClientTemplateCreated = "client_template.created";
     public const string ClientTemplateUpdated = "client_template.updated";
     public const string ClientTemplateDeleted = "client_template.deleted";

@@ -12,7 +12,7 @@ namespace Fleeto.Signer.Tests;
 /// Guarantees the steps of tasks (0.6.0, decided 2026-10-15): the signer signs a step only after the job of the step before it
 /// ended and passed (or may fail), never a step twice or out of order, judged from the jobs the gateway completed; it composes a
 /// restart itself with the wait of the step, only for an agent that knows it; and a run started by hand is signed only while the
-/// user who started it may still do so.
+/// user who started it may still do so. A step a user asked to run again (0.9.0) is signed as that user, whatever the order.
 /// </summary>
 [Collection(SignerCollection.Name)]
 public sealed class AutomationTaskStepJobTests
@@ -70,14 +70,14 @@ public sealed class AutomationTaskStepJobTests
     }
 
     /// <summary>Writes the job of a step as the workers would, and points the run's target at it.</summary>
-    private async Task<Job> StepJobAsync(Scope scope, Guid runId, AutomationTaskStep step)
+    private async Task<Job> StepJobAsync(Scope scope, Guid runId, AutomationTaskStep step, Guid? retryId = null)
     {
         await using var db = _fixture.Database.DbFactory.CreateSystem();
         var job = new Job
         {
             Id = Guid.NewGuid(), ClientId = scope.Client.Id, EndpointId = scope.Endpoint.Id, BatchId = runId, TaskId = scope.Task.Id, TaskRunId = runId,
             TaskStepId = step.Id, CreatedAt = _fixture.Now, ValidUntil = _fixture.Now.AddHours(24), InitiatedByUserId = AutomationTasks.AutomaticInitiator,
-            InitiatedByName = "Run", TimeoutSeconds = 600, MaxOutputBytes = 1024 * 1024
+            InitiatedByName = "Run", TimeoutSeconds = 600, MaxOutputBytes = 1024 * 1024, TaskRetryId = retryId
         };
         if (step.Kind == TaskStepKind.Restart)
         {
@@ -248,5 +248,76 @@ public sealed class AutomationTaskStepJobTests
         var refused = await SignAsync(await StepJobAsync(scope, runId, scope.Steps[0]));
 
         Assert.Equal((JobState.Refused, JobHandler.TaskTriggerReason), (refused.State, refused.RefusalReason));
+    }
+
+    /// <summary>A user asks to run a step again, and the workers write its job, as web and the workers would.</summary>
+    private async Task<Job> RetryJobAsync(Scope scope, Guid runId, AutomationTaskStep step, Guid userId, DateTime? requestedAt = null)
+    {
+        var retry = new AutomationTaskStepRetry
+        {
+            Id = Guid.NewGuid(), RunId = runId, EndpointId = scope.Endpoint.Id, ClientId = scope.Client.Id, AutomationTaskId = scope.Task.Id,
+            TaskStepId = step.Id, RequestedByUserId = userId, RequestedByName = "Tess", RequestedAt = requestedAt ?? _fixture.Now
+        };
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            // The workers closed the one before, as they do once its job ended.
+            await db.AutomationTaskStepRetries.Where(r => r.RunId == runId && r.FinishedAt == null)
+                .ExecuteUpdateAsync(u => u.SetProperty(r => r.FinishedAt, _fixture.Now));
+            db.AutomationTaskStepRetries.Add(retry);
+            await db.SaveChangesAsync();
+        }
+
+        var job = await StepJobAsync(scope, runId, step, retry.Id);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.AutomationTaskStepRetries.Where(r => r.Id == retry.Id)
+                .ExecuteUpdateAsync(u => u.SetProperty(r => r.JobId, job.Id).SetProperty(r => r.HandledAt, _fixture.Now));
+        }
+
+        return job;
+    }
+
+    [Fact]
+    public async Task A_step_run_again_is_signed_for_the_user_who_asked_whatever_the_order_and_what_started_the_run()
+    {
+        var scope = await ScopeAsync();
+        var technician = await _fixture.Database.CreateUserAsync(FleetoRoles.Technician);
+        var runId = await CreateRunAsync(scope, TaskTrigger.Schedule, LastOccurrence(scope.Task));
+        var first = await SignAsync(await StepJobAsync(scope, runId, scope.Steps[0]));
+        await EndAsync(first, JobState.Failed, 1, ExitStatus.Error);
+
+        // Step 1 again, after it already ran in this run, and step 3 although step 2 never ran.
+        var again = await SignAsync(await RetryJobAsync(scope, runId, scope.Steps[0], technician.Id));
+        Assert.Equal(JobState.Queued, again.State);
+        await EndAsync(again, JobState.Succeeded, 0);
+        var third = await SignAsync(await RetryJobAsync(scope, runId, scope.Steps[2], technician.Id));
+        Assert.Equal(JobState.Queued, third.State);
+    }
+
+    [Fact]
+    public async Task A_step_run_again_is_refused_for_a_user_who_may_not_run_tasks_an_old_request_or_a_busy_task()
+    {
+        var scope = await ScopeAsync();
+        var technician = await _fixture.Database.CreateUserAsync(FleetoRoles.Technician);
+        var readOnly = await _fixture.Database.CreateUserAsync(FleetoRoles.ReadOnly);
+        var runId = await CreateRunAsync(scope, TaskTrigger.Schedule, LastOccurrence(scope.Task));
+        var first = await SignAsync(await StepJobAsync(scope, runId, scope.Steps[0]));
+        await EndAsync(first, JobState.Failed, 1, ExitStatus.Error);
+
+        var byReadOnly = await SignAsync(await RetryJobAsync(scope, runId, scope.Steps[0], readOnly.Id));
+        Assert.Equal((JobState.Refused, JobHandler.InitiatorReason), (byReadOnly.State, byReadOnly.RefusalReason));
+
+        var old = await SignAsync(await RetryJobAsync(scope, runId, scope.Steps[0], technician.Id, _fixture.Now.AddHours(-25)));
+        Assert.Equal((JobState.Refused, JobHandler.TaskTriggerReason), (old.State, old.RefusalReason));
+
+        // A job of the task still runs on the endpoint.
+        var running = await RetryJobAsync(scope, runId, scope.Steps[0], technician.Id);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.Jobs.Where(j => j.Id == first.Id).ExecuteUpdateAsync(u => u.SetProperty(j => j.State, JobState.Running));
+        }
+
+        var busy = await SignAsync(running);
+        Assert.Equal((JobState.Refused, JobHandler.TaskOrderReason), (busy.State, busy.RefusalReason));
     }
 }
