@@ -7,8 +7,8 @@
 >
 > Written 2026-11-04 as a proposal, from the code and the documentation as they are at `v0.8.0-alpha.16`, and **decided with the
 > developer on 2026-11-04**: every recommendation of §14, with four changes from the review (§14, decisions 2, 7, 8 and 11). The rules
-> are in `CLAUDE.md` (Patch management). Every step of the build plan (§13) is built and released as 0.9.0 (2026-11-05), without a round
-> on the test VPS; what still has to be checked on real endpoints is in §15.
+> are in `CLAUDE.md` (Patch management). Every step of the build plan (§13) is built (2026-11-05) and in test from `v0.9.0-alpha.1`; what
+> still has to be checked on real endpoints before the release is in §15.
 
 ## 1. What it is, and what it is not
 
@@ -450,10 +450,10 @@ arrives with the least risk, and the part that changes endpoints last.
 3. [built 2026-11-05, not yet on the test VPS] **Installing by hand** (§5, §8): the job type, `PatchRules`, the signer, the agent flows on apt, dnf and Windows, the restart
    inside a job and its recovery, the deployment, targets and steps from the job, the dialog and the endpoint list action, the audit
    entries, the API changes on deployments.
-4. [built 2026-11-05, released in 0.9.0 without the test VPS] **Patch policies with engine Fleeto** (§6, §7): the dialog per engine, the new columns, `PatchPolicies.Occurrences`,
+4. [built 2026-11-05, not yet on the test VPS] **Patch policies with engine Fleeto** (§6, §7): the dialog per engine, the new columns, `PatchPolicies.Occurrences`,
    `PatchRoundService`, the origin triggers for rounds, the signer rules for a round, "Scheduled patching", `TurnOffWindowsUpdate` for
    engine *Fleeto*, the distribution-updates switch, the next and last round on the tab and in the list.
-5. [built 2026-11-05, released as 0.9.0] **Finish**: drivers and "Security updates only" options, deferral by `FirstSeenAt`, the endpoint list column and tooltip, the
+5. [built 2026-11-05, release after the test VPS] **Finish**: drivers and "Security updates only" options, deferral by `FirstSeenAt`, the endpoint list column and tooltip, the
    vocabulary and tone pass, `ARCHITECTURE.md` §2, §4 and §9 with what was built, `CHANGELOG.md`, the release.
 
 Every step has its tests before it is called done, and nothing in it has a button for a later step.
@@ -582,7 +582,7 @@ Taken with the developer on 2026-11-04: every recommendation of the proposal, wi
   follows, so stopping the agent kills neither (no SIGPIPE).
 - Rollback: `deploy/release-rollback` is `restore`, so a failed update to 0.9.0 restores the backup made before it.
 
-To check on the test VPS (open after the release, `ROADMAP.md`):
+To check on the test VPS before the release (`ROADMAP.md`):
 
 - Windows: `AddService2` and `RemoveService` of Microsoft Update as SYSTEM, and that the next scan then searches Microsoft Update; the
   driver search and a driver installation.

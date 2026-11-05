@@ -2,7 +2,7 @@
 
 > Technical reference for Fleeto. Rules and priorities live in
 > `CLAUDE.md` in the repository root; this file describes how the system is put together.
-> Status: 0.0.x to 0.9.0 released (agent enrollment, gateway, signer, workers, web UI, licensing, backups, maintenance,
+> Status: 0.0.x to 0.8.0 released, 0.9.0 in test (agent enrollment, gateway, signer, workers, web UI, licensing, backups, maintenance,
 > the check catalog and history, notification routing, scripts and jobs, the read-only public API, agent updates, the
 > watchdog, the Linux agent, remote sessions: the relay, end-to-end encryption, the full remote background — terminal,
 > files, services, processes — and remote control on Windows (H.264 and tiles) and on Linux with X11, with the clipboard,

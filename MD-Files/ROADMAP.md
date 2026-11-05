@@ -7,17 +7,19 @@
 
 ## Current
 
-Released versions, from 0.0.0 to 0.9.0, are described in `CHANGELOG.md` and `CHANGELOG-ARCHIVE.md`; this file keeps only
-what is not released yet. The latest release is **0.9.0** (2026-11-05, `v0.9.0`): patch management by the Fleeto agent itself on
-Windows, Windows Server, Ubuntu, Debian, AlmaLinux and Proxmox VE, next to Action1 (designed in `PATCHING.md`), released without a
-round on the test VPS (decided by the developer on 2026-11-05).
+Released versions, from 0.0.0 to 0.8.0, are described in `CHANGELOG.md` and `CHANGELOG-ARCHIVE.md`; this file keeps only
+what is not released yet. The latest release is **0.8.0** (2026-11-04, `v0.8.0`): vulnerability reporting, the Proxmox and
+Synology web interfaces, the dashboard designer, column layouts and the end-of-life report, tested through `v0.8.0-alpha.1` to
+`alpha.16`.
 
-No next version is decided yet. Open after 0.9.0:
+**0.9.0** — in test: patch management by the Fleeto agent itself on Windows, Windows Server, Ubuntu, Debian, AlmaLinux and Proxmox
+VE, next to Action1 (designed in `PATCHING.md`). Every step is built; it is tested on the test VPS from `v0.9.0-alpha.1` and
+released as `v0.9.0` once the developer approves it there (decided 2026-11-05). To do before the release:
 
 - [open] 0.9.0 on the test VPS: an installation and a restart by hand and by a round on every test endpoint (Ubuntu, Proxmox VE,
   AlmaLinux, Windows 11, Windows Server), the scan as SYSTEM with missing updates, under a WSUS and with Microsoft Update registered
   by a policy, the systemd scope of apt and dnf when the agent stops, and the other checks of `PATCHING.md` section 15. What they
-  find is a patch release.
+  find is fixed in the next alpha.
 - [open] The load test of patch scans and rounds at 10,000 agents (`Fleeto.LoadTest --patch-scans-per-hour --patch-updates`).
 - [open] When a Debian endpoint runs: captures of Debian 12 and 13 (`apt-get -q update`, `apt-get -s dist-upgrade`, `apt-mark
   showhold`) for the parser tests; Debian is supported on the representative output of `agent/internal/patch/testdata` until then.

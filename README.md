@@ -2,7 +2,7 @@
 
 Remote monitoring and management (RMM) by Steaan.
 
-Status: 0.9.0 released; 0.8.0 runs on the first test VPS. Windows and Linux agents, enrollment with mTLS, agent-only and
+Status: 0.8.0 released, running on the first test VPS; 0.9.0 in test. Windows and Linux agents, enrollment with mTLS, agent-only and
 managed endpoints with licensing, checks and alerts, dashboard, backups, jobs, scripts and tasks, remote control and remote
 background, patch management through Action1 and, from 0.9.0, by the Fleeto agent itself on Windows and Linux, with patch
 policies, storage analysis, instance health, user groups and roles with permissions, sign-in with Microsoft Entra ID, a

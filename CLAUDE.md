@@ -9,9 +9,9 @@ all development work. Read `MD-Files/branding-fleeto.md` before touching any use
 - **Language**: conversation with the developer is always in Dutch. Documentation, code,
   comments, commit messages, log messages and UI text are always in English.
 - **Current phase**: 0.9.0 (patch management by the Fleeto agent itself on Linux and on Windows, servers and workstations, for
-  endpoints without Action1, next to Action1; every choice in `MD-Files/PATCHING.md`, see Patch management) is released (2026-11-05)
-  without a round on the test VPS, which still runs 0.8.0; what has to be checked on real endpoints is open in `MD-Files/ROADMAP.md`.
-  No next version is decided.
+  endpoints without Action1, next to Action1; every choice in `MD-Files/PATCHING.md`, see Patch management) is built and in test on
+  the first test VPS from `v0.9.0-alpha.1`; it is released once the developer approves it there (what to check is in
+  `MD-Files/ROADMAP.md`). 0.8.0 is the latest release (2026-11-04).
   The other integrations moved to "Not yet scheduled" on 2026-09-23. Local development runs without Docker (see
   `README.md`); Docker is for the VPS and CI only.
 - **Git**: always ask before committing, pushing or tagging. No intermediate commits while a version is being built.
