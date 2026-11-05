@@ -338,6 +338,12 @@ Three kinds of tables:
 - Responsibilities: run local checks, stream results, execute signed jobs (scripts,
   installers such as the Action1 agent), send heartbeats, report inventory, self-update,
   serve remote control sessions (screen capture, input injection, clipboard sync).
+- **A dead path is given up within 2 minutes** (0.9.0): the connections of the agent, the watchdog and the remote session relay
+  to the gateway carry `TCP_USER_TIMEOUT` (Linux) or `TCP_MAXRT` (Windows) of 2 minutes (`gatewaynet`), the time the gateway
+  waits for an agent with the default heartbeat before it drops the session. A live migration to a host behind another NAT, a
+  new public address or a failover to another line leaves the connection open on the endpoint while nothing arrives and no
+  reset comes back; the heartbeat keeps data in flight, so the connection ends within a heartbeat and 2 minutes and the agent
+  connects again, instead of after the about 15 minutes Linux retransmits by itself.
 - **Trust anchors.** The agent trusts exactly three things, and nothing it receives over
   the network can add a fourth:
   - the **Steaan release public keys** (current and one standby), compiled into the binary:

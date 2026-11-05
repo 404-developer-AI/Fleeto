@@ -93,6 +93,10 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- An endpoint whose public address changed while it was connected, such as a VM moved to another Proxmox node by live migration
+  behind another NAT, stayed offline for about 15 minutes on Linux, until the operating system gave up the dead connection. The
+  agent, the watchdog and remote sessions now give up a connection whose data stays unacknowledged for 2 minutes, the time the
+  gateway waits for them, and connect again at once.
 - The alert of a task that failed could not be acknowledged, put on hold or resolved from the Tasks tab of the endpoint; it can now,
   with its comment, and the tab shows whether the alert is open, acknowledged or on hold. The Alerts page names failed tasks too.
 - The public API answered the patch engine of `GET /api/v1/endpoints/{endpointId}/patches` as a number instead of `action1` or `fleeto`

@@ -27,6 +27,7 @@ import (
 
 	"github.com/404-developer-AI/Fleeto/agent/internal/backoff"
 	"github.com/404-developer-AI/Fleeto/agent/internal/enroll"
+	"github.com/404-developer-AI/Fleeto/agent/internal/gatewaynet"
 	"github.com/404-developer-AI/Fleeto/agent/internal/inventory"
 	"github.com/404-developer-AI/Fleeto/agent/internal/keystore"
 	"github.com/404-developer-AI/Fleeto/agent/internal/platform"
@@ -336,7 +337,7 @@ func (w *Watchdog) session(ctx context.Context) (renewed bool, err error) {
 		// A watchdog does not recover an expired certificate; the agent provisions a new one.
 		return false, errors.New("the watchdog certificate has expired; waiting for the agent to provision a new one")
 	}
-	transport := &http.Transport{Proxy: nil, TLSClientConfig: tlsConf, TLSHandshakeTimeout: w.opts.HandshakeTimeout}
+	transport := gatewaynet.Transport(tlsConf, w.opts.HandshakeTimeout)
 	defer transport.CloseIdleConnections()
 	dialCtx, cancelDial := context.WithTimeout(ctx, w.opts.HandshakeTimeout)
 	conn, resp, err := websocket.Dial(dialCtx, "wss://"+st.Server+connectPath, &websocket.DialOptions{HTTPClient: &http.Client{Transport: transport}})

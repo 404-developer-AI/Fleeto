@@ -15,6 +15,7 @@ import (
 	"github.com/coder/websocket"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/404-developer-AI/Fleeto/agent/internal/gatewaynet"
 	"github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1"
 	"github.com/404-developer-AI/Fleeto/agent/internal/safego"
 	"github.com/404-developer-AI/Fleeto/agent/internal/signedconfig"
@@ -191,7 +192,7 @@ func WebSocketDialer(server func() (string, *tls.Config, error)) func(ctx contex
 		if !ValidID(participantID) {
 			return nil, errors.New("invalid participant id")
 		}
-		transport := &http.Transport{Proxy: nil, TLSClientConfig: tlsConfig, TLSHandshakeTimeout: dialTimeout}
+		transport := gatewaynet.Transport(tlsConfig, dialTimeout)
 		conn, resp, err := websocket.Dial(ctx, "wss://"+host+RelayPath+participantID, &websocket.DialOptions{
 			HTTPClient: &http.Client{Transport: transport},
 		})

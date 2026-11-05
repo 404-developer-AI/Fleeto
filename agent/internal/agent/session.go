@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/404-developer-AI/Fleeto/agent/internal/enroll"
+	"github.com/404-developer-AI/Fleeto/agent/internal/gatewaynet"
 	"github.com/404-developer-AI/Fleeto/agent/internal/inventory"
 	"github.com/404-developer-AI/Fleeto/agent/internal/keystore"
 	"github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1"
@@ -133,11 +134,7 @@ func (a *Agent) runSession(ctx context.Context) (sessionOutcome, error) {
 		return outcomeRenewed, nil
 	}
 
-	transport := &http.Transport{
-		Proxy:               nil,
-		TLSClientConfig:     tlsConf,
-		TLSHandshakeTimeout: a.opts.HandshakeTimeout,
-	}
+	transport := gatewaynet.Transport(tlsConf, a.opts.HandshakeTimeout)
 	defer transport.CloseIdleConnections()
 	dialCtx, cancelDial := context.WithTimeout(ctx, a.opts.HandshakeTimeout)
 	conn, resp, err := websocket.Dial(dialCtx, "wss://"+st.Server+ConnectPath, &websocket.DialOptions{
