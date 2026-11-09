@@ -24,8 +24,11 @@ const (
 	MaxCheckScriptTimeout = 5 * time.Minute
 	// MinCheckScriptTimeout is the shortest timeout a script check gets.
 	MinCheckScriptTimeout = 5 * time.Second
-	// maxCheckOutput is how much output of a script check is kept in memory; only its first line is reported.
-	maxCheckOutput = 64 * 1024
+	// DefaultCheckOutputLimit is how much output of a script check is reported without "output_limit_kb" (0.9.0).
+	DefaultCheckOutputLimit = 8 * 1024
+	// MinCheckOutputLimit and MaxCheckOutputLimit bound "output_limit_kb", whatever the configuration says.
+	MinCheckOutputLimit = 1024
+	MaxCheckOutputLimit = 256 * 1024
 	// checkWaitDelay is how long the output of a check script may stay open after the script itself ended.
 	checkWaitDelay = 5 * time.Second
 	// maxDetailRunes bounds the detail reported for a script check.
@@ -41,6 +44,8 @@ type CheckScriptResult struct {
 	ExitCode int
 	Detail   string
 	Error    string
+	// Output is what the script wrote, up to the output limit; nil when the script did not start.
+	Output *agentv1.ScriptOutput
 }
 
 // VerifyCheckScript checks the script of a script check from the verified signed configuration: its body has the signed hash and
@@ -63,13 +68,15 @@ func VerifyCheckScript(script *agentv1.ScriptJob) error {
 }
 
 // RunCheckScript runs a verified check script in a new protected directory under baseDir and removes it afterwards. The exit code
-// is the check's value; the first line of output (stdout, or stderr when stdout is empty) is its detail.
+// is the check's value; the first line of output (stdout, or stderr when stdout is empty) is its detail, and the output up to
+// limitBytes is reported with it (0.9.0).
 func RunCheckScript(ctx context.Context, baseDir string, access platform.Access, checkID string, script *agentv1.ScriptJob,
-	timeout time.Duration) CheckScriptResult {
+	timeout time.Duration, limitBytes int) CheckScriptResult {
 	if err := VerifyCheckScript(script); err != nil {
 		return CheckScriptResult{Error: err.Error()}
 	}
 	timeout = min(max(timeout, MinCheckScriptTimeout), MaxCheckScriptTimeout)
+	limitBytes = min(max(limitBytes, MinCheckOutputLimit), MaxCheckOutputLimit)
 
 	select {
 	case checkScriptSlots <- struct{}{}:
@@ -93,8 +100,9 @@ func RunCheckScript(ctx context.Context, baseDir string, access platform.Access,
 
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	stdout := &limitedBuffer{limit: maxCheckOutput}
-	stderr := &limitedBuffer{limit: maxCheckOutput}
+	// Each stream keeps up to the limit, because stderr gets the whole limit when stdout is empty.
+	stdout := &limitedBuffer{limit: limitBytes}
+	stderr := &limitedBuffer{limit: limitBytes}
 	// A script check comes from the signed configuration and always runs as the agent's own account, never as a user.
 	proc, tree, err := command(runCtx, commandOptions{
 		language:   script.GetLanguage(),
@@ -119,20 +127,52 @@ func RunCheckScript(ctx context.Context, baseDir string, access platform.Access,
 	if detail == "" {
 		detail = FirstLine(stderr.Bytes())
 	}
+	output := ScriptOutput(stdout, stderr, limitBytes)
 	var exitErr *exec.ExitError
 	switch {
 	case ctx.Err() != nil:
 		return CheckScriptResult{Error: "the agent stopped while the script ran"}
 	case errors.Is(runCtx.Err(), context.DeadlineExceeded):
-		return CheckScriptResult{Error: fmt.Sprintf("the script did not finish within %s and was ended", timeout), Detail: detail}
+		return CheckScriptResult{Error: fmt.Sprintf("the script did not finish within %s and was ended", timeout), Detail: detail,
+			Output: output}
 	case waitErr == nil, errors.As(waitErr, &exitErr):
-		return CheckScriptResult{ExitCode: proc.ExitCode(), Detail: detail}
+		return CheckScriptResult{ExitCode: proc.ExitCode(), Detail: detail, Output: output}
 	case errors.Is(waitErr, exec.ErrWaitDelay):
 		// A child process kept the output open; the script itself ended.
-		return CheckScriptResult{ExitCode: proc.ExitCode(), Detail: detail}
+		return CheckScriptResult{ExitCode: proc.ExitCode(), Detail: detail, Output: output}
 	default:
-		return CheckScriptResult{Error: waitErr.Error(), Detail: detail}
+		return CheckScriptResult{Error: waitErr.Error(), Detail: detail, Output: output}
 	}
+}
+
+// ScriptOutput is the reported output of a script check: stdout first, then stderr in what is left of limitBytes, each valid
+// UTF-8 without NUL characters and cut on a character boundary. TotalBytes counts everything the script wrote.
+func ScriptOutput(stdout, stderr *limitedBuffer, limitBytes int) *agentv1.ScriptOutput {
+	out := cleanOutput(stdout.Bytes(), limitBytes)
+	errOut := cleanOutput(stderr.Bytes(), limitBytes-len(out))
+	return &agentv1.ScriptOutput{
+		Stdout:     out,
+		Stderr:     errOut,
+		TotalBytes: stdout.Total() + stderr.Total(),
+		LimitBytes: uint64(limitBytes),
+	}
+}
+
+// cleanOutput makes output safe to send: no byte order mark, valid UTF-8, no NUL characters, at most limit bytes.
+func cleanOutput(output []byte, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	text := strings.ToValidUTF8(string(bytes.TrimPrefix(output, []byte{0xEF, 0xBB, 0xBF})), "�")
+	text = strings.ReplaceAll(text, "\x00", "")
+	if len(text) > limit {
+		text = text[:limit]
+		// The cut can split a character; drop its first bytes.
+		for len(text) > 0 && !utf8.ValidString(text) {
+			text = text[:len(text)-1]
+		}
+	}
+	return text
 }
 
 // FirstLine returns the first non-empty line of output as valid UTF-8 without control characters, at most 200 characters.
@@ -157,20 +197,29 @@ func FirstLine(output []byte) string {
 	return ""
 }
 
-// limitedBuffer keeps the first limit bytes written and drops the rest without failing the writer.
+// limitedBuffer keeps the first limit bytes written and drops the rest without failing the writer; it counts every byte.
 type limitedBuffer struct {
 	mu    sync.Mutex
 	buf   bytes.Buffer
 	limit int
+	total uint64
 }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.total += uint64(len(p))
 	if room := b.limit - b.buf.Len(); room > 0 {
 		b.buf.Write(p[:min(len(p), room)])
 	}
 	return len(p), nil
+}
+
+// Total is the number of bytes written, also those beyond the limit.
+func (b *limitedBuffer) Total() uint64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.total
 }
 
 func (b *limitedBuffer) Bytes() []byte {

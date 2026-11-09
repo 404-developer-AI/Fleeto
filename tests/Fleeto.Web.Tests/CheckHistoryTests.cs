@@ -89,6 +89,55 @@ public sealed class CheckHistoryTests
     }
 
     [Fact]
+    public async Task A_script_check_is_judged_by_the_exit_codes_of_its_script_and_an_old_summary_stays_unknown()
+    {
+        var user = await _fixture.Database.CreateUserAsync(FleetoRoles.Technician);
+        var (script, _) = await _fixture.Database.CreateScriptAsync(null, user.Id);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            (await db.Scripts.SingleAsync(s => s.Id == script.Id)).SuccessExitCodes = [3];
+            await db.SaveChangesAsync();
+        }
+
+        var (client, endpoint, check) = await SetupAsync(CheckType.Script, $$"""{"script":"{{script.Id}}"}""", null);
+        var now = _fixture.Database.Time.GetUtcNow().UtcDateTime;
+        var minute = new DateTime(now.Ticks - now.Ticks % TimeSpan.TicksPerMinute, DateTimeKind.Utc);
+        await ResultAsync(endpoint, check, minute.AddMinutes(-10), 3);
+        await ResultAsync(endpoint, check, minute.AddMinutes(-5), 0);
+        await ResultAsync(endpoint, check, minute.AddMinutes(-5).AddSeconds(5), 2);
+
+        var hour = await History.GetAsync(WebFixture.Technician(), endpoint.Id, check.Id, null, HistoryRange.Hour);
+        Assert.False(Assert.Single(hour!.Points, p => p.Time == minute.AddMinutes(-10)).HasProblem);
+        Assert.True(Assert.Single(hour.Points, p => p.Time == minute.AddMinutes(-5)).HasProblem);
+
+        var day = new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(-3);
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            foreach (var (offset, problems) in new (int, int?)[] { (1, null), (5, 0), (9, 2) })
+            {
+                db.CheckResultsHourly.Add(new CheckResultHourly
+                {
+                    EndpointId = endpoint.Id, ClientId = client.Id, CheckDefinitionId = check.Id, Bucket = day.AddHours(offset), MinValue = 3, MaxValue = 3,
+                    SumValue = 3, ValueCount = 1, ProblemCount = problems
+                });
+            }
+
+            await db.SaveChangesAsync();
+        }
+
+        var week = await History.GetAsync(WebFixture.Technician(), endpoint.Id, check.Id, null, HistoryRange.Week);
+        Assert.Null(Assert.Single(week!.Points, p => p.Time == day.AddHours(1)).HasProblem);
+        Assert.False(Assert.Single(week.Points, p => p.Time == day.AddHours(5)).HasProblem);
+        Assert.True(Assert.Single(week.Points, p => p.Time == day.AddHours(9)).HasProblem);
+
+        // Another check type keeps judging by its values.
+        var (_, cpuEndpoint, cpu) = await SetupAsync(CheckType.CpuUsage, "{}", 80);
+        await ResultAsync(cpuEndpoint, cpu, minute.AddMinutes(-3), 90);
+        var cpuHour = await History.GetAsync(WebFixture.Technician(), cpuEndpoint.Id, cpu.Id, null, HistoryRange.Hour);
+        Assert.All(cpuHour!.Points, p => Assert.Null(p.HasProblem));
+    }
+
+    [Fact]
     public async Task Longer_ranges_come_from_the_rollups_and_other_clients_or_agent_only_endpoints_get_nothing()
     {
         var (client, endpoint, check) = await SetupAsync(CheckType.ServiceRunning, """{"service":"Spooler"}""", null);

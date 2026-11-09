@@ -340,7 +340,16 @@ public sealed class CheckEvaluationService : WorkerLoop
             }
 
             var batchSize = Math.Max(1, _options.BatchSize);
-            var results = await query.OrderBy(r => r.Id).Take(batchSize).ToListAsync(cancellationToken);
+            // Never the script output (0.9.0): up to 256 KB a result that the evaluation does not need (ScriptOutputRules).
+            var results = await query.OrderBy(r => r.Id).Take(batchSize)
+                .Select(r => new CheckResult
+                {
+                    Id = r.Id, Time = r.Time, ClientId = r.ClientId, EndpointId = r.EndpointId, CheckDefinitionId = r.CheckDefinitionId,
+                    Target = r.Target, AgentTime = r.AgentTime, Value = r.Value, Detail = r.Detail, Error = r.Error,
+                    ConfigVersion = r.ConfigVersion, ProcessesJson = r.ProcessesJson, OutputBytes = r.OutputBytes,
+                    OutputLimitBytes = r.OutputLimitBytes
+                })
+                .ToListAsync(cancellationToken);
             if (results.Count == 0)
             {
                 return false;
@@ -455,11 +464,19 @@ public sealed class CheckEvaluationService : WorkerLoop
                 parameterCache[definition.Id] = parameters;
             }
 
+            var rules = definition.Type == CheckType.Script &&
+                        Guid.TryParse(parameters.GetValueOrDefault(CheckCatalog.ScriptParameter), out var checkScriptId)
+                ? exitCodes.GetValueOrDefault(checkScriptId)
+                : null;
+            var status = CheckEvaluator.Evaluate(definition.Type, result.Target, result.Value, result.Error, check.WarningThreshold,
+                check.CriticalThreshold, parameters, rules);
+
             // History counts every result of an applying check, also one that a reset makes the evaluation ignore.
             var at = CheckHistoryRules.EffectiveTime(result.AgentTime, result.Time);
             var noResponse = string.IsNullOrEmpty(result.Error) && CheckHistoryRules.IsNoResponse(definition.Type, result.Target, parameters, result.Value);
-            Accumulate(hourly, (definition.Id, result.Target, CheckHistoryRules.HourBucket(at)), result, noResponse);
-            Accumulate(daily, (definition.Id, result.Target, CheckHistoryRules.DayBucket(at)), result, noResponse);
+            var problem = status is CheckStatus.Warning or CheckStatus.Critical;
+            Accumulate(hourly, (definition.Id, result.Target, CheckHistoryRules.HourBucket(at)), result, noResponse, problem);
+            Accumulate(daily, (definition.Id, result.Target, CheckHistoryRules.DayBucket(at)), result, noResponse, problem);
 
             var key = (definition.Id, result.Target);
             if (states.TryGetValue(key, out var existing) && existing.ResetAt is { } resetAt && result.Time < resetAt)
@@ -467,13 +484,6 @@ public sealed class CheckEvaluationService : WorkerLoop
                 // Ingested before a technician reset the check: that result belongs to the old state.
                 continue;
             }
-
-            var rules = definition.Type == CheckType.Script &&
-                        Guid.TryParse(parameters.GetValueOrDefault(CheckCatalog.ScriptParameter), out var checkScriptId)
-                ? exitCodes.GetValueOrDefault(checkScriptId)
-                : null;
-            var status = CheckEvaluator.Evaluate(definition.Type, result.Target, result.Value, result.Error, check.WarningThreshold,
-                check.CriticalThreshold, parameters, rules);
 
             if (existing is not { } state)
             {
@@ -584,15 +594,21 @@ public sealed class CheckEvaluationService : WorkerLoop
         public int Values;
         public int Errors;
         public int NoResponses;
+        public int Problems;
     }
 
     private static void Accumulate(Dictionary<(Guid, string, DateTime), RollupAccumulator> buckets, (Guid, string, DateTime) key, CheckResult result,
-        bool noResponse)
+        bool noResponse, bool problem)
     {
         if (!buckets.TryGetValue(key, out var bucket))
         {
             bucket = new RollupAccumulator();
             buckets[key] = bucket;
+        }
+
+        if (problem)
+        {
+            bucket.Problems++;
         }
 
         if (!string.IsNullOrEmpty(result.Error) || double.IsNaN(result.Value) || double.IsInfinity(result.Value))
@@ -615,17 +631,21 @@ public sealed class CheckEvaluationService : WorkerLoop
     // LEAST and GREATEST ignore nulls in PostgreSQL, so a bucket without values keeps null until a value arrives. The table name is a
     // constant chosen by the caller, never input.
     private const string UpsertRollupSql = """
-        INSERT INTO "{0}" AS t ("EndpointId", "CheckDefinitionId", "Target", "Bucket", "ClientId", "MinValue", "MaxValue", "SumValue", "ValueCount", "ErrorCount", "NoResponseCount")
-        SELECT @endpointId, u.check_id, u.target, u.bucket, @clientId, u.min_value, u.max_value, u.sum_value, u.value_count, u.error_count, u.no_response_count
-        FROM unnest(@checkIds, @targets, @buckets, @mins, @maxs, @sums, @valueCounts, @errorCounts, @noResponseCounts)
-          AS u(check_id, target, bucket, min_value, max_value, sum_value, value_count, error_count, no_response_count)
+        INSERT INTO "{0}" AS t ("EndpointId", "CheckDefinitionId", "Target", "Bucket", "ClientId", "MinValue", "MaxValue", "SumValue", "ValueCount", "ErrorCount", "NoResponseCount",
+          "ProblemCount")
+        SELECT @endpointId, u.check_id, u.target, u.bucket, @clientId, u.min_value, u.max_value, u.sum_value, u.value_count, u.error_count, u.no_response_count,
+          u.problem_count
+        FROM unnest(@checkIds, @targets, @buckets, @mins, @maxs, @sums, @valueCounts, @errorCounts, @noResponseCounts, @problemCounts)
+          AS u(check_id, target, bucket, min_value, max_value, sum_value, value_count, error_count, no_response_count, problem_count)
         ON CONFLICT ("EndpointId", "CheckDefinitionId", "Target", "Bucket") DO UPDATE SET
           "MinValue" = LEAST(t."MinValue", EXCLUDED."MinValue"),
           "MaxValue" = GREATEST(t."MaxValue", EXCLUDED."MaxValue"),
           "SumValue" = t."SumValue" + EXCLUDED."SumValue",
           "ValueCount" = t."ValueCount" + EXCLUDED."ValueCount",
           "ErrorCount" = t."ErrorCount" + EXCLUDED."ErrorCount",
-          "NoResponseCount" = t."NoResponseCount" + EXCLUDED."NoResponseCount"
+          "NoResponseCount" = t."NoResponseCount" + EXCLUDED."NoResponseCount",
+          -- A bucket that started before 0.9.0 has no count and keeps none: part of its results were never counted.
+          "ProblemCount" = t."ProblemCount" + EXCLUDED."ProblemCount"
         """;
 
     private static async Task UpsertRollupsAsync(FleetoDbContext db, string table, EndpointFacts endpoint,
@@ -650,7 +670,8 @@ public sealed class CheckEvaluationService : WorkerLoop
                 new NpgsqlParameter("sums", rows.Select(r => r.Value.Sum).ToArray()),
                 new NpgsqlParameter("valueCounts", rows.Select(r => r.Value.Values).ToArray()),
                 new NpgsqlParameter("errorCounts", rows.Select(r => r.Value.Errors).ToArray()),
-                new NpgsqlParameter("noResponseCounts", rows.Select(r => r.Value.NoResponses).ToArray())
+                new NpgsqlParameter("noResponseCounts", rows.Select(r => r.Value.NoResponses).ToArray()),
+                new NpgsqlParameter("problemCounts", rows.Select(r => r.Value.Problems).ToArray())
             ], cancellationToken);
 #pragma warning restore EF1002
     }

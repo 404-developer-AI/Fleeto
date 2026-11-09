@@ -94,11 +94,20 @@ func (c SystemCollector) scriptCheck(ctx context.Context, spec *agentv1.CheckSpe
 	if interval := time.Duration(spec.GetIntervalSeconds()) * time.Second; interval > 0 && timeout > interval {
 		timeout = interval
 	}
-	result := jobs.RunCheckScript(ctx, c.ScriptDir, c.Access, spec.GetId(), spec.GetScript(), timeout)
+	result := jobs.RunCheckScript(ctx, c.ScriptDir, c.Access, spec.GetId(), spec.GetScript(), timeout, ScriptOutputLimit(spec))
 	if result.Error != "" {
-		return Measurement{Error: result.Error, Detail: result.Detail}
+		return Measurement{Error: result.Error, Detail: result.Detail, ScriptOutput: result.Output}
 	}
-	return Measurement{Value: float64(result.ExitCode), Detail: result.Detail}
+	return Measurement{Value: float64(result.ExitCode), Detail: result.Detail, ScriptOutput: result.Output}
+}
+
+// ScriptOutputLimit returns the output limit of a script check in bytes: "output_limit_kb" (0.9.0), within the agent's bounds.
+func ScriptOutputLimit(spec *agentv1.CheckSpec) int {
+	limit := jobs.DefaultCheckOutputLimit
+	if n, err := strconv.Atoi(strings.TrimSpace(spec.GetParameters()["output_limit_kb"])); err == nil && n > 0 {
+		limit = min(n, jobs.MaxCheckOutputLimit/1024) * 1024
+	}
+	return min(max(limit, jobs.MinCheckOutputLimit), jobs.MaxCheckOutputLimit)
 }
 
 // CPUSampleWindow returns the averaging window: sample_seconds, default 60, at most the interval, at least 1 s.

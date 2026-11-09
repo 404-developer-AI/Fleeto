@@ -262,3 +262,37 @@ func TestRunNowIsRateLimitedInTotal(t *testing.T) {
 		t.Fatalf("started %d dropped %d, want %d and 5", started, dropped, MaxRunNowPerMinute)
 	}
 }
+
+// scriptCollector reports the version of the script it was asked to run as the value.
+type scriptCollector struct{}
+
+func (scriptCollector) Collect(_ context.Context, spec *agentv1.CheckSpec) []Measurement {
+	return []Measurement{{Value: float64(spec.GetScript().GetVersion())}}
+}
+
+func TestANewScriptVersionReplacesTheOneARunnerHolds(t *testing.T) {
+	rec := &sinkRecorder{}
+	s := NewScheduler(scriptCollector{}, rec.sink, logging.Discard())
+	defer s.Stop()
+	scriptConfig := func(configVersion uint64, scriptVersion uint32, body string) *agentv1.AgentConfig {
+		return &agentv1.AgentConfig{Version: configVersion, Tier: agentv1.Tier_TIER_MANAGED, Checks: []*agentv1.CheckSpec{{
+			Id: "s1", Type: agentv1.CheckType_CHECK_TYPE_SCRIPT, IntervalSeconds: 1,
+			Parameters: map[string]string{"script": "a", "timeout_seconds": "60"},
+			Script:     &agentv1.ScriptJob{Name: "check", Version: scriptVersion, Body: body},
+		}}}
+	}
+	lastValue := func() float64 {
+		rec.mu.Lock()
+		defer rec.mu.Unlock()
+		if len(rec.results) == 0 {
+			return -1
+		}
+		return rec.results[len(rec.results)-1].GetValue()
+	}
+
+	s.Apply(scriptConfig(1, 1, "exit 0"))
+	waitFor(t, 3*time.Second, func() bool { return lastValue() == 1 })
+	// Same parameters, another version of the script: the runner must not keep running version 1.
+	s.Apply(scriptConfig(2, 2, "exit 1"))
+	waitFor(t, 3*time.Second, func() bool { return lastValue() == 2 })
+}

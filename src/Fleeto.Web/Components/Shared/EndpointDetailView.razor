@@ -718,7 +718,16 @@
                 </MudTd>
                 <MudTd>
                     <div class="d-flex flex-wrap gap-1">
-                        <StatusChip Text="@RowStatusText(context)" Kind="@RowStatusKind(context)" />
+                        @if (context.Status is not null && ScriptOutputRules.Applies(context.Type))
+                        {
+                            <button type="button" class="status-chip-button" title="Show the output of the latest run" @onclick="@(() => ShowScriptOutputAsync(context))">
+                                <StatusChip Text="@RowStatusText(context)" Kind="@RowStatusKind(context)" />
+                            </button>
+                        }
+                        else
+                        {
+                            <StatusChip Text="@RowStatusText(context)" Kind="@RowStatusKind(context)" />
+                        }
                         @if (context.OpenAlert is { } alert && alert.IsHeld(now))
                         {
                             <StatusChip Text="@($"On hold until {Time.Absolute(alert.HeldUntil)}")" Kind="StatusKind.Neutral" />
@@ -3288,6 +3297,18 @@
             { d => d.Target, row.Target }
         };
         await DialogService.ShowAsync<CheckHistoryDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
+    }
+
+    /// <summary>The output of the latest run of a script check (0.9.0).</summary>
+    private async Task ShowScriptOutputAsync(EndpointCheckRow row)
+    {
+        var parameters = new DialogParameters<ScriptOutputDialog>
+        {
+            { d => d.EndpointId, EndpointId },
+            { d => d.CheckId, row.DefinitionId },
+            { d => d.Name, row.Name }
+        };
+        await DialogService.ShowAsync<ScriptOutputDialog>(null, parameters, new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
     }
 
     private async Task RunCheckAsync(EndpointCheckRow row, bool reset)

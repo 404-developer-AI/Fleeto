@@ -1,11 +1,21 @@
 @* Status timeline of a yes/no check (service, process, pending restart, file, antivirus and firewall) or a script check: one block per
-   bucket, teal when every result was fine, red when at least one was a problem, amber when the check could not run, gray without results. *@
+   bucket, teal when every result was fine, red when at least one was a problem, amber when the check could not run, gray without results.
+   With BlockSelected (script checks, 0.9.0) a block with results can be clicked to list its runs. *@
 @inject TimeDisplay Time
 
 <div class="status-timeline" role="img" aria-label="@($"Status history of {View.Name}")">
     @foreach (var point in View.Points)
     {
-        <span class="status-timeline-block @CssClass(point)" title="@Tooltip(point)"></span>
+        @if (BlockSelected.HasDelegate && point.HasData)
+        {
+            <span class="status-timeline-block selectable @CssClass(point) @(point.Time == Selected ? "selected" : "")"
+                  title="@($"{Tooltip(point)}. Click to see its runs and their output.")" role="button" tabindex="0"
+                  @onclick="@(() => BlockSelected.InvokeAsync(point))" @onkeydown="@(e => OnKeyAsync(e, point))"></span>
+        }
+        else
+        {
+            <span class="status-timeline-block @CssClass(point)" title="@Tooltip(point)"></span>
+        }
     }
 </div>
 <div class="d-flex justify-space-between muted mt-1" style="font-size:0.75rem">
@@ -23,17 +33,30 @@
     [Parameter, EditorRequired]
     public CheckHistoryView View { get; set; } = default!;
 
+    /// <summary>Called when a block with results is clicked; without it the blocks cannot be clicked.</summary>
+    [Parameter]
+    public EventCallback<HistoryPoint> BlockSelected { get; set; }
+
+    /// <summary>The start of the selected block, which is outlined.</summary>
+    [Parameter]
+    public DateTime? Selected { get; set; }
+
+    private Task OnKeyAsync(KeyboardEventArgs e, HistoryPoint point) =>
+        e.Key is "Enter" or " " ? BlockSelected.InvokeAsync(point) : Task.CompletedTask;
+
     private bool ExitCode => View.Kind == ThresholdKind.ExitCode;
 
-    private string FineText => ExitCode ? "Exit code 0" : Ui.CheckValue(View.Type, 1, View.Target, View.Parameters);
+    private string FineText => ExitCode ? "Exit code that is OK" : Ui.CheckValue(View.Type, 1, View.Target, View.Parameters);
 
-    private string ProblemText => ExitCode ? "Another exit code" : Ui.CheckValue(View.Type, 0, View.Target, View.Parameters);
+    private string ProblemText => ExitCode ? "Exit code that is a warning or an error" : Ui.CheckValue(View.Type, 0, View.Target, View.Parameters);
 
     /// <summary>
-    /// Flag values are 1 (fine) and 0 (problem), so the minimum of a bucket tells whether a problem occurred. A script is fine only with
-    /// exit code 0, so any other lowest or highest value is a problem.
+    /// A script check (0.9.0) is judged with the exit codes of its script when the history knows them (<see cref="HistoryPoint.HasProblem"/>).
+    /// Otherwise flag values are 1 (fine) and 0 (problem), so the minimum of a bucket tells whether a problem occurred, and a script
+    /// bucket from before 0.9.0 is fine only with exit code 0.
     /// </summary>
-    private bool IsProblem(HistoryPoint point) => ExitCode ? point.Min is { } min && (min != 0 || point.Max != 0) : point.Min is < 1;
+    private bool IsProblem(HistoryPoint point) =>
+        point.HasProblem ?? (ExitCode ? point.Min is { } min && (min != 0 || point.Max != 0) : point.Min is < 1);
 
     private string CssClass(HistoryPoint point) =>
         IsProblem(point) ? "status-timeline-problem"

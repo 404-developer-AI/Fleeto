@@ -266,7 +266,7 @@ public sealed partial class GatewayStore
         {
             await using var importer = await connection.BeginBinaryImportAsync("""
                 COPY "CheckResults" ("Time", "ClientId", "EndpointId", "CheckDefinitionId", "Target", "AgentTime", "Value", "Detail", "Error", "ConfigVersion",
-                  "ProcessesJson")
+                  "ProcessesJson", "Output", "ErrorOutput", "OutputBytes", "OutputLimitBytes")
                 FROM STDIN (FORMAT BINARY)
                 """, cancellationToken);
             foreach (var result in batch.Results)
@@ -297,6 +297,7 @@ public sealed partial class GatewayStore
                     await importer.WriteNullAsync(cancellationToken);
                 }
 
+                await WriteScriptOutputAsync(importer, result.ScriptOutput, cancellationToken);
                 stored++;
             }
 
@@ -306,6 +307,44 @@ public sealed partial class GatewayStore
         await transaction.CommitAsync(cancellationToken);
         return (IngestOutcome.Stored, stored);
     }
+
+    /// <summary>
+    /// The script output of a result (0.9.0), bounded to the largest output limit. Output the agent left out because it did not change
+    /// stays null with its size, so the web finds it in an earlier result; a result without script output (another check type or an
+    /// agent older than 0.9.0) is null in all four columns. The check type is not known here; web shows output only for script checks.
+    /// </summary>
+    private static async Task WriteScriptOutputAsync(NpgsqlBinaryImporter importer, Protocol.Agent.V1.ScriptOutput? output,
+        CancellationToken cancellationToken)
+    {
+        if (output is null)
+        {
+            for (var i = 0; i < 4; i++)
+            {
+                await importer.WriteNullAsync(cancellationToken);
+            }
+
+            return;
+        }
+
+        if (output.Unchanged)
+        {
+            await importer.WriteNullAsync(cancellationToken);
+            await importer.WriteNullAsync(cancellationToken);
+        }
+        else
+        {
+            var stdout = DbText.Clean(output.Stdout, MaxOutputChars);
+            await importer.WriteAsync(stdout, NpgsqlDbType.Text, cancellationToken);
+            await importer.WriteAsync(DbText.Clean(output.Stderr, Math.Max(0, MaxOutputChars - stdout.Length)), NpgsqlDbType.Text, cancellationToken);
+        }
+
+        await importer.WriteAsync(DbText.ClampToLong(output.TotalBytes), NpgsqlDbType.Bigint, cancellationToken);
+        await importer.WriteAsync(DbText.ClampToInt(Math.Min(output.LimitBytes, (ulong)ScriptOutputRules.MaxLimitKb * 1024)), NpgsqlDbType.Integer,
+            cancellationToken);
+    }
+
+    /// <summary>The most characters of script output stored per result: the largest output limit, which bounds its bytes.</summary>
+    private const int MaxOutputChars = ScriptOutputRules.MaxLimitKb * 1024;
 
     /// <summary>
     /// The process list of a result, bounded and cleaned (0.6.0): at most <see cref="ProcessListRules.MaxProcesses"/> processes, CPU

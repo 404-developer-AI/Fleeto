@@ -1246,6 +1246,18 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
+                    b.Property<string>("ErrorOutput")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Output")
+                        .HasColumnType("text");
+
+                    b.Property<long?>("OutputBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("OutputLimitBytes")
+                        .HasColumnType("integer");
+
                     b.Property<string>("ProcessesJson")
                         .HasColumnType("jsonb");
 
@@ -1267,6 +1279,9 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "EndpointId", "CheckDefinitionId", "Time" }, "IX_CheckResults_ProcessLists")
                         .HasFilter("\"ProcessesJson\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "EndpointId", "CheckDefinitionId", "Time" }, "IX_CheckResults_ScriptOutput")
+                        .HasFilter("\"Output\" IS NOT NULL");
 
                     b.ToTable("CheckResults");
                 });
@@ -1299,6 +1314,9 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasColumnType("double precision");
 
                     b.Property<int>("NoResponseCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ProblemCount")
                         .HasColumnType("integer");
 
                     b.Property<double>("SumValue")
@@ -1346,6 +1364,9 @@ namespace Fleeto.Infrastructure.Migrations
                         .HasColumnType("double precision");
 
                     b.Property<int>("NoResponseCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ProblemCount")
                         .HasColumnType("integer");
 
                     b.Property<double>("SumValue")

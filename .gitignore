@@ -10,6 +10,8 @@ secrets/
 docker-compose.override.yml
 compose.override.yml
 appsettings.*.local.json
+# Claude Code stores approved commands, with any credential in them, in plaintext here
+**/.claude/settings.local.json
 
 # Visual Studio / Rider / VS Code
 .vs/

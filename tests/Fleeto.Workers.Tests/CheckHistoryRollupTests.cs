@@ -69,6 +69,54 @@ public sealed class CheckHistoryRollupTests
     }
 
     [Fact]
+    public async Task Rollups_count_problems_by_the_exit_codes_of_the_script_and_a_bucket_from_before_keeps_none()
+    {
+        await _fixture.Db.LoadTestLicenseAsync(1000);
+        var (_, site) = await _fixture.CreateClientAndSiteAsync();
+        var endpoint = await _fixture.Db.CreateEndpointAsync(site, EndpointTier.Managed, "SRV-SCRIPT-HISTORY", EndpointClass.Server);
+        var user = await _fixture.Db.CreateUserAsync(FleetoRoles.Technician);
+        var (script, _) = await _fixture.Db.CreateScriptAsync(null, user.Id);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var stored = await db.Scripts.SingleAsync(s => s.Id == script.Id);
+            stored.SuccessExitCodes = [3];
+            await db.SaveChangesAsync();
+        }
+
+        var check = await _fixture.CreateCheckAsync(site, CheckType.Script, null, null, parameters: $$"""{"script":"{{script.Id}}"}""");
+        var now = _fixture.Now;
+        var hour = new DateTime(now.Year, now.Month, now.Day, now.Hour, 0, 0, DateTimeKind.Utc);
+        var before = hour.AddHours(-5);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            db.CheckResultsHourly.Add(new CheckResultHourly
+            {
+                EndpointId = endpoint.Id, ClientId = endpoint.ClientId, CheckDefinitionId = check.Id, Bucket = before, MinValue = 0, MaxValue = 0, ValueCount = 1
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await InsertAsync(endpoint, check, 0, now);
+        await InsertAsync(endpoint, check, 3, now);
+        await InsertAsync(endpoint, check, 0, before.AddMinutes(10));
+        await _fixture.CheckEvaluation().EvaluateEndpointAsync(endpoint.Id, CancellationToken.None);
+
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var hourly = await db.CheckResultsHourly.AsNoTracking().Where(r => r.EndpointId == endpoint.Id).ToListAsync();
+            // Exit code 3 is a success of this script, not a problem.
+            Assert.Equal(0, Assert.Single(hourly, r => r.Bucket == hour).ProblemCount);
+            Assert.Null(Assert.Single(hourly, r => r.Bucket == before).ProblemCount);
+        }
+
+        await InsertAsync(endpoint, check, 2, now);
+        await _fixture.CheckEvaluation().EvaluateEndpointAsync(endpoint.Id, CancellationToken.None);
+
+        await using var after = _fixture.Db.DbFactory.CreateSystem();
+        Assert.Equal(1, (await after.CheckResultsHourly.AsNoTracking().SingleAsync(r => r.EndpointId == endpoint.Id && r.Bucket == hour)).ProblemCount);
+    }
+
+    [Fact]
     public async Task Retention_removes_rollups_older_than_thirteen_months()
     {
         await _fixture.Db.LoadTestLicenseAsync(1000);

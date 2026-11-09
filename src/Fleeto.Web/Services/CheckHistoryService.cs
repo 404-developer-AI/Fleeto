@@ -12,7 +12,11 @@ using Npgsql;
 namespace Fleeto.Web.Services;
 
 /// <summary>One bucket of the check history. Min, Avg and Max are null when the bucket holds no measurement.</summary>
-public sealed record HistoryPoint(DateTime Time, double? Min, double? Avg, double? Max, int Values, int Errors, int NoResponses)
+/// <param name="HasProblem">
+/// Script checks (0.9.0): whether a result in the bucket was a warning or critical by the exit codes of the script; null when that
+/// is not known (another check type, or a summary that started before 0.9.0), and the lowest and highest value decide.
+/// </param>
+public sealed record HistoryPoint(DateTime Time, double? Min, double? Avg, double? Max, int Values, int Errors, int NoResponses, bool? HasProblem = null)
 {
     public bool HasData => Values + Errors + NoResponses > 0;
 }
@@ -89,7 +93,10 @@ public sealed class CheckHistoryService
                max(r."Value") FILTER (WHERE r."Error" = '' AND NOT (@reachability AND r."Value" < 0)) AS "Max",
                (count(*) FILTER (WHERE r."Error" = '' AND NOT (@reachability AND r."Value" < 0)))::int AS "Values",
                (count(*) FILTER (WHERE r."Error" <> ''))::int AS "Errors",
-               (count(*) FILTER (WHERE r."Error" = '' AND @reachability AND r."Value" < 0))::int AS "NoResponses"
+               (count(*) FILTER (WHERE r."Error" = '' AND @reachability AND r."Value" < 0))::int AS "NoResponses",
+               array_agg(DISTINCT r."Value") FILTER (WHERE @exitCode AND r."Error" = '') AS "ExitCodes",
+               NULL::int AS "Problems",
+               true AS "ProblemsUnknown"
         FROM "CheckResults" r
         WHERE r."EndpointId" = @endpointId AND r."CheckDefinitionId" = @checkId AND r."Target" = @target
           AND (@allClients OR r."ClientId" = ANY(@clientIds))
@@ -118,7 +125,10 @@ public sealed class CheckHistoryService
                max(h."MaxValue") AS "Max",
                sum(h."ValueCount")::int AS "Values",
                sum(h."ErrorCount")::int AS "Errors",
-               sum(h."NoResponseCount")::int AS "NoResponses"
+               sum(h."NoResponseCount")::int AS "NoResponses",
+               NULL::float8[] AS "ExitCodes",
+               sum(h."ProblemCount")::int AS "Problems",
+               bool_or(h."ProblemCount" IS NULL) AS "ProblemsUnknown"
         FROM "{0}" h
         WHERE h."EndpointId" = @endpointId AND h."CheckDefinitionId" = @checkId AND h."Target" = @target
           AND (@allClients OR h."ClientId" = ANY(@clientIds))
@@ -190,16 +200,32 @@ public sealed class CheckHistoryService
                 new NpgsqlParameter("clientIds", caller.Scope.ClientIds.ToArray()),
                 new NpgsqlParameter("from", from),
                 new NpgsqlParameter("to", to),
-                new NpgsqlParameter("reachability", reachability))
+                new NpgsqlParameter("reachability", reachability),
+                new NpgsqlParameter("exitCode", kind == ThresholdKind.ExitCode))
             .ToListAsync(cancellationToken);
 #pragma warning restore EF1002
 
         var byTime = rows.ToDictionary(r => DateTime.SpecifyKind(r.Time, DateTimeKind.Utc));
+        // A script check is judged with what the exit codes of its script mean (0.9.0), not by its lowest and highest code.
+        Func<HistoryRow, bool?> hasProblem = _ => null;
+        if (kind == ThresholdKind.ExitCode)
+        {
+            var exitCodes = Guid.TryParse(parameters.GetValueOrDefault(CheckCatalog.ScriptParameter), out var scriptId)
+                ? (await db.Scripts.AsNoTracking().FirstOrDefaultAsync(s => s.Id == scriptId, cancellationToken))?.ExitCodes
+                : null;
+            bool IsProblem(double value) =>
+                CheckEvaluator.Evaluate(check.Type, chosen, value, null, check.WarningThreshold, check.CriticalThreshold, parameters, exitCodes)
+                    is CheckStatus.Warning or CheckStatus.Critical;
+            hasProblem = row => fromRaw
+                ? (row.ExitCodes ?? []).Any(IsProblem)
+                : row.Problems > 0 ? true : row.ProblemsUnknown ? null : false;
+        }
+
         var points = new List<HistoryPoint>();
         for (var t = from; t < to; t += bucket)
         {
             points.Add(byTime.TryGetValue(t, out var row)
-                ? new HistoryPoint(t, row.Min, row.Avg, row.Max, row.Values, row.Errors, row.NoResponses)
+                ? new HistoryPoint(t, row.Min, row.Avg, row.Max, row.Values, row.Errors, row.NoResponses, hasProblem(row))
                 : new HistoryPoint(t, null, null, null, 0, 0, 0));
         }
 
@@ -308,5 +334,8 @@ public sealed class CheckHistoryService
         public int Values { get; set; }
         public int Errors { get; set; }
         public int NoResponses { get; set; }
+        public double[]? ExitCodes { get; set; }
+        public int? Problems { get; set; }
+        public bool ProblemsUnknown { get; set; }
     }
 }

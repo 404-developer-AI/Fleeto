@@ -651,6 +651,27 @@ report painter of `fleeto.js` (`fleeto.copyProcessImage`), downloading it where 
 It needs View checks and is audited as `check.process_list_exported` with the check and the time of the result, never a
 process or user.
 
+**Output of script checks (0.9.0).** A script check keeps what its script wrote, not only the first line: the agent reports
+stdout and stderr in `CheckResult.script_output`, up to the output limit of the check (`output_limit_kb`, 1 to 256, default 8;
+stdout first, stderr in what is left), as valid UTF-8 cut on a character boundary, with the bytes the script wrote in total and
+the limit it applied. Output that is the same as in the last result the check's runner sent with output (a SHA-256 over both
+streams) is left out with `unchanged`, at most a day, so a script that prints the same every run costs a few bytes per result
+and the server always holds the output within the retention of check results; a changed check or an agent restart sends it
+again. The gateway stores it in four nullable columns of `CheckResults` (`Output`, `ErrorOutput`, `OutputBytes`,
+`OutputLimitBytes`), bounded to the largest limit whatever the agent sends, with the partial index `IX_CheckResults_ScriptOutput`
+on the results that carry output; retention, compression, purging and the client scope are those of check results. The workers
+project the results they evaluate without the two output columns. Web (`ScriptOutputService`) shows the output of the latest run
+from the status of the check, and from the check history: a block of the status timeline lists its runs (at most 200, newest
+first, each judged with the exit codes of the script) and a run opens its output; a run without output shows that of the latest
+earlier result with output at or before it (time and id, because the results of one batch share their ingest time), within two
+days. A run whose script wrote more than the limit says how much it wrote, how much is kept and where to raise the limit (the
+monitoring template or the Checks tab of the endpoint); at 256 KB it says to write less. An agent before 0.9.0 sends no output and
+its runs show the first line. To keep the result buffer and the batches bounded with large outputs, the agent buffer also holds at
+most 256 MB (the oldest pending results go first) and a batch at most 2 MB of results, at least one. Script output can hold
+personal data and secrets the script prints: it needs View checks on a managed endpoint the user sees, is never logged or put in
+an alert, and every time it is shown is audited as `check.script_output_viewed` with the check and the time of the run, never the
+output.
+
 **Checks Fleeto evaluates itself (0.6.0).** A check type marked `EvaluatedByFleeto` in the catalog is left out of the
 agent's configuration. Its results come from the workers, which insert them into `CheckResults` (the one table the
 workers write results to, with `INSERT` granted for that) and notify `fleeto_check_results`; from there the path above is
@@ -940,8 +961,12 @@ where the check could not run or got no response) and a status timeline for yes/
 process, pending restart, file, antivirus and firewall). The hour (1-minute buckets) and day (10-minute
 buckets) are read from raw `CheckResult` rows (kept 30 days); the week (hourly), month (6-hourly) and
 year (daily) from the rollup tables `CheckResultsHourly` and `CheckResultsDaily` (minimum, maximum, sum
-and count of values, errors and missing responses per endpoint, check, target and bucket), kept 13
-months. Decided while building: the workers maintain the rollups in both setups, inside the evaluation
+and count of values, errors and missing responses per endpoint, check, target and bucket, and from 0.9.0
+`ProblemCount`: the results whose status was a warning or critical when the workers evaluated them), kept 13
+months. The status timeline of a script check judges a block by what the exit codes of its script mean: the
+last hour and day from the distinct exit codes of the raw results, longer periods from `ProblemCount`; a
+bucket that started before 0.9.0 has none (null, and adding to it keeps it null) and is judged as before,
+fine only with exit code 0. Decided while building: the workers maintain the rollups in both setups, inside the evaluation
 transaction that advances the per-endpoint cursor, so every result is counted exactly once and local
 development without TimescaleDB behaves the same as the VPS; continuous aggregates could not judge
 "no response" per check type. A result is placed at the agent's collection time when that lies at most 7

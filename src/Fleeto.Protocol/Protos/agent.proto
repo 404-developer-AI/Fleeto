@@ -419,6 +419,24 @@ message CheckResult {
   // when the value reaches "process_list_at" of the check (the lowest of its thresholds, set by the server) and on a manual
   // run, empty otherwise. Holds user names, so it is personal data.
   repeated ProcessSample processes = 8;
+  // Script checks only (0.9.0): the output of the script, up to the output limit of the check. Absent from older agents, which
+  // report only the first line as detail. Can hold personal data and secrets the script prints.
+  ScriptOutput script_output = 9;
+}
+
+// What a script check wrote (0.9.0). stdout is kept first; stderr gets what is left of limit_bytes.
+message ScriptOutput {
+  // Valid UTF-8, cut at limit_bytes on a character boundary. Empty when unchanged is true.
+  string stdout = 1;
+  string stderr = 2;
+  // Every byte the script wrote on both streams, also the bytes beyond the limit; more than stdout and stderr together means
+  // the output was cut off.
+  uint64 total_bytes = 3;
+  // The output limit the agent applied ("output_limit_kb" of the check, in bytes).
+  uint64 limit_bytes = 4;
+  // True when stdout and stderr are the same as in the last result of this check the agent sent with output, which is then not
+  // sent again. The agent sends the full output at least once a day, so the server finds it within CheckResults retention.
+  bool unchanged = 5;
 }
 
 // One process in the process list of a CPU or memory usage check.
@@ -703,7 +721,8 @@ message CheckSpec {
   //   CHECK_TYPE_EVENT_LOG: "log", optional "source", "event_ids" (comma-separated), "level" (critical, error, warning, any),
   //     "window_minutes" (1-1440, default 60).
   //   CHECK_TYPE_SECURITY_CENTER: "component" (antivirus, firewall).
-  //   CHECK_TYPE_SCRIPT: "script" (script id), "timeout_seconds" (5-300, at most the interval); the script itself is in `script`.
+  //   CHECK_TYPE_SCRIPT: "script" (script id), "timeout_seconds" (5-300, at most the interval), optional "output_limit_kb"
+  //     (1-256, default 8: how much output is reported); the script itself is in `script`.
   //     Without `script` the check cannot run and "unavailable" says why (deleted, not approved, another client).
   //   CHECK_TYPE_RAID_STATE: "array" ("*" or an md array such as md2).
   //   CHECK_TYPE_DISK_HEALTH and CHECK_TYPE_DISK_TEMPERATURE: "disk" ("*" or a disk such as sda, sata1 or nvme0n1).

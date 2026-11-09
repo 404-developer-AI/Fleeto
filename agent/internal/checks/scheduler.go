@@ -3,12 +3,14 @@ package checks
 
 import (
 	"context"
+	"crypto/sha256"
 	"log/slog"
 	"maps"
 	"math/rand/v2"
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1"
@@ -40,7 +42,13 @@ type Measurement struct {
 	Error  string
 	// Processes is the process list of a CPU or memory usage check, when it carries one (processes.go).
 	Processes []*agentv1.ProcessSample
+	// ScriptOutput is the output of a script check (0.9.0); the scheduler leaves out output that did not change.
+	ScriptOutput *agentv1.ScriptOutput
 }
+
+// ScriptOutputResend is how long the scheduler leaves out unchanged script output: after it the full output is sent again, so
+// the server always holds it within the retention of check results.
+const ScriptOutputResend = 24 * time.Hour
 
 type manualRunKey struct{}
 
@@ -107,6 +115,9 @@ type runner struct {
 	version uint64
 	// Guarded by Scheduler.mu.
 	lastManual time.Time
+	// The script output last sent in full and when (0.9.0); only runOnce of this runner uses them.
+	lastOutput     [sha256.Size]byte
+	lastOutputSent time.Time
 }
 
 // NewScheduler returns a scheduler without checks.
@@ -217,9 +228,11 @@ func (s *Scheduler) Stop() {
 	}
 }
 
+// sameSpec reports whether a check is unchanged, so its runner can keep running. The script of a script check counts too: a new
+// version of the script keeps the parameters of the check, and must replace the version the runner holds.
 func sameSpec(a, b *agentv1.CheckSpec) bool {
 	return a.GetId() == b.GetId() && a.GetType() == b.GetType() && a.GetIntervalSeconds() == b.GetIntervalSeconds() &&
-		maps.Equal(a.GetParameters(), b.GetParameters())
+		maps.Equal(a.GetParameters(), b.GetParameters()) && proto.Equal(a.GetScript(), b.GetScript())
 }
 
 func (s *Scheduler) run(ctx context.Context, r *runner) {
@@ -264,15 +277,36 @@ func (s *Scheduler) runOnce(ctx context.Context, r *runner) {
 	if err != nil {
 		measurements = []Measurement{{Error: "the check failed inside the agent; see the agent log"}}
 	}
-	collected := timestamppb.New(s.now())
+	now := s.now()
+	collected := timestamppb.New(now)
 	results := make([]*agentv1.CheckResult, 0, len(measurements))
 	for _, m := range measurements {
 		results = append(results, &agentv1.CheckResult{
 			CheckId: r.spec.GetId(), ConfigVersion: version, CollectedAt: collected,
 			Value: m.Value, Target: m.Target, Detail: m.Detail, Error: m.Error, Processes: m.Processes,
+			ScriptOutput: r.dedupeOutput(m.ScriptOutput, now),
 		})
 	}
 	if len(results) > 0 {
 		s.sink(results)
 	}
+}
+
+// dedupeOutput leaves out script output that is the same as the output this runner last sent in full, less than
+// ScriptOutputResend ago. A changed check gets a new runner, which sends the output again.
+func (r *runner) dedupeOutput(output *agentv1.ScriptOutput, now time.Time) *agentv1.ScriptOutput {
+	if output == nil {
+		return nil
+	}
+	h := sha256.New()
+	_, _ = h.Write([]byte(output.GetStdout()))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(output.GetStderr()))
+	var sum [sha256.Size]byte
+	h.Sum(sum[:0])
+	if sum == r.lastOutput && !r.lastOutputSent.IsZero() && now.Sub(r.lastOutputSent) < ScriptOutputResend {
+		return &agentv1.ScriptOutput{TotalBytes: output.GetTotalBytes(), LimitBytes: output.GetLimitBytes(), Unchanged: true}
+	}
+	r.lastOutput, r.lastOutputSent = sum, now
+	return output
 }

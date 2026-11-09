@@ -3,7 +3,8 @@
 // Results enter the pending bucket. A batch takes up to 500 of the oldest pending results and gets the next sequence
 // number in the same transaction, so a sequence number can never be reused for different content, not even after a
 // crash. At most one batch exists at a time; it is deleted only when a BatchAck with its sequence arrives, and it is
-// resent unchanged after a reconnect. The buffer is bounded: when full, the oldest pending results are evicted.
+// resent unchanged after a reconnect. The buffer is bounded in results and in bytes (script output can be large, 0.9.0): when
+// full, the oldest pending results are evicted. A batch also stops at MaxBatchBytes, so it fits in one protocol message.
 package buffer
 
 import (
@@ -25,6 +26,11 @@ const (
 	DefaultMaxResults = 50000
 	// MaxBatchResults is the protocol limit of results per batch.
 	MaxBatchResults = 500
+	// DefaultMaxBytes bounds the bytes of results kept on disk.
+	DefaultMaxBytes = 256 * 1024 * 1024
+	// MaxBatchBytes bounds the encoded results of one batch, well below the 4 MiB protocol limit of a message; a batch always
+	// holds at least one result, and one result is at most a few hundred KiB.
+	MaxBatchBytes = 2 * 1024 * 1024
 )
 
 var (
@@ -37,12 +43,15 @@ var (
 
 // Buffer is the on-disk result queue.
 type Buffer struct {
-	db      *bolt.DB
-	max     int
-	logger  *slog.Logger
-	mu      sync.Mutex
-	pending int
-	batched int
+	db       *bolt.DB
+	max      int
+	maxBytes int64
+	logger   *slog.Logger
+	mu       sync.Mutex
+	pending  int
+	batched  int
+	// bytes is the size of every result on disk, pending and batched.
+	bytes   int64
 	evicted uint64
 }
 
@@ -58,7 +67,7 @@ func Open(path string, maxResults int, logger *slog.Logger) (*Buffer, error) {
 		}
 		return nil, fmt.Errorf("open result buffer %s: %w", path, err)
 	}
-	b := &Buffer{db: db, max: maxResults, logger: logger}
+	b := &Buffer{db: db, max: maxResults, maxBytes: DefaultMaxBytes, logger: logger}
 	err = db.Update(func(tx *bolt.Tx) error {
 		for _, name := range [][]byte{bucketPending, bucketBatches, bucketMeta} {
 			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
@@ -71,25 +80,26 @@ func Open(path string, maxResults int, logger *slog.Logger) (*Buffer, error) {
 				return err
 			}
 		}
-		b.pending = tx.Bucket(bucketPending).Stats().KeyN
-		return tx.Bucket(bucketBatches).ForEach(func(_, v []byte) error {
-			var batch agentv1.CheckResultBatch
-			if err := proto.Unmarshal(v, &batch); err == nil {
-				b.batched += len(batch.GetResults())
-			}
-			return nil
-		})
+		return nil
 	})
 	if err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("initialize result buffer %s: %w", path, err)
 	}
+	b.recount()
 	return b, nil
 }
 
 // Close closes the file.
 func (b *Buffer) Close() error {
 	return b.db.Close()
+}
+
+// SetMaxBytes changes the byte bound; for tests.
+func (b *Buffer) SetMaxBytes(maxBytes int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.maxBytes = maxBytes
 }
 
 // Add stores results. When the buffer is full the oldest pending results are evicted, and the eviction is logged.
@@ -103,43 +113,56 @@ func (b *Buffer) Add(results ...*agentv1.CheckResult) error {
 	if len(results) > b.max {
 		results = results[len(results)-b.max:]
 	}
+	encoded := make([][]byte, 0, len(results))
+	for _, r := range results {
+		data, err := proto.Marshal(r)
+		if err != nil {
+			return fmt.Errorf("store check results: %w", err)
+		}
+		encoded = append(encoded, data)
+	}
 	var evicted int
+	var evictedBytes, addedBytes int64
 	err := b.db.Update(func(tx *bolt.Tx) error {
 		pending := tx.Bucket(bucketPending)
 		meta := tx.Bucket(bucketMeta)
-		total := b.pending + b.batched
-		overflow := total + len(results) - b.max
-		if overflow > 0 {
-			c := pending.Cursor()
-			for k, _ := c.First(); k != nil && evicted < overflow; k, _ = c.First() {
-				if err := c.Delete(); err != nil {
-					return err
-				}
-				evicted++
+		var newBytes int64
+		for _, data := range encoded {
+			newBytes += int64(len(data))
+		}
+		overflow := b.pending + b.batched + len(encoded) - b.max
+		full := func() bool {
+			return evicted < overflow || b.bytes-evictedBytes+newBytes > b.maxBytes
+		}
+		c := pending.Cursor()
+		for k, v := c.First(); k != nil && full(); k, v = c.First() {
+			size := int64(len(v))
+			if err := c.Delete(); err != nil {
+				return err
 			}
-			if evicted < overflow {
-				// Everything left is in the outstanding batch; keep the newest results that fit.
-				keep := len(results) - (overflow - evicted)
-				if keep <= 0 {
-					return errDropped
-				}
-				results = results[len(results)-keep:]
-			}
+			evicted++
+			evictedBytes += size
+		}
+		// Everything left is in the outstanding batch; keep the newest results that fit.
+		for len(encoded) > 0 && full() {
+			newBytes -= int64(len(encoded[0]))
+			encoded = encoded[1:]
+			overflow--
+		}
+		if len(encoded) == 0 {
+			return errDropped
 		}
 		nextID := uint64(1)
 		if v := meta.Get(keyNextID); v != nil {
 			nextID = binary.BigEndian.Uint64(v)
 		}
-		for _, r := range results {
-			data, err := proto.Marshal(r)
-			if err != nil {
-				return err
-			}
+		for _, data := range encoded {
 			if err := pending.Put(u64(nextID), data); err != nil {
 				return err
 			}
 			nextID++
 		}
+		addedBytes = newBytes
 		return meta.Put(keyNextID, u64(nextID))
 	})
 	if errors.Is(err, errDropped) {
@@ -149,7 +172,8 @@ func (b *Buffer) Add(results ...*agentv1.CheckResult) error {
 	if err != nil {
 		return fmt.Errorf("store check results: %w", err)
 	}
-	b.pending += len(results) - evicted
+	b.pending += len(encoded) - evicted
+	b.bytes += addedBytes - evictedBytes
 	if evicted > 0 {
 		b.evicted += uint64(evicted)
 		b.logger.Warn("result buffer is full; evicted the oldest check results", "evicted", evicted, "evictedTotal", b.evicted, "max", b.max)
@@ -187,7 +211,8 @@ func (b *Buffer) Outstanding() (*agentv1.CheckResultBatch, error) {
 }
 
 // NextBatch returns the outstanding batch if there is one; otherwise it moves up to maxResults of the oldest pending
-// results into a new batch with the next sequence number. It returns nil when there is nothing to send.
+// results, and at most MaxBatchBytes of them, into a new batch with the next sequence number. It returns nil when there is
+// nothing to send.
 func (b *Buffer) NextBatch(maxResults int) (*agentv1.CheckResultBatch, error) {
 	if maxResults <= 0 || maxResults > MaxBatchResults {
 		maxResults = MaxBatchResults
@@ -196,12 +221,14 @@ func (b *Buffer) NextBatch(maxResults int) (*agentv1.CheckResultBatch, error) {
 	defer b.mu.Unlock()
 	var batch *agentv1.CheckResultBatch
 	created := false
+	discarded := false
 	err := b.db.Update(func(tx *bolt.Tx) error {
 		existing, err := firstBatch(tx)
 		if err != nil {
 			// A batch that cannot be read can never be sent: drop it so the queue keeps moving. Its sequence
 			// number stays consumed and is never reused.
 			b.logger.Error("discarded an unreadable check result batch", "error", err)
+			discarded = true
 			k, _ := tx.Bucket(bucketBatches).Cursor().First()
 			return tx.Bucket(bucketBatches).Delete(k)
 		}
@@ -217,7 +244,12 @@ func (b *Buffer) NextBatch(maxResults int) (*agentv1.CheckResultBatch, error) {
 		seq := binary.BigEndian.Uint64(meta.Get(keyNextSeq))
 		batch = &agentv1.CheckResultBatch{Sequence: seq}
 		c := pending.Cursor()
+		size := 0
 		for k, v := c.First(); k != nil && len(batch.Results) < maxResults; k, v = c.First() {
+			if len(batch.Results) > 0 && size+len(v) > MaxBatchBytes {
+				break
+			}
+			size += len(v)
 			var r agentv1.CheckResult
 			if err := proto.Unmarshal(v, &r); err == nil {
 				batch.Results = append(batch.Results, &r)
@@ -248,6 +280,9 @@ func (b *Buffer) NextBatch(maxResults int) (*agentv1.CheckResultBatch, error) {
 		b.recount()
 		return nil, fmt.Errorf("create check result batch: %w", err)
 	}
+	if discarded {
+		b.recount()
+	}
 	if created {
 		b.batched += len(batch.GetResults())
 	}
@@ -259,6 +294,7 @@ func (b *Buffer) Ack(sequence uint64) (bool, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	removed := 0
+	var removedBytes int64
 	found := false
 	err := b.db.Update(func(tx *bolt.Tx) error {
 		batches := tx.Bucket(bucketBatches)
@@ -269,6 +305,7 @@ func (b *Buffer) Ack(sequence uint64) (bool, error) {
 		var batch agentv1.CheckResultBatch
 		if err := proto.Unmarshal(v, &batch); err == nil {
 			removed = len(batch.GetResults())
+			removedBytes = resultBytes(&batch)
 		}
 		found = true
 		return batches.Delete(u64(sequence))
@@ -279,6 +316,10 @@ func (b *Buffer) Ack(sequence uint64) (bool, error) {
 	b.batched -= removed
 	if b.batched < 0 {
 		b.batched = 0
+	}
+	b.bytes -= removedBytes
+	if b.bytes < 0 {
+		b.bytes = 0
 	}
 	return found, nil
 }
@@ -310,23 +351,47 @@ func (b *Buffer) Reset() error {
 		return tx.Bucket(bucketMeta).Put(keyNextSeq, u64(1))
 	})
 	if err == nil {
-		b.pending, b.batched = 0, 0
+		b.pending, b.batched, b.bytes = 0, 0, 0
 	}
 	return err
 }
 
+// recount sets the cached counters from the file.
 func (b *Buffer) recount() {
 	_ = b.db.View(func(tx *bolt.Tx) error {
-		b.pending = tx.Bucket(bucketPending).Stats().KeyN
-		b.batched = 0
+		b.pending, b.batched, b.bytes = 0, 0, 0
+		if err := tx.Bucket(bucketPending).ForEach(func(_, v []byte) error {
+			b.pending++
+			b.bytes += int64(len(v))
+			return nil
+		}); err != nil {
+			return err
+		}
 		return tx.Bucket(bucketBatches).ForEach(func(_, v []byte) error {
 			var batch agentv1.CheckResultBatch
 			if proto.Unmarshal(v, &batch) == nil {
 				b.batched += len(batch.GetResults())
+				b.bytes += resultBytes(&batch)
 			}
 			return nil
 		})
 	})
+}
+
+// Bytes returns the size of the results on disk, pending and batched.
+func (b *Buffer) Bytes() int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.bytes
+}
+
+// resultBytes is the encoded size of the results of a batch, as they were counted while pending.
+func resultBytes(batch *agentv1.CheckResultBatch) int64 {
+	var n int64
+	for _, r := range batch.GetResults() {
+		n += int64(proto.Size(r))
+	}
+	return n
 }
 
 func firstBatch(tx *bolt.Tx) (*agentv1.CheckResultBatch, error) {

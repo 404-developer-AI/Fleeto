@@ -1,0 +1,95 @@
+@* The output of one run of a script check (0.9.0): the latest run, from the status on the Checks tab, or a run from the history. *@
+@using Fleeto.Core.Domain
+@inherits FleetoPageBase
+@inject ScriptOutputService OutputSvc
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Output of @Name</MudText>
+    </TitleContent>
+    <DialogContent>
+        <LoadState Loading="Loading" Failed="LoadFailed">
+            @if (_problem is not null)
+            {
+                <MudText>@_problem</MudText>
+            }
+            else if (_view is { } view)
+            {
+                var run = view.Run;
+                <div class="d-flex flex-wrap align-center gap-2 mb-2">
+                    <StatusChip Text="@run.Status.ToString()" Kind="@Ui.CheckKind(run.Status)" />
+                    @if (string.IsNullOrEmpty(run.Error))
+                    {
+                        <span>Exit code <strong>@run.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)</strong></span>
+                    }
+                    <span class="muted">· ran @Time.Absolute(run.At)@(RunId is null ? " (the latest run)" : "")</span>
+                    @if (run.OutputBytes is { } bytes)
+                    {
+                        <span class="muted">· @Ui.Bytes(bytes) of output</span>
+                    }
+                </div>
+                @if (!string.IsNullOrEmpty(run.Error))
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">The script could not run or did not finish: @run.Error</MudAlert>
+                }
+                @if (view.CutMessage is { } cut)
+                {
+                    <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">@cut</MudAlert>
+                }
+                @switch (view.State)
+                {
+                    case ScriptOutputState.OldAgent:
+                        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                            The agent of this endpoint was older than 0.9.0 at this run and reported only the first line of output.
+                            Update the agent to see the whole output of the next runs.
+                        </MudAlert>
+                        <MudText Typo="Typo.subtitle2">First line of output</MudText>
+                        <pre class="job-output mb-3">@(run.Detail.Length == 0 ? "No output." : run.Detail)</pre>
+                        break;
+                    case ScriptOutputState.Missing:
+                        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                            The output of this run was the same as that of an earlier run, which is no longer kept. A later run shows its output again.
+                        </MudAlert>
+                        break;
+                    default:
+                        <MudText Typo="Typo.subtitle2">Output</MudText>
+                        <pre class="job-output mb-3">@(view.Stdout.Length == 0 ? "No output." : view.Stdout)</pre>
+                        @if (view.Stderr.Length > 0)
+                        {
+                            <MudText Typo="Typo.subtitle2">Errors</MudText>
+                            <pre class="job-output stderr mb-3">@view.Stderr</pre>
+                        }
+                        break;
+                }
+            }
+        </LoadState>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public Guid EndpointId { get; set; }
+    [Parameter, EditorRequired] public Guid CheckId { get; set; }
+    [Parameter, EditorRequired] public string Name { get; set; } = string.Empty;
+
+    /// <summary>The run to show, with <see cref="RunTime"/>; null shows the latest run.</summary>
+    [Parameter] public long? RunId { get; set; }
+    [Parameter] public DateTime? RunTime { get; set; }
+
+    private ScriptOutputView? _view;
+    private string? _problem;
+
+    protected override Task OnInitializedAsync() => LoadAsync(async caller =>
+    {
+        var result = await OutputSvc.GetOutputAsync(caller, EndpointId, CheckId, RunId, RunTime);
+        _view = result.Success ? result.Value : null;
+        _problem = result.Success ? null : result.Problem ?? "The output could not be read. Close this window and try again.";
+    });
+
+    private void Close() => MudDialog.Close();
+}

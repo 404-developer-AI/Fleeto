@@ -406,6 +406,11 @@ button.tag-chip:focus-visible { outline: 2px solid var(--fl-primary); outline-of
 .status-timeline-problem { background: var(--fl-error); }
 .status-timeline-error { background: #D97706; }
 .status-timeline-empty { background: #E7E5E4; }
+/* Script checks (0.9.0): a block of the status timeline and the status chip open the output of a run. */
+.status-timeline-block.selectable { cursor: pointer; }
+.status-timeline-block.selected { outline: 2px solid var(--mud-palette-text-primary); outline-offset: 1px; }
+.status-chip-button { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; }
+.status-chip-button:hover .status-chip, .status-chip-button:focus-visible .status-chip { text-decoration: underline; }
 
 /* Remote session windows (0.3.0): the session fills the window. */
 .remote-window { display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: var(--mud-palette-background); }

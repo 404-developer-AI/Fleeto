@@ -104,6 +104,59 @@ public sealed class AgentSessionTests
     }
 
     [Fact]
+    public async Task Script_output_is_stored_cleaned_and_unchanged_output_keeps_only_its_size()
+    {
+        using var harness = _fixture.CreateHarness();
+        var endpoint = await _fixture.CreateEndpointAsync(EndpointTier.Managed);
+        using var session = await harness.OpenAsync(endpoint);
+        GatewayHarness.Drain(session);
+
+        var batch = Batch(sequence: 1, results: 3);
+        batch.Results[0].ScriptOutput = new ScriptOutput { Stdout = "line one\nline\0two", Stderr = "warning", TotalBytes = 26, LimitBytes = 8192 };
+        batch.Results[1].ScriptOutput = new ScriptOutput { TotalBytes = 26, LimitBytes = 8192, Unchanged = true };
+        // An agent that ignores the largest limit is bounded by the gateway.
+        batch.Results[2].ScriptOutput = new ScriptOutput
+        {
+            Stdout = new string('x', 300 * 1024), Stderr = "lost", TotalBytes = 400 * 1024, LimitBytes = 1024 * 1024
+        };
+
+        await harness.Manager.HandleAsync(session, new AgentMessage { CheckResults = batch }, CancellationToken.None);
+        await GatewayHarness.ReadUntilAsync(session, ServerMessage.BodyOneofCase.BatchAck);
+
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        var stored = await db.CheckResults.Where(r => r.EndpointId == endpoint.Id).OrderBy(r => r.Id).ToListAsync();
+        Assert.Equal("line one\nlinetwo", stored[0].Output);
+        Assert.Equal("warning", stored[0].ErrorOutput);
+        Assert.Equal(26, stored[0].OutputBytes);
+        Assert.Equal(8192, stored[0].OutputLimitBytes);
+        Assert.Null(stored[1].Output);
+        Assert.Null(stored[1].ErrorOutput);
+        Assert.Equal(26, stored[1].OutputBytes);
+        Assert.Equal(Core.Domain.ScriptOutputRules.MaxLimitKb * 1024, stored[2].Output!.Length);
+        Assert.Equal(string.Empty, stored[2].ErrorOutput);
+        Assert.Equal(Core.Domain.ScriptOutputRules.MaxLimitKb * 1024, stored[2].OutputLimitBytes);
+    }
+
+    [Fact]
+    public async Task Results_without_script_output_leave_its_columns_empty()
+    {
+        using var harness = _fixture.CreateHarness();
+        var endpoint = await _fixture.CreateEndpointAsync(EndpointTier.Managed);
+        using var session = await harness.OpenAsync(endpoint);
+        GatewayHarness.Drain(session);
+
+        await harness.Manager.HandleAsync(session, new AgentMessage { CheckResults = Batch(sequence: 1, results: 1) }, CancellationToken.None);
+        await GatewayHarness.ReadUntilAsync(session, ServerMessage.BodyOneofCase.BatchAck);
+
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        var stored = await db.CheckResults.SingleAsync(r => r.EndpointId == endpoint.Id);
+        Assert.Null(stored.Output);
+        Assert.Null(stored.ErrorOutput);
+        Assert.Null(stored.OutputBytes);
+        Assert.Null(stored.OutputLimitBytes);
+    }
+
+    [Fact]
     public async Task Results_of_an_agent_only_endpoint_are_acknowledged_but_not_stored()
     {
         using var harness = _fixture.CreateHarness();

@@ -773,6 +773,12 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             // The few results with a process list, for the check history (0.6.0).
             entity.HasIndex(r => new { r.EndpointId, r.CheckDefinitionId, r.Time }, "IX_CheckResults_ProcessLists")
                 .HasFilter("\"ProcessesJson\" IS NOT NULL");
+            // Script output (0.9.0): text without a length limit in the database; the gateway bounds it to the largest output limit.
+            entity.Property(r => r.Output).HasColumnType("text");
+            entity.Property(r => r.ErrorOutput).HasColumnType("text");
+            // The results that carry script output, for the output of a run that left it out because it did not change.
+            entity.HasIndex(r => new { r.EndpointId, r.CheckDefinitionId, r.Time }, "IX_CheckResults_ScriptOutput")
+                .HasFilter("\"Output\" IS NOT NULL");
             // Per-endpoint evaluation cursor in the workers: results with Id > cursor for one endpoint.
             entity.HasIndex(r => new { r.EndpointId, r.Id });
             entity.HasIndex(r => r.Id);

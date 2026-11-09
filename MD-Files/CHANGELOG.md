@@ -75,6 +75,15 @@ When a third released version is added, the oldest entry moves to the top of
   The run is judged on the newest attempt of every step, so it succeeds once every step passed, and the alert of the task resolves.
   The Tasks tab also starts a new run of a task on that endpoint only (Run now), and shows every attempt of a step with its output.
 
+- The whole output of a script check (0.9.0). Clicking the status of a script check on the Checks tab shows the output of its
+  latest run, stdout and errors apart, with the exit code and when it ran. In the history of a script check a block of the status
+  timeline lists its runs, each with its status, exit code, first line and output size, and a run opens its output. Every script
+  check has a new setting Output limit (KB), 8 by default and at most 256: a run whose script wrote more says how much it wrote, that
+  only the first part is kept and where to raise the limit. The agent sends output that did not change since the last run only once a
+  day, so a script that prints the same every run costs almost nothing. Runs of an agent before 0.9.0 still show only their first
+  line. Script output can hold personal data: it is shown only to users who see the checks of the endpoint, never put in an alert or
+  log, and every time it is shown is in the audit log, without the output.
+
 ### Changed
 
 - Only a patch policy patched by Action1 becomes an Action1 automation.
@@ -93,6 +102,12 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- A new version of the script of a script check now runs from the next run. Until now the agent kept running the version it had,
+  until it restarted or something else of the check changed, because it compared the parameters of the check and not its script.
+- The status timeline in the history of a script check judges every block by what the exit codes of the script mean, as the status
+  of the check does: an exit code the script counts as success or info is no longer red, and an exit code 0 that it counts as a
+  warning or an error no longer looks fine. Blocks of before this version, in the week, month and year, keep the old rule: fine only
+  with exit code 0.
 - An endpoint whose public address changed while it was connected, such as a VM moved to another Proxmox node by live migration
   behind another NAT, stayed offline for about 15 minutes on Linux, until the operating system gave up the dead connection. The
   agent, the watchdog and remote sessions now give up a connection whose data stays unacknowledged for 2 minutes, the time the

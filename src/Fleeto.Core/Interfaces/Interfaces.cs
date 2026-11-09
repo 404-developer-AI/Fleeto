@@ -307,6 +307,8 @@ public static class AuditActions
     public const string StorageReportExported = "storage.report_exported";
     /// <summary>A user copied the process list of a CPU or memory usage result as an image (0.7.0); never the processes or users.</summary>
     public const string ProcessListExported = "check.process_list_exported";
+    /// <summary>A user was shown the output of a run of a script check (0.9.0); never the output.</summary>
+    public const string ScriptOutputViewed = "check.script_output_viewed";
     /// <summary>An admin copied or downloaded the instance health diagnostics (0.6.0).</summary>
     public const string InstanceDiagnosticsExported = "instance.diagnostics_exported";
     /// <summary>An admin changed the settings of the performance monitor (0.7.0); the entry holds the old and new values.</summary>

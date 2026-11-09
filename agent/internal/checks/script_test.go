@@ -98,3 +98,72 @@ func TestFirstLineIsCleanAndShort(t *testing.T) {
 		t.Fatalf("invalid UTF-8 must be replaced, got %q", got)
 	}
 }
+
+func TestAScriptCheckReportsItsWholeOutputUpToTheLimit(t *testing.T) {
+	collector := SystemCollector{ScriptDir: t.TempDir(), Access: platform.AccessCurrentUser}
+	body := nativeBody("@echo off\r\necho line one\r\necho line two\r\necho problem 1>&2\r\nexit /b 0\r\n",
+		"echo line one\necho line two\necho problem >&2\nexit 0\n")
+
+	result := collector.Collect(context.Background(), scriptSpec(body, map[string]string{"timeout_seconds": "60"}))[0]
+
+	out := result.ScriptOutput
+	if out == nil || !strings.Contains(out.GetStdout(), "line one") || !strings.Contains(out.GetStdout(), "line two") ||
+		!strings.Contains(out.GetStderr(), "problem") {
+		t.Fatalf("the whole output must be reported: %+v", out)
+	}
+	if out.GetLimitBytes() != jobs.DefaultCheckOutputLimit || out.GetTotalBytes() != uint64(len(out.GetStdout())+len(out.GetStderr())) {
+		t.Fatalf("an output within the default limit must be complete: %+v", out)
+	}
+}
+
+func TestAScriptCheckCutsItsOutputAtTheLimitAndCountsTheRest(t *testing.T) {
+	collector := SystemCollector{ScriptDir: t.TempDir(), Access: platform.AccessCurrentUser}
+	body := nativeBody("@echo off\r\nfor /L %%i in (1,1,300) do echo 0123456789012345678901234567890123456789\r\nexit /b 0\r\n",
+		"i=0; while [ $i -lt 300 ]; do echo 0123456789012345678901234567890123456789; i=$((i+1)); done\nexit 0\n")
+
+	out := collector.Collect(context.Background(), scriptSpec(body, map[string]string{"timeout_seconds": "60", "output_limit_kb": "2"}))[0].ScriptOutput
+
+	if out == nil || out.GetLimitBytes() != 2048 || len(out.GetStdout()) != 2048 || out.GetTotalBytes() <= 2048*5 {
+		t.Fatalf("the output must be cut at 2 KB and its total size counted: limit %d, kept %d, total %d",
+			out.GetLimitBytes(), len(out.GetStdout()), out.GetTotalBytes())
+	}
+}
+
+func TestTheOutputLimitStaysWithinItsBounds(t *testing.T) {
+	for value, want := range map[string]int{"": 8192, "0": 8192, "abc": 8192, "1": 1024, "64": 65536, "256": 262144, "100000": 262144} {
+		if got := ScriptOutputLimit(&agentv1.CheckSpec{Parameters: map[string]string{"output_limit_kb": value}}); got != want {
+			t.Fatalf("output_limit_kb %q: got %d, want %d", value, got, want)
+		}
+	}
+}
+
+func TestUnchangedScriptOutputIsSentOncePerDay(t *testing.T) {
+	r := &runner{}
+	start := time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)
+	output := func(text string) *agentv1.ScriptOutput {
+		return &agentv1.ScriptOutput{Stdout: text, TotalBytes: uint64(len(text)), LimitBytes: 8192}
+	}
+
+	if first := r.dedupeOutput(output("ok"), start); first.GetUnchanged() || first.GetStdout() != "ok" {
+		t.Fatalf("the first output must be sent: %+v", first)
+	}
+	same := r.dedupeOutput(output("ok"), start.Add(time.Minute))
+	if !same.GetUnchanged() || same.GetStdout() != "" || same.GetTotalBytes() != 2 || same.GetLimitBytes() != 8192 {
+		t.Fatalf("unchanged output must be left out with its size and limit: %+v", same)
+	}
+	if changed := r.dedupeOutput(output("changed"), start.Add(2*time.Minute)); changed.GetUnchanged() || changed.GetStdout() != "changed" {
+		t.Fatalf("changed output must be sent: %+v", changed)
+	}
+	if again := r.dedupeOutput(output("changed"), start.Add(2*time.Minute+ScriptOutputResend)); again.GetUnchanged() {
+		t.Fatal("unchanged output must be sent again after a day")
+	}
+	// The same text on stdout and stderr is not the same output.
+	split := &runner{}
+	split.dedupeOutput(&agentv1.ScriptOutput{Stdout: "ab"}, start)
+	if moved := split.dedupeOutput(&agentv1.ScriptOutput{Stdout: "a", Stderr: "b"}, start.Add(time.Minute)); moved.GetUnchanged() {
+		t.Fatal("output that moved between the streams must be sent")
+	}
+	if r.dedupeOutput(nil, start) != nil {
+		t.Fatal("a check without script output must stay without")
+	}
+}

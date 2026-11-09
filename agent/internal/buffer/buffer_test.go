@@ -3,7 +3,10 @@ package buffer
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"google.golang.org/protobuf/proto"
 
 	"github.com/404-developer-AI/Fleeto/agent/internal/logging"
 	"github.com/404-developer-AI/Fleeto/agent/internal/protocol/agentv1"
@@ -143,5 +146,69 @@ func TestResetRestartsSequences(t *testing.T) {
 	}
 	if next, _ := b.NextSequence(); next != 1 || b.Total() != 0 {
 		t.Fatalf("expected a clean buffer, got next %d total %d", next, b.Total())
+	}
+}
+
+func outputResult(i, size int) *agentv1.CheckResult {
+	r := result(i)
+	r.ScriptOutput = &agentv1.ScriptOutput{Stdout: strings.Repeat("x", size), TotalBytes: uint64(size)}
+	return r
+}
+
+func TestABatchStaysBelowItsByteLimit(t *testing.T) {
+	b := open(t, filepath.Join(t.TempDir(), "results.db"), 100)
+	defer b.Close()
+	for i := range 20 {
+		if err := b.Add(outputResult(i, 256*1024)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	batch, err := b.NextBatch(500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if size := proto.Size(batch); size > MaxBatchBytes+1024 || len(batch.Results) == 0 || len(batch.Results) >= 20 {
+		t.Fatalf("a batch must stop at about %d bytes, got %d results of %d bytes", MaxBatchBytes, len(batch.Results), size)
+	}
+
+	// One result larger than the byte limit still goes out on its own, so the queue never stalls.
+	large := open(t, filepath.Join(t.TempDir(), "results.db"), 100)
+	defer large.Close()
+	_ = large.Add(outputResult(1, MaxBatchBytes+10))
+	if one, _ := large.NextBatch(500); one == nil || len(one.Results) != 1 {
+		t.Fatal("a single large result must form a batch of its own")
+	}
+}
+
+func TestOldestResultsAreEvictedWhenTheByteLimitIsReached(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "results.db")
+	b := open(t, path, 1000)
+	b.SetMaxBytes(1024 * 1024)
+	for i := range 10 {
+		if err := b.Add(outputResult(i, 200*1024)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if b.Bytes() > 1024*1024 || b.Total() != 5 {
+		t.Fatalf("expected the 5 newest results within 1 MiB, got %d results of %d bytes", b.Total(), b.Bytes())
+	}
+	batch, _ := b.NextBatch(500)
+	if batch.Results[0].Target != "5" {
+		t.Fatalf("the oldest results must be evicted first, got %s", batch.Results[0].Target)
+	}
+	if _, err := b.Ack(batch.Sequence); err != nil {
+		t.Fatal(err)
+	}
+	if b.Bytes() != 0 {
+		t.Fatalf("an acknowledged batch must free its bytes, %d left", b.Bytes())
+	}
+	_ = b.Add(outputResult(20, 1000))
+	want := b.Bytes()
+	b.Close()
+
+	reopened := open(t, path, 1000)
+	defer reopened.Close()
+	if reopened.Bytes() != want {
+		t.Fatalf("the byte count must survive a restart: %d, want %d", reopened.Bytes(), want)
 	}
 }

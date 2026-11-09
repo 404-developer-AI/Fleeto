@@ -29,6 +29,23 @@ public class CheckResult
     /// null when the result carries no list. Holds user names, so it is personal data.
     /// </summary>
     public string? ProcessesJson { get; set; }
+
+    /// <summary>
+    /// Script checks only (0.9.0): what the script wrote on stdout, up to the output limit of the check. Null when the agent left it
+    /// out because it did not change (<see cref="OutputBytes"/> is then set; the output is that of the latest earlier result with
+    /// output) or when the agent is older than 0.9.0. Can hold personal data and secrets: never logged, never in an alert title, and
+    /// never loaded with the evaluation of check results (<see cref="Domain.ScriptOutputRules"/>).
+    /// </summary>
+    public string? Output { get; set; }
+
+    /// <summary>Script checks only (0.9.0): what the script wrote on stderr, in what <see cref="Output"/> left of the limit.</summary>
+    public string? ErrorOutput { get; set; }
+
+    /// <summary>Script checks only (0.9.0): every byte the script wrote, also beyond the limit. Null from agents older than 0.9.0.</summary>
+    public long? OutputBytes { get; set; }
+
+    /// <summary>Script checks only (0.9.0): the output limit in bytes the agent applied to this run.</summary>
+    public int? OutputLimitBytes { get; set; }
 }
 
 /// <summary>Deduplication of agent result batches: a batch sequence number is stored once per endpoint.</summary>
@@ -227,6 +244,12 @@ public class CheckResultHourly
     public int ValueCount { get; set; }
     public int ErrorCount { get; set; }
     public int NoResponseCount { get; set; }
+
+    /// <summary>
+    /// Results whose status was a warning or critical when the workers evaluated them (0.9.0), so a script check is judged with the
+    /// exit codes of its script rather than its lowest and highest code. Null for a bucket that started before 0.9.0.
+    /// </summary>
+    public int? ProblemCount { get; set; }
 }
 
 /// <summary>Daily rollup, same shape and rules as <see cref="CheckResultHourly"/>; the bucket is the start of the UTC day.</summary>
@@ -243,4 +266,10 @@ public class CheckResultDaily
     public int ValueCount { get; set; }
     public int ErrorCount { get; set; }
     public int NoResponseCount { get; set; }
+
+    /// <summary>
+    /// Results whose status was a warning or critical when the workers evaluated them (0.9.0), so a script check is judged with the
+    /// exit codes of its script rather than its lowest and highest code. Null for a bucket that started before 0.9.0.
+    /// </summary>
+    public int? ProblemCount { get; set; }
 }
