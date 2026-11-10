@@ -10,3 +10,8 @@ f2ce63823adcd6cc6d67de7c7f864b12058d64ea:agent/internal/remote/testdata/vectors.
 f2ce63823adcd6cc6d67de7c7f864b12058d64ea:agent/internal/remote/testdata/vectors.json:generic-api-key:11
 # Made-up statement fingerprints (16 hexadecimal characters) in the Diagnose rule tests of the performance monitor, not a key (reviewed 2026-10-18).
 cc36bb75599d547707c4cb1058635a615f817983:tests/Fleeto.Infrastructure.Tests/PerformanceDiagnoseTests.cs:generic-api-key:204
+# The domain label "fleeto-instance-signing-key-v1" of the CA signature over the instance signing key (0.9.0), a fixed string and
+# not a key, and the public ed25519 key (RFC 8032 test vector 1) of the shared Go and .NET test vector of that signature (reviewed 2026-11-10).
+acc332db8a455d35ee6bee589aa039c0692c0b71:src/Fleeto.Infrastructure/Security/Ed25519.cs:generic-api-key:129
+acc332db8a455d35ee6bee589aa039c0692c0b71:agent/internal/enroll/enroll.go:generic-api-key:343
+acc332db8a455d35ee6bee589aa039c0692c0b71:agent/internal/enroll/signing_key_binding_test.go:generic-api-key:74
