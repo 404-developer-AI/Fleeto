@@ -5,6 +5,7 @@
 package state
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/x509"
 	"encoding/base64"
@@ -14,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,6 +69,44 @@ type State struct {
 // Certificate parses the agent certificate.
 func (s *State) Certificate() (*x509.Certificate, error) {
 	return parsePEMCertificate(s.CertificatePEM, "agent certificate")
+}
+
+// IssuedCertificate parses the agent certificate and checks that the pinned instance CA issued it for this endpoint and instance.
+// Validity in time is not checked, so an expired certificate can still be recovered. Whoever could write a state file without the CA
+// key cannot make it load: it needs a certificate of this instance for a key it holds (security audit of 0.9.0).
+func (s *State) IssuedCertificate() (*x509.Certificate, error) {
+	cert, err := s.Certificate()
+	if err != nil {
+		return nil, err
+	}
+	ca, err := s.CACertificate()
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(cert.RawIssuer, ca.RawSubject) || cert.CheckSignatureFrom(ca) != nil {
+		return nil, errors.New("the stored agent certificate is not issued by the pinned instance CA: enroll the agent again")
+	}
+	// The signer names the endpoint in the subject and in a URI urn:<product>:endpoint:<id>, the instance in urn:<product>:instance:<id>
+	// (the product name changed once, so certificates from before the rename carry another).
+	endpoint := strings.EqualFold(cert.Subject.CommonName, s.EndpointID)
+	for _, uri := range cert.URIs {
+		parts := strings.Split(uri.Opaque, ":")
+		if !strings.EqualFold(uri.Scheme, "urn") || len(parts) != 3 {
+			continue
+		}
+		switch strings.ToLower(parts[1]) {
+		case "endpoint":
+			endpoint = endpoint || strings.EqualFold(parts[2], s.EndpointID)
+		case "instance":
+			if s.InstanceID != "" && !strings.EqualFold(parts[2], s.InstanceID) {
+				return nil, errors.New("the stored agent certificate is issued for another instance: enroll the agent again")
+			}
+		}
+	}
+	if !endpoint {
+		return nil, errors.New("the stored agent certificate is issued for another endpoint: enroll the agent again")
+	}
+	return cert, nil
 }
 
 // CACertificate parses the pinned instance CA certificate.

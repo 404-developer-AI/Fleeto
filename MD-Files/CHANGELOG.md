@@ -116,6 +116,38 @@ When a third released version is added, the oldest entry moves to the top of
   with its comment, and the tab shows whether the alert is open, acknowledged or on hold. The Alerts page names failed tasks too.
 - The public API answered the patch engine of `GET /api/v1/endpoints/{endpointId}/patches` as a number instead of `action1` or `fleeto`
   (found before release).
+- The patch sync of an Action1 organization stopped when two endpoints of one client reported the same Action1 agent id, a cloned VM
+  for example. The endpoint that reported the id most recently now gets the patch state, and the sync goes on.
+- Test databases can get a suffix (`FLEETO_TEST_DB_SUFFIX`), so test runs from two worktrees no longer drop each other's database.
+
+### Security
+
+Found by a security review of 0.9.0 and each reproduced with a test before it was fixed.
+
+- A standard user on a Windows endpoint could take control of the agent before it was installed: a folder created beforehand under
+  `C:\ProgramData\Fleeto` stayed theirs after the installation protected it, so they could write the state of the agent and with it
+  the key it trusts, and run scripts as SYSTEM. `C:\ProgramData\Fleeto` and the state folders of the agent and watchdog now belong to
+  Administrators with access for the system only; a folder that exists already is taken over or refused, and a link is refused.
+- The agent starts only from a state whose certificate its pinned CA issued for that endpoint, so a forged state file cannot load.
+- An agent update ran the staged binary to ask its version without checking it again, so a swapped file could run as SYSTEM; the
+  binary is now checked through a handle that is held while it runs. The watchdog binary is checked against the manifest before it
+  is installed.
+- The install took over a state folder of the old agent (`C:\ProgramData\Fleetify\Agent`) that a user could have planted. It now
+  does so only while the old service exists and the folders belong to the system.
+- A compromised gateway could make agents that enroll pin a signing key of its own. The instance CA now signs the signing key in the
+  enrollment response, and the agent checks that signature against its pinned CA.
+- A user who may edit monitoring templates or checks could create a script check without the permission to run scripts. Adding,
+  editing, switching on, adjusting or copying a script check now needs View scripts and Run scripts.
+- Script approval could be switched off for endpoints without the permission to approve scripts: by linking a policy without approval
+  on a more specific level, unlinking or deleting the policy, narrowing the endpoints it is for, moving an endpoint, overriding its
+  class or changing a client template. Each of these is now refused for such a user when an endpoint would lose approval.
+- Remote session connections of a user stayed open after the user was deleted, its two-factor authentication was reset, an admin set
+  its password, it was unlinked from Entra ID, or "Microsoft handles the second factor" was switched off. They now end at once, and
+  so do those of a user that loses an endpoint because it moved to another site, whose pages reload.
+- An agent could report the Action1 agent id of an endpoint of another client, after which Fleeto moved that endpoint into its own
+  client's Action1 organization, or forgot its patch state when a removal was answered "not found". A move now goes ahead by itself
+  only when the old record was left behind by the same machine, otherwise it waits in Settings, Integrations with its cause; a
+  removal touches only the organization it was for. The gateway keeps an Action1 agent id only in the form of a GUID.
 
 ## [0.8.0] — 2026-11-04
 

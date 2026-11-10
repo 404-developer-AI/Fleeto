@@ -286,6 +286,12 @@ public sealed class MonitoringTemplateService
             return ServiceResult<Guid>.Forbidden();
         }
 
+        // The type of a check never changes, so this covers adding a script check and changing one (its script included).
+        if (input.Type == CheckType.Script && !ScriptChecks.MayManage(caller))
+        {
+            return ServiceResult<Guid>.Fail(ScriptChecks.PermissionProblem);
+        }
+
         await using var db = _dbFactory.Create(caller.Scope);
         var template = await db.MonitoringTemplates.SingleOrDefaultAsync(t => t.Id == templateId, cancellationToken);
         if (template is null)
@@ -407,6 +413,11 @@ public sealed class MonitoringTemplateService
             return ServiceResult.Ok();
         }
 
+        if (enabled && check.Type == CheckType.Script && !ScriptChecks.MayManage(caller))
+        {
+            return ServiceResult.Fail(ScriptChecks.PermissionProblem);
+        }
+
         var now = _time.GetUtcNow().UtcDateTime;
         check.Enabled = enabled;
         check.UpdatedAt = now;
@@ -482,6 +493,12 @@ public sealed class MonitoringTemplateService
         if (await NameTakenAsync(db, targetClientId, cleanName, null, cancellationToken))
         {
             return ServiceResult<Guid>.Fail($"A monitoring template named {cleanName} already exists there. Choose another name.");
+        }
+
+        // A copy holds new script checks of its own, which run once it is linked.
+        if (source.Checks.Any(c => c.Type == CheckType.Script) && !ScriptChecks.MayManage(caller))
+        {
+            return ServiceResult<Guid>.Fail(ScriptChecks.PermissionProblem);
         }
 
         // A script check may only use a global script or one of the template's client.

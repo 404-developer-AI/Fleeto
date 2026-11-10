@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/404-developer-AI/Fleeto/agent/internal/enroll"
+	"github.com/404-developer-AI/Fleeto/agent/internal/platform"
 	"github.com/404-developer-AI/Fleeto/agent/internal/state"
 )
 
@@ -22,6 +24,18 @@ const (
 
 // errLegacyOtherInstance: the legacy agent belongs to another instance or cannot be taken over.
 var errLegacyOtherInstance = errors.New("legacy agent cannot be taken over")
+
+// loadLegacyState reads the state of a legacy agent from stateDir, below dataDir, only when both folders and the state file belong to
+// the system. On Windows a local user may create folders in C:\ProgramData: a legacy state that user wrote would otherwise become the
+// pinned trust (signing key, key and server) of the agent that takes it over (security audit of 0.9.0).
+func loadLegacyState(dataDir, stateDir string) (*state.State, error) {
+	for _, path := range []string{dataDir, stateDir, filepath.Join(stateDir, state.FileName)} {
+		if err := platform.CheckSystemOwned(path); err != nil {
+			return nil, err
+		}
+	}
+	return state.NewStore(stateDir, platform.AccessSystem).Load()
+}
 
 // legacyTakeover decides whether the enrollment of a legacy agent can be taken over by this install: only for the same gateway and the
 // same pinned instance CA as the install command, and never for a revoked agent. The install token is then not used, so the endpoint

@@ -18,7 +18,8 @@ namespace Fleeto.Testing;
 /// <para>
 /// Connection: the <c>FLEETO_TEST_ADMIN_CONNECTION</c> environment variable (a superuser connection string,
 /// set in CI), else <c>Host=localhost;Username=postgres;Password=postgres</c> for local development. The database
-/// <c>fleeto_test_&lt;name&gt;</c> is dropped and recreated on every run.
+/// <c>fleeto_test_&lt;name&gt;</c> (plus <c>_&lt;FLEETO_TEST_DB_SUFFIX&gt;</c> when that variable is set) is dropped and
+/// recreated on every run.
 /// </para>
 /// Use one instance per test project through an xUnit collection fixture; tests create their own clients so they
 /// do not interfere with each other.
@@ -66,7 +67,15 @@ public sealed class TestDatabase : IAsyncDisposable
             throw new ArgumentException("Use lowercase letters, digits and underscores for the test database name.", nameof(name));
         }
 
-        var databaseName = "fleeto_test_" + name;
+        // FLEETO_TEST_DB_SUFFIX keeps runs from different worktrees apart: every database is dropped and recreated
+        // on start, so two runs sharing a name would kill each other's connections.
+        var suffix = Environment.GetEnvironmentVariable("FLEETO_TEST_DB_SUFFIX");
+        if (!string.IsNullOrEmpty(suffix) && !System.Text.RegularExpressions.Regex.IsMatch(suffix, "^[a-z0-9_]{1,16}$"))
+        {
+            throw new InvalidOperationException("FLEETO_TEST_DB_SUFFIX may hold up to 16 lowercase letters, digits and underscores.");
+        }
+
+        var databaseName = "fleeto_test_" + name + (string.IsNullOrEmpty(suffix) ? "" : "_" + suffix);
 
         await using (var connection = new NpgsqlConnection(admin.ConnectionString))
         {

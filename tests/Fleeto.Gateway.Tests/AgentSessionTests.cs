@@ -384,6 +384,39 @@ public sealed class AgentSessionTests
         Assert.DoesNotContain(GatewayHarness.Drain(reconnect), m => m.BodyCase == ServerMessage.BodyOneofCase.InventoryRequest);
     }
 
+    /// <summary>
+    /// The Action1 id an agent reports is stored only when it has the form of an Action1 id, a GUID, in lower case without
+    /// braces as the agent itself reports it; anything else is stored as no Action1 agent. Which client the id belongs to
+    /// is never decided here (see Action1EndpointMoveTests in Fleeto.Workers.Tests).
+    /// </summary>
+    [Theory]
+    [InlineData("ef17c844-5b7c-4b32-9724-f2716b596639", "ef17c844-5b7c-4b32-9724-f2716b596639")]
+    [InlineData(" {EF17C844-5B7C-4B32-9724-F2716B596639} ", "ef17c844-5b7c-4b32-9724-f2716b596639")]
+    [InlineData("ef17c8445b7c4b329724f2716b596639", "")]
+    [InlineData("a1-agent", "")]
+    [InlineData("ef17c844-5b7c-4b32-9724-f2716b596639/../../organizations", "")]
+    [InlineData("", "")]
+    public async Task Only_an_Action1_agent_id_in_the_form_of_a_GUID_is_stored_from_the_inventory(string reported, string stored)
+    {
+        using var harness = _fixture.CreateHarness();
+        var endpoint = await _fixture.CreateEndpointAsync(EndpointTier.Managed);
+        using (var session = await harness.OpenAsync(endpoint))
+        {
+            await harness.Manager.HandleAsync(session, new AgentMessage
+            {
+                Inventory = new InventoryReport
+                {
+                    Hash = Guid.NewGuid().ToString("N"),
+                    Inventory = new Inventory { Hostname = "H", Action1AgentId = reported }
+                }
+            }, CancellationToken.None);
+            await harness.Manager.CloseAsync(session);
+        }
+
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        Assert.Equal(stored, (await db.InventorySnapshots.AsNoTracking().SingleAsync(i => i.EndpointId == endpoint.Id)).Action1AgentId);
+    }
+
     private static CheckResultBatch Batch(ulong sequence, int results)
     {
         var batch = new CheckResultBatch { Sequence = sequence };

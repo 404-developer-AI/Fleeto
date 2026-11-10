@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using Fleeto.Gateway.Enrollment;
+using Fleeto.Infrastructure.Security;
 using Fleeto.Protocol.Agent.V1;
 using Fleeto.Testing;
 using Google.Protobuf;
@@ -86,6 +87,9 @@ public sealed class EnrollmentTests
         Assert.Equal(StatusCodes.Status200OK, status);
         var response = EnrollResponse.Parser.ParseFrom(bytes);
         Assert.Equal(_fixture.Ca.CertificateDer, response.CaCertificateDer.ToByteArray());
+        // The CA signature of the signer over the instance signing key reaches the agent unchanged, so the agent can verify it.
+        Assert.True(InternalCertificateAuthority.VerifyInstanceSigningKey(response.CaCertificateDer.ToByteArray(), Guid.Parse(response.InstanceId),
+            response.InstanceSigningKeyId, response.InstanceSigningPublicKey.ToByteArray(), response.InstanceSigningKeyCaSignature.ToByteArray()));
         await using var db = database.DbFactory.CreateSystem();
         var request = await db.SigningRequests.SingleAsync(r => r.Kind == Core.Entities.SigningRequestKind.AgentEnrollment && r.ClientId == client.Id);
         Assert.StartsWith("gateway:", request.RequestedBy);

@@ -96,4 +96,91 @@ public class UserAdminTests
         Assert.False(await db.Users.Where(u => u.Id == created.Value).Select(u => u.TwoFactorEnabled).SingleAsync());
         Assert.False(await db.UserTokens.AnyAsync(t => t.UserId == created.Value && t.Name == "AuthenticatorKey"));
     }
+
+    /// <summary>A technician with a live remote session connection, and a bystander with one that must stay.</summary>
+    private async Task<(Guid UserId, Guid ParticipantId, Guid BystanderParticipantId)> ConnectedTechnicianAsync(string hostname)
+    {
+        var technician = await _fixture.Database.CreateUserAsync(FleetoRoles.Technician);
+        var bystander = await _fixture.Database.CreateUserAsync(FleetoRoles.Technician);
+        var participantId = await ConnectedParticipants.AddOnNewEndpointAsync(_fixture.Database, technician.Id, hostname);
+        var bystanderParticipantId = await ConnectedParticipants.AddOnNewEndpointAsync(_fixture.Database, bystander.Id, hostname + "-B");
+        return (technician.Id, participantId, bystanderParticipantId);
+    }
+
+    private async Task AssertConnectionEndedAsync(Guid userId, Guid participantId, Guid bystanderParticipantId, int notificationsBefore)
+    {
+        Assert.NotNull((await ConnectedParticipants.GetAsync(_fixture.Database, participantId)).RevokedAt);
+        Assert.True(await ConnectedParticipants.GatewayClosesAsync(_fixture.Database, participantId));
+        // The gateway and the user's open pages are told at once.
+        Assert.True(ConnectedParticipants.AccessNotifications(_fixture.Database, userId) > notificationsBefore);
+        Assert.Null((await ConnectedParticipants.GetAsync(_fixture.Database, bystanderParticipantId)).RevokedAt);
+    }
+
+    [Fact]
+    public async Task Changing_the_roles_ends_remote_session_connections_the_new_roles_do_not_allow()
+    {
+        var (userId, participantId, bystanderId) = await ConnectedTechnicianAsync("UA-ROLE");
+        var before = ConnectedParticipants.AccessNotifications(_fixture.Database, userId);
+        var result = await _fixture.Services.GetRequiredService<UserAdminService>().SetRolesAsync(WebFixtureBase.Admin(), userId, [FleetoRoles.ReadOnly]);
+        Assert.True(result.Success, result.Problem);
+
+        await AssertConnectionEndedAsync(userId, participantId, bystanderId, before);
+    }
+
+    [Fact]
+    public async Task Deleting_a_user_ends_its_remote_session_connections()
+    {
+        var (userId, participantId, bystanderId) = await ConnectedTechnicianAsync("UA-DELETE");
+        var before = ConnectedParticipants.AccessNotifications(_fixture.Database, userId);
+        var result = await _fixture.Services.GetRequiredService<UserAdminService>().DeleteAsync(WebFixtureBase.Admin(), userId);
+        Assert.True(result.Success, result.Problem);
+
+        await AssertConnectionEndedAsync(userId, participantId, bystanderId, before);
+    }
+
+    [Fact]
+    public async Task Resetting_two_factor_ends_the_remote_session_connections_of_the_user()
+    {
+        var (userId, participantId, bystanderId) = await ConnectedTechnicianAsync("UA-2FA");
+        var before = ConnectedParticipants.AccessNotifications(_fixture.Database, userId);
+        var result = await _fixture.Services.GetRequiredService<UserAdminService>().ResetTwoFactorAsync(WebFixtureBase.Admin(), userId);
+        Assert.True(result.Success, result.Problem);
+
+        await AssertConnectionEndedAsync(userId, participantId, bystanderId, before);
+    }
+
+    [Fact]
+    public async Task Setting_a_password_ends_the_remote_session_connections_of_the_user()
+    {
+        var (userId, participantId, bystanderId) = await ConnectedTechnicianAsync("UA-PASSWORD");
+        var before = ConnectedParticipants.AccessNotifications(_fixture.Database, userId);
+        var result = await _fixture.Services.GetRequiredService<UserAdminService>()
+            .SetPasswordAsync(WebFixtureBase.Admin(), userId, "a completely new long password 42");
+        Assert.True(result.Success, result.Problem);
+
+        await AssertConnectionEndedAsync(userId, participantId, bystanderId, before);
+    }
+
+    [Fact]
+    public async Task Unlinking_from_Entra_ends_the_remote_session_connections_of_the_user()
+    {
+        var (userId, participantId, bystanderId) = await ConnectedTechnicianAsync("UA-ENTRA");
+        await using (var scope = _fixture.Services.CreateAsyncScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = (await users.FindByIdAsync(userId.ToString()))!;
+            await users.RemovePasswordAsync(user);
+            user.EntraObjectId = Guid.NewGuid();
+            user.EntraTenantId = Guid.NewGuid().ToString();
+            user.EntraAccount = "tess@tenant.example";
+            user.EntraLinkedAt = DateTime.UtcNow;
+            Assert.True((await users.UpdateAsync(user)).Succeeded);
+        }
+
+        var before = ConnectedParticipants.AccessNotifications(_fixture.Database, userId);
+        var result = await _fixture.Services.GetRequiredService<UserAdminService>().UnlinkEntraAsync(WebFixtureBase.Admin(), userId);
+        Assert.True(result.Success, result.Problem);
+
+        await AssertConnectionEndedAsync(userId, participantId, bystanderId, before);
+    }
 }

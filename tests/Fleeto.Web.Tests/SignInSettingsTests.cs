@@ -154,6 +154,33 @@ public sealed class SignInSettingsTests
         Assert.Contains(AuditActions.UserUnlinked, actions);
     }
 
+    [Fact]
+    public async Task Linking_a_user_and_taking_the_second_factor_back_end_its_remote_session_connections()
+    {
+        await CleanAsync();
+        var admin = WebFixtureBase.Admin();
+        Assert.True((await SignIn.SaveAsync(admin, new SignInInput(true, TenantId, ClientId, "secret-value", Today.AddDays(60),
+            MicrosoftHandlesSecondFactor: true))).Success);
+        var userId = await CreateUserAsync(admin, "Connected Technician");
+        var local = await CreateUserAsync(admin, "Local Technician");
+        var localParticipant = await ConnectedParticipants.AddOnNewEndpointAsync(_fixture.Database, local, "SI-LOCAL");
+
+        // Linking removes the password, which ends the sessions of the user, and its remote session connections with them.
+        var linkedParticipant = await ConnectedParticipants.AddOnNewEndpointAsync(_fixture.Database, userId, "SI-LINK");
+        Assert.True((await Users.LinkEntraAsync(admin, userId, Guid.NewGuid().ToString("D"), null)).Success);
+        Assert.True(await ConnectedParticipants.GatewayClosesAsync(_fixture.Database, linkedParticipant));
+
+        // Microsoft no longer handles the second factor: the sessions of linked users end, and so do their connections.
+        var trustedParticipant = await ConnectedParticipants.AddOnNewEndpointAsync(_fixture.Database, userId, "SI-TRUST");
+        var before = ConnectedParticipants.AccessNotifications(_fixture.Database, userId);
+        Assert.True((await SignIn.SaveAsync(admin, new SignInInput(true, TenantId, ClientId, null, null))).Success);
+        Assert.True(await ConnectedParticipants.GatewayClosesAsync(_fixture.Database, trustedParticipant));
+        Assert.True(ConnectedParticipants.AccessNotifications(_fixture.Database, userId) > before);
+
+        // A user that is not linked keeps its connection.
+        Assert.False(await ConnectedParticipants.GatewayClosesAsync(_fixture.Database, localParticipant));
+    }
+
     private async Task<Guid> CreateUserAsync(Caller admin, string name)
     {
         var created = await Users.CreateAsync(admin, $"link-{Guid.NewGuid():N}@example.com", name, "a long temporary password",

@@ -49,6 +49,15 @@ public static class ScriptSearch
 /// <summary>Script checks (0.2.0): which script a check may use, and the configuration changes a script change causes.</summary>
 public static class ScriptChecks
 {
+    public const string PermissionProblem =
+        "A script check runs a script on endpoints, so only somebody who may view and run scripts can add, change or switch one on. Ask an admin, or choose another check type.";
+
+    /// <summary>
+    /// A script check runs its script on every endpoint it applies to, so adding, changing, enabling or copying one needs what running a
+    /// script by hand needs: View scripts and Run scripts. Disabling or deleting one stays with the permission of the check.
+    /// </summary>
+    public static bool MayManage(Caller caller) => caller.Has(Permissions.ScriptsView) && caller.Has(Permissions.ScriptsRun);
+
     public static ConfigChangeEvent ChangeEvent(Guid scriptId, DateTime now) =>
         new() { Scope = ConfigChangeScope.Script, ScopeId = scriptId, CreatedAt = now };
 

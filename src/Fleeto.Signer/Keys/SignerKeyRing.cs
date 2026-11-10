@@ -68,6 +68,25 @@ public sealed class SignerKeyRing : IDisposable
         return signature;
     }
 
+    /// <summary>
+    /// The instance CA's signature over the instance id, signing key id and signing public key, sent with every enrollment response so the
+    /// agent pins only a signing key the CA vouches for (a gateway holds a CA certificate, never the CA key). Made from the existing keys,
+    /// so instances enrolled before it existed need no new key ceremony.
+    /// </summary>
+    public byte[] SignSigningKeyWithCa()
+    {
+        var material = Current;
+        var signature = InternalCertificateAuthority.SignInstanceSigningKey(material.CaPrivateKeyPkcs8, material.InstanceId, material.SigningKeyId,
+            material.SigningPublicKey);
+        if (!InternalCertificateAuthority.VerifyInstanceSigningKey(material.CaCertificateDer, material.InstanceId, material.SigningKeyId,
+                material.SigningPublicKey, signature))
+        {
+            throw new CryptographicException("A freshly made CA signature over the instance signing key does not verify with the CA certificate.");
+        }
+
+        return signature;
+    }
+
     public InternalCertificateAuthority.IssuedCertificate IssueAgentCertificate(byte[] csrDer, Guid endpointId, DateTime now)
     {
         var material = Current;

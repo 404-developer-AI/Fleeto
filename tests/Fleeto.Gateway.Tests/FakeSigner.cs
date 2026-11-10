@@ -130,14 +130,17 @@ public sealed class FakeSigner : IAsyncDisposable
         token.UseCount++;
         await db.SaveChangesAsync(cancellationToken);
 
+        var signingKey = RandomNumberGenerator.GetBytes(32);
         return new EnrollResponse
         {
             EndpointId = endpoint.Id.ToString("D"),
             InstanceId = _fixture.Database.InstanceId.ToString("D"),
             CertificateDer = ByteString.CopyFrom(issued.CertificateDer),
             CaCertificateDer = ByteString.CopyFrom(_fixture.Ca.CertificateDer),
-            InstanceSigningPublicKey = ByteString.CopyFrom(RandomNumberGenerator.GetBytes(32)),
-            InstanceSigningKeyId = "test"
+            InstanceSigningPublicKey = ByteString.CopyFrom(signingKey),
+            InstanceSigningKeyId = "test",
+            InstanceSigningKeyCaSignature = ByteString.CopyFrom(InternalCertificateAuthority.SignInstanceSigningKey(_fixture.Ca.PrivateKeyPkcs8,
+                _fixture.Database.InstanceId, "test", signingKey))
         }.ToByteArray();
     }
 

@@ -171,7 +171,7 @@ public sealed class IntegrationFollowService : WorkerLoop
 
             if (result is null)
             {
-                continue; // done and removed
+                continue; // done and removed, or put back to wait with its cause
             }
 
             operation.Attempts++;
@@ -330,7 +330,8 @@ public sealed class IntegrationFollowService : WorkerLoop
     /// <summary>
     /// Moves an endpoint into the organization of the client it belongs to in Fleeto. The target is read again here, so a
     /// mapping changed since the patch sync saw it decides; afterwards the patch state is read again at once, so the
-    /// endpoint shows its state under its new client instead of "not covered" for up to four hours.
+    /// endpoint shows its state under its new client instead of "not covered" for up to four hours. Who claims the Action1
+    /// id is judged again by <see cref="Action1Claims"/> first, so a move that is not proven never reaches Action1.
     /// </summary>
     private async Task<IntegrationResult?> MoveEndpointAsync(Pass pass, IntegrationOperation operation, CancellationToken cancellationToken)
     {
@@ -344,6 +345,28 @@ public sealed class IntegrationFollowService : WorkerLoop
         if (target is null || target.ExternalTenantId == operation.ExternalTenantId)
         {
             db.IntegrationOperations.Remove(operation);
+            return null;
+        }
+
+        // The Action1 id is the word of an agent, so who claims it is judged again now, as the patch sync judged it: a move
+        // that no longer goes to this client is dropped (the next sync queues the right one), one that is not proven waits.
+        var key = operation.ExternalEndpointId.ToLowerInvariant();
+        var claims = await Action1Claims.ReadAsync(db, [key], cancellationToken);
+        var tenantOfClient = await db.IntegrationMappings.AsNoTracking()
+            .Where(m => m.IntegrationId == pass.Integration.Id)
+            .ToDictionaryAsync(m => m.ClientId, m => m.ExternalTenantId, cancellationToken);
+        var move = Action1Claims.Decide(claims[key], operation.ExternalTenantId, tenantOfClient);
+        if (move is null || move.Owner.ClientId != target.ClientId)
+        {
+            db.IntegrationOperations.Remove(operation);
+            return null;
+        }
+
+        if (move.Held is not null)
+        {
+            operation.LastError = Cut(move.Held, 1000);
+            operation.NextAttemptAt = pass.Now + RefusedRetry;
+            Logger.LogWarning("Action1 endpoint {Endpoint} is not moved: its Action1 id is not proven", operation.ExternalEndpointId);
             return null;
         }
 

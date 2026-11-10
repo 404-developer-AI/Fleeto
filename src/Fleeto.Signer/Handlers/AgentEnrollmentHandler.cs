@@ -199,7 +199,8 @@ public sealed class AgentEnrollmentHandler : ISigningRequestHandler
             CertificateDer = ByteString.CopyFrom(certificate.CertificateDer),
             CaCertificateDer = ByteString.CopyFrom(_keyRing.CaCertificateDer),
             InstanceSigningPublicKey = ByteString.CopyFrom(_keyRing.SigningPublicKey),
-            InstanceSigningKeyId = _keyRing.SigningKeyId
+            InstanceSigningKeyId = _keyRing.SigningKeyId,
+            InstanceSigningKeyCaSignature = ByteString.CopyFrom(_keyRing.SignSigningKeyWithCa())
         };
 
         _logger.LogInformation("Enrolled endpoint {EndpointId} ({Hostname}) in site {SiteId} with token {TokenId}",
@@ -300,7 +301,8 @@ public sealed class AgentEnrollmentHandler : ISigningRequestHandler
             CertificateDer = ByteString.CopyFrom(certificate.CertificateDer),
             CaCertificateDer = ByteString.CopyFrom(_keyRing.CaCertificateDer),
             InstanceSigningPublicKey = ByteString.CopyFrom(_keyRing.SigningPublicKey),
-            InstanceSigningKeyId = _keyRing.SigningKeyId
+            InstanceSigningKeyId = _keyRing.SigningKeyId,
+            InstanceSigningKeyCaSignature = ByteString.CopyFrom(_keyRing.SignSigningKeyWithCa())
         };
 
         _logger.LogInformation("Endpoint {EndpointId} ({Hostname}) enrolled again with token {TokenId}; {Revoked} earlier certificate(s) revoked",

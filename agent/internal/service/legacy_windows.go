@@ -55,10 +55,11 @@ func takeOverLegacyAgent(ctx context.Context, m *mgr.Mgr, opts InstallOptions, o
 	if serviceErr == nil {
 		defer legacyService.Close()
 	}
-	legacy, loadErr := state.NewStore(legacyStateDir, platform.AccessSystem).Load()
-	if serviceErr != nil && loadErr != nil {
+	if serviceErr != nil {
+		// Without its service no legacy agent is installed; a state folder left behind (or planted by a local user) is never taken over.
 		return false, nil
 	}
+	legacy, loadErr := loadLegacyState(legacyDataDir(), legacyStateDir)
 	if loadErr != nil {
 		return false, fmt.Errorf("a Fleetify agent is installed but its state in %s cannot be read (%v). Uninstall it first, in PowerShell as administrator: %s",
 			legacyStateDir, loadErr, legacyUninstallCommand())
@@ -119,14 +120,17 @@ func takeOverLegacyAgent(ctx context.Context, m *mgr.Mgr, opts InstallOptions, o
 		}
 	})
 
-	// 3. The state directory moves (same volume, so its protection moves with it).
-	if err := os.MkdirAll(filepath.Dir(stateDir), 0o755); err != nil {
-		return false, fmt.Errorf("create %s: %w", filepath.Dir(stateDir), err)
+	// 3. The state directory moves (same volume), into a data folder that belongs to the system, and is protected again there.
+	if err := platform.ProtectDataDir(); err != nil {
+		return false, err
 	}
 	if err := os.Rename(legacyStateDir, stateDir); err != nil {
 		return false, fmt.Errorf("move %s to %s: %w", legacyStateDir, stateDir, err)
 	}
 	rollback = append(rollback, func() { _ = os.Rename(stateDir, legacyStateDir) })
+	if err := platform.EnsureProtectedDir(stateDir, platform.AccessSystem); err != nil {
+		return false, err
+	}
 	fmt.Fprintf(out, "Moved the agent state to %s\n", stateDir)
 
 	// 4. The Fleeto Agent service.

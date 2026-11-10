@@ -175,8 +175,10 @@ public sealed class PolicyService
 
         var now = _time.GetUtcNow().UtcDateTime;
         var classesChanged = input.AppliesTo is { } appliesTo && appliesTo != policy.AppliesTo;
-        Apply(policy, input, now);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        // Narrowing the endpoints a policy is for hands some to another policy; widening takes some from another one (0.9.0).
+        var guarded = classesChanged ? await ScriptApprovalGuard.BeforeAsync(db, caller, Reachable(db, policy.Id), cancellationToken) : null;
+        Apply(policy, input, now);
         // Every endpoint using the policy gets a new configuration. When the endpoints it is for change, some stop using it
         // and cannot be found through it any more: then every endpoint is asked, and the signer skips what did not change.
         db.ConfigChangeEvents.Add(classesChanged
@@ -184,6 +186,11 @@ public sealed class PolicyService
             : new ConfigChangeEvent { Scope = ConfigChangeScope.Policy, ScopeId = policy.Id, CreatedAt = now });
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.PolicyUpdated, "Policy", policy.Id.ToString(), policy.ClientId, Describe(policy)), now));
         await db.SaveChangesAsync(cancellationToken);
+        if (await ScriptApprovalGuard.LosesApprovalAsync(db, guarded, cancellationToken))
+        {
+            return ServiceResult.Fail(ScriptApprovalGuard.Problem);
+        }
+
         await MaintenanceWindowSchedule.ReplaceAsync(db, policy.Id, MaintenanceWindowSchedule.Parse(policy.MaintenanceWindowsJson), now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -249,6 +256,8 @@ public sealed class PolicyService
         var endpointIds = await db.EndpointPolicies.IgnoreQueryFilters().Where(l => l.PolicyId == policyId).Select(l => l.EndpointId)
             .ToListAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        // The endpoints that used the policy fall back to another one, which may not require approval of scripts (0.9.0).
+        var guarded = await ScriptApprovalGuard.BeforeAsync(db, caller, r => r.PolicyId == policyId, cancellationToken);
         // What used the policy falls back to the next wider level (links cascade); it needs a new configuration.
         foreach (var clientId in clientIds)
         {
@@ -269,9 +278,20 @@ public sealed class PolicyService
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.PolicyDeleted, "Policy", policy.Id.ToString(), policy.ClientId,
             new { policy.Name, Clients = clientIds.Count, Sites = siteIds.Count, Endpoints = endpointIds.Count }), now));
         await db.SaveChangesAsync(cancellationToken);
+        if (await ScriptApprovalGuard.LosesApprovalAsync(db, guarded, cancellationToken))
+        {
+            return ServiceResult.Fail(ScriptApprovalGuard.Problem);
+        }
+
         await transaction.CommitAsync(cancellationToken);
         return ServiceResult.Ok();
     }
+
+    /// <summary>The endpoints a policy can reach through its links on any level, whatever it is for now.</summary>
+    private static System.Linq.Expressions.Expression<Func<EffectivePolicyRow, bool>> Reachable(FleetoDbContext db, Guid policyId) =>
+        r => db.ClientPolicies.Any(l => l.PolicyId == policyId && l.ClientId == r.ClientId) ||
+             db.SitePolicies.Any(l => l.PolicyId == policyId && l.SiteId == r.SiteId) ||
+             db.EndpointPolicies.Any(l => l.PolicyId == policyId && l.EndpointId == r.EndpointId);
 
     private static Task<bool> NameTakenAsync(FleetoDbContext db, Guid? clientId, string name, Guid? exceptId, CancellationToken cancellationToken) =>
         db.Policies.IgnoreQueryFilters().AnyAsync(p => p.ClientId == clientId && p.Name.ToLower() == name.ToLower() && p.Id != exceptId, cancellationToken);

@@ -118,7 +118,7 @@ func New(opts Options) (*Watchdog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open the watchdog key: %w", err)
 	}
-	cert, err := st.Certificate()
+	cert, err := st.IssuedCertificate()
 	if err != nil || !keystore.SamePublicKey(cert, key) {
 		_ = key.Close()
 		return nil, errors.New("the watchdog certificate does not match its key; the agent provisions a new identity")

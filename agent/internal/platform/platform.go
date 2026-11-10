@@ -19,11 +19,12 @@ const (
 )
 
 // EnsureProtectedDir creates dir when needed and restricts it to the given access. Files created inside inherit it.
+//
+// For AccessSystem the directory must belong to the system: a directory that is a link is refused, and one that somebody else created
+// before (a local user can create folders in C:\ProgramData) is taken over with everything in it, or refused when that is not possible.
+// Otherwise its creator would keep the rights of an owner over the trust anchors and binaries the service keeps in it.
 func EnsureProtectedDir(dir string, access Access) error {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create directory %s: %w", dir, err)
-	}
-	return protect(dir, access, true)
+	return ensureProtectedDir(dir, access)
 }
 
 // ProtectFile restricts an existing file to the given access.

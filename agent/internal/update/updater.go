@@ -77,7 +77,7 @@ type UpdaterOptions struct {
 	// missing watchdog when the ring allows the release or when it runs the release itself, so a paused release reaches no new endpoint.
 	Ready func(m *release.Manifest) bool
 	// Provision installs a target that is not installed (the agent installs the watchdog). Nil: a missing target is left alone.
-	Provision func(ctx context.Context, staged string, m *release.Manifest) error
+	Provision func(ctx context.Context, staged string, m *release.Manifest, binary release.Binary) error
 	// Pause stops the supervision of the target while its binary is replaced.
 	Pause func(paused bool)
 
@@ -316,7 +316,7 @@ func (u *Updater) install(ctx context.Context, logger *slog.Logger, m *release.M
 		fail(err)
 		return
 	}
-	reported, err := ProbeVersion(ctx, staged)
+	reported, err := ProbeStaged(ctx, staged, binary)
 	if err != nil || reported != m.Version {
 		if err == nil {
 			err = errors.New("the downloaded binary reports version " + reported + " instead of " + m.Version)
@@ -330,7 +330,7 @@ func (u *Updater) install(ctx context.Context, logger *slog.Logger, m *release.M
 
 	report(agentv1.UpdateState_UPDATE_STATE_INSTALLING, "")
 	if provision {
-		if err := u.opts.Provision(ctx, staged, m); err != nil {
+		if err := u.opts.Provision(ctx, staged, m, binary); err != nil {
 			fail(err)
 			return
 		}

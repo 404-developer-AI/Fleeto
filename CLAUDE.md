@@ -481,7 +481,10 @@ Decisions of 2026-09-20, from the Action1 documentation (0.4.0):
 - **Action1 can follow the clients and sites of Fleeto** (decided 2026-09-25, 0.6.0), switched on in Settings,
   Integrations: a new client gets an Action1 organization (or the unmapped one with its name) named `[CODE] Name`, every site of a mapped client
   an endpoint group whose members are the endpoints of that site, and renaming or deleting a client or site does the same in
-  Action1, and an endpoint enrolled again under another client is moved to that client's organization. Action1 removes an
+  Action1, and an endpoint enrolled again under another client is moved to that client's organization when its old record is
+  offline and was last seen before the new enrollment; otherwise, also while an endpoint of another client still reports the
+  Action1 id, the move waits in Settings, Integrations with its cause (decided 2026-11-10, 0.9.0, security review: the
+  Action1 id is only the word of an agent). Action1 removes an
   organization only once it holds no endpoints; that deletion waits with its reason until it
   succeeds or an admin dismisses it. The API credentials then need `manage_organizations` and `manage_endpoints`.
 - **Patch policies become Action1 automations** (decided 2026-09-25, 0.6.0): per mapped client and per patch policy that
@@ -603,7 +606,7 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
   - the **instance signing key** signs jobs, policies, check definitions and remote control session tokens for one instance. It is held only by **fleeto-signer**, which re-checks the permission of the user (0.6.0), tier, script approval and validity before signing. Agents pin its public key at enrollment.
   The key ceremony is documented in `MD-Files/ARCHITECTURE.md`.
 - **Jobs expire**: every signed job carries `InstanceId`, `EndpointId` and `ValidUntil` (default 24 hours, maximum 7 days). Signer, gateway and agent all refuse expired jobs.
-- **Script approval**: per policy, scripts can require approval by a second person with the permission to approve scripts (fresh TOTP) before they run; each change needs new approval. Off by default, recommended for servers. Switching it off in a policy needs the same permission (0.6.0).
+- **Script approval**: per policy, scripts can require approval by a second person with the permission to approve scripts (fresh TOTP) before they run; each change needs new approval. Off by default, recommended for servers. Switching it off in a policy needs the same permission (0.6.0), and so does taking an endpoint out from under a policy that requires it: linking, unlinking, deleting, narrowing the endpoints a policy is for, moving an endpoint, overriding its class or changing a client template (decided 2026-11-10, 0.9.0). A script check runs a library script on every endpoint it reaches, so managing one needs View scripts and Run scripts.
 - **Accepted risk**: full control of fleeto-web still lets an attacker get jobs signed within the signer's rules. The signer keeps the key out of web, enforces the rules and rate limits, and is the single audited choke point. Documented in `MD-Files/ARCHITECTURE.md` §5.
 - **Command authorization**: every job records who initiated it, when, on which endpoints, with what payload. Immutable audit log for all privileged actions (script run, script approval, patch, remote control session, credential change, API key change, license change, login, permission change, certificate revocation, client or site deletion).
 - **Remote control** is the highest-risk feature: single-use tokens per participant, end-to-end encryption, visible on workstations by policy, policy-controlled consent on workstations, audited, managed endpoints only.

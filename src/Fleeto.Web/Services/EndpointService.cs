@@ -623,6 +623,9 @@ public sealed class EndpointService
         }
 
         var now = _time.GetUtcNow().UtcDateTime;
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        // Another class can give the endpoint a policy that does not require approval of scripts (0.9.0).
+        var guarded = await ScriptApprovalGuard.BeforeAsync(db, caller, r => r.EndpointId == endpointId, cancellationToken);
         var previous = endpoint.ClassOverride;
         endpoint.ClassOverride = classOverride;
         endpoint.UpdatedAt = now;
@@ -630,6 +633,12 @@ public sealed class EndpointService
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.EndpointClassChanged, "Endpoint", endpoint.Id.ToString(), endpoint.ClientId,
             new { endpoint.Hostname, From = previous?.ToString() ?? "Detected", To = classOverride?.ToString() ?? "Detected", Detected = endpoint.DetectedClass.ToString() }), now));
         await db.SaveChangesAsync(cancellationToken);
+        if (await ScriptApprovalGuard.LosesApprovalAsync(db, guarded, cancellationToken))
+        {
+            return ServiceResult.Fail(ScriptApprovalGuard.Problem);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
         await PublishStatusAsync(endpoint.Id, cancellationToken);
         return ServiceResult.Ok();
     }
@@ -666,6 +675,9 @@ public sealed class EndpointService
         }
 
         var now = _time.GetUtcNow().UtcDateTime;
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        // The other site can give the endpoint a policy that does not require approval of scripts (0.9.0).
+        var guarded = await ScriptApprovalGuard.BeforeAsync(db, caller, r => r.EndpointId == endpointId, cancellationToken);
         var previousSite = endpoint.SiteId;
         endpoint.SiteId = target.Id;
         endpoint.UpdatedAt = now;
@@ -673,7 +685,23 @@ public sealed class EndpointService
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.EndpointMoved, "Endpoint", endpoint.Id.ToString(), endpoint.ClientId,
             new { endpoint.Hostname, FromSiteId = previousSite, ToSiteId = target.Id, ToSite = target.Name }), now));
         await db.SaveChangesAsync(cancellationToken);
+        if (await ScriptApprovalGuard.LosesApprovalAsync(db, guarded, cancellationToken))
+        {
+            return ServiceResult.Fail(ScriptApprovalGuard.Problem);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
         await PublishStatusAsync(endpoint.Id, cancellationToken);
+
+        // A group can give one site and not the other (0.9.0): who lost the endpoint has its remote session connections to it ended,
+        // and the open pages of everyone the move can concern reload, as after a change to a group.
+        List<Guid> affected;
+        await using (var system = _dbFactory.CreateSystem())
+        {
+            affected = await AccessChanges.AffectedByMoveAsync(system, endpoint.Id, previousSite, target.Id, cancellationToken);
+        }
+
+        await AccessChanges.ApplyAsync(_dbFactory, _bus, _logger, affected, now, cancellationToken);
         return ServiceResult.Ok();
     }
 

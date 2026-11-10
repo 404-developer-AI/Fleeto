@@ -408,7 +408,7 @@ public sealed partial class GatewayStore
         upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = NetworkJson(inventory) });
         upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = SoftwareJson(inventory) });
         upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = ServicesJson(inventory) });
-        upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = DbText.Clean(inventory.Action1AgentId, 64) });
+        upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = Action1AgentId(inventory.Action1AgentId) });
         upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = RemoteSessionRules.NormalizeDesktop(inventory.Desktop) });
         upsert.Parameters.Add(new NpgsqlParameter<string> { TypedValue = WindowsUpdateRules.NormalizeState(inventory.WindowsUpdate) });
         upsert.Parameters.Add(new NpgsqlParameter("", NpgsqlDbType.Text) { Value = (object?)PackageInfoJson(inventory, now) ?? DBNull.Value });
@@ -660,6 +660,14 @@ public sealed partial class GatewayStore
             info.PackageListsUpdatedAt is null ? null : SafeToDateTime(info.PackageListsUpdatedAt, now),
             info.ModuleStreams.Count == 0 ? null : List(info.ModuleStreams, PackageInventory.MaxModuleStreams, 100)));
     }
+
+    /// <summary>
+    /// The id of the Action1 agent, which Action1 uses as the endpoint id: a GUID, stored in lower case without braces as the
+    /// agent reports it. Anything else is stored as no Action1 agent, so a made-up value is never matched or sent to Action1.
+    /// Which client the id belongs to is decided by the workers, never by this report alone.
+    /// </summary>
+    private static string Action1AgentId(string value) =>
+        Guid.TryParseExact(value.Trim().Trim('{', '}'), "D", out var id) ? id.ToString("D") : string.Empty;
 
     /// <summary>At most <see cref="MaxServices"/> services: a normal endpoint has a few hundred.</summary>
     private static string ServicesJson(Inventory inventory) => WriteArray(inventory.Services.Take(MaxServices), static (writer, item) =>

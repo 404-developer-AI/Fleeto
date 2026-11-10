@@ -14,7 +14,9 @@ import (
 	"bytes"
 	"context"
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -319,6 +321,11 @@ func verifyResponse(out *agentv1.EnrollResponse, fingerprint []byte, key crypto.
 	if len(out.GetInstanceSigningPublicKey()) != ed25519.PublicKeySize || out.GetInstanceSigningKeyId() == "" {
 		return nil, errors.New("the enrollment response has no valid instance signing public key")
 	}
+	if !VerifySigningKeyBinding(ca, out.GetInstanceId(), out.GetInstanceSigningKeyId(), out.GetInstanceSigningPublicKey(),
+		out.GetInstanceSigningKeyCaSignature()) {
+		return nil, errors.New("the instance signing public key in the enrollment response is not signed by the instance CA from " +
+			"--ca-fingerprint: check that --server points at this instance and that the server runs the same Fleeto version as this agent")
+	}
 	return &Result{
 		EndpointID:       out.GetEndpointId(),
 		InstanceID:       out.GetInstanceId(),
@@ -329,6 +336,40 @@ func verifyResponse(out *agentv1.EnrollResponse, fingerprint []byte, key crypto.
 		SigningKey:       ed25519.PublicKey(out.GetInstanceSigningPublicKey()),
 		SigningKeyID:     out.GetInstanceSigningKeyId(),
 	}, nil
+}
+
+// SigningKeyContext separates the instance CA's signature over the instance signing key from every other signature of that key
+// (it otherwise only signs certificates). Must equal SignatureContexts.InstanceSigningKey on the server.
+const SigningKeyContext = "fleeto-instance-signing-key-v1"
+
+// SigningKeyMessage is what the instance CA signs to bind the signing key to the instance:
+// context || 0x00 || instance id || 0x00 || key id || 0x00 || 32-byte ed25519 public key.
+func SigningKeyMessage(instanceID, keyID string, publicKey []byte) []byte {
+	msg := make([]byte, 0, len(SigningKeyContext)+len(instanceID)+len(keyID)+3+len(publicKey))
+	msg = append(msg, SigningKeyContext...)
+	msg = append(msg, 0)
+	msg = append(msg, instanceID...)
+	msg = append(msg, 0)
+	msg = append(msg, keyID...)
+	msg = append(msg, 0)
+	return append(msg, publicKey...)
+}
+
+// VerifySigningKeyBinding reports whether signature is the pinned CA's ECDSA P-256 signature (ASN.1 DER over SHA-256) of
+// SigningKeyMessage. The instance CA is always ECDSA P-256 (InternalCertificateAuthority.CreateCa); any other key is refused.
+//
+// Why: the TLS connection only proves the gateway holds a certificate of the CA. fleeto-signer is the only holder of the CA key,
+// so this signature is what stops a compromised gateway from making new agents pin a signing key of its own.
+func VerifySigningKeyBinding(ca *x509.Certificate, instanceID, keyID string, publicKey, signature []byte) bool {
+	if len(publicKey) != ed25519.PublicKeySize || len(signature) == 0 || len(signature) > 256 {
+		return false
+	}
+	pub, ok := ca.PublicKey.(*ecdsa.PublicKey)
+	if !ok || pub.Curve != elliptic.P256() {
+		return false
+	}
+	digest := sha256.Sum256(SigningKeyMessage(instanceID, keyID, publicKey))
+	return ecdsa.VerifyASN1(pub, digest[:], signature)
 }
 
 // ValidateAgentCertificate checks an issued agent certificate: it carries our public key, chains to the pinned CA

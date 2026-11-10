@@ -131,6 +131,29 @@ public class CryptographyTests
     }
 
     [Fact]
+    public void Ca_signature_over_the_instance_signing_key_verifies_only_for_that_instance_key_id_and_key()
+    {
+        var ca = InternalCertificateAuthority.CreateCa("rmm.test.example", DateTime.UtcNow);
+        var other = InternalCertificateAuthority.CreateCa("rmm.test.example", DateTime.UtcNow);
+        var instanceId = Guid.NewGuid();
+        var (_, publicKey) = Ed25519.GenerateKeyPair();
+        var (_, attackerKey) = Ed25519.GenerateKeyPair();
+
+        var signature = InternalCertificateAuthority.SignInstanceSigningKey(ca.PrivateKeyPkcs8, instanceId, "a1b2c3d4e5f60718", publicKey);
+
+        Assert.True(InternalCertificateAuthority.VerifyInstanceSigningKey(ca.CertificateDer, instanceId, "a1b2c3d4e5f60718", publicKey, signature));
+        Assert.False(InternalCertificateAuthority.VerifyInstanceSigningKey(ca.CertificateDer, instanceId, "a1b2c3d4e5f60718", attackerKey, signature));
+        Assert.False(InternalCertificateAuthority.VerifyInstanceSigningKey(ca.CertificateDer, instanceId, "attacker00000001", publicKey, signature));
+        Assert.False(InternalCertificateAuthority.VerifyInstanceSigningKey(ca.CertificateDer, Guid.NewGuid(), "a1b2c3d4e5f60718", publicKey, signature));
+        Assert.False(InternalCertificateAuthority.VerifyInstanceSigningKey(other.CertificateDer, instanceId, "a1b2c3d4e5f60718", publicKey, signature));
+        Assert.False(InternalCertificateAuthority.VerifyInstanceSigningKey(ca.CertificateDer, instanceId, "a1b2c3d4e5f60718", publicKey, []));
+
+        // The layout the Go agent rebuilds (enroll.SigningKeyMessage); a change here without the agent breaks enrollment.
+        var expected = Encoding.ASCII.GetBytes($"fleeto-instance-signing-key-v1\0{instanceId:D}\0a1b2c3d4e5f60718\0").Concat(publicKey).ToArray();
+        Assert.Equal(expected, InternalCertificateAuthority.InstanceSigningKeyMessage(instanceId, "a1b2c3d4e5f60718", publicKey));
+    }
+
+    [Fact]
     public void Csr_with_an_rsa_key_is_refused()
     {
         var now = DateTime.UtcNow;

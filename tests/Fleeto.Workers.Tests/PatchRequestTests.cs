@@ -78,7 +78,7 @@ public sealed class PatchRequestTests
         return request;
     }
 
-    private PatchRequestService Service(FakeAction1 action1) =>
+    private PatchRequestService Service(HttpMessageHandler action1) =>
         new(_fixture.Db.DbFactory, _fixture.Db.Bus,
             new Action1ClientFactory(_fixture.Db.SecretProtector, _fixture.Db.Time, NullLoggerFactory.Instance,
                 IntegrationBudgets.WorkerRequestsPerMinute, () => action1),
@@ -344,6 +344,101 @@ public sealed class PatchRequestTests
         await db.SaveChangesAsync();
         Assert.Equal([endpoint.Id], written);
         return (await db.CheckResults.AsNoTracking().SingleAsync(r => r.EndpointId == endpoint.Id && r.CheckDefinitionId == check.Id)).Value;
+    }
+
+    /// <summary>
+    /// An endpoint of client A whose agent reported the Action1 id of an endpoint of client B is removed from A's
+    /// organization. Action1 answers that A's organization does not hold it, which counts as done, and the completion
+    /// touches only what belongs to A's organization: B keeps its patch state and its installed Action1 agent.
+    /// </summary>
+    [Fact]
+    public async Task A_removal_in_one_organization_never_forgets_the_patch_state_or_Action1_agent_of_another_clients_endpoint()
+    {
+        var (clientA, integration) = await SeedAsync();
+        var clientB = await _fixture.Db.CreateClientAsync();
+        var x = Guid.NewGuid().ToString();
+        var reporter = await EndpointAsync(clientA, x);
+        var victim = await EndpointAsync(clientB, x);
+        const string tenantB = "org-request-b";
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            db.IntegrationMappings.Add(new IntegrationMapping
+            {
+                Id = Guid.NewGuid(), IntegrationId = integration.Id, ClientId = clientB.Id, ExternalTenantId = tenantB, ExternalTenantName = "B",
+                CreatedAt = Now
+            });
+            db.EndpointPatchStates.Add(new EndpointPatchState
+            {
+                EndpointId = victim.Id, ClientId = clientB.Id, ExternalEndpointId = x, ExternalTenantId = tenantB, MissingCritical = 3, UpdatedAt = Now
+            });
+            db.Action1AgentInstallStates.Add(new Action1AgentInstallState
+            {
+                EndpointId = victim.Id, ClientId = clientB.Id, Status = Action1AgentStatus.Installed, UpdatedAt = Now
+            });
+            // What Action1Removal builds for A's endpoint without patch state: A's organization, the id its agent reported.
+            db.IntegrationOperations.Add(new IntegrationOperation
+            {
+                Id = Guid.NewGuid(), IntegrationId = integration.Id, Kind = IntegrationOperationKind.RemoveEndpoint, ExternalTenantId = Tenant,
+                ExternalEndpointId = x, Name = reporter.Hostname, NextAttemptAt = Now, CreatedAt = Now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var action1 = new OrganizationAwareAction1();
+        action1.Endpoints[x] = tenantB;
+        await Service(action1).RunAsync(CancellationToken.None);
+
+        Assert.Equal([$"DELETE {Tenant}/{x} -> 404"], action1.Calls);
+        Assert.Equal(tenantB, action1.Endpoints[x]);
+        await using var read = _fixture.Db.DbFactory.CreateSystem();
+        Assert.False(await read.IntegrationOperations.AnyAsync(o => o.IntegrationId == integration.Id));
+        var state = await read.EndpointPatchStates.AsNoTracking().SingleAsync(s => s.EndpointId == victim.Id);
+        Assert.Equal((clientB.Id, tenantB, 3), (state.ClientId, state.ExternalTenantId, state.MissingCritical));
+        Assert.Equal(Action1AgentStatus.Installed,
+            (await read.Action1AgentInstallStates.AsNoTracking().SingleAsync(a => a.EndpointId == victim.Id)).Status);
+        // The endpoint the removal was for is still handled: it is not given the Action1 agent again by itself.
+        Assert.Equal(Action1AgentStatus.Removed,
+            (await read.Action1AgentInstallStates.AsNoTracking().SingleAsync(a => a.EndpointId == reporter.Id)).Status);
+        var audit = await read.AuditEntries.AsNoTracking()
+            .Where(a => a.Action == AuditActions.PatchAgentRemovalEnded && a.TargetId == reporter.Id.ToString())
+            .SingleAsync();
+        Assert.Equal(clientA.Id, audit.ClientId);
+    }
+
+    /// <summary>Holds endpoints per organization; DELETE answers 404 for an id the named organization does not hold.</summary>
+    private sealed class OrganizationAwareAction1 : HttpMessageHandler
+    {
+        public Dictionary<string, string> Endpoints { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public List<string> Calls { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            var parts = path[(path.IndexOf("/api/3.0/", StringComparison.Ordinal) + "/api/3.0/".Length)..].Split('/');
+            if (parts[0] == "oauth2")
+            {
+                return Json(HttpStatusCode.OK, """{"access_token":"token","expires_in":3600}""");
+            }
+
+            if (request.Method == HttpMethod.Delete && parts[0] == "endpoints" && parts[1] == "managed")
+            {
+                if (Endpoints.TryGetValue(parts[3], out var organization) && organization == parts[2])
+                {
+                    Endpoints.Remove(parts[3]);
+                    Calls.Add($"DELETE {parts[2]}/{parts[3]} -> 200");
+                    return Json(HttpStatusCode.OK, "{}");
+                }
+
+                Calls.Add($"DELETE {parts[2]}/{parts[3]} -> 404");
+                return Json(HttpStatusCode.NotFound, """{"user_message":"The endpoint was not found."}""");
+            }
+
+            Calls.Add($"{request.Method} {path}");
+            return Json(HttpStatusCode.NotFound, """{"user_message":"Not found"}""");
+        }
+
+        private static Task<HttpResponseMessage> Json(HttpStatusCode status, string body) =>
+            Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") });
     }
 
     /// <summary>Answers like Action1 for one endpoint, its missing updates, its removal and one automation.</summary>

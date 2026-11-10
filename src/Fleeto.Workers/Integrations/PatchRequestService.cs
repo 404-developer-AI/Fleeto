@@ -174,7 +174,16 @@ public sealed class PatchRequestService : WorkerLoop
         db.IntegrationOperations.Remove(operation);
         var outcome = new Outcome();
         var key = operation.ExternalEndpointId.ToLower();
-        var states = await db.EndpointPatchStates.Where(s => s.ExternalEndpointId.ToLower() == key).ToListAsync(cancellationToken);
+        // Only what belongs to the organization the endpoint was removed from: the patch state Action1 reported there, and
+        // the endpoints of the client mapped to it. The Action1 id is the word of an agent, and Action1 counts an id it
+        // does not hold in that organization as gone, so that answer says nothing about endpoints of other clients.
+        var ownerClientId = await db.IntegrationMappings.AsNoTracking()
+            .Where(m => m.IntegrationId == operation.IntegrationId && m.ExternalTenantId == operation.ExternalTenantId)
+            .Select(m => (Guid?)m.ClientId)
+            .FirstOrDefaultAsync(cancellationToken);
+        var states = await db.EndpointPatchStates
+            .Where(s => s.ExternalEndpointId.ToLower() == key && s.ExternalTenantId == operation.ExternalTenantId)
+            .ToListAsync(cancellationToken);
         foreach (var state in states)
         {
             await PatchStateWriter.ForgetAsync(db, state, outcome.Transitions, now, RemovedReason, cancellationToken);
@@ -182,7 +191,7 @@ public sealed class PatchRequestService : WorkerLoop
 
         var endpoints = await (from e in db.Endpoints
                                join i in db.InventorySnapshots on e.Id equals i.EndpointId
-                               where i.Action1AgentId.ToLower() == key
+                               where i.Action1AgentId.ToLower() == key && ownerClientId != null && e.ClientId == ownerClientId
                                select new { e.Id, e.ClientId, e.Hostname })
             .ToListAsync(cancellationToken);
         endpoints.AddRange((await db.Endpoints.AsNoTracking()

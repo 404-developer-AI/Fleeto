@@ -201,12 +201,13 @@ public sealed class PatchSyncService : WorkerLoop
     /// <summary>
     /// Finds endpoints Action1 keeps in the organization of another client than the one they belong to in Fleeto (0.6.0),
     /// while Action1 follows the clients: an endpoint enrolled again under another client keeps its Action1 agent, and so
-    /// its old organization. The Fleeto endpoint that reported the Action1 id most recently decides where it belongs, so an
-    /// old record left behind under the previous client never pulls it back. Managed endpoints only, and only into an
-    /// organization that is mapped; the move itself is an <see cref="IntegrationOperation"/> for the workers that follow
-    /// the clients.
+    /// its old organization. The Fleeto endpoint that reported the Action1 id most recently is where it would go, but the
+    /// id is only the word of an agent: <see cref="Action1Claims"/> lets the move go ahead by itself only when the record
+    /// the machine left behind under the old client shows it moved, and otherwise queues it waiting for an admin with the
+    /// cause. Managed endpoints only, and only into an organization that is mapped; the move itself is an
+    /// <see cref="IntegrationOperation"/> for the workers that follow the clients.
     /// </summary>
-    private static async Task QueueMovesAsync(FleetoDbContext db, Integration integration,
+    private async Task QueueMovesAsync(FleetoDbContext db, Integration integration,
         IReadOnlyDictionary<string, IReadOnlyList<Action1Endpoint>> reportedByTenant, DateTime now, CancellationToken cancellationToken)
     {
         var reported = reportedByTenant
@@ -217,13 +218,7 @@ public sealed class PatchSyncService : WorkerLoop
             return;
         }
 
-        var keys = reported.Select(r => r.Key).Distinct().ToList();
-        var reporters = await (from i in db.InventorySnapshots
-                               join e in db.Endpoints on i.EndpointId equals e.Id
-                               where keys.Contains(i.Action1AgentId.ToLower())
-                               select new { Key = i.Action1AgentId.ToLower(), e.ClientId, e.Hostname, e.Tier, i.ReceivedAt })
-            .ToListAsync(cancellationToken);
-        var latest = reporters.GroupBy(r => r.Key).ToDictionary(g => g.Key, g => g.OrderByDescending(r => r.ReceivedAt).First());
+        var claims = await Action1Claims.ReadAsync(db, reported.Select(r => r.Key).Distinct().ToList(), cancellationToken);
         var tenantOfClient = integration.Mappings.ToDictionary(m => m.ClientId, m => m.ExternalTenantId);
         var waiting = (await db.IntegrationOperations.AsNoTracking()
                 .Where(o => o.IntegrationId == integration.Id && o.Kind == IntegrationOperationKind.MoveEndpoint)
@@ -233,10 +228,15 @@ public sealed class PatchSyncService : WorkerLoop
 
         foreach (var item in reported)
         {
-            if (!latest.TryGetValue(item.Key, out var owner) || owner.Tier != EndpointTier.Managed ||
-                !tenantOfClient.TryGetValue(owner.ClientId, out var target) || target == item.Tenant || !waiting.Add(item.Id))
+            if (Action1Claims.Decide(claims[item.Key], item.Tenant, tenantOfClient) is not { } move || !waiting.Add(item.Id))
             {
                 continue;
+            }
+
+            if (move.Held is not null)
+            {
+                Logger.LogWarning("Action1 endpoint {Endpoint} is not moved to the organization of endpoint {EndpointId}: its Action1 id is not proven",
+                    item.Id, move.Owner.EndpointId);
             }
 
             db.IntegrationOperations.Add(new IntegrationOperation
@@ -244,11 +244,12 @@ public sealed class PatchSyncService : WorkerLoop
                 Id = Guid.NewGuid(),
                 IntegrationId = integration.Id,
                 Kind = IntegrationOperationKind.MoveEndpoint,
-                TargetClientId = owner.ClientId,
+                TargetClientId = move.Owner.ClientId,
                 ExternalTenantId = item.Tenant,
                 ExternalEndpointId = item.Id,
-                Name = Cut(owner.Hostname, 200),
-                NextAttemptAt = now,
+                Name = Cut(move.Owner.Hostname, 200),
+                LastError = move.Held is null ? null : Cut(move.Held, 1000),
+                NextAttemptAt = move.Held is null ? now : now + IntegrationFollowService.RefusedRetry,
                 CreatedAt = now
             });
         }
@@ -264,9 +265,17 @@ public sealed class PatchSyncService : WorkerLoop
         var candidates = await db.Endpoints
             .Where(e => e.ClientId == mapping.ClientId && e.Tier == EndpointTier.Managed)
             .Join(db.InventorySnapshots.Where(i => i.Action1AgentId != string.Empty),
-                e => e.Id, i => i.EndpointId, (e, i) => new { Endpoint = e, i.Action1AgentId })
+                e => e.Id, i => i.EndpointId, (e, i) => new { Endpoint = e, i.Action1AgentId, i.ReceivedAt })
             .ToListAsync(cancellationToken);
-        var byExternalId = candidates.ToDictionary(c => c.Action1AgentId, c => c.Endpoint, StringComparer.OrdinalIgnoreCase);
+        // Two endpoints of one client can report the same Action1 id (a cloned VM, or a record left behind after enrolling
+        // again). One Action1 endpoint is one machine, so its state goes to the endpoint that reported the id most recently,
+        // as for a move, and the other gets none; a duplicate never stops the sync of the organization (0.9.0).
+        var byExternalId = candidates
+            .GroupBy(c => c.Action1AgentId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(c => c.ReceivedAt).ThenBy(c => c.Endpoint.Id).First().Endpoint,
+                StringComparer.OrdinalIgnoreCase);
 
         var states = await db.EndpointPatchStates.Where(p => p.ClientId == mapping.ClientId).ToListAsync(cancellationToken);
         var statesByEndpoint = states.ToDictionary(p => p.EndpointId);

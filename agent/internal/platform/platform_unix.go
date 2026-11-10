@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"syscall"
 )
 
 // DefaultStateDir is the state directory of the agent service.
@@ -54,6 +55,41 @@ func IsElevated() bool {
 
 // ElevationHint tells the technician how to get the required rights.
 const ElevationHint = "run the command again with sudo"
+
+// ensureProtectedDir creates dir when needed and protects it. The directories of the services lie below directories only root may write
+// (/var/lib, /opt), so nobody else can have created them; a link is still refused, because Chmod and Chown would follow it and protect
+// (and give to root) whatever it points to.
+func ensureProtectedDir(dir string, access Access) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create directory %s: %w", dir, err)
+	}
+	if access == AccessSystem {
+		info, err := os.Lstat(dir)
+		if err != nil {
+			return fmt.Errorf("protect %s: %w", dir, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("protect %s: it is a link or not a directory", dir)
+		}
+	}
+	return protect(dir, access, true)
+}
+
+// CheckSystemOwned returns an error unless path exists, is no link and is owned by root. For what a service takes from a location it
+// did not create itself.
+func CheckSystemOwned(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s is a link", path)
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); !ok || st.Uid != 0 {
+		return fmt.Errorf("%s is not owned by root", path)
+	}
+	return nil
+}
 
 func protect(path string, access Access, dir bool) error {
 	mode := os.FileMode(0o600)

@@ -63,6 +63,47 @@ func (c *recordingController) Stop(context.Context, string, time.Duration) error
 
 func (c *recordingController) WaitRunning(context.Context, string, time.Duration) error { return nil }
 
+// The watchdog binary is installed only when the copy in the program folder matches the signed manifest, whatever happened to the staged
+// file after its download.
+func TestWatchdogBinaryIsInstalledOnlyAsTheBinaryOfTheSignedManifest(t *testing.T) {
+	dir := t.TempDir()
+	staged := filepath.Join(dir, "updates", platform.WatchdogBinaryName)
+	exe := filepath.Join(dir, "program", platform.WatchdogBinaryName)
+	if err := os.MkdirAll(filepath.Dir(staged), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	genuine := []byte("MZ the release binary")
+	sum := sha256.Sum256(genuine)
+	binary := releaseBinary(hex.EncodeToString(sum[:]), int64(len(genuine)))
+
+	if err := os.WriteFile(staged, []byte("MZ swapped in after the download"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyExecutable(staged, exe, binary); err == nil {
+		t.Fatal("a staged watchdog that does not match the signed manifest was installed")
+	}
+	if _, err := os.Stat(exe); err == nil {
+		t.Fatal("the program folder holds a watchdog that does not match the signed manifest")
+	}
+	if _, err := os.Stat(exe + ".new"); err == nil {
+		t.Fatal("the refused copy was left in the program folder")
+	}
+
+	if err := os.WriteFile(staged, genuine, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyExecutable(staged, exe, binary); err != nil {
+		t.Fatalf("the watchdog of the signed manifest must be installed: %v", err)
+	}
+	if got, err := os.ReadFile(exe); err != nil || string(got) != string(genuine) {
+		t.Fatalf("installed %q, %v", got, err)
+	}
+}
+
+func releaseBinary(sha string, size int64) release.Binary {
+	return release.Binary{Component: release.ComponentWatchdog, File: platform.WatchdogBinaryName, SHA256: sha, Size: size}
+}
+
 // An agent that is offered a release installs the missing watchdog: it downloads and verifies the binary, gets a certificate for a new
 // watchdog key over its own session, writes the watchdog state and creates and starts the service, and reports the installation.
 func TestTheAgentInstallsAMissingWatchdogFromAVerifiedRelease(t *testing.T) {

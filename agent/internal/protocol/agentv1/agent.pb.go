@@ -1174,8 +1174,13 @@ type EnrollResponse struct {
 	// Raw 32-byte ed25519 public key of the instance signing key. The agent pins it.
 	InstanceSigningPublicKey []byte `protobuf:"bytes,5,opt,name=instance_signing_public_key,json=instanceSigningPublicKey,proto3" json:"instance_signing_public_key,omitempty"`
 	InstanceSigningKeyId     string `protobuf:"bytes,6,opt,name=instance_signing_key_id,json=instanceSigningKeyId,proto3" json:"instance_signing_key_id,omitempty"`
-	unknownFields            protoimpl.UnknownFields
-	sizeCache                protoimpl.SizeCache
+	// ECDSA P-256 signature (ASN.1 DER) with the key of the instance CA over SHA-256("fleeto-instance-signing-key-v1" || 0x00 ||
+	// instance_id || 0x00 || instance_signing_key_id || 0x00 || instance_signing_public_key), made by fleeto-signer (0.9.0, security
+	// review). The agent pins the signing key only when this verifies against the CA it pinned by fingerprint, so a gateway, which holds a
+	// certificate of the CA but never its key, cannot substitute a signing key of its own.
+	InstanceSigningKeyCaSignature []byte `protobuf:"bytes,7,opt,name=instance_signing_key_ca_signature,json=instanceSigningKeyCaSignature,proto3" json:"instance_signing_key_ca_signature,omitempty"`
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
 }
 
 func (x *EnrollResponse) Reset() {
@@ -1248,6 +1253,13 @@ func (x *EnrollResponse) GetInstanceSigningKeyId() string {
 		return x.InstanceSigningKeyId
 	}
 	return ""
+}
+
+func (x *EnrollResponse) GetInstanceSigningKeyCaSignature() []byte {
+	if x != nil {
+		return x.InstanceSigningKeyCaSignature
+	}
+	return nil
 }
 
 // Renewal of an expired certificate (0.2.0). The CSR must use the key of the expired certificate the TLS connection
@@ -7235,7 +7247,7 @@ const file_agent_proto_rawDesc = "" +
 	"\acsr_der\x18\x02 \x01(\fR\x06csrDer\x12\x1a\n" +
 	"\bhostname\x18\x03 \x01(\tR\bhostname\x12'\n" +
 	"\x02os\x18\x04 \x01(\v2\x17.fleeto.agent.v1.OsInfoR\x02os\x12#\n" +
-	"\ragent_version\x18\x05 \x01(\tR\fagentVersion\"\x9f\x02\n" +
+	"\ragent_version\x18\x05 \x01(\tR\fagentVersion\"\xe9\x02\n" +
 	"\x0eEnrollResponse\x12\x1f\n" +
 	"\vendpoint_id\x18\x01 \x01(\tR\n" +
 	"endpointId\x12\x1f\n" +
@@ -7244,7 +7256,8 @@ const file_agent_proto_rawDesc = "" +
 	"\x0fcertificate_der\x18\x03 \x01(\fR\x0ecertificateDer\x12,\n" +
 	"\x12ca_certificate_der\x18\x04 \x01(\fR\x10caCertificateDer\x12=\n" +
 	"\x1binstance_signing_public_key\x18\x05 \x01(\fR\x18instanceSigningPublicKey\x125\n" +
-	"\x17instance_signing_key_id\x18\x06 \x01(\tR\x14instanceSigningKeyId\"j\n" +
+	"\x17instance_signing_key_id\x18\x06 \x01(\tR\x14instanceSigningKeyId\x12H\n" +
+	"!instance_signing_key_ca_signature\x18\a \x01(\fR\x1dinstanceSigningKeyCaSignature\"j\n" +
 	"\x0eRecoverRequest\x12\x17\n" +
 	"\acsr_der\x18\x01 \x01(\fR\x06csrDer\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12#\n" +

@@ -104,8 +104,15 @@ public sealed class ClientTemplateService
 
         var now = _time.GetUtcNow().UtcDateTime;
         ClientTemplate template;
+        var syncedHere = false;
         await using (var transaction = await db.Database.BeginTransactionAsync(cancellationToken))
         {
+            // A change can take endpoints of the clients that follow the template out from under the approval of scripts (0.9.0).
+            // For a caller who may not do that, the clients are changed in this transaction and judged before it commits.
+            var guarded = templateId is { } guardedId
+                ? await ScriptApprovalGuard.BeforeAsync(db, caller,
+                    r => db.Clients.Any(c => c.Id == r.ClientId && c.ClientTemplateId == guardedId), cancellationToken)
+                : null;
             if (templateId is { } id)
             {
                 var existing = await db.ClientTemplates.Include(t => t.Sites).ThenInclude(s => s.MonitoringTemplates)
@@ -223,10 +230,26 @@ public sealed class ClientTemplateService
                 return ServiceResult<Guid>.Fail("A client template with this name already exists, or two sites share a name. Choose other names.");
             }
 
+            if (guarded is { Count: > 0 })
+            {
+                foreach (var client in await db.Clients.Where(c => c.ClientTemplateId == template.Id).ToListAsync(cancellationToken))
+                {
+                    await ClientTemplateSync.ApplyAsync(db, client, now, cancellationToken);
+                }
+
+                await db.SaveChangesAsync(cancellationToken);
+                if (await ScriptApprovalGuard.LosesApprovalAsync(db, guarded, cancellationToken))
+                {
+                    return ServiceResult<Guid>.Fail(ScriptApprovalGuard.Problem);
+                }
+
+                syncedHere = true;
+            }
+
             await transaction.CommitAsync(cancellationToken);
         }
 
-        if (templateId is not null)
+        if (templateId is not null && !syncedHere)
         {
             var failed = await SyncFollowersAsync(caller, template.Id, cancellationToken);
             if (failed > 0)

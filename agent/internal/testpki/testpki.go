@@ -57,6 +57,17 @@ func (ca *CA) Fingerprint() string {
 	return hex.EncodeToString(sum[:])
 }
 
+// SignMessage signs msg with the CA key like fleeto-signer signs the instance signing key in an enrollment response:
+// ECDSA P-256 over SHA-256, ASN.1 DER.
+func (ca *CA) SignMessage(msg []byte) []byte {
+	digest := sha256.Sum256(msg)
+	sig, err := ecdsa.SignASN1(rand.Reader, ca.Key, digest[:])
+	if err != nil {
+		panic(err)
+	}
+	return sig
+}
+
 // Pool returns a pool holding only this CA.
 func (ca *CA) Pool() *x509.CertPool {
 	pool := x509.NewCertPool()

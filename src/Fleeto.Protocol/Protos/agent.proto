@@ -79,6 +79,11 @@ message EnrollResponse {
   // Raw 32-byte ed25519 public key of the instance signing key. The agent pins it.
   bytes instance_signing_public_key = 5;
   string instance_signing_key_id = 6;
+  // ECDSA P-256 signature (ASN.1 DER) with the key of the instance CA over SHA-256("fleeto-instance-signing-key-v1" || 0x00 ||
+  // instance_id || 0x00 || instance_signing_key_id || 0x00 || instance_signing_public_key), made by fleeto-signer (0.9.0, security
+  // review). The agent pins the signing key only when this verifies against the CA it pinned by fingerprint, so a gateway, which holds a
+  // certificate of the CA but never its key, cannot substitute a signing key of its own.
+  bytes instance_signing_key_ca_signature = 7;
 }
 
 // Renewal of an expired certificate (0.2.0). The CSR must use the key of the expired certificate the TLS connection

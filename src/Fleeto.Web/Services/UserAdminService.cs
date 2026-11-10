@@ -239,9 +239,11 @@ public sealed class UserAdminService
         await users.UpdateSecurityStampAsync(user);
         var now = _time.GetUtcNow().UtcDateTime;
         await AddApprovedScriptChangesAsync(db, user.Id, now, cancellationToken);
+        await AccessChanges.RevokeAllAsync(db, [user.Id], now, cancellationToken);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.TwoFactorReset, "User", user.Id.ToString(), null, new { user.Email }), now));
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        await AccessChanges.PublishAsync(_bus, _logger, [user.Id], cancellationToken);
         return ServiceResult.Ok();
     }
 
@@ -331,12 +333,20 @@ public sealed class UserAdminService
             {
                 return ServiceResult.Fail(Describe(removed));
             }
+
+            // Its remote session connections end with those sessions.
+            await AccessChanges.RevokeAllAsync(db, [user.Id], now, cancellationToken);
         }
 
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.UserLinked, "User", user.Id.ToString(), null,
             new { user.Email, EntraObjectId = entraObjectId, Account = cleanAccount, PasswordRemoved = passwordRemoved }), now));
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        if (passwordRemoved)
+        {
+            await AccessChanges.PublishAsync(_bus, _logger, [user.Id], cancellationToken);
+        }
+
         return ServiceResult.Ok();
     }
 
@@ -464,6 +474,7 @@ public sealed class UserAdminService
             return ServiceResult.Ok();
         }
 
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var linked = user.EntraObjectId;
         user.EntraObjectId = null;
         user.EntraTenantId = null;
@@ -478,9 +489,12 @@ public sealed class UserAdminService
         var now = _time.GetUtcNow().UtcDateTime;
         // The link was the only way in; the user signs in again once an admin has set a password.
         await users.UpdateSecurityStampAsync(user);
+        await AccessChanges.RevokeAllAsync(db, [user.Id], now, cancellationToken);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.UserUnlinked, "User", user.Id.ToString(), null,
             new { user.Email, EntraObjectId = linked, HasPassword = await users.HasPasswordAsync(user) }), now));
         await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        await AccessChanges.PublishAsync(_bus, _logger, [user.Id], cancellationToken);
         return ServiceResult.Ok();
     }
 
@@ -520,6 +534,7 @@ public sealed class UserAdminService
             return ServiceResult.Fail("This user signs in with Microsoft Entra ID and has no password. Remove the link first.");
         }
 
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         if (await users.HasPasswordAsync(user))
         {
             var removed = await users.RemovePasswordAsync(user);
@@ -535,12 +550,15 @@ public sealed class UserAdminService
             return ServiceResult.Fail(Describe(added));
         }
 
-        // Every session of this user ends within the security stamp validation interval.
+        // Every session of this user ends within the security stamp validation interval, and its remote session connections at once.
         await users.UpdateSecurityStampAsync(user);
         var now = _time.GetUtcNow().UtcDateTime;
+        await AccessChanges.RevokeAllAsync(db, [user.Id], now, cancellationToken);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.PasswordChanged, "User", user.Id.ToString(), null,
             new { user.Email, By = "admin" }), now));
         await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        await AccessChanges.PublishAsync(_bus, _logger, [user.Id], cancellationToken);
         return ServiceResult.Ok();
     }
 
@@ -594,9 +612,12 @@ public sealed class UserAdminService
 
         var now = _time.GetUtcNow().UtcDateTime;
         await AddApprovedScriptChangesAsync(db, userId, now, cancellationToken);
+        // Every remote session connection of the user ends with it, directly: a user that no longer exists has no scope to judge by.
+        await AccessChanges.RevokeAllAsync(db, [userId], now, cancellationToken);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.UserDeleted, "User", userId.ToString(), null, new { user.Email }), now));
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        await AccessChanges.PublishAsync(_bus, _logger, [userId], cancellationToken);
         return ServiceResult.Ok();
     }
 

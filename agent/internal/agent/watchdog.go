@@ -158,7 +158,7 @@ func (m *watchdogManager) installedVersion(ctx context.Context) (string, error) 
 }
 
 // provision installs the watchdog: its identity, its binary and its service.
-func (m *watchdogManager) provision(ctx context.Context, staged string, manifest *release.Manifest) error {
+func (m *watchdogManager) provision(ctx context.Context, staged string, manifest *release.Manifest, binary release.Binary) error {
 	if update.UninstallInProgress() {
 		return errors.New("the agent is being uninstalled")
 	}
@@ -169,7 +169,7 @@ func (m *watchdogManager) provision(ctx context.Context, staged string, manifest
 	if err := m.opts.Delete(ctx, WatchdogServiceName, time.Minute); err != nil {
 		return fmt.Errorf("remove the previous watchdog service: %w", err)
 	}
-	if err := copyExecutable(staged, exe); err != nil {
+	if err := copyExecutable(staged, exe, binary); err != nil {
 		return err
 	}
 	if err := m.opts.Create(svcctl.Definition{
@@ -383,7 +383,7 @@ func (a *Agent) writeHealth(connected bool) {
 	}
 }
 
-func copyExecutable(from, to string) error {
+func copyExecutable(from, to string, binary release.Binary) error {
 	data, err := os.ReadFile(from)
 	if err != nil {
 		return err
@@ -394,6 +394,12 @@ func copyExecutable(from, to string) error {
 	tmp := to + ".new"
 	if err := os.WriteFile(tmp, data, 0o755); err != nil {
 		return fmt.Errorf("write %s: %w", tmp, err)
+	}
+	// Verified where it is installed, in the program folder only administrators may change, like update.Install does: what SYSTEM runs
+	// as the watchdog is the binary of the signed manifest, whatever happened to the staged copy.
+	if err := update.VerifyFile(tmp, binary.SHA256, binary.Size); err != nil {
+		_ = os.Remove(tmp)
+		return err
 	}
 	if err := os.Rename(tmp, to); err != nil {
 		_ = os.Remove(tmp)

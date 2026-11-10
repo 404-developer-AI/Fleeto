@@ -133,6 +133,10 @@ func VerifyFile(path, sha string, size int64) error {
 		return err
 	}
 	defer f.Close()
+	return verifyOpen(f, path, sha, size)
+}
+
+func verifyOpen(f *os.File, path, sha string, size int64) error {
 	hash := sha256.New()
 	n, err := io.Copy(hash, io.LimitReader(f, size+1))
 	if err != nil {
@@ -142,6 +146,21 @@ func VerifyFile(path, sha string, size int64) error {
 		return fmt.Errorf("%s does not match the signed manifest", filepath.Base(path))
 	}
 	return nil
+}
+
+// ProbeStaged runs ProbeVersion on a staged binary only once it matches the signed manifest again, and keeps it from being changed until
+// it ran: on Windows the file stays open without write or delete sharing meanwhile. The file the service runs is so the file that was
+// verified, even when something could write where it was staged.
+func ProbeStaged(ctx context.Context, path string, b release.Binary) (string, error) {
+	f, err := openHeld(path)
+	if err != nil {
+		return "", fmt.Errorf("open %s: %w", filepath.Base(path), err)
+	}
+	defer f.Close()
+	if err := verifyOpen(f, path, b.SHA256, b.Size); err != nil {
+		return "", err
+	}
+	return ProbeVersion(ctx, path)
 }
 
 // ProbeVersion runs "<exe> version --short" and returns the version the binary reports. A verified binary is run this way before it

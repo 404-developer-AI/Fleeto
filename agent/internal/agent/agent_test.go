@@ -22,6 +22,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/404-developer-AI/Fleeto/agent/internal/checks"
+	"github.com/404-developer-AI/Fleeto/agent/internal/enroll"
 	"github.com/404-developer-AI/Fleeto/agent/internal/keystore"
 	"github.com/404-developer-AI/Fleeto/agent/internal/logging"
 	"github.com/404-developer-AI/Fleeto/agent/internal/platform"
@@ -126,6 +127,7 @@ func (g *fakeGateway) enroll(w http.ResponseWriter, r *http.Request) {
 	data, _ := proto.Marshal(&agentv1.EnrollResponse{
 		EndpointId: gwEndpoint, InstanceId: gwInstance, CertificateDer: certDER, CaCertificateDer: g.ca.Cert.Raw,
 		InstanceSigningPublicKey: g.signingPub, InstanceSigningKeyId: gwKeyID,
+		InstanceSigningKeyCaSignature: g.ca.SignMessage(enroll.SigningKeyMessage(gwInstance, gwKeyID, g.signingPub)),
 	})
 	w.Header().Set("Content-Type", "application/x-protobuf")
 	_, _ = w.Write(data)

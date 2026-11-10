@@ -121,6 +121,13 @@ public static class SignatureContexts
     /// </summary>
     public const string WatchdogCsr = "fleeto-watchdog-csr-v1";
 
+    /// <summary>
+    /// The instance CA's ECDSA signature over the instance signing public key in an enrollment response, so a gateway (which holds a
+    /// certificate of the CA but not its key) cannot hand an enrolling agent a signing key of its own. Not an Ed25519 context; must equal
+    /// the Go agent constant.
+    /// </summary>
+    public const string InstanceSigningKey = "fleeto-instance-signing-key-v1";
+
     /// <summary>Must equal ProtocolLimits.ConfigSignatureContext and the Go agent constant.</summary>
     public const string AgentConfig = "fleeto-agent-config-v1";
 

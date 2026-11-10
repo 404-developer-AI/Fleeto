@@ -211,7 +211,7 @@ func New(opts Options) (*Agent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open the identity key: %w", err)
 	}
-	cert, err := st.Certificate()
+	cert, err := st.IssuedCertificate()
 	if err != nil {
 		_ = key.Close()
 		return nil, err

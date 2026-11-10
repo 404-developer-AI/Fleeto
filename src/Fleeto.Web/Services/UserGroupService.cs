@@ -570,6 +570,25 @@ internal static class AccessChanges
                     .ExecuteUpdateAsync(s => s.SetProperty(p => p.RevokedAt, now), cancellationToken);
             }
 
+            await PublishAsync(bus, logger, [userId], cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Marks every open remote session connection of these users revoked, whatever they may still reach (0.9.0): for a change that
+    /// ends their sign-in sessions (deleted, two-factor reset, a new password, linked to or unlinked from Entra ID), so a connection
+    /// opened before it never outlives it. Runs on the caller's context, so it commits with the change; publish after the commit.
+    /// </summary>
+    public static Task<int> RevokeAllAsync(FleetoDbContext db, IReadOnlyCollection<Guid> userIds, DateTime now, CancellationToken cancellationToken) =>
+        db.RemoteSessionParticipants.IgnoreQueryFilters()
+            .Where(p => userIds.Contains(p.UserId) && p.EndedAt == null && p.RevokedAt == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(p => p.RevokedAt, now), cancellationToken);
+
+    /// <summary>Tells the gateway and the open pages of these users that what they may reach changed.</summary>
+    public static async Task PublishAsync(INotificationBus bus, ILogger logger, IEnumerable<Guid> userIds, CancellationToken cancellationToken)
+    {
+        foreach (var userId in userIds.Distinct())
+        {
             try
             {
                 await bus.PublishAsync(NotificationChannels.UserAccess, userId.ToString(), cancellationToken);
@@ -580,6 +599,25 @@ internal static class AccessChanges
                 logger.LogWarning(ex, "Could not publish the access change of user {UserId}", userId);
             }
         }
+    }
+
+    /// <summary>
+    /// The users whose access to an endpoint can change when it moves from one site to another (0.9.0): members of a group with a
+    /// rule on either site (a rule on the client or on the endpoint itself still holds after the move), and users with an open
+    /// remote session connection to it.
+    /// </summary>
+    public static async Task<List<Guid>> AffectedByMoveAsync(FleetoDbContext db, Guid endpointId, Guid fromSiteId, Guid toSiteId,
+        CancellationToken cancellationToken)
+    {
+        var members = await db.UserGroupRules.AsNoTracking()
+            .Where(r => r.SiteId == fromSiteId || r.SiteId == toSiteId)
+            .Join(db.UserGroupMembers, r => r.GroupId, m => m.GroupId, (_, m) => m.UserId)
+            .ToListAsync(cancellationToken);
+        var connected = await db.RemoteSessionParticipants.AsNoTracking()
+            .Where(p => p.EndpointId == endpointId && p.EndedAt == null && p.RevokedAt == null)
+            .Select(p => p.UserId)
+            .ToListAsync(cancellationToken);
+        return members.Concat(connected).Distinct().ToList();
     }
 
     /// <summary>The permission a kind of remote session needs.</summary>

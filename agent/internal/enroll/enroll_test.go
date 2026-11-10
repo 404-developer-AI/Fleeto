@@ -26,6 +26,7 @@ const (
 	testEndpoint = "0b6a4e2c-1d3f-4a5b-8c7d-9e0f1a2b3c4d"
 	testInstance = "6f1d3c1e-5a4b-4f7e-9a31-2b8f0c1d2e3f"
 	testToken    = "fet_abcdef_0123456789secret" // gitleaks:allow (test value, never a real token)
+	testKeyID    = "a1b2c3d4e5f60718"
 )
 
 type fakeGateway struct {
@@ -70,9 +71,11 @@ func newFakeGateway(t *testing.T, ca *testpki.CA, serverCert tls.Certificate) *f
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		signingKey := make([]byte, ed25519.PublicKeySize)
 		writeResponse(w, &agentv1.EnrollResponse{
 			EndpointId: testEndpoint, InstanceId: testInstance, CertificateDer: certDER, CaCertificateDer: ca.Cert.Raw,
-			InstanceSigningPublicKey: make([]byte, ed25519.PublicKeySize), InstanceSigningKeyId: "a1b2c3d4e5f60718",
+			InstanceSigningPublicKey: signingKey, InstanceSigningKeyId: testKeyID,
+			InstanceSigningKeyCaSignature: ca.SignMessage(SigningKeyMessage(testInstance, testKeyID, signingKey)),
 		})
 	}))
 	g.server.TLS = &tls.Config{Certificates: []tls.Certificate{serverCert}}

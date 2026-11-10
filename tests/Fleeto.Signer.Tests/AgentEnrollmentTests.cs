@@ -76,6 +76,7 @@ public sealed class AgentEnrollmentTests
         Assert.Equal(signingKey.PublicKey, response.InstanceSigningPublicKey.ToByteArray());
         Assert.Equal(signingKey.Id, response.InstanceSigningKeyId);
         Assert.Equal(_fixture.Database.InstanceId.ToString("D"), response.InstanceId);
+        AssertSigningKeyIsBoundByTheCa(response, ca.CertificateDer);
 
         // First configuration: version 1, agent-only, signed with the instance key over the stored bytes.
         var config = await db.EndpointConfigs.AsNoTracking().SingleAsync(c => c.EndpointId == endpointId);
@@ -238,4 +239,32 @@ public sealed class AgentEnrollmentTests
         var details = await db.AuditEntries.AsNoTracking().Select(a => a.DetailsJson).ToListAsync();
         Assert.DoesNotContain(details, d => d.Contains(secret, StringComparison.Ordinal) || d.Contains(token, StringComparison.Ordinal));
     }
+
+    [Fact]
+    public async Task Enrollment_binds_the_signing_key_to_the_instance_with_the_ca_key_so_a_substituted_key_does_not_verify()
+    {
+        var (site, token, _) = await _fixture.CreateSiteWithTokenAsync();
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var request = await _fixture.ProcessAsync(SigningRequestKind.AgentEnrollment, site.ClientId, null,
+            SignerFixture.EnrollPayload(token, SignerFixture.Csr(key), "WS-BINDING"), "gateway:203.0.113.8");
+        Assert.Equal(SigningRequestState.Completed, request.State);
+        var response = EnrollResponse.Parser.ParseFrom(request.Result);
+        var caDer = response.CaCertificateDer.ToByteArray();
+        AssertSigningKeyIsBoundByTheCa(response, caDer);
+
+        // What a compromised gateway would send: the signer's signature with a key, key id or instance of its own.
+        var instanceId = Guid.Parse(response.InstanceId);
+        var signature = response.InstanceSigningKeyCaSignature.ToByteArray();
+        var (_, attackerKey) = Ed25519.GenerateKeyPair();
+        Assert.False(InternalCertificateAuthority.VerifyInstanceSigningKey(caDer, instanceId, response.InstanceSigningKeyId, attackerKey, signature));
+        Assert.False(InternalCertificateAuthority.VerifyInstanceSigningKey(caDer, instanceId, "attacker00000001",
+            response.InstanceSigningPublicKey.ToByteArray(), signature));
+        Assert.False(InternalCertificateAuthority.VerifyInstanceSigningKey(caDer, Guid.NewGuid(), response.InstanceSigningKeyId,
+            response.InstanceSigningPublicKey.ToByteArray(), signature));
+    }
+
+    private static void AssertSigningKeyIsBoundByTheCa(EnrollResponse response, byte[] caCertificateDer) =>
+        Assert.True(InternalCertificateAuthority.VerifyInstanceSigningKey(caCertificateDer, Guid.Parse(response.InstanceId),
+            response.InstanceSigningKeyId, response.InstanceSigningPublicKey.ToByteArray(), response.InstanceSigningKeyCaSignature.ToByteArray()),
+            "The instance signing key in the enrollment response is not signed by the instance CA.");
 }

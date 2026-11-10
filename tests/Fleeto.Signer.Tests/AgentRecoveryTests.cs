@@ -129,6 +129,8 @@ public sealed class AgentRecoveryTests
         Assert.Equal(SigningRequestState.Completed, request.State);
         var response = EnrollResponse.Parser.ParseFrom(request.Result);
         Assert.Equal(agent.EndpointId, Guid.Parse(response.EndpointId));
+        Assert.True(InternalCertificateAuthority.VerifyInstanceSigningKey(response.CaCertificateDer.ToByteArray(), Guid.Parse(response.InstanceId),
+            response.InstanceSigningKeyId, response.InstanceSigningPublicKey.ToByteArray(), response.InstanceSigningKeyCaSignature.ToByteArray()));
 
         await using var check = _fixture.Database.DbFactory.CreateSystem();
         var endpoint = await check.Endpoints.AsNoTracking().SingleAsync(e => e.Id == agent.EndpointId);

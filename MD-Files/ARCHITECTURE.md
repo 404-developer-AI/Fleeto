@@ -251,7 +251,11 @@ that sees every client. A new client needs a group for every client (`IncludesNe
 it exists. `GroupAccess.Reaches` answers the same question for one endpoint without the catalog; the signer asks it for the user
 behind every job and remote session token, and a test keeps it equal to the scope. A change to a group or a role reloads the open
 pages of its users (`fleeto_user_access`) and marks their remote session participants on endpoints they lost `RevokedAt`, which
-the gateway ends at once and otherwise within a minute. API keys keep their own client restriction.
+the gateway ends at once and otherwise within a minute. So does moving an endpoint to another site, for the users of groups with a
+rule on either site and the users connected to it (0.9.0). Deleting a user, resetting its two-factor authentication, setting its
+password, unlinking it from Entra ID or linking it so that its password goes, and switching "Microsoft handles the second factor"
+off (for every linked user) end every remote session connection of those users in the same transaction, whatever they still
+reach (0.9.0, security review). API keys keep their own client restriction.
 
 **Roles and permissions** (0.6.0). What a user may do is a set of permissions: the union over its roles. The catalog is one
 list in code (`Fleeto.Core.Domain.Permissions`): a stable key such as `remote.control` or `patches.deploy`, a group, a label,
@@ -493,10 +497,13 @@ the only root and for the agent host name, and refuses to continue otherwise
 → sends a certificate signing request with the token → gateway checks the token hash and
 writes a `SigningRequest` → signer checks the token again, issues a 90-day certificate from
 the internal CA and records an `AgentCertificate` → the gateway returns the certificate, the
-instance CA certificate and the instance signing public key over the same TLS connection;
-the response needs no signature of its own, because that connection is already
-authenticated by a gateway certificate validated against the pinned CA fingerprint → the
-agent pins the CA certificate and the signing public key and uses mTLS from then on. The token
+instance CA certificate and the instance signing public key over the same TLS connection,
+with a signature of the instance CA key over the instance id, the key id and the signing public key
+(`fleeto-instance-signing-key-v1`, ECDSA P-256, made by the signer; 0.9.0) → the agent pins the
+signing public key only when that signature verifies against the CA it pinned by fingerprint, then
+pins both and uses mTLS from then on. The TLS connection alone is not enough for the signing key:
+it proves that the gateway holds a certificate of the CA, not the CA key, so without the signature a
+compromised gateway could hand new agents a signing key of its own. The token
 is marked used; the endpoint appears in the site as **agent-only**. The only first-use
 trust is the install command itself, which the technician copies from the web UI over
 HTTPS; tokens expire and are single-use by default to limit a leaked command.
@@ -587,7 +594,10 @@ waits a random 0 to 10 minutes per version, so a release does not reach every en
 → it downloads `GET /v1/releases/<version>/<file>` over mTLS (the gateway serves only files of the current manifest, at
 most 20 downloads at a time and 12 per endpoint per hour, answering 503 or 429 with `Retry-After`), checks size and
 SHA-256, and asks the staged binary for its version (`version --short`), which must equal the manifest version; a binary
-that does not is skipped for good.
+that does not is skipped for good. The probe opens the staged file without following a link, checks size and SHA-256 again
+through that handle and holds it, shared for reading only, while the binary runs, so the file that runs is the file that was
+checked (0.9.0). The watchdog binary the agent installs is checked against the manifest again in the program folder before it
+is put in place.
 → it writes `update-journal.json`, stops the target service, keeps the previous binary, puts the new one in place (hash
 checked again), starts the service and waits for `health.json` of the target to report the new version with a gateway
 connection made after the start: 5 minutes, not counting time the installer itself has no connection, at most 30.
@@ -1127,7 +1137,13 @@ author saves a version → a different admin reviews the body and approves it af
 fresh TOTP code (a code is accepted once: the same code within 3 minutes is refused, a wrong code
 counts towards the account lockout and is audited) → the approval is stored with the version's
 SHA-256 → any change creates a new version that needs approval again. Jobs only run library
-scripts, so there are no ad-hoc scripts to refuse. The setting is off by default and recommended
+scripts, so there are no ad-hoc scripts to refuse. Switching approval off in a policy needs the permission to approve
+scripts, and so does every change that takes an endpoint out from under a policy that requires approval (0.9.0, security
+review): linking a policy without approval on a more specific level, unlinking, deleting the policy, narrowing the endpoints it
+is for, moving an endpoint to another site, overriding its class and changing a client template. `ScriptApprovalGuard` lists the
+endpoints that require approval before the change and refuses, rolling back, when any of them no longer does after it. A
+script check of a monitoring template or an endpoint runs a library script on every endpoint it reaches, so adding, editing,
+switching on, adjusting or copying one needs View scripts and Run scripts (`ScriptChecks`). The setting is off by default and recommended
 for server sites. Scripts live under Settings, Templates, Scripts: every user can read them,
 admins and technicians write them, admins approve.
 
@@ -1592,6 +1608,10 @@ each is now closed:
   certificate; their existing one keeps working and renews.
 - **The gateway cannot change what an endpoint is.** A trigger refuses a change of tier, client, site or class by the gateway role, so the
   tier the signer and web check cannot be raised from the connection side.
+- **The gateway cannot hand new agents its own signing key** (security review of 0.9.0). The enrollment response carries a signature of
+  the instance CA key, which only the signer holds, over the instance id, key id and signing public key, and the agent pins the key only
+  when it verifies against its pinned CA (§4, Enrollment). The CA key signs this one message besides certificates; the ASCII context at
+  its start keeps it apart from a certificate.
 
 Remaining by design: the gateway relays session traffic it cannot read, it can refuse or drop sessions, and it sees which technician works
 on which endpoint. A compromised gateway that keeps a valid relay open is still a denial of service, never a way into a session.
@@ -1618,6 +1638,16 @@ on which endpoint. A compromised gateway that keeps a valid relay open is still 
   gateway role (origin trigger).
 - The gateway has no persistent private key: at start it generates one in memory and gets a
   24-hour server certificate for `agents.<fqdn>` from the signer, renewed well before expiry.
+- **The state of the agent on Windows belongs to the system** (0.9.0, security review). A standard user may create folders
+  under `C:\ProgramData`, and the owner of a folder can always change its access. So `C:\ProgramData\Fleeto` gets owner
+  Administrators and a protected DACL (SYSTEM and Administrators full control, Users read), and every state folder
+  (`Agent`, `Watchdog`, their `updates`) is created with its protected DACL at once. One that exists already and belongs to
+  anybody else is taken over with everything in it (owner Administrators, protected DACL, hard links refused), or refused
+  with its next step when that is not possible; a junction or symlink is always refused. On Linux the state folders are
+  owned by root and a symlink is refused.
+- **An agent starts only from a state its CA vouches for**: the stored certificate must be issued by the pinned CA, name the
+  endpoint and no other instance (dates are not checked, so an expired certificate can still be recovered). A forged state
+  file therefore cannot make the agent run a configuration signed with a key of its own.
 
 ### Jobs
 
@@ -2301,7 +2331,9 @@ run under the new names.
 - **Endpoints.** Agents from before the rename cannot update themselves (self-update arrives with this release). Until they are
   replaced they stay connected and keep their last configuration, but refuse new configurations and jobs, which are signed
   with the new contexts. Running the install command of the site again takes such an agent over without enrolling again,
-  when it is enrolled with the same gateway and instance CA as the command: the service `fleetify-agent` is stopped, the state
+  when the service `fleetify-agent` exists, the folders `C:\ProgramData\Fleetify`, `Fleetify\Agent` and its state file belong
+  to SYSTEM or Administrators and are no links (0.9.0, so a state planted by a user is never taken over), and it is enrolled
+  with the same gateway and instance CA as the command: the service `fleetify-agent` is stopped, the state
   directory moves from `C:\ProgramData\Fleetify\Agent` to `C:\ProgramData\Fleeto\Agent` (the identity key stays in the key
   store under its old name, which the state records), the `fleeto-agent` service is created and started, and only then are
   the old service, a legacy watchdog with its key and the old program files removed. The install token is not used. A revoked
@@ -2484,7 +2516,12 @@ An endpoint never moves between clients in Fleeto; it is enrolled again under th
 stays in the old organization. The patch sync therefore notes, for every endpoint a mapped organization reports, which
 Fleeto endpoint reported that Action1 id most recently (inventory `ReceivedAt`, so a record left behind under the old client
 never pulls it back). When that endpoint is managed and its client is mapped to another organization, it queues a
-`MoveEndpoint` operation (once per Action1 id); the workers check the mapping again and call
+`MoveEndpoint` operation (once per Action1 id). The Action1 id comes from an agent, so it proves nothing on its own (0.9.0,
+security review): `Action1Claims` lets the move go ahead only when no endpoint of another client still reports the id and an
+endpoint of the client whose organization holds it is the record the machine left behind (it reported the same id, is offline,
+and was last seen at most 15 minutes after the new endpoint enrolled). Otherwise the operation waits under "Waiting for Action1"
+with its cause and is judged again every 6 hours; the workers judge it again right before they call Action1. The gateway
+stores an Action1 agent id only in the form of a GUID. The workers check the mapping again and call
 `POST /endpoints/managed/{orgId}/{endpointId}/move` with `target_organization_id`, audit it and clear `PatchSyncedAt`, so
 the patch state is read again under the new client at once. An endpoint in an organization that is not mapped is not seen
 and not moved.
@@ -2582,7 +2619,8 @@ and the Action1 id: for a deletion inside the transaction that deletes the endpo
 request outlives it; for agent-only after the switch, only for endpoints that really left managed. It is not tied to
 following the clients: `PatchRequestService` carries it out (`DELETE /endpoints/managed`, which uninstalls the agent),
 `IntegrationFollowService` leaves it alone. On success an endpoint that still exists loses its patch state and gets
-`Action1AgentStatus.Removed`; a failure waits in Settings, Integrations under "Waiting for Action1" with its reason (after
+`Action1AgentStatus.Removed`, only for the organization the endpoint was removed from and the endpoints of the client mapped to
+it: an answer that the id is gone in one organization says nothing about an endpoint of another client (0.9.0); a failure waits in Settings, Integrations under "Waiting for Action1" with its reason (after
 6 hours again when Action1 refused, sooner when it did not answer) until it succeeds or an admin dismisses it.
 
 The alert kind `patch_state` covers what makes the state untrustworthy, not the updates themselves: Action1 no longer

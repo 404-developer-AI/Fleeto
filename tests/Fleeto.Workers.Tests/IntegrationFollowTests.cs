@@ -352,8 +352,22 @@ public sealed class IntegrationFollowTests
         action1.Organizations["org-target"] = "Moved to";
         action1.Endpoints["a1-moving"] = "org-old";
         await MapAsync(integration, client, "org-target", "Moved to");
+        var oldClient = await CreateClientAsync("Old");
+        await MapAsync(integration, oldClient, "org-old", "Old");
+        // The machine was enrolled again under the client: the record left under the old client went offline before that.
+        var left = await _fixture.Db.CreateEndpointAsync(await _fixture.Db.CreateSiteAsync(oldClient.Id, "Old site"), EndpointTier.Managed, "MOVING-01");
+        var enrolled = await _fixture.Db.CreateEndpointAsync(await _fixture.Db.CreateSiteAsync(client.Id, "New site"), EndpointTier.Managed, "MOVING-01");
         await using (var db = _fixture.Db.DbFactory.CreateSystem())
         {
+            (await db.Endpoints.SingleAsync(e => e.Id == left.Id)).LastSeenAt = _fixture.Now.AddDays(-1);
+            db.InventorySnapshots.Add(new InventorySnapshot
+            {
+                EndpointId = left.Id, ClientId = oldClient.Id, ReceivedAt = _fixture.Now.AddDays(-1), Hash = "old", Action1AgentId = "a1-moving"
+            });
+            db.InventorySnapshots.Add(new InventorySnapshot
+            {
+                EndpointId = enrolled.Id, ClientId = client.Id, ReceivedAt = _fixture.Now, Hash = "new", Action1AgentId = "a1-moving"
+            });
             (await db.Integrations.SingleAsync(i => i.Id == integration.Id)).PatchSyncedAt = _fixture.Now;
             db.IntegrationOperations.Add(new IntegrationOperation
             {

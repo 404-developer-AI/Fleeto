@@ -34,12 +34,17 @@ public sealed class SignInSettingsService
     private readonly IFleetoDbContextFactory _dbFactory;
     private readonly SettingsStore _settings;
     private readonly TimeProvider _time;
+    private readonly INotificationBus _bus;
+    private readonly ILogger<SignInSettingsService> _logger;
 
-    public SignInSettingsService(IFleetoDbContextFactory dbFactory, SettingsStore settings, TimeProvider time)
+    public SignInSettingsService(IFleetoDbContextFactory dbFactory, SettingsStore settings, TimeProvider time, INotificationBus bus,
+        ILogger<SignInSettingsService> logger)
     {
         _dbFactory = dbFactory;
         _settings = settings;
         _time = time;
+        _bus = bus;
+        _logger = logger;
     }
 
     public async Task<SignInView> GetAsync(Caller caller, CancellationToken cancellationToken = default)
@@ -139,13 +144,18 @@ public sealed class SignInSettingsService
         await _settings.SetAsync(SettingKeys.EntraSignIn, updated, encrypted: true, caller.UserId, cancellationToken);
         await using var db = _dbFactory.CreateSystem();
         var sessionsEnded = 0;
+        List<Guid> linkedUsers = [];
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         if (current.MicrosoftHandlesSecondFactor && !updated.MicrosoftHandlesSecondFactor)
         {
             // Sessions that came in without a Fleeto code because the tenant was trusted must not outlive that trust: a new
-            // security stamp ends them within the validation interval, and the next sign-in asks the code again.
+            // security stamp ends them within the validation interval, and the next sign-in asks the code again. Their remote
+            // session connections end at once (0.9.0).
+            linkedUsers = await db.Users.AsNoTracking().Where(u => u.EntraObjectId != null).Select(u => u.Id).ToListAsync(cancellationToken);
             sessionsEnded = await db.Database.ExecuteSqlRawAsync(
                 "UPDATE \"AspNetUsers\" SET \"SecurityStamp\" = upper(replace(gen_random_uuid()::text, '-', '')), " +
                 "\"ConcurrencyStamp\" = gen_random_uuid()::text WHERE \"EntraObjectId\" IS NOT NULL", cancellationToken);
+            await AccessChanges.RevokeAllAsync(db, linkedUsers, now, cancellationToken);
         }
 
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(secretChanged ? AuditActions.CredentialChanged : AuditActions.SignInConfigured,
@@ -161,6 +171,8 @@ public sealed class SignInSettingsService
                 SessionsEnded = sessionsEnded
             }), now));
         await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        await AccessChanges.PublishAsync(_bus, _logger, linkedUsers, cancellationToken);
         return ServiceResult.Ok();
     }
 

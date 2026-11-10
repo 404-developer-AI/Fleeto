@@ -228,6 +228,15 @@ public sealed class LinkService
 
         var now = _time.GetUtcNow().UtcDateTime;
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        // Another policy here may take endpoints out from under the approval of scripts (0.9.0).
+        var guarded = changedPolicySlots.Count == 0
+            ? null
+            : await ScriptApprovalGuard.BeforeAsync(db, caller, level switch
+            {
+                LinkLevel.Client => r => r.ClientId == id,
+                LinkLevel.Site => r => r.SiteId == id,
+                _ => r => r.EndpointId == id
+            }, cancellationToken);
         foreach (var slot in changedPolicySlots)
         {
             await SetPolicyAsync(db, level, target, slot, input.Policy[slot], caller.UserId, now, cancellationToken);
@@ -272,6 +281,11 @@ public sealed class LinkService
             RemovedMonitoringTemplates = removedTemplates.Select(t => t.Name).ToList()
         }), now));
         await db.SaveChangesAsync(cancellationToken);
+        if (await ScriptApprovalGuard.LosesApprovalAsync(db, guarded, cancellationToken))
+        {
+            return ServiceResult.Fail(ScriptApprovalGuard.Problem);
+        }
+
         await transaction.CommitAsync(cancellationToken);
 
         if (changedPatchSlots.Count > 0)

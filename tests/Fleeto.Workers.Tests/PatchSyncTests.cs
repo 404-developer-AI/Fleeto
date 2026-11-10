@@ -63,7 +63,7 @@ public sealed class PatchSyncTests
 
     /// <summary>An endpoint with an inventory that reports the Action1 agent id.</summary>
     private async Task<Endpoint> CreateEndpointAsync(Client client, string action1Id, EndpointTier tier = EndpointTier.Managed,
-        string hostname = "PATCH-01")
+        string hostname = "PATCH-01", DateTime? receivedAt = null)
     {
         var site = await _fixture.Db.CreateSiteAsync(client.Id, "Site " + Guid.NewGuid().ToString("N")[..6]);
         var endpoint = await _fixture.Db.CreateEndpointAsync(site, tier, hostname);
@@ -72,7 +72,7 @@ public sealed class PatchSyncTests
         {
             EndpointId = endpoint.Id,
             ClientId = client.Id,
-            ReceivedAt = _fixture.Now,
+            ReceivedAt = receivedAt ?? _fixture.Now,
             Hash = Guid.NewGuid().ToString("N"),
             Action1AgentId = action1Id
         });
@@ -148,6 +148,26 @@ public sealed class PatchSyncTests
         Assert.Empty(await db.EndpointPatchStates.AsNoTracking().Where(p => p.EndpointId == strangerEndpoint.Id).ToListAsync());
         Assert.Empty(await db.EndpointPatchStates.AsNoTracking().Where(p => p.ClientId == other.Id).ToListAsync());
         Assert.Empty(await db.EndpointPatchStates.AsNoTracking().Where(p => p.ClientId == client.Id).ToListAsync());
+    }
+
+    [Fact]
+    public async Task Two_endpoints_of_one_client_reporting_one_Action1_id_do_not_stop_the_sync_and_the_newest_reporter_gets_the_state()
+    {
+        var (client, _) = await SeedAsync("PSD" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant());
+        var cloned = Guid.NewGuid().ToString();
+        var older = await CreateEndpointAsync(client, cloned, hostname: "CLONE-OLD", receivedAt: _fixture.Now.AddHours(-2));
+        var newer = await CreateEndpointAsync(client, cloned.ToUpperInvariant(), hostname: "CLONE-NEW");
+        // Another endpoint of the same organization must still be synced in the same pass.
+        var bystanderId = Guid.NewGuid().ToString();
+        var bystander = await CreateEndpointAsync(client, bystanderId, hostname: "BYSTANDER");
+        var handler = new StubHandler { Endpoints = [Reported(cloned, critical: 1, other: 0), Reported(bystanderId, critical: 0, other: 0)] };
+
+        await Service(handler).SyncAsync(force: true, CancellationToken.None);
+
+        await using var db = _fixture.Db.DbFactory.CreateSystem();
+        Assert.Equal(1, (await db.EndpointPatchStates.AsNoTracking().SingleAsync(p => p.EndpointId == newer.Id)).MissingCritical);
+        Assert.Empty(await db.EndpointPatchStates.AsNoTracking().Where(p => p.EndpointId == older.Id).ToListAsync());
+        Assert.True((await db.EndpointPatchStates.AsNoTracking().SingleAsync(p => p.EndpointId == bystander.Id)).IsCompliant);
     }
 
     [Fact]

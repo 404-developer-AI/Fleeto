@@ -131,6 +131,60 @@ public static class InternalCertificateAuthority
         }
     }
 
+    /// <summary>
+    /// The message the instance CA signs to bind the instance signing key to the instance:
+    /// <c>SignatureContexts.InstanceSigningKey || 0x00 || instance id (lowercase, with hyphens) || 0x00 || key id || 0x00 || 32-byte
+    /// ed25519 public key</c>. The instance id has a fixed length and the public key is fixed-length and last, so no two inputs give the
+    /// same message. It starts with ASCII, so it can never be mistaken for a DER TBSCertificate the CA also signs.
+    /// </summary>
+    public static byte[] InstanceSigningKeyMessage(Guid instanceId, string signingKeyId, ReadOnlySpan<byte> signingPublicKey)
+    {
+        if (signingPublicKey.Length != Ed25519.PublicKeySize)
+        {
+            throw new ArgumentException("An ed25519 public key is 32 bytes.", nameof(signingPublicKey));
+        }
+
+        var head = System.Text.Encoding.ASCII.GetBytes($"{SignatureContexts.InstanceSigningKey}\0{instanceId:D}\0{signingKeyId}\0");
+        var message = new byte[head.Length + signingPublicKey.Length];
+        head.CopyTo(message, 0);
+        signingPublicKey.CopyTo(message.AsSpan(head.Length));
+        return message;
+    }
+
+    /// <summary>
+    /// ECDSA P-256 signature (SHA-256, ASN.1 DER) with the instance CA key over <see cref="InstanceSigningKeyMessage"/>. The agent verifies
+    /// it against the CA it pinned by fingerprint before it pins the signing key (security review of 0.9.0).
+    /// </summary>
+    public static byte[] SignInstanceSigningKey(byte[] caPrivateKeyPkcs8, Guid instanceId, string signingKeyId, ReadOnlySpan<byte> signingPublicKey)
+    {
+        var message = InstanceSigningKeyMessage(instanceId, signingKeyId, signingPublicKey);
+        using var caKey = ECDsa.Create();
+        caKey.ImportPkcs8PrivateKey(caPrivateKeyPkcs8, out _);
+        return caKey.SignData(message, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+    }
+
+    /// <summary>Verifies <see cref="SignInstanceSigningKey"/> against the CA certificate.</summary>
+    public static bool VerifyInstanceSigningKey(byte[] caCertificateDer, Guid instanceId, string signingKeyId, ReadOnlySpan<byte> signingPublicKey,
+        ReadOnlySpan<byte> signature)
+    {
+        if (signingPublicKey.Length != Ed25519.PublicKeySize || signature.Length is 0 or > 256)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var ca = X509CertificateLoader.LoadCertificate(caCertificateDer);
+            using var key = ca.GetECDsaPublicKey();
+            return key is not null && key.VerifyData(InstanceSigningKeyMessage(instanceId, signingKeyId, signingPublicKey), signature,
+                HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+        }
+        catch (CryptographicException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>SHA-256 hex of the public key in a CSR (after verifying the CSR signature).</summary>
     public static string CsrPublicKeyFingerprint(byte[] csrDer) =>
         KeyIds.Sha256Hex(LoadCsr(csrDer).PublicKey.ExportSubjectPublicKeyInfo());

@@ -172,6 +172,11 @@ public sealed class EndpointCheckService
             return ServiceResult.Ok();
         }
 
+        if (!disabled && check.Type == CheckType.Script && !ScriptChecks.MayManage(caller))
+        {
+            return ServiceResult.Fail(ScriptChecks.PermissionProblem);
+        }
+
         if (adjustment is null)
         {
             adjustment = new EndpointCheckOverride { EndpointId = endpointId, CheckDefinitionId = checkId, ClientId = endpoint.ClientId, CreatedAt = now };
@@ -212,6 +217,12 @@ public sealed class EndpointCheckService
         if (checks.FirstOrDefault(c => c.Id == checkId) is not { Source: not CheckSource.Endpoint } check)
         {
             return ServiceResult.NotFound("check");
+        }
+
+        // An own interval makes a script check run its script more often.
+        if (check.Type == CheckType.Script && !ScriptChecks.MayManage(caller))
+        {
+            return ServiceResult.Fail(ScriptChecks.PermissionProblem);
         }
 
         if (input.IntervalSeconds is not null && CheckCatalog.Get(check.Type) is { EvaluatedByFleeto: true } evaluated)
@@ -287,6 +298,12 @@ public sealed class EndpointCheckService
         if (!caller.Has(Permissions.ChecksEdit))
         {
             return ServiceResult<Guid>.Forbidden();
+        }
+
+        // The type of a check never changes, so this covers adding a script check and changing one (its script included).
+        if (input.Type == CheckType.Script && !ScriptChecks.MayManage(caller))
+        {
+            return ServiceResult<Guid>.Fail(ScriptChecks.PermissionProblem);
         }
 
         await using var db = _dbFactory.Create(caller.Scope);
