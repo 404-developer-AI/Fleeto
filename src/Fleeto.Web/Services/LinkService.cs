@@ -212,6 +212,11 @@ public sealed class LinkService
             return ServiceResult.Fail(LevelRefused(refused.Name, level));
         }
 
+        if (await ScriptChecks.LinkProblemAsync(db, caller, addedTemplates, cancellationToken) is { } scriptProblem)
+        {
+            return ServiceResult.Fail(scriptProblem);
+        }
+
         var templatesChanged = removedTemplates.Count > 0 || addedTemplates.Count > 0;
         if (level == LinkLevel.Endpoint && addedTemplates.Count > 0 &&
             TierRules.EffectiveTier(target.Tier, await _licenses.GetStatusAsync(db, cancellationToken)) != EndpointTier.Managed)

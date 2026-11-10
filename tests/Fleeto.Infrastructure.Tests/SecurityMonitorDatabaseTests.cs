@@ -1,4 +1,5 @@
 using System.Net;
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Infrastructure.Data;
 using Fleeto.Infrastructure.Security;
@@ -65,6 +66,9 @@ public sealed class SecurityMonitorDatabaseTests
         await Execute(connection, """SELECT count(*) FROM "IpBlocks" """);
         await Execute(connection, """SELECT count(*) FROM "IpAllows" """);
         await ExpectRefusedAsync(connection, """SELECT count(*) FROM "SecuritySignals" """);
+        // The networks users signed in from, for the blocklist exemption, but never who signed in.
+        await Execute(connection, """SELECT DISTINCT "Network" FROM "UserSignInNetworks" WHERE "LastSeen" >= now() - interval '30 days'""");
+        await ExpectRefusedAsync(connection, """SELECT "UserId" FROM "UserSignInNetworks" """);
 
         await Execute(connection, "RESET ROLE");
         await Execute(connection, "SET LOCAL ROLE fleeto_web");
@@ -124,6 +128,49 @@ public sealed class SecurityMonitorDatabaseTests
         Assert.Equal(IpVerdict.BlockedManual, list.Check(IPAddress.Parse("81.2.69.4")));
         Assert.Equal(IpVerdict.Allowed, list.Check(IPAddress.Parse("81.2.69.5")));
         Assert.Equal(IpVerdict.None, list.Check(IPAddress.Parse("81.2.70.7")));
+    }
+
+    [Fact]
+    public async Task A_blocklist_never_refuses_a_network_a_user_signed_in_from_in_the_last_30_days()
+    {
+        await ClearAsync();
+        var now = _db.Time.GetUtcNow().UtcDateTime;
+        var user = await _db.CreateUserAsync(FleetoRoles.Admin);
+        await using (var db = _db.DbFactory.CreateSystem())
+        {
+            await db.IpFeedEntries.ExecuteDeleteAsync();
+            await db.IpFeeds.Where(f => f.Key == IpFeeds.FireHolLevel1)
+                .ExecuteUpdateAsync(s => s.SetProperty(f => f.Enabled, true).SetProperty(f => f.Version, f => f.Version + 1));
+            db.IpFeedEntries.AddRange(
+                new IpFeedEntry { Feed = IpFeeds.FireHolLevel1, Network = "81.2.75.0/24" },
+                new IpFeedEntry { Feed = IpFeeds.FireHolLevel1, Network = "81.2.76.0/24" },
+                new IpFeedEntry { Feed = IpFeeds.FireHolLevel1, Network = "2a01:4f8:aa::/48" });
+            db.UserSignInNetworks.AddRange(
+                // Yesterday: trusted. Forty days ago: no longer.
+                new UserSignInNetwork { UserId = user.Id, Network = "81.2.75.0/24", FirstSeen = now.AddDays(-10), LastSeen = now.AddDays(-1) },
+                new UserSignInNetwork { UserId = user.Id, Network = "81.2.76.0/24", FirstSeen = now.AddDays(-60), LastSeen = now.AddDays(-40) },
+                new UserSignInNetwork { UserId = user.Id, Network = "2a01:4f8:aa:bb::/64", FirstSeen = now.AddDays(-2), LastSeen = now.AddDays(-2) });
+            // A block still holds in a trusted network.
+            db.IpBlocks.Add(new IpBlock { Id = Guid.NewGuid(), Network = "81.2.75.30/32", Source = IpBlockSource.Manual, Reason = "a", CreatedAt = now, CreatedByName = "t" });
+            await db.SaveChangesAsync();
+        }
+
+        try
+        {
+            var list = new IpBlockList(_db.DataSource, _db.Bus, _db.Time, NullLogger<IpBlockList>.Instance);
+            Assert.True(await list.ReloadAsync(CancellationToken.None));
+            Assert.Equal(IpVerdict.None, list.Check(IPAddress.Parse("81.2.75.20")));
+            Assert.Equal(IpVerdict.BlockedManual, list.Check(IPAddress.Parse("81.2.75.30")));
+            Assert.Equal(IpVerdict.BlockedFeed, list.Check(IPAddress.Parse("81.2.76.20")));
+            Assert.Equal(IpVerdict.None, list.Check(IPAddress.Parse("2a01:4f8:aa:bb::9")));
+            Assert.Equal(IpVerdict.BlockedFeed, list.Check(IPAddress.Parse("2a01:4f8:aa:cc::9")));
+        }
+        finally
+        {
+            await using var db = _db.DbFactory.CreateSystem();
+            await db.IpFeedEntries.ExecuteDeleteAsync();
+            await db.UserSignInNetworks.Where(n => n.UserId == user.Id).ExecuteDeleteAsync();
+        }
     }
 
     private static string InsertSignal(string component) => $"""

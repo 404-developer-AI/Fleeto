@@ -3,8 +3,11 @@ using Fleeto.Core.Entities;
 
 namespace Fleeto.Core.Domain;
 
-/// <summary>The signals of one kind from one attacker network, summed over the last 10, 30 and 60 minutes.</summary>
-public sealed record SignalCount(SecuritySignalKind Kind, string Network, int Last10Minutes, int Last30Minutes, int LastHour);
+/// <summary>
+/// The signals of one kind from one attacker network, summed over the last 10, 30 and 60 minutes. <paramref name="CrossSite"/>: from
+/// requests a browser sent on behalf of another web site (<see cref="SecuritySignal.CrossSiteSubject"/>), which never block on their own.
+/// </summary>
+public sealed record SignalCount(SecuritySignalKind Kind, string Network, int Last10Minutes, int Last30Minutes, int LastHour, bool CrossSite = false);
 
 /// <summary>A failed sign-in of the last hour from the audit log: the attacker network and the account it tried.</summary>
 /// <param name="Account">The user id, or the typed email address for an account that does not exist.</param>
@@ -110,6 +113,14 @@ public static class SecurityRules
     private static int Sum(IEnumerable<SignalCount> signals, string network, Func<SignalCount, int> window, params SecuritySignalKind[] kinds) =>
         signals.Where(s => s.Network == network && kinds.Contains(s.Kind)).Sum(window);
 
+    /// <summary>The signals that may lead to a block: without those a browser sent on behalf of another web site.</summary>
+    private static int SumDirect(IEnumerable<SignalCount> signals, string network, Func<SignalCount, int> window, params SecuritySignalKind[] kinds) =>
+        Sum(signals.Where(s => !s.CrossSite), network, window, kinds);
+
+    private const string CrossSiteNote =
+        "The requests were sent by a browser on behalf of another web site (an image or a link on a page can make any visitor send " +
+        "them), so Fleeto does not block the address on them.";
+
     private static void AddSignalFindings(SecurityEvidence evidence, List<SecurityFinding> findings)
     {
         foreach (var network in evidence.Signals.Select(s => s.Network).Distinct(StringComparer.Ordinal))
@@ -156,25 +167,33 @@ public static class SecurityRules
                     network, revoked));
             }
 
-            var sensitive = Sum(s, network, c => c.Last10Minutes, SecuritySignalKind.SensitivePath, SecuritySignalKind.AttackPattern,
-                SecuritySignalKind.ScannerAgent);
+            SecuritySignalKind[] scannerKinds = [SecuritySignalKind.SensitivePath, SecuritySignalKind.AttackPattern, SecuritySignalKind.ScannerAgent];
+            var sensitive = Sum(s, network, c => c.Last10Minutes, scannerKinds);
             var probes = Sum(s, network, c => c.Last10Minutes, SecuritySignalKind.ScannerPath);
             if (sensitive > 0 || probes >= ScannerPaths)
             {
+                // A block needs the same evidence from requests the caller sent itself, not from cross-site requests alone.
+                var block = SumDirect(s, network, c => c.Last10Minutes, scannerKinds) > 0 ||
+                            SumDirect(s, network, c => c.Last10Minutes, SecuritySignalKind.ScannerPath) >= ScannerPaths;
                 findings.Add(new SecurityFinding($"scanner:{network}", SecurityIncidentKind.Scanner, AlertSeverity.Warning,
                     $"A vulnerability scanner from {network}",
                     $"{Count(sensitive + probes, "request")} for paths Fleeto never serves, exploit attempts or a scanning tool in 10 " +
-                    "minutes. Nothing was served; Fleeto blocks the address. No action is needed unless you run a scan yourself.",
-                    network, sensitive + probes, Block: true, MinimumBlock: TimeSpan.FromHours(24)));
+                    (block
+                        ? "minutes. Nothing was served; Fleeto blocks the address. No action is needed unless you run a scan yourself."
+                        : $"minutes. Nothing was served. {CrossSiteNote} No action is needed unless it goes on."),
+                    network, sensitive + probes, Block: block, MinimumBlock: block ? TimeSpan.FromHours(24) : null));
             }
 
             var notFound = Sum(s, network, c => c.Last10Minutes, SecuritySignalKind.NotFound);
             if (notFound >= NotFoundRequests)
             {
+                var block = SumDirect(s, network, c => c.Last10Minutes, SecuritySignalKind.NotFound) >= NotFoundRequests;
                 findings.Add(new SecurityFinding($"enumeration:{network}", SecurityIncidentKind.Enumeration, AlertSeverity.Warning,
                     $"{Count(notFound, "request")} for pages that do not exist from {network} in 10 minutes",
-                    "Somebody is listing the instance for hidden pages. Fleeto blocks the address.",
-                    network, notFound, Block: true));
+                    block
+                        ? "Somebody is listing the instance for hidden pages. Fleeto blocks the address."
+                        : $"Somebody is listing the instance for hidden pages. {CrossSiteNote}",
+                    network, notFound, Block: block));
             }
 
             var limited = Sum(s, network, c => c.Last10Minutes, SecuritySignalKind.RateLimited);

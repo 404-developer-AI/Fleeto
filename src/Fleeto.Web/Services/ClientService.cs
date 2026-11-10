@@ -497,6 +497,11 @@ public sealed class ClientService
             return ServiceResult.Fail($"Type the client code {client.Code} to confirm the deletion.");
         }
 
+        // Every endpoint of the client locked like fleeto-signer locks one to issue a certificate (EndpointRevocationService.LockAsync):
+        // a certificate issued in flight is committed first, so it goes with the client and the uninstall below knows it.
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await db.Database.ExecuteSqlAsync(
+            $"""SELECT 1 FROM "Endpoints" WHERE "ClientId" = {clientId} ORDER BY "Id" FOR NO KEY UPDATE""", cancellationToken);
         var endpointIds = await db.Endpoints.Where(e => e.ClientId == clientId).Select(e => e.Id).ToListAsync(cancellationToken);
         var siteCount = await db.Sites.CountAsync(s => s.ClientId == clientId, cancellationToken);
         var now = _time.GetUtcNow().UtcDateTime;
@@ -527,6 +532,7 @@ public sealed class ClientService
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.ClientDeleted, "Client", client.Id.ToString(), null,
             new { client.Code, client.Name, Sites = siteCount, Endpoints = endpointIds.Count }), now));
         await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         if (follow is not null)
         {
             await IntegrationFollow.NotifyAsync(_bus, _logger, cancellationToken);

@@ -32,8 +32,15 @@ which installs and updates instances. Design background: `MD-Files/ARCHITECTURE.
 - Outbound HTTPS to `api.github.com` and GitHub's download hosts (`*.githubusercontent.com`), `ghcr.io`, Docker Hub,
   `download.docker.com`, the Ubuntu mirrors, Let's Encrypt, and the backup storage and SMTP server of each instance.
 - If `/etc/docker/daemon.json` already exists, install.sh leaves it alone. Add a `default-address-pools` entry
-  yourself when you plan more than about 10 instances (each instance uses three Docker networks), and add that range
-  to `ReverseProxy__KnownNetworks` in the web service if it is not 172.16.0.0/12, 10.210.0.0/16 or 192.168.0.0/16.
+  yourself when you plan more than about 10 instances (each instance uses three Docker networks); keep it out of
+  10.211.0.0/16.
+- The edge network of every instance (the one the host proxy reaches web and the gateway through) gets a fixed /24 from
+  10.211.0.0/16, stored as `EDGE_SUBNET` and `EDGE_GATEWAY` in `instance.conf`: the first one that no other instance holds
+  and that overlaps no route or Docker network on the VPS. Web and the gateway trust forwarded client addresses
+  (X-Forwarded-For, X-Forwarded-Proto, the PROXY protocol header of agent connections) only from `EDGE_GATEWAY`, the address
+  the host proxy arrives from through the loopback ports, so no other container can choose the address Fleeto sees. An
+  instance from before 0.9.0 gets its subnet on its next update, which recreates its networks (the instance restarts;
+  volumes stay); a rollback to such a release recreates them again.
 
 ### Footprint per instance (estimate until the 10,000-agent load test has run)
 
@@ -191,6 +198,19 @@ sudo /opt/fleeto/bin/install.sh --all            # every later run, also a retry
   install.sh to use is `/opt/fleeto/bin/install.sh`. The pre-rename dump is in `/opt/fleeto/<instance>/backups/`.
 - Endpoints with a Fleetify agent (0.2.0) keep reporting but take no new configuration or jobs until the install command
   of their site is run again on them; it takes the agent over with its enrollment (no new endpoint, no token used).
+
+## Locked out by the security monitor
+
+```
+sudo /opt/fleeto/bin/install.sh --fqdn rmm.customer.example --unblock                       # lift every block
+sudo /opt/fleeto/bin/install.sh --fqdn rmm.customer.example --unblock --allow 203.0.113.7   # and allow this address
+```
+
+`--unblock` lifts every blocked address of the instance, manual and automatic (Settings, Security), and writes it to the
+audit log. A blocklist (Spamhaus DROP, FireHOL and the others) is not a block and stays on. A network a user signed in from
+in the last 30 days is never refused by a blocklist, so a blocklist only locks out an address nobody signed in from
+recently; then add `--allow <address>`: it also adds that one address to the allowed addresses, which no block and no
+blocklist overrides, with an audit entry. Remove it in Settings, Security once it is no longer needed.
 
 ## Backups
 

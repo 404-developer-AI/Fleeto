@@ -352,8 +352,13 @@ export class Workspace {
     this.fileTable.appendChild(header);
     for (const entry of entries) {
       const row = el("div", "remote-row" + (entry.dir ? " remote-dir" : ""));
-      const icon = entry.dir ? "📁" : "📄";
+      // A link (junction or symbolic link) is shown as one with where it points: the endpoint changes nothing through a link, so the
+      // technician opens its target instead.
+      const icon = entry.symlink ? "🔗" : entry.dir ? "📁" : "📄";
       const name = withTitle(el("span", "remote-name", `${icon} ${entry.name}`));
+      if (entry.symlink) {
+        name.title = entry.target ? `${entry.name} is a link to ${entry.target}` : `${entry.name} is a link`;
+      }
       row.append(name, el("span", "remote-size", entry.dir ? "" : formatBytes(entry.size)), el("span", "remote-modified", formatDate(entry.modified)));
       const actions = el("span", "remote-actions");
       if (!entry.dir) {
@@ -364,7 +369,7 @@ export class Workspace {
       actions.appendChild(iconButton("Delete", () => this.remove(entry)));
       row.appendChild(actions);
       if (entry.dir) {
-        row.addEventListener("dblclick", () => this.navigate(this.join(entry.name)));
+        row.addEventListener("dblclick", () => this.navigate(entry.symlink && entry.target ? entry.target : this.join(entry.name)));
       }
       this.fileTable.appendChild(row);
     }
@@ -393,7 +398,8 @@ export class Workspace {
   }
 
   async remove(entry) {
-    if (!confirm(`Delete ${entry.name}?${entry.dir ? " The folder and everything in it will be deleted." : ""}`)) {
+    const detail = entry.symlink ? " Only the link is deleted, not what it points to." : entry.dir ? " The folder and everything in it will be deleted." : "";
+    if (!confirm(`Delete ${entry.name}?${detail}`)) {
       return;
     }
     const message = await this.run(() => this.session.request("delete", { path: this.join(entry.name), recursive: entry.dir }), "It could not be deleted");

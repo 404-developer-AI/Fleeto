@@ -382,13 +382,16 @@ of finding it in the audit log afterwards. Decisions of 2026-10-22:
   enumeration or flood Fleeto blocked by itself (every server is scanned all day). Automatic blocks last 1 hour, 24 hours, then
   7 days (a scanner at once a day), never permanently, never an allowed address, a reserved range or a network a user signed in
   from or a managed endpoint connected from in the last 30 days; an admin can switch automatic blocking off.
-  `install.sh --fqdn <name> --unblock` lifts every block for an admin who blocked themselves out.
+  `install.sh --fqdn <name> --unblock` lifts every block for an admin who blocked themselves out, and with `--allow <address>`
+  allows that address (0.9.0). A probe a browser marks as made for another web site (`Sec-Fetch-Site: cross-site`) is reported but
+  never blocks on its own, so a page elsewhere cannot get its visitors blocked (decided 2026-11-10).
 - **Blocklists (step 3)**: public lists fetched by the workers every 6 hours (Spamhaus DROP, abuse.ch Feodo Tracker, FireHOL
   level1 on by default, blocklist.de optional), cleaned of reserved ranges and refused when they look broken, and CrowdSec
   through a firewall integration of the Console (Basic Auth, only at `admin.api.crowdsec.net`), fetched once a day, also after a failure,
   because its community plan answers 429 to more (decided 2026-11-03). **No sharing with CrowdSec**
   (checked 2026-10-23): its community blocklist in exchange for signals is only for its own Security Engine with unmodified Hub
-  scenarios, so signals of Fleeto would not count; the developer had asked for sharing.
+  scenarios, so signals of Fleeto would not count; the developer had asked for sharing. A blocklist never refuses a network a user signed in
+  from in the last 30 days (decided 2026-11-10, 0.9.0).
 
 ## Public API
 
@@ -606,7 +609,7 @@ Details, diagrams and data model: `MD-Files/ARCHITECTURE.md`.
   - the **instance signing key** signs jobs, policies, check definitions and remote control session tokens for one instance. It is held only by **fleeto-signer**, which re-checks the permission of the user (0.6.0), tier, script approval and validity before signing. Agents pin its public key at enrollment.
   The key ceremony is documented in `MD-Files/ARCHITECTURE.md`.
 - **Jobs expire**: every signed job carries `InstanceId`, `EndpointId` and `ValidUntil` (default 24 hours, maximum 7 days). Signer, gateway and agent all refuse expired jobs.
-- **Script approval**: per policy, scripts can require approval by a second person with the permission to approve scripts (fresh TOTP) before they run; each change needs new approval. Off by default, recommended for servers. Switching it off in a policy needs the same permission (0.6.0), and so does taking an endpoint out from under a policy that requires it: linking, unlinking, deleting, narrowing the endpoints a policy is for, moving an endpoint, overriding its class or changing a client template (decided 2026-11-10, 0.9.0). A script check runs a library script on every endpoint it reaches, so managing one needs View scripts and Run scripts.
+- **Script approval**: per policy, scripts can require approval by a second person with the permission to approve scripts (fresh TOTP) before they run; each change needs new approval. Off by default, recommended for servers. Switching it off in a policy needs the same permission (0.6.0), and so does taking an endpoint out from under a policy that requires it: linking, unlinking, deleting, narrowing the endpoints a policy is for, moving an endpoint, overriding its class or changing a client template (decided 2026-11-10, 0.9.0). A script check runs a library script on every endpoint it reaches, so managing one, or linking a monitoring template that holds one, needs View scripts and Run scripts.
 - **Accepted risk**: full control of fleeto-web still lets an attacker get jobs signed within the signer's rules. The signer keeps the key out of web, enforces the rules and rate limits, and is the single audited choke point. Documented in `MD-Files/ARCHITECTURE.md` §5.
 - **Command authorization**: every job records who initiated it, when, on which endpoints, with what payload. Immutable audit log for all privileged actions (script run, script approval, patch, remote control session, credential change, API key change, license change, login, permission change, certificate revocation, client or site deletion).
 - **Remote control** is the highest-risk feature: single-use tokens per participant, end-to-end encryption, visible on workstations by policy, policy-controlled consent on workstations, audited, managed endpoints only.

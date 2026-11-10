@@ -53,6 +53,28 @@ public sealed class SecurityRuleTests
         Assert.Equal((SecurityIncidentKind.Scanner, true, TimeSpan.FromHours(24)), (finding.Kind, finding.Block, finding.MinimumBlock));
     }
 
+    [Theory]
+    [InlineData(SecuritySignalKind.SensitivePath, 1, SecurityIncidentKind.Scanner)]
+    [InlineData(SecuritySignalKind.AttackPattern, 1, SecurityIncidentKind.Scanner)]
+    [InlineData(SecuritySignalKind.ScannerPath, SecurityRules.ScannerPaths, SecurityIncidentKind.Scanner)]
+    [InlineData(SecuritySignalKind.NotFound, SecurityRules.NotFoundRequests, SecurityIncidentKind.Enumeration)]
+    public void Probes_a_browser_sent_for_another_web_site_are_reported_but_never_block_on_their_own(SecuritySignalKind kind, int count,
+        SecurityIncidentKind expected)
+    {
+        var crossSite = new SignalCount(kind, Attacker, count * 10, count * 10, count * 10, CrossSite: true);
+        var finding = Assert.Single(Evaluate([crossSite]));
+        Assert.Equal((expected, false, (TimeSpan?)null), (finding.Kind, finding.Block, finding.MinimumBlock));
+        Assert.Contains("on behalf of another web site", finding.Detail);
+        Assert.DoesNotContain("Fleeto blocks the address", finding.Detail);
+
+        // The same evidence from requests the caller sent itself still blocks; cross-site requests do not make up what it lacks.
+        Assert.True(Assert.Single(Evaluate([crossSite, Signal(kind, count)])).Block);
+        if (count > 1)
+        {
+            Assert.False(Assert.Single(Evaluate([crossSite, Signal(kind, count - 1)])).Block);
+        }
+    }
+
     [Fact]
     public void A_revoked_certificate_is_critical_and_never_blocks()
     {

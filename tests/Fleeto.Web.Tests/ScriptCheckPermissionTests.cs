@@ -140,4 +140,46 @@ public class ScriptCheckPermissionTests
             (await Checks.SaveOverrideAsync(caller, endpoint.Id, check.Value, new CheckOverrideInput(60, false, null, null, null))).Problem);
         Assert.DoesNotContain(check.Value.ToString("D"), await ConfiguredChecksAsync(endpoint.Id));
     }
+
+    [Fact]
+    public async Task Linking_a_template_with_a_script_check_needs_run_scripts()
+    {
+        var (endpoint, site, script) = await SetupAsync("SCRIPTCHECK-LINK");
+        var template = await _fixture.Database.CreateMonitoringTemplateAsync();
+        var check = await Templates.SaveCheckAsync(WebFixtureBase.Admin(), template.Id, null, ScriptCheck(script.Id));
+        Assert.True(check.Success, check.Problem);
+        var plain = await _fixture.Database.CreateMonitoringTemplateAsync();
+        var links = _fixture.Services.GetRequiredService<LinkService>();
+        var caller = await CallerWithAsync(Permissions.ClientsView, Permissions.LinksEdit, Permissions.ChecksView, Permissions.ChecksEdit,
+            Permissions.ClientTemplatesView, Permissions.ClientTemplatesEdit);
+
+        // The client, a site and one endpoint: each new link would run the script on endpoints it did not run on before.
+        foreach (var (level, id) in new[] { (LinkLevel.Client, site.ClientId), (LinkLevel.Site, site.Id), (LinkLevel.Endpoint, endpoint.Id) })
+        {
+            var refused = await links.SetAsync(caller, level, id, new LinksInput(null, null, [template.Id]));
+            Assert.False(refused.Success);
+            Assert.Contains("holds a script check", refused.Problem);
+        }
+
+        Assert.Contains("holds a script check", (await Checks.SetEndpointTemplatesAsync(caller, endpoint.Id, [template.Id])).Problem);
+        var clientTemplates = _fixture.Services.GetRequiredService<ClientTemplateService>();
+        Assert.Contains("holds a script check", (await clientTemplates.SaveAsync(caller, null, new ClientTemplateInput(
+            "Template " + Guid.NewGuid().ToString("N")[..6], null, [new ClientTemplateSiteInput(null, "Monitoring", null, null, [template.Id])]))).Problem);
+        Assert.DoesNotContain(check.Value.ToString("D"), await ConfiguredChecksAsync(endpoint.Id));
+
+        // A template without one links as before, and so does one whose script check is off.
+        Assert.True((await links.SetAsync(caller, LinkLevel.Site, site.Id, new LinksInput(null, null, [plain.Id]))).Success);
+        Assert.True((await Templates.SetCheckEnabledAsync(WebFixtureBase.Admin(), template.Id, check.Value, false)).Success);
+        Assert.True((await Checks.SetEndpointTemplatesAsync(caller, endpoint.Id, [template.Id])).Success);
+        Assert.True((await Templates.SetCheckEnabledAsync(WebFixtureBase.Admin(), template.Id, check.Value, true)).Success);
+
+        // Removing a link stays allowed.
+        Assert.True((await Checks.SetEndpointTemplatesAsync(caller, endpoint.Id, [])).Success);
+
+        // Control: with View scripts and Run scripts the same link is made.
+        var runner = await CallerWithAsync(Permissions.ClientsView, Permissions.LinksEdit, Permissions.ScriptsView, Permissions.ScriptsRun, Permissions.JobsView);
+        var linked = await links.SetAsync(runner, LinkLevel.Site, site.Id, new LinksInput(null, null, [plain.Id, template.Id]));
+        Assert.True(linked.Success, linked.Problem);
+        Assert.Contains(check.Value.ToString("D"), await ConfiguredChecksAsync(endpoint.Id));
+    }
 }

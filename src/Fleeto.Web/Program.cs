@@ -13,7 +13,6 @@ using Fleeto.Web.Performance;
 using Fleeto.Web.Security;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using MudBlazor.Services;
 
@@ -162,21 +161,8 @@ app.Services.GetRequiredService<PerfRecorder>().UseConnections(() => PerfCircuit
 
 if (app.Configuration.GetValue<bool>("ReverseProxy:Enabled"))
 {
-    var forwarded = new ForwardedHeadersOptions
-    {
-        ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost,
-        // Exactly one proxy (Caddy) sits in front of the web container.
-        ForwardLimit = 1
-    };
-    // Caddy reaches the container over the instance's Docker network, not loopback: trust exactly that network.
-    forwarded.KnownIPNetworks.Clear();
-    forwarded.KnownProxies.Clear();
-    foreach (var network in app.Configuration.GetSection("ReverseProxy:KnownNetworks").Get<string[]>() ?? [])
-    {
-        forwarded.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(network));
-    }
-
-    app.UseForwardedHeaders(forwarded);
+    // Caddy reaches the container from the gateway address of the instance's edge network: trust exactly that address.
+    app.UseForwardedHeaders(ReverseProxyHeaders.Options(app.Configuration));
 }
 
 // The security monitor (0.7.0): a blocked address is refused before anything else, by the caller's address, not the proxy's.

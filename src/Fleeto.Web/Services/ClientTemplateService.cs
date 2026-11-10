@@ -102,6 +102,12 @@ public sealed class ClientTemplateService
             return ServiceResult<Guid>.Fail(problem);
         }
 
+        if (await ScriptChecks.LinkProblemAsync(db, caller, await AddedMonitoringTemplatesAsync(db, templateId, input, cancellationToken), cancellationToken)
+            is { } scriptProblem)
+        {
+            return ServiceResult<Guid>.Fail(scriptProblem);
+        }
+
         var now = _time.GetUtcNow().UtcDateTime;
         ClientTemplate template;
         var syncedHere = false;
@@ -318,6 +324,32 @@ public sealed class ClientTemplateService
         }
 
         return failed;
+    }
+
+    /// <summary>
+    /// The monitoring templates this save links where the client template did not link them yet, at the client or at one of its sites: every
+    /// client that follows it, and every client created from it later, gets those links.
+    /// </summary>
+    private static async Task<IReadOnlyCollection<Guid>> AddedMonitoringTemplatesAsync(FleetoDbContext db, Guid? templateId, ClientTemplateInput input,
+        CancellationToken cancellationToken)
+    {
+        var clientLinks = templateId is { } id
+            ? await db.ClientTemplateMonitoringTemplates.AsNoTracking().Where(l => l.ClientTemplateId == id).Select(l => l.MonitoringTemplateId)
+                .ToListAsync(cancellationToken)
+            : [];
+        var siteLinks = templateId is { } siteTemplateId
+            ? await db.ClientTemplateSiteMonitoringTemplates.AsNoTracking()
+                .Where(l => db.ClientTemplateSites.Any(s => s.Id == l.ClientTemplateSiteId && s.ClientTemplateId == siteTemplateId))
+                .Select(l => new { l.ClientTemplateSiteId, l.MonitoringTemplateId })
+                .ToListAsync(cancellationToken)
+            : [];
+        var added = (input.Client ?? ClientTemplateClientLinks.None).MonitoringTemplateIds.Except(clientLinks).ToHashSet();
+        foreach (var site in input.Sites)
+        {
+            added.UnionWith(site.MonitoringTemplateIds.Where(t => !siteLinks.Any(l => l.ClientTemplateSiteId == site.Id && l.MonitoringTemplateId == t)));
+        }
+
+        return added;
     }
 
     public async Task<ServiceResult<Guid>> CopyAsync(Caller caller, Guid templateId, string? name, CancellationToken cancellationToken = default)

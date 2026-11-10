@@ -74,18 +74,18 @@ public sealed class SignInTwoFactorTests
 
         // Without the claim the user has no second factor yet and stays on the setup page.
         Assert.True(await Gate.RequiresSetupAsync(userId));
-        Assert.True(await Gate.RequiresSetupAsync(Principal(userId, entraSecondFactor: false)));
+        Assert.True(await Gate.RequiresSetupAsync(await SessionAsync(userId, entraSecondFactor: false)));
 
         // Microsoft proved the second factor for this session: no local authenticator needed.
-        Assert.False(await Gate.RequiresSetupAsync(Principal(userId, entraSecondFactor: true)));
+        Assert.False(await Gate.RequiresSetupAsync(await SessionAsync(userId, entraSecondFactor: true)));
 
         // Unlinking ends the exemption at once, without waiting for the session to expire.
         Assert.True((await Users.UnlinkEntraAsync(admin, userId)).Success);
-        Assert.True(await Gate.RequiresSetupAsync(Principal(userId, entraSecondFactor: true)));
+        Assert.True(await Gate.RequiresSetupAsync(await SessionAsync(userId, entraSecondFactor: true)));
 
         // A user with a local authenticator needs no exemption at all, and a user that no longer exists fails closed.
         await EnableTwoFactorAsync(userId);
-        Assert.False(await Gate.RequiresSetupAsync(Principal(userId, entraSecondFactor: false)));
+        Assert.False(await Gate.RequiresSetupAsync(await SessionAsync(userId, entraSecondFactor: false)));
         Assert.True(await Gate.RequiresSetupAsync(Guid.NewGuid()));
     }
 
@@ -216,20 +216,26 @@ public sealed class SignInTwoFactorTests
         var local = await CreateUserAsync(admin, FleetoRoles.Technician);
 
         // A session that came in while the tenant handles the second factor needs no local authenticator, while linked.
-        Assert.False(await Gate.RequiresSetupAsync(Principal(linked, TwoFactorGate.DelegatedSecondFactor)));
-        Assert.True(await Gate.RequiresSetupAsync(Principal(local, TwoFactorGate.DelegatedSecondFactor)));
+        Assert.False(await Gate.RequiresSetupAsync(await SessionAsync(linked, TwoFactorGate.DelegatedSecondFactor)));
+        Assert.True(await Gate.RequiresSetupAsync(await SessionAsync(local, TwoFactorGate.DelegatedSecondFactor)));
 
         var today = _fixture.Database.Time.GetUtcNow().UtcDateTime.Date;
         Assert.True((await SignIn.SaveAsync(admin, new SignInInput(true, TenantId, ClientId, null, today.AddDays(60), MicrosoftHandlesSecondFactor: true))).Success);
         Assert.True((await SignIn.GetAsync(admin)).MicrosoftHandlesSecondFactor);
         var linkedStamp = await StampAsync(linked);
         var localStamp = await StampAsync(local);
+        var delegatedSession = await SessionAsync(linked, TwoFactorGate.DelegatedSecondFactor);
+        Assert.False(await Gate.RequiresSetupAsync(delegatedSession));
+        Assert.NotNull(await Current(delegatedSession).TryGetAsync());
 
         // Switching it off ends the sessions of linked users, which came in without a Fleeto code; local users keep theirs.
         Assert.True((await SignIn.SaveAsync(admin, new SignInInput(true, TenantId, ClientId, null, today.AddDays(60)))).Success);
         Assert.False((await SignIn.GetAsync(admin)).MicrosoftHandlesSecondFactor);
         Assert.NotEqual(linkedStamp, await StampAsync(linked));
         Assert.Equal(localStamp, await StampAsync(local));
+        // The delegated session is refused at once by the gate and by every service, not after the cookie validation interval.
+        Assert.True(await Gate.RequiresSetupAsync(delegatedSession));
+        Assert.Null(await Current(delegatedSession).TryGetAsync());
 
         await using var db = _fixture.Database.DbFactory.CreateSystem();
         var entry = await db.AuditEntries.AsNoTracking().Where(a => a.Action == AuditActions.SignInConfigured)
@@ -250,18 +256,56 @@ public sealed class SignInTwoFactorTests
         Assert.True((await Users.LinkEntraAsync(admin, linked, Guid.NewGuid().ToString("D"), null)).Success);
         var local = await CreateUserAsync(admin, FleetoRoles.Technician);
 
-        Assert.NotNull(await Current(Principal(linked, TwoFactorGate.DelegatedSecondFactor)).TryGetAsync());
-        Assert.NotNull(await Current(Principal(linked, TwoFactorGate.EntraSecondFactor)).TryGetAsync());
-        var caller = await Current(Principal(linked, TwoFactorGate.DelegatedSecondFactor)).GetAsync();
+        Assert.NotNull(await Current(await SessionAsync(linked, TwoFactorGate.DelegatedSecondFactor)).TryGetAsync());
+        Assert.NotNull(await Current(await SessionAsync(linked, TwoFactorGate.EntraSecondFactor)).TryGetAsync());
+        var caller = await Current(await SessionAsync(linked, TwoFactorGate.DelegatedSecondFactor)).GetAsync();
         Assert.True(caller.IsAdmin);
 
         // Without a second factor from Microsoft, or for a user that is not linked, nothing changes: no caller.
-        Assert.Null(await Current(Principal(linked, secondFactor: null)).TryGetAsync());
-        Assert.Null(await Current(Principal(local, TwoFactorGate.DelegatedSecondFactor)).TryGetAsync());
+        Assert.Null(await Current(await SessionAsync(linked, secondFactor: null)).TryGetAsync());
+        Assert.Null(await Current(await SessionAsync(local, TwoFactorGate.DelegatedSecondFactor)).TryGetAsync());
 
         // Put the instance back as the other tests expect it: every admin but the ones they create signs in with a password.
         Assert.True((await Users.UnlinkEntraAsync(admin, linked)).Success);
         Assert.True((await Users.SetPasswordAsync(admin, linked, Password)).Success);
+    }
+
+    [Fact]
+    public async Task A_session_ends_at_once_when_an_admin_resets_two_factor_unlinks_or_sets_a_password()
+    {
+        var admin = WebFixtureBase.Admin();
+        await ConfigureAsync(admin);
+
+        // Reset of two-factor authentication: the session from before it is refused by the gate and every service at once.
+        var local = await CreateUserAsync(admin, FleetoRoles.Technician);
+        await EnableTwoFactorAsync(local);
+        var beforeReset = await SessionAsync(local, secondFactor: null);
+        Assert.NotNull(await Current(beforeReset).TryGetAsync());
+        Assert.False(await Gate.RequiresSetupAsync(beforeReset));
+        Assert.True((await Users.ResetTwoFactorAsync(admin, local)).Success);
+        Assert.Null(await Current(beforeReset).TryGetAsync());
+        Assert.True(await Gate.RequiresSetupAsync(beforeReset));
+
+        // Unlinking a user that also has a local authenticator, then setting its password: each ends the session from before it.
+        var linked = await CreateUserAsync(admin, FleetoRoles.Technician);
+        Assert.True((await Users.LinkEntraAsync(admin, linked, Guid.NewGuid().ToString("D"), null)).Success);
+        await EnableTwoFactorAsync(linked);
+        var beforeUnlink = await SessionAsync(linked, secondFactor: null);
+        Assert.NotNull(await Current(beforeUnlink).TryGetAsync());
+        Assert.True((await Users.UnlinkEntraAsync(admin, linked)).Success);
+        Assert.Null(await Current(beforeUnlink).TryGetAsync());
+        Assert.True(await Gate.RequiresSetupAsync(beforeUnlink));
+
+        var beforePassword = await SessionAsync(linked, secondFactor: null);
+        Assert.NotNull(await Current(beforePassword).TryGetAsync());
+        Assert.True((await Users.SetPasswordAsync(admin, linked, "another long password")).Success);
+        Assert.Null(await Current(beforePassword).TryGetAsync());
+        Assert.True(await Gate.RequiresSetupAsync(beforePassword));
+        Assert.NotNull(await Current(await SessionAsync(linked, secondFactor: null)).TryGetAsync());
+
+        // A session without a security stamp is refused (fails closed).
+        Assert.Null(await Current(Principal(linked, secondFactor: null)).TryGetAsync());
+        Assert.True(await Gate.RequiresSetupAsync(Principal(linked, secondFactor: null)));
     }
 
     private CurrentUser Current(ClaimsPrincipal principal) =>
@@ -286,10 +330,22 @@ public sealed class SignInTwoFactorTests
     private static ClaimsPrincipal Principal(Guid userId, bool entraSecondFactor) =>
         Principal(userId, entraSecondFactor ? TwoFactorGate.EntraSecondFactor : null);
 
-    private static ClaimsPrincipal Principal(Guid userId, string? secondFactor)
+    /// <summary>A session signed in now: it carries the user's current security stamp, as the Identity cookie does.</summary>
+    private async Task<ClaimsPrincipal> SessionAsync(Guid userId, bool entraSecondFactor) =>
+        Principal(userId, entraSecondFactor ? TwoFactorGate.EntraSecondFactor : null, await StampAsync(userId));
+
+    private async Task<ClaimsPrincipal> SessionAsync(Guid userId, string? secondFactor) =>
+        Principal(userId, secondFactor, await StampAsync(userId));
+
+    private static ClaimsPrincipal Principal(Guid userId, string? secondFactor, string? stamp = null)
     {
         var identity = new ClaimsIdentity("test");
         identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, userId.ToString()));
+        if (stamp is not null)
+        {
+            identity.AddClaim(new Claim(TwoFactorGate.SecurityStampClaimType, stamp));
+        }
+
         if (secondFactor is not null)
         {
             identity.AddClaim(new Claim(TwoFactorGate.SecondFactorClaim, secondFactor));

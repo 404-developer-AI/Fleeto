@@ -272,4 +272,81 @@ public sealed class SecurityServiceTests
             Assert.Equal(3, counts.Count);
         }
     }
+
+    [Theory]
+    // What a browser sends for <img src="https://fqdn/.env"> or a link on https://evil.example: cross-site, no credentials needed.
+    [InlineData("/.env", "cross-site", "no-cors", SecuritySignalKind.SensitivePath)]
+    [InlineData("/.git/config", "cross-site", "no-cors", SecuritySignalKind.SensitivePath)]
+    [InlineData("/clients?x=../../etc/passwd", "cross-site", "no-cors", SecuritySignalKind.AttackPattern)]
+    [InlineData("/clients?q=%3Cscript%3E", "cross-site", "navigate", SecuritySignalKind.AttackPattern)]
+    [InlineData("/wp-login.php", "same-origin", "no-cors", SecuritySignalKind.ScannerPath)]
+    [InlineData("/missing-page", "cross-site", "navigate", SecuritySignalKind.NotFound)]
+    public async Task A_probe_a_browser_sends_for_another_web_site_counts_as_cross_site(string target, string site, string mode, SecuritySignalKind expected)
+    {
+        var (app, signals) = await StartAsync(List(), "81.2.76.33");
+        await using (app)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, target);
+            request.Headers.Add("Sec-Fetch-Site", site);
+            request.Headers.Add("Sec-Fetch-Mode", mode);
+            request.Headers.Add("Referer", "https://evil.example/");
+            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0 Safari/537.36");
+            Assert.Equal(HttpStatusCode.NotFound, (await app.GetTestClient().SendAsync(request)).StatusCode);
+            Assert.Equal(1, signals.Current()[(expected, "81.2.76.33/32", SecuritySignal.CrossSiteSubject)]);
+            Assert.Single(signals.Current());
+        }
+    }
+
+    [Fact]
+    public async Task A_blocklist_does_not_refuse_a_network_a_user_signed_in_from_but_refuses_others()
+    {
+        var list = new IpBlockList(null!, new Testing.InMemoryNotificationBus(), TimeProvider.System, NullLogger<IpBlockList>.Instance);
+        list.Load([], [], ["81.2.75.0/24", "81.2.77.0/24"], ["81.2.75.0/24"]);
+        var (office, _) = await StartAsync(list, "81.2.75.20");
+        await using (office)
+        {
+            Assert.Equal(HttpStatusCode.OK, (await office.GetTestClient().GetAsync("/clients")).StatusCode);
+        }
+
+        var (other, _) = await StartAsync(list, "81.2.77.20");
+        await using (other)
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, (await other.GetTestClient().GetAsync("/clients")).StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task A_blocklist_that_lists_the_callers_own_address_is_not_switched_on_unless_the_address_is_allowed()
+    {
+        await ClearAsync();
+        await using (var db = _fixture.Database.DbFactory.CreateSystem())
+        {
+            await db.IpFeeds.ExecuteUpdateAsync(s => s.SetProperty(f => f.Enabled, false).SetProperty(f => f.RefreshRequestedAt, (DateTime?)null));
+            await db.IpFeedEntries.ExecuteDeleteAsync();
+            // Entries a list still holds from before; the admin's own address is 81.2.69.20.
+            db.IpFeedEntries.Add(new IpFeedEntry { Feed = IpFeeds.FeodoTracker, Network = "81.2.69.0/24" });
+            await db.SaveChangesAsync();
+        }
+
+        try
+        {
+            var refused = await Security.SetFeedEnabledAsync(Admin(), IpFeeds.FeodoTracker, true);
+            Assert.False(refused.Success);
+            Assert.Contains("your own address (81.2.69.20)", refused.Problem);
+            Assert.False((await Security.ListFeedsAsync(Admin())).Single(f => f.Key == IpFeeds.FeodoTracker).Enabled);
+
+            // Another admin elsewhere may; and once the address is allowed, so may this one.
+            Assert.True((await Security.SetFeedEnabledAsync(WebFixture.Admin() with { IpAddress = "81.2.80.1" }, IpFeeds.FeodoTracker, true)).Success);
+            Assert.True((await Security.SetFeedEnabledAsync(Admin(), IpFeeds.FeodoTracker, false)).Success);
+            Assert.True((await Security.AllowAsync(Admin(), "81.2.69.20", "office")).Success);
+            Assert.True((await Security.SetFeedEnabledAsync(Admin(), IpFeeds.FeodoTracker, true)).Success);
+        }
+        finally
+        {
+            await using var db = _fixture.Database.DbFactory.CreateSystem();
+            await db.IpFeedEntries.ExecuteDeleteAsync();
+            await db.IpFeeds.ExecuteUpdateAsync(s => s.SetProperty(f => f.Enabled, false).SetProperty(f => f.RefreshRequestedAt, (DateTime?)null));
+            await ClearAsync();
+        }
+    }
 }

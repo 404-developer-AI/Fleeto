@@ -99,6 +99,8 @@ When a third released version is added, the oldest entry moves to the top of
 - On Linux the agent runs apt and dnf of an installation in a systemd scope of their own, so stopping or updating the agent never stops
   the package manager in the middle of a transaction; its output goes through a file, so it does not depend on the agent either.
 - Automatic Windows Update off now also works on endpoints Fleeto patches itself, where no Action1 agent is needed.
+- The file explorer of remote background no longer merges a copied folder into a folder of the same name in the destination; it
+  says that the folder exists, so the technician renames or deletes it first.
 
 ### Fixed
 
@@ -148,6 +150,31 @@ Found by a security review of 0.9.0 and each reproduced with a test before it wa
   client's Action1 organization, or forgot its patch state when a removal was answered "not found". A move now goes ahead by itself
   only when the old record was left behind by the same machine, otherwise it waits in Settings, Integrations with its cause; a
   removal touches only the organization it was for. The gateway keeps an Action1 agent id only in the form of a GUID.
+- Web and the gateway took forwarded client addresses from every peer in whole private ranges, so a peer that could reach the
+  containers could choose the address it appeared to come from, make itself unblockable or get somebody else blocked. They now
+  trust only the host proxy: `install.sh` gives the edge network of every instance a fixed subnet (from `10.211.0.0/16`) and
+  trusts its gateway address alone. An existing instance gets its subnet on its next update, which recreates its networks. The
+  forwarded host is no longer taken from the proxy.
+- A blocklist could lock admins out, and `install.sh --unblock` did not help. A blocklist no longer refuses a network a user signed
+  in from in the last 30 days, switching a list on is refused when it holds your own address, and `--unblock --allow <address>`
+  adds an allowed address.
+- An image on any web site pointing at a path such as `/.env` got the visitor's address blocked automatically for a day. Such
+  probes, which a browser marks as made for another site, are still reported but never block on their own.
+- A session from before a two-factor reset could enrol an authenticator of its own and get a new session. Enrolling now needs a
+  session with the current security stamp. Sessions also end at once after a two-factor reset, a password set by an admin, an
+  Entra ID unlink, a role change or "Microsoft handles the second factor" switched off, instead of within 5 minutes.
+- The group editor could change the reach of a user holding permissions the editor lacks. It now needs the authority to manage every
+  member it affects, like changing the groups of one user.
+- Taking Approve scripts from a role or unlinking an approver from Entra ID left configurations signed with script checks that user
+  had approved. They are now signed again, so those checks follow the approval that still holds.
+- Linking a monitoring template that holds a script check now needs View scripts and Run scripts, as adding one does.
+- A certificate renewed at the moment an endpoint was revoked or deleted could survive it. Revoking and deleting now wait for an
+  issuance in flight and take its certificate along.
+- The gateway could write when an endpoint became managed and so start its tasks again. It may now change only the online state and
+  what the agent reports; every other column of an endpoint is refused.
+- The file explorer of remote background followed links a local user planted, so a copy as SYSTEM or root could write behind a
+  junction into a protected folder. Copying, deleting, renaming, creating folders and uploading now refuse any link on the way,
+  and the listing shows links with where they point.
 
 ## [0.8.0] — 2026-11-04
 

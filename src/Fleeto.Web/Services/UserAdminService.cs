@@ -199,7 +199,7 @@ public sealed class UserAdminService
         // A new security stamp makes open sessions pick up the new roles at the next validation.
         await users.UpdateSecurityStampAsync(user);
         var now = _time.GetUtcNow().UtcDateTime;
-        await AddApprovedScriptChangesAsync(db, user.Id, now, cancellationToken);
+        await ScriptChecks.AddApproverChangesAsync(db, [user.Id], now, cancellationToken);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.RolesChanged, "User", user.Id.ToString(), null,
             new { user.Email, From = current, To = wanted }), now));
         await db.SaveChangesAsync(cancellationToken);
@@ -238,7 +238,7 @@ public sealed class UserAdminService
         // Signs out every session of the user within the security stamp validation interval.
         await users.UpdateSecurityStampAsync(user);
         var now = _time.GetUtcNow().UtcDateTime;
-        await AddApprovedScriptChangesAsync(db, user.Id, now, cancellationToken);
+        await ScriptChecks.AddApproverChangesAsync(db, [user.Id], now, cancellationToken);
         await AccessChanges.RevokeAllAsync(db, [user.Id], now, cancellationToken);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.TwoFactorReset, "User", user.Id.ToString(), null, new { user.Email }), now));
         await db.SaveChangesAsync(cancellationToken);
@@ -489,6 +489,8 @@ public sealed class UserAdminService
         var now = _time.GetUtcNow().UtcDateTime;
         // The link was the only way in; the user signs in again once an admin has set a password.
         await users.UpdateSecurityStampAsync(user);
+        // The link counted as its second factor, so without TOTP it no longer counts as an approver of scripts.
+        await ScriptChecks.AddApproverChangesAsync(db, [user.Id], now, cancellationToken);
         await AccessChanges.RevokeAllAsync(db, [user.Id], now, cancellationToken);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.UserUnlinked, "User", user.Id.ToString(), null,
             new { user.Email, EntraObjectId = linked, HasPassword = await users.HasPasswordAsync(user) }), now));
@@ -611,7 +613,7 @@ public sealed class UserAdminService
         }
 
         var now = _time.GetUtcNow().UtcDateTime;
-        await AddApprovedScriptChangesAsync(db, userId, now, cancellationToken);
+        await ScriptChecks.AddApproverChangesAsync(db, [userId], now, cancellationToken);
         // Every remote session connection of the user ends with it, directly: a user that no longer exists has no scope to judge by.
         await AccessChanges.RevokeAllAsync(db, [userId], now, cancellationToken);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.UserDeleted, "User", userId.ToString(), null, new { user.Email }), now));
@@ -619,20 +621,6 @@ public sealed class UserAdminService
         await transaction.CommitAsync(cancellationToken);
         await AccessChanges.PublishAsync(_bus, _logger, [userId], cancellationToken);
         return ServiceResult.Ok();
-    }
-
-    /// <summary>
-    /// Script checks run the newest version approved by a current admin with two-factor authentication, so a change to an approver
-    /// re-signs the configurations that use the scripts they approved.
-    /// </summary>
-    private static async Task AddApprovedScriptChangesAsync(FleetoDbContext db, Guid userId, DateTime now, CancellationToken cancellationToken)
-    {
-        var scriptIds = await db.ScriptVersions.IgnoreQueryFilters().AsNoTracking()
-            .Where(v => v.ApprovedByUserId == userId)
-            .Select(v => v.ScriptId)
-            .Distinct()
-            .ToListAsync(cancellationToken);
-        db.ConfigChangeEvents.AddRange(scriptIds.Select(id => ScriptChecks.ChangeEvent(id, now)));
     }
 
     private static Task<int> CountAdminsAsync(FleetoDbContext db, CancellationToken cancellationToken)

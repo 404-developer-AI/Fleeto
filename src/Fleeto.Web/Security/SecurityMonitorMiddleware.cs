@@ -73,7 +73,7 @@ public sealed class ScannerDetectionMiddleware
         var match = ScannerPatterns.Classify(path, query, context.Request.Headers.UserAgent.ToString(), routeExists);
         if (match.Verdict != ScannerVerdict.None)
         {
-            _signals.Record(Kind(match), context.Connection.RemoteIpAddress);
+            _signals.Record(Kind(match), context.Connection.RemoteIpAddress, Subject(context.Request));
             if (context.Features.Get<IStatusCodePagesFeature>() is { } pages)
             {
                 pages.Enabled = false;
@@ -86,9 +86,20 @@ public sealed class ScannerDetectionMiddleware
         await _next(context);
         if (!routeExists && context.Response.StatusCode == StatusCodes.Status404NotFound && context.User.Identity?.IsAuthenticated != true)
         {
-            _signals.Record(SecuritySignalKind.NotFound, context.Connection.RemoteIpAddress);
+            _signals.Record(SecuritySignalKind.NotFound, context.Connection.RemoteIpAddress, Subject(context.Request));
         }
     }
+
+    /// <summary>
+    /// <see cref="SecuritySignal.CrossSiteSubject"/> for a request a browser sent on behalf of another web site, which any page can make
+    /// a visitor send (an &lt;img src&gt;, a link): it counts, but the security monitor never blocks on such signals alone. A scanner
+    /// that sends the header itself is still reported.
+    /// </summary>
+    public static string? Subject(HttpRequest request) =>
+        string.Equals(request.Headers["Sec-Fetch-Site"].ToString(), "cross-site", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(request.Headers["Sec-Fetch-Mode"].ToString(), "no-cors", StringComparison.OrdinalIgnoreCase)
+            ? SecuritySignal.CrossSiteSubject
+            : null;
 
     /// <summary>The signal of a scanner verdict; a certain scanner path (<c>/.env</c>, <c>/.git/</c>) is a sensitive path.</summary>
     public static SecuritySignalKind Kind(ScannerMatch match) => match.Verdict switch

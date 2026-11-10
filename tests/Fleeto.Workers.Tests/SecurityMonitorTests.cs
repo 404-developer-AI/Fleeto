@@ -140,6 +140,42 @@ public sealed class SecurityMonitorTests
         Assert.Equal(1, await EmailsAsync(recipient, SecurityMonitorService.CategoryOpened));
     }
 
+    [Theory]
+    [InlineData("81.2.76.33/32")]
+    [InlineData("2a01:4f8:aa:bb::/64")]
+    public async Task A_probe_a_browser_sent_for_another_web_site_is_reported_but_never_blocks_the_visitor(string network)
+    {
+        await ResetAsync();
+        // What web writes for one <img src="https://fqdn/.env"> on another web site, from a visitor who never signed in.
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            db.SecuritySignals.Add(new SecuritySignal
+            {
+                Minute = _fixture.Now.AddMinutes(-1), Component = "web", Kind = SecuritySignalKind.SensitivePath, Network = network,
+                Subject = SecuritySignal.CrossSiteSubject, Count = 1
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await Service().EvaluateAsync(CancellationToken.None);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            Assert.Empty(await db.IpBlocks.ToListAsync());
+            var incident = await db.SecurityIncidents.SingleAsync();
+            Assert.Equal((SecurityIncidentKind.Scanner, network, (DateTime?)null), (incident.Kind, incident.Network, incident.BlockedUntil));
+            Assert.Contains("on behalf of another web site", incident.Detail);
+        }
+
+        // The same probe sent directly blocks the address.
+        await SignalAsync(SecuritySignalKind.SensitivePath, 1, network);
+        await Service().EvaluateAsync(CancellationToken.None);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var block = await db.IpBlocks.SingleAsync();
+            Assert.Equal((network, IpBlockSource.Automatic), (block.Network, block.Source));
+        }
+    }
+
     [Fact]
     public async Task Nothing_is_blocked_while_automatic_blocking_is_off_or_the_address_is_allowed()
     {

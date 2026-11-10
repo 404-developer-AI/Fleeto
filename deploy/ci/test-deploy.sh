@@ -207,6 +207,79 @@ for case in same default missing unset; do
 done
 pass "install.sh detects the uplink MTU and recreates instance networks only when their MTU differs"
 
+# --- 3c2. Edge subnet -----------------------------------------------------------------------------------------------
+# Docker stand-in: the edge network reports $EDGE_ACTUAL as its subnet; other inspections report MTU 1500; `network ls` lists
+# one network whose subnet is $DOCKER_SUBNET. ip is a stand-in that reports $HOST_ROUTE.
+cat >"$work/edge.sh" <<'EOF'
+source "$REPO/deploy/install.sh"
+set +e
+trap - ERR
+docker() {
+    case "$*" in
+        "network ls -q") printf 'n1\n' ;;
+        *IPAM*"fleeto-edge-example_edge") [[ -n "$EDGE_ACTUAL" ]] || return 1; printf '%s\n' "$EDGE_ACTUAL" ;;
+        *IPAM*" n1") printf '%s\n' "$DOCKER_SUBNET" ;;
+        "network inspect"*) printf '1500\n' ;;
+        *) return 1 ;;
+    esac
+}
+ip() { printf 'default via 203.0.113.1 dev eth0\n%s dev eth0 proto kernel scope link\n' "$HOST_ROUTE"; }
+mkdir -p "$FLEETO_ROOT/edge-example" "$FLEETO_ROOT/other-example"
+printf 'EDGE_SUBNET=10.211.0.0/24\n' >"$FLEETO_ROOT/other-example/instance.conf"
+case "$CASE" in
+    allocate)
+        # 10.211.0 is held by another instance, 10.211.1 is a Docker network, 10.211.2 and 10.211.3 lie in a host route: the first free is 10.211.4.
+        subnet="$(DOCKER_SUBNET=10.211.1.0/24 HOST_ROUTE=10.211.2.0/23 allocate_edge_subnet edge-example)"
+        [[ "$subnet" == 10.211.4.0/24 ]] || { echo "allocated $subnet" >&2; exit 40; }
+        ;;
+    keep)
+        [[ "$(DOCKER_SUBNET=10.211.9.0/24 HOST_ROUTE=10.0.0.0/8 allocate_edge_subnet edge-example 10.211.9.0/24)" == 10.211.9.0/24 ]] || exit 41
+        ;;
+    invalid)
+        [[ "$(DOCKER_SUBNET=172.17.0.0/16 HOST_ROUTE=192.0.2.0/24 allocate_edge_subnet edge-example 10.211.999.0/24)" == 10.211.1.0/24 ]] || exit 42
+        ;;
+    same)
+        printf 'EDGE_SUBNET=10.211.5.0/24\n' >"$FLEETO_ROOT/edge-example/instance.conf"
+        EDGE_ACTUAL=10.211.5.0/24 instance_networks_diverge edge-example && exit 43
+        ;;
+    older)
+        # An instance from before 0.9.0: its edge network has a subnet from Docker's pool.
+        printf 'EDGE_SUBNET=10.211.5.0/24\n' >"$FLEETO_ROOT/edge-example/instance.conf"
+        EDGE_ACTUAL=10.210.3.0/24 instance_networks_diverge edge-example || exit 44
+        ;;
+    rollback)
+        # Rolled back to a configuration without EDGE_SUBNET while the network still has the fixed subnet.
+        printf 'FLEETO_FQDN=edge.example\n' >"$FLEETO_ROOT/edge-example/instance.conf"
+        EDGE_ACTUAL=10.211.5.0/24 instance_networks_diverge edge-example || exit 45
+        EDGE_ACTUAL=10.210.3.0/24 instance_networks_diverge edge-example && exit 46
+        ;;
+    absent)
+        printf 'EDGE_SUBNET=10.211.5.0/24\n' >"$FLEETO_ROOT/edge-example/instance.conf"
+        EDGE_ACTUAL="" instance_networks_diverge edge-example && exit 47
+        ;;
+    overlap)
+        ipv4_networks_overlap 10.211.2.0/24 10.211.0.0/22 || exit 48
+        ipv4_networks_overlap 10.211.4.0/24 10.211.0.0/22 && exit 49
+        ipv4_networks_overlap 10.211.4.0/24 0.0.0.0/0 || exit 50
+        ipv4_networks_overlap 10.211.4.7 10.211.4.0/24 || exit 51
+        ipv4_networks_overlap 10.211.4.0/24 fe80::/64 && exit 52
+        ;;
+    allow)
+        is_ip_address 203.0.113.7 || exit 53
+        is_ip_address 2001:db8::7 || exit 54
+        is_ip_address 203.0.113.256 && exit 55
+        is_ip_address "203.0.113.7'; DROP TABLE x; --" && exit 56
+        is_ip_address 203.0.113.0/24 && exit 57
+        ;;
+esac
+exit 0
+EOF
+for case in allocate keep invalid same older rollback absent overlap allow; do
+    mkdir -p "$work/edge-$case"
+    FLEETO_ROOT="$work/edge-$case" REPO="$repo_root" CASE="$case" bash "$work/edge.sh" || fail "edge subnet, case $case (exit $?)"
+done
+pass "install.sh gives every instance a fixed edge subnet that clashes with nothing, and recreates networks when it differs"
+
 # --- 3d. Moving a VPS from the Fleetify layout ---------------------------------------------------------------------
 # Docker is a stand-in that records every call; the steps are checked for what they change on disk and what they ask Docker to do.
 cat >"$work/legacy.sh" <<'EOF'
@@ -468,10 +541,16 @@ SIGNER_IMAGE=ghcr.io/404-developer-ai/fleeto-signer@$digest
 GATEWAY_IMAGE=ghcr.io/404-developer-ai/fleeto-gateway@$digest
 WORKERS_IMAGE=ghcr.io/404-developer-ai/fleeto-workers@$digest
 WEB_IMAGE=ghcr.io/404-developer-ai/fleeto-web@$digest
+EDGE_SUBNET=10.211.7.0/24
+EDGE_GATEWAY=10.211.7.1
 CONF
 docker compose --project-name fleeto-rmm-a-example --project-directory "$instance" --env-file "$instance/instance.conf" \
     -f "$instance/compose.yml" config >"$work/rendered.yml" || fail "docker compose rejected compose.yml"
 grep -q '127.0.0.1' "$work/rendered.yml" || fail "published ports are not bound to loopback"
+grep -q 'subnet: 10.211.7.0/24' "$work/rendered.yml" || fail "the edge network does not use EDGE_SUBNET"
+grep -q 'ReverseProxy__KnownNetworks__0: 10.211.7.1/32' "$work/rendered.yml" || fail "web does not trust exactly the edge gateway"
+grep -q 'Gateway__ProxyProtocol__TrustedNetworks__0: 10.211.7.1/32' "$work/rendered.yml" || fail "the gateway does not trust exactly the edge gateway"
+if grep -Eq '(KnownNetworks|TrustedNetworks)__[1-9]' "$work/rendered.yml"; then fail "a forwarded address is trusted from more than the edge gateway"; fi
 [[ "$(grep -c 'com.docker.network.driver.mtu: "1400"' "$work/rendered.yml")" -eq 3 ]] || fail "the instance networks do not use NETWORK_MTU"
 if grep -q 'docker.sock' "$work/rendered.yml"; then fail "Docker socket mounted"; fi
 pass "instance compose.yml renders with docker compose"

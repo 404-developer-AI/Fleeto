@@ -498,6 +498,12 @@ public sealed class EndpointCheckService
         {
             return ServiceResult.Fail(LinkService.LevelRefused(refused.Name, LinkLevel.Endpoint));
         }
+
+        if (await ScriptChecks.LinkProblemAsync(db, caller, added, cancellationToken) is { } scriptProblem)
+        {
+            return ServiceResult.Fail(scriptProblem);
+        }
+
         if (removed.Count == 0 && added.Count == 0)
         {
             return ServiceResult.Ok();

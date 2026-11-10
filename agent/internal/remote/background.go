@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,8 +18,10 @@ import (
 
 // Remote background operations (0.3.0 step 2): the file explorer, services and processes of the endpoint, over the same encrypted
 // session as the terminal. The watchdog serves this as SYSTEM or root; the technician is already authorised for the whole endpoint (they
-// can open a SYSTEM terminal), so path checks here are for correctness, not a security boundary. Every action that changes the endpoint
-// or takes data off it is reported for the audit log (never a file's content).
+// can open a SYSTEM terminal), so which paths the technician may name is not limited. A local user is another matter: a link they plant
+// in a folder they can write in must never redirect what the technician does, so copy, delete, rename, new folder and upload open their
+// folders without following links (safedir.go). Every action that changes the endpoint or takes data off it is reported for the audit
+// log (never a file's content).
 
 const (
 	// transferWindow is how far a transfer may run ahead of acknowledgements, so a large file never floods the relay.
@@ -70,6 +71,8 @@ type entry struct {
 	Size     int64  `json:"size"`
 	Modified int64  `json:"modified"`
 	Symlink  bool   `json:"symlink,omitempty"`
+	// Target is where a link points, when it can be read.
+	Target string `json:"target,omitempty"`
 }
 
 type background struct {
@@ -162,7 +165,7 @@ func (b *background) dispatch(ctx context.Context, req requestBody) (map[string]
 	case "rename":
 		return b.rename(req)
 	case "delete":
-		return b.delete(req)
+		return b.delete(ctx, req)
 	case "copy":
 		return b.copy(ctx, req)
 	case "download":
@@ -218,15 +221,24 @@ func (b *background) list(p string) (map[string]any, error) {
 		if len(entries) >= maxListEntries {
 			break
 		}
-		e := entry{Name: item.Name(), Dir: item.IsDir(), Symlink: item.Type()&os.ModeSymlink != 0}
+		full := filepath.Join(dir, item.Name())
+		// A junction is reported as irregular, not as a symbolic link, so each platform says what is a link (safedir_*.go).
+		e := entry{Name: item.Name(), Dir: item.IsDir(), Symlink: entryIsLink(full, item.Type())}
 		if info, err := item.Info(); err == nil {
 			e.Size = info.Size()
 			e.Modified = info.ModTime().UnixMilli()
-			if e.Symlink {
-				// Follow the link only to tell a directory from a file, so the browser shows the right icon.
-				if target, err := os.Stat(filepath.Join(dir, item.Name())); err == nil {
-					e.Dir = target.IsDir()
+		}
+		if e.Symlink {
+			// Follow the link only to tell a folder from a file and to name where it points, so the technician can open that place:
+			// changes are made only there, never through the link.
+			if target, err := os.Stat(full); err == nil {
+				e.Dir = target.IsDir()
+			}
+			if to, err := os.Readlink(full); err == nil {
+				if !filepath.IsAbs(to) {
+					to = filepath.Join(dir, to)
 				}
+				e.Target = filepath.Clean(to)
 			}
 		}
 		entries = append(entries, e)
@@ -249,10 +261,18 @@ func (b *background) mkdir(req requestBody) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	target := filepath.Join(dir, name)
-	if err := os.Mkdir(target, 0o755); err != nil {
+	// Every change goes through a folder opened without following links (safedir.go): a local user may own the folder.
+	parent, err := openSafeDir(dir)
+	if err != nil {
 		return nil, opError("create the folder", err)
 	}
+	defer parent.close()
+	made, err := parent.mkdir(name)
+	if err != nil {
+		return nil, opError("create the folder", err)
+	}
+	made.close()
+	target := filepath.Join(dir, name)
 	b.report("file.mkdir", target, "")
 	return nil, nil
 }
@@ -266,18 +286,26 @@ func (b *background) rename(req requestBody) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	target := filepath.Join(filepath.Dir(src), name)
-	if _, err := os.Lstat(target); err == nil {
-		return nil, fmt.Errorf("%s already exists here", name)
+	if parentPath(src) == "" {
+		return nil, errors.New("a drive or the root cannot be renamed")
 	}
-	if err := os.Rename(src, target); err != nil {
+	parent, err := openSafeDir(filepath.Dir(src))
+	if err != nil {
 		return nil, opError("rename", err)
 	}
+	defer parent.close()
+	if err := parent.rename(filepath.Base(src), name, false); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return nil, fmt.Errorf("%s already exists here", name)
+		}
+		return nil, opError("rename", err)
+	}
+	target := filepath.Join(filepath.Dir(src), name)
 	b.report("file.rename", src, "to "+name)
 	return map[string]any{"path": target}, nil
 }
 
-func (b *background) delete(req requestBody) (map[string]any, error) {
+func (b *background) delete(ctx context.Context, req requestBody) (map[string]any, error) {
 	target, err := cleanPath(req.Path)
 	if err != nil {
 		return nil, err
@@ -285,18 +313,16 @@ func (b *background) delete(req requestBody) (map[string]any, error) {
 	if parentPath(target) == "" {
 		return nil, errors.New("a drive or the root cannot be deleted")
 	}
-	info, err := os.Lstat(target)
+	parent, err := openSafeDir(filepath.Dir(target))
 	if err != nil {
 		return nil, opError("delete", err)
 	}
-	if info.IsDir() && !info.Mode().IsRegular() {
-		if req.Recursive {
-			err = os.RemoveAll(target)
-		} else {
-			err = os.Remove(target) // fails when not empty
-		}
+	defer parent.close()
+	// A link is deleted itself, never what it points to; a folder is emptied only when the technician asked for it.
+	if req.Recursive {
+		err = parent.removeAll(ctx, filepath.Base(target))
 	} else {
-		err = os.Remove(target)
+		err = parent.remove(filepath.Base(target))
 	}
 	if err != nil {
 		return nil, opError("delete", err)
@@ -314,23 +340,40 @@ func (b *background) copy(ctx context.Context, req requestBody) (map[string]any,
 	if err != nil {
 		return nil, err
 	}
-	info, err := os.Lstat(src)
+	if parentPath(src) == "" {
+		return nil, errors.New("a whole drive cannot be copied; copy the folders in it")
+	}
+	// Both sides are opened without following links (safedir.go): the source and the destination may belong to a local user.
+	srcDir, err := openSafeDir(filepath.Dir(src))
 	if err != nil {
 		return nil, opError("copy", err)
 	}
-	// When the destination is an existing directory, copy into it under the source name.
-	if d, err := os.Stat(dest); err == nil && d.IsDir() {
-		dest = filepath.Join(dest, filepath.Base(src))
+	defer srcDir.close()
+	// When the destination is an existing folder, copy into it under the source name.
+	destDir, err := openSafeDir(dest)
+	destName := filepath.Base(src)
+	switch {
+	case err == nil:
+		dest = filepath.Join(dest, destName)
+	case errors.Is(err, errNotDir) || errors.Is(err, os.ErrNotExist):
+		if parentPath(dest) == "" {
+			return nil, opError("copy", err)
+		}
+		destName = filepath.Base(dest)
+		if destDir, err = openSafeDir(filepath.Dir(dest)); err != nil {
+			return nil, opError("copy", err)
+		}
+	default:
+		return nil, opError("copy", err)
 	}
+	defer destDir.close()
 	if pathsOverlap(src, dest) {
 		return nil, errors.New("a file or folder cannot be copied onto itself or into itself")
 	}
-	if info.IsDir() {
-		err = copyTree(ctx, src, dest)
-	} else {
-		err = copyFile(src, dest, info.Mode())
-	}
-	if err != nil {
+	if err := copyEntry(ctx, srcDir, filepath.Base(src), destDir, destName, true); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return nil, fmt.Errorf("cannot copy: %s already exists in the destination; rename or delete it there first", destName)
+		}
 		return nil, opError("copy", err)
 	}
 	b.report("file.copy", src, "to "+dest)
@@ -432,7 +475,14 @@ func listError(err error) error {
 }
 
 func opError(what string, err error) error {
+	var link *linkError
 	switch {
+	case errors.As(err, &link):
+		return fmt.Errorf("cannot %s: %s", what, link.Error())
+	case errors.Is(err, errNotDir):
+		return fmt.Errorf("cannot %s: %s; check the path and try again", what, errNotDir)
+	case errors.Is(err, errNotPlain):
+		return fmt.Errorf("cannot %s: %s", what, errNotPlain)
 	case errors.Is(err, os.ErrNotExist):
 		return fmt.Errorf("cannot %s: it no longer exists", what)
 	case errors.Is(err, os.ErrPermission):
@@ -477,49 +527,4 @@ func pathsOverlap(src, dest string) bool {
 		prefix += string(filepath.Separator)
 	}
 	return len(dest) > len(prefix) && samePathName(dest[:len(prefix)], prefix)
-}
-
-func copyFile(src, dest string, mode os.FileMode) error {
-	in, err := os.Open(src) // #nosec G304 -- an absolute path the authorised technician chose on their own endpoint.
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode.Perm()) // #nosec G304
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		_ = os.Remove(dest)
-		return err
-	}
-	return out.Close()
-}
-
-func copyTree(ctx context.Context, src, dest string) error {
-	return filepath.WalkDir(src, func(p string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		rel, err := filepath.Rel(src, p)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dest, rel)
-		if d.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		if !info.Mode().IsRegular() {
-			return nil // skip symlinks, devices and sockets
-		}
-		return copyFile(p, target, info.Mode())
-	})
 }

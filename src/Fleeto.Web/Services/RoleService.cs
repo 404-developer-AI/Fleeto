@@ -119,11 +119,17 @@ public sealed class RoleService
         db.RolePermissions.RemoveRange(before.Where(p => !permissions.Contains(p.Permission)));
         db.RolePermissions.AddRange(permissions.Except(from).Select(p => new RolePermission { RoleId = role.Id, Permission = p }));
         var now = _time.GetUtcNow().UtcDateTime;
+        var users = await db.UserRoles.AsNoTracking().Where(ur => ur.RoleId == role.Id).Select(ur => ur.UserId).ToListAsync(cancellationToken);
+        // Whether the users of the role count as approvers of scripts can change: the script checks they approved are signed again.
+        if (from.Contains(Permissions.ScriptsApprove) != permissions.Contains(Permissions.ScriptsApprove))
+        {
+            await ScriptChecks.AddApproverChangesAsync(db, users, now, cancellationToken);
+        }
+
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.RoleUpdated, "Role", role.Id.ToString(), null,
             new { Name = name, Added = permissions.Except(from).ToList(), Removed = from.Except(permissions).ToList() }), now));
         await db.SaveChangesAsync(cancellationToken);
 
-        var users = await db.UserRoles.AsNoTracking().Where(ur => ur.RoleId == role.Id).Select(ur => ur.UserId).ToListAsync(cancellationToken);
         await AccessChanges.ApplyAsync(_dbFactory, _bus, _logger, users, now, cancellationToken);
         return ServiceResult.Ok();
     }

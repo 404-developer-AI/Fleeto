@@ -33,6 +33,10 @@ public sealed class EndpointRevocationService
             return false;
         }
 
+        // Locked like fleeto-signer locks it to issue a certificate (renewal, recovery, watchdog): a certificate issued in flight
+        // is committed before the certificates are read and revoked with them, and one requested later sees the revocation.
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await LockAsync(db, endpointId, cancellationToken);
         var now = _time.GetUtcNow().UtcDateTime;
         var certificates = await db.AgentCertificates
             .Where(c => c.EndpointId == endpointId && c.RevokedAt == null)
@@ -50,6 +54,7 @@ public sealed class EndpointRevocationService
             new { endpoint.Hostname, Reason = reason, Certificates = certificates.Count }, actor.IpAddress), now));
 
         await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         await _bus.PublishAsync(NotificationChannels.Revocations, endpointId.ToString(), cancellationToken);
         return true;
     }
@@ -70,6 +75,10 @@ public sealed class EndpointRevocationService
             return false;
         }
 
+        // As in RevokeAsync: a certificate issued in flight is committed first, so it goes with the endpoint and an uninstall
+        // written in alsoInTransaction knows its fingerprint.
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await LockAsync(db, endpointId, cancellationToken);
         var now = _time.GetUtcNow().UtcDateTime;
         if (alsoInTransaction is not null)
         {
@@ -82,8 +91,16 @@ public sealed class EndpointRevocationService
             new { endpoint.Hostname, endpoint.SiteId }, actor.IpAddress), now));
 
         await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         await _bus.PublishAsync(NotificationChannels.Revocations, endpointId.ToString(), cancellationToken);
         await _bus.PublishAsync(NotificationChannels.EndpointStatus, endpointId.ToString(), cancellationToken);
         return true;
     }
+
+    /// <summary>
+    /// Takes the row lock of the endpoint that fleeto-signer takes before it issues a certificate (FOR NO KEY UPDATE), so a
+    /// revocation or deletion and an issuance for the same endpoint are serialized. Waits for an issuance in flight.
+    /// </summary>
+    public static Task LockAsync(FleetoDbContext db, Guid endpointId, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlAsync($"""SELECT 1 FROM "Endpoints" WHERE "Id" = {endpointId} FOR NO KEY UPDATE""", cancellationToken);
 }

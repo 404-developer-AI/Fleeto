@@ -71,6 +71,19 @@ public sealed class IpFeedRuleTests
     }
 
     [Fact]
+    public void A_list_never_refuses_a_network_a_user_signed_in_from_but_a_block_there_still_holds()
+    {
+        var list = new IpBlockList(null!, new InMemoryNotificationBus(), TimeProvider.System, NullLogger<IpBlockList>.Instance);
+        list.Load([("81.2.75.30/32", IpBlockSource.Automatic, null)], [], ["81.2.75.0/24", "81.2.76.0/24", "2a01:4f8:aa::/48"],
+            ["81.2.75.0/24", "2a01:4f8:aa:bb::/64"]);
+        Assert.Equal(IpVerdict.None, list.Check(IPAddress.Parse("81.2.75.20")));
+        Assert.Equal(IpVerdict.BlockedAutomatic, list.Check(IPAddress.Parse("81.2.75.30")));
+        Assert.Equal(IpVerdict.BlockedFeed, list.Check(IPAddress.Parse("81.2.76.20")));
+        Assert.Equal(IpVerdict.None, list.Check(IPAddress.Parse("2a01:4f8:aa:bb::1")));
+        Assert.Equal(IpVerdict.BlockedFeed, list.Check(IPAddress.Parse("2a01:4f8:aa:cc::1")));
+    }
+
+    [Fact]
     public void Every_list_of_the_catalog_has_a_source_and_terms()
     {
         Assert.Equal(IpFeeds.All.Count, IpFeeds.All.Select(f => f.Key).Distinct().Count());

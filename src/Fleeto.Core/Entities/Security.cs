@@ -54,8 +54,18 @@ public class SecuritySignal
     /// <summary>The address as CIDR: an IPv4 address as /32, an IPv6 address as its /64, the unit one attacker controls.</summary>
     public string Network { get; set; } = string.Empty;
 
-    /// <summary>What the signal was about, when that is not personal data: an API key id, an endpoint id. Never a user name or path.</summary>
+    /// <summary>
+    /// What the signal was about, when that is not personal data: an API key id, an endpoint id, or <see cref="CrossSiteSubject"/>.
+    /// Never a user name or path.
+    /// </summary>
     public string? Subject { get; set; }
+
+    /// <summary>
+    /// The subject of a scanner or not-found signal from a request a browser sent on behalf of another web site (fetch metadata
+    /// <c>Sec-Fetch-Site: cross-site</c> or <c>Sec-Fetch-Mode: no-cors</c>): an &lt;img&gt; or a link on any page makes a visitor's
+    /// browser send it. Such signals still raise an incident, but never an automatic block on their own.
+    /// </summary>
+    public const string CrossSiteSubject = "cross-site";
 
     public int Count { get; set; }
 }

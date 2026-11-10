@@ -37,13 +37,30 @@ public static class AccountService
         return password.Length > MaximumPasswordLength ? $"Use a password of at most {MaximumPasswordLength} characters." : null;
     }
 
-    /// <summary>Returns the user's authenticator key, creating one when none exists yet (the key is stored encrypted).</summary>
-    public static async Task<string> GetOrCreateAuthenticatorKeyAsync(UserManager<ApplicationUser> users, ApplicationUser user)
+    /// <summary>
+    /// Returns the user's authenticator key, creating one when none exists yet (the key is stored encrypted). Creating the first
+    /// key keeps the security stamp: ResetAuthenticatorKeyAsync would change it, and the setup post then refuses the very session
+    /// that showed the key, because enrolling needs a session with the current stamp. Only a user without two-factor
+    /// authentication has no key, so no session depends on the old one.
+    /// </summary>
+    public static async Task<string> GetOrCreateAuthenticatorKeyAsync(UserManager<ApplicationUser> users, IUserStore<ApplicationUser> store,
+        ApplicationUser user)
     {
         var key = await users.GetAuthenticatorKeyAsync(user);
         if (string.IsNullOrEmpty(key))
         {
-            await users.ResetAuthenticatorKeyAsync(user);
+            if (store is not IUserAuthenticatorKeyStore<ApplicationUser> keyStore)
+            {
+                throw new InvalidOperationException("The user store keeps no authenticator keys.");
+            }
+
+            await keyStore.SetAuthenticatorKeyAsync(user, users.GenerateNewAuthenticatorKey(), CancellationToken.None);
+            var saved = await users.UpdateAsync(user);
+            if (!saved.Succeeded)
+            {
+                throw new InvalidOperationException("The authenticator key could not be saved.");
+            }
+
             key = await users.GetAuthenticatorKeyAsync(user);
         }
 

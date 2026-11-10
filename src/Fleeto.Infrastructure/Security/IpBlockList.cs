@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Microsoft.Extensions.Hosting;
@@ -15,7 +16,10 @@ public enum IpVerdict
     None,
     /// <summary>On the allowlist: never blocked, whatever else lists it.</summary>
     Allowed,
-    /// <summary>On a blocklist an admin switched on (step 3). Not applied to an agent that presents a valid certificate.</summary>
+    /// <summary>
+    /// On a blocklist an admin switched on (step 3). Not applied to an agent that presents a valid certificate, nor to a network a
+    /// user signed in from in the last <see cref="SecurityRules.TrustedNetworkAge"/>.
+    /// </summary>
     BlockedFeed,
     /// <summary>Blocked by the security monitor. Not applied to an agent that presents a valid certificate.</summary>
     BlockedAutomatic,
@@ -32,6 +36,11 @@ public enum IpVerdict
 /// Fails open: while the list was never loaded nothing is blocked, because refusing every caller when the database is down would
 /// be worse than the attack. Ranges that may never be blocked (<see cref="IpNetworks.Reserved"/>) are left out on load, whatever
 /// the table holds, so the containers of the instance and the host proxy can never be cut off.
+/// </para>
+/// <para>
+/// A blocklist never refuses a network a user signed in from in the last <see cref="SecurityRules.TrustedNetworkAge"/> (the same
+/// networks the security monitor never blocks automatically): a public list that names the office of the customer must not lock
+/// its admins out. A block, manual or automatic, still applies there.
 /// </para>
 /// </summary>
 public sealed class IpBlockList : BackgroundService
@@ -95,13 +104,18 @@ public sealed class IpBlockList : BackgroundService
         {
             IpBlockSource.Manual => IpVerdict.BlockedManual,
             IpBlockSource.Automatic => IpVerdict.BlockedAutomatic,
-            _ => tables.Feeds.Find(number, DateTime.MinValue) is not null ? IpVerdict.BlockedFeed : IpVerdict.None
+            _ => tables.Feeds.Find(number, DateTime.MinValue) is not null && tables.SignIns.Find(number, DateTime.MinValue) is null
+                ? IpVerdict.BlockedFeed
+                : IpVerdict.None
         };
     }
 
-    /// <summary>Builds the list from rows, as a reload does; for tests and for the load itself.</summary>
+    /// <summary>
+    /// Builds the list from rows, as a reload does; for tests and for the load itself. <paramref name="signIns"/> are the networks
+    /// users signed in from recently, which no blocklist refuses.
+    /// </summary>
     public void Load(IEnumerable<(string Network, IpBlockSource Source, DateTime? ExpiresAt)> blocks, IEnumerable<string> allows,
-        IEnumerable<string>? feeds = null)
+        IEnumerable<string>? feeds = null, IEnumerable<string>? signIns = null)
     {
         var v4 = new TableBuilder();
         var v6 = new TableBuilder();
@@ -129,6 +143,14 @@ public sealed class IpBlockList : BackgroundService
             }
         }
 
+        foreach (var text in signIns ?? [])
+        {
+            if (IpNetworks.TryParse(text, out var network))
+            {
+                (network.BaseAddress.AddressFamily == AddressFamily.InterNetwork ? v4 : v6).AddSignIn(network);
+            }
+        }
+
         _snapshot = new Snapshot(v4.Build(), v6.Build(), v4.BlockCount + v6.BlockCount, v4.AllowCount + v6.AllowCount, v4.FeedCount + v6.FeedCount);
     }
 
@@ -141,6 +163,7 @@ public sealed class IpBlockList : BackgroundService
             var now = _time.GetUtcNow().UtcDateTime;
             var blocks = new List<(string, IpBlockSource, DateTime?)>();
             var allows = new List<string>();
+            var signIns = new List<string>();
             await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
             await using (var command = new NpgsqlCommand("""
                 SELECT "Network", "Source", "ExpiresAt" FROM "IpBlocks" WHERE "ExpiresAt" IS NULL OR "ExpiresAt" > $1
@@ -161,6 +184,18 @@ public sealed class IpBlockList : BackgroundService
                 while (await reader.ReadAsync(cancellationToken))
                 {
                     allows.Add(reader.GetString(0));
+                }
+            }
+
+            await using (var command = new NpgsqlCommand("""
+                SELECT DISTINCT "Network" FROM "UserSignInNetworks" WHERE "LastSeen" >= $1
+                """, connection))
+            {
+                command.Parameters.Add(new NpgsqlParameter<DateTime> { TypedValue = now - SecurityRules.TrustedNetworkAge });
+                await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    signIns.Add(reader.GetString(0));
                 }
             }
 
@@ -192,7 +227,7 @@ public sealed class IpBlockList : BackgroundService
                 _feedVersion = version;
             }
 
-            Load(blocks, allows, _feedNetworks);
+            Load(blocks, allows, _feedNetworks, signIns);
             return true;
         }
         catch (Exception ex) when (ex is NpgsqlException or TimeoutException or InvalidOperationException)
@@ -229,7 +264,7 @@ public sealed class IpBlockList : BackgroundService
 
     private sealed record Snapshot(FamilyTables V4, FamilyTables V6, int BlockCount, int AllowCount, int FeedCount);
 
-    private sealed record FamilyTables(RangeTable Allows, RangeTable Blocks, RangeTable Feeds);
+    private sealed record FamilyTables(RangeTable Allows, RangeTable Blocks, RangeTable Feeds, RangeTable SignIns);
 
     private readonly record struct Entry(UInt128 First, UInt128 Last, IpBlockSource Source, DateTime? ExpiresAt);
 
@@ -299,6 +334,7 @@ public sealed class IpBlockList : BackgroundService
         private readonly List<Entry> _allows = [];
         private readonly List<Entry> _blocks = [];
         private readonly List<Entry> _feeds = [];
+        private readonly List<Entry> _signIns = [];
 
         public int BlockCount => _blocks.Count;
 
@@ -312,6 +348,12 @@ public sealed class IpBlockList : BackgroundService
 
         public int AllowCount => _allows.Count;
 
+        public void AddSignIn(IPNetwork network)
+        {
+            var (first, last) = IpNetworks.Range(network);
+            _signIns.Add(new Entry(first, last, IpBlockSource.Manual, null));
+        }
+
         public void AddAllow(IPNetwork network)
         {
             var (first, last) = IpNetworks.Range(network);
@@ -324,6 +366,6 @@ public sealed class IpBlockList : BackgroundService
             _blocks.Add(new Entry(first, last, source, expiresAt));
         }
 
-        public FamilyTables Build() => new(new RangeTable(_allows), new RangeTable(_blocks), new RangeTable(_feeds));
+        public FamilyTables Build() => new(new RangeTable(_allows), new RangeTable(_blocks), new RangeTable(_feeds), new RangeTable(_signIns));
     }
 }

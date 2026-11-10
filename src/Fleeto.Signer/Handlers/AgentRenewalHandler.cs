@@ -50,7 +50,8 @@ public sealed class AgentRenewalHandler : ISigningRequestHandler
             return SigningOutcome.Refused(MalformedReason);
         }
 
-        // Locked: two renewals for the same endpoint must not both pass the 24-hour check.
+        // Locked: two renewals for the same endpoint must not both pass the 24-hour check, and a revocation or deletion
+        // (EndpointRevocationService.LockAsync) waits for this one, so the new certificate cannot survive it.
         var endpoints = await db.Endpoints.FromSql($"""
             SELECT * FROM "Endpoints" WHERE "Id" = {endpointId} FOR NO KEY UPDATE
             """).IgnoreQueryFilters().AsNoTracking().ToListAsync(cancellationToken);

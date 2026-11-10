@@ -8,6 +8,8 @@
 @using Fleeto.Infrastructure.Data
 @using Fleeto.Infrastructure.Identity
 @inject UserManager<ApplicationUser> Users
+@inject SignInManager<ApplicationUser> SignInManager
+@inject IUserStore<ApplicationUser> UserStore
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IFleetoDbContextFactory DbFactory
 @inject NavigationManager Navigation
@@ -81,7 +83,9 @@
     protected override async Task OnInitializedAsync()
     {
         var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-        var user = await Users.GetUserAsync(state.User);
+        // Only a session with the user's current security stamp: one from before a reset of two-factor authentication must not
+        // see a new authenticator key or recovery codes in the minutes before the cookie handler notices the new stamp.
+        var user = await SignInManager.ValidateSecurityStampAsync(state.User);
         if (user is null)
         {
             Navigation.NavigateTo("/account/login", forceLoad: true);
@@ -98,7 +102,7 @@
         {
             // The key is created once and kept (encrypted) until setup completes, so reloading the page does not
             // invalidate a code the user already scanned.
-            var key = await AccountService.GetOrCreateAuthenticatorKeyAsync(Users, user);
+            var key = await AccountService.GetOrCreateAuthenticatorKeyAsync(Users, UserStore, user);
             await using var db = DbFactory.CreateSystem();
             var fqdn = await db.InstanceSettings.AsNoTracking().Select(i => i.Fqdn).FirstOrDefaultAsync() ?? "instance";
             _key = AccountService.FormatKey(key);

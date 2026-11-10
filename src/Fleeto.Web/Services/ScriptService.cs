@@ -58,8 +58,53 @@ public static class ScriptChecks
     /// </summary>
     public static bool MayManage(Caller caller) => caller.Has(Permissions.ScriptsView) && caller.Has(Permissions.ScriptsRun);
 
+    /// <summary>
+    /// Linking a monitoring template runs its script checks on every endpoint the new link reaches, so it needs what adding such a check
+    /// needs (<see cref="MayManage"/>) once the template holds an enabled script check. Removing a link stays with the permission of the
+    /// link. Returns a problem (cause and next step) naming the first such template, or null.
+    /// </summary>
+    public static async Task<string?> LinkProblemAsync(FleetoDbContext db, Caller caller, IReadOnlyCollection<Guid> addedTemplateIds,
+        CancellationToken cancellationToken)
+    {
+        if (addedTemplateIds.Count == 0 || MayManage(caller))
+        {
+            return null;
+        }
+
+        var name = await db.MonitoringTemplates.AsNoTracking()
+            .Where(t => addedTemplateIds.Contains(t.Id) && t.Checks.Any(c => c.Type == CheckType.Script && c.Enabled))
+            .OrderBy(t => t.Name)
+            .Select(t => t.Name)
+            .FirstOrDefaultAsync(cancellationToken);
+        return name is null
+            ? null
+            : $"The monitoring template {name} holds a script check, which runs a script on every endpoint it applies to, so only somebody who may view and run scripts can link it. Ask an admin, or choose another monitoring template.";
+    }
+
     public static ConfigChangeEvent ChangeEvent(Guid scriptId, DateTime now) =>
         new() { Scope = ConfigChangeScope.Script, ScopeId = scriptId, CreatedAt = now };
+
+    /// <summary>
+    /// Script checks run the newest version approved by somebody who may still approve scripts with two factors
+    /// (<see cref="Fleeto.Infrastructure.Services.ScriptCheckResolver"/>), so every change that can take that away from a user (its roles, the permissions of a role it
+    /// has, its second factor, its Entra ID link, its account) re-signs the configurations that use the scripts it approved. Added to
+    /// the caller's unit of work, so the events are written with the change itself.
+    /// </summary>
+    public static async Task AddApproverChangesAsync(FleetoDbContext db, IReadOnlyCollection<Guid> userIds, DateTime now,
+        CancellationToken cancellationToken)
+    {
+        if (userIds.Count == 0)
+        {
+            return;
+        }
+
+        var scriptIds = await db.ScriptVersions.IgnoreQueryFilters().AsNoTracking()
+            .Where(v => v.ApprovedByUserId != null && userIds.Contains(v.ApprovedByUserId.Value))
+            .Select(v => v.ScriptId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        db.ConfigChangeEvents.AddRange(scriptIds.Select(id => ChangeEvent(id, now)));
+    }
 
     /// <summary>Checks of every client that use the script (the database role sees them all; the count reveals nothing else).</summary>
     public static async Task<int> CountChecksAsync(FleetoDbContext db, Guid scriptId, CancellationToken cancellationToken) =>

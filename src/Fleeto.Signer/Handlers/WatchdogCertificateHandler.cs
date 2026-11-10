@@ -76,7 +76,8 @@ public sealed class WatchdogCertificateHandler : ISigningRequestHandler
             return SigningOutcome.Refused(MalformedReason);
         }
 
-        // Locked: two requests for the same endpoint must not both pass the daily limit or both stay unrevoked.
+        // Locked: two requests for the same endpoint must not both pass the daily limit or both stay unrevoked, and a revocation
+        // or deletion (EndpointRevocationService.LockAsync) waits for this one.
         var endpoints = await db.Endpoints.FromSql($"""
             SELECT * FROM "Endpoints" WHERE "Id" = {endpointId} FOR NO KEY UPDATE
             """).IgnoreQueryFilters().AsNoTracking().ToListAsync(cancellationToken);

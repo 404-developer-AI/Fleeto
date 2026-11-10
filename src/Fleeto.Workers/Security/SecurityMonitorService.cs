@@ -52,12 +52,12 @@ public sealed class SecurityMonitorService : WorkerLoop
     ];
 
     private const string SignalsSql = """
-        SELECT "Kind", "Network",
+        SELECT "Kind", "Network", "Subject" IS NOT DISTINCT FROM 'cross-site' AS "CrossSite",
                COALESCE(sum("Count") FILTER (WHERE "Minute" >= {0}), 0)::int AS "Last10",
                COALESCE(sum("Count") FILTER (WHERE "Minute" >= {1}), 0)::int AS "Last30",
                COALESCE(sum("Count"), 0)::int AS "Hour"
         FROM "SecuritySignals" WHERE "Minute" >= {2}
-        GROUP BY "Kind", "Network"
+        GROUP BY "Kind", "Network", "Subject" IS NOT DISTINCT FROM 'cross-site'
         """;
 
     // Users who can reach endpoints: admins, and every role with remote control or remote background (the built-in rows included).
@@ -131,7 +131,7 @@ public sealed class SecurityMonitorService : WorkerLoop
         var signals = (await db.Database.SqlQueryRaw<SignalRow>(SignalsSql, now.AddMinutes(-10), now.AddMinutes(-30), hourAgo)
                 .ToListAsync(cancellationToken))
             .Where(r => Enum.TryParse<SecuritySignalKind>(r.Kind, out _))
-            .Select(r => new SignalCount(Enum.Parse<SecuritySignalKind>(r.Kind), r.Network, r.Last10, r.Last30, r.Hour))
+            .Select(r => new SignalCount(Enum.Parse<SecuritySignalKind>(r.Kind), r.Network, r.Last10, r.Last30, r.Hour, r.CrossSite))
             .ToList();
 
         var failed = (await db.AuditEntries.AsNoTracking()
@@ -472,6 +472,7 @@ public sealed class SecurityMonitorService : WorkerLoop
     {
         public string Kind { get; set; } = string.Empty;
         public string Network { get; set; } = string.Empty;
+        public bool CrossSite { get; set; }
         public int Last10 { get; set; }
         public int Last30 { get; set; }
         public int Hour { get; set; }

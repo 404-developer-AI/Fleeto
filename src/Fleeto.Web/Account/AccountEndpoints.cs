@@ -180,7 +180,10 @@ public static class AccountEndpoints
     private static async Task<IResult> SetupTwoFactorAsync(HttpContext context, SignInManager<ApplicationUser> signIn, UserManager<ApplicationUser> users,
         IAuditLog audit, SignInSecurity security)
     {
-        var user = await users.GetUserAsync(context.User);
+        // Only a session with the user's current security stamp may enrol an authenticator: a cookie from before an admin reset
+        // two-factor authentication (or set a password) is still accepted by the cookie handler for up to five minutes, and
+        // RefreshSignInAsync below would otherwise re-issue it with the new stamp, so it would survive the reset.
+        var user = await signIn.ValidateSecurityStampAsync(context.User);
         if (user is null)
         {
             await signIn.SignOutAsync();

@@ -35,6 +35,10 @@ public sealed class TwoFactorGate
         _dbFactory = dbFactory;
     }
 
+    /// <summary>
+    /// True when the session has no usable second factor: the user has not enabled two-factor authentication, no longer
+    /// exists, or the security stamp of the session is no longer the user's (see <see cref="HasCurrentStamp"/>). Fails closed.
+    /// </summary>
     public async Task<bool> RequiresSetupAsync(ClaimsPrincipal user, CancellationToken cancellationToken = default)
     {
         if (!TryGetUserId(user, out var userId))
@@ -42,8 +46,30 @@ public sealed class TwoFactorGate
             return true;
         }
 
-        return await RequiresSetupAsync(userId, HasMicrosoftSecondFactor(user), cancellationToken);
+        await using var db = _dbFactory.CreateSystem();
+        var found = await db.Users.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new { u.TwoFactorEnabled, u.EntraObjectId, u.SecurityStamp })
+            .FirstOrDefaultAsync(cancellationToken);
+        return found is null || !HasCurrentStamp(user, found.SecurityStamp) ||
+               !HasSecondFactor(found.TwoFactorEnabled, found.EntraObjectId, HasMicrosoftSecondFactor(user));
     }
+
+    /// <summary>
+    /// The session still carries the security stamp the user has now. Every change that must end sessions (a reset of
+    /// two-factor authentication, a password set by an admin, unlinking from Entra ID, roles, switching off the second
+    /// factor from Microsoft) gives the user a new stamp. The cookie handler compares it only every five minutes, so the gate,
+    /// <see cref="CurrentUser"/> and the account endpoints compare it themselves on the row they read anyway: an old session
+    /// is refused at once. A session without a stamp is refused (fails closed).
+    /// </summary>
+    public static bool HasCurrentStamp(ClaimsPrincipal user, string? storedStamp)
+    {
+        var sessionStamp = user.FindFirstValue(SecurityStampClaimType);
+        return !string.IsNullOrEmpty(sessionStamp) && string.Equals(sessionStamp, storedStamp, StringComparison.Ordinal);
+    }
+
+    /// <summary>The claim the Identity cookie carries the security stamp in (Fleeto keeps the default of Identity).</summary>
+    public static readonly string SecurityStampClaimType = new Microsoft.AspNetCore.Identity.ClaimsIdentityOptions().SecurityStampClaimType;
 
     /// <summary>The session came in through Entra ID with a second factor from Microsoft: proven by the token, or left to the tenant.</summary>
     public static bool HasMicrosoftSecondFactor(ClaimsPrincipal user) =>

@@ -190,12 +190,39 @@ public sealed class SecurityService
             return ServiceResult.Ok();
         }
 
+        if (on && caller.IpAddress is { } own && IPAddress.TryParse(own, out var ownAddress) &&
+            await ListsOwnAddressAsync(db, key, IpNetworks.Normalize(ownAddress), now, cancellationToken))
+        {
+            return ServiceResult.Fail($"This blocklist lists your own address ({own}) and would sign you out. Allow your address first, or ask another admin.");
+        }
+
         feed.Enabled = on;
         // Switched on: fetched at once rather than in up to six hours.
         feed.RefreshRequestedAt = on ? now : null;
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.IpFeedChanged, "IpFeed", key, null, new { Enabled = on }), now));
         await db.SaveChangesAsync(cancellationToken);
         return ServiceResult.Ok();
+    }
+
+    /// <summary>
+    /// Whether the entries a blocklist still holds would refuse the caller's own address, the way <see cref="IpBlockList"/> decides:
+    /// not when the address is allowed or in a network a user signed in from recently.
+    /// </summary>
+    private static async Task<bool> ListsOwnAddressAsync(FleetoDbContext db, string key, IPAddress own, DateTime now, CancellationToken cancellationToken)
+    {
+        var entries = await db.IpFeedEntries.AsNoTracking().Where(e => e.Feed == key).Select(e => e.Network).ToListAsync(cancellationToken);
+        if (!entries.Any(e => Covers(e, own)))
+        {
+            return false;
+        }
+
+        var since = now - SecurityRules.TrustedNetworkAge;
+        var exempt = await db.IpAllows.AsNoTracking().Select(a => a.Network).ToListAsync(cancellationToken);
+        exempt.AddRange(await db.UserSignInNetworks.AsNoTracking().Where(n => n.LastSeen >= since).Select(n => n.Network).Distinct()
+            .ToListAsync(cancellationToken));
+        return !exempt.Any(e => Covers(e, own));
+
+        static bool Covers(string network, IPAddress address) => IpNetworks.TryParse(network, out var parsed) && IpNetworks.Contains(parsed, address);
     }
 
     /// <summary>Asks the workers to fetch a blocklist that is on, now.</summary>

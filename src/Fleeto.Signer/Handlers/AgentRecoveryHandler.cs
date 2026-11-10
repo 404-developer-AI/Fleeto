@@ -67,7 +67,8 @@ public sealed class AgentRecoveryHandler : ISigningRequestHandler
             return SigningOutcome.Refused(MalformedReason);
         }
 
-        // Locked: a recovery and a revocation or second recovery for the same endpoint are serialized.
+        // Locked: a recovery and a revocation or deletion (EndpointRevocationService.LockAsync) or a second recovery for the same
+        // endpoint are serialized.
         var endpoints = await db.Endpoints.FromSql($"""
             SELECT * FROM "Endpoints" WHERE "Id" = {endpointId} FOR NO KEY UPDATE
             """).IgnoreQueryFilters().AsNoTracking().ToListAsync(cancellationToken);

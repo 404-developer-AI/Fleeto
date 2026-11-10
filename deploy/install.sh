@@ -66,6 +66,9 @@ readonly DOCKER_APT_KEY_FINGERPRINT="9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
 # Loopback port range for instance web and gateway ports.
 readonly PORT_RANGE_START=20000
 readonly PORT_RANGE_END=29998
+# The edge network of every instance gets a fixed /24 from this range (allocate_edge_subnet), outside the pool Docker allocates
+# other networks from, so web and the gateway can trust exactly its gateway address: the address the host Caddy arrives from.
+readonly EDGE_SUBNET_PREFIX="10.211"
 readonly HEALTH_TIMEOUT_SECONDS=300
 readonly PRE_UPDATE_BACKUPS_KEPT=3
 # Free space an update needs on top of the database copies: new images, migrations, logs (KiB).
@@ -162,6 +165,7 @@ ARG_ALL=false
 ARG_YES=false
 ARG_GITHUB_TOKENS=false
 ARG_UNBLOCK=false
+ARG_ALLOW=""
 ORIGINAL_ARGS=("$@")
 
 usage() {
@@ -177,7 +181,9 @@ Usage:
   install.sh --all [--version <x.y.z>]        Update every instance on this VPS
   install.sh --github-tokens                  Enter or replace the GitHub tokens used to download releases
   install.sh --fqdn <name> --unblock          Lift every blocked address of the instance (when you blocked yourself out)
-  install.sh --help                           Show this help
+  install.sh --fqdn <name> --unblock --allow <address>
+                                              Also allow one address, so neither a block nor a blocklist refuses it
+  install.sh --help                          Show this help
 
 Options:
   --yes     Do not ask for confirmation (needed for releases that can only roll back by restoring a backup)
@@ -206,6 +212,8 @@ parse_args() {
             --yes | -y) ARG_YES=true; shift ;;
             --github-tokens) ARG_GITHUB_TOKENS=true; shift ;;
             --unblock) ARG_UNBLOCK=true; shift ;;
+            --allow) [[ $# -ge 2 ]] || die "--allow needs an address." "Example: --unblock --allow 203.0.113.7"; ARG_ALLOW="$2"; shift 2 ;;
+            --allow=*) ARG_ALLOW="${1#*=}"; shift ;;
             --help | -h) usage; exit 0 ;;
             *) die "Unknown argument '$1'." "Run install.sh --help to see the supported commands." ;;
         esac
@@ -223,6 +231,11 @@ parse_args() {
     if $ARG_UNBLOCK && { $ARG_LIST || $ARG_CHECK || $ARG_ALL || $ARG_GITHUB_TOKENS || [[ -z "$ARG_FQDN" || -n "$ARG_VERSION" ]]; }; then
         die "--unblock works on one instance and cannot be combined with other commands." "Run install.sh --fqdn <name> --unblock."
     fi
+    if [[ -n "$ARG_ALLOW" ]]; then
+        $ARG_UNBLOCK || die "--allow works only together with --unblock." "Run install.sh --fqdn <name> --unblock --allow <address>."
+        is_ip_address "$ARG_ALLOW" \
+            || die "'$ARG_ALLOW' is not an IP address." "Give one address, for example --allow 203.0.113.7 or --allow 2001:db8::7; allow a network in Settings, Security."
+    fi
     if $ARG_ALL && { $ARG_CHECK || [[ -n "$ARG_FQDN" ]]; }; then
         die "--all updates every instance and cannot be combined with --fqdn or --check." "Run install.sh --all on its own, optionally with --version."
     fi
@@ -234,6 +247,19 @@ parse_args() {
 # A version is MAJOR.MINOR.PATCH with an optional pre-release of at most five short identifiers (0.2.0-alpha.1).
 is_version() {
     [[ "$1" =~ ^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})(-[0-9A-Za-z]{1,10}(\.[0-9A-Za-z]{1,10}){0,4})?$ ]]
+}
+
+# is_ip_address <text>: one IPv4 address (dotted, each part at most 255) or one IPv6 address (hex groups and colons, no zone or
+# prefix). PostgreSQL checks it again when it is cast to inet.
+is_ip_address() {
+    local part
+    if [[ "$1" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]]; then
+        for part in "${BASH_REMATCH[@]:1}"; do
+            ((10#$part <= 255)) || return 1
+        done
+        return 0
+    fi
+    [[ ${#1} -le 45 && "$1" == *:* && "$1" =~ ^[0-9A-Fa-f:.]+$ ]]
 }
 
 # version_lt a b: true when version a is lower than version b, with semantic versioning precedence for pre-releases:
@@ -916,11 +942,83 @@ host_network_mtu() {
     printf '%s' "$mtu"
 }
 
-# instance_networks_diverge <instance>: true when an existing network of the instance has another MTU than instance.conf.
+# ipv4_to_int <a.b.c.d>: prints the address as an integer.
+ipv4_to_int() {
+    local IFS=. a b c d
+    read -r a b c d <<<"$1"
+    printf '%s' "$(((a << 24) | (b << 16) | (c << 8) | d))"
+}
+
+# ipv4_networks_overlap <network> <network>: true when two IPv4 networks (a.b.c.d/len, or an address) share an address.
+ipv4_networks_overlap() {
+    local a="${1%/*}" b="${2%/*}" la=32 lb=32 len mask=0 pattern='^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'
+    [[ "$1" == */* ]] && la="${1#*/}"
+    [[ "$2" == */* ]] && lb="${2#*/}"
+    [[ "$a" =~ $pattern && "$b" =~ $pattern && "$la" =~ ^[0-9]{1,2}$ && "$lb" =~ ^[0-9]{1,2}$ ]] || return 1
+    len=$((la < lb ? la : lb))
+    ((len > 32)) && return 1
+    ((len > 0)) && mask=$(((0xFFFFFFFF << (32 - len)) & 0xFFFFFFFF))
+    (( ($(ipv4_to_int "$a") & mask) == ($(ipv4_to_int "$b") & mask) ))
+}
+
+# networks_in_use: prints the IPv4 networks on this VPS (host routes and Docker networks), one per line.
+networks_in_use() {
+    local ids
+    ip -4 route show table all 2>/dev/null | awk '$1 ~ /^[0-9.\/]+$/ { print $1 } $1 ~ /^(local|broadcast|anycast|unreachable|blackhole|prohibit|throw)$/ { print $2 }' || true
+    ids="$(docker network ls -q 2>/dev/null || true)"
+    if [[ -n "$ids" ]]; then
+        # shellcheck disable=SC2086 # One argument per network id.
+        docker network inspect --format '{{range .IPAM.Config}}{{println .Subnet}}{{end}}' $ids 2>/dev/null || true
+    fi
+}
+
+# allocate_edge_subnet <instance> [existing]: prints the fixed subnet of the instance's edge network (0.9.0). An instance keeps
+# the subnet it has; otherwise it gets the first /24 of EDGE_SUBNET_PREFIX that no other instance holds and that overlaps no
+# route or Docker network on this VPS. An instance from before 0.9.0 gets one on its next update, which recreates its networks.
+allocate_edge_subnet() {
+    local instance="$1" existing="${2:-}" n middle candidate conf own taken=" " in_use network clash
+    middle="${existing#"$EDGE_SUBNET_PREFIX".}"
+    middle="${middle%.0/24}"
+    if [[ "$existing" == "$EDGE_SUBNET_PREFIX.$middle.0/24" && "$middle" =~ ^[0-9]{1,3}$ ]] && ((10#$middle <= 255)); then
+        printf '%s' "$existing"
+        return 0
+    fi
+    own="$(instance_dir "$instance")/instance.conf"
+    for conf in "$FLEETO_ROOT"/*/instance.conf; do
+        [[ -f "$conf" && "$conf" != "$own" ]] || continue
+        taken+="$(conf_get "$conf" EDGE_SUBNET) "
+    done
+    in_use="$(networks_in_use)"
+    for ((n = 0; n <= 255; n++)); do
+        candidate="$EDGE_SUBNET_PREFIX.$n.0/24"
+        [[ "$taken" == *" $candidate "* ]] && continue
+        clash=false
+        while read -r network; do
+            if [[ -n "$network" ]] && ipv4_networks_overlap "$candidate" "$network"; then
+                clash=true
+                break
+            fi
+        done <<<"$in_use"
+        if ! $clash; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+    done
+    die "No free subnet left in $EDGE_SUBNET_PREFIX.0.0/16 for the edge network of $instance." "Remove unused instances or Docker networks from this VPS."
+}
+
+# instance_networks_diverge <instance>: true when an existing network of the instance has another MTU than instance.conf, or its
+# edge network another subnet than EDGE_SUBNET (an instance from before 0.9.0, or one rolled back to a release without it).
 instance_networks_diverge() {
-    local instance="$1" expected network actual
+    local instance="$1" expected network actual edge_subnet
     expected="$(conf_get "$(instance_dir "$instance")/instance.conf" NETWORK_MTU)"
     expected="${expected:-1500}"
+    edge_subnet="$(conf_get "$(instance_dir "$instance")/instance.conf" EDGE_SUBNET)"
+    if actual="$(docker network inspect --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' "fleeto-${instance}_edge" 2>/dev/null)"; then
+        if [[ -n "$edge_subnet" && "$actual" != "$edge_subnet" ]] || [[ -z "$edge_subnet" && "$actual" == "$EDGE_SUBNET_PREFIX".* ]]; then
+            return 0
+        fi
+    fi
     for network in internal edge egress; do
         actual="$(docker network inspect --format '{{ index .Options "com.docker.network.driver.mtu" }}' "fleeto-${instance}_$network" 2>/dev/null)" \
             || continue
@@ -934,24 +1032,27 @@ instance_networks_diverge() {
     return 1
 }
 
-# recreate_networks_if_diverged <instance>: Docker cannot change the MTU of an existing network, so when it differs from
-# instance.conf the instance is stopped and its networks removed (volumes stay); the next start creates them anew.
+# recreate_networks_if_diverged <instance>: Docker cannot change the MTU or subnet of an existing network, so when either differs
+# from instance.conf the instance is stopped and its networks removed (volumes stay); the next start creates them anew.
 recreate_networks_if_diverged() {
-    local instance="$1"
+    local instance="$1" conf
     instance_networks_diverge "$instance" || return 0
-    step "Recreating the networks of $instance with MTU $(conf_get "$(instance_dir "$instance")/instance.conf" NETWORK_MTU)"
+    conf="$(instance_dir "$instance")/instance.conf"
+    step "Recreating the networks of $instance with MTU $(conf_get "$conf" NETWORK_MTU) and edge subnet $(conf_get "$conf" EDGE_SUBNET)"
     dc_instance "$instance" down --timeout 30 --remove-orphans >/dev/null
 }
 
 write_instance_conf() {
-    local instance="$1" fqdn="$2" version="$3" state="$4" web_port="$5" agent_port="$6" relay_port="$7" dir edge_egress="false" memory="1GB" cpus="2"
+    local instance="$1" fqdn="$2" version="$3" state="$4" web_port="$5" agent_port="$6" relay_port="$7" dir edge_egress="false" memory="1GB" cpus="2" edge_subnet=""
     dir="$(instance_dir "$instance")"
-    # Keep settings the VPS owner may have tuned.
+    # Keep settings the VPS owner may have tuned, and the edge subnet.
     if [[ -f "$dir/instance.conf" ]]; then
         edge_egress="$(conf_get "$dir/instance.conf" EDGE_EGRESS)"; edge_egress="${edge_egress:-false}"
         memory="$(conf_get "$dir/instance.conf" POSTGRES_MEMORY)"; memory="${memory:-1GB}"
         cpus="$(conf_get "$dir/instance.conf" POSTGRES_CPUS)"; cpus="${cpus:-2}"
+        edge_subnet="$(conf_get "$dir/instance.conf" EDGE_SUBNET)"
     fi
+    edge_subnet="$(allocate_edge_subnet "$instance" "$edge_subnet")"
     write_file_atomic "$dir/instance.conf" 0600 <<CONF
 # Fleeto instance configuration, written by install.sh. It contains NO secrets: secrets are files in ./secrets/.
 # Used as the Compose --env-file for interpolation only. Edit only EDGE_EGRESS, POSTGRES_MEMORY and POSTGRES_CPUS.
@@ -964,6 +1065,9 @@ WEB_PORT=$web_port
 AGENT_PORT=$agent_port
 RELAY_PORT=$relay_port
 EDGE_EGRESS=$edge_egress
+# Fixed subnet of the edge network: web and the gateway trust forwarded addresses only from its gateway, the host Caddy.
+EDGE_SUBNET=$edge_subnet
+EDGE_GATEWAY=${edge_subnet%.0/24}.1
 POSTGRES_MEMORY=$memory
 POSTGRES_CPUS=$cpus
 # MTU of the instance networks, detected from the uplink of this VPS on every install and update.
@@ -2246,29 +2350,53 @@ command_all() {
 # ---------------------------------------------------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------------------------------------------------
-# command_unblock <fqdn>: lifts every blocked address of an instance (the security monitor, 0.7.0), the way back in for an admin
-# whose own address was blocked. Allowed addresses stay. Written to the audit log as the host; web and the gateway load the
-# empty list within seconds through the database trigger.
+# command_unblock <fqdn> [address]: lifts every blocked address of an instance (the security monitor, 0.7.0), the way back in for an
+# admin whose own address was blocked. Allowed addresses stay. A blocklist (feed) is not a block and stays on; with --allow the
+# address is also allowed, which no block and no blocklist overrides. Written to the audit log as the host; web and the gateway
+# load the new list within seconds through the database trigger.
 command_unblock() {
-    local fqdn="${1%.}" instance
+    local fqdn="${1%.}" allow="${2:-}" instance question
     fqdn="$(tr '[:upper:]' '[:lower:]' <<<"$fqdn")"
     validate_fqdn "$fqdn"
     instance="$(instance_name_for "$fqdn")"
     [[ -f "$(instance_dir "$instance")/instance.conf" ]] || die "There is no instance for $fqdn on this VPS." "Run install.sh --list to see the instances."
-    confirm "Lift every blocked address of $fqdn? Automatic blocks return if an attack goes on." || die "Nothing was changed." "Run the command again to confirm."
-    local lifted
-    lifted="$(dc_instance "$instance" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username=postgres --dbname="$DB_NAME" -Atq <<'SQL'
+    question="Lift every blocked address of $fqdn? Automatic blocks return if an attack goes on."
+    [[ -n "$allow" ]] && question="Lift every blocked address of $fqdn and allow $allow, so it is never blocked again until an admin removes it in Settings, Security?"
+    confirm "$question" || die "Nothing was changed." "Run the command again to confirm."
+    local result lifted allowed
+    result="$(dc_instance "$instance" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --set allow="$allow" --username=postgres --dbname="$DB_NAME" -Atq <<'SQL'
 WITH lifted AS (DELETE FROM "IpBlocks" RETURNING "Network")
+, allowed AS (
+  INSERT INTO "IpAllows" ("Id", "Network", "Description", "CreatedAt", "CreatedByName")
+  SELECT gen_random_uuid(), host(a.address) || '/' || masklen(a.address), 'Allowed by install.sh --unblock', now(), 'install.sh --unblock'
+  FROM (SELECT NULLIF(:'allow', '')::inet AS address) a
+  WHERE a.address IS NOT NULL
+  ON CONFLICT ("Network") DO NOTHING
+  RETURNING "Id", "Network"
+)
 , audit AS (
   INSERT INTO "AuditEntries" ("Time", "ActorType", "ActorId", "ActorName", "Action", "TargetType", "TargetId", "DetailsJson")
   SELECT now(), 'System', 'install.sh', 'install.sh --unblock', 'ip_block.removed', 'IpBlock', 'all',
          jsonb_build_object('Networks', (SELECT count(*) FROM lifted))
   WHERE EXISTS (SELECT 1 FROM lifted)
+  UNION ALL
+  SELECT now(), 'System', 'install.sh', 'install.sh --unblock', 'ip_allow.created', 'IpAllow', "Id"::text,
+         jsonb_build_object('Network', "Network", 'Description', 'Allowed by install.sh --unblock')
+  FROM allowed
 )
-SELECT count(*) FROM lifted;
+SELECT (SELECT count(*) FROM lifted) || ' ' || (SELECT count(*) FROM allowed);
 SQL
 )" || die "The blocked addresses of $fqdn could not be lifted." "Check that the instance runs (docker compose ps) and try again."
-    ok "Lifted ${lifted:-0} blocked address(es) of $fqdn. Allow your address in Settings, Security to keep it from being blocked again."
+    read -r lifted allowed <<<"$result"
+    if [[ -n "$allow" ]]; then
+        if [[ "${allowed:-0}" == 0 ]]; then
+            ok "Lifted ${lifted:-0} blocked address(es) of $fqdn; $allow was allowed already."
+        else
+            ok "Lifted ${lifted:-0} blocked address(es) of $fqdn and allowed $allow. Remove the allowed address in Settings, Security once you no longer need it."
+        fi
+        return 0
+    fi
+    ok "Lifted ${lifted:-0} blocked address(es) of $fqdn. Allow your address in Settings, Security to keep it from being blocked again; when a blocklist lists it, run install.sh --fqdn $fqdn --unblock --allow <address>."
 }
 
 main() {
@@ -2296,7 +2424,7 @@ main() {
     fi
 
     if $ARG_UNBLOCK; then
-        command_unblock "$ARG_FQDN"
+        command_unblock "$ARG_FQDN" "$ARG_ALLOW"
         return 0
     fi
 

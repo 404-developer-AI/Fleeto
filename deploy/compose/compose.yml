@@ -157,14 +157,13 @@ services:
       Gateway__AgentPort: "8443"
       Gateway__HealthPort: "8081"
       Gateway__RelayPort: "8082"
-      # The host Caddy sends a PROXY protocol v2 header with the agent's address. It arrives through the loopback port,
-      # which Docker forwards from the edge network's gateway address, so the same private ranges as for web are trusted.
-      # Only processes on the VPS or containers of this instance can reach the port from those ranges; the header only
-      # sets the address used for Public IP, logs and the enrollment rate limit, never an identity.
+      # The host Caddy sends a PROXY protocol v2 header with the agent's address, and an X-Forwarded-For header on the relay
+      # port. It arrives through the loopback port, which Docker forwards from the gateway address of the edge network, so
+      # exactly that address is trusted (EDGE_GATEWAY, fixed per instance by install.sh). Other containers on the VPS and
+      # the containers of this instance connect from their own addresses and cannot set the address. The header only sets
+      # the address used for Public IP, logs, rate limits and the security monitor, never an identity.
       Gateway__ProxyProtocol__Enabled: "true"
-      Gateway__ProxyProtocol__TrustedNetworks__0: 172.16.0.0/12
-      Gateway__ProxyProtocol__TrustedNetworks__1: 10.210.0.0/16
-      Gateway__ProxyProtocol__TrustedNetworks__2: 192.168.0.0/16
+      Gateway__ProxyProtocol__TrustedNetworks__0: ${EDGE_GATEWAY:?EDGE_GATEWAY must be set in instance.conf}/32
     volumes:
       # The signed release manifest install.sh verified for this release (0.2.1): the gateway offers it to agents, which verify it
       # again against the release keys compiled into them. Directory 0755 and files 0644 root on the host, read-only here.
@@ -217,12 +216,11 @@ services:
       Web__HttpPort: "8080"
       Agent__BinariesDirectory: /app/agent
       DataProtection__KeysDirectory: /app/keys
-      # Caddy reaches web through the loopback port, which Docker forwards from the edge network's gateway address.
-      # Only processes on the VPS can reach that port, so the private ranges Docker allocates networks from are
-      # trusted for X-Forwarded-*: 172.16.0.0/12 (appsettings.json), plus the install.sh address pool and 192.168/16.
+      # Caddy reaches web through the loopback port, which Docker forwards from the gateway address of the edge network:
+      # only that address is trusted for X-Forwarded-For and X-Forwarded-Proto (EDGE_GATEWAY, fixed per instance by
+      # install.sh), so no other container on the VPS can choose the address web sees.
       ReverseProxy__Enabled: "true"
-      ReverseProxy__KnownNetworks__1: 10.210.0.0/16
-      ReverseProxy__KnownNetworks__2: 192.168.0.0/16
+      ReverseProxy__KnownNetworks__0: ${EDGE_GATEWAY:?EDGE_GATEWAY must be set in instance.conf}/32
     ports:
       # Loopback only; the host Caddy terminates TLS for the FQDN and proxies here.
       - "127.0.0.1:${WEB_PORT:?WEB_PORT must be set in instance.conf}:8080"
@@ -260,6 +258,12 @@ networks:
       # internet. Set EDGE_EGRESS=true in instance.conf only if a feature of web needs outbound access.
       com.docker.network.bridge.enable_ip_masquerade: "${EDGE_EGRESS:-false}"
       com.docker.network.driver.mtu: "${NETWORK_MTU:-1500}"
+    # A fixed subnet per instance (install.sh, allocate_edge_subnet), so web and the gateway can trust exactly its gateway
+    # address, the address the host Caddy arrives from.
+    ipam:
+      config:
+        - subnet: ${EDGE_SUBNET:?EDGE_SUBNET must be set in instance.conf}
+          gateway: ${EDGE_GATEWAY:?EDGE_GATEWAY must be set in instance.conf}
   egress:
     driver: bridge
     driver_opts:

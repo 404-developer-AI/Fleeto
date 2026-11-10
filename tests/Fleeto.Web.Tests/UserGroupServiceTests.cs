@@ -204,4 +204,55 @@ public class UserGroupServiceTests
         var refusedDefault = await policies.UpdateAsync(await CallerOfAsync(onlyA.Id, FleetoRoles.Technician), defaultPolicy.Id, input with { Name = defaultPolicy.Name });
         Assert.Equal(TemplateAccess.DefaultPolicyProblem, refusedDefault.Problem);
     }
+
+    /// <summary>The caller of a user as CurrentUser builds it: its roles and permissions from the database, its scope from its groups.</summary>
+    private async Task<Caller> LoadedCallerAsync(Guid userId)
+    {
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        var (roles, granted) = await UserPermissions.LoadAsync(db, userId, CancellationToken.None);
+        var scope = await UserAccessResolver.ScopeOfAsync(db, userId, CancellationToken.None);
+        return new Caller(userId, "Group editor", "groups@example.com", roles, scope, "127.0.0.1", Granted: granted);
+    }
+
+    [Fact]
+    public async Task The_group_editor_changes_the_reach_of_a_user_only_like_the_groups_of_that_user()
+    {
+        var client = await _fixture.Database.CreateClientAsync();
+        // The editor manages groups but cannot take over remote control; the target can, and is limited to one client.
+        var editorRole = await _fixture.Database.CreateRoleAsync(Permissions.ClientsView, Permissions.GroupsManage, Permissions.UsersManage);
+        var editor = await LoadedCallerAsync((await _fixture.Database.CreateUserAsync(editorRole)).Id);
+        var strongerRole = await _fixture.Database.CreateRoleAsync(Permissions.ClientsView, Permissions.RemoteControl, Permissions.UsersManage);
+        var stronger = await _fixture.Database.CreateUserAsync(strongerRole, allClients: false);
+        var limited = await _fixture.Database.CreateGroupAsync(stronger.Id, clientId: client.Id);
+        var peer = await _fixture.Database.CreateUserAsync(editorRole, allClients: false);
+        string Name() => "Group " + Guid.NewGuid().ToString("N")[..6];
+
+        // Adding the stronger user to a new group for all clients would turn on its permissions for the instance.
+        var added = await Groups.SaveAsync(editor, null, new UserGroupInput(Name(), null, true, [], [], [stronger.Id]));
+        Assert.False(added.Success);
+        Assert.Contains("only an admin can change it", added.Problem);
+        Assert.False((await LoadedCallerAsync(stronger.Id)).Has(Permissions.UsersManage));
+
+        // Widening its own group changes every member, the stronger one too.
+        var detail = await Groups.GetAsync(editor, limited);
+        Assert.Contains("only an admin can change it",
+            (await Groups.SaveAsync(editor, limited, new UserGroupInput(detail!.Name, null, true, [], [], [stronger.Id]))).Problem);
+        Assert.False((await LoadedCallerAsync(stronger.Id)).Scope.AllClients);
+
+        // Taking it out of the group, or deleting the group, takes its reach away.
+        Assert.Contains("only an admin can change it",
+            (await Groups.SaveAsync(editor, limited, new UserGroupInput(detail.Name, null, false, [new AccessTargetRef(AccessTargetKind.Client, client.Id)], [], []))).Problem);
+        Assert.Contains("only an admin can change it", (await Groups.DeleteAsync(editor, limited)).Problem);
+        Assert.Equal([limited], await Groups.GroupsOfAsync(WebFixtureBase.Admin(), stronger.Id));
+
+        // A user with no permission beyond the editor's is changed as before, and so is a group of such users only.
+        var mine = await Groups.SaveAsync(editor, null, new UserGroupInput(Name(), null, false, [new AccessTargetRef(AccessTargetKind.Client, client.Id)], [], [peer.Id]));
+        Assert.True(mine.Success, mine.Problem);
+        var renamed = await Groups.SaveAsync(editor, mine.Value, new UserGroupInput(Name(), null, true, [], [], [peer.Id]));
+        Assert.True(renamed.Success, renamed.Problem);
+        Assert.True((await Groups.DeleteAsync(editor, mine.Value)).Success);
+
+        // An admin changes the stronger user's groups.
+        Assert.True((await Groups.SaveAsync(WebFixtureBase.Admin(), limited, new UserGroupInput(detail.Name, null, true, [], [], [stronger.Id]))).Success);
+    }
 }

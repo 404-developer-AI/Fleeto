@@ -269,7 +269,9 @@ the pages (`RequirePermission`), never from the cookie; every service method che
 the group Administration are instance-wide: they count only for a caller whose scope is every client without exception, also
 for an admin (a defence for a forged caller; a real admin always has that scope), so a user limited to clients cannot reach
 further through a group, an API key or a user it creates. Nobody but an admin gives the admin role, changes an admin, or
-creates, changes, gives or removes a role or a user with a permission it does not hold itself (`RoleAuthority`). A change to a
+creates, changes, gives or removes a role or a user with a permission it does not hold itself (`RoleAuthority`); the group editor
+follows the same rule for every member it adds or removes, for every member when it changes the rules or All clients of a group,
+and for every member of a group it deletes (0.9.0, security review). A change to a
 role reloads the open pages of its users and revokes their remote session participants of a kind the role no longer allows,
 as a change to a group does. fleeto-signer asks the database whether the user holds the permission of what it signs
 (`ScriptCheckResolver.UserHasPermissionAsync`): `scripts.run`, `action1agent.install` or `action1agent.remove` for a job by
@@ -436,7 +438,12 @@ Three kinds of tables:
   while the signed configuration the agent applied verifies against the pinned instance key and is managed. Same trust
   model as remote control (§4 Remote session); admins and technicians, managed endpoints only, no policy switch. Every
   session and participant is recorded and audited (technician, endpoint, start, end, reason); terminal content never
-  leaves the session. "Copy output" (0.7.0) copies the whole terminal, the scrollback of 10,000 lines included, as plain text
+  leaves the session. The file explorer works as SYSTEM or root in folders a local user may write, so it never follows a link
+  a user planted (0.9.0, security review): copying, deleting, renaming, creating a folder and uploading open their folder one
+  component at a time, each relative to the handle of the one before (`safeDir`: `NtCreateFile` with `FILE_OPEN_REPARSE_POINT`
+  on Windows, `openat` with `O_NOFOLLOW` on Linux), refuse a junction, mount point or symbolic link on the way, and act
+  relative to that handle; a link itself can be renamed or deleted, never what it points to. The listing marks links with
+  their target, and the technician opens the target instead. Listing and downloading still follow links; they only read. "Copy output" (0.7.0) copies the whole terminal, the scrollback of 10,000 lines included, as plain text
   to the technician's clipboard: read from the buffer of xterm in the browser (`terminalLines`), lines xterm wrapped joined
   again, so nothing passes the server and nothing is audited, like text selected by hand. See §5 for the accepted risk towards
   script approval.
@@ -1607,7 +1614,14 @@ each is now closed:
   remote session (the browser trusts the fingerprints the instance knows). Agents older than 0.3.0-alpha.17 get no new watchdog
   certificate; their existing one keeps working and renews.
 - **The gateway cannot change what an endpoint is.** A trigger refuses a change of tier, client, site or class by the gateway role, so the
-  tier the signer and web check cannot be raised from the connection side.
+  tier the signer and web check cannot be raised from the connection side. Since 0.9.0 (security review, migration `EndpointColumnsPerRole`)
+  the trigger is an allow list: the gateway may change only the online state and what the agent reports (`IsOnline`, `LastSeenAt`, the
+  watchdog columns, `AgentVersion`, `Hostname`, the OS columns, `Architecture`, `DetectedClass`, the public address, the signed-in users,
+  `AppliedConfigVersion`, `UpdatedAt`); every other column, and every column a later migration adds, is refused, so it can no longer write
+  `ManagedSince` (which starts the tasks for an endpoint that becomes managed) or fake maintenance. A test makes every new column of
+  `Endpoints` a decision. The workers cannot change the tier or `ManagedSince` either. **Accepted risk:** `DetectedClass` stays writable
+  because the gateway stores the class the agent detects, so a compromised gateway could make a workstation count as a server, which skips
+  the consent prompt and banner of remote control; a class set by hand wins over it.
 - **The gateway cannot hand new agents its own signing key** (security review of 0.9.0). The enrollment response carries a signature of
   the instance CA key, which only the signer holds, over the instance id, key id and signing public key, and the agent pins the key only
   when it verifies against its pinned CA (§4, Enrollment). The CA key signs this one message besides certificates; the ASCII context at
@@ -1629,6 +1643,10 @@ on which endpoint. A compromised gateway that keeps a valid relay open is still 
   not expired), checked by the gateway on every handshake and pushed to live connections at
   once. No CRL or OCSP infrastructure. Deleting an endpoint removes its certificates, so it can
   never reconnect, except, for 30 days, to receive its signed uninstall command (§4, 0.6.0).
+  Revoking an endpoint, deleting it and deleting a client lock the endpoint rows as the signer does to
+  issue a certificate (`EndpointRevocationService.LockAsync`, 0.9.0): a renewal, recovery or watchdog
+  certificate issued at that moment is revoked or removed with the others and its fingerprint reaches
+  the uninstall request, and one asked for afterwards is refused.
 - Certificates (internal CA, agents, gateway) use ECDSA P-256: Windows SChannel and the Windows
   platform key store do not support ed25519 certificates in TLS. Every application signature
   (configurations, licenses, releases) is ed25519.
@@ -1871,7 +1889,12 @@ The flow is the authorization code flow with PKCE, split over two containers bec
   second factor of linked users to its tenant ("Microsoft handles the second factor of linked users", off by default). The
   v2.0 id_token carries no `amr` in practice, so that switch is how most customers skip the Fleeto code; the session then
   carries `fleeto:second-factor=microsoft`, and switching it off rotates the security stamp of every linked user, so those
-  sessions end within the validation interval. Every page and service reads the same rule as the gate
+  sessions are refused at once: every page, the Blazor circuit and every service call compare the security stamp of the session
+  with the stored one (`TwoFactorGate.HasCurrentStamp`, 0.9.0, security review; the user row was read there already), and the
+  5-minute cookie validation stays as the second line. The same holds after a two-factor reset, a password an admin sets, an
+  Entra ID unlink and a role change. Enrolling an authenticator and showing recovery codes need a session with the current
+  stamp, and the first authenticator key is created without rotating it, so a session from before a two-factor reset can never
+  enrol an authenticator of its own. Every page and service reads the same rule as the gate
   (`TwoFactorGate.HasSecondFactor`); the signer, which sees no session, counts a user linked to Entra ID as having two
   factors. Approving a script keeps asking a fresh code of the Fleeto authenticator, also of a linked admin. The test in Settings reads whether the tenant has Security Defaults or
   Conditional Access policies on (optional `Policy.Read.All`) and fails when the switch is on while the tenant asks for no
@@ -1908,6 +1931,11 @@ hand, step 2 detection, incidents and automatic blocking, step 3 blocklists.
   handshake, scanner paths, scanner tools, exploit patterns, other 404s of anonymous callers without a route, and refusals of a
   blocked address. `TR_SecuritySignals_Component` lets each role write only its own rows; the table is a hypertable with a
   91-day ceiling where TimescaleDB is installed, and the workers delete after 90 days.
+- **Probes a browser makes for another web site** (0.9.0, security review): an `<img src="https://<fqdn>/.env">` on any page
+  makes a visitor's browser send a probe without credentials. Such requests (`Sec-Fetch-Site: cross-site` or
+  `Sec-Fetch-Mode: no-cors`) are counted with the subject `cross-site`, raise their incidents, and never lead to an automatic block
+  on their own: a block needs the threshold reached by requests without that metadata. Trade-off: a scanner that sends the header
+  itself is reported, not blocked automatically.
 - **Scanner detection** (`ScannerPatterns`, pure): after routing, so a request that matches a route is never judged by its
   path, only by exploit fragments in its path or query (traversal, also double encoded, null bytes, Log4Shell, SQL and script
   injection) and the User-Agent of scanning tools. A request without a route is also judged by its path (`/.env`, `/.git/`,
@@ -1961,11 +1989,14 @@ hand, step 2 detection, incidents and automatic blocking, step 3 blocklists.
   shrank below half of a list of at least 100, is refused and the previous list stays. A good list replaces its entries with a
   DELETE and a binary COPY in one transaction and raises `Version`; the trigger on `IpFeeds` then wakes web and the gateway,
   whose `IpBlockList` reads the entries of the lists that are on only when the versions changed. A list blocks like an
-  automatic block (`BlockedFeed`): never an allowed address, never an agent with a valid certificate. CrowdSec: a Console
+  automatic block (`BlockedFeed`): never an allowed address, never an agent with a valid certificate, and (0.9.0) never a network
+  a user signed in from in the last 30 days (`UserSignInNetworks`, of which the gateway may read only the network and when it was
+  seen). Switching a list on is refused when its entries cover the admin's own address, unless that address is allowed. CrowdSec: a Console
   firewall integration, Basic Auth with the credentials an admin entered (encrypted setting `security.crowdsec`), always at
   `admin.api.crowdsec.net/v1/integrations/<id>/content`; nothing is shared with CrowdSec.
 - **Locked out.** `install.sh --fqdn <name> --unblock` deletes every row of `IpBlocks` as the database superuser and audits it;
-  the statement trigger wakes web and the gateway.
+  the statement trigger wakes web and the gateway. With `--allow <address>` (0.9.0) it also adds that address as an allowed
+  address, audited, which also lets it past a blocklist.
 
 ### Security advisories (0.8.0)
 
@@ -2142,9 +2173,14 @@ security updates, or soon will not.
   on a local socket only, minimal configuration written by `install.sh`, HSTS on every FQDN.
 - **Agent addresses behind the host proxy.** Caddy sends a PROXY protocol v2 header before the
   passed-through TLS connection. The gateway reads it in a connection middleware before TLS, and
-  only from the trusted proxy networks (`Gateway:ProxyProtocol:TrustedNetworks`, the private
-  ranges the published loopback port is reached from); from anywhere else the bytes go to TLS
-  unread. A trusted connection without a header keeps its own address, a malformed header closes
+  only from the trusted proxy (`Gateway:ProxyProtocol:TrustedNetworks`); from anywhere else the bytes go to TLS
+  unread. Since 0.9.0 (security review) that is one address: Caddy runs on the host network and reaches the published
+  loopback ports, which Docker forwards from the gateway address of the edge network, so `install.sh` gives the edge network
+  of every instance a fixed /24 from `10.211.0.0/16` (outside Docker's own pool `10.210.0.0/16`, kept in `instance.conf` as
+  `EDGE_SUBNET` and `EDGE_GATEWAY`, the network recreated on the first update), and web (X-Forwarded-For and -Proto, never
+  -Host: every absolute URL comes from the configured base URL) and the gateway (PROXY v2 and the X-Forwarded-For of the relay
+  port) trust only `EDGE_GATEWAY/32`. Before, whole private ranges were trusted, so a peer that could route to the container
+  addresses could set its own address, make itself unblockable with a reserved one or get a stranger blocked. A trusted connection without a header keeps its own address, a malformed header closes
   the connection. The address sets the endpoint's Public IP (shown as a connection address in a private network when it is private), the logs and the per-address
   enrollment rate limit; it never grants an identity (mTLS does). Residual risk: a process on the
   VPS or a compromised container of the instance could forge the header and so the address it

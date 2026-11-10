@@ -210,11 +210,26 @@ public sealed class UserGroupService
 
             group = existing;
             before = group.Members.Select(m => m.UserId).ToList();
+            var newRules = includes.Select(t => Rule(id, UserGroupRuleKind.Include, t)).Concat(excludes.Select(t => Rule(id, UserGroupRuleKind.Exclude, t)));
+            var rulesChanged = group.AllClients != input.AllClients ||
+                !group.Rules.Select(RuleKey).ToHashSet().SetEquals(newRules.Select(RuleKey));
+            // A changed rule changes what every member reaches, so it is a change to every member; otherwise only to those added or removed.
+            var changed = rulesChanged ? before.Union(memberIds) : before.Except(memberIds).Union(memberIds.Except(before));
+            if (await ManageMembersProblemAsync(db, caller, changed, cancellationToken) is { } manageProblem)
+            {
+                return ServiceResult<Guid>.Fail(manageProblem);
+            }
+
             db.UserGroupRules.RemoveRange(group.Rules);
             db.UserGroupMembers.RemoveRange(group.Members.Where(m => !memberIds.Contains(m.UserId)));
         }
         else
         {
+            if (await ManageMembersProblemAsync(db, caller, memberIds, cancellationToken) is { } manageProblem)
+            {
+                return ServiceResult<Guid>.Fail(manageProblem);
+            }
+
             group = new UserGroup { Id = Guid.NewGuid(), CreatedAt = now };
             db.UserGroups.Add(group);
             before = [];
@@ -282,6 +297,11 @@ public sealed class UserGroupService
 
         var now = _time.GetUtcNow().UtcDateTime;
         var members = group.Members.Select(m => m.UserId).ToList();
+        if (await ManageMembersProblemAsync(db, caller, members, cancellationToken) is { } manageProblem)
+        {
+            return ServiceResult.Fail(manageProblem);
+        }
+
         db.UserGroups.Remove(group);
         db.AuditEntries.Add(AuditLog.ToEntry(caller.Audit(AuditActions.UserGroupDeleted, "UserGroup", group.Id.ToString(), null,
             new { group.Name, Members = members.Count }), now));
@@ -498,6 +518,32 @@ public sealed class UserGroupService
         { SiteId: { } siteId } => new AccessTargetRef(AccessTargetKind.Site, siteId),
         _ => new AccessTargetRef(AccessTargetKind.Client, rule.ClientId!.Value)
     };
+
+    private static (UserGroupRuleKind, Guid?, Guid?, Guid?) RuleKey(UserGroupRule rule) => (rule.Kind, rule.ClientId, rule.SiteId, rule.EndpointId);
+
+    /// <summary>
+    /// Why the caller may not change the reach of these users through a group: the same rule as changing the groups of one user
+    /// (<see cref="RoleAuthority.ManageProblemAsync"/>), so the group editor is no way around it.
+    /// </summary>
+    private static async Task<string?> ManageMembersProblemAsync(FleetoDbContext db, Caller caller, IEnumerable<Guid> userIds,
+        CancellationToken cancellationToken)
+    {
+        if (caller.IsAdmin)
+        {
+            return null;
+        }
+
+        foreach (var userId in userIds.Distinct())
+        {
+            if (await RoleAuthority.ManageProblemAsync(db, caller, userId, cancellationToken) is { } problem)
+            {
+                var email = await db.Users.AsNoTracking().Where(u => u.Id == userId).Select(u => u.Email).SingleOrDefaultAsync(cancellationToken);
+                return email is null ? problem : $"{email}: {problem}";
+            }
+        }
+
+        return null;
+    }
 
     private static UserGroupRule Rule(Guid groupId, UserGroupRuleKind kind, AccessTargetRef target) => new()
     {
