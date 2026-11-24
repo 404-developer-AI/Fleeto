@@ -609,7 +609,11 @@ is put in place.
 checked again), starts the service and waits for `health.json` of the target to report the new version with a gateway
 connection made after the start: 5 minutes, not counting time the installer itself has no connection, at most 30.
 → healthy: the journal is removed and `installed` is reported. Not healthy: the previous binary is restored and started,
-`rolled_back` is reported and that version is never tried again on this endpoint (`update-state.json`). Any other failure
+`rolled_back` is reported and that version is never tried again on this endpoint (`update-state.json`). An installer that is
+stopped while it waits (0.9.0-alpha.8) looks at `health.json` once more: connected means installed, otherwise the new version is
+left running with the previous binary next to it and nothing is recorded against it, because undoing it while the installer shuts
+down could leave neither version running and the stop says nothing about the new version. A new version that could not start is
+always undone. Any other failure
 leaves the old version running. A transient one (0.2.2: no connection or no answer from the gateway, a connection dropped during
 the download, HTTP 500, 502 or 504, no answer to the watchdog certificate request, or a certificate error the gateway marks
 `temporary` because the signer did not answer) is retried after 1 minute, doubling per further transient failure in a row up
@@ -618,7 +622,11 @@ match the manifest or a failing service change is retried after an hour. After a
 restores the previous binary at its next start from the journal.
 → the watchdog installs the agent this way. The agent installs a missing watchdog from the offered release when the ring
 allows it or the agent already runs that release (without the random delay: it is a repair), and updates the watchdog
-only once it runs the release itself, so a new watchdog never supervises an older agent it was not released with. Every
+only once it runs the release itself, so a new watchdog never supervises an older agent it was not released with. Neither
+replaces the other while the other's own replacement runs (0.9.0-alpha.8): an `update-journal.json` younger than an hour in the
+state directory of the target postpones the installation by 30 seconds, checked before the download and again before the target
+is stopped. Found on WS-FIL-00 with 0.9.0-alpha.7: the new agent stopped the watchdog to update it while the watchdog still waited
+for that agent, the watchdog rolled the agent back halfway, and both services stayed stopped. Every
 step is reported (`UpdateStatus`) and shown per component on the endpoint detail and, for failures, in Settings, Agent
 updates. An offered newer release that is held back is logged once per release and reason by the installing service (0.2.2):
 waiting for the update ring, for the next attempt after a failure (with its time), until the agent runs the release itself,

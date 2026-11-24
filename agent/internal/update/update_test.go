@@ -694,3 +694,139 @@ func TestSupervisorPutsThePreviousBinaryBackWhenTheBinaryIsMissing(t *testing.T)
 		t.Fatal("an installed binary was replaced")
 	}
 }
+
+// WS-FIL-00, 0.9.0-alpha.7: the watchdog waited for the new agent, the new agent stopped the watchdog to update it, and the watchdog
+// read that stop as a failed update and rolled the agent back halfway, leaving both services stopped. These tests replay that order.
+
+func TestWaitHealthyCountsAConnectionThatArrivedJustBeforeTheStop(t *testing.T) {
+	dir := t.TempDir()
+	since := time.Now().Add(-time.Second)
+	stop := make(chan struct{})
+	close(stop)
+	arrives := true
+	w := HealthWait{
+		Dir: dir, Version: "0.9.0", Since: since, Timeout: time.Minute, MaxTimeout: time.Hour, Interval: time.Hour,
+		// Called after the first look: the new version connects between that look and the stop.
+		InstallerConnected: func() bool {
+			if arrives {
+				_ = WriteHealth(dir, platform.AccessCurrentUser, Health{Version: "0.9.0", Connected: true, ConnectedAt: time.Now()})
+			}
+			return true
+		},
+	}
+	if err := WaitHealthy(w, stop); err != nil {
+		t.Fatalf("a new version that connected before the stop is healthy, got %v", err)
+	}
+
+	_ = os.Remove(filepath.Join(dir, HealthFileName))
+	arrives = false
+	if err := WaitHealthy(w, stop); !errors.Is(err, ErrStopped) {
+		t.Fatalf("expected ErrStopped, got %v", err)
+	}
+}
+
+func TestInstallLeavesAStartedNewVersionRunningWhenTheInstallerIsStopped(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "fleeto-agent.exe")
+	writeFile(t, exe, "old binary")
+	staged := filepath.Join(dir, "staged")
+	sha, size := writeFile(t, staged, "new binary")
+	controller := &fakeController{state: svcctl.StateRunning}
+
+	outcome, err := Install(context.Background(), InstallRequest{
+		Controller: controller, Service: "fleeto-agent", Exe: exe, Staged: staged, SHA256: sha, Size: size, Version: "0.9.0",
+		JournalDir: dir, Access: platform.AccessCurrentUser, Logger: discard(),
+		Healthy: func(context.Context, time.Time) error { return ErrStopped },
+	})
+	if outcome != Interrupted || !errors.Is(err, ErrStopped) {
+		t.Fatalf("expected an interrupted update, got %v: %v", outcome, err)
+	}
+	if readFile(t, exe) != "new binary" || readFile(t, exe+".previous") != "old binary" {
+		t.Fatal("the new version must stay in place with the previous binary next to it")
+	}
+	if controller.state != svcctl.StateRunning || controller.stops != 1 || controller.starts != 1 {
+		t.Fatalf("the new version must keep running without a rollback (stops %d, starts %d)", controller.stops, controller.starts)
+	}
+}
+
+func TestInstallStillUndoesANewVersionThatCouldNotStartWhenTheInstallerIsStopped(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "fleeto-agent.exe")
+	writeFile(t, exe, "old binary")
+	staged := filepath.Join(dir, "staged")
+	sha, size := writeFile(t, staged, "new binary")
+	controller := &fakeController{state: svcctl.StateRunning, startErr: errors.New("the service did not start")}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	outcome, _ := Install(ctx, InstallRequest{
+		Controller: controller, Service: "fleeto-agent", Exe: exe, Staged: staged, SHA256: sha, Size: size, Version: "0.9.0",
+		JournalDir: dir, Access: platform.AccessCurrentUser, Logger: discard(),
+		Healthy: func(context.Context, time.Time) error { return nil },
+	})
+	if outcome != RolledBack || readFile(t, exe) != "old binary" {
+		t.Fatalf("a new version that never ran must be undone, got %v", outcome)
+	}
+}
+
+func TestNeitherServiceReplacesTheOtherWhileTheOthersReplacementRuns(t *testing.T) {
+	root := t.TempDir()
+	agentDir := filepath.Join(root, "Agent")
+	watchdogDir := filepath.Join(root, "Watchdog")
+	for _, d := range []string{agentDir, watchdogDir} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	// The agent side: it installs the watchdog, whose state directory holds the watchdog's journal.
+	controller := &fakeController{state: svcctl.StateRunning}
+	agentSide := NewUpdater(UpdaterOptions{
+		Target:   Target{Component: "watchdog", Service: "fleeto-watchdog", Exe: filepath.Join(root, "fleeto-watchdog.exe"), HealthDir: watchdogDir},
+		StateDir: agentDir, Access: platform.AccessCurrentUser, Controller: controller, Logger: discard(),
+		Now: func() time.Time { return now },
+	})
+
+	// The watchdog replaces the agent: during its wait for the new agent its journal exists, so the agent side holds back.
+	exe := filepath.Join(root, "fleeto-agent.exe")
+	writeFile(t, exe, "old agent")
+	staged := filepath.Join(root, "staged")
+	sha, size := writeFile(t, staged, "new agent")
+	busyDuringWait := false
+	outcome, err := Install(context.Background(), InstallRequest{
+		Controller: &fakeController{state: svcctl.StateRunning}, Service: "fleeto-agent", Exe: exe, Staged: staged, SHA256: sha, Size: size,
+		Version: "0.9.0", JournalDir: watchdogDir, Access: platform.AccessCurrentUser, Logger: discard(), Now: func() time.Time { return now },
+		Healthy: func(context.Context, time.Time) error {
+			busyDuringWait = agentSide.peerBusy()
+			return nil
+		},
+	})
+	if outcome != Installed || err != nil {
+		t.Fatalf("expected installed, got %v: %v", outcome, err)
+	}
+	if !busyDuringWait {
+		t.Fatal("while the watchdog waits for the new agent, the agent must not replace the watchdog")
+	}
+	if agentSide.peerBusy() {
+		t.Fatal("once the watchdog finished, the agent may replace it")
+	}
+
+	// A journal left by a crash holds nothing back for ever.
+	if err := writeJournal(watchdogDir, platform.AccessCurrentUser, Journal{Service: "fleeto-agent", Exe: exe, Previous: exe + ".previous",
+		Version: "0.9.0", StartedAt: now.Add(-2 * PeerJournalMaxAge)}); err != nil {
+		t.Fatal(err)
+	}
+	if agentSide.peerBusy() {
+		t.Fatal("a stale journal must not block updates")
+	}
+
+	// A fresh journal stops an installation before anything is downloaded or stopped.
+	if err := writeJournal(watchdogDir, platform.AccessCurrentUser, Journal{Service: "fleeto-agent", Exe: exe, Previous: exe + ".previous",
+		Version: "0.9.0", StartedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	agentSide.install(context.Background(), discard(), &release.Manifest{Version: "0.9.0"}, release.Binary{File: "fleeto-watchdog.exe"}, "0.8.0", false)
+	if controller.stops != 0 {
+		t.Fatal("the watchdog was stopped while it replaced the agent")
+	}
+}

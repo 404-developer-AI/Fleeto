@@ -109,6 +109,12 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Fixed
 
+- An agent update could leave a Windows endpoint without a running agent or watchdog (found on a test endpoint with 0.9.0-alpha.7).
+  The watchdog installs the new agent and waits until it connects; the new agent then updated the watchdog at once, which stopped
+  the watchdog during that wait. The watchdog read the stop as a failed update and rolled the agent back halfway, and both services
+  stayed stopped. Now neither replaces the other while the other's own update is running, and a service that is stopped while it
+  waits checks once more whether the new version connected and otherwise leaves it running instead of undoing it. An endpoint that
+  rolled back 0.9.0-alpha.7 this way takes 0.9.0-alpha.8 as usual.
 - A new version of the script of a script check now runs from the next run. Until now the agent kept running the version it had,
   until it restarted or something else of the check changed, because it compared the parameters of the check and not its script.
 - The status timeline in the history of a script check judges every block by what the exit codes of the script mean, as the status

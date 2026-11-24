@@ -74,6 +74,11 @@ type HealthWait struct {
 // ErrNotHealthy is returned when the new version did not report a connection in time.
 var ErrNotHealthy = errors.New("the new version did not connect to the gateway in time")
 
+// ErrStopped is returned when the installing service is stopped while it waits and the new version has not reported a connection yet.
+// That says nothing about the new version, so it is no reason to roll it back (WS-FIL-00, 0.9.0-alpha.7: the agent stopped the watchdog to
+// update it while the watchdog still waited for the new agent, the watchdog rolled the agent back halfway, and both services stayed down).
+var ErrStopped = errors.New("stopped while waiting for the new version")
+
 // WaitHealthy blocks until the service is healthy, the time is up or stop is closed.
 func WaitHealthy(w HealthWait, stop <-chan struct{}) error {
 	if w.Interval <= 0 {
@@ -85,8 +90,12 @@ func WaitHealthy(w HealthWait, stop <-chan struct{}) error {
 	start := w.Now()
 	var disconnected time.Duration
 	last := start
+	healthy := func() bool {
+		h, err := ReadHealth(w.Dir)
+		return err == nil && h.Version == w.Version && h.Connected && !h.ConnectedAt.Before(w.Since)
+	}
 	for {
-		if h, err := ReadHealth(w.Dir); err == nil && h.Version == w.Version && h.Connected && !h.ConnectedAt.Before(w.Since) {
+		if healthy() {
 			return nil
 		}
 		now := w.Now()
@@ -105,7 +114,11 @@ func WaitHealthy(w HealthWait, stop <-chan struct{}) error {
 		}
 		select {
 		case <-stop:
-			return errors.New("stopped while waiting for the new version")
+			// The new version may have connected since the last look: then the update succeeded.
+			if healthy() {
+				return nil
+			}
+			return ErrStopped
 		case <-time.After(w.Interval):
 		}
 	}

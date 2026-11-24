@@ -25,6 +25,10 @@ const (
 	Failed
 	// RolledBack: the new version was started but did not come up; the previous version was restored.
 	RolledBack
+	// Interrupted: the installing service was stopped after the new version was started and before it was seen to come up. The new
+	// version is left running: undoing it while this service shuts down could leave neither version running, and the stop says nothing
+	// about the new version. The previous binary stays next to it as .previous.
+	Interrupted
 )
 
 // JournalFileName records a replacement in progress in the installer's state directory.
@@ -121,7 +125,8 @@ func Install(ctx context.Context, r InstallRequest) (Outcome, error) {
 
 	started := r.Now()
 	r.Logger.Info("new binary in place; starting the service", "service", r.Service, "version", r.Version)
-	err := r.Controller.Start(r.Service)
+	startErr := r.Controller.Start(r.Service)
+	err := startErr
 	if err == nil {
 		err = r.Controller.WaitRunning(ctx, r.Service, r.StartTimeout)
 	}
@@ -130,6 +135,11 @@ func Install(ctx context.Context, r InstallRequest) (Outcome, error) {
 	}
 	if err == nil {
 		return Installed, nil
+	}
+	// Only a new version that did start is left running; one that could not start is always undone.
+	if startErr == nil && (errors.Is(err, ErrStopped) || ctx.Err() != nil) {
+		r.Logger.Warn("stopped before the new version was seen to come up; leaving it running", "service", r.Service, "version", r.Version, "error", err)
+		return Interrupted, err
 	}
 
 	r.Logger.Warn("the new version did not come up; restoring the previous version", "service", r.Service, "version", r.Version, "error", err)

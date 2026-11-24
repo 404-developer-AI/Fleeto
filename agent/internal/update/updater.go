@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"math"
@@ -278,8 +279,52 @@ func (u *Updater) reportWait(logger *slog.Logger, version, installed string, rea
 	u.opts.Report(status)
 }
 
+// PeerJournalMaxAge bounds how long the update journal of the target holds an installation back: an older journal is left from a crash,
+// and Recover of the target removes it when the target starts again.
+const PeerJournalMaxAge = time.Hour
+
+// peerBusyRetry is how soon an installation that waited for the target's own update is tried again.
+const peerBusyRetry = 30 * time.Second
+
+// peerBusy reports whether the target is replacing a binary itself right now: its update journal exists and is recent. The target's
+// state directory holds both its health file and its journal. While the watchdog installs a new agent it waits for that agent to come
+// up; an agent that replaced the watchdog in that window stopped it mid-wait (WS-FIL-00, 0.9.0-alpha.7), so neither replaces the other
+// while the other's replacement runs.
+func (u *Updater) peerBusy() bool {
+	dir := u.opts.Target.HealthDir
+	if dir == "" || filepath.Clean(dir) == filepath.Clean(u.opts.StateDir) {
+		return false
+	}
+	path := filepath.Join(dir, JournalFileName)
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	started := info.ModTime()
+	if data, err := os.ReadFile(path); err == nil && len(data) <= 64*1024 {
+		var j Journal
+		if json.Unmarshal(data, &j) == nil && !j.StartedAt.IsZero() {
+			started = j.StartedAt
+		}
+	}
+	return u.opts.Now().Sub(started) < PeerJournalMaxAge
+}
+
+// waitForPeer postpones an installation while the target replaces a binary itself, logging it once per release.
+func (u *Updater) waitForPeer(logger *slog.Logger, version string) {
+	if key := version + "|peer"; key != u.lastWait {
+		u.lastWait = key
+		logger.Info("release offered; waiting until the other service finished its own update", "version", version)
+	}
+	time.AfterFunc(peerBusyRetry, u.Wake)
+}
+
 func (u *Updater) install(ctx context.Context, logger *slog.Logger, m *release.Manifest, binary release.Binary, installed string, provision bool) {
 	t := u.opts.Target
+	if u.peerBusy() {
+		u.waitForPeer(logger, m.Version)
+		return
+	}
 	report := func(state agentv1.UpdateState, detail string) {
 		u.opts.Report(Status{Component: t.Component, Version: m.Version, State: state, Detail: truncate(detail, 500)})
 	}
@@ -341,6 +386,11 @@ func (u *Updater) install(ctx context.Context, logger *slog.Logger, m *release.M
 		return
 	}
 
+	// The download takes a while: look again right before the service is stopped.
+	if u.peerBusy() {
+		u.waitForPeer(logger, m.Version)
+		return
+	}
 	if u.opts.Pause != nil {
 		u.opts.Pause(true)
 		defer u.opts.Pause(false)
@@ -361,6 +411,10 @@ func (u *Updater) install(ctx context.Context, logger *slog.Logger, m *release.M
 		u.transientFailures = 0
 		logger.Info("updated", "from", installed, "to", m.Version)
 		report(agentv1.UpdateState_UPDATE_STATE_INSTALLED, "")
+	case Interrupted:
+		// This service is stopping; the new version keeps running and nothing is recorded against it.
+		u.memory.Clear(t.Component)
+		logger.Warn("the update was interrupted by a stop of this service; the new version is left running", "version", m.Version, "error", err)
 	case RolledBack:
 		u.memory.RecordRollback(t.Component, m.Version)
 		logger.Error("the update was rolled back; this version is not tried again", "version", m.Version, "error", err)
