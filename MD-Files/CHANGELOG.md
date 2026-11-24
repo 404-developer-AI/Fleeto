@@ -129,6 +129,9 @@ When a third released version is added, the oldest entry moves to the top of
 
 ### Security
 
+- The agent and watchdog are built with Go 1.27.4 instead of 1.27.3, which fixes GO-2026-6859 in net/http of the standard
+  library, reachable from the agent's HTTP client and server. `go.mod` and the Go image of the Dockerfiles follow.
+
 Found by a security review of 0.9.0 and each reproduced with a test before it was fixed.
 
 - A standard user on a Windows endpoint could take control of the agent before it was installed: a folder created beforehand under
