@@ -249,6 +249,52 @@ internal static class PublicApiEndpoints
                     : ApiProblems.NotFoundResult("job"))
             .WithName("getJobOutput").WithTags("Jobs").WithSummary("Get the output of a job: the first megabyte of stdout and of stderr.")
             .Produces<ApiJobOutput>().ProducesProblem(StatusCodes.Status404NotFound);
+
+        // Tasks
+
+        api.MapGet("/task-results", async (HttpContext http, PublicApiQueries queries,
+                [Description("Only the results of this client.")] Guid? clientId,
+                [Description("Only the results of the endpoints that are in this site now.")] Guid? siteId,
+                [Description("Only the results of this endpoint.")] Guid? endpointId,
+                [Description("Only the results of this task.")] Guid? taskId,
+                [Description("Only the results of this run of a task.")] Guid? runId,
+                [Description("pending, running, succeeded, failed, cancelled or skipped.")] string? status,
+                [Description("Only results due at or after this moment (ISO 8601 with a time zone, e.g. 2026-11-01T00:00:00Z).")] string? from,
+                [Description("Only results due before this moment (ISO 8601 with a time zone).")] string? to,
+                [Description(CursorDescription)] string? cursor, [Description(LimitDescription)] int? limit, CancellationToken cancellationToken) =>
+            {
+                if (Validate(limit, null) is { } problem)
+                {
+                    return problem;
+                }
+
+                if (!TryParse(status, TaskResultStatusValues, out var resultStatus))
+                {
+                    return InvalidValue("status", status!, TaskResultStatusValues.Keys);
+                }
+
+                if (!TryParseTime(from, out var fromTime))
+                {
+                    return InvalidTime("from");
+                }
+
+                if (!TryParseTime(to, out var toTime))
+                {
+                    return InvalidTime("to");
+                }
+
+                if (fromTime is not null && toTime is not null && fromTime >= toTime)
+                {
+                    return ApiProblems.InvalidParameterResult("to", "The period is empty: to is not later than from.", "Use a to that is later than from.");
+                }
+
+                var filter = new ApiTaskResultFilter(clientId, siteId, endpointId, taskId, runId, resultStatus, fromTime, toTime);
+                return Results.Ok(await queries.ListTaskResultsAsync(http.ApiCaller(), filter, cursor, limit ?? PublicApiQueries.DefaultLimit,
+                    cancellationToken));
+            })
+            .WithName("listTaskResults").WithTags("Tasks")
+            .WithSummary("List the results of tasks: one item per endpoint per run, with its steps, newest due first.")
+            .Produces<ApiPage<ApiTaskResult>>().ProducesProblem(StatusCodes.Status400BadRequest);
     }
 
     // Query values. Written out, so the API values stay the same when an internal name changes.
@@ -291,6 +337,40 @@ internal static class PublicApiEndpoints
         ["lost"] = JobState.Lost,
         ["cancelled"] = JobState.Cancelled
     };
+
+    internal static readonly IReadOnlyDictionary<string, TaskHistoryStatus> TaskResultStatusValues = new Dictionary<string, TaskHistoryStatus>
+    {
+        ["pending"] = TaskHistoryStatus.Pending,
+        ["running"] = TaskHistoryStatus.Running,
+        ["succeeded"] = TaskHistoryStatus.Succeeded,
+        ["failed"] = TaskHistoryStatus.Failed,
+        ["cancelled"] = TaskHistoryStatus.Cancelled,
+        ["skipped"] = TaskHistoryStatus.Skipped
+    };
+
+    /// <summary>An ISO 8601 moment with a time zone (Z or an offset), converted to UTC. A moment without a time zone is refused: it would be a guess.</summary>
+    private static bool TryParseTime(string? value, out DateTime? parsed)
+    {
+        parsed = null;
+        if (string.IsNullOrEmpty(value))
+        {
+            return true;
+        }
+
+        if (value.Length > 40 || !DateTimeOffset.TryParseExact(value, ["yyyy-MM-dd'T'HH:mm:ssK", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK"],
+                System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var moment) ||
+            !(value.EndsWith('Z') || value[^6] is '+' or '-'))
+        {
+            return false;
+        }
+
+        parsed = moment.UtcDateTime;
+        return true;
+    }
+
+    private static IResult InvalidTime(string parameter) =>
+        ApiProblems.InvalidParameterResult(parameter, $"{parameter} is not a valid moment.",
+            "Use ISO 8601 with a time zone, for example 2026-11-01T00:00:00Z or 2026-11-01T01:00:00+01:00.");
 
     private static bool TryParse<T>(string? value, IReadOnlyDictionary<string, T> values, out T? parsed) where T : struct
     {

@@ -1142,6 +1142,10 @@ public class FleetoDbContext : IdentityDbContext<ApplicationUser, ApplicationRol
             // The runs still busy on an endpoint, for the overlap of a task with steps (0.6.0).
             entity.HasIndex(t => new { t.EndpointId, t.AutomationTaskId, t.State }).HasFilter("\"State\" = 'Started' AND \"FinishedAt\" IS NULL")
                 .HasDatabaseName("IX_AutomationTaskRunTargets_Busy");
+            // The task history of the public API (0.9.0), newest due first per client, per endpoint and over every client.
+            entity.HasIndex(t => new { t.ClientId, t.DueAt, t.RunId, t.EndpointId }).HasDatabaseName("IX_AutomationTaskRunTargets_ClientHistory");
+            entity.HasIndex(t => new { t.EndpointId, t.DueAt, t.RunId }).HasDatabaseName("IX_AutomationTaskRunTargets_EndpointHistory");
+            entity.HasIndex(t => new { t.DueAt, t.RunId, t.EndpointId }).HasDatabaseName("IX_AutomationTaskRunTargets_History");
             EndpointOwned(entity);
         });
 

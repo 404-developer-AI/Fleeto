@@ -17,10 +17,10 @@ API version: **v1**. Available from Fleeto **0.2.1**. Read-only.
 5. Pagination
 6. Errors
 7. Access: client scope, license tier and audit
-8. Endpoints: clients, sites, endpoints, alerts, jobs
+8. Endpoints: clients, sites, endpoints, alerts, jobs, task results
 9. Objects
 10. Values of enumerations
-11. Example: a full synchronisation
+11. Examples: a full synchronisation, task results
 12. OpenAPI document
 13. Version history
 
@@ -28,13 +28,35 @@ API version: **v1**. Available from Fleeto **0.2.1**. Read-only.
 
 Every Fleeto instance has its own URL (for example `https://rmm.customer.example`) and serves the API on that URL under
 `/api/v1`. The API gives read access to the data of the instance: clients, sites, endpoints with status and
-inventory, checks, alerts, jobs and notes. It cannot change anything; there are only `GET` requests.
+inventory, checks, alerts, jobs, notes and the results of tasks. It cannot change anything; there are only `GET` requests.
 
 The hierarchy is **client → site → endpoint**. A client is a customer of the IT team; a site groups endpoints of one
 client; an endpoint is a computer with the Fleeto agent. An endpoint is either **agent-only** (free: status and
 inventory only) or **managed** (licensed: checks, alerts, jobs, notes and everything else).
 
 Base URL: `https://<instance FQDN>/api/v1`. Only HTTPS.
+
+### Quick start
+
+1. An admin creates an API key in Fleeto under **Settings, API keys** (all clients or a chosen list of clients) and
+   copies it once. Put it in an environment variable or secret store, for example `FLEETO_API_KEY`.
+2. Send the key with **every** request in the `Authorization` header. There is no login call, no session and no token
+   to refresh: the key itself is the credential, checked again on every request (section 2).
+3. Check the key with a cheap call; `200` means it works, `401` that it does not:
+
+   ```bash
+   curl -sS -H "Authorization: Bearer $FLEETO_API_KEY" "https://rmm.customer.example/api/v1/clients?limit=1"
+   ```
+
+4. Read what you need, for example the results of tasks of one client, newest first:
+
+   ```bash
+   curl -sS -H "Authorization: Bearer $FLEETO_API_KEY" \
+     "https://rmm.customer.example/api/v1/task-results?clientId=77c5d95d-1a92-4205-aec2-eb63037f8bde&limit=200"
+   ```
+
+5. Page with `nextCursor` until it is `null` (section 5), respect `429` and `Retry-After` (section 3), and read errors
+   by their `code` (section 6). Section 11 has complete examples in Python.
 
 ## 2. Authentication
 
@@ -124,7 +146,8 @@ Every list answers with a page object:
 - Lists have no total count.
 
 Order per list: clients by `code`, sites by `name`, endpoints by `hostname` (all ascending, then by id); alerts by
-`openedAt`, jobs by `createdAt`, notes by `createdAt` (all newest first, then by id).
+`openedAt`, jobs by `createdAt`, notes by `createdAt` (all newest first, then by id); task results by `dueAt` (newest
+first, then by `runId` and `endpointId`).
 
 ## 6. Errors
 
@@ -150,7 +173,7 @@ Errors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem details:
 
 | Status | `code` | When | What to do |
 |---|---|---|---|
-| 400 | `invalid_parameter` | A query parameter has a wrong value or type: `limit` out of range, an unknown value for `state`, `class`, `tier` or `severity`, a malformed UUID, a search text over 100 characters, an invalid cursor. | Fix the request. The `detail` names the parameter when it is known. |
+| 400 | `invalid_parameter` | A query parameter has a wrong value or type: `limit` out of range, an unknown value for `state`, `status`, `class`, `tier` or `severity`, a malformed UUID, a moment that is not ISO 8601 with a time zone or a `to` that is not later than `from`, a search text over 100 characters, an invalid cursor. | Fix the request. The `detail` names the parameter when it is known. |
 | 401 | `unauthorized` | No key, a malformed or unknown key, or a revoked or expired key. | Use a valid key. Do not retry with the same key. |
 | 404 | `not_found` | The path does not exist, the id does not exist, the object belongs to a client outside the key's scope, or an endpoint has not reported an inventory yet. | Check the id and the key's client scope. |
 | 405 | `method_not_allowed` | A method other than `GET`. | Use `GET`. |
@@ -166,13 +189,15 @@ Errors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem details:
 - **License tier.** Agent-only endpoints show their status and inventory. Checks and notes exist only on managed
   endpoints and answer `409 endpoint_not_managed` for an agent-only endpoint. `effectiveTier` on the endpoint tells you
   which applies: an endpoint stored as managed behaves as agent-only once the instance license has expired past its
-  14-day grace period. Alerts and jobs stay readable as history after an endpoint becomes agent-only.
+  14-day grace period. Alerts, jobs and task results stay readable as history after an endpoint becomes agent-only.
+- **Permissions.** A key reads what the built-in read-only role reads, within its client scope. Script bodies, secrets
+  and signed job payloads are never in a response.
 - **Audit.** Every API request is written to the audit log of the instance with the key's name, the path, the query
   string, the status and the client address. Admins see it under Settings, Audit log.
 
 ## 8. Endpoints
 
-Fourteen endpoints, all `GET`. Shared query parameters `limit` and `cursor` are described in section 5; objects in
+Seventeen endpoints, all `GET`. Shared query parameters `limit` and `cursor` are described in section 5; objects in
 section 9.
 
 | Method and path | Returns |
@@ -193,6 +218,7 @@ section 9.
 | `GET /api/v1/jobs` | Page of Job |
 | `GET /api/v1/jobs/{jobId}` | Job |
 | `GET /api/v1/jobs/{jobId}/output` | JobOutput |
+| `GET /api/v1/task-results` | Page of TaskResult |
 
 ### GET /api/v1/clients
 
@@ -709,6 +735,126 @@ Response `200`: a [JobOutput](#joboutput). Errors: 401, 404, 429.
 }
 ```
 
+### GET /api/v1/task-results
+
+Lists the results of **tasks**: one item per endpoint per run, newest first (by `dueAt`). From Fleeto 0.9.0.
+
+A task is a series of library scripts (and restarts) that Fleeto runs by itself: on a schedule, when an alert of a
+chosen check opens, when an endpoint becomes managed, or by hand. Every start is a **run**; a run covers every endpoint
+the task applies to, and each endpoint carries out the **steps** of the task one after the other. This list gives per
+run and endpoint where it stands, how it ended, and per step its job with state, exit code and timing. The output of a
+step is the output of its job: `GET /api/v1/jobs/{jobId}/output`.
+
+Use the filters to read the history **per client**, **per site** or **per endpoint**; they combine freely.
+
+| Query parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `clientId` | UUID | no | Only results of this client. |
+| `siteId` | UUID | no | Only results of the endpoints that are in this site **now**. An endpoint moved to another site takes its history along. |
+| `endpointId` | UUID | no | Only results of this endpoint. |
+| `taskId` | UUID | no | Only results of this task. |
+| `runId` | UUID | no | Only the endpoints of this run. |
+| `status` | a [task result status](#task-result-status) | no | Only results with this status. |
+| `from` | timestamp | no | Only results with `dueAt` at or after this moment. ISO 8601 **with** a time zone: `2026-11-01T00:00:00Z` or `2026-11-01T01:00:00+01:00`. A moment without a time zone is refused. |
+| `to` | timestamp | no | Only results with `dueAt` before this moment, same format. Must be later than `from`. |
+| `limit`, `cursor` | | no | Pagination (section 5). |
+
+Response `200`: a page of [TaskResult](#taskresult). Errors: 400, 401, 429.
+
+```json
+{
+  "items": [
+    {
+      "runId": "0b9c8d7e-6f5a-4b3c-9d2e-1f0a9b8c7d6e",
+      "taskId": "c3d4e5f6-a7b8-4c9d-8e0f-1a2b3c4d5e6f",
+      "taskName": "Weekly disk cleanup",
+      "clientId": "77c5d95d-1a92-4205-aec2-eb63037f8bde",
+      "siteId": "2f6c1a4e-8b9d-4e3f-a1c2-b3d4e5f60718",
+      "endpointId": "ed836aaa-a879-4456-964e-ccb96274fa15",
+      "hostname": "ACME-SRV01",
+      "trigger": "schedule",
+      "initiatedBy": "Fleeto (schedule)",
+      "checkName": null,
+      "runCreatedAt": "2026-11-23T02:00:00Z",
+      "dueAt": "2026-11-23T02:03:41Z",
+      "startedAt": "2026-11-23T02:03:42Z",
+      "finishedAt": "2026-11-23T02:09:15Z",
+      "status": "failed",
+      "hasWarnings": false,
+      "reason": null,
+      "retrying": false,
+      "stepCount": 3,
+      "steps": [
+        {
+          "position": 1,
+          "name": "Clear temp folders",
+          "kind": "script",
+          "jobId": "5d4c3b2a-1908-4f7e-a6d5-c4b3a2918070",
+          "state": "succeeded",
+          "result": "exited",
+          "exitCode": 0,
+          "exitStatus": "success",
+          "passed": true,
+          "problem": null,
+          "startedAt": "2026-11-23T02:03:42Z",
+          "completedAt": "2026-11-23T02:04:10Z",
+          "outputBytes": 318,
+          "attempt": 1,
+          "earlierJobIds": []
+        },
+        {
+          "position": 2,
+          "name": "Restart",
+          "kind": "restart",
+          "jobId": "6e5d4c3b-2a19-4f8e-b7d6-c5b4a3928170",
+          "state": "succeeded",
+          "result": "exited",
+          "exitCode": 0,
+          "exitStatus": null,
+          "passed": true,
+          "problem": null,
+          "startedAt": "2026-11-23T02:04:11Z",
+          "completedAt": "2026-11-23T02:07:30Z",
+          "outputBytes": 0,
+          "attempt": 1,
+          "earlierJobIds": []
+        },
+        {
+          "position": 3,
+          "name": "Check free space",
+          "kind": "script",
+          "jobId": "7f6e5d4c-3b2a-4190-8e7f-d6c5b4a39281",
+          "state": "failed",
+          "result": "exited",
+          "exitCode": 2,
+          "exitStatus": "error",
+          "passed": false,
+          "problem": null,
+          "startedAt": "2026-11-23T02:08:01Z",
+          "completedAt": "2026-11-23T02:09:15Z",
+          "outputBytes": 96,
+          "attempt": 1,
+          "earlierJobIds": []
+        }
+      ]
+    }
+  ],
+  "nextCursor": "djF8NjM5MDAwMDAwMDAwMDAwMDAwOjBiOWM4ZDdlfGVkODM2YWFh"
+}
+```
+
+Good to know:
+
+- A result that is `pending` or `running` changes later. To keep a copy up to date, read a window that overlaps your
+  last read (for example `from` one day before your previous read) and replace what you stored by `runId` +
+  `endpointId`, the unique key of a result.
+- `steps` holds only the steps that have a job, in order. A step that has not started, or that the run never reached
+  because an earlier step failed, is not in it; `stepCount` says how many steps the task has now.
+- A technician can run one step of a run again (from Fleeto 0.9.0). The item then shows the newest job of that step,
+  with `attempt` 2 or higher and the jobs of earlier attempts in `earlierJobIds`; the run is judged on the newest
+  attempt of every step, so its `status` can change from `failed` to `succeeded`.
+- Results are kept as long as jobs (the job retention of the instance); older runs leave the list.
+
 ## 9. Objects
 
 Every field is always present. "Nullable" means the value can be `null`.
@@ -982,6 +1128,52 @@ not read them.
 | `createdAt` | timestamp | |
 | `editedAt` | timestamp, nullable | When the author last changed it. |
 
+### TaskResult
+
+One endpoint of one run of a task.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `runId` | UUID | The run. With `endpointId` the unique key of a result. A run of a task linked to several clients has a run per client. |
+| `taskId` | UUID | |
+| `taskName` | string | The name of the task now. |
+| `clientId` | UUID | |
+| `siteId` | UUID | The site the endpoint is in now. |
+| `endpointId` | UUID | |
+| `hostname` | string | The hostname of the endpoint now. |
+| `trigger` | [task trigger](#task-trigger) | Why the run started. |
+| `initiatedBy` | string | The user who started it by hand, or `Fleeto (schedule)` and the like for a run Fleeto started. Show it; do not parse it. |
+| `checkName` | string, nullable | For `trigger` `check_alert`: the check whose alert started the run. |
+| `runCreatedAt` | timestamp | When the run was created. |
+| `dueAt` | timestamp | When this endpoint was due to start: the run plus its share of the random delay of the task. |
+| `startedAt` | timestamp, nullable | When the first step started on the endpoint. |
+| `finishedAt` | timestamp, nullable | When the run ended on the endpoint: the last step ended, or a step stopped the run. |
+| `status` | [task result status](#task-result-status) | |
+| `hasWarnings` | boolean | A step ended with an exit code its script counts as a warning. With `status` `succeeded`: succeeded with warnings. |
+| `reason` | string, nullable | Why the endpoint was skipped (`status` `skipped`), in plain English. Show it; do not parse it. |
+| `retrying` | boolean | A technician asked to run a step of this run again on the endpoint, and that has not ended yet. |
+| `stepCount` | integer | How many steps the task has now. |
+| `steps` | array of [TaskStepResult](#taskstepresult) | The steps that have a job, in order of `position`. |
+
+### TaskStepResult
+
+| Field | Type | Meaning |
+|---|---|---|
+| `position` | integer | 1 for the first step of the task. |
+| `name` | string | The script name, or `Restart`. |
+| `kind` | [task step kind](#task-step-kind) | |
+| `jobId` | UUID | The job of the newest attempt. Its output: `GET /api/v1/jobs/{jobId}/output`; the whole job: `GET /api/v1/jobs/{jobId}`. |
+| `state` | [job state](#job-state) | |
+| `result` | [job result](#job-result), nullable | |
+| `exitCode` | integer, nullable | |
+| `exitStatus` | [exit status](#exit-status), nullable | |
+| `passed` | boolean | The step passed by the rules of the task and the exit codes of its script. A failed step the task may go on after is `false`. |
+| `problem` | string, nullable | Why the job was refused or could not run. |
+| `startedAt`, `completedAt` | timestamp, nullable | |
+| `outputBytes` | integer | Output bytes stored for the job, both streams. |
+| `attempt` | integer | 1 for the first job of the step, 2 for the first time it ran again, and so on. |
+| `earlierJobIds` | array of UUID | The jobs of earlier attempts, oldest first. Empty for the first attempt. |
+
 ## 10. Values of enumerations
 
 ### Endpoint class
@@ -1151,7 +1343,29 @@ error; a code it does not list is `success` for 0 and `error` for any other code
 
 `powershell`, `batch` (Windows), `sh`, `bash` (Linux).
 
-## 11. Example: a full synchronisation
+### Task trigger
+
+`schedule` (the schedule of the task), `check_alert` (an alert of a chosen check opened on the endpoint), `managed` (the
+endpoint was switched to managed), `manual` (a user started it by hand).
+
+### Task result status
+
+| Value | Meaning |
+|---|---|
+| `pending` | Not started yet: the random delay has not passed, the endpoint is offline, or it waits for an earlier run. |
+| `running` | Started; a step is busy or the next step is about to start. |
+| `succeeded` | Every step passed (see `hasWarnings`). |
+| `failed` | A step failed: the run stopped there, or went on past a step that may fail and ended with that failure. |
+| `cancelled` | A job of the run was cancelled, so the run stopped there. |
+| `skipped` | The endpoint was left out of the run; `reason` says why. |
+
+### Task step kind
+
+`script` (runs a library script), `restart` (restarts the endpoint and waits until its agent is back).
+
+## 11. Examples
+
+### A full synchronisation
 
 Pull all endpoints with their open alerts into another tool. Python with `requests`; the same pattern works in any
 language.
@@ -1199,6 +1413,37 @@ With curl:
 curl -sS -H "Authorization: Bearer $FLEETO_API_KEY" "https://rmm.customer.example/api/v1/endpoints?online=false&limit=200"
 ```
 
+### Task results per client, site or endpoint
+
+The failed task runs of the last 7 days per client, with the output of the step that failed. Uses `get` and `pages`
+from the example above.
+
+```python
+from datetime import datetime, timedelta, timezone
+
+since = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+for client in pages("/clients"):
+    for result in pages("/task-results", clientId=client["id"], status="failed", **{"from": since}):
+        print(client["code"], result["hostname"], result["taskName"], result["dueAt"])
+        failed = next((s for s in result["steps"] if not s["passed"]), None)
+        if failed:
+            output = get(f"/jobs/{failed['jobId']}/output")
+            print("  step", failed["position"], failed["name"], "exit code", failed["exitCode"])
+            print("  stdout:", output["stdout"][-500:])
+            print("  stderr:", output["stderr"][-500:])
+
+# Per site or per endpoint: the same list with another filter.
+site_history = list(pages("/task-results", siteId="2f6c1a4e-8b9d-4e3f-a1c2-b3d4e5f60718"))
+endpoint_history = list(pages("/task-results", endpointId="ed836aaa-a879-4456-964e-ccb96274fa15"))
+```
+
+With curl:
+
+```bash
+curl -sS -H "Authorization: Bearer $FLEETO_API_KEY" \
+  "https://rmm.customer.example/api/v1/task-results?endpointId=ed836aaa-a879-4456-964e-ccb96274fa15&from=2026-11-01T00:00:00Z"
+```
+
 ## 12. OpenAPI document
 
 `GET /api/v1/openapi.json` returns an OpenAPI 3.1 document of this API, generated by the instance from its code. It
@@ -1210,6 +1455,7 @@ values and examples.
 
 | Fleeto | API | Change |
 |---|---|---|
+| 0.9.0 | v1 | `GET /api/v1/task-results`: the results of tasks per client, site, endpoint, task or run, with their steps (additive). |
 | 0.6.0 | v1 | `desktop` on Inventory (additive). |
 | 0.6.0 | v1 | `tags` on Client and the `tag` filter on `GET /api/v1/clients` (additive). |
 | 0.2.2 | v1 | `runAsChosenAccount` on Job: the user the technician chose for a `logged_on_user` job (additive). |

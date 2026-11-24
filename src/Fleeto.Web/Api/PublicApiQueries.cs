@@ -17,6 +17,9 @@ public sealed record ApiAlertFilter(AlertStateFilter State, AlertSeverity? Sever
 
 public sealed record ApiJobFilter(Guid? ClientId, Guid? EndpointId, JobState? State);
 
+public sealed record ApiTaskResultFilter(Guid? ClientId, Guid? SiteId, Guid? EndpointId, Guid? TaskId, Guid? RunId, TaskHistoryStatus? Status,
+    DateTime? From, DateTime? To);
+
 /// <summary>A read of something that exists only on managed endpoints: <see cref="Managed"/> false means the endpoint is agent-only.</summary>
 public sealed record ManagedRead<T>(bool Managed, T? Value);
 
@@ -37,10 +40,11 @@ public sealed class PublicApiQueries
     private readonly EndpointCheckService _checks;
     private readonly JobService _jobs;
     private readonly PatchService _patches;
+    private readonly TaskService _tasks;
     private readonly TimeProvider _time;
 
     public PublicApiQueries(IFleetoDbContextFactory dbFactory, LicenseService licenses, EndpointService endpoints, EndpointCheckService checks,
-        JobService jobs, PatchService patches, TimeProvider time)
+        JobService jobs, PatchService patches, TaskService tasks, TimeProvider time)
     {
         _dbFactory = dbFactory;
         _licenses = licenses;
@@ -48,6 +52,7 @@ public sealed class PublicApiQueries
         _checks = checks;
         _jobs = jobs;
         _patches = patches;
+        _tasks = tasks;
         _time = time;
     }
 
@@ -545,6 +550,54 @@ public sealed class PublicApiQueries
             UtcOrNull(j.DeliveredAt), UtcOrNull(j.StartedAt), UtcOrNull(j.CompletedAt), new ApiJobOutputSummary(Map(j.OutputState), j.OutputTruncated,
                 j.ReceivedOutputBytes));
 
+    // Task results
+
+    /// <summary>
+    /// One item per endpoint per run of a task, newest due first (0.9.0). The UI service decides the steps, so a step that ran again is judged
+    /// on its newest job exactly as the Tasks tab shows it. The output of a step is read through its job.
+    /// </summary>
+    public async Task<ApiPage<ApiTaskResult>> ListTaskResultsAsync(Caller caller, ApiTaskResultFilter filter, string? cursor, int limit,
+        CancellationToken cancellationToken)
+    {
+        TaskHistoryPosition? after = null;
+        if (cursor is not null)
+        {
+            after = DecodeTaskCursor(cursor);
+        }
+
+        var items = await _tasks.ListHistoryAsync(caller, new TaskHistoryFilter(filter.ClientId, filter.SiteId, filter.EndpointId, filter.TaskId,
+            filter.RunId, filter.Status, filter.From, filter.To), after, limit + 1, cancellationToken);
+        return Page(items.Select(ToApi).ToList(), limit, r => EncodeTaskCursor(new TaskHistoryPosition(r.DueAt, r.RunId, r.EndpointId)));
+    }
+
+    // The order has three keys; the sort value of the cursor carries the first two.
+    internal static string EncodeTaskCursor(TaskHistoryPosition position) =>
+        ApiCursor.Encode(FormattableString.Invariant($"{position.DueAt.Ticks}:{position.RunId:N}"), position.EndpointId);
+
+    private static TaskHistoryPosition DecodeTaskCursor(string cursor)
+    {
+        ApiCursor.Require(cursor, out string value, out var endpointId);
+        var parts = value.Split(':');
+        if (parts.Length != 2 || !long.TryParse(parts[0], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var ticks) ||
+            ticks < DateTime.MinValue.Ticks || ticks > DateTime.MaxValue.Ticks || !Guid.TryParseExact(parts[1], "N", out var runId))
+        {
+            throw new InvalidCursorException();
+        }
+
+        return new TaskHistoryPosition(new DateTime(ticks, DateTimeKind.Utc), runId, endpointId);
+    }
+
+    private static ApiTaskResult ToApi(TaskHistoryItem item)
+    {
+        var t = item.Target;
+        return new ApiTaskResult(item.RunId, item.TaskId, item.TaskName, item.ClientId, item.SiteId, t.EndpointId, t.Hostname, Map(item.Trigger),
+            item.InitiatedByName, item.CheckName, Utc(item.RunCreatedAt), Utc(t.DueAt), UtcOrNull(t.StartedAt), UtcOrNull(t.FinishedAt), Map(item.Status),
+            t.HasWarning, t.Reason, t.Retrying, t.StepCount,
+            [.. t.Steps.Select(s => new ApiTaskStepResult(s.Position, s.Name, Map(s.Kind), s.JobId, Map(s.State), s.Result is { } result ? Map(result) : null,
+                s.ExitCode, s.ExitStatus is { } exitStatus ? Map(exitStatus) : null, s.Passed, s.Problem, UtcOrNull(s.StartedAt), UtcOrNull(s.CompletedAt),
+                s.OutputBytes, s.Attempt, s.EarlierJobIds))]);
+    }
+
     // Shared
 
     private async Task<bool> EndpointExistsAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken)
@@ -753,6 +806,33 @@ public sealed class PublicApiQueries
         ScriptLanguage.Batch => ApiScriptLanguage.Batch,
         ScriptLanguage.Shell => ApiScriptLanguage.Shell,
         ScriptLanguage.Bash => ApiScriptLanguage.Bash,
+        _ => throw Unmapped(value)
+    };
+
+    internal static ApiTaskTrigger Map(TaskTrigger value) => value switch
+    {
+        TaskTrigger.Schedule => ApiTaskTrigger.Schedule,
+        TaskTrigger.CheckAlert => ApiTaskTrigger.CheckAlert,
+        TaskTrigger.Managed => ApiTaskTrigger.Managed,
+        TaskTrigger.Manual => ApiTaskTrigger.Manual,
+        _ => throw Unmapped(value)
+    };
+
+    internal static ApiTaskResultStatus Map(TaskHistoryStatus value) => value switch
+    {
+        TaskHistoryStatus.Pending => ApiTaskResultStatus.Pending,
+        TaskHistoryStatus.Running => ApiTaskResultStatus.Running,
+        TaskHistoryStatus.Succeeded => ApiTaskResultStatus.Succeeded,
+        TaskHistoryStatus.Failed => ApiTaskResultStatus.Failed,
+        TaskHistoryStatus.Cancelled => ApiTaskResultStatus.Cancelled,
+        TaskHistoryStatus.Skipped => ApiTaskResultStatus.Skipped,
+        _ => throw Unmapped(value)
+    };
+
+    internal static ApiTaskStepKind Map(TaskStepKind value) => value switch
+    {
+        TaskStepKind.Script => ApiTaskStepKind.Script,
+        TaskStepKind.Restart => ApiTaskStepKind.Restart,
         _ => throw Unmapped(value)
     };
 

@@ -467,6 +467,10 @@ public sealed class PublicApiTests
         foreach (var value in Enum.GetValues<PatchSeverity>()) PublicApiQueries.Map(value);
         foreach (var value in Enum.GetValues<PatchCoverage>()) PublicApiQueries.Map(value);
         foreach (var value in Enum.GetValues<TagColor>()) PublicApiQueries.Map(value);
+        foreach (var value in Enum.GetValues<TaskTrigger>()) PublicApiQueries.Map(value);
+        foreach (var value in Enum.GetValues<TaskHistoryStatus>()) PublicApiQueries.Map(value);
+        foreach (var value in Enum.GetValues<TaskStepKind>()) PublicApiQueries.Map(value);
+        Assert.Equal(Enum.GetValues<TaskHistoryStatus>().Length, PublicApiEndpoints.TaskResultStatusValues.Count);
         foreach (var value in Enum.GetValues<MaintenanceSource>())
         {
             PublicApiQueries.Map(new EffectiveMaintenance(value, DateTime.UtcNow, null, null, null));
@@ -504,6 +508,115 @@ public sealed class PublicApiTests
         Assert.Equal("logged_on_user", json.GetProperty("runAs").GetString());
         Assert.Equal(job.RunAsAccount, json.GetProperty("runAsAccount").GetString());
         Assert.Equal(job.RunAsChosenAccount, json.GetProperty("runAsChosenAccount").GetString());
+    }
+
+    [Fact]
+    public async Task Task_results_filter_on_client_site_and_endpoint_and_never_show_another_client()
+    {
+        var database = _fixture.Database;
+        await database.LoadTestLicenseAsync(1000);
+        var clientA = await database.CreateClientAsync();
+        var clientB = await database.CreateClientAsync();
+        var siteA1 = await database.CreateSiteAsync(clientA.Id);
+        var siteA2 = await database.CreateSiteAsync(clientA.Id, "Agent Only");
+        var siteB = await database.CreateSiteAsync(clientB.Id);
+        var endpointA1 = await database.CreateEndpointAsync(siteA1, EndpointTier.Managed, "TR-A1");
+        var endpointA2 = await database.CreateEndpointAsync(siteA2, EndpointTier.Managed, "TR-A2");
+        var endpointB = await database.CreateEndpointAsync(siteB, EndpointTier.Managed, "TR-B");
+        var (taskA, scriptA, versionA) = await database.CreateTaskAsync(siteA1, clientId: clientA.Id);
+        var stepA = (await database.AddTaskStepsAsync(taskA, new AutomationTaskStep { Kind = TaskStepKind.Script, ScriptId = scriptA.Id }))[0];
+        var (taskB, scriptB, versionB) = await database.CreateTaskAsync(siteB, clientId: clientB.Id);
+        var stepB = (await database.AddTaskStepsAsync(taskB, new AutomationTaskStep { Kind = TaskStepKind.Script, ScriptId = scriptB.Id }))[0];
+
+        var succeeded = await CreateTaskResultAsync(taskA, stepA, versionA, endpointA1, Now.AddMinutes(-30), TaskTargetOutcome.Succeeded);
+        var failed = await CreateTaskResultAsync(taskA, stepA, versionA, endpointA2, Now.AddMinutes(-20), TaskTargetOutcome.Failed);
+        var running = await CreateTaskResultAsync(taskA, stepA, versionA, endpointA1, Now.AddMinutes(-10), null);
+        var other = await CreateTaskResultAsync(taskB, stepB, versionB, endpointB, Now.AddMinutes(-5), TaskTargetOutcome.Succeeded);
+
+        var (_, token) = await CreateKeyAsync(clientA.Id);
+        static List<string> Runs(JsonElement page) => page.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("runId").GetString()!).ToList();
+
+        // Newest due first; client B is invisible, also when asked for by id.
+        Assert.Equal([running.ToString(), failed.ToString(), succeeded.ToString()], Runs(await JsonAsync(await GetAsync(token, "/api/v1/task-results"))));
+        Assert.Empty(Runs(await JsonAsync(await GetAsync(token, $"/api/v1/task-results?clientId={clientB.Id}"))));
+        Assert.Empty(Runs(await JsonAsync(await GetAsync(token, $"/api/v1/task-results?endpointId={endpointB.Id}"))));
+        Assert.Empty(Runs(await JsonAsync(await GetAsync(token, $"/api/v1/task-results?runId={other}"))));
+
+        // Per client, site and endpoint, and on status.
+        Assert.Equal(3, Runs(await JsonAsync(await GetAsync(token, $"/api/v1/task-results?clientId={clientA.Id}"))).Count);
+        Assert.Equal([failed.ToString()], Runs(await JsonAsync(await GetAsync(token, $"/api/v1/task-results?siteId={siteA2.Id}"))));
+        Assert.Equal([running.ToString(), succeeded.ToString()], Runs(await JsonAsync(await GetAsync(token, $"/api/v1/task-results?endpointId={endpointA1.Id}"))));
+        Assert.Equal([running.ToString()], Runs(await JsonAsync(await GetAsync(token, "/api/v1/task-results?status=running"))));
+        Assert.Equal([failed.ToString()], Runs(await JsonAsync(await GetAsync(token, "/api/v1/task-results?status=failed"))));
+        var from = Uri.EscapeDataString(Now.AddMinutes(-25).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture));
+        var to = Uri.EscapeDataString(Now.AddMinutes(-15).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal([failed.ToString()], Runs(await JsonAsync(await GetAsync(token, $"/api/v1/task-results?from={from}&to={to}"))));
+
+        // The documented shape, with the step and its job.
+        var item = (await JsonAsync(await GetAsync(token, $"/api/v1/task-results?runId={failed}"))).GetProperty("items")[0];
+        Assert.Equal(taskA.Name, item.GetProperty("taskName").GetString());
+        Assert.Equal(siteA2.Id.ToString(), item.GetProperty("siteId").GetString());
+        Assert.Equal("TR-A2", item.GetProperty("hostname").GetString());
+        Assert.Equal("failed", item.GetProperty("status").GetString());
+        Assert.Equal("schedule", item.GetProperty("trigger").GetString());
+        var step = item.GetProperty("steps")[0];
+        Assert.Equal(1, step.GetProperty("position").GetInt32());
+        Assert.Equal("script", step.GetProperty("kind").GetString());
+        Assert.Equal("failed", step.GetProperty("state").GetString());
+        Assert.Equal(1, step.GetProperty("exitCode").GetInt32());
+        Assert.False(step.GetProperty("passed").GetBoolean());
+        Assert.Equal(HttpStatusCode.OK, (await GetAsync(token, $"/api/v1/jobs/{step.GetProperty("jobId").GetString()}/output")).StatusCode);
+
+        // Keyset paging over the three results of client A.
+        var first = await JsonAsync(await GetAsync(token, "/api/v1/task-results?limit=2"));
+        Assert.Equal([running.ToString(), failed.ToString()], Runs(first));
+        var cursor = first.GetProperty("nextCursor").GetString()!;
+        var second = await JsonAsync(await GetAsync(token, $"/api/v1/task-results?limit=2&cursor={Uri.EscapeDataString(cursor)}"));
+        Assert.Equal([succeeded.ToString()], Runs(second));
+        Assert.Equal(JsonValueKind.Null, second.GetProperty("nextCursor").ValueKind);
+
+        // Invalid parameters; a cursor of another list is refused rather than restarting.
+        var endpointCursor = (await JsonAsync(await GetAsync(token, "/api/v1/endpoints?limit=1"))).GetProperty("nextCursor").GetString()!;
+        foreach (var query in new[]
+                 {
+                     "status=done", "from=yesterday", "from=2026-11-01T00:00:00", "from=2026-11-02T00:00:00Z&to=2026-11-01T00:00:00Z", "limit=0",
+                     "cursor=not-a-cursor", $"cursor={Uri.EscapeDataString(endpointCursor)}", "taskId=not-a-uuid"
+                 })
+        {
+            await AssertProblemAsync(await GetAsync(token, $"/api/v1/task-results?{query}"), HttpStatusCode.BadRequest, ApiProblems.InvalidParameter);
+        }
+    }
+
+    /// <summary>A run of a task of one step on one endpoint, as the workers leave it: ended with this outcome, or still running when null.</summary>
+    private async Task<Guid> CreateTaskResultAsync(AutomationTask task, AutomationTaskStep step, ScriptVersion version, Endpoint endpoint, DateTime dueAt,
+        TaskTargetOutcome? outcome)
+    {
+        await using var db = _fixture.Database.DbFactory.CreateSystem();
+        var run = new AutomationTaskRun
+        {
+            Id = Guid.NewGuid(), AutomationTaskId = task.Id, ClientId = endpoint.ClientId, Trigger = TaskTrigger.Schedule, OccurrenceAt = dueAt,
+            InitiatedByName = "Fleeto (schedule)", CreatedAt = dueAt
+        };
+        db.AutomationTaskRuns.Add(run);
+        var job = new Job
+        {
+            Id = Guid.NewGuid(), ClientId = endpoint.ClientId, EndpointId = endpoint.Id, BatchId = run.Id, Type = JobType.Script, ScriptId = step.ScriptId,
+            ScriptVersionId = version.Id, ScriptName = "Inventory", ScriptVersionNumber = 1, Language = ScriptLanguage.PowerShell, ScriptSha256 = version.Sha256,
+            TimeoutSeconds = 600, MaxOutputBytes = 1024 * 1024, TaskId = task.Id, TaskRunId = run.Id, TaskStepId = step.Id, CreatedAt = dueAt,
+            ValidUntil = dueAt.AddHours(1), InitiatedByUserId = AutomationTasks.AutomaticInitiator, InitiatedByName = "Fleeto (schedule)",
+            State = outcome switch { TaskTargetOutcome.Succeeded => JobState.Succeeded, TaskTargetOutcome.Failed => JobState.Failed, _ => JobState.Running },
+            Result = outcome is null ? null : JobResult.Exited, ExitCode = outcome switch { TaskTargetOutcome.Succeeded => 0, TaskTargetOutcome.Failed => 1, _ => null },
+            StartedAt = dueAt, CompletedAt = outcome is null ? null : dueAt.AddMinutes(1), Signature = new byte[64]
+        };
+        db.Jobs.Add(job);
+        await db.SaveChangesAsync();
+        db.AutomationTaskRunTargets.Add(new AutomationTaskRunTarget
+        {
+            RunId = run.Id, EndpointId = endpoint.Id, ClientId = endpoint.ClientId, AutomationTaskId = task.Id, DueAt = dueAt, ValidUntil = dueAt.AddHours(1),
+            State = TaskTargetState.Started, JobId = job.Id, Outcome = outcome, FinishedAt = outcome is null ? null : dueAt.AddMinutes(1), UpdatedAt = dueAt
+        });
+        await db.SaveChangesAsync();
+        return run.Id;
     }
 
     private async Task<Job> CreateJobAsync(Endpoint endpoint, JobRunAs runAs = JobRunAs.Service, string? runAsAccount = null)

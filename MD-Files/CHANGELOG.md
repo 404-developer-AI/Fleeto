@@ -84,6 +84,11 @@ When a third released version is added, the oldest entry moves to the top of
   line. Script output can hold personal data: it is shown only to users who see the checks of the endpoint, never put in an alert or
   log, and every time it is shown is in the audit log, without the output.
 
+- The results of tasks in the public API (0.9.0): `GET /api/v1/task-results` lists one item per endpoint per run of a task, newest
+  first, with why it started, where it stands or how it ended, and per step its job, state, exit code and attempt. It filters on
+  client, site, endpoint, task, run, status and a period, pages with a cursor and follows the client scope of the API key like every
+  other list; the output of a step is read through its job. `API.md` documents it with a quick start for integrators.
+
 ### Changed
 
 - Only a patch policy patched by Action1 becomes an Action1 automation.

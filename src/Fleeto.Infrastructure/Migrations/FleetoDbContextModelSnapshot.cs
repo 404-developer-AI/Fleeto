@@ -900,9 +900,18 @@ namespace Fleeto.Infrastructure.Migrations
 
                     b.HasIndex("RunId", "ClientId");
 
+                    b.HasIndex("DueAt", "RunId", "EndpointId")
+                        .HasDatabaseName("IX_AutomationTaskRunTargets_History");
+
                     b.HasIndex("EndpointId", "AutomationTaskId", "State")
                         .HasDatabaseName("IX_AutomationTaskRunTargets_Busy")
                         .HasFilter("\"State\" = 'Started' AND \"FinishedAt\" IS NULL");
+
+                    b.HasIndex("EndpointId", "DueAt", "RunId")
+                        .HasDatabaseName("IX_AutomationTaskRunTargets_EndpointHistory");
+
+                    b.HasIndex("ClientId", "DueAt", "RunId", "EndpointId")
+                        .HasDatabaseName("IX_AutomationTaskRunTargets_ClientHistory");
 
                     b.ToTable("AutomationTaskRunTargets");
                 });

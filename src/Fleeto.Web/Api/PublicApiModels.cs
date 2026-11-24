@@ -391,3 +391,73 @@ public sealed record ApiJobOutput(Guid JobId, ApiJobOutputState State, string St
     bool Truncated);
 
 public sealed record ApiNote(Guid Id, Guid EndpointId, string AuthorName, string Body, DateTime CreatedAt, DateTime? EditedAt);
+
+// Task results (0.9.0): one item per endpoint per run of a task.
+
+/// <summary>Why a run of a task started.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ApiTaskTrigger>))]
+public enum ApiTaskTrigger
+{
+    [JsonStringEnumMemberName("schedule")] Schedule,
+    [JsonStringEnumMemberName("check_alert")] CheckAlert,
+    [JsonStringEnumMemberName("managed")] Managed,
+    [JsonStringEnumMemberName("manual")] Manual
+}
+
+/// <summary>Where a run of a task stands on one endpoint, or how it ended there.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ApiTaskResultStatus>))]
+public enum ApiTaskResultStatus
+{
+    [JsonStringEnumMemberName("pending")] Pending,
+    [JsonStringEnumMemberName("running")] Running,
+    [JsonStringEnumMemberName("succeeded")] Succeeded,
+    [JsonStringEnumMemberName("failed")] Failed,
+    [JsonStringEnumMemberName("cancelled")] Cancelled,
+    [JsonStringEnumMemberName("skipped")] Skipped
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<ApiTaskStepKind>))]
+public enum ApiTaskStepKind
+{
+    [JsonStringEnumMemberName("script")] Script,
+    [JsonStringEnumMemberName("restart")] Restart
+}
+
+public sealed record ApiTaskStepResult(
+    int Position,
+    string Name,
+    ApiTaskStepKind Kind,
+    Guid JobId,
+    ApiJobState State,
+    ApiJobResult? Result,
+    int? ExitCode,
+    ApiExitStatus? ExitStatus,
+    bool Passed,
+    string? Problem,
+    DateTime? StartedAt,
+    DateTime? CompletedAt,
+    long OutputBytes,
+    int Attempt,
+    IReadOnlyList<Guid> EarlierJobIds);
+
+public sealed record ApiTaskResult(
+    Guid RunId,
+    Guid TaskId,
+    string TaskName,
+    Guid ClientId,
+    Guid SiteId,
+    Guid EndpointId,
+    string Hostname,
+    ApiTaskTrigger Trigger,
+    string InitiatedBy,
+    string? CheckName,
+    DateTime RunCreatedAt,
+    DateTime DueAt,
+    DateTime? StartedAt,
+    DateTime? FinishedAt,
+    ApiTaskResultStatus Status,
+    bool HasWarnings,
+    string? Reason,
+    bool Retrying,
+    int StepCount,
+    IReadOnlyList<ApiTaskStepResult> Steps);

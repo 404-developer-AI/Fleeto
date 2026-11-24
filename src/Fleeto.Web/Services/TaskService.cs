@@ -149,6 +149,43 @@ public sealed record EndpointTasksView(IReadOnlyList<EndpointTaskItem> Tasks, IR
     public IReadOnlyDictionary<Guid, AlertView> Alerts { get; init; } = new Dictionary<Guid, AlertView>();
 }
 
+/// <summary>Where one endpoint of a run stands, as a filter of the task history (0.9.0, public API).</summary>
+public enum TaskHistoryStatus
+{
+    Pending,
+    Running,
+    Succeeded,
+    Failed,
+    Cancelled,
+    Skipped
+}
+
+/// <summary>A filter of the task history: every value narrows it; null leaves it open. <see cref="From"/> and <see cref="To"/> bound the due time.</summary>
+public sealed record TaskHistoryFilter(Guid? ClientId = null, Guid? SiteId = null, Guid? EndpointId = null, Guid? TaskId = null, Guid? RunId = null,
+    TaskHistoryStatus? Status = null, DateTime? From = null, DateTime? To = null);
+
+/// <summary>Where a page of the task history goes on: after this target, in the order newest due first.</summary>
+public readonly record struct TaskHistoryPosition(DateTime DueAt, Guid RunId, Guid EndpointId);
+
+/// <summary>One endpoint of one run of a task, with its run, task, site and steps (0.9.0, public API).</summary>
+public sealed record TaskHistoryItem(Guid RunId, Guid TaskId, string TaskName, Guid ClientId, Guid SiteId, TaskTrigger Trigger, string InitiatedByName,
+    string? CheckName, DateTime RunCreatedAt, TaskRunTargetItem Target)
+{
+    /// <summary>The status of the filter this item matches.</summary>
+    public TaskHistoryStatus Status => Target.State switch
+    {
+        TaskTargetState.Pending => TaskHistoryStatus.Pending,
+        TaskTargetState.Skipped => TaskHistoryStatus.Skipped,
+        _ => Target.Outcome switch
+        {
+            TaskTargetOutcome.Succeeded => TaskHistoryStatus.Succeeded,
+            TaskTargetOutcome.Failed => TaskHistoryStatus.Failed,
+            TaskTargetOutcome.Cancelled => TaskHistoryStatus.Cancelled,
+            _ => TaskHistoryStatus.Running
+        }
+    };
+}
+
 /// <summary>The clients, sites and endpoints a task can be linked to, within the caller's groups.</summary>
 public sealed record TaskLinkChoices(IReadOnlyList<TaskLinkView> Clients, IReadOnlyList<TaskLinkView> Sites, IReadOnlyList<TaskLinkView> Endpoints);
 
@@ -1102,6 +1139,98 @@ public sealed class TaskService
 
         var rows = await LoadTargetsAsync(db, runId, cancellationToken);
         return await WithStepsAsync(db, rows.Select(r => (runId, run.AutomationTaskId, r)).ToList(), true, cancellationToken);
+    }
+
+    /// <summary>
+    /// The history of tasks across clients, sites and endpoints (0.9.0, public API): one item per endpoint per run the caller can see, newest
+    /// due first, keyset on (DueAt, RunId, EndpointId), at most <paramref name="take"/> items after <paramref name="after"/>. The site is the
+    /// endpoint's site now. Runs of agent-only endpoints stay readable: they are history, like jobs.
+    /// </summary>
+    public async Task<IReadOnlyList<TaskHistoryItem>> ListHistoryAsync(Caller caller, TaskHistoryFilter filter, TaskHistoryPosition? after, int take,
+        CancellationToken cancellationToken = default)
+    {
+        caller.Ensure(Permissions.TasksView);
+        await using var db = _dbFactory.Create(caller.Scope);
+        var targets = db.AutomationTaskRunTargets.AsNoTracking();
+        if (filter.ClientId is { } clientId)
+        {
+            targets = targets.Where(t => t.ClientId == clientId);
+        }
+
+        if (filter.EndpointId is { } endpointId)
+        {
+            targets = targets.Where(t => t.EndpointId == endpointId);
+        }
+
+        if (filter.TaskId is { } taskId)
+        {
+            targets = targets.Where(t => t.AutomationTaskId == taskId);
+        }
+
+        if (filter.RunId is { } runId)
+        {
+            targets = targets.Where(t => t.RunId == runId);
+        }
+
+        if (filter.From is { } from)
+        {
+            targets = targets.Where(t => t.DueAt >= from);
+        }
+
+        if (filter.To is { } to)
+        {
+            targets = targets.Where(t => t.DueAt < to);
+        }
+
+        targets = filter.Status switch
+        {
+            TaskHistoryStatus.Pending => targets.Where(t => t.State == TaskTargetState.Pending),
+            TaskHistoryStatus.Skipped => targets.Where(t => t.State == TaskTargetState.Skipped),
+            TaskHistoryStatus.Running => targets.Where(t => t.State == TaskTargetState.Started && t.Outcome == null),
+            TaskHistoryStatus.Succeeded => targets.Where(t => t.State == TaskTargetState.Started && t.Outcome == TaskTargetOutcome.Succeeded),
+            TaskHistoryStatus.Failed => targets.Where(t => t.State == TaskTargetState.Started && t.Outcome == TaskTargetOutcome.Failed),
+            TaskHistoryStatus.Cancelled => targets.Where(t => t.State == TaskTargetState.Started && t.Outcome == TaskTargetOutcome.Cancelled),
+            _ => targets
+        };
+
+        if (after is { } position)
+        {
+            targets = targets.Where(t => EF.Functions.LessThan(ValueTuple.Create(t.DueAt, t.RunId, t.EndpointId),
+                ValueTuple.Create(position.DueAt, position.RunId, position.EndpointId)));
+        }
+
+        // Never IgnoreQueryFilters in this query: in EF Core it drops the client scope of every table of the query, not only of one.
+        var query =
+            from t in targets
+            join e in db.Endpoints on t.EndpointId equals e.Id
+            join r in db.AutomationTaskRuns on t.RunId equals r.Id
+            join j in db.Jobs on t.JobId equals j.Id into jobs
+            from j in jobs.DefaultIfEmpty()
+            select new { Target = t, e.SiteId, e.Hostname, Run = r, Job = j };
+        if (filter.SiteId is { } siteId)
+        {
+            query = query.Where(x => x.SiteId == siteId);
+        }
+
+        var rows = await query
+            .OrderByDescending(x => x.Target.DueAt).ThenByDescending(x => x.Target.RunId).ThenByDescending(x => x.Target.EndpointId)
+            .Take(Math.Clamp(take, 1, 201))
+            .Select(x => new
+            {
+                x.Run.Id, x.Run.AutomationTaskId, x.Run.ClientId, x.SiteId, x.Run.Trigger, x.Run.InitiatedByName, x.Run.CheckName,
+                x.Run.CreatedAt,
+                Target = new TaskRunTargetItem(x.Target.EndpointId, x.Hostname, x.Target.State, x.Target.DueAt, x.Target.Reason, x.Target.JobId,
+                    (JobState?)x.Job!.State, x.Job.ExitCode, x.Job.RefusalReason ?? x.Job.Error, x.Job.StartedAt, x.Job.CompletedAt, string.Empty,
+                    (long?)x.Job.ReceivedOutputBytes ?? 0, x.Job.Result, x.Target.Outcome, x.Target.FinishedAt, x.Target.HasWarning)
+            })
+            .ToListAsync(cancellationToken);
+        // The names of the tasks of these visible runs, read on their own: a task of a client the caller sees only in part is still named.
+        var taskIds = rows.Select(r => r.AutomationTaskId).Distinct().ToList();
+        var names = await db.AutomationTasks.IgnoreQueryFilters().AsNoTracking().Where(t => taskIds.Contains(t.Id))
+            .ToDictionaryAsync(t => t.Id, t => t.Name, cancellationToken);
+        var withSteps = await WithStepsAsync(db, rows.Select(r => (r.Id, r.AutomationTaskId, r.Target)).ToList(), false, cancellationToken);
+        return rows.Select((r, i) => new TaskHistoryItem(r.Id, r.AutomationTaskId, names.GetValueOrDefault(r.AutomationTaskId, string.Empty), r.ClientId, r.SiteId, r.Trigger, r.InitiatedByName,
+            r.CheckName, r.CreatedAt, withSteps[i])).ToList();
     }
 
     /// <summary>
