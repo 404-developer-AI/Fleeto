@@ -238,6 +238,9 @@ The inventory of 0.1.0 reads dpkg and rpm but sends only name, version and publi
 - **What is compared**: on Ubuntu and Debian the source package with its source version, since their feeds speak in source
   packages; on AlmaLinux each installed binary package with its version against the errata that names it, then grouped by
   source package for display. On AlmaLinux 8 a package of a module stream is only compared with errata of the same stream.
+  AlmaLinux names one CVE in the errata of every minor release that fixed it (`el9_8.4`, and again `el9_9.1` in the next one), so
+  per CVE only the fixes of the minor release of the installed version and of later ones count, and the lowest of those decides; a
+  version without a minor release in its tag (`.el9`) counts as the newest (decided 2026-11-27, found on the production instance).
 - **Index**: per ecosystem and release, per package, the affected ranges and the fixed version of every advisory.
 - **An endpoint is matched** when its inventory changes (the hash changes) and when a feed changes a package it has. A
   feed update recomputes only the endpoints that have a changed package, found through an index of `(release, package)` to

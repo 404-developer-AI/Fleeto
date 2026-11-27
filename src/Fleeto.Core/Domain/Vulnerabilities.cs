@@ -551,16 +551,12 @@ public static partial class Vulnerabilities
             }
 
             var evr = RpmEvr(package);
-            foreach (var record in records(package.Name))
+            var applicable = records(package.Name).Where(r => r.FixedVersion is not null && SameStream(package, r, enabledStreams));
+            foreach (var errata in applicable.GroupBy(r => r.Cve, StringComparer.Ordinal))
             {
-                if (record.FixedVersion is null || !SameStream(package, record, enabledStreams))
+                if (!RpmFixed(evr, errata.Select(r => r.FixedVersion!).ToList()))
                 {
-                    continue;
-                }
-
-                if (PackageVersions.CompareRpm(evr, record.FixedVersion) < 0)
-                {
-                    hits.Add((package, package.Version, record));
+                    hits.AddRange(errata.Where(r => PackageVersions.CompareRpm(evr, r.FixedVersion!) < 0).Select(r => (package, package.Version, r)));
                 }
             }
         }
@@ -576,6 +572,45 @@ public static partial class Vulnerabilities
             })
             .ToList();
     }
+
+    /// <summary>
+    /// Whether an installed rpm version has the fix of a CVE that several errata name. AlmaLinux lists a CVE in the errata of every minor
+    /// branch it was fixed in: once for 9.8 (<c>2.9.13-14.el9_8.4</c>) and again in the rebase of 9.9 (<c>2.9.13-18.el9_9.1</c>), and a
+    /// version of 9.8 sorts below every version of 9.9. Only the fixes of the branch of the installed version and of later branches count,
+    /// and the lowest of those decides: a version of 9.8 at or above the fix of 9.8 is fixed, while a version of 9.5 above the fix of 9.4
+    /// is not (the 9.5 kernel that came out before the backport). A version without a branch (<c>.el9</c>) counts as the newest branch;
+    /// when no fix is of its branch or a later one, the newest fix decides.
+    /// </summary>
+    public static bool RpmFixed(string installed, IReadOnlyCollection<string> fixedVersions)
+    {
+        if (fixedVersions.Count == 0)
+        {
+            return true;
+        }
+
+        var branch = RpmBranch(installed);
+        var candidates = fixedVersions.Where(f => RpmBranch(f) >= branch).ToList();
+        var decisive = candidates.Count > 0
+            ? candidates.Aggregate((a, b) => PackageVersions.CompareRpm(a, b) <= 0 ? a : b)
+            : fixedVersions.Aggregate((a, b) => PackageVersions.CompareRpm(a, b) >= 0 ? a : b);
+        return PackageVersions.CompareRpm(installed, decisive) >= 0;
+    }
+
+    /// <summary>
+    /// The minor branch of an rpm version: 8 for <c>.el9_8.4</c> and <c>.module_el9.8.0+12+ab</c>; <see cref="int.MaxValue"/> for a version
+    /// without one (<c>.el9</c>), which is a build of the newest branch.
+    /// </summary>
+    public static int RpmBranch(string version)
+    {
+        var match = RpmBranchPattern().Match(version);
+        return match.Success && int.TryParse(match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value,
+            System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var minor)
+            ? minor
+            : int.MaxValue;
+    }
+
+    [GeneratedRegex(@"\.el\d+_(\d+)|\.module[_+]el\d+\.(\d+)", RegexOptions.CultureInvariant)]
+    private static partial Regex RpmBranchPattern();
 
     /// <summary>How a record stands for an installed version, or null when it does not apply (fixed already, or not affected).</summary>
     private static VulnerabilityFixState? Judge(VulnerabilityRecord record, string installed, IReadOnlySet<string> proServices, Func<string, string, int> compare) =>
