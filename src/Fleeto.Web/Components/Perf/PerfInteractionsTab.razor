@@ -1,3 +1,4 @@
+@inherits TimeAwareComponent
 @* Pages and API (spec §9, API): every page and route with its percentiles and where the time went; a row opens its latency over the
    period, its distribution, its slowest occurrences and the statements it sent. *@
 @using Fleeto.Core.Performance
@@ -71,5 +72,4 @@ else
     [Parameter, EditorRequired] public PerformanceView View { get; set; } = default!;
     [Parameter, EditorRequired] public Func<PerfSeries, Task<IReadOnlyList<PerfFlowPoint>?>> LoadTimeline { get; set; } = default!;
 
-    [Inject] private TimeDisplay Time { get; set; } = default!;
 }

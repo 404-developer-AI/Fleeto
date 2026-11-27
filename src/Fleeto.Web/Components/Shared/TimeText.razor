@@ -1,7 +1,7 @@
-@inject TimeDisplay TimeDisplay
+@inherits TimeAwareComponent
 
 @* Relative under 24 hours, absolute after that; the absolute time in the user's zone is always in the tooltip. *@
-<span title="@(Value is null ? null : TimeDisplay.Absolute(Value))">@(Absolute ? TimeDisplay.Absolute(Value) : TimeDisplay.Relative(Value, Never))</span>
+<span title="@(Value is null ? null : Time.Absolute(Value))">@(Absolute ? Time.Absolute(Value) : Time.Relative(Value, Never))</span>
 
 @code {
     [Parameter]

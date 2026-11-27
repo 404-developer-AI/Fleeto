@@ -1,3 +1,4 @@
+@inherits TimeAwareComponent
 @* Background (spec §9): when every loop ran over the period, whether pages are slower while a loop runs, the loops with their database
    share, external calls per host, live updates to open pages and database notifications. *@
 @using Fleeto.Core.Performance
@@ -96,7 +97,6 @@ else
     [Parameter, EditorRequired] public PerformanceView View { get; set; } = default!;
     [Parameter, EditorRequired] public Func<PerfSeries, Task<IReadOnlyList<PerfFlowPoint>?>> LoadTimeline { get; set; } = default!;
 
-    [Inject] private TimeDisplay Time { get; set; } = default!;
 
     private static string Shade(PerfKeyPoint? point, double share) =>
         point is null ? "var(--fl-border)"

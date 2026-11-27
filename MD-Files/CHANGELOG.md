@@ -137,6 +137,13 @@ When a third released version is added, the oldest entry moves to the top of
   AlmaLinux names a CVE again in the errata of the next minor release (`2.9.13-18.el9_9.1`), and every version of 9.8 sorts below it.
   Now only the fixes of the minor release of the installed version and of later ones count, and the lowest of those decides; a
   version of 9.5 is still not fixed by the fix of 9.4. The fixed version shown stays the newest, the one an update installs.
+- A security advisory took a new publication date every time the CCB edited it, so advisories handled days before came back on top
+  of the list with a date after their handling (found on the production instance). The earliest date now stays, and the update moves
+  a stored date that is later than when Fleeto first fetched the advisory back to that moment.
+- Times showed in UTC instead of the browser's time zone after a full reload, until the user went to another page (one hour off in
+  Belgium, on the dashboard and the Summary tab of an endpoint among others). Blazor does not render a component again when its
+  parameters did not change, so the times below a page kept the zone of the first render; components that show times now render
+  again by themselves once the browser's zone is known.
 
 ### Security
 

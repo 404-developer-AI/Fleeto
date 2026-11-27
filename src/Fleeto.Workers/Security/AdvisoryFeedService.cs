@@ -162,12 +162,15 @@ public sealed class AdvisoryFeedService : WorkerLoop
             if (existing.TryGetValue(parsed.SourceId, out var advisory))
             {
                 var cves = parsed.Cves.ToArray();
-                if (advisory.Title != parsed.Title || advisory.Summary != parsed.Summary || advisory.PublishedAt != parsed.PublishedAt ||
+                // The CCB moves the date of an item when it edits it (seen on 9 Nov 2026), which put advisories handled days before on
+                // top again with a date after their handling. The earliest date stays; an earlier one is a correction and is taken.
+                var publishedAt = parsed.PublishedAt < advisory.PublishedAt ? parsed.PublishedAt : advisory.PublishedAt;
+                if (advisory.Title != parsed.Title || advisory.Summary != parsed.Summary || advisory.PublishedAt != publishedAt ||
                     advisory.Link != parsed.Link || !advisory.Cves.SequenceEqual(cves))
                 {
                     advisory.Title = parsed.Title;
                     advisory.Summary = parsed.Summary;
-                    advisory.PublishedAt = parsed.PublishedAt;
+                    advisory.PublishedAt = publishedAt;
                     advisory.Link = parsed.Link;
                     advisory.Cves = cves;
                     updated++;

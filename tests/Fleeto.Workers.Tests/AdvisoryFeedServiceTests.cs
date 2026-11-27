@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Text;
 using Fleeto.Core.Domain;
 using Fleeto.Workers.Security;
@@ -40,11 +40,13 @@ public sealed class AdvisoryFeedServiceTests
         }
     }
 
-    private static string Feed(params (string Slug, string Title)[] items) =>
+    private static string Feed(params (string Slug, string Title)[] items) => DatedFeed("Mon, 26 Oct 2026 08:15:40 +0100", items);
+
+    private static string DatedFeed(string published, params (string Slug, string Title)[] items) =>
         $"""
         <?xml version="1.0" encoding="utf-8"?>
         <rss version="2.0"><channel><title>CCB Advisories Feed</title><description>CCB Advisories</description>
-        {string.Concat(items.Select(i => $"<item><title>{i.Title}</title><link>https://ccb.belgium.be/advisories/{i.Slug}</link><description>CCB Advisories</description><guid isPermaLink=\"true\">https://ccb.belgium.be/advisories/{i.Slug}</guid><pubDate>Mon, 26 Oct 2026 08:15:40 +0100</pubDate></item>"))}
+        {string.Concat(items.Select(i => $"<item><title>{i.Title}</title><link>https://ccb.belgium.be/advisories/{i.Slug}</link><description>CCB Advisories</description><guid isPermaLink=\"true\">https://ccb.belgium.be/advisories/{i.Slug}</guid><pubDate>{published}</pubDate></item>"))}
         </channel></rss>
         """;
 
@@ -84,6 +86,34 @@ public sealed class AdvisoryFeedServiceTests
         Assert.Equal(((DateTime?)null, (string?)null), (source.FailingSince, source.Problem));
         // PostgreSQL stores microseconds.
         Assert.InRange((source.LastSuccessAt!.Value - _fixture.Db.Time.GetUtcNow().UtcDateTime).Duration(), TimeSpan.Zero, TimeSpan.FromMilliseconds(1));
+    }
+
+    [Fact]
+    public async Task An_advisory_keeps_its_earliest_date_when_the_source_dates_it_again()
+    {
+        await ResetAsync();
+        var handler = new FakeHandler { Body = DatedFeed("Wed, 4 Nov 2026 10:00:00 +0100", ("barracuda", "Warning: Barracuda")) };
+        var service = Service(handler);
+        await service.RefreshDueAsync(CancellationToken.None);
+
+        // The CCB edits the item and moves its date (seen 2026-11-09): the advisory keeps the first one and does not move up the list.
+        _fixture.Db.Time.Advance(AdvisorySources.RefreshInterval);
+        handler.Body = DatedFeed("Fri, 13 Nov 2026 13:26:00 +0100", ("barracuda", "Warning: Barracuda, updated"));
+        await service.RefreshDueAsync(CancellationToken.None);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            var advisory = await db.Advisories.AsNoTracking().SingleAsync();
+            Assert.Equal(("Warning: Barracuda, updated", new DateTime(2026, 11, 4, 9, 0, 0, DateTimeKind.Utc)), (advisory.Title, advisory.PublishedAt));
+        }
+
+        // An earlier date is a correction and is taken.
+        _fixture.Db.Time.Advance(AdvisorySources.RefreshInterval);
+        handler.Body = DatedFeed("Tue, 3 Nov 2026 10:00:00 +0100", ("barracuda", "Warning: Barracuda, updated"));
+        await service.RefreshDueAsync(CancellationToken.None);
+        await using (var db = _fixture.Db.DbFactory.CreateSystem())
+        {
+            Assert.Equal(new DateTime(2026, 11, 3, 9, 0, 0, DateTimeKind.Utc), (await db.Advisories.AsNoTracking().SingleAsync()).PublishedAt);
+        }
     }
 
     [Theory]

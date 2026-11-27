@@ -1,6 +1,6 @@
 @* One tile of a dashboard (0.8.0, DASHBOARDS.md §3): its frame, its state and its body, by the type of the catalog. Every value is plain
    text that Blazor encodes; the only markup is the text tile, rendered by the sanitizing markdown of notes. *@
-@inject TimeDisplay Time
+@inherits TimeAwareComponent
 
 @if (Type is null)
 {
