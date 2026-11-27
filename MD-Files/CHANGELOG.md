@@ -132,6 +132,11 @@ When a third released version is added, the oldest entry moves to the top of
 - The patch sync of an Action1 organization stopped when two endpoints of one client reported the same Action1 agent id, a cloned VM
   for example. The endpoint that reported the id most recently now gets the patch state, and the sync goes on.
 - Test databases can get a suffix (`FLEETO_TEST_DB_SUFFIX`), so test runs from two worktrees no longer drop each other's database.
+- Vulnerability reporting showed CVEs on AlmaLinux endpoints as open that an update of their own minor release had already fixed
+  (found on the production instance: libxml2 `2.9.13-14.el9_8.5` was reported for CVE-2026-11979, fixed in `2.9.13-14.el9_8.4`).
+  AlmaLinux names a CVE again in the errata of the next minor release (`2.9.13-18.el9_9.1`), and every version of 9.8 sorts below it.
+  Now only the fixes of the minor release of the installed version and of later ones count, and the lowest of those decides; a
+  version of 9.5 is still not fixed by the fix of 9.4. The fixed version shown stays the newest, the one an update installs.
 
 ### Security
 
