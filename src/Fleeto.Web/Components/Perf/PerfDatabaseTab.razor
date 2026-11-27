@@ -1,3 +1,4 @@
+@inherits TimeAwareComponent
 @* Database (spec §9): time by source, the statements measured in Diagnose with their callers, N+1 suspects, PostgreSQL's statement
    statistics, tables, indexes, sessions and settings. Plan shows the generic plan of a stored statement (nothing runs); Analyze
    refreshes the planner statistics of one table. Both need Manage performance monitoring and are audited. *@
@@ -294,7 +295,6 @@ else
     [Parameter, EditorRequired] public Func<string, Task> Analyze { get; set; } = default!;
     [Parameter, EditorRequired] public Func<Task<PerfLiveDatabase?>> LoadLive { get; set; } = default!;
 
-    [Inject] private TimeDisplay Time { get; set; } = default!;
 
     private readonly HashSet<string> _sql = [];
     private readonly Dictionary<string, PerfPlan> _plans = [];

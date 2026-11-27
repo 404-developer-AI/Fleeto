@@ -1,3 +1,4 @@
+@inherits TimeAwareComponent
 @* One flow opened from its row: latency over the period, how its times are spread, its slowest events, and in Diagnose the statements
    it sent with their callers. *@
 @using Fleeto.Core.Performance
@@ -95,7 +96,6 @@
     [Parameter, EditorRequired] public Func<PerfSeries, Task<IReadOnlyList<PerfFlowPoint>?>> LoadTimeline { get; set; } = default!;
     [Parameter] public double? Threshold { get; set; }
 
-    [Inject] private TimeDisplay Time { get; set; } = default!;
 
     private IReadOnlyList<PerfFlowPoint>? _timeline;
     private (PerfKind, string, string, DateTime)? _loaded;

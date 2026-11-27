@@ -1,7 +1,7 @@
 @* Status timeline of a yes/no check (service, process, pending restart, file, antivirus and firewall) or a script check: one block per
    bucket, teal when every result was fine, red when at least one was a problem, amber when the check could not run, gray without results.
    With BlockSelected (script checks, 0.9.0) a block with results can be clicked to list its runs. *@
-@inject TimeDisplay Time
+@inherits TimeAwareComponent
 
 <div class="status-timeline" role="img" aria-label="@($"Status history of {View.Name}")">
     @foreach (var point in View.Points)

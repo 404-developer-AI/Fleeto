@@ -2,7 +2,7 @@
    under a bucket where the check could not run or got no response. Inline SVG, no chart library. A bucket with a process list
    (CPU and memory usage, 0.6.0) has a dot at the value of that list; hovering or clicking the bucket reports it through
    ProcessListSelected, and only those buckets send events. *@
-@inject TimeDisplay Time
+@inherits TimeAwareComponent
 
 <svg class="history-chart" viewBox="0 0 @HistoryChartLayout.F(HistoryChartLayout.Width) @HistoryChartLayout.F(HistoryChartLayout.Height)"
      role="img" aria-label="@AriaLabel">

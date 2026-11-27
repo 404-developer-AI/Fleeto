@@ -1,3 +1,4 @@
+@inherits TimeAwareComponent
 @* What users did with an alert (0.6.0), oldest first, each with who, when and the comment. Shown under the alert title. *@
 
 @if (Activities is { Count: > 0 })
@@ -21,7 +22,6 @@
 @code {
     [Parameter] public IReadOnlyList<AlertActivityView>? Activities { get; set; }
 
-    [Inject] private TimeDisplay Time { get; set; } = default!;
 
     private string Label(AlertActivityView activity) => activity.Kind switch
     {
