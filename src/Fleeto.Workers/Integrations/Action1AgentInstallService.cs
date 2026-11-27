@@ -94,6 +94,9 @@ public sealed class Action1AgentInstallService : WorkerLoop
             return;
         }
 
+        // An instance that patches with Fleeto (0.9.0) installs no Action1 agent and checks none: the statuses are still followed,
+        // so a removal and the Windows Update switch that goes with an installed agent keep working.
+        var byFleeto = await PatchManagers.GetAsync(db, cancellationToken) == PatchManager.Fleeto;
         var license = await _licenses.GetStatusAsync(db, cancellationToken);
         var installers = integration.Mappings.GroupBy(m => m.ClientId).ToDictionary(g => g.Key, g => g.First().AgentInstallerUrl);
         var clientIds = installers.Keys.ToList();
@@ -136,9 +139,11 @@ public sealed class Action1AgentInstallService : WorkerLoop
                 .Where(p => ids.Contains(p.EndpointId))
                 .Select(p => new { p.EndpointId, p.PatchPolicyId })
                 .ToListAsync(cancellationToken);
-            var automatic = await db.PatchPolicies.AsNoTracking()
-                .Where(p => p.AutoInstallAgent)
-                .ToDictionaryAsync(p => p.Id, p => p.Name, cancellationToken);
+            var automatic = byFleeto
+                ? new Dictionary<Guid, string>()
+                : await db.PatchPolicies.AsNoTracking()
+                    .Where(p => p.AutoInstallAgent)
+                    .ToDictionaryAsync(p => p.Id, p => p.Name, cancellationToken);
             var policyOf = policies.Where(p => p.PatchPolicyId is { } id && automatic.ContainsKey(id))
                 .ToDictionary(p => p.EndpointId, p => automatic[p.PatchPolicyId!.Value]);
             var covered = (await db.EndpointPatchStates.AsNoTracking()
@@ -250,8 +255,23 @@ public sealed class Action1AgentInstallService : WorkerLoop
             }
         }
 
+        if (byFleeto)
+        {
+            var wereChecked = rows.Values.Where(r => r.CheckWrittenAt is not null).Select(r => r.EndpointId).ToList();
+            foreach (var id in wereChecked)
+            {
+                rows[id].CheckWrittenAt = null;
+                rows[id].CheckDetail = null;
+            }
+
+            transitions.AddRange(await MissingUpdateChecks.ForgetChecksAsync(db, CheckType.Action1Agent, wereChecked, now,
+                PatchManagement.CheckForgottenReason, cancellationToken));
+        }
+
         await db.SaveChangesAsync(cancellationToken);
-        var written = await WriteCheckResultsAsync(db, [.. rows.Values.Where(r => endpoints.ContainsKey(r.EndpointId))], now, cancellationToken);
+        IReadOnlyList<Guid> written = byFleeto
+            ? []
+            : await WriteCheckResultsAsync(db, [.. rows.Values.Where(r => endpoints.ContainsKey(r.EndpointId))], now, cancellationToken);
 
         await _notifier.AddNotificationsAsync(db, transitions, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);

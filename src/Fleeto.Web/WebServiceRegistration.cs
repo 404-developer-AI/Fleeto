@@ -112,6 +112,7 @@ public static class WebServiceRegistration
         // itself, because it is on a network without outbound access.
         services.AddSingleton<IntegrationService>();
         services.AddSingleton<PatchService>();
+        services.AddSingleton<PatchManagementService>();
         services.AddScoped<RemoteWindow>();
         return services;
     }

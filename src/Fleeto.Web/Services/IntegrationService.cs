@@ -6,6 +6,7 @@ using Fleeto.Infrastructure.Audit;
 using Fleeto.Infrastructure.Data;
 using Fleeto.Infrastructure.Integrations;
 using Fleeto.Infrastructure.Integrations.Action1;
+using Fleeto.Infrastructure.Services;
 using Fleeto.Web.Security;
 using Microsoft.EntityFrameworkCore;
 
@@ -143,6 +144,12 @@ public sealed class IntegrationService
         else if (secret.Length > 500)
         {
             return ServiceResult.Fail("That client secret is longer than Action1 issues. Copy it again from the Action1 console.");
+        }
+
+        // An instance that patches with Fleeto (0.9.0) keeps Action1 only to remove its agents: it does not follow clients and sites.
+        if (input.FollowClients && !integration.FollowClients && await PatchManagers.GetAsync(db, cancellationToken) == PatchManager.Fleeto)
+        {
+            return ServiceResult.Fail("This instance patches with Fleeto, so Action1 does not follow its clients and sites. An admin can choose Action1 in Settings, Instance.");
         }
 
         var regionChanged = integration.Region != input.Region;

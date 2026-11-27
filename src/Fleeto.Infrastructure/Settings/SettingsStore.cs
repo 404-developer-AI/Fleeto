@@ -64,6 +64,12 @@ public static class SettingKeys
     /// Missing means <see cref="Core.Entities.ScriptRules.DefaultAdminNoticeAbove"/>.
     /// </summary>
     public const string JobAdminNoticeAbove = "jobs.admin-notice-above";
+
+    /// <summary>
+    /// Which patch management the instance works with (0.9.0), plain <c>Action1</c> or <c>Fleeto</c>; missing means Action1. Read with
+    /// <see cref="Services.PatchManagers"/>.
+    /// </summary>
+    public const string PatchManager = Core.Domain.PatchManagement.SettingKey;
 }
 
 public enum SmtpSecurity

@@ -450,6 +450,12 @@ public static class AuditActions
     /// <summary>The workers removed the endpoint from the product, or the product refused (0.6.0).</summary>
     public const string PatchAgentRemovalEnded = "patch_agent.removal_ended";
 
+    /// <summary>An admin chose the patch management of the instance, Action1 or Fleeto (0.9.0), with what it changed.</summary>
+    public const string PatchManagerChanged = "patch_manager.changed";
+
+    /// <summary>An admin asked to remove the Action1 agents that remain while the instance patches with Fleeto (0.9.0), with the counts.</summary>
+    public const string PatchAgentRemovalsRequested = "patch_agent.removals_requested";
+
     /// <summary>An endpoint was deleted with "Also uninstall the Fleeto agent" (0.6.0); the gateway waits for it to connect.</summary>
     public const string AgentUninstallRequested = "agent.uninstall_requested";
 

@@ -3,6 +3,7 @@ using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Audit;
 using Fleeto.Infrastructure.Data;
+using Fleeto.Infrastructure.Services;
 using Fleeto.Web.Security;
 using Microsoft.EntityFrameworkCore;
 
@@ -325,6 +326,12 @@ public sealed class MonitoringTemplateService
         else
         {
             check = new CheckDefinition { Id = Guid.NewGuid(), MonitoringTemplateId = templateId, ClientId = template.ClientId, CreatedAt = now };
+
+            // An instance that patches with Fleeto (0.9.0) does not check the Action1 agent; an existing check keeps its type.
+            if (input.Type == CheckType.Action1Agent && await PatchManagers.GetAsync(db, cancellationToken) == PatchManager.Fleeto)
+            {
+                return ServiceResult<Guid>.Fail(PatchManagement.Action1CheckRefusal);
+            }
         }
 
         if (!Enum.IsDefined(input.Type))

@@ -333,6 +333,12 @@ public sealed class EndpointCheckService
         else
         {
             check = new CheckDefinition { Id = Guid.NewGuid(), EndpointId = endpointId, ClientId = endpoint.ClientId, CreatedAt = now };
+
+            // An instance that patches with Fleeto (0.9.0) does not check the Action1 agent; an existing check keeps its type.
+            if (input.Type == CheckType.Action1Agent && await PatchManagers.GetAsync(db, cancellationToken) == PatchManager.Fleeto)
+            {
+                return ServiceResult<Guid>.Fail(PatchManagement.Action1CheckRefusal);
+            }
         }
 
         if (!Enum.IsDefined(input.Type))

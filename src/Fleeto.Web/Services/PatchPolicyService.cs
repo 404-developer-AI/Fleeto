@@ -188,6 +188,11 @@ public sealed class PatchPolicyService
         }
 
         await using var db = _dbFactory.Create(caller.Scope);
+        if (policy.Engine == PatchEngine.Action1 && await PatchManagers.GetAsync(db, cancellationToken) == PatchManager.Fleeto)
+        {
+            return ServiceResult<Guid>.Fail(PatchManagement.Action1PolicyRefusal);
+        }
+
         if (clientId is { } id && !await db.Clients.AnyAsync(c => c.Id == id, cancellationToken))
         {
             return ServiceResult<Guid>.NotFound("client");
@@ -244,6 +249,12 @@ public sealed class PatchPolicyService
         if (PatchPolicyRules.Validate(policy) is { } problem)
         {
             return ServiceResult.Fail(problem);
+        }
+
+        // An instance that patches with Fleeto (0.9.0) has no patch policy for Action1.
+        if (policy.Engine == PatchEngine.Action1 && await PatchManagers.GetAsync(db, cancellationToken) == PatchManager.Fleeto)
+        {
+            return ServiceResult.Fail(PatchManagement.Action1PolicyRefusal);
         }
 
         if (await NameTakenAsync(db, policy.ClientId, policy.Name, policy.Id, cancellationToken))

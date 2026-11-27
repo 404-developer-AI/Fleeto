@@ -2,6 +2,7 @@
 @attribute [RequirePermission(Permissions.PatchPoliciesView)]
 @inherits FleetoPageBase
 @inject PatchPolicyService PatchPolicySvc
+@inject PatchManagementService PatchManagementSvc
 @inject ClientService ClientSvc
 @inject IDialogService DialogService
 
@@ -11,8 +12,16 @@
     <div>
         <MudText Typo="Typo.h4" Class="page-title">Patch policies</MudText>
         <MudText Typo="Typo.body2" Class="muted">
-            When and how updates are installed on the managed endpoints of a client, site or single endpoint: by the Fleeto agent itself in rounds,
-            or by Action1, for which Fleeto keeps one automation per patch policy in the Action1 organization of each client that uses it.
+            @if (_byFleeto)
+            {
+                @:When and how updates are installed on the managed endpoints of a client, site or single endpoint: by the Fleeto agent itself in rounds,
+                @:with the Windows Update Agent, apt or dnf of the endpoint.
+            }
+            else
+            {
+                @:When and how updates are installed on the managed endpoints of a client, site or single endpoint: by the Fleeto agent itself in rounds,
+                @:or by Action1, for which Fleeto keeps one automation per patch policy in the Action1 organization of each client that uses it.
+            }
         </MudText>
     </div>
     @if (Can(Permissions.PatchPoliciesEdit))
@@ -36,15 +45,21 @@
         <MudTable Items="_policies" Hover="true" Elevation="0">
             <HeaderContent>
                 <MudTh>Name</MudTh>
-                <MudTh>Patched by</MudTh>
+                @if (!_byFleeto)
+                {
+                    <MudTh>Patched by</MudTh>
+                }
                 <MudTh>Available for</MudTh>
                 <MudTh>For</MudTh>
                 <MudTh>Schedule</MudTh>
                 <MudTh>Updates</MudTh>
                 <MudTh>Restart</MudTh>
                 <MudTh>Used by</MudTh>
-                <MudTh>Rounds or automations</MudTh>
-                <MudTh>Action1 agent</MudTh>
+                <MudTh>@(_byFleeto ? "Rounds" : "Rounds or automations")</MudTh>
+                @if (!_byFleeto)
+                {
+                    <MudTh>Action1 agent</MudTh>
+                }
                 @if (Can(Permissions.PatchPoliciesEdit))
                 {
                     <MudTh Style="width:140px"></MudTh>
@@ -62,9 +77,12 @@
                         <div class="muted" style="font-size:0.8125rem">@context.Description</div>
                     }
                 </MudTd>
-                <MudTd>
-                    <StatusChip Text="@(context.Engine == PatchEngine.Fleeto ? "Fleeto" : "Action1")" Kind="StatusKind.Neutral" />
-                </MudTd>
+                @if (!_byFleeto)
+                {
+                    <MudTd>
+                        <StatusChip Text="@(context.Engine == PatchEngine.Fleeto ? "Fleeto" : "Action1")" Kind="StatusKind.Neutral" />
+                    </MudTd>
+                }
                 <MudTd>@(context.ClientCode is null ? "All clients" : context.ClientCode)</MudTd>
                 <MudTd>@Ui.AppliesToLabel(context.AppliesTo)</MudTd>
                 <MudTd>@context.Schedule</MudTd>
@@ -102,6 +120,8 @@
                         <span class="muted">@(context.Automations == 0 ? "No automations" : Ui.Count(context.Automations, "automation"))</span>
                     }
                 </MudTd>
+                @if (!_byFleeto)
+                {
                 <MudTd>
                     @if (context.Engine == PatchEngine.Fleeto)
                     {
@@ -132,6 +152,7 @@
                         </div>
                     }
                 </MudTd>
+                }
                 @if (Can(Permissions.PatchPoliciesEdit))
                 {
                     <MudTd Style="white-space:nowrap">
@@ -149,12 +170,16 @@
     private IReadOnlyList<PatchPolicyListItem> _policies = [];
     private IReadOnlyList<ClientOption> _clients = [];
 
+    /// <summary>The instance patches with Fleeto (0.9.0): every patch policy is for patching by Fleeto, and nothing of Action1 shows.</summary>
+    private bool _byFleeto;
+
     protected override Task OnInitializedAsync() => ReloadAsync();
 
     private Task ReloadAsync() => LoadAsync(async caller =>
     {
         _policies = await PatchPolicySvc.ListAsync(caller);
         _clients = await ClientSvc.ListOptionsAsync(caller);
+        _byFleeto = await PatchManagementSvc.GetManagerAsync(caller) == PatchManager.Fleeto;
     });
 
     private async Task CreateAsync()
@@ -162,6 +187,7 @@
         var parameters = new DialogParameters<PatchPolicyDialog>
         {
             { d => d.Clients, _clients },
+            { d => d.FleetoOnly, _byFleeto },
             { d => d.OnSubmit, (clientId, input) => RunAsync(caller => PatchPolicySvc.CreateAsync(caller, clientId, input), "The patch policy was created.") }
         };
         await ShowAsync(parameters);
@@ -180,9 +206,10 @@
         var parameters = new DialogParameters<PatchPolicyDialog>
         {
             { d => d.Existing, existing },
+            { d => d.FleetoOnly, _byFleeto },
             {
                 d => d.OnSubmit, (_, input) => RunAsync(caller => PatchPolicySvc.UpdateAsync(caller, policy.Id, input),
-                    "The patch policy was saved. Action1 gets the change within a minute.")
+                    _byFleeto ? "The patch policy was saved." : "The patch policy was saved. Action1 gets the change within a minute.")
             }
         };
         await ShowAsync(parameters);

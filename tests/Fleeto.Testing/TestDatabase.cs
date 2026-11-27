@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Fleeto.Core.Domain;
 using Fleeto.Core.Entities;
 using Fleeto.Core.Interfaces;
 using Fleeto.Infrastructure.Audit;
@@ -55,6 +56,9 @@ public sealed class TestDatabase : IAsyncDisposable
 
     public Guid InstanceId { get; private set; }
 
+    /// <summary>The patch management the migrations chose for this new instance (0.9.0), before the tests set it to Action1.</summary>
+    public PatchManager MigratedPatchManager { get; private set; }
+
     public const string Fqdn = "rmm.test.example";
 
     /// <param name="name">Short project name, e.g. "gateway". Letters, digits and underscores.</param>
@@ -101,7 +105,34 @@ public sealed class TestDatabase : IAsyncDisposable
         var initializer = new InstanceInitializer(database.DbFactory, database.RootKey, database.Time, NullLogger<InstanceInitializer>.Instance);
         var result = await initializer.RunAsync(new InstanceInitOptions(Fqdn, "agents." + Fqdn, 443, "https://" + Fqdn, ApplyGrants: false));
         database.InstanceId = result.InstanceId;
+
+        // A new instance patches with Fleeto (0.9.0). Every test written before the choice existed expects an instance that uses
+        // Action1, as every instance had then; a test of the choice sets it itself and sets Action1 back afterwards.
+        await using (var db = database.DbFactory.CreateSystem())
+        {
+            database.MigratedPatchManager = PatchManagement.Parse(await db.Settings.AsNoTracking()
+                .Where(s => s.Key == PatchManagement.SettingKey).Select(s => s.Value).SingleOrDefaultAsync());
+        }
+
+        await database.SetPatchManagerAsync(PatchManager.Action1);
         return database;
+    }
+
+    /// <summary>Sets the patch management of the instance (0.9.0) directly, without what choosing it in Settings does.</summary>
+    public async Task SetPatchManagerAsync(PatchManager manager)
+    {
+        await using var db = DbFactory.CreateSystem();
+        var setting = await db.Settings.SingleOrDefaultAsync(s => s.Key == PatchManagement.SettingKey);
+        if (setting is null)
+        {
+            setting = new Setting { Key = PatchManagement.SettingKey };
+            db.Settings.Add(setting);
+        }
+
+        setting.Value = PatchManagement.ToValue(manager);
+        setting.IsEncrypted = false;
+        setting.UpdatedAt = Time.GetUtcNow().UtcDateTime;
+        await db.SaveChangesAsync();
     }
 
     public async Task<Client> CreateClientAsync(string? code = null)

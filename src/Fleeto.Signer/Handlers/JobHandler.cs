@@ -166,6 +166,12 @@ public sealed class JobHandler : ISigningRequestHandler
         // link of the client's organization, so nothing a user can edit decides what runs (0.4.0 step 3).
         if (job.Type == JobType.Action1Agent)
         {
+            // An instance that patches with Fleeto (0.9.0) installs no Action1 agent, whoever asks: read here, never taken from web.
+            if (await PatchManagers.GetAsync(db, cancellationToken) == PatchManager.Fleeto)
+            {
+                return SigningOutcome.Refused(PatchManagement.InstallRefusal);
+            }
+
             if (automatic && await AutomaticRefusalAsync(db, job, cancellationToken) is { } refusal)
             {
                 return SigningOutcome.Refused(refusal);

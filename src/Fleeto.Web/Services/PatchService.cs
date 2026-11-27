@@ -61,11 +61,12 @@ public sealed record PatchRoundView(string PolicyName, string Schedule, bool Ena
 /// <param name="Engine">Who can patch this endpoint (0.9.0, <see cref="PatchEngineRules"/>); Action1 for every view before 0.9.0.</param>
 /// <param name="ScanNote">For an endpoint whose engine is Fleeto: why it is not scanned yet (an older agent, Windows before step 2); null when it is.</param>
 /// <param name="LastScanRequest">The newest "Scan now" of this endpoint (0.9.0).</param>
+/// <param name="Manager">The patch management of the instance (0.9.0): with Fleeto, an Action1 agent on the endpoint is only removed.</param>
 public sealed record EndpointPatchView(bool Managed, bool Configured, EndpointPatchState? State, IReadOnlyList<MissingUpdateView> Missing,
     DateTime? DetailUpdatedAt, bool CanInstallAgent = false, string AgentOnEndpoint = "", PatchScheduleView? Schedule = null,
     PatchRequestView? LastRequest = null, bool CanRemoveAgentByJob = false, AgentInstallView? AgentInstall = null,
     PatchEngineResult? Engine = null, string? ScanNote = null, PatchScanRequestView? LastScanRequest = null, string? PolicyNote = null,
-    string? InstallNote = null, PatchRoundView? Rounds = null)
+    string? InstallNote = null, PatchRoundView? Rounds = null, PatchManager Manager = PatchManager.Action1)
 {
     /// <summary>True when the Fleeto agent patches this endpoint (0.9.0).</summary>
     public bool ByFleeto => Engine?.Engine == EndpointPatchEngine.Fleeto;
@@ -180,11 +181,22 @@ public sealed class PatchService
         _time = time;
     }
 
-    /// <summary>The patch state of one endpoint. Null when the endpoint does not exist or is not visible to the caller.</summary>
+    /// <summary>
+    /// The patch state of one endpoint. Null when the endpoint does not exist or is not visible to the caller. While the instance
+    /// patches with Fleeto (0.9.0) the view never offers to install the Action1 agent.
+    /// </summary>
     public async Task<EndpointPatchView?> GetAsync(Caller caller, Guid endpointId, CancellationToken cancellationToken = default)
     {
         caller.Ensure(Permissions.PatchesView);
         await using var db = _dbFactory.Create(caller.Scope);
+        var view = await BuildAsync(db, endpointId, cancellationToken);
+        return view is not null && await PatchManagers.GetAsync(db, cancellationToken) == PatchManager.Fleeto
+            ? view with { CanInstallAgent = false, Manager = PatchManager.Fleeto }
+            : view;
+    }
+
+    private async Task<EndpointPatchView?> BuildAsync(FleetoDbContext db, Guid endpointId, CancellationToken cancellationToken)
+    {
         var endpoint = await db.Endpoints.AsNoTracking().SingleOrDefaultAsync(e => e.Id == endpointId, cancellationToken);
         if (endpoint is null)
         {
@@ -1023,6 +1035,11 @@ public sealed class PatchService
             return ServiceResult.NotFound("endpoint");
         }
 
+        if (await PatchManagers.GetAsync(db, cancellationToken) == PatchManager.Fleeto)
+        {
+            return ServiceResult.Fail(PatchManagement.InstallRefusal);
+        }
+
         var license = await _licenses.GetStatusAsync(db, cancellationToken);
         if (TierRules.EffectiveTier(endpoint.Tier, license) != EndpointTier.Managed)
         {
@@ -1076,7 +1093,7 @@ public sealed class PatchService
     /// request and audit entry. Only the hash of the body is stored: the signer writes the body again and refuses a
     /// different one.
     /// </summary>
-    private static void AddComposedJob(FleetoDbContext db, Caller caller, Guid endpointId, Guid clientId, string hostname, JobType type, string name,
+    internal static void AddComposedJob(FleetoDbContext db, Caller caller, Guid endpointId, Guid clientId, string hostname, JobType type, string name,
         string body, int timeoutSeconds, long maxOutputBytes, DateTime now)
     {
         var job = new Job

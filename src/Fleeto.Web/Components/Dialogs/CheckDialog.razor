@@ -1,5 +1,7 @@
 @* Add or edit a check of a monitoring template or of one endpoint. Types, parameters, thresholds and help texts come from
    CheckCatalog; validation messages come from CheckParameters.Validate on save. *@
+@inject CurrentUser CurrentUser
+@inject PatchManagementService PatchManagementSvc
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">@(Existing is null ? "New check" : $"Edit check {Existing.Name}")</MudText>
@@ -133,7 +135,11 @@
 
     private IEnumerable<CheckTypeInfo> AvailableTypes =>
         CheckCatalog.All.Where(t => (!ForEndpoint || CheckCatalog.IsSupported(t.Type, EndpointPlatform) || t.Type == Existing?.Type) &&
-                                    (t.Type != CheckType.Script || LoadScripts is not null));
+                                    (t.Type != CheckType.Script || LoadScripts is not null) &&
+                                    (t.Type != CheckType.Action1Agent || !_byFleeto || t.Type == Existing?.Type));
+
+    /// <summary>The instance patches with Fleeto (0.9.0): the Action1 agent check is not offered for a new check.</summary>
+    private bool _byFleeto;
 
     private int IntervalSeconds => (int)Math.Min(int.MaxValue, (long)_intervalAmount * _intervalUnit);
 
@@ -146,6 +152,7 @@
     protected override async Task OnInitializedAsync()
     {
         OnInitializedCore();
+        _byFleeto = await PatchManagementSvc.GetManagerAsync(await CurrentUser.GetAsync()) == PatchManager.Fleeto;
         if (LoadScripts is not null)
         {
             _scripts = await LoadScripts();

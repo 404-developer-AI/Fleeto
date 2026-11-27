@@ -88,6 +88,20 @@ When a third released version is added, the oldest entry moves to the top of
   first, with why it started, where it stands or how it ended, and per step its job, state, exit code and attempt. It filters on
   client, site, endpoint, task, run, status and a period, pages with a cursor and follows the client scope of the API key like every
   other list; the output of a step is read through its job. `API.md` documents it with a quick start for integrators.
+- One choice of patch management for the whole instance (0.9.0): Settings, Instance says whether the instance patches with Fleeto
+  itself or with Action1, and an admin changes it there with a code of the Fleeto authenticator. An instance with an Action1
+  integration keeps Action1, every other instance (a new one included) patches with Fleeto. Choosing Fleeto first lists what it
+  changes and every endpoint it reaches: every patch policy for Action1 becomes one for Fleeto (what only Action1 has goes: update
+  sources, vendors, approval in the Action1 console, installing the Action1 agent, the update type Feature Updates; a policy that
+  would install more than before is switched off), its Action1 automations are removed, Action1 stops following clients and sites,
+  and the Action1 agent is removed from every managed endpoint, through Action1 where it reports the endpoint and otherwise by a
+  signed job on Windows; agent-only endpoints only when asked. A Linux endpoint Action1 does not report is listed to be done by hand.
+  The removals go through the workers within the Action1 request budget and are retried by themselves while Action1 is unreachable;
+  Settings, Instance shows per endpoint where its removal stands and removes the ones that appeared later or failed. While the
+  instance patches with Fleeto, nothing installs or offers the Action1 agent (the patch policy dialog, the Patches tab, the workers
+  and fleeto-signer all refuse), the patch policy dialog no longer asks who installs the updates, and the Action1 agent check is not
+  offered and gets no result. An endpoint keeps being patched by Action1 until its agent is gone, then Fleeto takes over. Choosing
+  Action1 again converts nothing back and installs nothing by itself.
 
 ### Changed
 

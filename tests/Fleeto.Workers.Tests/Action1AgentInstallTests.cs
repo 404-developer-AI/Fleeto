@@ -341,4 +341,33 @@ public sealed class Action1AgentInstallTests
         Assert.Equal((Action1AgentStatus.Installing, 0), (state.Status, state.Attempts));
         Assert.Single(await JobsAsync(endpoint));
     }
+
+    [Fact]
+    public async Task While_the_instance_patches_with_Fleeto_nothing_is_installed_and_the_check_loses_its_result()
+    {
+        // Offline first: the check gets its result and no installation starts yet.
+        var (_, site, endpoint) = await SeedAsync(autoInstall: true, online: false);
+        await _fixture.CreateCheckAsync(site, CheckType.Action1Agent, null, null);
+        await Service().RunAsync(CancellationToken.None);
+        Assert.NotNull((await StateAsync(endpoint)).CheckWrittenAt);
+
+        await _fixture.Db.SetPatchManagerAsync(PatchManager.Fleeto);
+        try
+        {
+            await using (var db = _fixture.Db.DbFactory.CreateSystem())
+            {
+                await db.Endpoints.Where(e => e.Id == endpoint.Id).ExecuteUpdateAsync(s => s.SetProperty(e => e.IsOnline, true));
+            }
+
+            await Service().RunAsync(CancellationToken.None);
+
+            // The switch of the patch policy no longer installs anything, and the check is not evaluated any more.
+            Assert.Empty(await JobsAsync(endpoint));
+            Assert.Null((await StateAsync(endpoint)).CheckWrittenAt);
+        }
+        finally
+        {
+            await _fixture.Db.SetPatchManagerAsync(PatchManager.Action1);
+        }
+    }
 }

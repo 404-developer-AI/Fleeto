@@ -1,0 +1,183 @@
+@* The confirmation of the patch management of the instance (0.9.0, PATCHING.md §16): choosing Fleeto lists every patch policy it converts
+   and every endpoint whose Action1 agent is removed, choosing Action1 says what it does not undo, and removing the Action1 agents that
+   remain lists them again. Every one asks a fresh code of the Fleeto authenticator. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@Title</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (RemoveOnly)
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">
+                Fleeto removes the Action1 agent of the endpoints below whose removal is not on its way: through Action1 where it reports the
+                endpoint, otherwise with a signed job on a managed Windows endpoint. Action1 uninstalls its agent the next time the endpoint is online.
+            </MudText>
+        }
+        else if (Target == PatchManager.Fleeto)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                Fleeto removes the Action1 agent from every endpoint listed below, and Action1 stops patching them. This cannot be undone from
+                Fleeto: putting an endpoint back under Action1 means installing its agent again.
+            </MudAlert>
+            <MudText Typo="Typo.body2" Class="mb-2">Choosing Fleeto also:</MudText>
+            <ul class="mb-3" style="font-size:0.875rem">
+                <li>
+                    @if (Preview!.Policies.Count == 0)
+                    {
+                        @:converts no patch policy: every patch policy is for patching by Fleeto already.
+                    }
+                    else
+                    {
+                        @:converts @Ui.Count(Preview.Policies.Count, "patch policy", "patch policies") to patching by Fleeto (below), which start rounds on
+                        @:the endpoints they apply to that have no Action1 agent;
+                    }
+                </li>
+                @if (Preview.Automations > 0)
+                {
+                    <li>removes the @Ui.Count(Preview.Automations, "automation") Fleeto made in Action1;</li>
+                }
+                @if (Preview.FollowClients)
+                {
+                    <li>stops Action1 following the clients and sites of Fleeto;</li>
+                }
+                <li>stops Fleeto installing the Action1 agent, and the Action1 agent check of monitoring templates gets no result any more.</li>
+            </ul>
+            @if (Preview.Policies.Count > 0)
+            {
+                <MudText Typo="Typo.subtitle2" Class="mb-1">Patch policies</MudText>
+                <MudSimpleTable Dense="true" Elevation="0" Class="mb-3">
+                    <thead><tr><th>Name</th><th>Available for</th><th>What changes</th></tr></thead>
+                    <tbody>
+                        @foreach (var policy in Preview.Policies)
+                        {
+                            <tr>
+                                <td>@policy.Name</td>
+                                <td>@(policy.ClientCode ?? "All clients")</td>
+                                <td>
+                                    @if (policy.Disabled)
+                                    {
+                                        <StatusChip Text="Switched off" Kind="StatusKind.Warning" />
+                                    }
+                                    @(policy.Dropped.Count == 0 ? "Nothing but the engine" : "Loses " + string.Join("; ", policy.Dropped))
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">
+                Patch policies of engine Action1 become Action1 automations again and Fleeto can install the Action1 agent. Nothing changes by
+                itself: every patch policy stays for patching by Fleeto, no Action1 agent is installed, and Action1 does not follow clients and
+                sites until somebody switches it on in Settings, Integrations.
+            </MudText>
+        }
+
+        @if (RemoveOnly || Target == PatchManager.Fleeto)
+        {
+            <MudText Typo="Typo.subtitle2" Class="mb-1">
+                @(Shown.Count == 0 ? "No endpoint has the Action1 agent" : $"Endpoints with the Action1 agent ({Shown.Count})")
+            </MudText>
+            @if (Shown.Count > 0)
+            {
+                <div style="max-height:320px;overflow:auto" class="mb-2">
+                    <MudSimpleTable Dense="true" Elevation="0">
+                        <thead><tr><th>Client</th><th>Endpoint</th><th>Class</th><th>Removed</th></tr></thead>
+                        <tbody>
+                            @foreach (var agent in Shown)
+                            {
+                                <tr>
+                                    <td>@agent.ClientCode</td>
+                                    <td>@agent.Hostname@(agent.Managed ? "" : " (agent-only)")</td>
+                                    <td>@Ui.ClassLabel(agent.Class)</td>
+                                    <td>@WayLabel(agent)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            }
+
+            @if (Agents.Any(a => !a.Managed))
+            {
+                <MudCheckBox T="bool" @bind-Value="_includeAgentOnly" Color="Color.Primary" Dense="true"
+                             Label="@($"Also remove it from {Ui.Count(Agents.Count(a => !a.Managed), "agent-only endpoint")}")" />
+                <MudText Typo="Typo.caption" Class="muted d-block mb-2">
+                    Fleeto patches no agent-only endpoint, so their Action1 agent stays unless you choose this.
+                </MudText>
+            }
+        }
+
+        <MudTextField @bind-Value="_code" Label="Code from your authenticator app" Variant="Variant.Outlined" MaxLength="6" InputMode="InputMode.numeric"
+                      Style="max-width:240px" Class="mt-2" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_busy">Cancel</MudButton>
+        <MudButton Color="@(Target == PatchManager.Fleeto || RemoveOnly ? Color.Error : Color.Primary)" Variant="Variant.Filled" Disabled="_busy"
+                   OnClick="ConfirmAsync">
+            @(RemoveOnly ? "Remove Action1 agents" : $"Patch with {PatchManagement.Describe(Target)}")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    /// <summary>The choice to confirm; ignored with <see cref="RemoveOnly"/>.</summary>
+    [Parameter] public PatchManager Target { get; set; }
+
+    /// <summary>What choosing Fleeto changes; required for <see cref="PatchManager.Fleeto"/>.</summary>
+    [Parameter] public PatchManagerPreview? Preview { get; set; }
+
+    /// <summary>Only remove the Action1 agents that remain, while the instance already patches with Fleeto.</summary>
+    [Parameter] public bool RemoveOnly { get; set; }
+
+    /// <summary>Every endpoint with the Action1 agent, managed and agent-only.</summary>
+    [Parameter] public IReadOnlyList<Action1AgentEndpointView> Agents { get; set; } = [];
+
+    /// <summary>Carries out the confirmation with whether to include agent-only endpoints and the code; true closes the dialog.</summary>
+    [Parameter] public Func<bool, string?, Task<bool>> OnConfirm { get; set; } = (_, _) => Task.FromResult(true);
+
+    private bool _includeAgentOnly;
+    private string? _code;
+    private bool _busy;
+
+    private string Title => RemoveOnly ? "Remove the Action1 agents" : $"Patch this instance with {PatchManagement.Describe(Target)}";
+
+    /// <summary>The endpoints the confirmation reaches: removing only lists those whose removal can start.</summary>
+    private IReadOnlyList<Action1AgentEndpointView> Shown =>
+        [.. Agents.Where(a => (a.Managed || _includeAgentOnly) && (!RemoveOnly || a.CanStart || a.Way == Action1RemovalWay.ByHand))];
+
+    private static string WayLabel(Action1AgentEndpointView agent) => agent.Status switch
+    {
+        Action1RemovalStatus.WaitingForAction1 or Action1RemovalStatus.RemovedByAction1 or Action1RemovalStatus.JobRunning
+            or Action1RemovalStatus.JobSucceeded => "Already on its way",
+        _ => agent.Way switch
+        {
+            Action1RemovalWay.Action1 => "Through Action1",
+            Action1RemovalWay.Job => "By a signed job",
+            _ => "By hand: Fleeto cannot remove it"
+        }
+    };
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task ConfirmAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await OnConfirm(_includeAgentOnly, _code))
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

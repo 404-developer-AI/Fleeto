@@ -5,6 +5,7 @@
 @using Fleeto.Core.Interfaces
 @using Fleeto.Infrastructure.Integrations.Action1
 @inject IntegrationService IntegrationSvc
+@inject PatchManagementService PatchManagementSvc
 
 <PageTitle>Integrations - Fleeto</PageTitle>
 
@@ -45,6 +46,16 @@
                 </MudText>
 
                 <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Class="mb-1">Enabled</MudSwitch>
+                @if (_byFleeto)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                        This instance patches with Fleeto (Settings, Instance). Fleeto keeps the Action1 integration only to remove the Action1
+                        agents that remain and to read the endpoints Action1 still reports; it no longer follows clients and sites or makes automations.
+                        Remove the integration once no endpoint has the Action1 agent.
+                    </MudAlert>
+                }
+                else
+                {
                 <MudSwitch T="bool" @bind-Value="_follow" Color="Color.Primary" Class="mb-1">Keep Action1 in step with clients and sites</MudSwitch>
                 <MudText Typo="Typo.caption" Class="muted d-block mb-3">
                     A new client gets its own Action1 organization, or the unmapped one with its name. The organization of every
@@ -58,6 +69,7 @@
                     Patch policies (Settings, Patch policies) become automations in the Action1 organization of each client that uses
                     them. For that the role of the API credentials needs permission to view and manage automations.
                 </MudText>
+                }
                 @if (_integration?.FollowMessage is { Length: > 0 } followProblem)
                 {
                     <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">@followProblem</MudAlert>
@@ -217,6 +229,9 @@
     private Action1Region _region = Action1Region.Europe;
     private bool _enabled = true;
     private bool _follow;
+
+    /// <summary>The instance patches with Fleeto (0.9.0): Action1 stays only to remove its agents.</summary>
+    private bool _byFleeto;
     private Guid _mapClientId;
     private string? _mapTenantId;
     private bool _busy;
@@ -227,6 +242,7 @@
     {
         _integration = await IntegrationSvc.GetAction1Async(caller);
         _clients = await IntegrationSvc.ListClientsAsync(caller);
+        _byFleeto = await PatchManagementSvc.GetManagerAsync(caller) == PatchManager.Fleeto;
         if (_integration is not null)
         {
             _clientId = _integration.CredentialName;

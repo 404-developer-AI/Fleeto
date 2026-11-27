@@ -437,7 +437,13 @@ Decisions of 2026-11-04 (0.9.0, the design and build plan in `MD-Files/PATCHING.
   endpoint its engine: none without a Fleeto agent or on an agent-only endpoint; Action1 when the Action1 agent runs on it or Action1
   reports it; otherwise Fleeto on Windows, Windows Server, Ubuntu, Debian, AlmaLinux and Proxmox VE; none on Synology DSM (it updates
   itself). A Fleeto patch policy on an endpoint whose engine is Action1 installs nothing and says so; Fleeto never removes an Action1
-  agent by itself. Only a policy of engine Action1 becomes an Action1 automation.
+  agent by itself, except as the next point says. Only a policy of engine Action1 becomes an Action1 automation.
+- **One choice for the instance** (decided 2026-11-27, `MD-Files/PATCHING.md` §16): Settings, Instance says whether the instance patches
+  with Fleeto or with Action1 (setting `patching.manager`; an instance with an Action1 integration got Action1, every other one Fleeto).
+  Action1 is the behaviour above. With Fleeto every patch policy is of engine Fleeto (choosing it converts them, never widening an
+  enabled one), nothing installs or offers the Action1 agent (web, workers and signer refuse), the Action1 agent check is not offered,
+  Action1 stops following clients, and the Action1 agents of the managed endpoints (agent-only on request) are removed, through Action1
+  or by a signed job, after a confirmation that lists every endpoint; admins only, with a fresh TOTP. Switching back converts nothing.
 - **Scanning follows the endpoint**: every managed endpoint whose engine is Fleeto is scanned (every 6 hours, after an installation and
   on "Scan now"), also without a patch policy; installing needs a patch policy or a technician. A scan changes nothing on the endpoint
   (Microsoft Update is registered only when a Fleeto patch policy asks for it, through the signed configuration).

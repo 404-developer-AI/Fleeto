@@ -345,4 +345,26 @@ public sealed class Action1AgentJobTests
         Assert.Equal(JobState.Refused, refused.State);
         Assert.Equal(JobHandler.NotManagedReason, refused.RefusalReason);
     }
+
+    [Fact]
+    public async Task While_the_instance_patches_with_Fleeto_an_installation_is_refused_and_a_removal_is_still_signed()
+    {
+        var (client, endpoint, technicianId) = await ScopeAsync();
+        var install = await CreateJobAsync(client, endpoint, technicianId);
+        var removal = await CreateRemovalJobAsync(client, endpoint, technicianId);
+        await _fixture.Database.SetPatchManagerAsync(PatchManager.Fleeto);
+        try
+        {
+            var (_, refused) = await SignAsync(install);
+            Assert.Equal((JobState.Refused, PatchManagement.InstallRefusal), (refused.State, refused.RefusalReason));
+            Assert.Null(refused.Payload);
+
+            var (_, signed) = await SignAsync(removal);
+            Assert.Equal(JobState.Queued, signed.State);
+        }
+        finally
+        {
+            await _fixture.Database.SetPatchManagerAsync(PatchManager.Action1);
+        }
+    }
 }

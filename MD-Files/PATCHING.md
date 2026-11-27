@@ -8,7 +8,8 @@
 > Written 2026-11-04 as a proposal, from the code and the documentation as they are at `v0.8.0-alpha.16`, and **decided with the
 > developer on 2026-11-04**: every recommendation of §14, with four changes from the review (§14, decisions 2, 7, 8 and 11). The rules
 > are in `CLAUDE.md` (Patch management). Every step of the build plan (§13) is built (2026-11-05) and in test from `v0.9.0-alpha.1`; what
-> still has to be checked on real endpoints before the release is in §15.
+> still has to be checked on real endpoints before the release is in §15. One choice of patch management for the whole instance was added
+> on 2026-11-27 (§16).
 
 ## 1. What it is, and what it is not
 
@@ -63,7 +64,7 @@ It is not:
   - **A Fleeto policy on an endpoint with an Action1 agent installs nothing.** The tab says "Patched by Action1; this patch policy
     is for patching by Fleeto" and offers the existing "Remove the Action1 agent"; the moment the Fleeto agent no longer reports
     the Action1 agent, the policy takes effect. Fleeto never patches an endpoint twice, and it never removes an Action1 agent by
-    itself. An Action1 policy on a Linux endpoint keeps doing what it does today: nothing, shown plainly.
+    itself, except when an admin chooses Fleeto for the whole instance and confirms the removal (§16). An Action1 policy on a Linux endpoint keeps doing what it does today: nothing, shown plainly.
   - **"Turn automatic Windows Update off"** keeps its meaning for both engines: only the rounds of the policy install updates. For
     an Action1 policy `WindowsUpdateRules.Applies` stays as it is (the Action1 agent must be installed); for a Fleeto policy it
     applies when the engine of the endpoint is *Fleeto*. The agent code (`internal/winupdate`) does not change.
@@ -605,3 +606,48 @@ To check while building, in the step that needs it:
 - Later: Windows endpoints in the vulnerability overview can now come from the CVEs of missing updates for endpoints with engine
   *Fleeto* (`ROADMAP.md`, Not yet scheduled, lists it for Action1); third-party applications; feature updates; a limit per site for
   clusters.
+
+## 16. One choice for the instance (decided 2026-11-27)
+
+Asked by the developer on 2026-11-27, after 0.9.0-alpha.9: one choice in Settings, Instance whether the instance patches with Fleeto or
+with Action1, and with Fleeto chosen nothing about installing Action1, and the Action1 agents that remain removed after a confirmation
+that lists every endpoint it reaches. Decided with the developer the same day, every recommendation of the proposal:
+
+- **The choice** is the setting `patching.manager` (`PatchManagement`, `PatchManagers.GetAsync`), plain `Action1` or `Fleeto`; a missing
+  or unknown value reads as Action1, the behaviour before the choice existed. The migration `PatchManager` gives an instance with an
+  Action1 integration Action1 and every other one, a new instance included, Fleeto. Web, the workers and fleeto-signer each read it from
+  the database.
+- **Action1** keeps the behaviour of 0.9.0 before the choice: patch policies of engine Action1 become automations, Fleeto can install the
+  Action1 agent, and patch policies of engine Fleeto patch the endpoints without it. The engine of the patch policy (§2) stays.
+- **Fleeto**: every patch policy is of engine Fleeto. Choosing it converts every policy of engine Action1 in the same transaction
+  (`PatchManagement.ConvertToFleeto`): schedule, update types, severities, names, the wait after release, the restart and its message, the
+  retry window and Windows Update stay; update sources, vendors, approval in the Action1 console, installing the Action1 agent and the
+  update type Feature Updates go. A filtered policy left without a filter installs every update; when it lost the update types it was
+  limited to (only Feature Updates), it is also switched off, so a conversion never widens what an enabled policy installs. The
+  automations go through `PatchAutomationService` as for a policy that changes engine, Action1 stops following clients and sites
+  (`FollowClients` off, and it cannot be switched on), and the configurations are signed again.
+- **Nothing installs the Action1 agent**: the patch policy dialog does not ask who installs the updates and offers no "Install the Action1
+  agent automatically", the Patches tab offers no installation, `PatchService.InstallAgentAsync` and `PatchPolicyService` refuse, the
+  workers start no automatic installation (`Action1AgentInstallService`), and fleeto-signer refuses a job of type `Action1Agent`. The
+  Action1 agent check is not offered for a new check, refused by the services, and the existing ones lose their result (their alerts
+  resolve); the statuses of the Action1 agent are still followed, so a removal and the Windows Update switch keep working.
+- **The rule of §2 does not change**: an endpoint with an Action1 agent, or one Action1 reports, keeps engine Action1 and gets nothing from
+  Fleeto until its agent is gone, so one endpoint is never patched by both, also during the removal. The Patches tab of such an endpoint
+  says that Fleeto takes over once the agent is removed.
+- **The removal** of the Action1 agents is part of choosing Fleeto, for every managed endpoint, and for the agent-only ones only when the
+  admin ticks it (Fleeto patches no agent-only endpoint). Per endpoint: through Action1 (`IntegrationOperation` `RemoveEndpoint`, as when an
+  endpoint leaves Fleeto) when the integration exists and Fleeto knows the organization and the Action1 id, by the signed removal job on a
+  managed Windows endpoint otherwise, and by hand on the rest (a Linux endpoint Action1 does not report, an agent-only endpoint Action1 does
+  not report), which the confirmation and Settings, Instance say. The workers carry the operations out within the Action1 budget of 20
+  requests a minute and retry them with backoff while Action1 is unreachable or the integration is switched off. Each removal has the audit
+  entry of a removal, the choice one entry `patch_manager.changed` with the converted policies and the counts.
+- **Confirmed**: the dialog warns, lists every policy with what it loses, the automations and every endpoint with its client, class and
+  way of removal, and asks a fresh code of the Fleeto authenticator (`FreshTotp`, the rule of script approval). Admins only: it reaches
+  every client.
+- **Afterwards**: Settings, Instance lists every endpoint that still has the Action1 agent with where its removal stands (waiting for
+  Action1 with its last error, Action1 uninstalls it when the endpoint is online, the job on its way, succeeded or failed, by hand). An agent
+  that appears later, or whose job failed, is not removed by itself: "Remove Action1 agents" does it, with a fresh code, audited as
+  `patch_agent.removals_requested`.
+- **Back to Action1** is allowed and changes nothing else: every patch policy stays of engine Fleeto, no Action1 agent is installed and
+  Action1 does not follow clients until an admin switches it on.
+- **Public API**: on `API-WAITLIST.md` (the choice and the removals); the patch state of the API already tells per endpoint who patches it.

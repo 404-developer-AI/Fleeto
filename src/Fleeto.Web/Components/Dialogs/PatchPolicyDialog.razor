@@ -6,6 +6,14 @@
         <MudText Typo="Typo.h6">@(IsEdit ? $"Edit patch policy {_m.Name}" : "New patch policy")</MudText>
     </TitleContent>
     <DialogContent>
+        @if (FleetoOnly)
+        {
+            <MudText Typo="Typo.caption" Class="muted d-block mb-3">
+                The Fleeto agent installs the updates in rounds, with the Windows Update Agent, apt or dnf of the endpoint. An endpoint that still has the Action1 agent gets nothing from this policy until the agent is removed.
+            </MudText>
+        }
+        else
+        {
         <MudText Typo="Typo.subtitle2" Class="mb-1">Who installs the updates</MudText>
         <MudRadioGroup T="PatchEngine" @bind-Value="_m.Engine" Class="mb-1">
             <MudRadio T="PatchEngine" Value="PatchEngine.Fleeto" Color="Color.Primary" Dense="true">Patched by Fleeto</MudRadio>
@@ -25,6 +33,7 @@
                 @: Changing the engine applies to every endpoint that uses this policy at once.
             }
         </MudText>
+        }
         <MudTextField @bind-Value="_m.Name" Label="Name" Variant="Variant.Outlined" MaxLength="@PatchPolicyRules.MaxNameLength" AutoFocus="true" Class="mb-3" />
         <MudTextField @bind-Value="_m.Description" Label="Description (optional)" Variant="Variant.Outlined" Lines="2"
                       MaxLength="@PatchPolicyRules.MaxDescriptionLength" Class="mb-3" />
@@ -353,6 +362,9 @@
     [Parameter] public PatchPolicyInput? Existing { get; set; }
 
     [Parameter] public IReadOnlyList<ClientOption> Clients { get; set; } = [];
+
+    /// <summary>The instance patches with Fleeto (0.9.0): the policy is always for patching by Fleeto, and the engine is not offered.</summary>
+    [Parameter] public bool FleetoOnly { get; set; }
     [Parameter] public Func<Guid?, PatchPolicyInput, Task<bool>> OnSubmit { get; set; } = (_, _) => Task.FromResult(true);
 
     private bool IsEdit => Existing is not null;
@@ -366,6 +378,12 @@
         if (Existing is { } existing)
         {
             _m = Model.From(existing);
+        }
+
+        if (FleetoOnly)
+        {
+            _m.Engine = PatchEngine.Fleeto;
+            _m.AutoInstallAgent = false;
         }
     }
 
